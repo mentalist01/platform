@@ -11,6 +11,11 @@ node_modules
 dist
 dist-ssr
 *.local
+server/uploads
+server/data/files.json
+server/data/folders.json
+server/data/students.json
+server/data/progress.json
 
 # Editor directories and files
 .vscode/*

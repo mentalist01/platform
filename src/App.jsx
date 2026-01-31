@@ -1,22 +1,28 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import Prism from 'prismjs';
+import 'prismjs/components/prism-python';
+import 'prismjs/themes/prism-tomorrow.css';
 import { 
   BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle, 
-  Lock, Menu, X, ChevronRight, Folder, FolderPlus, Upload, 
-  ArrowLeft, Trash2, PlayCircle, Check, XCircle, Plus, 
-  Settings, User, Save, Edit3, Trash 
+  Menu, X, ChevronRight, Folder, FolderPlus, Upload, 
+  ArrowLeft, Trash2, PlayCircle, Check, Plus, 
+  Settings, Save, Calendar
 } from 'lucide-react';
 
 /**
  * CONSTANTS & CONFIG
  */
 
-const TEACHER_CODE = "admin100"; // Код для входа учителя
-const STUDENT_CODE = "1234";     // Код для входа ученика
-
 const LEVELS = {
   BASIC: { id: 'basic', label: 'Обязательный', maxScore: 70, color: 'bg-blue-100 text-blue-700 border-blue-200' },
   ADVANCED: { id: 'advanced', label: 'Продвинутый', maxScore: 90, color: 'bg-purple-100 text-purple-700 border-purple-200' },
   EXPERT: { id: 'expert', label: 'Чтоб наверняка', maxScore: 100, color: 'bg-red-100 text-red-700 border-red-200' }
+};
+const LEVEL_WEIGHTS = {
+  basic: 70,
+  advanced: 20,
+  expert: 10,
 };
 
 // Заглушка списка заданий
@@ -47,26 +53,65 @@ const INITIAL_TEST_DB = {
   }
 };
 
-const INITIAL_FILES = [
-  { id: 101, taskNumber: 1, category: 'class', name: 'Презентация_Графы.pdf', size: '2.4 MB', date: '2023-10-01' },
-];
 
 /**
- * API SERVICE (MOCKED)
+ * API SERVICE
  */
+const parseApiError = async (res) => {
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    try {
+      const data = await res.json();
+      if (data?.error) return data.error;
+    } catch {}
+  }
+  try {
+    const text = await res.text();
+    if (text && text.length <= 200) return text;
+  } catch {}
+  return `Ошибка запроса (${res.status} ${res.statusText})`;
+};
+
+const parseJsonResponse = async (res) => {
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    const text = await res.text();
+    if (text?.trim().startsWith('<!doctype')) {
+      throw new Error('Сервер не отвечает (HTML вместо JSON). Перезапустите backend.');
+    }
+    throw new Error('Некорректный ответ сервера');
+  }
+  return res.json();
+};
+
 const api = {
-  login: (email, code) => {
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        if (code === TEACHER_CODE) {
-          resolve({ id: 'admin1', name: 'Иван Викторович', email, role: 'teacher' });
-        } else if (code === STUDENT_CODE || code.length > 3) {
-          resolve({ id: 'u1', name: 'Ученик', email, role: 'student' });
-        } else {
-          reject('Неверный код доступа');
-        }
-      }, 800);
+  login: async (email, code) => {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code }),
     });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  getStudents: async () => {
+    const res = await fetch('/api/students');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  createStudent: async (name) => {
+    const res = await fetch('/api/students', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  deleteStudent: async (id) => {
+    const res = await fetch(`/api/students/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
   },
   getTests: () => {
     const stored = localStorage.getItem('ege_teacher_tests');
@@ -75,23 +120,232 @@ const api = {
   saveTests: (newDb) => {
     localStorage.setItem('ege_teacher_tests', JSON.stringify(newDb));
   },
-  getProgress: () => new Promise(r => setTimeout(() => r(MOCK_TASKS), 600)),
-  uploadFile: (file, taskNumber, category) => {
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        if (file.size > 20 * 1024 * 1024) return reject("Файл > 20МБ");
-        resolve({
-          id: Date.now(),
-          taskNumber,
-          category,
-          name: file.name,
-          size: (file.size / (1024 * 1024)).toFixed(2) + ' MB',
-          date: new Date().toLocaleDateString()
-        });
-      }, 800);
+  getTasks: () => new Promise(r => setTimeout(() => r(MOCK_TASKS), 600)),
+  getStudentProgress: async (studentId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', studentId);
+    const qs = params.toString();
+    const res = await fetch(qs ? `/api/progress?${qs}` : '/api/progress');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  updateStudentProgress: async (studentId, taskId, value) => {
+    const res = await fetch('/api/progress', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, taskId, value }),
     });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  getStudentData: async (studentId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', studentId);
+    const qs = params.toString();
+    const res = await fetch(qs ? `/api/student-data?${qs}` : '/api/student-data');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updateStudentNotes: async (studentId, payload) => {
+    const res = await fetch('/api/student-notes', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, ...payload }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  solveQuestion: async (payload) => {
+    const res = await fetch('/api/progress/solve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getSolvedQuestions: async (studentId, taskNumber, levelId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', studentId);
+    if (taskNumber) params.append('taskNumber', String(taskNumber));
+    if (levelId) params.append('levelId', String(levelId));
+    const qs = params.toString();
+    const res = await fetch(qs ? `/api/progress/solved?${qs}` : '/api/progress/solved');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  addMockExam: async (studentId, payload) => {
+    const res = await fetch('/api/mocks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, ...payload }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  deleteMockExam: async (studentId, id) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', studentId);
+    const qs = params.toString();
+    const res = await fetch(qs ? `/api/mocks/${id}?${qs}` : `/api/mocks/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  uploadTestFile: async (file) => {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/test-files', { method: 'POST', body: form });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  deleteTestFile: async (storageName) => {
+    if (!storageName) return { ok: true };
+    const res = await fetch(`/api/test-files/${encodeURIComponent(storageName)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getStudentSchedule: async (studentId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', studentId);
+    const qs = params.toString();
+    const res = await fetch(qs ? `/api/student-schedule?${qs}` : '/api/student-schedule');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  addScheduleEntry: async (studentId, payload) => {
+    const res = await fetch('/api/student-schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, ...payload }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  deleteScheduleEntry: async (studentId, id) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', studentId);
+    const qs = params.toString();
+    const res = await fetch(qs ? `/api/student-schedule/${id}?${qs}` : `/api/student-schedule/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  getStudentNextLesson: async (studentId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', studentId);
+    const qs = params.toString();
+    const res = await fetch(qs ? `/api/student-next-lesson?${qs}` : '/api/student-next-lesson');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updateStudentNextLesson: async (studentId, payload) => {
+    const res = await fetch('/api/student-next-lesson', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, ...payload }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getFiles: async (studentId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', studentId);
+    const qs = params.toString();
+    const res = await fetch(qs ? `/api/files?${qs}` : '/api/files');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  getFolders: async (taskNumber, category, studentId) => {
+    const params = new URLSearchParams();
+    if (taskNumber) params.append('taskNumber', String(taskNumber));
+    if (category) params.append('category', category);
+    if (studentId) params.append('studentId', studentId);
+    const qs = params.toString();
+    const res = await fetch(qs ? `/api/folders?${qs}` : '/api/folders');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  createFolder: async (taskNumber, category, name, studentId) => {
+    const res = await fetch('/api/folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskNumber, category, name, studentId }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  renameFolder: async (id, name) => {
+    const res = await fetch(`/api/folders/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  uploadFile: async (file, taskNumber, category, folderId, studentId) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('taskNumber', String(taskNumber));
+    form.append('category', category);
+    form.append('studentId', studentId);
+    if (folderId) form.append('folderId', folderId);
+
+    const res = await fetch('/api/files', { method: 'POST', body: form });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  deleteFile: async (id) => {
+    const res = await fetch(`/api/files/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  renameFile: async (id, name) => {
+    const res = await fetch(`/api/files/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  moveFile: async (id, folderId) => {
+    const res = await fetch(`/api/files/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
   }
 };
+
+const MAX_TASK_BYTES = 100 * 1024 * 1024;
+
+const formatBytes = (bytes) => {
+  if (!Number.isFinite(bytes)) return '0 МБ';
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+};
+
+const parseSizeString = (value) => {
+  if (typeof value !== 'string') return 0;
+  const normalized = value.replace(',', '.').trim();
+  const match = normalized.match(/^([\d.]+)\s*(KB|MB|GB)?$/i);
+  if (!match) return 0;
+  const num = Number(match[1]);
+  if (!Number.isFinite(num)) return 0;
+  const unit = (match[2] || 'MB').toUpperCase();
+  if (unit === 'KB') return Math.round(num * 1024);
+  if (unit === 'GB') return Math.round(num * 1024 * 1024 * 1024);
+  return Math.round(num * 1024 * 1024);
+};
+
+const getEntrySizeBytes = (entry) => {
+  if (!entry) return 0;
+  if (Number.isFinite(entry.sizeBytes)) return entry.sizeBytes;
+  return parseSizeString(entry.size);
+};
+
+const highlightPython = (code) => Prism.highlight(code, Prism.languages.python, 'python');
 
 /**
  * SHARED COMPONENTS
@@ -127,33 +381,83 @@ const ProgressBar = ({ value }) => {
 /**
  * TEACHER PANEL COMPONENT
  */
-const TeacherPanel = () => {
+const TeacherPanel = ({
+  students,
+  studentsLoading,
+  studentsError,
+  activeStudentId,
+  onSelectStudent,
+  onStudentCreated,
+  onStudentDeleted
+}) => {
   const [testDb, setTestDb] = useState(api.getTests());
   const [selectedTask, setSelectedTask] = useState(1);
   const [selectedLevel, setSelectedLevel] = useState('basic');
+  const [newStudentName, setNewStudentName] = useState('');
+  const [studentActionLoading, setStudentActionLoading] = useState(false);
+  const [studentActionError, setStudentActionError] = useState('');
+  const [questionScreenshots, setQuestionScreenshots] = useState([]);
+  const [questionFiles, setQuestionFiles] = useState([]);
+  const [screenshotPreviews, setScreenshotPreviews] = useState([]);
+  const [questionUploadError, setQuestionUploadError] = useState('');
+  const [isUploadingQuestion, setIsUploadingQuestion] = useState(false);
+  const [isDraggingScreens, setIsDraggingScreens] = useState(false);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const screenshotsRef = useRef(null);
+  const filesRef = useRef(null);
+
+  useEffect(() => {
+    const previews = questionScreenshots.map((file) => ({
+      file,
+      url: URL.createObjectURL(file),
+    }));
+    setScreenshotPreviews(previews);
+    return () => {
+      previews.forEach((item) => URL.revokeObjectURL(item.url));
+    };
+  }, [questionScreenshots]);
   
   // Form state
   const [question, setQuestion] = useState("");
-  const [options, setOptions] = useState(["", "", "", ""]);
-  const [correctIdx, setCorrectIdx] = useState(0);
+  const [answer, setAnswer] = useState("");
 
-  const handleOptionChange = (idx, val) => {
-    const newOpts = [...options];
-    newOpts[idx] = val;
-    setOptions(newOpts);
-  };
+  const handleAddQuestion = async () => {
+    if (!answer.trim()) {
+      alert("Введите правильный ответ");
+      return;
+    }
+    if (!question.trim() && questionScreenshots.length === 0 && questionFiles.length === 0) {
+      alert("Добавьте текст вопроса или прикрепите файл/скриншот");
+      return;
+    }
 
-  const handleAddQuestion = () => {
-    if (!question.trim() || options.some(o => !o.trim())) {
-      alert("Заполните вопрос и все варианты ответов");
+    setIsUploadingQuestion(true);
+    setQuestionUploadError('');
+    let uploadedScreenshots = [];
+    let uploadedFiles = [];
+    try {
+      if (questionScreenshots.length > 0) {
+        uploadedScreenshots = await Promise.all(
+          questionScreenshots.map((file) => api.uploadTestFile(file))
+        );
+      }
+      if (questionFiles.length > 0) {
+        uploadedFiles = await Promise.all(
+          questionFiles.map((file) => api.uploadTestFile(file))
+        );
+      }
+    } catch (err) {
+      setQuestionUploadError(err?.message || err);
+      setIsUploadingQuestion(false);
       return;
     }
 
     const newQuestion = {
       id: Date.now(),
-      question,
-      options,
-      correctIndex: correctIdx
+      question: question.trim(),
+      answer: answer.trim(),
+      screenshots: uploadedScreenshots,
+      files: uploadedFiles
     };
 
     const updatedDb = { ...testDb };
@@ -167,20 +471,139 @@ const TeacherPanel = () => {
     
     // Reset form
     setQuestion("");
-    setOptions(["", "", "", ""]);
-    setCorrectIdx(0);
-    alert("Вопрос добавлен!");
+    setAnswer("");
+    setQuestionScreenshots([]);
+    setQuestionFiles([]);
+    if (screenshotsRef.current) screenshotsRef.current.value = '';
+    if (filesRef.current) filesRef.current.value = '';
+    setIsUploadingQuestion(false);
   };
 
-  const handleDeleteQuestion = (taskId, level, qId) => {
+  const handleDeleteQuestion = async (taskId, level, qId) => {
     if(!confirm("Удалить этот вопрос?")) return;
     const updatedDb = { ...testDb };
+    const removed = updatedDb[taskId][level].find(q => q.id === qId);
     updatedDb[taskId][level] = updatedDb[taskId][level].filter(q => q.id !== qId);
     setTestDb(updatedDb);
     api.saveTests(updatedDb);
+    if (removed) {
+      const attachments = [
+        ...(Array.isArray(removed.screenshots) ? removed.screenshots : []),
+        ...(Array.isArray(removed.files) ? removed.files : [])
+      ];
+      if (attachments.length > 0) {
+        await Promise.allSettled(
+          attachments.map((file) => api.deleteTestFile(file.storageName))
+        );
+      }
+    }
   };
 
   const currentQuestions = testDb[selectedTask]?.[selectedLevel] || [];
+  const studentsList = students || [];
+
+  const addScreenshotFiles = (fileList) => {
+    const incoming = Array.from(fileList || []).filter((file) => file.type?.startsWith('image/'));
+    if (incoming.length === 0) return;
+    setQuestionScreenshots((prev) => [...prev, ...incoming]);
+  };
+
+  const addExtraFiles = (fileList) => {
+    const incoming = Array.from(fileList || []).filter(Boolean);
+    if (incoming.length === 0) return;
+    setQuestionFiles((prev) => [...prev, ...incoming]);
+  };
+
+  const removeScreenshot = (idx) => {
+    setQuestionScreenshots((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const removeExtraFile = (idx) => {
+    setQuestionFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleScreenshotsDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingScreens(false);
+    addScreenshotFiles(e.dataTransfer?.files || []);
+  };
+
+  const handleScreenshotsDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDraggingScreens) setIsDraggingScreens(true);
+  };
+
+  const handleScreenshotsDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingScreens(false);
+  };
+
+  const handleFilesDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingFiles(false);
+    addExtraFiles(e.dataTransfer?.files || []);
+  };
+
+  const handleFilesDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDraggingFiles) setIsDraggingFiles(true);
+  };
+
+  const handleFilesDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingFiles(false);
+  };
+
+  const handlePasteImages = (e) => {
+    const items = Array.from(e.clipboardData?.items || []);
+    const imageItems = items.filter((item) => item.type && item.type.startsWith('image/'));
+    if (imageItems.length === 0) return;
+    const files = imageItems
+      .map((item) => item.getAsFile())
+      .filter(Boolean);
+    if (files.length === 0) return;
+    e.preventDefault();
+    addScreenshotFiles(files);
+  };
+
+  const handleCreateStudent = async () => {
+    const name = newStudentName.trim();
+    if (!name) {
+      setStudentActionError('Введите имя ученика');
+      return;
+    }
+    setStudentActionLoading(true);
+    try {
+      const created = await api.createStudent(name);
+      onStudentCreated?.(created);
+      setNewStudentName('');
+      setStudentActionError('');
+    } catch (err) {
+      setStudentActionError(err?.message || err);
+    } finally {
+      setStudentActionLoading(false);
+    }
+  };
+
+  const handleDeleteStudent = async (student) => {
+    if (!student?.id) return;
+    if (!confirm(`Удалить ученика "${student.name}"? Все файлы и прогресс будут удалены.`)) return;
+    setStudentActionLoading(true);
+    try {
+      await api.deleteStudent(student.id);
+      onStudentDeleted?.(student.id);
+    } catch (err) {
+      alert(err?.message || err);
+    } finally {
+      setStudentActionLoading(false);
+    }
+  };
 
   return (
     <div className="animate-fadeIn pb-10">
@@ -191,6 +614,68 @@ const TeacherPanel = () => {
         </h2>
         <p className="text-gray-500">Добавление и редактирование заданий для тестов</p>
       </div>
+
+      <Card className="mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-lg font-bold text-gray-800">Ученики</h3>
+            <p className="text-xs text-gray-500">Всего: {studentsList.length}</p>
+          </div>
+          {studentsError && <span className="text-xs text-red-500">{studentsError}</span>}
+        </div>
+
+        <div className="flex flex-col md:flex-row gap-2 mb-4">
+          <input
+            type="text"
+            value={newStudentName}
+            onChange={(e) => { setNewStudentName(e.target.value); setStudentActionError(''); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleCreateStudent(); }}
+            placeholder="Имя ученика"
+            className="flex-1 px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+          />
+          <Button onClick={handleCreateStudent} disabled={studentActionLoading || !newStudentName.trim()}>
+            <Plus size={16}/> Добавить
+          </Button>
+        </div>
+        {studentActionError && <p className="text-xs text-red-500 mb-3">{studentActionError}</p>}
+
+        <div className="space-y-2">
+          {studentsLoading ? (
+            <div className="text-sm text-gray-500">Загрузка списка...</div>
+          ) : studentsList.length === 0 ? (
+            <div className="text-sm text-gray-400">Пока нет учеников. Создайте первого.</div>
+          ) : (
+            studentsList.map((student) => (
+              <div
+                key={student.id}
+                onClick={() => onSelectStudent?.(student.id)}
+                className={`p-3 rounded-xl border flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                  activeStudentId === student.id ? 'border-purple-300 bg-purple-50' : 'border-gray-200 bg-white hover:border-purple-200'
+                }`}
+              >
+                <div>
+                  <p className="font-medium text-gray-800">{student.name}</p>
+                  <p className="text-xs text-gray-500">
+                    Код: <span className="font-mono">{student.code}</span>
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {activeStudentId === student.id && (
+                    <span className="text-xs font-semibold text-purple-600">Активный</span>
+                  )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDeleteStudent(student); }}
+                    className="p-2 rounded-lg text-red-500 hover:bg-red-50"
+                    title="Удалить ученика"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* LEFT COLUMN: Controls */}
@@ -242,9 +727,9 @@ const TeacherPanel = () => {
               Добавить вопрос
             </h3>
             
-            <div className="space-y-4">
+            <div className="space-y-4" onPaste={handlePasteImages}>
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Текст вопроса</label>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Текст вопроса (необязательно)</label>
                 <textarea 
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
@@ -253,34 +738,124 @@ const TeacherPanel = () => {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Варианты ответов</label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {options.map((opt, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <input 
-                        type="radio" 
-                        name="correct" 
-                        checked={correctIdx === idx} 
-                        onChange={() => setCorrectIdx(idx)}
-                        className="w-4 h-4 text-purple-600 accent-purple-600 cursor-pointer"
-                      />
-                      <input 
-                        type="text" 
-                        value={opt}
-                        onChange={(e) => handleOptionChange(idx, e.target.value)}
-                        className={`w-full p-2 rounded-lg border outline-none focus:border-purple-500 ${correctIdx === idx ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}
-                        placeholder={`Вариант ${idx + 1}`}
-                      />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Скриншоты вопроса</label>
+                  <div
+                    onDrop={handleScreenshotsDrop}
+                    onDragOver={handleScreenshotsDragOver}
+                    onDragLeave={handleScreenshotsDragLeave}
+                    className={`rounded-2xl border-2 border-dashed p-4 transition-colors ${
+                      isDraggingScreens ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
+                    }`}
+                  >
+                    <input
+                      ref={screenshotsRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(e) => addScreenshotFiles(e.target.files)}
+                      className="hidden"
+                    />
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-500">
+                      <span>Перетащите изображения сюда</span>
+                      <button
+                        type="button"
+                        onClick={() => screenshotsRef.current?.click()}
+                        className="px-3 py-1.5 rounded-lg border border-purple-200 text-purple-600 hover:bg-purple-50"
+                      >
+                        Выбрать
+                      </button>
                     </div>
-                  ))}
+                    <div className="mt-2 text-xs text-gray-400">Можно вставить из буфера (Ctrl+V)</div>
+                  </div>
+                  {screenshotPreviews.length > 0 && (
+                    <div className="mt-3 space-y-3">
+                      {screenshotPreviews.map((item, idx) => (
+                        <div key={`${item.file.name}-${idx}`} className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+                          <div className="bg-gray-50 p-2 flex items-center justify-between gap-2">
+                            <span className="text-xs text-gray-500 truncate">{item.file.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => removeScreenshot(idx)}
+                              className="text-xs text-red-500 hover:text-red-600"
+                            >
+                              Удалить
+                            </button>
+                          </div>
+                          <img
+                            src={item.url}
+                            alt={item.file.name}
+                            className="w-full object-contain bg-white"
+                            style={{ maxHeight: '360px' }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <p className="text-xs text-gray-400 mt-2 ml-1">* Отметьте точкой правильный вариант</p>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Доп. файлы</label>
+                  <div
+                    onDrop={handleFilesDrop}
+                    onDragOver={handleFilesDragOver}
+                    onDragLeave={handleFilesDragLeave}
+                    className={`rounded-2xl border-2 border-dashed p-4 transition-colors ${
+                      isDraggingFiles ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
+                    }`}
+                  >
+                    <input
+                      ref={filesRef}
+                      type="file"
+                      multiple
+                      onChange={(e) => addExtraFiles(e.target.files)}
+                      className="hidden"
+                    />
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-500">
+                      <span>Перетащите файлы сюда</span>
+                      <button
+                        type="button"
+                        onClick={() => filesRef.current?.click()}
+                        className="px-3 py-1.5 rounded-lg border border-purple-200 text-purple-600 hover:bg-purple-50"
+                      >
+                        Выбрать
+                      </button>
+                    </div>
+                  </div>
+                  {questionFiles.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {questionFiles.map((file, idx) => (
+                        <div key={`${file.name}-${idx}`} className="flex items-center justify-between text-xs text-gray-500">
+                          <span className="truncate">• {file.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeExtraFile(idx)}
+                            className="text-red-500 hover:text-red-600"
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {questionUploadError && <p className="text-xs text-red-500">{questionUploadError}</p>}
+
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Правильный ответ</label>
+                <input
+                  type="text"
+                  value={answer}
+                  onChange={(e) => setAnswer(e.target.value)}
+                  className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
+                  placeholder="Введите правильный ответ"
+                />
               </div>
 
               <div className="pt-2">
-                <Button onClick={handleAddQuestion} className="w-full">
-                  <Save size={18} /> Сохранить вопрос в базу
+                <Button onClick={handleAddQuestion} className="w-full" disabled={isUploadingQuestion}>
+                  <Save size={18} /> {isUploadingQuestion ? 'Загрузка...' : 'Сохранить вопрос в базу'}
                 </Button>
               </div>
             </div>
@@ -298,9 +873,9 @@ const TeacherPanel = () => {
                 <div key={q.id} className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex justify-between items-start gap-4">
                   <div>
                     <span className="text-xs font-bold text-gray-400">#{idx + 1}</span>
-                    <p className="text-gray-800 font-medium mb-1">{q.question}</p>
+                    <p className="text-gray-800 font-medium mb-1">{q.question || 'Вопрос без текста'}</p>
                     <div className="text-xs text-gray-500 flex gap-2">
-                       <span>Ответ: <span className="text-green-600 font-bold">{q.options[q.correctIndex]}</span></span>
+                       <span>Ответ: <span className="text-green-600 font-bold">{q.answer || (Array.isArray(q.options) ? q.options[q.correctIndex] : '')}</span></span>
                     </div>
                   </div>
                   <button 
@@ -322,19 +897,20 @@ const TeacherPanel = () => {
 /**
  * STUDENT TEST MODAL
  */
-const StudentTestModal = ({ task, onClose, onComplete, progress }) => {
+const StudentTestModal = ({ task, onClose, onComplete, progress, studentId }) => {
   const [stage, setStage] = useState('select_level'); // select_level | testing
   const [level, setLevel] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [userAnswers, setUserAnswers] = useState({}); // { [idx]: optionIdx }
+  const [userAnswers, setUserAnswers] = useState({}); // { [idx]: optionIdx | string }
   const [results, setResults] = useState({}); // { [idx]: boolean }
+  const [solvedIds, setSolvedIds] = useState(new Set());
 
   // Load questions from DB
   const testDb = api.getTests();
   const currentMastery = progress[task.id] || 0;
 
-  const startTest = (lvlId) => {
+  const startTest = async (lvlId) => {
     const qs = testDb[task.number]?.[lvlId] || [];
     
     if (qs.length === 0) {
@@ -347,38 +923,102 @@ const StudentTestModal = ({ task, onClose, onComplete, progress }) => {
     setCurrentIndex(0);
     setUserAnswers({});
     setResults({});
+    setSolvedIds(new Set());
     setStage('testing');
+
+    if (studentId) {
+      try {
+        const solved = await api.getSolvedQuestions(studentId, task.number, lvlId);
+        setSolvedIds(new Set((solved || []).map((id) => String(id))));
+      } catch (err) {
+        console.error(err);
+      }
+    }
   };
 
-  const handleCheck = () => {
-    const currentQuestion = questions[currentIndex];
-    const selectedOption = userAnswers[currentIndex];
+  const normalizeAnswer = (value) => {
+    return String(value ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+  };
 
-    if (selectedOption === undefined) return;
+  const handleCheck = async () => {
+    const currentQuestion = questions[currentIndex];
+    const currentId = String(currentQuestion?.id ?? currentIndex);
+    const expectedAnswer = currentQuestion?.answer ??
+      (Array.isArray(currentQuestion?.options) ? currentQuestion.options[currentQuestion.correctIndex] : '');
+    const answerValue = userAnswers[currentIndex];
+
+    if (!String(answerValue ?? '').trim()) return;
     
-    const correct = selectedOption === currentQuestion.correctIndex;
+    const correct = normalizeAnswer(answerValue) === normalizeAnswer(expectedAnswer);
     const newResults = { ...results, [currentIndex]: correct };
     setResults(newResults);
     
     // Если ответ верный, обновляем прогресс
     if (correct) {
       const levelConfig = Object.values(LEVELS).find(l => l.id === level);
-      if (levelConfig.maxScore > currentMastery) {
+      if (studentId) {
+        try {
+          const taskLevels = testDb[task.number] || {};
+          const levelTotals = {
+            basic: Array.isArray(taskLevels.basic) ? taskLevels.basic.length : 0,
+            advanced: Array.isArray(taskLevels.advanced) ? taskLevels.advanced.length : 0,
+            expert: Array.isArray(taskLevels.expert) ? taskLevels.expert.length : 0,
+          };
+          const resp = await api.solveQuestion({
+            studentId,
+            taskNumber: task.number,
+            levelId: level,
+            questionId: currentQuestion.id,
+            totalQuestions: questions.length,
+            levelMax: levelConfig?.maxScore || 100,
+            levelTotals,
+          });
+          setSolvedIds((prev) => {
+            const next = new Set(prev);
+            next.add(String(currentQuestion.id));
+            return next;
+          });
+          if (typeof resp?.taskProgress === 'number') {
+            onComplete(task.id, resp.taskProgress, { skipServer: true });
+            return;
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      const weight = LEVEL_WEIGHTS[level] ?? levelConfig?.maxScore ?? 100;
+      const totalCount = questions.length;
+      if (Number.isFinite(weight) && totalCount > 0) {
+        const prevSolved = solvedIds.size;
+        const nextSolved = solvedIds.has(String(currentQuestion.id)) ? prevSolved : prevSolved + 1;
+        const prevContribution = (prevSolved / totalCount) * weight;
+        const nextContribution = (nextSolved / totalCount) * weight;
+        const nextProgress = Math.round(Math.max(0, currentMastery - prevContribution + nextContribution));
+        onComplete(task.id, Math.min(100, nextProgress), { skipServer: true });
+      } else if (levelConfig?.maxScore > currentMastery) {
         onComplete(task.id, levelConfig.maxScore);
       }
     }
   };
 
-  const selectOption = (optIdx) => {
-    // Не даем менять ответ, если уже проверено
-    if (results[currentIndex] !== undefined) return;
-    setUserAnswers({ ...userAnswers, [currentIndex]: optIdx });
+  const handleNext = () => {
+    if (currentIndex < questions.length - 1) setCurrentIndex(currentIndex + 1);
+    else onClose();
   };
 
+
+  useEffect(() => {
+    document.body.classList.add('overflow-hidden');
+    return () => document.body.classList.remove('overflow-hidden');
+  }, []);
+
   if (stage === 'select_level') {
-    return (
-      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
-        <div className="bg-white rounded-3xl max-w-2xl w-full p-8 shadow-2xl relative">
+    const modal = (
+      <div className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center p-4 md:p-8 overflow-y-auto backdrop-blur-sm">
+        <div className="bg-white rounded-3xl max-w-2xl w-full p-8 shadow-2xl relative animate-fadeIn">
           <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
           
           <div className="text-center mb-8">
@@ -417,19 +1057,29 @@ const StudentTestModal = ({ task, onClose, onComplete, progress }) => {
         </div>
       </div>
     );
+    return typeof document !== 'undefined' ? createPortal(modal, document.body) : null;
   }
 
   if (stage === 'testing' && questions.length > 0) {
     const currentQuestion = questions[currentIndex];
     const isChecked = results[currentIndex] !== undefined;
     const isCorrect = results[currentIndex];
-    const selectedOption = userAnswers[currentIndex];
+    const expectedAnswer = currentQuestion?.answer ??
+      (Array.isArray(currentQuestion?.options) ? currentQuestion.options[currentQuestion.correctIndex] : '');
+    const currentId = String(currentQuestion?.id ?? currentIndex);
+    const isSolved = solvedIds.has(currentId);
+    const answerValue = isSolved ? String(expectedAnswer ?? '') : String(userAnswers[currentIndex] ?? '');
+    const screenshots = Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [];
+    const extraFiles = Array.isArray(currentQuestion?.files) ? currentQuestion.files : [];
+    const isAnswerReady = isSolved ? true : Boolean(answerValue.trim());
+    const computedChecked = isSolved || isChecked;
+    const computedCorrect = isSolved ? true : isCorrect;
 
-    return (
-      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
-        <div className="bg-white rounded-3xl max-w-lg w-full p-8 shadow-2xl relative">
+    const modal = (
+      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+        <div className="bg-white rounded-3xl w-full max-w-5xl max-h-[90vh] p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden animate-fadeIn">
           {/* Header & Navigation */}
-          <div className="flex flex-col gap-4 mb-6">
+          <div className="flex flex-col gap-4 mb-4">
             <div className="flex justify-between items-start">
                <span className={`px-3 py-1 rounded-lg text-xs font-bold uppercase ${LEVELS[level.toUpperCase()].color}`}>
                 {LEVELS[level.toUpperCase()].label}
@@ -438,85 +1088,122 @@ const StudentTestModal = ({ task, onClose, onComplete, progress }) => {
             </div>
             
             {/* Question Navigation Bar */}
-            <div className="flex flex-wrap gap-2">
-              {questions.map((_, idx) => {
-                const status = results[idx]; // true, false or undefined
-                let btnClass = "w-8 h-8 rounded-lg text-sm font-bold flex items-center justify-center transition-all border-2 ";
-                
-                if (idx === currentIndex) {
-                  btnClass += "border-purple-600 ring-2 ring-purple-100 ";
-                  if (status === undefined) btnClass += "text-purple-600 bg-white";
-                } else {
-                  btnClass += "border-transparent bg-gray-100 text-gray-500 hover:bg-gray-200 ";
-                }
-
-                if (status === true) btnClass = btnClass.replace('bg-gray-100', 'bg-green-100').replace('text-gray-500', 'text-green-600').replace('border-transparent', 'border-green-200');
-                if (status === false) btnClass = btnClass.replace('bg-gray-100', 'bg-red-100').replace('text-gray-500', 'text-red-600').replace('border-transparent', 'border-red-200');
-
-                return (
-                  <button 
-                    key={idx} 
-                    onClick={() => setCurrentIndex(idx)}
-                    className={btnClass}
-                  >
-                    {idx + 1}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <p className="text-lg font-medium text-gray-900 mb-8">{currentQuestion.question}</p>
-
-          <div className="space-y-3 mb-8">
-            {currentQuestion.options.map((opt, idx) => {
-              let style = "border-gray-200 hover:border-purple-300";
+          <div className="flex flex-wrap gap-2">
+            {questions.map((q, idx) => {
+              const qId = String(q?.id ?? idx);
+              const solved = solvedIds.has(qId);
+              const status = results[idx]; // true, false or undefined
+              let btnClass = "w-8 h-8 rounded-lg text-sm font-bold flex items-center justify-center transition-all border-2 ";
               
-              if (isChecked) {
-                if (idx === currentQuestion.correctIndex) style = "border-green-500 bg-green-50 text-green-700 font-medium";
-                else if (idx === selectedOption) style = "border-red-500 bg-red-50 text-red-700";
-                else style = "border-gray-100 text-gray-400 opacity-50";
-              } else if (selectedOption === idx) {
-                style = "border-purple-600 bg-purple-50 ring-1 ring-purple-600 text-purple-900";
+              if (idx === currentIndex) {
+                btnClass += "border-purple-600 ring-2 ring-purple-100 ";
+                if (status === undefined && !solved) btnClass += "text-purple-600 bg-white";
+              } else {
+                btnClass += "border-transparent bg-gray-100 text-gray-500 hover:bg-gray-200 ";
               }
 
+              if (solved) btnClass = btnClass.replace('bg-gray-100', 'bg-green-100').replace('text-gray-500', 'text-green-600').replace('border-transparent', 'border-green-200');
+              if (!solved && status === true) btnClass = btnClass.replace('bg-gray-100', 'bg-green-100').replace('text-gray-500', 'text-green-600').replace('border-transparent', 'border-green-200');
+              if (!solved && status === false) btnClass = btnClass.replace('bg-gray-100', 'bg-red-100').replace('text-gray-500', 'text-red-600').replace('border-transparent', 'border-red-200');
+
               return (
-                <div 
-                  key={idx}
-                  onClick={() => selectOption(idx)}
-                  className={`p-4 border rounded-xl cursor-pointer transition-all flex justify-between items-center ${style}`}
+                <button 
+                  key={qId} 
+                  onClick={() => setCurrentIndex(idx)}
+                  className={btnClass}
+                  title={solved ? 'Решено' : undefined}
                 >
-                  {opt}
-                  {isChecked && idx === currentQuestion.correctIndex && <Check size={18}/>}
-                  {isChecked && idx === selectedOption && idx !== currentQuestion.correctIndex && <XCircle size={18}/>}
-                </div>
+                  {idx + 1}
+                </button>
               );
             })}
           </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto pr-1">
+            {screenshots.length > 0 && (
+              <div className="space-y-3 mb-6">
+                {screenshots.map((img) => (
+                  <div
+                    key={img.id || img.url}
+                    className="border rounded-2xl overflow-hidden bg-gray-900/5"
+                    style={{ maxHeight: '65vh' }}
+                  >
+                    <img
+                      src={img.url}
+                      alt={img.name || 'Скриншот'}
+                      className="w-full object-contain"
+                      style={{ maxHeight: '65vh' }}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {extraFiles.length > 0 && (
+              <div className="mb-6">
+                <p className="text-xs font-bold text-gray-400 uppercase mb-2">Доп. файлы</p>
+                <div className="space-y-2">
+                  {extraFiles.map((file) => (
+                    <a
+                      key={file.id || file.url}
+                      href={file.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-700 hover:border-purple-300 hover:bg-purple-50"
+                    >
+                      <span className="truncate">{file.name}</span>
+                      <Download size={16} className="text-purple-600" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {isSolved && (
+              <div className="mb-2 text-xs font-semibold text-green-600 uppercase tracking-wide">Решено ранее</div>
+            )}
+            {currentQuestion.question && (
+              <p className="text-lg font-medium text-gray-900 mb-6">{currentQuestion.question}</p>
+            )}
+
+            <div className="space-y-3 mb-6">
+              <label className="block text-xs font-bold text-gray-400 uppercase">Ответ</label>
+            <input
+              type="text"
+              value={answerValue}
+              onChange={(e) => {
+                if (computedChecked) return;
+                setUserAnswers({ ...userAnswers, [currentIndex]: e.target.value });
+              }}
+              placeholder="Введите ответ..."
+              className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+              disabled={computedChecked}
+            />
+            {computedChecked && (
+              <div className={`text-sm ${computedCorrect ? 'text-green-600' : 'text-red-600'}`}>
+                {computedCorrect ? 'Верно!' : `Неверно. Правильный ответ: ${expectedAnswer || '—'}`}
+              </div>
+            )}
+            </div>
+          </div>
 
           <Button 
-            onClick={isChecked ? onClose : handleCheck} 
-            disabled={selectedOption === undefined} 
+            onClick={computedChecked ? handleNext : handleCheck} 
+            disabled={!computedChecked && !isAnswerReady} 
             className="w-full"
-            variant={isChecked ? (isCorrect ? 'success' : 'danger') : 'primary'}
+            variant={computedChecked ? (computedCorrect ? 'success' : 'danger') : 'primary'}
           >
-            {!isChecked ? 'Проверить' : (isCorrect ? 'Верно! Выбрать другой вопрос' : 'Ошибка. Попробовать другое')}
+            {!computedChecked ? 'Проверить' : (
+              currentIndex < questions.length - 1 
+                ? (computedCorrect ? 'Верно! Следующий вопрос' : 'Ошибка. Следующий вопрос')
+                : 'Закрыть'
+            )}
           </Button>
-          
-          {isChecked && (
-            <button 
-              onClick={() => {
-                 if (currentIndex < questions.length - 1) setCurrentIndex(currentIndex + 1);
-                 else onClose();
-              }} 
-              className="w-full mt-3 text-gray-400 text-sm hover:text-gray-600 py-2"
-            >
-              {currentIndex < questions.length - 1 ? 'Следующий вопрос →' : 'Завершить тест'}
-            </button>
-          )}
         </div>
       </div>
     );
+    return typeof document !== 'undefined' ? createPortal(modal, document.body) : null;
   }
   
   return null;
@@ -536,9 +1223,9 @@ const LoginPage = ({ onLogin }) => {
     e.preventDefault();
     setLoading(true); setError(null);
     try {
-      const user = await api.login(email, code);
+      const user = await api.login(email.trim(), code.trim());
       onLogin(user);
-    } catch (err) { setError(err); } 
+    } catch (err) { setError(err?.message || err); } 
     finally { setLoading(false); }
   };
 
@@ -552,102 +1239,1154 @@ const LoginPage = ({ onLogin }) => {
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="Email" className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"/>
-          <input type="password" value={code} onChange={e => setCode(e.target.value)} required placeholder="Код доступа (1234 или admin100)" className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"/>
+          <input type="password" value={code} onChange={e => setCode(e.target.value)} required placeholder="Код доступа" className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"/>
           {error && <div className="text-red-500 text-sm text-center">{error}</div>}
           <Button type="submit" className="w-full py-3" disabled={loading}>{loading ? 'Вход...' : 'Войти'}</Button>
         </form>
-        <p className="text-center text-xs text-gray-400 mt-4">Ученик: 1234 | Учитель: admin100</p>
+        <p className="text-center text-xs text-gray-400 mt-4">Код доступа выдаёт учитель</p>
       </div>
     </div>
   );
 };
 
-const ProgressSection = ({ progress, onUpdateProgress, role }) => {
+const ProgressSection = ({
+  progress,
+  onUpdateProgress,
+  role,
+  studentId,
+  students,
+  activeStudentId,
+  onSelectStudent,
+  studentsLoading
+}) => {
   const [tasks, setTasks] = useState([]);
   const [activeTask, setActiveTask] = useState(null);
+  const [section, setSection] = useState('progress');
+  const [studentData, setStudentData] = useState({ progress: {}, notes: '', notesByTask: {}, mocks: [] });
+  const [dataError, setDataError] = useState('');
+  const [notesSavingId, setNotesSavingId] = useState(null);
+  const [mockForm, setMockForm] = useState({ date: '', score: '', comment: '' });
+  const studentsList = students || [];
+  const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
 
-  useEffect(() => { api.getProgress().then(setTasks); }, []);
+  useEffect(() => { api.getTasks().then(setTasks); }, []);
 
-  const totalMastery = Math.round((Object.values(progress).filter(v => v >= 100).length / MOCK_TASKS.length) * 100);
+  useEffect(() => {
+    if (!effectiveStudentId) {
+      setStudentData({ progress: {}, notes: '', notesByTask: {}, mocks: [] });
+      return;
+    }
+    let cancelled = false;
+    api.getStudentData(effectiveStudentId)
+      .then((data) => {
+        if (cancelled) return;
+        setStudentData({
+          progress: data?.progress || {},
+          notes: data?.notes || '',
+          notesByTask: data?.notesByTask && typeof data.notesByTask === 'object' ? data.notesByTask : {},
+          mocks: Array.isArray(data?.mocks) ? data.mocks : []
+        });
+        setDataError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setDataError(err?.message || err);
+      });
+    return () => { cancelled = true; };
+  }, [effectiveStudentId]);
+
+  useEffect(() => {
+    setActiveTask(null);
+  }, [section, effectiveStudentId]);
+
+  const progressMap = role === 'teacher'
+    ? (studentData.progress || {})
+    : (Object.keys(progress || {}).length ? progress : (studentData.progress || {}));
+
+  const totalMastery = Math.round((Object.values(progressMap).filter(v => v >= 100).length / MOCK_TASKS.length) * 100);
+
+  const renderStudentPicker = () => {
+    if (role !== 'teacher') return null;
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-gray-500">Ученик:</span>
+        <select
+          value={activeStudentId || ''}
+          onChange={(e) => {
+            const value = e.target.value;
+            onSelectStudent?.(value || null);
+          }}
+          disabled={studentsLoading || studentsList.length === 0}
+          className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+        >
+          <option value="" disabled>Выберите ученика</option>
+          {studentsList.map((student) => (
+            <option key={student.id} value={student.id}>
+              {student.name}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  };
+
+  const saveTaskNote = async (taskNumber, note) => {
+    if (!effectiveStudentId || role !== 'teacher') return;
+    const nextNotes = { ...(studentData.notesByTask || {}) };
+    if (note) nextNotes[taskNumber] = note;
+    else delete nextNotes[taskNumber];
+    setNotesSavingId(taskNumber);
+    try {
+      const res = await api.updateStudentNotes(effectiveStudentId, { notesByTask: nextNotes });
+      setStudentData((prev) => ({ ...prev, notesByTask: res?.notesByTask || nextNotes }));
+    } catch (err) {
+      alert(err?.message || err);
+    } finally {
+      setNotesSavingId(null);
+    }
+  };
+
+  const handleAddMock = async () => {
+    if (!effectiveStudentId || role !== 'teacher') return;
+    const scoreValue = Number(mockForm.score);
+    if (!Number.isFinite(scoreValue)) {
+      setDataError('Введите корректный балл');
+      return;
+    }
+    try {
+      const entry = await api.addMockExam(effectiveStudentId, {
+        date: mockForm.date,
+        score: scoreValue,
+        comment: mockForm.comment,
+      });
+      setStudentData((prev) => ({ ...prev, mocks: [entry, ...(prev.mocks || [])] }));
+      setMockForm({ date: '', score: '', comment: '' });
+      setDataError('');
+    } catch (err) {
+      alert(err?.message || err);
+    }
+  };
+
+  const handleDeleteMock = async (id) => {
+    if (!effectiveStudentId || role !== 'teacher') return;
+    if (!confirm('Удалить пробник?')) return;
+    try {
+      await api.deleteMockExam(effectiveStudentId, id);
+      setStudentData((prev) => ({ ...prev, mocks: (prev.mocks || []).filter((m) => m.id !== id) }));
+    } catch (err) {
+      alert(err?.message || err);
+    }
+  };
+
+  if (role === 'teacher' && studentsList.length === 0) {
+    return (
+      <div className="animate-fadeIn space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-2xl font-bold">Успеваемость</h2>
+          {renderStudentPicker()}
+        </div>
+        <div className="text-gray-500">
+          {studentsLoading ? 'Загрузка списка учеников...' : 'Сначала создайте ученика в панели учителя.'}
+        </div>
+      </div>
+    );
+  }
+
+  if (role === 'teacher' && !effectiveStudentId) {
+    return (
+      <div className="animate-fadeIn space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-2xl font-bold">Успеваемость</h2>
+          {renderStudentPicker()}
+        </div>
+        <div className="text-gray-500">Выберите ученика, чтобы посмотреть его прогресс.</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fadeIn">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Успеваемость</h2>
-          <p className="text-gray-500">Решай задачи разных уровней, чтобы заполнить шкалу</p>
+          <p className="text-gray-500">Три раздела для контроля прогресса и обратной связи</p>
         </div>
-        <div className="bg-white px-4 py-2 rounded-xl border shadow-sm">
-          <span className="text-sm text-gray-500 mr-2">Общий зачет:</span>
-          <span className="text-xl font-bold text-purple-600">{totalMastery}%</span>
+        <div className="flex flex-wrap items-center gap-3">
+          {renderStudentPicker()}
+          <div className="bg-white px-4 py-2 rounded-xl border shadow-sm">
+            <span className="text-sm text-gray-500 mr-2">Общий зачет:</span>
+            <span className="text-xl font-bold text-purple-600">{totalMastery}%</span>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {tasks.map((task) => {
-          const val = progress[task.id] || 0;
-          return (
-            <Card key={task.id} className="group relative" onClick={() => setActiveTask(task)}>
-              <div className="flex justify-between mb-2">
-                <span className="bg-purple-50 text-purple-700 px-2 py-1 rounded text-xs font-bold">№{task.number}</span>
-                <span className="font-bold text-gray-700">{val}%</span>
-              </div>
-              <h3 className="font-bold text-gray-800 truncate">{task.title}</h3>
-              <ProgressBar value={val} />
-              
-              <div className="absolute inset-0 bg-white/90 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-2xl cursor-pointer backdrop-blur-[2px]">
-                <div className="flex items-center gap-2 text-purple-600 font-bold bg-white px-4 py-2 rounded-full shadow-lg border border-purple-100">
-                  <PlayCircle size={20} /> Решать
-                </div>
-              </div>
-            </Card>
-          );
-        })}
+      <div className="flex flex-wrap gap-2">
+        {[
+          { id: 'progress', label: 'Тестирования (Прогресс ЕГЭ)' },
+          { id: 'notes', label: 'Заметки учителя' },
+          { id: 'mocks', label: 'Пробники' }
+        ].map((item) => (
+          <button
+            key={item.id}
+            onClick={() => setSection(item.id)}
+            className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
+              section === item.id
+                ? 'bg-purple-600 text-white border-purple-600'
+                : 'bg-white text-gray-600 border-gray-200 hover:border-purple-300'
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
       </div>
 
-      {activeTask && (
+      {dataError && <div className="text-xs text-red-500">{dataError}</div>}
+
+      {section === 'progress' && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {tasks.map((task) => {
+              const val = progressMap[task.id] || 0;
+              const clickable = role === 'student';
+              return (
+                <Card
+                  key={task.id}
+                  className="group relative"
+                  onClick={clickable ? () => setActiveTask(task) : undefined}
+                >
+                  <div className="flex justify-between mb-2">
+                    <span className="bg-purple-50 text-purple-700 px-2 py-1 rounded text-xs font-bold">№{task.number}</span>
+                    <span className="font-bold text-gray-700">{val}%</span>
+                  </div>
+                  <h3 className="font-bold text-gray-800 truncate">{task.title}</h3>
+                  <ProgressBar value={val} />
+
+                  {clickable && (
+                    <div className="absolute inset-0 bg-white/90 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-2xl cursor-pointer backdrop-blur-[2px]">
+                      <div className="flex items-center gap-2 text-purple-600 font-bold bg-white px-4 py-2 rounded-full shadow-lg border border-purple-100">
+                        <PlayCircle size={20} /> Решать
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
+          </div>
+
+          {role === 'student' && activeTask && (
         <StudentTestModal 
           task={activeTask} 
           onClose={() => setActiveTask(null)}
-          progress={progress}
-          onComplete={(taskId, score) => {
-            onUpdateProgress(taskId, score);
+          progress={progressMap}
+          studentId={studentId}
+          onComplete={(taskId, score, options) => {
+            onUpdateProgress(taskId, score, options);
             // setActiveTask(null); // Убрали закрытие, чтобы можно было решать дальше
           }}
         />
+      )}
+        </>
+      )}
+
+      {section === 'notes' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-bold text-gray-800">Заметки учителя</h3>
+            <span className="text-xs text-gray-400">Комментируйте задания кратко</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            {Array.from({ length: 27 }, (_, i) => i + 1).map((num) => {
+              const note = (studentData.notesByTask || {})[num] || '';
+              const hasNote = Boolean(note && note.trim());
+              return (
+                <div
+                  key={num}
+                  className={`rounded-3xl border p-4 flex flex-col gap-3 transition-all duration-200 shadow-sm hover:shadow-md ${
+                    hasNote
+                      ? 'border-emerald-300 bg-gradient-to-br from-emerald-50 via-white to-emerald-50'
+                      : 'border-gray-200 bg-gradient-to-br from-white via-gray-50 to-gray-100'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`w-9 h-9 rounded-2xl flex items-center justify-center text-sm font-bold ${
+                          hasNote ? 'bg-emerald-600 text-white shadow-md shadow-emerald-200' : 'bg-white text-gray-500 border border-gray-200'
+                        }`}
+                      >
+                        {num}
+                      </div>
+                      <span className={`text-xs font-semibold ${hasNote ? 'text-emerald-700' : 'text-gray-400'}`}>
+                        {hasNote ? 'Есть заметка' : 'Пусто'}
+                      </span>
+                    </div>
+                    {notesSavingId === num && (
+                      <span className="text-[10px] text-gray-400">Сохранение…</span>
+                    )}
+                  </div>
+                  {role === 'teacher' ? (
+                    <textarea
+                      value={note}
+                      onChange={(e) => {
+                        const value = e.target.value.slice(0, 80);
+                        setStudentData((prev) => ({
+                          ...prev,
+                          notesByTask: { ...(prev.notesByTask || {}), [num]: value }
+                        }));
+                      }}
+                      onBlur={(e) => saveTaskNote(num, e.target.value.trim())}
+                      placeholder="Комментарий..."
+                      className={`w-full min-h-[70px] text-xs px-3 py-2 rounded-2xl border outline-none resize-none transition-colors ${
+                        hasNote
+                          ? 'bg-white/80 border-emerald-200 focus:border-emerald-500'
+                          : 'bg-white border-gray-200 focus:border-purple-500'
+                      }`}
+                    />
+                  ) : (
+                    <div className={`text-xs min-h-[70px] whitespace-pre-wrap ${hasNote ? 'text-gray-700' : 'text-gray-400'}`}>
+                      {hasNote ? note : 'Нет заметки'}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {section === 'mocks' && (
+        <div className="space-y-4">
+          {role === 'teacher' && (
+            <Card className="space-y-3">
+              <h3 className="text-lg font-bold text-gray-800">Добавить пробник</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <input
+                  type="date"
+                  value={mockForm.date}
+                  onChange={(e) => setMockForm((prev) => ({ ...prev, date: e.target.value }))}
+                  className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={mockForm.score}
+                  onChange={(e) => setMockForm((prev) => ({ ...prev, score: e.target.value }))}
+                  placeholder="Баллы (0-100)"
+                  className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                />
+                <input
+                  type="text"
+                  value={mockForm.comment}
+                  onChange={(e) => setMockForm((prev) => ({ ...prev, comment: e.target.value }))}
+                  placeholder="Комментарий"
+                  className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                />
+              </div>
+              <Button onClick={handleAddMock}>
+                <Plus size={16}/> Добавить
+              </Button>
+            </Card>
+          )}
+
+          <div className="space-y-2">
+            {(studentData.mocks || []).length === 0 ? (
+              <div className="text-gray-500">Пробников пока нет.</div>
+            ) : (
+              studentData.mocks.map((mock) => (
+                <div key={mock.id} className="bg-white rounded-xl border p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-gray-800">Пробник от {mock.date}</p>
+                    <p className="text-sm text-gray-500">Баллы: <span className="font-bold text-purple-600">{mock.score}</span></p>
+                    {mock.comment && <p className="text-sm text-gray-600 mt-1">{mock.comment}</p>}
+                  </div>
+                  {role === 'teacher' && (
+                    <button
+                      onClick={() => handleDeleteMock(mock.id)}
+                      className="p-2 rounded-lg text-red-500 hover:bg-red-50"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
 };
 
-const NotesSection = () => {
+const ScheduleSection = ({
+  role,
+  studentId,
+  students,
+  activeStudentId,
+  onSelectStudent,
+  studentsLoading
+}) => {
+  const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '' });
+  const [form, setForm] = useState({ homeWork: '', lessonLink: '', boardLink: '' });
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const studentsList = students || [];
+  const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
+
+  const loadNextLesson = async () => {
+    if (!effectiveStudentId) {
+      setNextLesson({ homeWork: '', lessonLink: '', boardLink: '' });
+      setForm({ homeWork: '', lessonLink: '', boardLink: '' });
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await api.getStudentNextLesson(effectiveStudentId);
+      const safeData = {
+        homeWork: data?.homeWork || '',
+        lessonLink: data?.lessonLink || '',
+        boardLink: data?.boardLink || ''
+      };
+      setNextLesson(safeData);
+      if (role === 'teacher') setForm(safeData);
+      setError('');
+    } catch (err) {
+      setError(err?.message || err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadNextLesson();
+  }, [effectiveStudentId]);
+
+  const renderStudentPicker = () => {
+    if (role !== 'teacher') return null;
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-gray-500">Ученик:</span>
+        <select
+          value={activeStudentId || ''}
+          onChange={(e) => {
+            const value = e.target.value;
+            onSelectStudent?.(value || null);
+          }}
+          disabled={studentsLoading || studentsList.length === 0}
+          className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+        >
+          <option value="" disabled>Выберите ученика</option>
+          {studentsList.map((student) => (
+            <option key={student.id} value={student.id}>
+              {student.name}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  };
+
+  const normalizeUrl = (url) => {
+    const raw = String(url || '').trim();
+    if (!raw) return '';
+    return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  };
+
+  const handleSave = async () => {
+    if (!effectiveStudentId || role !== 'teacher') return;
+    setSaving(true);
+    try {
+      const updated = await api.updateStudentNextLesson(effectiveStudentId, {
+        homeWork: form.homeWork,
+        lessonLink: form.lessonLink,
+        boardLink: form.boardLink
+      });
+      const safeData = {
+        homeWork: updated?.homeWork || '',
+        lessonLink: updated?.lessonLink || '',
+        boardLink: updated?.boardLink || ''
+      };
+      setNextLesson(safeData);
+      setForm(safeData);
+      setError('');
+    } catch (err) {
+      setError(err?.message || err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (role === 'teacher' && studentsList.length === 0) {
+    return (
+      <div className="animate-fadeIn space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-2xl font-bold">Моё расписание</h2>
+          {renderStudentPicker()}
+        </div>
+        <div className="text-gray-500">
+          {studentsLoading ? 'Загрузка списка учеников...' : 'Сначала создайте ученика в панели учителя.'}
+        </div>
+      </div>
+    );
+  }
+
+  if (role === 'teacher' && !effectiveStudentId) {
+    return (
+      <div className="animate-fadeIn space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-2xl font-bold">Моё расписание</h2>
+          {renderStudentPicker()}
+        </div>
+        <div className="text-gray-500">Выберите ученика, чтобы открыть его расписание.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 animate-fadeIn">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Моё расписание</h2>
+          <p className="text-gray-500">Домашка и ссылки к следующему занятию</p>
+        </div>
+        {renderStudentPicker()}
+      </div>
+
+      {error && <div className="text-xs text-red-500">{error}</div>}
+
+      {role === 'teacher' && (
+        <Card className="space-y-3">
+          <h3 className="text-lg font-bold text-gray-800">Обновить данные</h3>
+          <textarea
+            value={form.homeWork}
+            onChange={(e) => setForm((prev) => ({ ...prev, homeWork: e.target.value }))}
+            placeholder="Домашка на следующий урок"
+            className="w-full min-h-[120px] px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none resize-none"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <input
+              type="url"
+              value={form.lessonLink}
+              onChange={(e) => setForm((prev) => ({ ...prev, lessonLink: e.target.value }))}
+              placeholder="Ссылка на следующее занятие"
+              className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+            />
+            <input
+              type="url"
+              value={form.boardLink}
+              onChange={(e) => setForm((prev) => ({ ...prev, boardLink: e.target.value }))}
+              placeholder="Ссылка на онлайн-доску"
+              className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+            />
+          </div>
+          <Button onClick={handleSave} disabled={saving}>
+            <Save size={16} /> {saving ? 'Сохранение...' : 'Сохранить'}
+          </Button>
+        </Card>
+      )}
+
+      <Card className="space-y-4">
+        <div>
+          <h3 className="text-lg font-bold text-gray-800">Следующее занятие</h3>
+          <p className="text-xs text-gray-500">Домашка и ссылки доступны ученику</p>
+        </div>
+
+        {loading ? (
+          <div className="text-gray-500">Загрузка...</div>
+        ) : (
+          <>
+            <div className="rounded-xl border bg-gray-50 p-4">
+              <p className="text-xs font-bold text-gray-400 uppercase mb-2">Домашка</p>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                {nextLesson.homeWork ? nextLesson.homeWork : 'Домашка пока не задана.'}
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {nextLesson.lessonLink ? (
+                <a
+                  href={normalizeUrl(nextLesson.lessonLink)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-3 rounded-xl border border-purple-200 bg-purple-50 text-purple-700 font-semibold text-sm hover:border-purple-400"
+                >
+                  Ссылка на занятие
+                </a>
+              ) : (
+                <div className="px-4 py-3 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400">Ссылка на занятие не указана</div>
+              )}
+              {nextLesson.boardLink ? (
+                <a
+                  href={normalizeUrl(nextLesson.boardLink)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-3 rounded-xl border border-purple-200 bg-purple-50 text-purple-700 font-semibold text-sm hover:border-purple-400"
+                >
+                  Онлайн-доска
+                </a>
+              ) : (
+                <div className="px-4 py-3 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400">Ссылка на доску не указана</div>
+              )}
+            </div>
+          </>
+        )}
+      </Card>
+    </div>
+  );
+};
+
+const NotesSection = ({
+  role,
+  studentId,
+  students,
+  activeStudentId,
+  onSelectStudent,
+  studentsLoading
+}) => {
   const [currentTask, setCurrentTask] = useState(null);
   const [currentCategory, setCurrentCategory] = useState(null);
-  const [files, setFiles] = useState(INITIAL_FILES);
+  const [files, setFiles] = useState([]);
+  const [filesError, setFilesError] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [folders, setFolders] = useState([]);
+  const [foldersError, setFoldersError] = useState('');
+  const [currentFolderId, setCurrentFolderId] = useState(null);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [renamingFolderId, setRenamingFolderId] = useState(null);
+  const [renameFolderValue, setRenameFolderValue] = useState('');
+  const [isRenamingFolder, setIsRenamingFolder] = useState(false);
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [draggingFileId, setDraggingFileId] = useState(null);
+  const [dragOverFolderId, setDragOverFolderId] = useState(null);
+  const [expandedPyIds, setExpandedPyIds] = useState({});
+  const [expandedPdfIds, setExpandedPdfIds] = useState({});
+  const [pyContent, setPyContent] = useState({});
+  const [pyError, setPyError] = useState({});
+  const [pyLoadingId, setPyLoadingId] = useState(null);
   const fileRef = useRef(null);
+  const studentsList = students || [];
+  const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
 
   const taskNumbers = Array.from({length: 27}, (_,i) => i+1);
+  const taskCounts = useMemo(() => {
+    const map = new Map();
+    for (const f of files) {
+      if (!Number.isFinite(f?.taskNumber)) continue;
+      map.set(f.taskNumber, (map.get(f.taskNumber) || 0) + 1);
+    }
+    return map;
+  }, [files]);
 
-  const handleUpload = async (e) => {
-    const f = e.target.files[0];
-    if(!f) return;
+  const categoryCounts = useMemo(() => {
+    if (!currentTask) return { class: 0, home: 0 };
+    const counts = { class: 0, home: 0 };
+    for (const f of files) {
+      if (f?.taskNumber !== currentTask) continue;
+      if (f?.category === 'class') counts.class += 1;
+      if (f?.category === 'home') counts.home += 1;
+    }
+    return counts;
+  }, [files, currentTask]);
+
+  const folderCounts = useMemo(() => {
+    if (!currentTask || !currentCategory) return { root: 0, map: new Map() };
+    const map = new Map();
+    let root = 0;
+    for (const f of files) {
+      if (f?.taskNumber !== currentTask || f?.category !== currentCategory) continue;
+      if (f?.folderId) map.set(f.folderId, (map.get(f.folderId) || 0) + 1);
+      else root += 1;
+    }
+    return { root, map };
+  }, [files, currentTask, currentCategory]);
+
+  const taskUsageBytes = useMemo(() => {
+    if (!currentTask) return 0;
+    return files
+      .filter((f) => f?.taskNumber === currentTask)
+      .reduce((sum, f) => sum + getEntrySizeBytes(f), 0);
+  }, [files, currentTask]);
+
+  const remainingBytes = Math.max(0, MAX_TASK_BYTES - taskUsageBytes);
+
+  useEffect(() => {
+    if (!effectiveStudentId) {
+      setFiles([]);
+      setFilesError('');
+      return;
+    }
+    let cancelled = false;
+    api.getFiles(effectiveStudentId)
+      .then((data) => {
+        if (cancelled) return;
+        setFiles(data);
+        setFilesError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error(err);
+        setFilesError('Не удалось загрузить файлы. Проверьте, что сервер запущен.');
+      });
+    return () => { cancelled = true; };
+  }, [effectiveStudentId]);
+
+  useEffect(() => {
+    if (!currentTask || !currentCategory || !effectiveStudentId) {
+      setFolders([]);
+      setFoldersError('');
+      return;
+    }
+    let cancelled = false;
+    api.getFolders(currentTask, currentCategory, effectiveStudentId)
+      .then((data) => {
+        if (cancelled) return;
+        setFolders(data);
+        setFoldersError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error(err);
+        setFoldersError('Не удалось загрузить папки.');
+      });
+    return () => { cancelled = true; };
+  }, [currentTask, currentCategory, effectiveStudentId]);
+
+  useEffect(() => {
+    setCurrentFolderId(null);
+    setNewFolderName('');
+    setIsCreatingFolder(false);
+    setRenamingFolderId(null);
+    setRenameFolderValue('');
+    setIsRenamingFolder(false);
+    setRenamingId(null);
+    setRenameValue('');
+    setIsRenaming(false);
+    setDraggingFileId(null);
+    setDragOverFolderId(null);
+    setExpandedPyIds({});
+    setExpandedPdfIds({});
+  }, [currentTask, currentCategory]);
+
+  useEffect(() => {
+    setCurrentTask(null);
+    setCurrentCategory(null);
+    setCurrentFolderId(null);
+    setFolders([]);
+    setFiles([]);
+    setExpandedPyIds({});
+    setExpandedPdfIds({});
+  }, [effectiveStudentId]);
+
+  const handleUploadFiles = async (fileList) => {
+    const filesToUpload = Array.from(fileList || []).filter(Boolean);
+    if (filesToUpload.length === 0) return;
+    if (!effectiveStudentId) {
+      alert('Сначала выберите ученика.');
+      return;
+    }
+    if (!currentTask || !currentCategory) {
+      alert('Сначала выберите задание и категорию.');
+      return;
+    }
+    if (isUploading) return;
     setIsUploading(true);
-    try {
-      const newF = await api.uploadFile(f, currentTask, currentCategory);
-      setFiles([newF, ...files]);
-    } catch(err) { alert(err); }
+    let usedBytes = taskUsageBytes;
+    let skipped = 0;
+
+    for (const file of filesToUpload) {
+      if (usedBytes + file.size > MAX_TASK_BYTES) {
+        skipped += 1;
+        continue;
+      }
+      try {
+        const newF = await api.uploadFile(file, currentTask, currentCategory, currentFolderId || null, effectiveStudentId);
+        setFiles(prev => [newF, ...prev]);
+        usedBytes += file.size;
+      } catch(err) {
+        alert(err?.message || err);
+      }
+    }
+
     setIsUploading(false);
+    if (fileRef.current) fileRef.current.value = '';
+    if (skipped > 0) {
+      alert(`Не хватило места для ${skipped} файла(ов). Лимит 100 МБ на задание.`);
+    }
   };
+
+  const handleUpload = (e) => {
+    handleUploadFiles(e.target.files);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const list = e.dataTransfer?.files;
+    handleUploadFiles(list);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!isDragging) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleCreateFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) {
+      setFoldersError('Введите название папки.');
+      return;
+    }
+    if (!currentTask || !currentCategory || !effectiveStudentId) return;
+    try {
+      const created = await api.createFolder(currentTask, currentCategory, name, effectiveStudentId);
+      setFolders(prev => [created, ...prev]);
+      setNewFolderName('');
+      setIsCreatingFolder(false);
+      setFoldersError('');
+      setCurrentFolderId(created.id);
+    } catch (err) {
+      setFoldersError(err?.message || err);
+    }
+  };
+
+  const startRenameFolder = (folder) => {
+    setRenamingFolderId(folder.id);
+    setRenameFolderValue(folder.name || '');
+  };
+
+  const cancelRenameFolder = () => {
+    setRenamingFolderId(null);
+    setRenameFolderValue('');
+    setIsRenamingFolder(false);
+  };
+
+  const saveRenameFolder = async (folder, nameOverride) => {
+    if (!folder?.id) return;
+    const name = (nameOverride ?? renameFolderValue).trim();
+    if (!name || name === folder.name) {
+      cancelRenameFolder();
+      return;
+    }
+    setIsRenamingFolder(true);
+    try {
+      const updated = await api.renameFolder(folder.id, name);
+      setFolders((prev) => prev.map((f) => (f.id === updated.id ? { ...f, name: updated.name } : f)));
+      setFiles((prev) => prev.map((f) => (f.folderId === updated.id ? { ...f, folderName: updated.name } : f)));
+      cancelRenameFolder();
+    } catch (err) {
+      alert(err?.message || err);
+    } finally {
+      setIsRenamingFolder(false);
+    }
+  };
+
+  const handleDragStartFile = (e, file) => {
+    if (renamingId === file.id) return;
+    setDraggingFileId(file.id);
+    e.dataTransfer.setData('text/plain', file.id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragEndFile = () => {
+    setDraggingFileId(null);
+    setDragOverFolderId(null);
+  };
+
+  const handleFolderDragOver = (e, folderId) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverFolderId(folderId);
+  };
+
+  const handleFolderDragLeave = (e, folderId) => {
+    e.preventDefault();
+    if (dragOverFolderId === folderId) setDragOverFolderId(null);
+  };
+
+  const handleFolderDrop = async (e, folderId) => {
+    e.preventDefault();
+    const fileId = e.dataTransfer.getData('text/plain');
+    if (!fileId) return;
+    try {
+      const updated = await api.moveFile(fileId, folderId);
+      setFiles((prev) => prev.map((f) => (f.id === updated.id ? { ...f, folderId: updated.folderId, folderName: updated.folderName } : f)));
+      setDraggingFileId(null);
+    } catch (err) {
+      alert(err?.message || err);
+    } finally {
+      setDragOverFolderId(null);
+    }
+  };
+
+  const isPyFile = (name) => name?.toLowerCase().endsWith('.py');
+  const isPdfFile = (name) => name?.toLowerCase().endsWith('.pdf');
+
+  const PdfLogo = () => (
+    <svg viewBox="0 0 24 24" className="w-6 h-6" aria-hidden="true">
+      <rect x="3" y="2" width="18" height="20" rx="3" fill="#E53E3E" />
+      <text
+        x="12"
+        y="15"
+        textAnchor="middle"
+        fontSize="7"
+        fontFamily="Arial, sans-serif"
+        fill="#FFFFFF"
+      >
+        PDF
+      </text>
+    </svg>
+  );
+
+  const PyLogo = () => (
+    <svg viewBox="0 0 24 24" className="w-6 h-6" aria-hidden="true">
+      <path
+        fill="#3776AB"
+        d="M12 2c-4 0-4 2-4 2v3h8v1H6c-2.2 0-4 1.8-4 4v2c0 2.2 1.8 4 4 4h2v-3c0-2.2 1.8-4 4-4h4c2.2 0 4-1.8 4-4V6c0-2.2-1.8-4-4-4h-4z"
+      />
+      <circle cx="10" cy="4.5" r="0.9" fill="#FFFFFF" />
+      <path
+        fill="#FFD43B"
+        d="M12 22c4 0 4-2 4-2v-3h-8v-1h10c2.2 0 4-1.8 4-4v-2c0-2.2-1.8-4-4-4h-2v3c0 2.2-1.8 4-4 4h-4c-2.2 0-4 1.8-4 4v3c0 2.2 1.8 4 4 4h4z"
+      />
+      <circle cx="14" cy="19.5" r="0.9" fill="#FFFFFF" />
+    </svg>
+  );
+
+  const FileIcon = ({ name }) => {
+    if (isPdfFile(name)) {
+      return (
+        <div className="flex flex-col items-center w-12">
+          <div className="w-10 h-10 flex items-center justify-center bg-transparent">
+            <PdfLogo />
+          </div>
+          <span className="text-[10px] font-bold text-red-600 mt-1">PDF</span>
+        </div>
+      );
+    }
+    if (isPyFile(name)) {
+      return (
+        <div className="flex flex-col items-center w-12">
+          <div className="w-10 h-10 flex items-center justify-center bg-transparent">
+            <PyLogo />
+          </div>
+          <span className="text-[10px] font-bold text-blue-600 mt-1">PY</span>
+        </div>
+      );
+    }
+    return (
+      <div className="w-10 h-10 flex items-center justify-center bg-transparent">
+        <FileText size={20} className="text-gray-600"/>
+      </div>
+    );
+  };
+
+  const handleDownload = (file) => {
+    if (!file?.url) return;
+    window.open(file.url, '_blank', 'noopener,noreferrer');
+  };
+
+  const togglePyPreview = async (file) => {
+    if (!file?.url || !isPyFile(file.name)) return;
+    setExpandedPyIds((prev) => {
+      const next = { ...prev };
+      if (next[file.id]) delete next[file.id];
+      else next[file.id] = true;
+      return next;
+    });
+    if (pyContent[file.id] || pyError[file.id]) return;
+
+    setPyLoadingId(file.id);
+    try {
+      const res = await fetch(file.url);
+      if (!res.ok) throw new Error('Не удалось загрузить файл');
+      const text = await res.text();
+      setPyContent((prev) => ({ ...prev, [file.id]: text }));
+    } catch (err) {
+      setPyError((prev) => ({ ...prev, [file.id]: err?.message || 'Ошибка загрузки' }));
+    } finally {
+      setPyLoadingId(null);
+    }
+  };
+
+  const togglePdfPreview = (file) => {
+    if (!file?.url || !isPdfFile(file.name)) return;
+    setExpandedPdfIds((prev) => {
+      const next = { ...prev };
+      if (next[file.id]) delete next[file.id];
+      else next[file.id] = true;
+      return next;
+    });
+  };
+
+  const toggleFilePreview = (file) => {
+    if (isPyFile(file.name)) return togglePyPreview(file);
+    if (isPdfFile(file.name)) return togglePdfPreview(file);
+    return null;
+  };
+
+  const handleDelete = async (file) => {
+    if (!confirm('Удалить файл?')) return;
+    try {
+      await api.deleteFile(file.id);
+      setFiles(prev => prev.filter(x => x.id !== file.id));
+      setExpandedPyIds((prev) => {
+        if (!prev[file.id]) return prev;
+        const next = { ...prev };
+        delete next[file.id];
+        return next;
+      });
+      setExpandedPdfIds((prev) => {
+        if (!prev[file.id]) return prev;
+        const next = { ...prev };
+        delete next[file.id];
+        return next;
+      });
+      if (renamingId === file.id) {
+        setRenamingId(null);
+        setRenameValue('');
+        setIsRenaming(false);
+      }
+    } catch(err) {
+      alert(err?.message || err);
+    }
+  };
+
+  const startRename = (file) => {
+    setRenamingId(file.id);
+    setRenameValue(file.name || '');
+  };
+
+  const cancelRename = () => {
+    setRenamingId(null);
+    setRenameValue('');
+    setIsRenaming(false);
+  };
+
+  const saveRename = async (file, nameOverride) => {
+    if (!file?.id) return;
+    const name = (nameOverride ?? renameValue).trim();
+    if (!name || name === file.name) {
+      cancelRename();
+      return;
+    }
+    setIsRenaming(true);
+    try {
+      const updated = await api.renameFile(file.id, name);
+      setFiles((prev) => prev.map((f) => (f.id === updated.id ? { ...f, name: updated.name } : f)));
+      if (!isPyFile(updated.name)) {
+        setExpandedPyIds((prev) => {
+          if (!prev[file.id]) return prev;
+          const next = { ...prev };
+          delete next[file.id];
+          return next;
+        });
+      }
+      if (!isPdfFile(updated.name)) {
+        setExpandedPdfIds((prev) => {
+          if (!prev[file.id]) return prev;
+          const next = { ...prev };
+          delete next[file.id];
+          return next;
+        });
+      }
+      cancelRename();
+    } catch (err) {
+      alert(err?.message || err);
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
+  const renderStudentPicker = () => {
+    if (role !== 'teacher') return null;
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-gray-500">Ученик:</span>
+        <select
+          value={activeStudentId || ''}
+          onChange={(e) => {
+            const value = e.target.value;
+            onSelectStudent?.(value || null);
+          }}
+          disabled={studentsLoading || studentsList.length === 0}
+          className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+        >
+          <option value="" disabled>Выберите ученика</option>
+          {studentsList.map((student) => (
+            <option key={student.id} value={student.id}>
+              {student.name}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  };
+
+  if (role === 'teacher' && studentsList.length === 0) {
+    return (
+      <div className="animate-fadeIn space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-2xl font-bold">Конспекты</h2>
+          {renderStudentPicker()}
+        </div>
+        <div className="text-gray-500">
+          {studentsLoading ? 'Загрузка списка учеников...' : 'Сначала создайте ученика в панели учителя.'}
+        </div>
+      </div>
+    );
+  }
+
+  if (role === 'teacher' && !effectiveStudentId) {
+    return (
+      <div className="animate-fadeIn space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-2xl font-bold">Конспекты</h2>
+          {renderStudentPicker()}
+        </div>
+        <div className="text-gray-500">Выберите ученика, чтобы открыть его материалы.</div>
+      </div>
+    );
+  }
 
   if (!currentTask) return (
     <div className="animate-fadeIn">
-      <h2 className="text-2xl font-bold mb-6">Конспекты</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <h2 className="text-2xl font-bold">Конспекты</h2>
+        {renderStudentPicker()}
+      </div>
       <div className="grid grid-cols-3 md:grid-cols-5 gap-4">
         {taskNumbers.map(n => (
-          <Card key={n} onClick={() => setCurrentTask(n)} className="flex flex-col items-center justify-center p-6 hover:bg-purple-50 cursor-pointer">
+          <Card
+            key={n}
+            onClick={() => setCurrentTask(n)}
+            className={`flex flex-col items-center justify-center p-6 cursor-pointer ${
+              (taskCounts.get(n) || 0) > 0 ? 'hover:bg-purple-50' : 'opacity-70 hover:bg-gray-50'
+            }`}
+          >
             <Folder size={32} className="text-blue-400 mb-2 fill-current" />
             <span className="font-bold text-gray-700">Задание {n}</span>
+            <span
+              className={`mt-2 text-xs font-bold px-2 py-1 rounded-full border ${
+                (taskCounts.get(n) || 0) > 0
+                  ? 'bg-green-50 text-green-700 border-green-200'
+                  : 'bg-gray-100 text-gray-500 border-gray-200'
+              }`}
+            >
+              {(taskCounts.get(n) || 0) > 0 ? `Файлов: ${taskCounts.get(n)}` : 'Пусто'}
+            </span>
           </Card>
         ))}
       </div>
@@ -656,49 +2395,304 @@ const NotesSection = () => {
 
   if (!currentCategory) return (
     <div className="animate-fadeIn">
-      <button onClick={() => setCurrentTask(null)} className="flex items-center text-gray-500 mb-4 hover:text-purple-600"><ArrowLeft size={16}/> Назад</button>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <button onClick={() => setCurrentTask(null)} className="flex items-center text-gray-500 hover:text-purple-600"><ArrowLeft size={16}/> Назад</button>
+        {renderStudentPicker()}
+      </div>
       <h2 className="text-2xl font-bold mb-6">Задание {currentTask}</h2>
       <div className="grid grid-cols-2 gap-6">
-        <Card onClick={() => setCurrentCategory('class')} className="p-8 flex items-center gap-4 cursor-pointer hover:border-purple-300">
+        <Card
+          onClick={() => setCurrentCategory('class')}
+          className={`p-8 flex items-center gap-4 cursor-pointer ${
+            categoryCounts.class > 0 ? 'hover:border-purple-300' : 'opacity-80 hover:border-gray-300'
+          }`}
+        >
           <BookOpen size={32} className="text-orange-500"/>
-          <div><h3 className="font-bold text-lg">На уроке</h3><p className="text-gray-500 text-sm">Презентации и скрипты</p></div>
+          <div>
+            <h3 className="font-bold text-lg">На уроке</h3>
+            <p className="text-gray-500 text-sm">Презентации и скрипты</p>
+            <p className={`mt-2 text-xs font-bold ${categoryCounts.class > 0 ? 'text-green-700' : 'text-gray-500'}`}>
+              {categoryCounts.class > 0 ? `Файлов: ${categoryCounts.class}` : 'Пусто'}
+            </p>
+          </div>
         </Card>
-        <Card onClick={() => setCurrentCategory('home')} className="p-8 flex items-center gap-4 cursor-pointer hover:border-purple-300">
+        <Card
+          onClick={() => setCurrentCategory('home')}
+          className={`p-8 flex items-center gap-4 cursor-pointer ${
+            categoryCounts.home > 0 ? 'hover:border-purple-300' : 'opacity-80 hover:border-gray-300'
+          }`}
+        >
           <FileText size={32} className="text-green-500"/>
-          <div><h3 className="font-bold text-lg">Домашка</h3><p className="text-gray-500 text-sm">Файлы заданий</p></div>
+          <div>
+            <h3 className="font-bold text-lg">Домашка</h3>
+            <p className="text-gray-500 text-sm">Файлы заданий</p>
+            <p className={`mt-2 text-xs font-bold ${categoryCounts.home > 0 ? 'text-green-700' : 'text-gray-500'}`}>
+              {categoryCounts.home > 0 ? `Файлов: ${categoryCounts.home}` : 'Пусто'}
+            </p>
+          </div>
         </Card>
       </div>
     </div>
   );
 
-  const filtered = files.filter(f => f.taskNumber === currentTask && f.category === currentCategory);
+  const filtered = files.filter(f =>
+    f.taskNumber === currentTask &&
+    f.category === currentCategory &&
+    (currentFolderId ? f.folderId === currentFolderId : !f.folderId)
+  );
+  const currentFolderLabel = currentFolderId
+    ? (folders.find((f) => f.id === currentFolderId)?.name || 'Папка')
+    : 'Без папки';
 
   return (
     <div className="animate-fadeIn">
-      <button onClick={() => setCurrentCategory(null)} className="flex items-center text-gray-500 mb-4 hover:text-purple-600"><ArrowLeft size={16}/> Назад</button>
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">Файлы: {currentCategory === 'class' ? 'На уроке' : 'Домашка'}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <button onClick={() => setCurrentCategory(null)} className="flex items-center text-gray-500 hover:text-purple-600"><ArrowLeft size={16}/> Назад</button>
+        {renderStudentPicker()}
+      </div>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-6">
+        <div>
+          <div className="text-base md:text-lg font-semibold text-gray-700 flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setCurrentCategory(null)}
+              className="hover:text-purple-600"
+              type="button"
+            >
+              Задание {currentTask}
+            </button>
+            <ChevronRight size={16} className="text-gray-300" />
+            <button
+              onClick={() => setCurrentFolderId(null)}
+              className="hover:text-purple-600"
+              type="button"
+            >
+              {currentCategory === 'class' ? 'На уроке' : 'Домашка'}
+            </button>
+            <ChevronRight size={16} className="text-gray-300" />
+            <span className={currentFolderId ? 'text-gray-700' : 'text-gray-400'}>
+              {currentFolderLabel}
+            </span>
+          </div>
+          <div className="text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-3">
+            <span>Использовано: {formatBytes(taskUsageBytes)} из {formatBytes(MAX_TASK_BYTES)}</span>
+            <span className={remainingBytes <= 10 * 1024 * 1024 ? 'text-red-600 font-medium' : ''}>
+              Осталось: {formatBytes(remainingBytes)}
+            </span>
+          </div>
+        </div>
         <div className="flex gap-2">
-          <input type="file" ref={fileRef} className="hidden" onChange={handleUpload}/>
+          <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} multiple/>
           <Button onClick={() => fileRef.current.click()} disabled={isUploading}><Upload size={18}/> {isUploading ? '...' : 'Загрузить'}</Button>
         </div>
       </div>
-      {filtered.length === 0 ? <div className="text-center p-10 bg-white border border-dashed rounded-2xl text-gray-400">Пусто</div> : (
-        <div className="space-y-2">
-          {filtered.map(f => (
-            <div key={f.id} className="bg-white p-4 rounded-xl border flex justify-between items-center">
-              <div className="flex items-center gap-3">
-                <div className="bg-gray-100 p-2 rounded-lg"><FileText size={20} className="text-gray-600"/></div>
-                <div><p className="font-medium text-gray-800">{f.name}</p><p className="text-xs text-gray-500">{f.size} • {f.date}</p></div>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => alert('Download ' + f.name)} className="p-2 hover:bg-gray-100 rounded text-gray-500"><Download size={18}/></button>
-                <button onClick={() => setFiles(files.filter(x => x.id !== f.id))} className="p-2 hover:bg-red-50 rounded text-red-500"><Trash2 size={18}/></button>
-              </div>
-            </div>
+      <div className="bg-white rounded-2xl border p-4 mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-gray-700">Папки</h3>
+          <Button variant="secondary" onClick={() => setIsCreatingFolder((v) => !v)}>
+            <FolderPlus size={16}/> Новая папка
+          </Button>
+        </div>
+
+        {isCreatingFolder && (
+          <div className="flex flex-col md:flex-row gap-2 mb-3">
+            <input
+              type="text"
+              value={newFolderName}
+              onChange={(e) => { setNewFolderName(e.target.value); setFoldersError(''); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); }}
+              placeholder="Название папки"
+              className="flex-1 px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+            />
+            <Button onClick={handleCreateFolder} disabled={!newFolderName.trim()}>
+              Создать
+            </Button>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setCurrentFolderId(null)}
+            onDragOver={(e) => handleFolderDragOver(e, 'root')}
+            onDragLeave={(e) => handleFolderDragLeave(e, 'root')}
+            onDrop={(e) => handleFolderDrop(e, null)}
+            className={`px-3 py-2 rounded-xl border text-sm font-medium transition-all ${
+              dragOverFolderId === 'root'
+                ? 'border-purple-500 bg-purple-50 text-purple-700 ring-2 ring-purple-200'
+                : currentFolderId === null
+                  ? 'border-purple-500 bg-purple-50 text-purple-700'
+                  : 'border-gray-200 text-gray-600 hover:border-purple-300'
+            }`}
+          >
+            Без папки
+            <span className="ml-2 text-xs opacity-70">{folderCounts.root}</span>
+          </button>
+          {folders.map((folder) => (
+            <button
+              key={folder.id}
+              onClick={() => {
+                if (renamingFolderId !== folder.id) setCurrentFolderId(folder.id);
+              }}
+              onDoubleClick={() => startRenameFolder(folder)}
+              onDragOver={(e) => handleFolderDragOver(e, folder.id)}
+              onDragLeave={(e) => handleFolderDragLeave(e, folder.id)}
+              onDrop={(e) => handleFolderDrop(e, folder.id)}
+              className={`px-3 py-2 rounded-xl border text-sm font-medium transition-all ${
+                dragOverFolderId === folder.id
+                  ? 'border-purple-500 bg-purple-50 text-purple-700 ring-2 ring-purple-200'
+                  : currentFolderId === folder.id
+                    ? 'border-purple-500 bg-purple-50 text-purple-700'
+                    : 'border-gray-200 text-gray-600 hover:border-purple-300'
+              }`}
+            >
+              {renamingFolderId === folder.id ? (
+                <input
+                  value={renameFolderValue}
+                  onChange={(e) => setRenameFolderValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveRenameFolder(folder);
+                    if (e.key === 'Escape') cancelRenameFolder();
+                  }}
+                  onBlur={() => {
+                    if (!isRenamingFolder) saveRenameFolder(folder);
+                  }}
+                  className="px-2 py-1 rounded-lg bg-white border border-gray-200 focus:border-purple-500 outline-none text-sm"
+                  autoFocus
+                />
+              ) : (
+                <>
+                  {folder.name}
+                  <span className="ml-2 text-xs opacity-70">{folderCounts.map.get(folder.id) || 0}</span>
+                </>
+              )}
+            </button>
           ))}
         </div>
-      )}
+        {foldersError && <p className="text-xs text-red-500 mt-2">{foldersError}</p>}
+      </div>
+      <div
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        className={`rounded-2xl border-2 border-dashed p-4 transition-colors ${
+          isDragging ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
+        }`}
+      >
+        <div className="text-sm text-gray-500 mb-4 flex flex-wrap items-center justify-between gap-2">
+          <span>Перетащите файл сюда для загрузки</span>
+          <span className="text-xs text-gray-400">
+            Папка: {currentFolderLabel} • Осталось {formatBytes(remainingBytes)}
+          </span>
+          {isUploading && <span className="text-xs text-purple-600 font-bold">Загрузка...</span>}
+        </div>
+
+        {filtered.length === 0 ? (
+          <div className="text-center p-10 bg-white border border-dashed rounded-2xl text-gray-400">
+            {filesError || 'Пусто'}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {filtered.map(f => (
+              <div key={f.id} className="space-y-2">
+                <div
+                className={`bg-white p-4 rounded-xl border flex justify-between items-center ${draggingFileId === f.id ? 'opacity-60' : ''}`}
+                draggable={renamingId !== f.id}
+                onDragStart={(e) => handleDragStartFile(e, f)}
+                onDragEnd={handleDragEndFile}
+                onClick={() => toggleFilePreview(f)}
+                role={(isPyFile(f.name) || isPdfFile(f.name)) ? 'button' : undefined}
+                tabIndex={(isPyFile(f.name) || isPdfFile(f.name)) ? 0 : undefined}
+                onKeyDown={(e) => {
+                  if ((e.key === 'Enter' || e.key === ' ') && (isPyFile(f.name) || isPdfFile(f.name))) {
+                    e.preventDefault();
+                    toggleFilePreview(f);
+                  }
+                }}
+              >
+                  <div className="flex items-start gap-3 min-w-0">
+                    <FileIcon name={f.name} />
+                    <div className="min-w-0">
+                      {renamingId === f.id ? (
+                        <input
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveRename(f);
+                            if (e.key === 'Escape') cancelRename();
+                          }}
+                          onBlur={() => {
+                            if (!isRenaming) saveRename(f);
+                          }}
+                          className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startRename(f);
+                          }}
+                          className="font-medium text-gray-800 truncate text-left hover:text-purple-600"
+                          title="Переименовать"
+                        >
+                          {f.name}
+                        </button>
+                      )}
+                      <p className="text-xs text-gray-500">{f.size} • {f.date}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {renamingId === f.id ? null : (
+                      <>
+                        <button onClick={(e) => { e.stopPropagation(); handleDownload(f); }} className="p-2 hover:bg-gray-100 rounded text-gray-500"><Download size={18}/></button>
+                        <button onClick={(e) => { e.stopPropagation(); handleDelete(f); }} className="p-2 hover:bg-red-50 rounded text-red-500"><Trash2 size={18}/></button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {isPyFile(f.name) && (
+                  <div className={`overflow-hidden transition-all duration-300 ease-out ${
+                    expandedPyIds[f.id] ? 'max-h-[60vh] opacity-100' : 'max-h-0 opacity-0'
+                  }`}>
+                    <div className="rounded-xl max-h-[50vh] overflow-auto">
+                      {pyLoadingId === f.id && (
+                        <pre className="language-python m-0 p-4 text-sm"><code>Загрузка...</code></pre>
+                      )}
+                      {pyLoadingId !== f.id && pyError[f.id] && (
+                        <pre className="language-python m-0 p-4 text-sm"><code>{pyError[f.id]}</code></pre>
+                      )}
+                      {pyLoadingId !== f.id && !pyError[f.id] && (
+                        pyContent[f.id]
+                          ? (
+                            <pre className="language-python m-0 p-4 text-sm">
+                              <code dangerouslySetInnerHTML={{ __html: highlightPython(pyContent[f.id]) }} />
+                            </pre>
+                          )
+                          : (
+                            <pre className="language-python m-0 p-4 text-sm"><code># Пустой файл</code></pre>
+                          )
+                      )}
+                    </div>
+                  </div>
+                )}
+                {isPdfFile(f.name) && (
+                  <div className={`overflow-hidden transition-all duration-300 ease-out ${
+                    expandedPdfIds[f.id] ? 'max-h-[70vh] opacity-100' : 'max-h-0 opacity-0'
+                  }`}>
+                    <div className="bg-white border rounded-xl overflow-hidden">
+                      <iframe
+                        title={f.name}
+                        src={f.url}
+                        className="w-full h-[60vh]"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -706,10 +2700,63 @@ const NotesSection = () => {
 const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const [view, setView] = useState(user.role === 'teacher' ? 'teacher' : 'progress');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [students, setStudents] = useState([]);
+  const [studentsLoading, setStudentsLoading] = useState(false);
+  const [studentsError, setStudentsError] = useState('');
+  const [activeStudentId, setActiveStudentId] = useState(null);
 
   const nav = user.role === 'teacher' 
-    ? [{ id: 'teacher', label: 'Управление тестами', icon: Settings }, { id: 'notes', label: 'Файлы', icon: Folder }]
-    : [{ id: 'progress', label: 'Успеваемость', icon: BarChart2 }, { id: 'notes', label: 'Конспекты', icon: BookOpen }];
+    ? [
+      { id: 'schedule', label: 'Моё расписание', icon: Calendar },
+      { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
+      { id: 'teacher', label: 'Управление тестами', icon: Settings },
+      { id: 'notes', label: 'Файлы', icon: Folder }
+    ]
+    : [
+      { id: 'schedule', label: 'Моё расписание', icon: Calendar },
+      { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
+      { id: 'notes', label: 'Конспекты', icon: BookOpen }
+    ];
+
+  const loadStudents = async () => {
+    setStudentsLoading(true);
+    try {
+      const data = await api.getStudents();
+      setStudents(data);
+      setStudentsError('');
+      setActiveStudentId((current) => (data.some((s) => s.id === current) ? current : data[0]?.id || null));
+    } catch (err) {
+      setStudentsError(err?.message || err);
+    } finally {
+      setStudentsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user.role === 'teacher') {
+      loadStudents();
+    } else {
+      setStudents([]);
+      setActiveStudentId(null);
+      setStudentsError('');
+      setStudentsLoading(false);
+    }
+  }, [user.role]);
+
+  const handleStudentCreated = (student) => {
+    if (!student) return;
+    setStudents((prev) => [student, ...prev]);
+    setActiveStudentId(student.id);
+  };
+
+  const handleStudentDeleted = (id) => {
+    if (!id) return;
+    setStudents((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      setActiveStudentId((current) => (current === id ? (next[0]?.id || null) : current));
+      return next;
+    });
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 flex font-sans">
@@ -742,9 +2789,49 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           <button onClick={() => setMenuOpen(!menuOpen)}><Menu/></button>
         </header>
         <main className="flex-1 overflow-y-auto p-4 md:p-8">
-          {view === 'progress' && <ProgressSection progress={progress} onUpdateProgress={onUpdateProgress} role={user.role} />}
-          {view === 'notes' && <NotesSection />}
-          {view === 'teacher' && <TeacherPanel />}
+          {view === 'schedule' && (
+            <ScheduleSection
+              role={user.role}
+              studentId={user.id}
+              students={students}
+              activeStudentId={activeStudentId}
+              onSelectStudent={setActiveStudentId}
+              studentsLoading={studentsLoading}
+            />
+          )}
+          {view === 'progress' && (
+            <ProgressSection
+              progress={progress}
+              onUpdateProgress={onUpdateProgress}
+              role={user.role}
+              studentId={user.id}
+              students={students}
+              activeStudentId={activeStudentId}
+              onSelectStudent={setActiveStudentId}
+              studentsLoading={studentsLoading}
+            />
+          )}
+          {view === 'notes' && (
+            <NotesSection
+              role={user.role}
+              studentId={user.id}
+              students={students}
+              activeStudentId={activeStudentId}
+              onSelectStudent={setActiveStudentId}
+              studentsLoading={studentsLoading}
+            />
+          )}
+          {view === 'teacher' && (
+            <TeacherPanel
+              students={students}
+              studentsLoading={studentsLoading}
+              studentsError={studentsError}
+              activeStudentId={activeStudentId}
+              onSelectStudent={setActiveStudentId}
+              onStudentCreated={handleStudentCreated}
+              onStudentDeleted={handleStudentDeleted}
+            />
+          )}
         </main>
       </div>
     </div>
@@ -758,9 +2845,26 @@ const App = () => {
   useEffect(() => {
     const savedUser = localStorage.getItem('ege_user_session');
     if (savedUser) setUser(JSON.parse(savedUser));
-    const savedProg = localStorage.getItem('ege_user_progress');
-    if (savedProg) setProgress(JSON.parse(savedProg));
   }, []);
+
+  useEffect(() => {
+    if (!user || user.role !== 'student') {
+      setProgress({});
+      return;
+    }
+    let cancelled = false;
+    api.getStudentProgress(user.id)
+      .then((data) => {
+        if (cancelled) return;
+        setProgress(data || {});
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error(err);
+        setProgress({});
+      });
+    return () => { cancelled = true; };
+  }, [user]);
 
   const handleLogin = (u) => {
     setUser(u);
@@ -769,13 +2873,20 @@ const App = () => {
 
   const handleLogout = () => {
     setUser(null);
+    setProgress({});
     localStorage.removeItem('ege_user_session');
   };
 
-  const updateProgress = (taskId, val) => {
-    const newP = { ...progress, [taskId]: val };
-    setProgress(newP);
-    localStorage.setItem('ege_user_progress', JSON.stringify(newP));
+  const updateProgress = async (taskId, val, options = {}) => {
+    if (!user || user.role !== 'student') return;
+    setProgress((prev) => ({ ...prev, [taskId]: val }));
+    if (!options?.skipServer) {
+      try {
+        await api.updateStudentProgress(user.id, taskId, val);
+      } catch (err) {
+        console.error(err);
+      }
+    }
   };
 
   if (!user) return <LoginPage onLogin={handleLogin} />;
