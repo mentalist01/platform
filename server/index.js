@@ -341,7 +341,7 @@ const recomputeProgressFromSolved = (data) => {
 const getStudentData = (studentId) => {
   const db = readProgressDb();
   const raw = db[studentId];
-  if (!raw) return { progress: {}, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, nextLesson: { homeWork: '', lessonLink: '', boardLink: '' }, homeworks: [] };
+  if (!raw) return { progress: {}, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [] };
   if (raw.progress || raw.notes || raw.notesByTask || raw.mocks || raw.schedule || raw.solvedByTask) {
     return {
       progress: raw.progress || {},
@@ -350,11 +350,11 @@ const getStudentData = (studentId) => {
       mocks: Array.isArray(raw.mocks) ? raw.mocks : [],
       schedule: Array.isArray(raw.schedule) ? raw.schedule : [],
       solvedByTask: raw.solvedByTask && typeof raw.solvedByTask === 'object' ? raw.solvedByTask : {},
-      nextLesson: raw.nextLesson && typeof raw.nextLesson === 'object' ? raw.nextLesson : { homeWork: '', lessonLink: '', boardLink: '' },
+      nextLesson: raw.nextLesson && typeof raw.nextLesson === 'object' ? raw.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
       homeworks: Array.isArray(raw.homeworks) ? raw.homeworks : [],
     };
   }
-  return { progress: raw, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, nextLesson: { homeWork: '', lessonLink: '', boardLink: '' }, homeworks: [] };
+  return { progress: raw, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [] };
 };
 
 const setStudentData = (studentId, data) => {
@@ -366,12 +366,71 @@ const setStudentData = (studentId, data) => {
     mocks: Array.isArray(data.mocks) ? data.mocks : [],
     schedule: Array.isArray(data.schedule) ? data.schedule : [],
     solvedByTask: data.solvedByTask && typeof data.solvedByTask === 'object' ? data.solvedByTask : {},
-    nextLesson: data.nextLesson && typeof data.nextLesson === 'object' ? data.nextLesson : { homeWork: '', lessonLink: '', boardLink: '' },
+    nextLesson: data.nextLesson && typeof data.nextLesson === 'object' ? data.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
     homeworks: Array.isArray(data.homeworks) ? data.homeworks : [],
   };
   db[studentId] = payload;
   writeProgressDb(db);
   return payload;
+};
+
+const getQuestionsCountForLevel = (testsDb, taskNum, levelId) => {
+  if (!testsDb || !taskNum || !levelId) return 0;
+  const task = testsDb[String(taskNum)] || testsDb[taskNum];
+  const list = task?.[levelId];
+  return Array.isArray(list) ? list.length : 0;
+};
+
+const filterTargetsByCount = (targets, count) => {
+  if (!Number.isFinite(count) || count <= 0) return targets;
+  return targets.filter((val) => val <= count);
+};
+
+const normalizeGoals = (goals, testsDb = null) => {
+  if (!Array.isArray(goals)) return [];
+  const result = [];
+  goals.forEach((goal) => {
+    if (!goal || typeof goal !== 'object') return;
+    const taskNum = Number(goal.taskNumber);
+    if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) return;
+    const levelId = String(goal.levelId || '').trim();
+    if (!['basic', 'advanced', 'expert'].includes(levelId)) return;
+    const includeAll = Boolean(goal.includeAll);
+    const rawTargets = Array.isArray(goal.targetQuestions) ? goal.targetQuestions : [];
+    const targetsRaw = includeAll
+      ? []
+      : Array.from(new Set(
+          rawTargets
+            .map((val) => Number(val))
+            .filter((val) => Number.isFinite(val) && val > 0)
+            .map((val) => Math.trunc(val))
+        ));
+    const totalCount = getQuestionsCountForLevel(testsDb, taskNum, levelId);
+    const targets = filterTargetsByCount(targetsRaw, totalCount);
+    result.push({ taskNumber: taskNum, levelId, includeAll, targetQuestions: targets });
+  });
+  return result;
+};
+
+const normalizeGoalsFromLegacy = (entry, testsDb = null) => {
+  if (!entry) return [];
+  const taskNum = Number(entry.taskNumber);
+  const levelId = String(entry.levelId || '').trim();
+  if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) return [];
+  if (!['basic', 'advanced', 'expert'].includes(levelId)) return [];
+  const includeAll = Boolean(entry.includeAll);
+  const rawTargets = Array.isArray(entry.targetQuestions) ? entry.targetQuestions : [];
+  const targetsRaw = includeAll
+    ? []
+    : Array.from(new Set(
+        rawTargets
+          .map((val) => Number(val))
+          .filter((val) => Number.isFinite(val) && val > 0)
+          .map((val) => Math.trunc(val))
+      ));
+  const totalCount = getQuestionsCountForLevel(testsDb, taskNum, levelId);
+  const targets = filterTargetsByCount(targetsRaw, totalCount);
+  return [{ taskNumber: taskNum, levelId, includeAll, targetQuestions: targets }];
 };
 
 const formatSize = (bytes) => {
@@ -1241,6 +1300,13 @@ app.get('/api/student-next-lesson', (req, res) => {
     legacyNextLesson?.lessonLink ||
     legacyNextLesson?.boardLink
   );
+  const legacyTargets = Array.isArray(legacyNextLesson?.targetQuestions)
+    ? legacyNextLesson.targetQuestions
+        .map((val) => Number(val))
+        .filter((val) => Number.isFinite(val) && val > 0)
+    : [];
+  const testsDb = readTestsDb();
+  const legacyGoals = normalizeGoals(legacyNextLesson?.goals, testsDb);
   const normalizedHomeworks = homeworks.length === 0 && hasLegacyContent
     ? [{
       id: 'legacy',
@@ -1249,14 +1315,24 @@ app.get('/api/student-next-lesson', (req, res) => {
       homeWork: legacyNextLesson?.homeWork || '',
       lessonLink: legacyNextLesson?.lessonLink || '',
       boardLink: legacyNextLesson?.boardLink || '',
+      taskNumber: null,
+      levelId: null,
+      targetQuestions: legacyTargets,
+      goals: legacyGoals.length ? legacyGoals : normalizeGoalsFromLegacy(legacyNextLesson, testsDb),
     }]
     : homeworks;
-  const latest = normalizedHomeworks[0] || legacyNextLesson;
-  res.json({ homeworks: normalizedHomeworks, latest });
+  const withGoals = normalizedHomeworks.map((entry) => {
+    const goals = normalizeGoals(entry?.goals, testsDb);
+    if (goals.length) return { ...entry, goals };
+    const legacyGoalsEntry = normalizeGoalsFromLegacy(entry, testsDb);
+    return { ...entry, goals: legacyGoalsEntry };
+  });
+  const latest = withGoals[0] || legacyNextLesson;
+  res.json({ homeworks: withGoals, latest });
 });
 
 app.patch('/api/student-next-lesson', (req, res) => {
-  const { studentId, homeWork, lessonLink, boardLink, daysToComplete } = req.body || {};
+  const { studentId, homeWork, lessonLink, boardLink, daysToComplete, taskNumber, levelId, targetQuestions, goals } = req.body || {};
   if (!studentId) return res.status(400).json({ error: 'studentId required' });
   const students = readStudentsDb();
   if (!students.some((s) => s.id === studentId)) {
@@ -1279,6 +1355,11 @@ app.patch('/api/student-next-lesson', (req, res) => {
     legacyNextLesson?.boardLink
   );
   if (existingHomeworks.length === 0 && hasLegacyContent) {
+    const legacyTargets = Array.isArray(legacyNextLesson?.targetQuestions)
+      ? legacyNextLesson.targetQuestions
+          .map((val) => Number(val))
+          .filter((val) => Number.isFinite(val) && val > 0)
+      : [];
     existingHomeworks.push({
       id: 'legacy',
       issuedAt: legacyNextLesson?.issuedAt || new Date().toISOString(),
@@ -1286,7 +1367,44 @@ app.patch('/api/student-next-lesson', (req, res) => {
       homeWork: legacyNextLesson?.homeWork || '',
       lessonLink: legacyNextLesson?.lessonLink || '',
       boardLink: legacyNextLesson?.boardLink || '',
+      targetQuestions: legacyTargets,
     });
+  }
+
+  const hasTaskNumber = typeof taskNumber !== 'undefined' && String(taskNumber).trim() !== '';
+  let normalizedTaskNumber = null;
+  let normalizedLevelId = null;
+  const testsDb = readTestsDb();
+  let normalizedTargets = [];
+  let normalizedGoals = normalizeGoals(goals, testsDb);
+  if (hasTaskNumber) {
+    const taskNum = Number(taskNumber);
+    if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) {
+      return res.status(400).json({ error: 'Некорректный номер задания' });
+    }
+    const normalizedLevel = String(levelId || '').trim();
+    if (!['basic', 'advanced', 'expert'].includes(normalizedLevel)) {
+      return res.status(400).json({ error: 'Некорректный уровень' });
+    }
+    normalizedTaskNumber = taskNum;
+    normalizedLevelId = normalizedLevel;
+    if (Array.isArray(targetQuestions)) {
+      const cleanTargets = targetQuestions
+        .map((val) => Number(val))
+        .filter((val) => Number.isFinite(val) && val > 0)
+        .map((val) => Math.trunc(val));
+      const totalCount = getQuestionsCountForLevel(testsDb, taskNum, normalizedLevel);
+      const filtered = filterTargetsByCount(Array.from(new Set(cleanTargets)), totalCount);
+      normalizedTargets = filtered.slice(0, 200);
+    }
+  }
+  if (normalizedGoals.length === 0 && (normalizedTaskNumber || normalizedLevelId)) {
+    normalizedGoals = [{
+      taskNumber: normalizedTaskNumber,
+      levelId: normalizedLevelId,
+      includeAll: false,
+      targetQuestions: normalizedTargets
+    }];
   }
 
   const newEntry = {
@@ -1296,6 +1414,10 @@ app.patch('/api/student-next-lesson', (req, res) => {
     homeWork: payloadHomeWork,
     lessonLink: payloadLessonLink,
     boardLink: payloadBoardLink,
+    taskNumber: normalizedTaskNumber,
+    levelId: normalizedLevelId,
+    targetQuestions: normalizedTargets,
+    goals: normalizedGoals,
   };
   const updatedHomeworks = [newEntry, ...existingHomeworks];
   const nextLesson = {
@@ -1304,8 +1426,117 @@ app.patch('/api/student-next-lesson', (req, res) => {
     boardLink: newEntry.boardLink,
     issuedAt: newEntry.issuedAt,
     daysToComplete: newEntry.daysToComplete,
+    taskNumber: newEntry.taskNumber,
+    levelId: newEntry.levelId,
+    targetQuestions: newEntry.targetQuestions,
+    goals: newEntry.goals,
   };
   const updated = setStudentData(studentId, { ...data, nextLesson, homeworks: updatedHomeworks });
+  res.json({ homeworks: updated.homeworks || [], latest: nextLesson });
+});
+
+app.patch('/api/student-next-lesson/:id', (req, res) => {
+  const { id } = req.params;
+  const { studentId, homeWork, lessonLink, boardLink, daysToComplete, taskNumber, levelId, targetQuestions, goals } = req.body || {};
+  if (!studentId) return res.status(400).json({ error: 'studentId required' });
+  const students = readStudentsDb();
+  if (!students.some((s) => s.id === studentId)) {
+    return res.status(404).json({ error: 'Ученик не найден' });
+  }
+  const data = getStudentData(studentId);
+  const homeworks = Array.isArray(data.homeworks) ? [...data.homeworks] : [];
+  const index = homeworks.findIndex((entry) => entry?.id === id);
+  if (index === -1) {
+    return res.status(404).json({ error: 'Домашка не найдена' });
+  }
+
+  const existing = homeworks[index] || {};
+  const payloadHomeWork = typeof homeWork === 'string' ? homeWork.trim() : (existing.homeWork || '');
+  const payloadLessonLink = typeof lessonLink === 'string' ? lessonLink.trim() : (existing.lessonLink || '');
+  const payloadBoardLink = typeof boardLink === 'string' ? boardLink.trim() : (existing.boardLink || '');
+  const daysValue = Number(daysToComplete);
+  const normalizedDays = Number.isFinite(daysValue) && daysValue > 0 ? Math.round(daysValue) : (existing.daysToComplete || 7);
+
+  const hasGoalsField = Array.isArray(goals);
+  const hasTaskField = typeof taskNumber !== 'undefined';
+  let normalizedTaskNumber = existing.taskNumber ?? null;
+  let normalizedLevelId = existing.levelId ?? null;
+  let normalizedTargets = Array.isArray(existing.targetQuestions) ? existing.targetQuestions : [];
+  const testsDb = readTestsDb();
+  let normalizedGoals = normalizeGoals(existing.goals, testsDb);
+  if (hasGoalsField) {
+    normalizedGoals = normalizeGoals(goals, testsDb);
+    if (normalizedGoals.length > 0) {
+      const primary = normalizedGoals[0];
+      normalizedTaskNumber = primary.taskNumber;
+      normalizedLevelId = primary.levelId;
+      normalizedTargets = primary.includeAll ? [] : primary.targetQuestions;
+    } else {
+      normalizedTaskNumber = null;
+      normalizedLevelId = null;
+      normalizedTargets = [];
+    }
+  } else if (hasTaskField) {
+    const rawTask = String(taskNumber || '').trim();
+    if (!rawTask) {
+      normalizedTaskNumber = null;
+      normalizedLevelId = null;
+      normalizedTargets = [];
+    } else {
+      const taskNum = Number(taskNumber);
+      if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) {
+        return res.status(400).json({ error: 'Некорректный номер задания' });
+      }
+      const normalizedLevel = String(levelId || '').trim();
+      if (!['basic', 'advanced', 'expert'].includes(normalizedLevel)) {
+        return res.status(400).json({ error: 'Некорректный уровень' });
+      }
+      normalizedTaskNumber = taskNum;
+      normalizedLevelId = normalizedLevel;
+      if (Array.isArray(targetQuestions)) {
+        const cleanTargets = targetQuestions
+          .map((val) => Number(val))
+          .filter((val) => Number.isFinite(val) && val > 0)
+          .map((val) => Math.trunc(val));
+        const totalCount = getQuestionsCountForLevel(testsDb, taskNum, normalizedLevel);
+        const filtered = filterTargetsByCount(Array.from(new Set(cleanTargets)), totalCount);
+        normalizedTargets = filtered.slice(0, 200);
+      }
+    }
+    normalizedGoals = normalizedTaskNumber && normalizedLevelId
+      ? [{ taskNumber: normalizedTaskNumber, levelId: normalizedLevelId, includeAll: false, targetQuestions: normalizedTargets }]
+      : [];
+  }
+
+  const updatedEntry = {
+    ...existing,
+    homeWork: payloadHomeWork,
+    lessonLink: payloadLessonLink,
+    boardLink: payloadBoardLink,
+    daysToComplete: normalizedDays,
+    taskNumber: normalizedTaskNumber,
+    levelId: normalizedLevelId,
+    targetQuestions: normalizedTargets,
+    goals: normalizedGoals,
+  };
+  homeworks[index] = updatedEntry;
+
+  const latestEntry = homeworks[0];
+  const nextLesson = latestEntry
+    ? {
+        homeWork: latestEntry.homeWork,
+        lessonLink: latestEntry.lessonLink,
+        boardLink: latestEntry.boardLink,
+        issuedAt: latestEntry.issuedAt,
+        daysToComplete: latestEntry.daysToComplete,
+        taskNumber: latestEntry.taskNumber ?? null,
+        levelId: latestEntry.levelId ?? null,
+        targetQuestions: Array.isArray(latestEntry.targetQuestions) ? latestEntry.targetQuestions : [],
+        goals: Array.isArray(latestEntry.goals) ? latestEntry.goals : normalizeGoalsFromLegacy(latestEntry),
+      }
+    : (data.nextLesson || { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] });
+
+  const updated = setStudentData(studentId, { ...data, nextLesson, homeworks });
   res.json({ homeworks: updated.homeworks || [], latest: nextLesson });
 });
 

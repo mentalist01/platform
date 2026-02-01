@@ -301,6 +301,15 @@ const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  updateStudentHomework: async (studentId, homeworkId, payload) => {
+    const res = await fetch(`/api/student-next-lesson/${homeworkId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, ...payload }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   solveQuestion: async (payload) => {
     const res = await fetch('/api/progress/solve', {
       method: 'POST',
@@ -1773,7 +1782,7 @@ const AdminPanel = ({
 /**
  * STUDENT TEST MODAL
  */
-const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, testDb }) => {
+const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, testDb, initialLevel, targetQuestions }) => {
   const [stage, setStage] = useState('select_level'); // select_level | testing
   const [level, setLevel] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -1782,20 +1791,25 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
   const [results, setResults] = useState({}); // { [idx]: boolean }
   const [solvedIds, setSolvedIds] = useState(new Set());
   const [expandedImage, setExpandedImage] = useState(null);
+  const [autoStartDone, setAutoStartDone] = useState(false);
 
   const currentMastery = progress[task.id] || 0;
 
-  const startTest = async (lvlId) => {
+  const startTest = async (lvlId, options = {}) => {
     if (!testDb) {
-      alert("База тестов еще загружается. Попробуйте чуть позже.");
-      return;
+      if (!options?.silent) {
+        alert("База тестов еще загружается. Попробуйте чуть позже.");
+      }
+      return false;
     }
 
     const qs = testDb[task.number]?.[lvlId] || [];
     
     if (qs.length === 0) {
-      alert("Учитель еще не загрузил задания для этого уровня.");
-      return;
+      if (!options?.silent) {
+        alert("Учитель еще не загрузил задания для этого уровня.");
+      }
+      return false;
     }
 
     setQuestions(qs);
@@ -1814,7 +1828,21 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
         console.error(err);
       }
     }
+    return true;
   };
+
+  useEffect(() => {
+    if (stage !== 'select_level') return;
+    if (!initialLevel || autoStartDone) return;
+    if (!['basic', 'advanced', 'expert'].includes(initialLevel)) return;
+    if (!testDb) return;
+    setAutoStartDone(true);
+    startTest(initialLevel, { silent: true });
+  }, [stage, initialLevel, autoStartDone, testDb]);
+
+  useEffect(() => {
+    setAutoStartDone(false);
+  }, [task?.number]);
 
   const normalizeAnswer = (value) => {
     return String(value ?? '')
@@ -1988,6 +2016,19 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
       );
     const computedChecked = isSolved || isChecked;
     const computedCorrect = isSolved ? true : isCorrect;
+    const rawTargets = Array.isArray(targetQuestions) ? targetQuestions : [];
+    const targetNumbers = Array.from(new Set(
+      rawTargets
+        .map((val) => Number(val))
+        .filter((val) => Number.isFinite(val) && val > 0)
+    ));
+    const targetStatus = targetNumbers.map((num) => {
+      const question = questions[num - 1];
+      const qId = question?.id;
+      const solved = qId ? solvedIds.has(String(qId)) : false;
+      return { num, solved };
+    });
+    const targetSolvedCount = targetStatus.filter((item) => item.solved).length;
 
     const modal = (
       <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
@@ -2000,6 +2041,28 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
               </span>
               <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
             </div>
+            {targetStatus.length > 0 && (
+              <div className="rounded-2xl border border-purple-100 bg-purple-50 px-4 py-3 text-xs text-purple-700">
+                <div className="font-semibold">Цель — решить эти задания:</div>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {targetStatus.map((item) => (
+                    <span
+                      key={item.num}
+                      className={`px-2 py-1 rounded-lg border text-xs font-semibold ${
+                        item.solved
+                          ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
+                          : 'border-purple-200 bg-white text-purple-700'
+                      }`}
+                    >
+                      №{item.num}{item.solved ? ' ✓' : ''}
+                    </span>
+                  ))}
+                </div>
+                <div className="mt-2 text-[11px] text-purple-600">
+                  Выполнено {targetSolvedCount}/{targetStatus.length}
+                </div>
+              </div>
+            )}
             
             {/* Question Navigation Bar */}
           <div className="flex flex-wrap gap-2">
@@ -2271,10 +2334,14 @@ const ProgressSection = ({
   students,
   activeStudentId,
   onSelectStudent,
-  studentsLoading
+  studentsLoading,
+  openTask,
+  onOpenTaskHandled
 }) => {
   const [tasks, setTasks] = useState([]);
   const [activeTask, setActiveTask] = useState(null);
+  const [autoLevel, setAutoLevel] = useState(null);
+  const [autoTargetQuestions, setAutoTargetQuestions] = useState(null);
   const [section, setSection] = useState('progress');
   const [studentData, setStudentData] = useState({ progress: {}, notes: '', notesByTask: {}, mocks: [] });
   const [dataError, setDataError] = useState('');
@@ -2329,7 +2396,24 @@ const ProgressSection = ({
 
   useEffect(() => {
     setActiveTask(null);
+    setAutoLevel(null);
+    setAutoTargetQuestions(null);
   }, [section, effectiveStudentId]);
+
+  useEffect(() => {
+    if (role !== 'student' || !openTask) return;
+    const list = tasks.length ? tasks : MOCK_TASKS;
+    const target = list.find((task) => Number(task.number) === Number(openTask.taskNumber));
+    if (!target) {
+      onOpenTaskHandled?.();
+      return;
+    }
+    setSection('progress');
+    setActiveTask(target);
+    setAutoLevel(openTask.levelId || null);
+    setAutoTargetQuestions(Array.isArray(openTask.targetQuestions) ? openTask.targetQuestions : null);
+    onOpenTaskHandled?.();
+  }, [openTask, role, tasks, onOpenTaskHandled]);
 
   const progressMap = role === 'teacher'
     ? (studentData.progress || {})
@@ -2546,10 +2630,16 @@ const ProgressSection = ({
           {role === 'student' && activeTask && (
         <StudentTestModal 
           task={activeTask} 
-          onClose={() => setActiveTask(null)}
+          onClose={() => {
+            setActiveTask(null);
+            setAutoLevel(null);
+            setAutoTargetQuestions(null);
+          }}
           progress={progressMap}
           studentId={studentId}
           testDb={testsDb}
+          initialLevel={autoLevel}
+          targetQuestions={autoTargetQuestions}
           onComplete={(taskId, score, options) => {
             onUpdateProgress(taskId, score, options);
             // setActiveTask(null); // Убрали закрытие, чтобы можно было решать дальше
@@ -2695,23 +2785,31 @@ const ScheduleSection = ({
   students,
   activeStudentId,
   onSelectStudent,
-  studentsLoading
+  studentsLoading,
+  onOpenTask,
+  solvedRefreshKey
 }) => {
   const DEFAULT_HOMEWORK = '🟢\n🟢\n🟢';
+  const DEFAULT_GOAL = { taskNumber: '', levelId: 'basic', targetInput: '', includeAll: false };
   const [homeworks, setHomeworks] = useState([]);
-  const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '', daysToComplete: 7, issuedAt: '' });
-  const [form, setForm] = useState({ homeWork: DEFAULT_HOMEWORK, lessonLink: '', boardLink: '', daysToComplete: 7 });
+  const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '', daysToComplete: 7, issuedAt: '', taskNumber: null, levelId: null, targetQuestions: [], goals: [] });
+  const [form, setForm] = useState({ homeWork: DEFAULT_HOMEWORK, lessonLink: '', boardLink: '', daysToComplete: 7, goals: [{ ...DEFAULT_GOAL }] });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [testsDb, setTestsDb] = useState(null);
+  const [testsDbError, setTestsDbError] = useState('');
+  const [solvedByKey, setSolvedByKey] = useState({});
+  const [editingId, setEditingId] = useState(null);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
 
   const loadNextLesson = async () => {
     if (!effectiveStudentId) {
       setHomeworks([]);
-      setNextLesson({ homeWork: '', lessonLink: '', boardLink: '', daysToComplete: 7, issuedAt: '' });
-      setForm({ homeWork: DEFAULT_HOMEWORK, lessonLink: '', boardLink: '', daysToComplete: 7 });
+      setNextLesson({ homeWork: '', lessonLink: '', boardLink: '', daysToComplete: 7, issuedAt: '', taskNumber: null, levelId: null, targetQuestions: [], goals: [] });
+      setForm({ homeWork: DEFAULT_HOMEWORK, lessonLink: '', boardLink: '', daysToComplete: 7, goals: [{ ...DEFAULT_GOAL }] });
+      setEditingId(null);
       return;
     }
     setLoading(true);
@@ -2724,16 +2822,22 @@ const ScheduleSection = ({
         lessonLink: latest?.lessonLink || '',
         boardLink: latest?.boardLink || '',
         daysToComplete: Number(latest?.daysToComplete) || 7,
-        issuedAt: latest?.issuedAt || ''
+        issuedAt: latest?.issuedAt || '',
+        taskNumber: latest?.taskNumber ?? null,
+        levelId: latest?.levelId ?? null,
+        targetQuestions: Array.isArray(latest?.targetQuestions) ? latest.targetQuestions : [],
+        goals: Array.isArray(latest?.goals) ? latest.goals : []
       };
       setHomeworks(list);
       setNextLesson(safeData);
+      setEditingId(null);
       if (role === 'teacher') {
         setForm({
           homeWork: DEFAULT_HOMEWORK,
           lessonLink: safeData.lessonLink || '',
           boardLink: safeData.boardLink || '',
-          daysToComplete: safeData.daysToComplete || 7
+          daysToComplete: safeData.daysToComplete || 7,
+          goals: [{ ...DEFAULT_GOAL }]
         });
       }
       setError('');
@@ -2747,6 +2851,71 @@ const ScheduleSection = ({
   useEffect(() => {
     loadNextLesson();
   }, [effectiveStudentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getTests()
+      .then((data) => {
+        if (cancelled) return;
+        setTestsDb(data && typeof data === 'object' ? data : {});
+        setTestsDbError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setTestsDb({});
+        setTestsDbError(err?.message || err);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!effectiveStudentId) {
+      setSolvedByKey({});
+      return;
+    }
+    const entries = Array.isArray(homeworks)
+      ? homeworks.flatMap((entry) => {
+          const goals = normalizeEntryGoals(entry);
+          return goals.map((goal) => ({
+            taskNumber: goal.taskNumber,
+            levelId: goal.levelId
+          }));
+        })
+      : [];
+    const unique = [];
+    const seen = new Set();
+    entries.forEach((entry) => {
+      const key = `${entry.taskNumber}|${entry.levelId}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      unique.push({ key, taskNumber: entry.taskNumber, levelId: entry.levelId });
+    });
+    if (unique.length === 0) {
+      setSolvedByKey({});
+      return;
+    }
+    let cancelled = false;
+    const loadSolved = async () => {
+      try {
+        const results = await Promise.all(
+          unique.map((item) =>
+            api.getSolvedQuestions(effectiveStudentId, item.taskNumber, item.levelId).catch(() => [])
+          )
+        );
+        if (cancelled) return;
+        const next = {};
+        unique.forEach((item, idx) => {
+          const list = Array.isArray(results[idx]) ? results[idx] : [];
+          next[item.key] = new Set(list.map((val) => String(val)));
+        });
+        setSolvedByKey(next);
+      } catch (err) {
+        if (!cancelled) setSolvedByKey({});
+      }
+    };
+    loadSolved();
+    return () => { cancelled = true; };
+  }, [effectiveStudentId, homeworks, solvedRefreshKey]);
 
   const renderStudentPicker = () => {
     if (role !== 'teacher') return null;
@@ -2779,6 +2948,59 @@ const ScheduleSection = ({
     return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   };
 
+  const parseTargetInput = (input, maxCount) => {
+    const parts = String(input || '').split(/[\s,;]+/).filter(Boolean);
+    const numbers = parts
+      .map((val) => Number(val))
+      .filter((val) => Number.isFinite(val) && val > 0)
+      .map((val) => Math.trunc(val));
+    const unique = Array.from(new Set(numbers));
+    if (Number.isFinite(maxCount) && maxCount > 0) {
+      return unique.filter((val) => val <= maxCount);
+    }
+    return unique;
+  };
+
+  const formatTargetInput = (targets) => {
+    if (!Array.isArray(targets)) return '';
+    const values = Array.from(new Set(
+      targets
+        .map((val) => Number(val))
+        .filter((val) => Number.isFinite(val) && val > 0)
+        .map((val) => Math.trunc(val))
+    ));
+    return values.join(', ');
+  };
+
+  const getQuestionsCount = (taskNumber, levelId) => {
+    if (!testsDb || !taskNumber || !levelId) return null;
+    const list = testsDb?.[String(taskNumber)]?.[levelId];
+    return Array.isArray(list) ? list.length : null;
+  };
+
+  const normalizeEntryGoals = (entry) => {
+    if (!entry) return [];
+    if (Array.isArray(entry.goals) && entry.goals.length > 0) {
+      return entry.goals
+        .map((goal) => ({
+          taskNumber: goal?.taskNumber ? String(goal.taskNumber) : '',
+          levelId: goal?.levelId || 'basic',
+          targetQuestions: Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [],
+          includeAll: Boolean(goal?.includeAll)
+        }))
+        .filter((goal) => goal.taskNumber);
+    }
+    if (entry.taskNumber && entry.levelId) {
+      return [{
+        taskNumber: String(entry.taskNumber),
+        levelId: entry.levelId,
+        targetQuestions: Array.isArray(entry.targetQuestions) ? entry.targetQuestions : [],
+        includeAll: Boolean(entry.includeAll)
+      }];
+    }
+    return [];
+  };
+
   const formatDate = (iso) => {
     if (!iso) return '';
     const date = new Date(iso);
@@ -2801,16 +3023,91 @@ const ScheduleSection = ({
     return list.sort((a, b) => new Date(b?.issuedAt || 0) - new Date(a?.issuedAt || 0));
   }, [homeworks]);
 
+  const resetFormToDefault = (base = null) => {
+    const source = base || nextLesson || {};
+    setForm({
+      homeWork: DEFAULT_HOMEWORK,
+      lessonLink: source?.lessonLink || '',
+      boardLink: source?.boardLink || '',
+      daysToComplete: source?.daysToComplete || 7,
+      goals: [{ ...DEFAULT_GOAL }]
+    });
+    setEditingId(null);
+  };
+
+  const startEditHomework = (entry) => {
+    if (!entry) return;
+    const goals = normalizeEntryGoals(entry);
+    setEditingId(entry.id || null);
+    setForm({
+      homeWork: entry.homeWork || '',
+      lessonLink: entry.lessonLink || '',
+      boardLink: entry.boardLink || '',
+      daysToComplete: Number(entry.daysToComplete) || 7,
+      goals: goals.length
+        ? goals.map((goal) => ({
+            taskNumber: goal.taskNumber,
+            levelId: goal.levelId || 'basic',
+            includeAll: goal.includeAll,
+            targetInput: goal.includeAll ? '' : formatTargetInput(goal.targetQuestions)
+          }))
+        : [{ ...DEFAULT_GOAL }]
+    });
+  };
+
+  const updateGoal = (index, patch) => {
+    setForm((prev) => {
+      const goals = Array.isArray(prev.goals) ? [...prev.goals] : [];
+      if (!goals[index]) return prev;
+      goals[index] = { ...goals[index], ...patch };
+      return { ...prev, goals };
+    });
+  };
+
+  const addGoalRow = () => {
+    setForm((prev) => ({
+      ...prev,
+      goals: [...(Array.isArray(prev.goals) ? prev.goals : []), { ...DEFAULT_GOAL }]
+    }));
+  };
+
+  const removeGoalRow = (index) => {
+    setForm((prev) => {
+      const goals = Array.isArray(prev.goals) ? prev.goals.filter((_, i) => i !== index) : [];
+      return { ...prev, goals: goals.length ? goals : [{ ...DEFAULT_GOAL }] };
+    });
+  };
+
   const handleSave = async () => {
     if (!effectiveStudentId || role !== 'teacher') return;
     setSaving(true);
     try {
-      const updated = await api.updateStudentNextLesson(effectiveStudentId, {
+      const goalsPayload = (Array.isArray(form.goals) ? form.goals : [])
+        .map((goal) => {
+          const taskNumber = String(goal?.taskNumber || '').trim();
+          if (!taskNumber) return null;
+          const levelId = goal?.levelId || 'basic';
+          const includeAll = Boolean(goal?.includeAll);
+          const availableCount = getQuestionsCount(taskNumber, levelId);
+          const targetQuestions = includeAll ? [] : parseTargetInput(goal?.targetInput, availableCount);
+          return {
+            taskNumber: Number(taskNumber),
+            levelId,
+            includeAll,
+            targetQuestions
+          };
+        })
+        .filter(Boolean);
+      const payload = {
         homeWork: form.homeWork,
         lessonLink: form.lessonLink,
         boardLink: form.boardLink,
-        daysToComplete: form.daysToComplete
-      });
+        daysToComplete: form.daysToComplete,
+        goals: goalsPayload
+      };
+      const updated = editingId
+        ? await api.updateStudentHomework(effectiveStudentId, editingId, payload)
+        : await api.updateStudentNextLesson(effectiveStudentId, payload);
       const list = Array.isArray(updated?.homeworks) ? updated.homeworks : [];
       const latest = updated?.latest && typeof updated.latest === 'object' ? updated.latest : {};
       const safeData = {
@@ -2818,16 +3115,14 @@ const ScheduleSection = ({
         lessonLink: latest?.lessonLink || '',
         boardLink: latest?.boardLink || '',
         daysToComplete: Number(latest?.daysToComplete) || form.daysToComplete || 7,
-        issuedAt: latest?.issuedAt || ''
+        issuedAt: latest?.issuedAt || '',
+        taskNumber: latest?.taskNumber ?? null,
+        levelId: latest?.levelId ?? null,
+        targetQuestions: Array.isArray(latest?.targetQuestions) ? latest.targetQuestions : []
       };
       setHomeworks(list);
       setNextLesson(safeData);
-      setForm({
-        homeWork: DEFAULT_HOMEWORK,
-        lessonLink: safeData.lessonLink || form.lessonLink,
-        boardLink: safeData.boardLink || form.boardLink,
-        daysToComplete: safeData.daysToComplete || form.daysToComplete || 7
-      });
+      resetFormToDefault(safeData);
       setError('');
     } catch (err) {
       setError(err?.message || err);
@@ -2873,16 +3168,113 @@ const ScheduleSection = ({
       </div>
 
       {error && <div className="text-xs text-red-500">{error}</div>}
+      {testsDbError && <div className="text-xs text-red-500">{testsDbError}</div>}
 
       {role === 'teacher' && (
         <Card className="space-y-3">
-          <h3 className="text-lg font-bold text-gray-800">Обновить данные</h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-lg font-bold text-gray-800">
+              {editingId ? 'Редактировать домашку' : 'Обновить данные'}
+            </h3>
+            {editingId && (
+              <button
+                type="button"
+                onClick={() => resetFormToDefault()}
+                className="px-3 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+              >
+                Отменить
+              </button>
+            )}
+          </div>
           <textarea
             value={form.homeWork}
             onChange={(e) => setForm((prev) => ({ ...prev, homeWork: e.target.value }))}
             placeholder="Домашка на следующий урок"
             className="w-full min-h-[120px] px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none resize-none"
           />
+          <div className="space-y-3">
+            {(Array.isArray(form.goals) ? form.goals : []).map((goal, index) => {
+              const hasTask = Boolean(goal?.taskNumber);
+              const availableCount = hasTask ? getQuestionsCount(goal.taskNumber, goal.levelId) : null;
+              return (
+                <div key={`${index}-${goal?.taskNumber || 'goal'}`} className="rounded-2xl border border-gray-200 bg-white p-3 space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <select
+                      value={goal.taskNumber || ''}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        updateGoal(index, {
+                          taskNumber: value,
+                          includeAll: value ? goal.includeAll : false,
+                          targetInput: value ? goal.targetInput : ''
+                        });
+                      }}
+                      className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                    >
+                      <option value="">Выберите задание</option>
+                      {Array.from({ length: 27 }, (_, i) => i + 1).map((num) => (
+                        <option key={num} value={num}>Задание {num}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={goal.levelId || 'basic'}
+                      onChange={(e) => updateGoal(index, { levelId: e.target.value })}
+                      disabled={!hasTask}
+                      className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none disabled:opacity-60"
+                    >
+                      {Object.values(LEVELS).map((lvl) => (
+                        <option key={lvl.id} value={lvl.id}>{lvl.label}</option>
+                      ))}
+                    </select>
+                    <div className="flex items-center justify-between gap-3">
+                      <label className={`flex items-center gap-2 text-xs font-semibold ${hasTask ? 'text-gray-600' : 'text-gray-400'}`}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(goal.includeAll)}
+                          disabled={!hasTask}
+                          onChange={(e) => updateGoal(index, { includeAll: e.target.checked, targetInput: e.target.checked ? '' : goal.targetInput })}
+                        />
+                        Все задания
+                      </label>
+                      {(Array.isArray(form.goals) ? form.goals.length : 0) > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeGoalRow(index)}
+                          className="px-2 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-500 hover:bg-gray-50"
+                        >
+                          Удалить
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={goal.targetInput || ''}
+                      onChange={(e) => updateGoal(index, { targetInput: e.target.value })}
+                      placeholder="Номера вопросов (например: 1, 3, 5)"
+                      disabled={!hasTask || goal.includeAll}
+                      className="w-full px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none disabled:opacity-60"
+                    />
+                    <div className="text-xs text-gray-400">
+                      {goal.includeAll
+                        ? 'Выбраны все задания этого уровня.'
+                        : (availableCount
+                            ? `Всего вопросов в уровне: ${availableCount}`
+                            : 'Можно оставить пустым — тогда цель не задаётся.')}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              onClick={addGoalRow}
+              className="px-3 py-2 rounded-xl border border-purple-200 text-xs font-semibold text-purple-700 hover:bg-purple-50"
+            >
+              + Добавить задание
+            </button>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <input
               type="number"
@@ -2908,7 +3300,7 @@ const ScheduleSection = ({
             />
           </div>
           <Button onClick={handleSave} disabled={saving}>
-            <Save size={16} /> {saving ? 'Сохранение...' : 'Добавить домашку'}
+            <Save size={16} /> {saving ? 'Сохранение...' : (editingId ? 'Сохранить изменения' : 'Добавить домашку')}
           </Button>
         </Card>
       )}
@@ -2930,11 +3322,102 @@ const ScheduleSection = ({
             {sortedHomeworks.map((entry, idx) => {
               const dateText = formatDate(entry?.issuedAt);
               const daysText = formatDaysText(entry?.daysToComplete || 7);
+              const isEditing = editingId && entry?.id === editingId;
+              const entryGoals = normalizeEntryGoals(entry);
               return (
-                <div key={entry.id || `${entry.issuedAt}-${idx}`} className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
-                  <div className="text-xs text-gray-500">
-                    {`Учитель выдал домашку ${dateText || 'сегодня'}. У тебя есть ${daysText} на выполнение.`}
+                <div key={entry.id || `${entry.issuedAt}-${idx}`} className={`rounded-2xl border p-4 space-y-3 ${isEditing ? 'border-purple-300 bg-purple-50/40' : 'border-gray-200 bg-white'}`}>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="text-xs text-gray-500">
+                      {`Учитель выдал домашку ${dateText || 'сегодня'}. У тебя есть ${daysText} на выполнение.`}
+                    </div>
+                    {role === 'teacher' && (
+                      <button
+                        type="button"
+                        onClick={() => startEditHomework(entry)}
+                        className="px-3 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                      >
+                        Редактировать
+                      </button>
+                    )}
                   </div>
+                  {entryGoals.length > 0 && (
+                    <div className="space-y-2">
+                      {entryGoals.map((goal, goalIndex) => {
+                        const taskNumber = Number(goal.taskNumber);
+                        const levelId = goal.levelId;
+                        const levelLabel = LEVELS[levelId?.toUpperCase()]?.label || levelId;
+                        const questionsList = taskNumber && levelId
+                          ? (testsDb?.[String(taskNumber)]?.[levelId] || [])
+                          : [];
+                        const totalCount = questionsList.length;
+                        const targetNumbers = goal.includeAll
+                          ? (totalCount > 0 ? Array.from({ length: totalCount }, (_, i) => i + 1) : [])
+                          : Array.from(new Set(
+                              (Array.isArray(goal.targetQuestions) ? goal.targetQuestions : [])
+                                .map((val) => Number(val))
+                                .filter((val) => Number.isFinite(val) && val > 0)
+                            )).sort((a, b) => a - b);
+                        const targetsKey = taskNumber && levelId ? `${taskNumber}|${levelId}` : null;
+                        const solvedSet = targetsKey ? solvedByKey?.[targetsKey] : null;
+                        const targetStatus = targetNumbers.map((num) => {
+                          const question = questionsList[num - 1];
+                          const qId = question?.id;
+                          const solved = qId ? solvedSet?.has(String(qId)) : false;
+                          return { num, solved };
+                        });
+                        const targetSolvedCount = targetStatus.filter((item) => item.solved).length;
+                        const hasTargets = targetNumbers.length > 0 || goal.includeAll;
+                        return (
+                          <div key={`${taskNumber}-${levelId}-${goalIndex}`} className="rounded-xl border border-purple-100 bg-purple-50 px-3 py-2 text-xs text-purple-700 space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span>
+                                {`Задание ${taskNumber} · ${levelLabel}`}
+                              </span>
+                              {onOpenTask && (
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenTask(taskNumber, levelId, targetNumbers)}
+                                  className="px-3 py-1 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700"
+                                >
+                                  Перейти к заданию
+                                </button>
+                              )}
+                            </div>
+                            {hasTargets && (
+                              <div className="space-y-2">
+                                <div className="text-[11px] font-semibold text-purple-700">Цель — решить эти задания:</div>
+                                {targetNumbers.length > 0 ? (
+                                  <div className="flex flex-wrap gap-2">
+                                    {targetStatus.map((item) => (
+                                      <span
+                                        key={item.num}
+                                        className={`px-2 py-1 rounded-lg border text-[11px] font-semibold ${
+                                          item.solved
+                                            ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
+                                            : 'border-purple-200 bg-white text-purple-700'
+                                        }`}
+                                      >
+                                        №{item.num}{item.solved ? ' ✓' : ''}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="text-[11px] text-purple-600">
+                                    Все задания этого уровня
+                                  </div>
+                                )}
+                                {targetNumbers.length > 0 && (
+                                  <div className="text-[11px] text-purple-600">
+                                    Выполнено {targetSolvedCount}/{targetStatus.length}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                   <div className="rounded-xl border bg-gray-50 p-4">
                     <p className="text-xs font-bold text-gray-400 uppercase mb-2">Домашка</p>
                     <p className="text-sm text-gray-700 whitespace-pre-wrap">
@@ -4008,6 +4491,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     user.role === 'teacher' ? 'teacher' : (user.role === 'admin' ? 'admin' : 'progress')
   );
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pendingOpenTask, setPendingOpenTask] = useState(null);
+  const [goalState, setGoalState] = useState(null);
+  const [goalTestsDb, setGoalTestsDb] = useState(null);
+  const [goalRefreshTick, setGoalRefreshTick] = useState(0);
+  const [goalCollapsed, setGoalCollapsed] = useState(false);
   const [students, setStudents] = useState([]);
   const [studentsLoading, setStudentsLoading] = useState(false);
   const [studentsError, setStudentsError] = useState('');
@@ -4085,6 +4573,41 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     }
   }, [user.role]);
 
+  useEffect(() => {
+    if (user.role !== 'student') {
+      setGoalTestsDb(null);
+      return;
+    }
+    let cancelled = false;
+    api.getTests()
+      .then((data) => {
+        if (cancelled) return;
+        setGoalTestsDb(data && typeof data === 'object' ? data : {});
+      })
+      .catch(() => {
+        if (!cancelled) setGoalTestsDb({});
+      });
+    return () => { cancelled = true; };
+  }, [user.role]);
+
+  useEffect(() => {
+    if (user.role !== 'student') {
+      setGoalCollapsed(false);
+      return;
+    }
+    try {
+      const saved = localStorage.getItem('ege_goal_collapsed_v1');
+      setGoalCollapsed(saved === '1');
+    } catch {}
+  }, [user.role]);
+
+  useEffect(() => {
+    if (user.role !== 'student') return;
+    try {
+      localStorage.setItem('ege_goal_collapsed_v1', goalCollapsed ? '1' : '0');
+    } catch {}
+  }, [goalCollapsed, user.role]);
+
   const handleStudentCreated = (student) => {
     if (!student) return;
     setStudents((prev) => [student, ...prev]);
@@ -4104,6 +4627,157 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     if (!student?.id) return;
     setStudents((prev) => prev.map((item) => (item.id === student.id ? { ...item, ...student } : item)));
   };
+
+  const handleOpenTask = (taskNumber, levelId, targetQuestions) => {
+    if (!taskNumber) return;
+    if (user.role !== 'student') {
+      setView('progress');
+      setMenuOpen(false);
+      return;
+    }
+    setPendingOpenTask({
+      taskNumber,
+      levelId,
+      targetQuestions: Array.isArray(targetQuestions) ? targetQuestions : null
+    });
+    setView('progress');
+    setMenuOpen(false);
+  };
+
+  const formatDaysText = (days) => {
+    const value = Number(days) || 0;
+    const mod10 = value % 10;
+    const mod100 = value % 100;
+    if (mod10 === 1 && mod100 !== 11) return `${value} день`;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} дня`;
+    return `${value} дней`;
+  };
+
+  const refreshGoalState = async () => {
+    if (user.role !== 'student') return;
+    try {
+      const data = await api.getStudentNextLesson(user.id);
+      const list = Array.isArray(data?.homeworks) ? data.homeworks : [];
+      const sorted = [...list].sort((a, b) => new Date(b?.issuedAt || 0) - new Date(a?.issuedAt || 0));
+      const normalizeEntryGoals = (item) => {
+        if (!item) return [];
+        if (Array.isArray(item.goals) && item.goals.length > 0) {
+          return item.goals
+            .map((goal) => ({
+              taskNumber: goal?.taskNumber ? Number(goal.taskNumber) : null,
+              levelId: goal?.levelId || 'basic',
+              targetQuestions: Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [],
+              includeAll: Boolean(goal?.includeAll)
+            }))
+            .filter((goal) => Number.isFinite(goal.taskNumber));
+        }
+        if (item.taskNumber && item.levelId) {
+          return [{
+            taskNumber: Number(item.taskNumber),
+            levelId: item.levelId,
+            targetQuestions: Array.isArray(item.targetQuestions) ? item.targetQuestions : [],
+            includeAll: Boolean(item.includeAll)
+          }];
+        }
+        return [];
+      };
+
+      const entry = sorted.find((item) => normalizeEntryGoals(item).length > 0);
+      if (!entry) {
+        setGoalState(null);
+        return;
+      }
+      const goals = normalizeEntryGoals(entry);
+      if (goals.length === 0) {
+        setGoalState(null);
+        return;
+      }
+      const unique = [];
+      const seen = new Set();
+      goals.forEach((goal) => {
+        const key = `${goal.taskNumber}|${goal.levelId}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        unique.push({ key, taskNumber: goal.taskNumber, levelId: goal.levelId });
+      });
+      const solvedResults = await Promise.all(
+        unique.map((item) => api.getSolvedQuestions(user.id, item.taskNumber, item.levelId).catch(() => []))
+      );
+      const solvedMap = {};
+      unique.forEach((item, idx) => {
+        const list = Array.isArray(solvedResults[idx]) ? solvedResults[idx] : [];
+        solvedMap[item.key] = new Set(list.map((val) => String(val)));
+      });
+
+      const goalsWithStatus = goals.map((goal) => {
+        const taskNumber = goal.taskNumber;
+        const levelId = goal.levelId;
+        const questionsList = goalTestsDb?.[String(taskNumber)]?.[levelId] || [];
+        const totalCount = questionsList.length;
+        const targetNumbers = goal.includeAll
+          ? (totalCount > 0 ? Array.from({ length: totalCount }, (_, i) => i + 1) : [])
+          : Array.from(new Set(
+              (Array.isArray(goal.targetQuestions) ? goal.targetQuestions : [])
+                .map((val) => Number(val))
+                .filter((val) => Number.isFinite(val) && val > 0)
+            )).sort((a, b) => a - b);
+        const solvedSet = solvedMap[`${taskNumber}|${levelId}`] || new Set();
+        const targetStatus = targetNumbers.map((num) => {
+          const question = questionsList[num - 1];
+          const qId = question?.id;
+          const solved = qId ? solvedSet.has(String(qId)) : false;
+          return { num, solved };
+        });
+        const completed = targetStatus.length > 0 && targetStatus.every((item) => item.solved);
+        const taskInfo = MOCK_TASKS.find((task) => Number(task.number) === Number(taskNumber));
+        const taskTitle = taskInfo?.title || `Задание ${taskNumber}`;
+        const levelLabel = LEVELS[levelId?.toUpperCase()]?.label || levelId;
+        return {
+          taskNumber,
+          levelId,
+          levelLabel,
+          taskTitle,
+          targetNumbers,
+          targetStatus,
+          completed,
+          includeAll: goal.includeAll
+        };
+      });
+
+      const filteredGoals = goalsWithStatus.filter(
+        (goal) => goal.includeAll || (Array.isArray(goal.targetNumbers) && goal.targetNumbers.length > 0)
+      );
+      if (filteredGoals.length === 0) {
+        setGoalState(null);
+        return;
+      }
+      const completed = filteredGoals.length > 0 && filteredGoals.every((goal) => goal.completed);
+      setGoalState({
+        entry,
+        goals: filteredGoals,
+        completed,
+      });
+    } catch {
+      setGoalState(null);
+    }
+  };
+
+  useEffect(() => {
+    if (user.role !== 'student') return;
+    refreshGoalState();
+  }, [user.role, user.id, goalRefreshTick, goalTestsDb]);
+
+  const goalGoals = Array.isArray(goalState?.goals) ? goalState.goals : [];
+  const goalTotals = goalGoals.reduce(
+    (acc, goal) => {
+      const total = Array.isArray(goal?.targetStatus) ? goal.targetStatus.length : 0;
+      const solved = Array.isArray(goal?.targetStatus)
+        ? goal.targetStatus.filter((item) => item.solved).length
+        : 0;
+      return { total: acc.total + total, solved: acc.solved + solved };
+    },
+    { total: 0, solved: 0 }
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 flex font-sans">
@@ -4145,6 +4819,117 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           <button onClick={() => setMenuOpen(!menuOpen)}><Menu/></button>
         </header>
         <main className="flex-1 overflow-y-auto p-4 md:p-8" data-tour="main">
+          {user.role === 'student' && goalState?.entry && !goalState.completed && goalGoals.length > 0 && (
+            <div className="sticky top-0 z-30 mb-4">
+              {goalCollapsed ? (
+                <div className="rounded-2xl border border-purple-200 bg-white/90 px-4 py-3 text-sm text-gray-700 shadow-sm flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Цель недели</div>
+                    <div className="mt-1 text-sm font-semibold text-gray-900">
+                      {goalTotals.total > 0
+                        ? `Выполнено ${goalTotals.solved}/${goalTotals.total}`
+                        : `Целей: ${goalGoals.length}`}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const firstGoal = goalGoals[0];
+                        if (firstGoal) {
+                          handleOpenTask(firstGoal.taskNumber, firstGoal.levelId, firstGoal.targetNumbers);
+                        }
+                      }}
+                      className="px-3 py-2 rounded-xl bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 shadow-sm"
+                    >
+                      Перейти
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGoalCollapsed(false)}
+                      className="px-3 py-2 rounded-xl border border-purple-200 text-xs font-semibold text-purple-700 hover:bg-purple-50"
+                    >
+                      Развернуть
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-purple-50 px-5 py-4 text-sm text-gray-700 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Цель недели</div>
+                      <div className="mt-1 text-base font-semibold text-gray-900">
+                        {`За ${formatDaysText(goalState.entry?.daysToComplete || 7)} выполнить эти задания`}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setGoalCollapsed(true)}
+                        className="px-3 py-2 rounded-xl border border-purple-200 text-xs font-semibold text-purple-700 hover:bg-purple-50"
+                      >
+                        Свернуть
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid gap-3">
+                    {goalGoals.map((goal, index) => {
+                      const hasTargets = goal.targetNumbers?.length > 0 || goal.includeAll;
+                      return (
+                        <div key={`${goal.taskNumber}-${goal.levelId}-${index}`} className="rounded-2xl border border-purple-100 bg-white/80 px-4 py-3 space-y-2">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <div className="text-xs text-gray-500">
+                                {`Задание ${goal.taskNumber} · ${goal.levelLabel}`}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {`Тема: ${goal.taskTitle}`}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenTask(goal.taskNumber, goal.levelId, goal.targetNumbers)}
+                              className="px-3 py-2 rounded-xl bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 shadow-sm"
+                            >
+                              Перейти
+                            </button>
+                          </div>
+                          {hasTargets && (
+                            <div className="space-y-2">
+                              <div className="text-[11px] font-semibold text-purple-700">Цель — решить эти задания:</div>
+                              {goal.targetNumbers?.length > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {goal.targetStatus.map((item) => (
+                                    <span
+                                      key={item.num}
+                                      className={`px-2.5 py-1 rounded-lg border text-xs font-semibold ${
+                                        item.solved
+                                          ? 'border-emerald-300 bg-emerald-100 text-emerald-700'
+                                          : 'border-purple-200 bg-white text-purple-700'
+                                      }`}
+                                    >
+                                      №{item.num}{item.solved ? ' ✓' : ''}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="text-[11px] text-purple-600">Все задания этого уровня</div>
+                              )}
+                              {goal.targetNumbers?.length > 0 && (
+                                <div className="text-[11px] text-purple-600">
+                                  Выполнено {goal.targetStatus.filter((item) => item.solved).length}/{goal.targetStatus.length}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {view === 'schedule' && (
             <ScheduleSection
               role={user.role}
@@ -4153,18 +4938,25 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
               studentsLoading={studentsLoading}
+              onOpenTask={user.role === 'student' ? handleOpenTask : null}
+              solvedRefreshKey={goalRefreshTick}
             />
           )}
           {view === 'progress' && (
             <ProgressSection
               progress={progress}
-              onUpdateProgress={onUpdateProgress}
+              onUpdateProgress={(...args) => {
+                onUpdateProgress(...args);
+                if (user.role === 'student') setGoalRefreshTick((prev) => prev + 1);
+              }}
               role={user.role}
               studentId={user.id}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
               studentsLoading={studentsLoading}
+              openTask={pendingOpenTask}
+              onOpenTaskHandled={() => setPendingOpenTask(null)}
             />
           )}
           {view === 'notes' && (
