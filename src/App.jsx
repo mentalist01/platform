@@ -1794,7 +1794,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
                     </div>
                     <h3 className="font-bold text-gray-900 mb-1">{lvl.label}</h3>
                     <p className="text-xs text-gray-500">
-                      {lvl.id === 'basic' && "Базовые прототипы."}
+                      {lvl.id === 'basic' && "Прототипы с реальных ЕГЭ и Демоверсий."}
                       {lvl.id === 'advanced' && "Усложненные условия."}
                       {lvl.id === 'expert' && "Статград и сложнее."}
                     </p>
@@ -2459,8 +2459,10 @@ const ScheduleSection = ({
   onSelectStudent,
   studentsLoading
 }) => {
-  const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '' });
-  const [form, setForm] = useState({ homeWork: '', lessonLink: '', boardLink: '' });
+  const DEFAULT_HOMEWORK = '🟢\n🟢\n🟢';
+  const [homeworks, setHomeworks] = useState([]);
+  const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '', daysToComplete: 7, issuedAt: '' });
+  const [form, setForm] = useState({ homeWork: DEFAULT_HOMEWORK, lessonLink: '', boardLink: '', daysToComplete: 7 });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -2469,20 +2471,33 @@ const ScheduleSection = ({
 
   const loadNextLesson = async () => {
     if (!effectiveStudentId) {
-      setNextLesson({ homeWork: '', lessonLink: '', boardLink: '' });
-      setForm({ homeWork: '', lessonLink: '', boardLink: '' });
+      setHomeworks([]);
+      setNextLesson({ homeWork: '', lessonLink: '', boardLink: '', daysToComplete: 7, issuedAt: '' });
+      setForm({ homeWork: DEFAULT_HOMEWORK, lessonLink: '', boardLink: '', daysToComplete: 7 });
       return;
     }
     setLoading(true);
     try {
       const data = await api.getStudentNextLesson(effectiveStudentId);
+      const list = Array.isArray(data?.homeworks) ? data.homeworks : [];
+      const latest = data?.latest && typeof data.latest === 'object' ? data.latest : {};
       const safeData = {
-        homeWork: data?.homeWork || '',
-        lessonLink: data?.lessonLink || '',
-        boardLink: data?.boardLink || ''
+        homeWork: latest?.homeWork || '',
+        lessonLink: latest?.lessonLink || '',
+        boardLink: latest?.boardLink || '',
+        daysToComplete: Number(latest?.daysToComplete) || 7,
+        issuedAt: latest?.issuedAt || ''
       };
+      setHomeworks(list);
       setNextLesson(safeData);
-      if (role === 'teacher') setForm(safeData);
+      if (role === 'teacher') {
+        setForm({
+          homeWork: DEFAULT_HOMEWORK,
+          lessonLink: safeData.lessonLink || '',
+          boardLink: safeData.boardLink || '',
+          daysToComplete: safeData.daysToComplete || 7
+        });
+      }
       setError('');
     } catch (err) {
       setError(err?.message || err);
@@ -2526,6 +2541,28 @@ const ScheduleSection = ({
     return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   };
 
+  const formatDate = (iso) => {
+    if (!iso) return '';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).replace(' г.', '');
+  };
+
+  const formatDaysText = (days) => {
+    const value = Number(days) || 0;
+    if (value === 7) return 'неделя';
+    const mod10 = value % 10;
+    const mod100 = value % 100;
+    if (mod10 === 1 && mod100 !== 11) return `${value} день`;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} дня`;
+    return `${value} дней`;
+  };
+
+  const sortedHomeworks = useMemo(() => {
+    const list = Array.isArray(homeworks) ? [...homeworks] : [];
+    return list.sort((a, b) => new Date(b?.issuedAt || 0) - new Date(a?.issuedAt || 0));
+  }, [homeworks]);
+
   const handleSave = async () => {
     if (!effectiveStudentId || role !== 'teacher') return;
     setSaving(true);
@@ -2533,15 +2570,26 @@ const ScheduleSection = ({
       const updated = await api.updateStudentNextLesson(effectiveStudentId, {
         homeWork: form.homeWork,
         lessonLink: form.lessonLink,
-        boardLink: form.boardLink
+        boardLink: form.boardLink,
+        daysToComplete: form.daysToComplete
       });
+      const list = Array.isArray(updated?.homeworks) ? updated.homeworks : [];
+      const latest = updated?.latest && typeof updated.latest === 'object' ? updated.latest : {};
       const safeData = {
-        homeWork: updated?.homeWork || '',
-        lessonLink: updated?.lessonLink || '',
-        boardLink: updated?.boardLink || ''
+        homeWork: latest?.homeWork || '',
+        lessonLink: latest?.lessonLink || '',
+        boardLink: latest?.boardLink || '',
+        daysToComplete: Number(latest?.daysToComplete) || form.daysToComplete || 7,
+        issuedAt: latest?.issuedAt || ''
       };
+      setHomeworks(list);
       setNextLesson(safeData);
-      setForm(safeData);
+      setForm({
+        homeWork: DEFAULT_HOMEWORK,
+        lessonLink: safeData.lessonLink || form.lessonLink,
+        boardLink: safeData.boardLink || form.boardLink,
+        daysToComplete: safeData.daysToComplete || form.daysToComplete || 7
+      });
       setError('');
     } catch (err) {
       setError(err?.message || err);
@@ -2597,7 +2645,15 @@ const ScheduleSection = ({
             placeholder="Домашка на следующий урок"
             className="w-full min-h-[120px] px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none resize-none"
           />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <input
+              type="number"
+              min="1"
+              value={form.daysToComplete}
+              onChange={(e) => setForm((prev) => ({ ...prev, daysToComplete: e.target.value }))}
+              placeholder="Дней на выполнение"
+              className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+            />
             <input
               type="url"
               value={form.lessonLink}
@@ -2614,7 +2670,7 @@ const ScheduleSection = ({
             />
           </div>
           <Button onClick={handleSave} disabled={saving}>
-            <Save size={16} /> {saving ? 'Сохранение...' : 'Сохранить'}
+            <Save size={16} /> {saving ? 'Сохранение...' : 'Добавить домашку'}
           </Button>
         </Card>
       )}
@@ -2627,41 +2683,60 @@ const ScheduleSection = ({
 
         {loading ? (
           <div className="text-gray-500">Загрузка...</div>
+        ) : sortedHomeworks.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-gray-400">
+            Домашка пока не задана.
+          </div>
         ) : (
-          <>
-            <div className="rounded-xl border bg-gray-50 p-4">
-              <p className="text-xs font-bold text-gray-400 uppercase mb-2">Домашка</p>
-              <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                {nextLesson.homeWork ? nextLesson.homeWork : 'Домашка пока не задана.'}
-              </p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {nextLesson.lessonLink ? (
-                <a
-                  href={normalizeUrl(nextLesson.lessonLink)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-3 rounded-xl border border-purple-200 bg-purple-50 text-purple-700 font-semibold text-sm hover:border-purple-400"
-                >
-                  Ссылка на занятие
-                </a>
-              ) : (
-                <div className="px-4 py-3 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400">Ссылка на занятие не указана</div>
-              )}
-              {nextLesson.boardLink ? (
-                <a
-                  href={normalizeUrl(nextLesson.boardLink)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-3 rounded-xl border border-purple-200 bg-purple-50 text-purple-700 font-semibold text-sm hover:border-purple-400"
-                >
-                  Онлайн-доска
-                </a>
-              ) : (
-                <div className="px-4 py-3 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400">Ссылка на доску не указана</div>
-              )}
-            </div>
-          </>
+          <div className="space-y-4">
+            {sortedHomeworks.map((entry, idx) => {
+              const dateText = formatDate(entry?.issuedAt);
+              const daysText = formatDaysText(entry?.daysToComplete || 7);
+              return (
+                <div key={entry.id || `${entry.issuedAt}-${idx}`} className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
+                  <div className="text-xs text-gray-500">
+                    {`Учитель выдал домашку ${dateText || 'сегодня'}. У тебя есть ${daysText} на выполнение.`}
+                  </div>
+                  <div className="rounded-xl border bg-gray-50 p-4">
+                    <p className="text-xs font-bold text-gray-400 uppercase mb-2">Домашка</p>
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                      {entry?.homeWork ? entry.homeWork : 'Домашка пока не задана.'}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {entry?.lessonLink ? (
+                      <a
+                        href={normalizeUrl(entry.lessonLink)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 py-3 rounded-xl border border-purple-200 bg-purple-50 text-purple-700 font-semibold text-sm hover:border-purple-400"
+                      >
+                        Ссылка на занятие
+                      </a>
+                    ) : (
+                      <div className="px-4 py-3 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400">
+                        Ссылка на занятие не указана
+                      </div>
+                    )}
+                    {entry?.boardLink ? (
+                      <a
+                        href={normalizeUrl(entry.boardLink)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 py-3 rounded-xl border border-purple-200 bg-purple-50 text-purple-700 font-semibold text-sm hover:border-purple-400"
+                      >
+                        Онлайн-доска
+                      </a>
+                    ) : (
+                      <div className="px-4 py-3 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400">
+                        Ссылка на доску не указана
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </Card>
     </div>

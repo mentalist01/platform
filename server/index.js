@@ -341,7 +341,7 @@ const recomputeProgressFromSolved = (data) => {
 const getStudentData = (studentId) => {
   const db = readProgressDb();
   const raw = db[studentId];
-  if (!raw) return { progress: {}, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, nextLesson: { homeWork: '', lessonLink: '', boardLink: '' } };
+  if (!raw) return { progress: {}, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, nextLesson: { homeWork: '', lessonLink: '', boardLink: '' }, homeworks: [] };
   if (raw.progress || raw.notes || raw.notesByTask || raw.mocks || raw.schedule || raw.solvedByTask) {
     return {
       progress: raw.progress || {},
@@ -351,9 +351,10 @@ const getStudentData = (studentId) => {
       schedule: Array.isArray(raw.schedule) ? raw.schedule : [],
       solvedByTask: raw.solvedByTask && typeof raw.solvedByTask === 'object' ? raw.solvedByTask : {},
       nextLesson: raw.nextLesson && typeof raw.nextLesson === 'object' ? raw.nextLesson : { homeWork: '', lessonLink: '', boardLink: '' },
+      homeworks: Array.isArray(raw.homeworks) ? raw.homeworks : [],
     };
   }
-  return { progress: raw, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, nextLesson: { homeWork: '', lessonLink: '', boardLink: '' } };
+  return { progress: raw, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, nextLesson: { homeWork: '', lessonLink: '', boardLink: '' }, homeworks: [] };
 };
 
 const setStudentData = (studentId, data) => {
@@ -366,6 +367,7 @@ const setStudentData = (studentId, data) => {
     schedule: Array.isArray(data.schedule) ? data.schedule : [],
     solvedByTask: data.solvedByTask && typeof data.solvedByTask === 'object' ? data.solvedByTask : {},
     nextLesson: data.nextLesson && typeof data.nextLesson === 'object' ? data.nextLesson : { homeWork: '', lessonLink: '', boardLink: '' },
+    homeworks: Array.isArray(data.homeworks) ? data.homeworks : [],
   };
   db[studentId] = payload;
   writeProgressDb(db);
@@ -1230,27 +1232,81 @@ app.get('/api/student-next-lesson', (req, res) => {
     return res.status(404).json({ error: 'Ученик не найден' });
   }
   const data = getStudentData(studentId);
-  const nextLesson = data.nextLesson && typeof data.nextLesson === 'object'
+  const legacyNextLesson = data.nextLesson && typeof data.nextLesson === 'object'
     ? data.nextLesson
     : { homeWork: '', lessonLink: '', boardLink: '' };
-  res.json(nextLesson);
+  const homeworks = Array.isArray(data.homeworks) ? data.homeworks : [];
+  const hasLegacyContent = Boolean(
+    legacyNextLesson?.homeWork ||
+    legacyNextLesson?.lessonLink ||
+    legacyNextLesson?.boardLink
+  );
+  const normalizedHomeworks = homeworks.length === 0 && hasLegacyContent
+    ? [{
+      id: 'legacy',
+      issuedAt: legacyNextLesson?.issuedAt || new Date().toISOString(),
+      daysToComplete: Number(legacyNextLesson?.daysToComplete) || 7,
+      homeWork: legacyNextLesson?.homeWork || '',
+      lessonLink: legacyNextLesson?.lessonLink || '',
+      boardLink: legacyNextLesson?.boardLink || '',
+    }]
+    : homeworks;
+  const latest = normalizedHomeworks[0] || legacyNextLesson;
+  res.json({ homeworks: normalizedHomeworks, latest });
 });
 
 app.patch('/api/student-next-lesson', (req, res) => {
-  const { studentId, homeWork, lessonLink, boardLink } = req.body || {};
+  const { studentId, homeWork, lessonLink, boardLink, daysToComplete } = req.body || {};
   if (!studentId) return res.status(400).json({ error: 'studentId required' });
   const students = readStudentsDb();
   if (!students.some((s) => s.id === studentId)) {
     return res.status(404).json({ error: 'Ученик не найден' });
   }
   const data = getStudentData(studentId);
-  const nextLesson = {
-    homeWork: typeof homeWork === 'string' ? homeWork.trim() : '',
-    lessonLink: typeof lessonLink === 'string' ? lessonLink.trim() : '',
-    boardLink: typeof boardLink === 'string' ? boardLink.trim() : '',
+  const payloadHomeWork = typeof homeWork === 'string' ? homeWork.trim() : '';
+  const payloadLessonLink = typeof lessonLink === 'string' ? lessonLink.trim() : '';
+  const payloadBoardLink = typeof boardLink === 'string' ? boardLink.trim() : '';
+  const daysValue = Number(daysToComplete);
+  const normalizedDays = Number.isFinite(daysValue) && daysValue > 0 ? Math.round(daysValue) : 7;
+
+  const existingHomeworks = Array.isArray(data.homeworks) ? [...data.homeworks] : [];
+  const legacyNextLesson = data.nextLesson && typeof data.nextLesson === 'object'
+    ? data.nextLesson
+    : { homeWork: '', lessonLink: '', boardLink: '' };
+  const hasLegacyContent = Boolean(
+    legacyNextLesson?.homeWork ||
+    legacyNextLesson?.lessonLink ||
+    legacyNextLesson?.boardLink
+  );
+  if (existingHomeworks.length === 0 && hasLegacyContent) {
+    existingHomeworks.push({
+      id: 'legacy',
+      issuedAt: legacyNextLesson?.issuedAt || new Date().toISOString(),
+      daysToComplete: Number(legacyNextLesson?.daysToComplete) || 7,
+      homeWork: legacyNextLesson?.homeWork || '',
+      lessonLink: legacyNextLesson?.lessonLink || '',
+      boardLink: legacyNextLesson?.boardLink || '',
+    });
+  }
+
+  const newEntry = {
+    id: crypto.randomUUID(),
+    issuedAt: new Date().toISOString(),
+    daysToComplete: normalizedDays,
+    homeWork: payloadHomeWork,
+    lessonLink: payloadLessonLink,
+    boardLink: payloadBoardLink,
   };
-  const updated = setStudentData(studentId, { ...data, nextLesson });
-  res.json(updated.nextLesson);
+  const updatedHomeworks = [newEntry, ...existingHomeworks];
+  const nextLesson = {
+    homeWork: newEntry.homeWork,
+    lessonLink: newEntry.lessonLink,
+    boardLink: newEntry.boardLink,
+    issuedAt: newEntry.issuedAt,
+    daysToComplete: newEntry.daysToComplete,
+  };
+  const updated = setStudentData(studentId, { ...data, nextLesson, homeworks: updatedHomeworks });
+  res.json({ homeworks: updated.homeworks || [], latest: nextLesson });
 });
 
 
