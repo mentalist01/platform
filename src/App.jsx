@@ -7,7 +7,7 @@ import {
   BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle, 
   Menu, X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Check, Plus, 
-  Settings, Save, Calendar, RefreshCcw
+  Settings, Save, Calendar, RefreshCcw, Pencil
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
 import mascotDisapproval from './assets/mascot/disapproval.png';
@@ -28,6 +28,19 @@ const LEVEL_WEIGHTS = {
   basic: 70,
   advanced: 20,
   expert: 10,
+};
+const SOFT_DELETE_DAYS = 30;
+
+const applyTaskTitles = (tasks, overrides = {}) => {
+  if (!Array.isArray(tasks)) return [];
+  return tasks.map((task) => {
+    const key = String(task.number ?? task.id ?? '');
+    const override = overrides?.[key];
+    if (typeof override === 'string' && override.trim()) {
+      return { ...task, title: override };
+    }
+    return task;
+  });
 };
 
 const getAnswerCountForTask = (taskNumber) => {
@@ -173,9 +186,11 @@ const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
-  getStudents: async (teacherId) => {
+  getStudents: async (teacherId, options = {}) => {
     const params = new URLSearchParams();
     if (teacherId) params.append('teacherId', teacherId);
+    if (options?.includeDeleted) params.append('includeDeleted', '1');
+    if (options?.deletedOnly) params.append('deletedOnly', '1');
     const qs = params.toString();
     const res = await fetch(qs ? `/api/students?${qs}` : '/api/students');
     if (!res.ok) throw new Error(await parseApiError(res));
@@ -192,6 +207,11 @@ const api = {
   },
   deleteStudent: async (id) => {
     const res = await fetch(`/api/students/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  restoreStudent: async (id) => {
+    const res = await fetch(`/api/students/${id}/restore`, { method: 'POST' });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
@@ -266,7 +286,20 @@ const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  getTasks: () => new Promise(r => setTimeout(() => r(MOCK_TASKS), 600)),
+  getTaskTitles: async () => {
+    const res = await fetch('/api/task-titles');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updateTaskTitle: async (number, title) => {
+    const res = await fetch('/api/task-titles', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ number, title }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getStudentProgress: async (studentId) => {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);
@@ -298,6 +331,16 @@ const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ studentId, ...payload }),
     });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getTeacherSolvedEvents: async (teacherId, since, limit) => {
+    const params = new URLSearchParams();
+    if (teacherId) params.append('teacherId', String(teacherId));
+    if (since) params.append('since', String(since));
+    if (limit) params.append('limit', String(limit));
+    const qs = params.toString();
+    const res = await fetch(qs ? `/api/teacher-solved-events?${qs}` : '/api/teacher-solved-events');
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
@@ -618,10 +661,15 @@ const TeacherPanel = ({
   students,
   studentsLoading,
   studentsError,
+  deletedStudents,
+  deletedStudentsLoading,
+  deletedStudentsError,
+  tasks,
   activeStudentId,
   onSelectStudent,
   onStudentCreated,
   onStudentDeleted,
+  onStudentRestored,
   onStudentUpdated,
   teacherId
 }) => {
@@ -635,6 +683,7 @@ const TeacherPanel = ({
   const [studentActionError, setStudentActionError] = useState('');
   const [lastIssuedCode, setLastIssuedCode] = useState(null);
   const [resettingStudentId, setResettingStudentId] = useState(null);
+  const [restoringStudentId, setRestoringStudentId] = useState(null);
   const [teacherCodeForm, setTeacherCodeForm] = useState({ current: '', next: '', repeat: '' });
   const [teacherCodeError, setTeacherCodeError] = useState('');
   const [teacherCodeSuccess, setTeacherCodeSuccess] = useState('');
@@ -799,6 +848,21 @@ const TeacherPanel = ({
 
   const currentQuestions = testDb?.[selectedTask]?.[selectedLevel] || [];
   const studentsList = students || [];
+  const deletedStudentsList = deletedStudents || [];
+  const tasksList = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
+  const formatDeletedDate = (iso) => {
+    if (!iso) return '';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+  };
+  const getDeletedDaysLeft = (iso) => {
+    if (!iso) return null;
+    const deletedAt = new Date(iso).getTime();
+    if (!Number.isFinite(deletedAt)) return null;
+    const daysPassed = Math.floor((Date.now() - deletedAt) / (1000 * 60 * 60 * 24));
+    return Math.max(0, SOFT_DELETE_DAYS - daysPassed);
+  };
 
   const addScreenshotFiles = (fileList) => {
     const incoming = Array.from(fileList || []).filter((file) => file.type?.startsWith('image/'));
@@ -897,11 +961,12 @@ const TeacherPanel = ({
 
   const handleDeleteStudent = async (student) => {
     if (!student?.id) return;
-    if (!confirm(`Удалить ученика "${student.name}"? Все файлы и прогресс будут удалены.`)) return;
+    if (!confirm(`Удалить ученика "${student.name}"? Ученик скроется, но его можно восстановить в течение 30 дней.`)) return;
     setStudentActionLoading(true);
     try {
-      await api.deleteStudent(student.id);
-      onStudentDeleted?.(student.id);
+      const res = await api.deleteStudent(student.id);
+      const deletedAt = res?.deletedAt || new Date().toISOString();
+      onStudentDeleted?.({ ...student, deletedAt });
     } catch (err) {
       alert(err?.message || err);
     } finally {
@@ -921,6 +986,20 @@ const TeacherPanel = ({
       alert(err?.message || err);
     } finally {
       setResettingStudentId(null);
+    }
+  };
+
+  const handleRestoreStudent = async (student) => {
+    if (!student?.id) return;
+    if (!confirm(`Восстановить ученика "${student.name}"?`)) return;
+    setRestoringStudentId(student.id);
+    try {
+      const restored = await api.restoreStudent(student.id);
+      onStudentRestored?.(restored);
+    } catch (err) {
+      alert(err?.message || err);
+    } finally {
+      setRestoringStudentId(null);
     }
   };
 
@@ -1164,6 +1243,52 @@ const TeacherPanel = ({
             ))
           )}
         </div>
+
+        <div className="mt-6 border-t border-gray-100 pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <h4 className="text-sm font-semibold text-gray-700">Удалённые ученики</h4>
+            <span className="text-xs text-gray-400">восстановление {SOFT_DELETE_DAYS} дней</span>
+          </div>
+          {deletedStudentsError && <p className="text-xs text-red-500 mb-2">{deletedStudentsError}</p>}
+          {deletedStudentsLoading ? (
+            <div className="text-sm text-gray-500">Загрузка удалённых...</div>
+          ) : deletedStudentsList.length === 0 ? (
+            <div className="text-sm text-gray-400">Нет удалённых учеников.</div>
+          ) : (
+            <div className="space-y-2">
+              {deletedStudentsList.map((student) => {
+                const daysLeft = getDeletedDaysLeft(student.deletedAt);
+                return (
+                  <div
+                    key={student.id}
+                    className="p-3 rounded-xl border border-gray-200 bg-gray-50 flex flex-wrap items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-700 truncate">{student.name}</p>
+                      {student.nickname && (
+                        <p className="text-xs text-purple-600 truncate">Прозвище: {student.nickname}</p>
+                      )}
+                      <p className="text-xs text-gray-500">
+                        Удалён: {formatDeletedDate(student.deletedAt) || '—'}
+                      </p>
+                      {daysLeft !== null && (
+                        <p className="text-xs text-gray-500">Осталось: {daysLeft} дн.</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRestoreStudent(student); }}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs hover:bg-emerald-700 disabled:opacity-60"
+                      type="button"
+                      disabled={restoringStudentId === student.id}
+                    >
+                      {restoringStudentId === student.id ? '...' : 'Восстановить'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </Card>
 
       <Card className="mb-6">
@@ -1211,7 +1336,7 @@ const TeacherPanel = ({
               onChange={(e) => setSelectedTask(Number(e.target.value))}
               className="w-full p-3 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:border-purple-500"
             >
-              {MOCK_TASKS.map(t => (
+              {tasksList.map(t => (
                 <option key={t.id} value={t.number}>Задание {t.number}: {t.title}</option>
               ))}
             </select>
@@ -2332,13 +2457,15 @@ const ProgressSection = ({
   role,
   studentId,
   students,
+  tasks,
+  onTaskTitleUpdate,
   activeStudentId,
   onSelectStudent,
   studentsLoading,
   openTask,
   onOpenTaskHandled
 }) => {
-  const [tasks, setTasks] = useState([]);
+  const taskList = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const [activeTask, setActiveTask] = useState(null);
   const [autoLevel, setAutoLevel] = useState(null);
   const [autoTargetQuestions, setAutoTargetQuestions] = useState(null);
@@ -2349,10 +2476,37 @@ const ProgressSection = ({
   const [testsDbError, setTestsDbError] = useState('');
   const [notesSavingId, setNotesSavingId] = useState(null);
   const [mockForm, setMockForm] = useState({ date: '', score: '', comment: '' });
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [editingTaskTitle, setEditingTaskTitle] = useState('');
+  const [savingTaskTitleId, setSavingTaskTitleId] = useState(null);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
 
-  useEffect(() => { api.getTasks().then(setTasks); }, []);
+  const startEditTaskTitle = (task) => {
+    if (!task) return;
+    setEditingTaskId(task.number);
+    setEditingTaskTitle(task.title || '');
+  };
+
+  const cancelEditTaskTitle = () => {
+    setEditingTaskId(null);
+    setEditingTaskTitle('');
+  };
+
+  const saveTaskTitle = async (task) => {
+    if (!task) return;
+    const title = editingTaskTitle.trim();
+    setSavingTaskTitleId(task.number);
+    try {
+      await api.updateTaskTitle(task.number, title);
+      onTaskTitleUpdate?.(task.number, title);
+      cancelEditTaskTitle();
+    } catch (err) {
+      alert(err?.message || err);
+    } finally {
+      setSavingTaskTitleId(null);
+    }
+  };
 
   useEffect(() => {
     if (!effectiveStudentId) {
@@ -2398,12 +2552,12 @@ const ProgressSection = ({
     setActiveTask(null);
     setAutoLevel(null);
     setAutoTargetQuestions(null);
+    cancelEditTaskTitle();
   }, [section, effectiveStudentId]);
 
   useEffect(() => {
     if (role !== 'student' || !openTask) return;
-    const list = tasks.length ? tasks : MOCK_TASKS;
-    const target = list.find((task) => Number(task.number) === Number(openTask.taskNumber));
+    const target = taskList.find((task) => Number(task.number) === Number(openTask.taskNumber));
     if (!target) {
       onOpenTaskHandled?.();
       return;
@@ -2413,20 +2567,19 @@ const ProgressSection = ({
     setAutoLevel(openTask.levelId || null);
     setAutoTargetQuestions(Array.isArray(openTask.targetQuestions) ? openTask.targetQuestions : null);
     onOpenTaskHandled?.();
-  }, [openTask, role, tasks, onOpenTaskHandled]);
+  }, [openTask, role, taskList, onOpenTaskHandled]);
 
   const progressMap = role === 'teacher'
     ? (studentData.progress || {})
     : (Object.keys(progress || {}).length ? progress : (studentData.progress || {}));
 
   const totalMastery = (() => {
-    const list = tasks.length ? tasks : MOCK_TASKS;
-    if (!list.length) return 0;
-    const total = list.reduce((sum, task) => {
+    if (!taskList.length) return 0;
+    const total = taskList.reduce((sum, task) => {
       const val = Number(progressMap[task.id] || 0);
       return sum + (Number.isFinite(val) ? Math.max(0, Math.min(100, val)) : 0);
     }, 0);
-    return Math.round((total / list.length) * 10) / 10;
+    return Math.round((total / taskList.length) * 10) / 10;
   })();
   const totalMasteryLabel = Number.isFinite(totalMastery) && totalMastery % 1 !== 0
     ? totalMastery.toFixed(1)
@@ -2599,7 +2752,7 @@ const ProgressSection = ({
       {section === 'progress' && (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {tasks.map((task) => {
+            {taskList.map((task) => {
               const val = progressMap[task.id] || 0;
               const clickable = role === 'student';
               return (
@@ -2612,7 +2765,47 @@ const ProgressSection = ({
                     <span className="bg-purple-50 text-purple-700 px-2 py-1 rounded text-xs font-bold">№{task.number}</span>
                     <span className="font-bold text-gray-700">{val}%</span>
                   </div>
-                  <h3 className="font-bold text-gray-800 truncate">{task.title}</h3>
+                  <div className="flex items-start justify-between gap-2">
+                    {editingTaskId === task.number ? (
+                      <input
+                        type="text"
+                        value={editingTaskTitle}
+                        onChange={(e) => setEditingTaskTitle(e.target.value)}
+                        onBlur={() => saveTaskTitle(task)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveTaskTitle(task);
+                          if (e.key === 'Escape') cancelEditTaskTitle();
+                        }}
+                        className="w-full px-2 py-1 rounded-lg bg-white border border-purple-200 focus:border-purple-500 outline-none text-sm font-semibold text-gray-800"
+                        placeholder="Название темы"
+                        autoFocus
+                      />
+                    ) : (
+                      <h3 className="font-bold text-gray-800 truncate">{task.title}</h3>
+                    )}
+                    {role === 'teacher' && editingTaskId !== task.number && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); startEditTaskTitle(task); }}
+                        className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:text-purple-600 hover:border-purple-200"
+                        title="Переименовать тему"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    )}
+                    {role === 'teacher' && editingTaskId === task.number && (
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={(e) => { e.stopPropagation(); saveTaskTitle(task); }}
+                        className="p-1.5 rounded-lg border border-purple-200 text-purple-600 hover:bg-purple-50 disabled:opacity-50"
+                        title="Сохранить"
+                        disabled={savingTaskTitleId === task.number}
+                      >
+                        <Save size={14} />
+                      </button>
+                    )}
+                  </div>
                   <ProgressBar value={val} />
 
                   {clickable && (
@@ -3315,7 +3508,7 @@ const ScheduleSection = ({
           <div className="text-gray-500">Загрузка...</div>
         ) : sortedHomeworks.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-gray-400">
-            Домашка пока не задана.
+            Комментариев учителя нет.
           </div>
         ) : (
           <div className="space-y-4">
@@ -3421,7 +3614,7 @@ const ScheduleSection = ({
                   <div className="rounded-xl border bg-gray-50 p-4">
                     <p className="text-xs font-bold text-gray-400 uppercase mb-2">Домашка</p>
                     <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                      {entry?.homeWork ? entry.homeWork : 'Домашка пока не задана.'}
+                      {entry?.homeWork ? entry.homeWork : 'Комментариев учителя нет.'}
                     </p>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -4496,9 +4689,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const [goalTestsDb, setGoalTestsDb] = useState(null);
   const [goalRefreshTick, setGoalRefreshTick] = useState(0);
   const [goalCollapsed, setGoalCollapsed] = useState(false);
+  const [teacherNotifs, setTeacherNotifs] = useState([]);
+  const teacherReadIdsRef = useRef(new Set());
+  const teacherShownIdsRef = useRef(new Set());
+  const [taskTitles, setTaskTitles] = useState({});
   const [students, setStudents] = useState([]);
   const [studentsLoading, setStudentsLoading] = useState(false);
   const [studentsError, setStudentsError] = useState('');
+  const [deletedStudents, setDeletedStudents] = useState([]);
+  const [deletedStudentsLoading, setDeletedStudentsLoading] = useState(false);
+  const [deletedStudentsError, setDeletedStudentsError] = useState('');
   const [activeStudentId, setActiveStudentId] = useState(null);
   const [teachers, setTeachers] = useState([]);
   const [teachersLoading, setTeachersLoading] = useState(false);
@@ -4506,6 +4706,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const studentsWithNicknames = useMemo(
     () => students,
     [students]
+  );
+  const tasksWithTitles = useMemo(
+    () => applyTaskTitles(MOCK_TASKS, taskTitles),
+    [taskTitles]
   );
 
   const nav = user.role === 'admin'
@@ -4539,6 +4743,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     }
   };
 
+  const loadDeletedStudents = async (teacherId) => {
+    setDeletedStudentsLoading(true);
+    try {
+      const data = await api.getStudents(teacherId, { deletedOnly: true });
+      setDeletedStudents(data);
+      setDeletedStudentsError('');
+    } catch (err) {
+      setDeletedStudentsError(err?.message || err);
+    } finally {
+      setDeletedStudentsLoading(false);
+    }
+  };
+
   const loadTeachers = async () => {
     setTeachersLoading(true);
     try {
@@ -4555,11 +4772,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   useEffect(() => {
     if (user.role === 'teacher') {
       loadStudents(user.id);
+      loadDeletedStudents(user.id);
     } else {
       setStudents([]);
       setActiveStudentId(null);
       setStudentsError('');
       setStudentsLoading(false);
+      setDeletedStudents([]);
+      setDeletedStudentsError('');
+      setDeletedStudentsLoading(false);
     }
   }, [user.role, user.id]);
 
@@ -4572,6 +4793,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       setTeachersLoading(false);
     }
   }, [user.role]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getTaskTitles()
+      .then((data) => {
+        if (cancelled) return;
+        setTaskTitles(data && typeof data === 'object' ? data : {});
+      })
+      .catch(() => {
+        if (!cancelled) setTaskTitles({});
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (user.role !== 'student') {
@@ -4608,24 +4842,94 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     } catch {}
   }, [goalCollapsed, user.role]);
 
+  useEffect(() => {
+    if (user.role !== 'teacher') {
+      setTeacherNotifs([]);
+      teacherReadIdsRef.current = new Set();
+      teacherShownIdsRef.current = new Set();
+      return;
+    }
+    let stored = [];
+    try {
+      stored = JSON.parse(localStorage.getItem(`ege_teacher_read_events_${user.id}`) || '[]');
+    } catch {}
+    const validIds = Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : [];
+    teacherReadIdsRef.current = new Set(validIds);
+    teacherShownIdsRef.current = new Set(validIds);
+    setTeacherNotifs([]);
+  }, [user.role, user.id]);
+
+  useEffect(() => {
+    if (user.role !== 'teacher') return;
+    let cancelled = false;
+
+    const fetchEvents = async () => {
+      try {
+        const events = await api.getTeacherSolvedEvents(user.id, null, 200);
+        if (cancelled) return;
+        if (Array.isArray(events) && events.length > 0) {
+          const readIds = teacherReadIdsRef.current;
+          const shownIds = teacherShownIdsRef.current;
+          const fresh = events.filter((ev) => ev?.id && !readIds.has(ev.id) && !shownIds.has(ev.id));
+          if (fresh.length > 0) {
+            const sorted = [...fresh].sort((a, b) => new Date(b.solvedAt) - new Date(a.solvedAt));
+            sorted.forEach((ev) => shownIds.add(ev.id));
+            setTeacherNotifs((prev) => [...sorted, ...prev]);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    fetchEvents();
+    const interval = setInterval(fetchEvents, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [user.role, user.id]);
+
   const handleStudentCreated = (student) => {
     if (!student) return;
     setStudents((prev) => [student, ...prev]);
     setActiveStudentId(student.id);
   };
 
-  const handleStudentDeleted = (id) => {
-    if (!id) return;
+  const handleStudentDeleted = (payload) => {
+    const student = typeof payload === 'string' ? { id: payload } : payload;
+    if (!student?.id) return;
     setStudents((prev) => {
-      const next = prev.filter((s) => s.id !== id);
-      setActiveStudentId((current) => (current === id ? (next[0]?.id || null) : current));
+      const next = prev.filter((s) => s.id !== student.id);
+      setActiveStudentId((current) => (current === student.id ? (next[0]?.id || null) : current));
       return next;
     });
+    setDeletedStudents((prev) => {
+      const filtered = prev.filter((item) => item.id !== student.id);
+      return [{ ...student }, ...filtered];
+    });
+  };
+
+  const handleStudentRestored = (student) => {
+    if (!student?.id) return;
+    setDeletedStudents((prev) => prev.filter((item) => item.id !== student.id));
+    setStudents((prev) => [student, ...prev.filter((item) => item.id !== student.id)]);
+    setActiveStudentId((current) => current || student.id);
   };
 
   const handleStudentUpdated = (student) => {
     if (!student?.id) return;
     setStudents((prev) => prev.map((item) => (item.id === student.id ? { ...item, ...student } : item)));
+  };
+
+  const handleTaskTitleUpdate = (number, title) => {
+    const key = String(number);
+    setTaskTitles((prev) => {
+      const next = { ...(prev || {}) };
+      if (title && title.trim()) next[key] = title.trim();
+      else delete next[key];
+      return next;
+    });
   };
 
   const handleOpenTask = (taskNumber, levelId, targetQuestions) => {
@@ -4729,7 +5033,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           return { num, solved };
         });
         const completed = targetStatus.length > 0 && targetStatus.every((item) => item.solved);
-        const taskInfo = MOCK_TASKS.find((task) => Number(task.number) === Number(taskNumber));
+        const taskInfo = tasksWithTitles.find((task) => Number(task.number) === Number(taskNumber));
         const taskTitle = taskInfo?.title || `Задание ${taskNumber}`;
         const levelLabel = LEVELS[levelId?.toUpperCase()]?.label || levelId;
         return {
@@ -4765,7 +5069,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   useEffect(() => {
     if (user.role !== 'student') return;
     refreshGoalState();
-  }, [user.role, user.id, goalRefreshTick, goalTestsDb]);
+  }, [user.role, user.id, goalRefreshTick, goalTestsDb, taskTitles]);
 
   const goalGoals = Array.isArray(goalState?.goals) ? goalState.goals : [];
   const goalTotals = goalGoals.reduce(
@@ -4779,8 +5083,52 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     { total: 0, solved: 0 }
   );
 
+  const dismissTeacherNotif = (eventId) => {
+    if (!eventId) return;
+    setTeacherNotifs((prev) => prev.filter((note) => note.id !== eventId));
+    const readIds = teacherReadIdsRef.current;
+    readIds.add(eventId);
+    if (readIds.size > 500) {
+      const trimmed = Array.from(readIds).slice(-500);
+      teacherReadIdsRef.current = new Set(trimmed);
+    }
+    try {
+      localStorage.setItem(
+        `ege_teacher_read_events_${user.id}`,
+        JSON.stringify(Array.from(teacherReadIdsRef.current))
+      );
+    } catch {}
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex font-sans">
+      {user.role === 'teacher' && teacherNotifs.length > 0 && (
+        <div className="fixed top-4 right-4 z-[1200] space-y-3 max-w-[320px]">
+          {teacherNotifs.map((note) => {
+            const levelLabel = LEVELS[note.levelId?.toUpperCase()]?.label || note.levelId || '';
+            const questionPart = note.questionNumber ? ` · вопрос ${note.questionNumber}` : '';
+            return (
+              <div key={note.id} className="rounded-2xl border border-purple-200 bg-white shadow-lg px-4 py-3 text-sm text-gray-700 relative">
+                <button
+                  type="button"
+                  onClick={() => dismissTeacherNotif(note.id)}
+                  className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
+                  aria-label="Закрыть уведомление"
+                >
+                  <X size={16} />
+                </button>
+                <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Новая отметка</div>
+                <div className="mt-1 font-semibold text-gray-900 truncate">
+                  {note.studentName || 'Ученик'}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {`Решено: задание ${note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
       <StudentTour
         user={user}
         view={view}
@@ -4952,6 +5300,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               role={user.role}
               studentId={user.id}
               students={studentsWithNicknames}
+              tasks={tasksWithTitles}
+              onTaskTitleUpdate={handleTaskTitleUpdate}
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
               studentsLoading={studentsLoading}
@@ -4975,10 +5325,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               students={studentsWithNicknames}
               studentsLoading={studentsLoading}
               studentsError={studentsError}
+              deletedStudents={deletedStudents}
+              deletedStudentsLoading={deletedStudentsLoading}
+              deletedStudentsError={deletedStudentsError}
+              tasks={tasksWithTitles}
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
               onStudentCreated={handleStudentCreated}
               onStudentDeleted={handleStudentDeleted}
+              onStudentRestored={handleStudentRestored}
               onStudentUpdated={handleStudentUpdated}
               teacherId={user.role === 'teacher' ? user.id : null}
             />

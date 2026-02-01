@@ -19,6 +19,7 @@ const studentsFile = path.join(dataDir, 'students.json');
 const teachersFile = path.join(dataDir, 'teachers.json');
 const progressFile = path.join(dataDir, 'progress.json');
 const testsFile = path.join(dataDir, 'tests.json');
+const taskTitlesFile = path.join(dataDir, 'task-titles.json');
 const authFile = path.join(dataDir, 'auth.json');
 const usageFile = path.join(dataDir, 'usage.json');
 const MAX_TASK_BYTES = 100 * 1024 * 1024;
@@ -46,6 +47,8 @@ const LEVEL_WEIGHTS = {
   advanced: 20,
   expert: 10,
 };
+const SOFT_DELETE_DAYS = 30;
+const SOFT_DELETE_TTL_MS = SOFT_DELETE_DAYS * 24 * 60 * 60 * 1000;
 
 
 fs.mkdirSync(uploadsDir, { recursive: true });
@@ -91,7 +94,8 @@ const readStudentsDb = () => {
   try {
     const raw = fs.readFileSync(studentsFile, 'utf8');
     const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
+    const list = Array.isArray(data) ? data : [];
+    return purgeExpiredDeletedStudents(list);
   } catch {
     return [];
   }
@@ -104,6 +108,16 @@ const readTeachersDb = () => {
     return Array.isArray(data) ? data : [];
   } catch {
     return [];
+  }
+};
+
+const readTaskTitlesDb = () => {
+  try {
+    const raw = fs.readFileSync(taskTitlesFile, 'utf8');
+    const data = JSON.parse(raw);
+    return data && typeof data === 'object' ? data : {};
+  } catch {
+    return {};
   }
 };
 
@@ -133,6 +147,10 @@ const writeTeachersDb = (data) => {
   fs.writeFileSync(teachersFile, JSON.stringify(data, null, 2), 'utf8');
 };
 
+const writeTaskTitlesDb = (data) => {
+  fs.writeFileSync(taskTitlesFile, JSON.stringify(data, null, 2), 'utf8');
+};
+
 const writeProgressDb = (data) => {
   fs.writeFileSync(progressFile, JSON.stringify(data, null, 2), 'utf8');
 };
@@ -149,6 +167,79 @@ const readUsageDb = () => {
 
 const writeUsageDb = (data) => {
   fs.writeFileSync(usageFile, JSON.stringify(data, null, 2), 'utf8');
+};
+
+const isStudentDeleted = (student) => Boolean(student?.deletedAt);
+const isActiveStudent = (student) => Boolean(student && !student.deletedAt);
+const hasActiveStudent = (students, studentId) =>
+  students.some((student) => student.id === studentId && !student.deletedAt);
+
+const hardDeleteStudentData = (studentIds = []) => {
+  const ids = Array.isArray(studentIds) ? studentIds.filter(Boolean) : [];
+  if (ids.length === 0) return;
+  const idSet = new Set(ids);
+
+  const files = readFilesDb();
+  const remainingFiles = [];
+  const removedFiles = [];
+  for (const file of files) {
+    if (idSet.has(file.studentId)) removedFiles.push(file);
+    else remainingFiles.push(file);
+  }
+  if (removedFiles.length > 0) {
+    writeFilesDb(remainingFiles);
+    for (const file of removedFiles) {
+      if (file?.storageName) {
+        const filePath = path.join(uploadsDir, file.storageName);
+        fs.unlink(filePath, () => {});
+      }
+    }
+  }
+
+  const folders = readFoldersDb().filter((folder) => !idSet.has(folder.studentId));
+  writeFoldersDb(folders);
+
+  const progressDb = readProgressDb();
+  let progressChanged = false;
+  ids.forEach((id) => {
+    if (progressDb[id]) {
+      delete progressDb[id];
+      progressChanged = true;
+    }
+  });
+  if (progressChanged) writeProgressDb(progressDb);
+
+  const usageDb = readUsageDb();
+  let usageChanged = false;
+  ids.forEach((id) => {
+    if (usageDb[id]) {
+      delete usageDb[id];
+      usageChanged = true;
+    }
+  });
+  if (usageChanged) writeUsageDb(usageDb);
+};
+
+const purgeExpiredDeletedStudents = (students = []) => {
+  if (!Array.isArray(students) || students.length === 0) return students;
+  const now = Date.now();
+  const expired = [];
+  const remaining = [];
+  students.forEach((student) => {
+    if (student?.deletedAt) {
+      const deletedAtMs = Date.parse(student.deletedAt);
+      if (Number.isFinite(deletedAtMs) && now - deletedAtMs > SOFT_DELETE_TTL_MS) {
+        expired.push(student);
+        return;
+      }
+    }
+    remaining.push(student);
+  });
+  if (expired.length > 0) {
+    writeStudentsDb(remaining);
+    hardDeleteStudentData(expired.map((student) => student.id));
+  }
+  return remaining;
 };
 
 const readTestsDb = () => {
@@ -341,7 +432,7 @@ const recomputeProgressFromSolved = (data) => {
 const getStudentData = (studentId) => {
   const db = readProgressDb();
   const raw = db[studentId];
-  if (!raw) return { progress: {}, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [] };
+  if (!raw) return { progress: {}, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [] };
   if (raw.progress || raw.notes || raw.notesByTask || raw.mocks || raw.schedule || raw.solvedByTask) {
     return {
       progress: raw.progress || {},
@@ -350,11 +441,12 @@ const getStudentData = (studentId) => {
       mocks: Array.isArray(raw.mocks) ? raw.mocks : [],
       schedule: Array.isArray(raw.schedule) ? raw.schedule : [],
       solvedByTask: raw.solvedByTask && typeof raw.solvedByTask === 'object' ? raw.solvedByTask : {},
+      solvedEvents: Array.isArray(raw.solvedEvents) ? raw.solvedEvents : [],
       nextLesson: raw.nextLesson && typeof raw.nextLesson === 'object' ? raw.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
       homeworks: Array.isArray(raw.homeworks) ? raw.homeworks : [],
     };
   }
-  return { progress: raw, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [] };
+  return { progress: raw, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [] };
 };
 
 const setStudentData = (studentId, data) => {
@@ -366,6 +458,7 @@ const setStudentData = (studentId, data) => {
     mocks: Array.isArray(data.mocks) ? data.mocks : [],
     schedule: Array.isArray(data.schedule) ? data.schedule : [],
     solvedByTask: data.solvedByTask && typeof data.solvedByTask === 'object' ? data.solvedByTask : {},
+    solvedEvents: Array.isArray(data.solvedEvents) ? data.solvedEvents : [],
     nextLesson: data.nextLesson && typeof data.nextLesson === 'object' ? data.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
     homeworks: Array.isArray(data.homeworks) ? data.homeworks : [],
   };
@@ -431,6 +524,17 @@ const normalizeGoalsFromLegacy = (entry, testsDb = null) => {
   const totalCount = getQuestionsCountForLevel(testsDb, taskNum, levelId);
   const targets = filterTargetsByCount(targetsRaw, totalCount);
   return [{ taskNumber: taskNum, levelId, includeAll, targetQuestions: targets }];
+};
+
+const getQuestionNumberById = (testsDb, taskNum, levelId, questionId) => {
+  if (!testsDb || !taskNum || !levelId || !questionId) return null;
+  const task = testsDb[String(taskNum)] || testsDb[taskNum];
+  const list = task?.[String(levelId)] || task?.[levelId];
+  if (!Array.isArray(list)) return null;
+  const targetId = String(questionId);
+  const idx = list.findIndex((q) => String(q?.id ?? '') === targetId);
+  if (idx < 0) return null;
+  return idx + 1;
 };
 
 const formatSize = (bytes) => {
@@ -671,7 +775,7 @@ const handleUploadRequest = (req, res) => {
   const studentId = typeof req.query.studentId === 'string' ? req.query.studentId : '';
   if (studentId) {
     const students = readStudentsDb();
-    if (!students.some((s) => s.id === studentId)) {
+    if (!hasActiveStudent(students, studentId)) {
       return res.status(404).send('Ученик не найден');
     }
     const requestSize = getRangeSize(req.headers.range, stat.size);
@@ -723,11 +827,21 @@ app.post('/api/login', (req, res) => {
 
   const students = readStudentsDb();
   const student = students.find((entry) => {
+    if (entry?.deletedAt) return false;
     if (entry?.codeHash) return verifyCode(normalizedCode, entry.codeHash);
     if (entry?.code) return entry.code === normalizedCode;
     return false;
   });
   if (!student) {
+    const deletedMatch = students.find((entry) => {
+      if (!entry?.deletedAt) return false;
+      if (entry?.codeHash) return verifyCode(normalizedCode, entry.codeHash);
+      if (entry?.code) return entry.code === normalizedCode;
+      return false;
+    });
+    if (deletedMatch) {
+      return res.status(403).json({ error: 'РЎС‚СѓРґРµРЅС‚ СѓРґР°Р»С‘РЅ. РћР±СЂР°С‚РёС‚РµСЃСЊ Рє СѓС‡РёС‚РµР»СЋ.' });
+    }
     const blocked = registerLoginFailure(clientKey);
     if (blocked.blocked) {
       return res.status(429).json({
@@ -743,10 +857,17 @@ app.post('/api/login', (req, res) => {
 });
 
 app.get('/api/students', (req, res) => {
-  const { teacherId } = req.query;
+  const { teacherId, includeDeleted, deletedOnly } = req.query;
   let students = readStudentsDb();
   if (teacherId) {
     students = students.filter((s) => s.teacherId === teacherId);
+  }
+  const includeDeletedFlag = includeDeleted === '1' || includeDeleted === 'true';
+  const deletedOnlyFlag = deletedOnly === '1' || deletedOnly === 'true';
+  if (deletedOnlyFlag) {
+    students = students.filter(isStudentDeleted);
+  } else if (!includeDeletedFlag) {
+    students = students.filter(isActiveStudent);
   }
   const sanitized = students.map(({ codeHash, code, ...rest }) => rest);
   res.json(sanitized);
@@ -775,6 +896,7 @@ app.post('/api/students', (req, res) => {
     codeHash: hashCode(plainCode),
     codeHint: getCodeHint(plainCode),
     createdAt: new Date().toISOString(),
+    deletedAt: null,
   };
   students.unshift(entry);
   writeStudentsDb(students);
@@ -793,38 +915,80 @@ app.delete('/api/students/:id', (req, res) => {
   const { id } = req.params;
   const students = readStudentsDb();
   const idx = students.findIndex((s) => s.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Ученик не найден' });
+  if (idx === -1) return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
+  if (students[idx]?.deletedAt) return res.status(404).json({ error: 'РЈС‡РµРЅРёРє СѓРґР°Р»С‘РЅ' });
 
-  students.splice(idx, 1);
+  const existing = students[idx];
+  if (existing?.deletedAt) {
+    return res.json({ ok: true, deletedAt: existing.deletedAt });
+  }
+  const deletedAt = new Date().toISOString();
+  students[idx] = { ...existing, deletedAt };
   writeStudentsDb(students);
 
-  const files = readFilesDb();
-  const remainingFiles = [];
-  const removedFiles = [];
-  for (const file of files) {
-    if (file.studentId === id) removedFiles.push(file);
-    else remainingFiles.push(file);
-  }
-  if (removedFiles.length > 0) {
-    writeFilesDb(remainingFiles);
-    for (const file of removedFiles) {
-      if (file?.storageName) {
-        const filePath = path.join(uploadsDir, file.storageName);
-        fs.unlink(filePath, () => {});
-      }
-    }
-  }
+  res.json({ ok: true, deletedAt });
+});
 
-  const folders = readFoldersDb().filter((f) => f.studentId !== id);
-  writeFoldersDb(folders);
+app.post('/api/students/:id/restore', (req, res) => {
+  const { id } = req.params;
+  const students = readStudentsDb();
+  const idx = students.findIndex((s) => s.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
 
-  const progressDb = readProgressDb();
-  if (progressDb[id]) {
-    delete progressDb[id];
-    writeProgressDb(progressDb);
+  const existing = students[idx];
+  if (!existing?.deletedAt) {
+    return res.status(400).json({ error: 'РЈС‡РµРЅРёРє РЅРµ СѓРґР°Р»С‘РЅ' });
+  }
+  const deletedAtMs = Date.parse(existing.deletedAt);
+  if (!Number.isFinite(deletedAtMs)) {
+    return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅР°СЏ РґР°С‚Р° СѓРґР°Р»РµРЅРёСЏ' });
+  }
+  if (Date.now() - deletedAtMs > SOFT_DELETE_TTL_MS) {
+    students.splice(idx, 1);
+    writeStudentsDb(students);
+    hardDeleteStudentData([existing.id]);
+    return res.status(410).json({ error: 'РЎСЂРѕРє РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёСЏ РёСЃС‚С‘Рє' });
   }
 
-  res.json({ ok: true });
+  const restored = { ...existing, deletedAt: null };
+  students[idx] = restored;
+  writeStudentsDb(students);
+  res.json({
+    id: restored.id,
+    name: restored.name,
+    nickname: restored.nickname || '',
+    teacherId: restored.teacherId,
+    codeHint: restored.codeHint,
+    createdAt: restored.createdAt,
+    deletedAt: restored.deletedAt
+  });
+});
+
+app.get('/api/task-titles', (_req, res) => {
+  const data = readTaskTitlesDb();
+  res.json(data || {});
+});
+
+app.patch('/api/task-titles', (req, res) => {
+  const { number, title } = req.body || {};
+  const taskNumber = Number(number);
+  if (!Number.isFinite(taskNumber) || taskNumber < 1 || taskNumber > 27) {
+    return res.status(400).json({ error: 'Некорректный номер задания' });
+  }
+  const trimmed = typeof title === 'string' ? title.trim() : '';
+  const db = readTaskTitlesDb();
+  const key = String(taskNumber);
+  if (!trimmed) {
+    if (db[key]) delete db[key];
+    writeTaskTitlesDb(db);
+    return res.json({ ok: true, number: taskNumber, title: '' });
+  }
+  if (trimmed.length > 120) {
+    return res.status(400).json({ error: 'Название слишком длинное' });
+  }
+  db[key] = trimmed;
+  writeTaskTitlesDb(db);
+  res.json({ ok: true, number: taskNumber, title: trimmed });
 });
 
 app.get('/api/teachers', (_req, res) => {
@@ -887,36 +1051,7 @@ app.delete('/api/teachers/:id', (req, res) => {
   if (toRemove.length > 0) {
     const remaining = students.filter((s) => s.teacherId !== id);
     writeStudentsDb(remaining);
-
-    const files = readFilesDb();
-    const remainingFiles = [];
-    const removedFiles = [];
-    for (const file of files) {
-      if (toRemove.some((s) => s.id === file.studentId)) removedFiles.push(file);
-      else remainingFiles.push(file);
-    }
-    if (removedFiles.length > 0) {
-      writeFilesDb(remainingFiles);
-      for (const file of removedFiles) {
-        if (file?.storageName) {
-          const filePath = path.join(uploadsDir, file.storageName);
-          fs.unlink(filePath, () => {});
-        }
-      }
-    }
-
-    const folders = readFoldersDb().filter((f) => !toRemove.some((s) => s.id === f.studentId));
-    writeFoldersDb(folders);
-
-    const progressDb = readProgressDb();
-    let changed = false;
-    for (const student of toRemove) {
-      if (progressDb[student.id]) {
-        delete progressDb[student.id];
-        changed = true;
-      }
-    }
-    if (changed) writeProgressDb(progressDb);
+    hardDeleteStudentData(toRemove.map((student) => student.id));
   }
 
   res.json({ ok: true, removedTeacher: { id: removed.id, name: removed.name } });
@@ -990,6 +1125,7 @@ app.post('/api/students/:id/reset-code', (req, res) => {
   const students = readStudentsDb();
   const idx = students.findIndex((s) => s.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Ученик не найден' });
+  if (students[idx]?.deletedAt) return res.status(404).json({ error: 'Ученик удалён' });
 
   const teachers = readTeachersDb();
   const plainCode = generateStudentCode(students, teachers);
@@ -1061,7 +1197,7 @@ app.patch('/api/progress', (req, res) => {
     return res.status(400).json({ error: 'Некорректное значение' });
   }
   const students = readStudentsDb();
-  if (!students.some((s) => s.id === studentId)) {
+  if (!hasActiveStudent(students, studentId)) {
     return res.status(404).json({ error: 'Ученик не найден' });
   }
 
@@ -1086,12 +1222,14 @@ app.post('/api/progress/solve', (req, res) => {
     return res.status(400).json({ error: 'Некорректный номер задания' });
   }
   const students = readStudentsDb();
-  if (!students.some((s) => s.id === studentId)) {
+  if (!hasActiveStudent(students, studentId)) {
     return res.status(404).json({ error: 'Ученик не найден' });
   }
 
   const data = getStudentData(studentId);
   const solvedByTask = { ...(data.solvedByTask || {}) };
+  const solvedEvents = Array.isArray(data.solvedEvents) ? [...data.solvedEvents] : [];
+  const testsDb = readTestsDb();
   const taskKey = String(taskNum);
   const levelKey = String(levelId);
   const taskEntry = { ...(solvedByTask[taskKey] || {}) };
@@ -1101,6 +1239,16 @@ app.post('/api/progress/solve', (req, res) => {
   const qKey = String(questionId);
   if (!solvedList.includes(qKey)) {
     solvedList.push(qKey);
+    const questionNumber = getQuestionNumberById(testsDb, taskNum, levelKey, qKey);
+    solvedEvents.push({
+      id: crypto.randomUUID(),
+      studentId,
+      taskNumber: taskNum,
+      levelId: levelKey,
+      questionId: qKey,
+      questionNumber,
+      solvedAt: new Date().toISOString(),
+    });
   }
   if (Number.isFinite(total) && total > 0) levelEntry.totalQuestions = total;
   if (Number.isFinite(maxScore) && maxScore > 0) levelEntry.levelMax = maxScore;
@@ -1123,8 +1271,53 @@ app.post('/api/progress/solve', (req, res) => {
   const progress = { ...(data.progress || {}) };
   progress[taskKey] = taskProgress;
 
-  const updated = setStudentData(studentId, { ...data, solvedByTask, progress });
+  if (solvedEvents.length > 200) {
+    solvedEvents.splice(0, solvedEvents.length - 200);
+  }
+  const updated = setStudentData(studentId, { ...data, solvedByTask, solvedEvents, progress });
   res.json({ taskProgress, progress: updated.progress });
+});
+
+app.get('/api/teacher-solved-events', (req, res) => {
+  const { teacherId, since, limit } = req.query;
+  if (!teacherId) return res.status(400).json({ error: 'teacherId required' });
+  const teachers = readTeachersDb();
+  if (!teachers.some((t) => t.id === teacherId)) {
+    return res.status(404).json({ error: 'Учитель не найден' });
+  }
+  const testsDb = readTestsDb();
+  const students = readStudentsDb().filter((s) => s.teacherId === teacherId && !s.deletedAt);
+  const sinceMs = since ? Date.parse(String(since)) : null;
+  const sinceTime = Number.isFinite(sinceMs) ? sinceMs : 0;
+  const events = [];
+
+  students.forEach((student) => {
+    const data = getStudentData(student.id);
+    const list = Array.isArray(data.solvedEvents) ? data.solvedEvents : [];
+    list.forEach((ev) => {
+      const ts = Date.parse(ev?.solvedAt || '');
+      if (!Number.isFinite(ts) || ts <= sinceTime) return;
+      const questionNumber = Number.isFinite(ev?.questionNumber)
+        ? ev.questionNumber
+        : getQuestionNumberById(testsDb, ev?.taskNumber, ev?.levelId, ev?.questionId);
+      events.push({
+        id: ev.id,
+        studentId: student.id,
+        studentName: student.name,
+        taskNumber: ev.taskNumber,
+        levelId: ev.levelId,
+        questionId: ev.questionId,
+        questionNumber,
+        solvedAt: ev.solvedAt,
+      });
+    });
+  });
+
+  const limitNum = Number(limit);
+  const maxLimit = Number.isFinite(limitNum) && limitNum > 0 ? Math.min(limitNum, 200) : 200;
+  events.sort((a, b) => new Date(a.solvedAt) - new Date(b.solvedAt));
+  const limited = events.slice(-maxLimit);
+  res.json(limited);
 });
 
 app.get('/api/progress/solved', (req, res) => {
@@ -1137,7 +1330,7 @@ app.get('/api/progress/solved', (req, res) => {
     return res.status(400).json({ error: 'Некорректный номер задания' });
   }
   const students = readStudentsDb();
-  if (!students.some((s) => s.id === studentId)) {
+  if (!hasActiveStudent(students, studentId)) {
     return res.status(404).json({ error: 'Ученик не найден' });
   }
   const data = getStudentData(studentId);
@@ -1151,7 +1344,7 @@ app.get('/api/student-data', (req, res) => {
   const { studentId } = req.query;
   if (!studentId) return res.status(400).json({ error: 'studentId required' });
   const students = readStudentsDb();
-  if (!students.some((s) => s.id === studentId)) {
+  if (!hasActiveStudent(students, studentId)) {
     return res.status(404).json({ error: 'Ученик не найден' });
   }
   const data = getStudentData(studentId);
@@ -1163,7 +1356,7 @@ app.patch('/api/student-notes', (req, res) => {
   const { studentId, notes, notesByTask } = req.body || {};
   if (!studentId) return res.status(400).json({ error: 'studentId required' });
   const students = readStudentsDb();
-  if (!students.some((s) => s.id === studentId)) {
+  if (!hasActiveStudent(students, studentId)) {
     return res.status(404).json({ error: 'Ученик не найден' });
   }
   const data = getStudentData(studentId);
@@ -1181,7 +1374,7 @@ app.post('/api/mocks', (req, res) => {
   const { studentId, date, score, comment } = req.body || {};
   if (!studentId) return res.status(400).json({ error: 'studentId required' });
   const students = readStudentsDb();
-  if (!students.some((s) => s.id === studentId)) {
+  if (!hasActiveStudent(students, studentId)) {
     return res.status(404).json({ error: 'Ученик не найден' });
   }
   const examDate = typeof date === 'string' && date.trim() ? date.trim() : new Date().toISOString().slice(0, 10);
@@ -1208,7 +1401,7 @@ app.delete('/api/mocks/:id', (req, res) => {
   const { studentId } = req.query;
   if (!studentId) return res.status(400).json({ error: 'studentId required' });
   const students = readStudentsDb();
-  if (!students.some((s) => s.id === studentId)) {
+  if (!hasActiveStudent(students, studentId)) {
     return res.status(404).json({ error: 'Ученик не найден' });
   }
   const data = getStudentData(studentId);
@@ -1221,7 +1414,7 @@ app.get('/api/student-schedule', (req, res) => {
   const { studentId } = req.query;
   if (!studentId) return res.status(400).json({ error: 'studentId required' });
   const students = readStudentsDb();
-  if (!students.some((s) => s.id === studentId)) {
+  if (!hasActiveStudent(students, studentId)) {
     return res.status(404).json({ error: 'Ученик не найден' });
   }
   const data = getStudentData(studentId);
@@ -1240,7 +1433,7 @@ app.post('/api/student-schedule', (req, res) => {
     return res.status(400).json({ error: '\u041d\u0435\u043a\u043e\u0440\u0440\u0435\u043a\u0442\u043d\u0430\u044f \u0434\u0430\u0442\u0430' });
   }
   const students = readStudentsDb();
-  if (!students.some((s) => s.id === studentId)) {
+  if (!hasActiveStudent(students, studentId)) {
     return res.status(404).json({ error: 'Ученик не найден' });
   }
   const resolvedDay = (() => {
@@ -1274,7 +1467,7 @@ app.delete('/api/student-schedule/:id', (req, res) => {
   const { studentId } = req.query;
   if (!studentId) return res.status(400).json({ error: 'studentId required' });
   const students = readStudentsDb();
-  if (!students.some((s) => s.id === studentId)) {
+  if (!hasActiveStudent(students, studentId)) {
     return res.status(404).json({ error: 'Ученик не найден' });
   }
   const data = getStudentData(studentId);
@@ -1287,7 +1480,7 @@ app.get('/api/student-next-lesson', (req, res) => {
   const { studentId } = req.query;
   if (!studentId) return res.status(400).json({ error: 'studentId required' });
   const students = readStudentsDb();
-  if (!students.some((s) => s.id === studentId)) {
+  if (!hasActiveStudent(students, studentId)) {
     return res.status(404).json({ error: 'Ученик не найден' });
   }
   const data = getStudentData(studentId);
@@ -1335,7 +1528,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
   const { studentId, homeWork, lessonLink, boardLink, daysToComplete, taskNumber, levelId, targetQuestions, goals } = req.body || {};
   if (!studentId) return res.status(400).json({ error: 'studentId required' });
   const students = readStudentsDb();
-  if (!students.some((s) => s.id === studentId)) {
+  if (!hasActiveStudent(students, studentId)) {
     return res.status(404).json({ error: 'Ученик не найден' });
   }
   const data = getStudentData(studentId);
@@ -1440,7 +1633,7 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
   const { studentId, homeWork, lessonLink, boardLink, daysToComplete, taskNumber, levelId, targetQuestions, goals } = req.body || {};
   if (!studentId) return res.status(400).json({ error: 'studentId required' });
   const students = readStudentsDb();
-  if (!students.some((s) => s.id === studentId)) {
+  if (!hasActiveStudent(students, studentId)) {
     return res.status(404).json({ error: 'Ученик не найден' });
   }
   const data = getStudentData(studentId);
@@ -1590,7 +1783,7 @@ app.post('/api/folders', (req, res) => {
     return res.status(400).json({ error: 'Некорректные параметры' });
   }
   const students = readStudentsDb();
-  if (!students.some((s) => s.id === studentId)) {
+  if (!hasActiveStudent(students, studentId)) {
     return res.status(404).json({ error: 'Ученик не найден' });
   }
   if (folderName.length > 60) {
@@ -1700,7 +1893,7 @@ app.post('/api/files', upload.single('file'), (req, res) => {
     return res.status(400).json({ error: 'Некорректные параметры' });
   }
   const students = readStudentsDb();
-  if (!students.some((s) => s.id === studentId)) {
+  if (!hasActiveStudent(students, studentId)) {
     try {
       fs.unlinkSync(req.file.path);
     } catch {}
