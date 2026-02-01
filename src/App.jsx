@@ -1796,7 +1796,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
                     <p className="text-xs text-gray-500">
                       {lvl.id === 'basic' && "Базовые прототипы."}
                       {lvl.id === 'advanced' && "Усложненные условия."}
-                      {lvl.id === 'expert' && "Гробы с основной волны."}
+                      {lvl.id === 'expert' && "Статград и сложнее."}
                     </p>
                   </div>
                   <div className="mt-4 pt-4 border-t border-gray-100">
@@ -1937,7 +1937,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
             />
             {computedChecked && (
               <div className={`text-sm ${computedCorrect ? 'text-green-600' : 'text-red-600'}`}>
-                {computedCorrect ? 'Верно!' : `Неверно. Правильный ответ: ${expectedAnswer || '—'}`}
+                {computedCorrect ? 'Верно!' : 'Неверно'}
               </div>
             )}
             </div>
