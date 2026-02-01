@@ -30,6 +30,38 @@ const LEVEL_WEIGHTS = {
   expert: 10,
 };
 
+const getAnswerCountForTask = (taskNumber) => {
+  const num = Number(taskNumber);
+  if (num === 25) return 20;
+  if (num === 27) return 4;
+  if (num === 17 || num === 18 || num === 20 || num === 26) return 2;
+  return 1;
+};
+
+const allowsPartialAnswers = (taskNumber) => Number(taskNumber) === 25;
+
+const getExpectedAnswers = (question, count) => {
+  if (!question) return Array.from({ length: count }, () => '');
+  if (count <= 1) {
+    const fallback = Array.isArray(question?.options)
+      ? question.options[question.correctIndex]
+      : '';
+    return [question.answer ?? fallback ?? ''];
+  }
+  const fromArray = Array.isArray(question.answers) ? question.answers : [];
+  if (fromArray.length) {
+    const filled = [...fromArray];
+    while (filled.length < count) filled.push('');
+    return filled.slice(0, count);
+  }
+  const answers = [];
+  for (let i = 1; i <= count; i += 1) {
+    const key = i === 1 ? 'answer' : `answer${i}`;
+    answers.push(question?.[key] ?? '');
+  }
+  return answers;
+};
+
 const getStudentLabel = (student) => {
   if (!student) return '';
   const nickname = typeof student.nickname === 'string' ? student.nickname.trim() : '';
@@ -646,11 +678,29 @@ const TeacherPanel = ({
   
   // Form state
   const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
+  const [answerInputs, setAnswerInputs] = useState(['']);
+  const answerCount = getAnswerCountForTask(selectedTask);
+
+  useEffect(() => {
+    setAnswerInputs((prev) => {
+      const next = Array.from({ length: answerCount }, (_, i) => prev[i] ?? '');
+      return next;
+    });
+  }, [answerCount]);
 
   const handleAddQuestion = async () => {
-    if (!answer.trim()) {
-      alert("Введите правильный ответ");
+    const requiredCount = getAnswerCountForTask(selectedTask);
+    const trimmedAnswers = answerInputs.map((val) => String(val ?? '').trim());
+    const answersSlice = trimmedAnswers.slice(0, requiredCount);
+    const hasEmpty = answersSlice.some((val) => !val);
+    const hasAny = answersSlice.some((val) => val);
+    if (requiredCount > 1 && allowsPartialAnswers(selectedTask)) {
+      if (!hasAny) {
+        alert("Введите хотя бы один правильный ответ");
+        return;
+      }
+    } else if (hasEmpty) {
+      alert(requiredCount > 1 ? "Введите все правильные ответы" : "Введите правильный ответ");
       return;
     }
     if (!question.trim() && questionScreenshots.length === 0 && questionFiles.length === 0) {
@@ -682,7 +732,9 @@ const TeacherPanel = ({
     const newQuestion = {
       id: Date.now(),
       question: question.trim(),
-      answer: answer.trim(),
+      ...(requiredCount > 1
+        ? { answers: answersSlice }
+        : { answer: trimmedAnswers[0] }),
       screenshots: uploadedScreenshots,
       files: uploadedFiles
     };
@@ -704,7 +756,7 @@ const TeacherPanel = ({
     
     // Reset form
     setQuestion("");
-    setAnswer("");
+    setAnswerInputs(Array.from({ length: requiredCount }, () => ''));
     setQuestionScreenshots([]);
     setQuestionFiles([]);
     if (screenshotsRef.current) screenshotsRef.current.value = '';
@@ -1307,13 +1359,79 @@ const TeacherPanel = ({
 
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Правильный ответ</label>
-                <input
-                  type="text"
-                  value={answer}
-                  onChange={(e) => setAnswer(e.target.value)}
-                  className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
-                  placeholder="Введите правильный ответ"
-                />
+                {answerCount > 1 ? (
+                  answerCount === 20 ? (
+                    <div className="grid grid-cols-[32px_1fr_1fr] gap-2">
+                      {Array.from({ length: 10 }).map((_, rowIdx) => {
+                        const leftIdx = rowIdx;
+                        const rightIdx = rowIdx + 10;
+                        return (
+                          <React.Fragment key={rowIdx}>
+                            <div className="flex items-center justify-center text-xs font-bold text-gray-500">
+                              {rowIdx + 1}
+                            </div>
+                            <input
+                              type="text"
+                              value={answerInputs[leftIdx] ?? ''}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setAnswerInputs((prev) => {
+                                  const next = [...prev];
+                                  next[leftIdx] = value;
+                                  return next;
+                                });
+                              }}
+                              className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
+                              placeholder="Ответ 1"
+                            />
+                            <input
+                              type="text"
+                              value={answerInputs[rightIdx] ?? ''}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setAnswerInputs((prev) => {
+                                  const next = [...prev];
+                                  next[rightIdx] = value;
+                                  return next;
+                                });
+                              }}
+                              className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
+                              placeholder="Ответ 2"
+                            />
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {Array.from({ length: answerCount }).map((_, idx) => (
+                        <input
+                          key={idx}
+                          type="text"
+                          value={answerInputs[idx] ?? ''}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setAnswerInputs((prev) => {
+                              const next = [...prev];
+                              next[idx] = value;
+                              return next;
+                            });
+                          }}
+                          className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
+                          placeholder={`Ответ ${idx + 1}`}
+                        />
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  <input
+                    type="text"
+                    value={answerInputs[0] ?? ''}
+                    onChange={(e) => setAnswerInputs([e.target.value])}
+                    className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
+                    placeholder="Введите правильный ответ"
+                  />
+                )}
               </div>
 
               <div className="pt-2">
@@ -1338,7 +1456,17 @@ const TeacherPanel = ({
                     <span className="text-xs font-bold text-gray-400">#{idx + 1}</span>
                     <p className="text-gray-800 font-medium mb-1">{q.question || 'Вопрос без текста'}</p>
                     <div className="text-xs text-gray-500 flex gap-2">
-                       <span>Ответ: <span className="text-green-600 font-bold">{q.answer || (Array.isArray(q.options) ? q.options[q.correctIndex] : '')}</span></span>
+                       <span>
+                        Ответ:{' '}
+                        <span className="text-green-600 font-bold">
+                          {(() => {
+                            const count = getAnswerCountForTask(selectedTask);
+                            const answers = getExpectedAnswers(q, count);
+                            if (count <= 1) return answers[0] || '';
+                            return answers.filter(Boolean).join('; ');
+                          })()}
+                        </span>
+                      </span>
                     </div>
                   </div>
                   <button 
@@ -1650,7 +1778,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
   const [level, setLevel] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [userAnswers, setUserAnswers] = useState({}); // { [idx]: optionIdx | string }
+  const [userAnswers, setUserAnswers] = useState({}); // { [idx]: string | { a: string, b: string } }
   const [results, setResults] = useState({}); // { [idx]: boolean }
   const [solvedIds, setSolvedIds] = useState(new Set());
   const [expandedImage, setExpandedImage] = useState(null);
@@ -1698,13 +1826,27 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
   const handleCheck = async () => {
     const currentQuestion = questions[currentIndex];
     const currentId = String(currentQuestion?.id ?? currentIndex);
-    const expectedAnswer = currentQuestion?.answer ??
-      (Array.isArray(currentQuestion?.options) ? currentQuestion.options[currentQuestion.correctIndex] : '');
-    const answerValue = userAnswers[currentIndex];
+    const answerCount = getAnswerCountForTask(task?.number);
+    const expectedAnswers = getExpectedAnswers(currentQuestion, answerCount);
 
-    if (!String(answerValue ?? '').trim()) return;
-    
-    const correct = normalizeAnswer(answerValue) === normalizeAnswer(expectedAnswer);
+    let correct = false;
+    if (answerCount > 1) {
+      const answerEntry = Array.isArray(userAnswers[currentIndex]) ? userAnswers[currentIndex] : [];
+      const provided = Array.from({ length: answerCount }, (_, i) => String(answerEntry[i] ?? ''));
+      const allowPartial = allowsPartialAnswers(task?.number);
+      if (!allowPartial && provided.some((val) => !val.trim())) return;
+      if (allowPartial && provided.every((val) => !val.trim())) return;
+      correct = expectedAnswers.every((exp, i) => {
+        const expectedNorm = normalizeAnswer(exp);
+        const providedNorm = normalizeAnswer(provided[i]);
+        if (!expectedNorm) return !providedNorm;
+        return providedNorm === expectedNorm;
+      });
+    } else {
+      const answerValue = userAnswers[currentIndex];
+      if (!String(answerValue ?? '').trim()) return;
+      correct = normalizeAnswer(answerValue) === normalizeAnswer(expectedAnswers[0]);
+    }
     const newResults = { ...results, [currentIndex]: correct };
     setResults(newResults);
     
@@ -1816,16 +1958,34 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     const currentQuestion = questions[currentIndex];
     const isChecked = results[currentIndex] !== undefined;
     const isCorrect = results[currentIndex];
-    const expectedAnswer = currentQuestion?.answer ??
-      (Array.isArray(currentQuestion?.options) ? currentQuestion.options[currentQuestion.correctIndex] : '');
+    const answerCount = getAnswerCountForTask(task?.number);
+    const expectedAnswers = getExpectedAnswers(currentQuestion, answerCount);
     const currentId = String(currentQuestion?.id ?? currentIndex);
     const isSolved = solvedIds.has(currentId);
-    const answerValue = isSolved ? String(expectedAnswer ?? '') : String(userAnswers[currentIndex] ?? '');
+    const storedAnswer = userAnswers[currentIndex];
+    const answerValue = answerCount === 1
+      ? (isSolved ? String(expectedAnswers[0] ?? '') : String(storedAnswer ?? ''))
+      : '';
+    const answerValues = answerCount > 1
+      ? (
+        isSolved
+          ? expectedAnswers.map((val) => String(val ?? ''))
+          : Array.from({ length: answerCount }, (_, i) => String((Array.isArray(storedAnswer) ? storedAnswer[i] : '') ?? ''))
+      )
+      : [];
     const screenshots = (Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [])
       .map((img) => ({ ...img, url: withStudentId(img?.url, studentId) }));
     const extraFiles = (Array.isArray(currentQuestion?.files) ? currentQuestion.files : [])
       .map((file) => ({ ...file, url: withStudentId(file?.url, studentId) }));
-    const isAnswerReady = isSolved ? true : Boolean(answerValue.trim());
+    const isAnswerReady = isSolved
+      ? true
+      : (
+        answerCount > 1
+          ? (allowsPartialAnswers(task?.number)
+              ? answerValues.some((val) => String(val ?? '').trim())
+              : answerValues.every((val) => String(val ?? '').trim()))
+          : Boolean(answerValue.trim())
+      );
     const computedChecked = isSolved || isChecked;
     const computedCorrect = isSolved ? true : isCorrect;
 
@@ -1924,17 +2084,95 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
 
             <div className="space-y-3 mb-6">
               <label className="block text-xs font-bold text-gray-400 uppercase">Ответ</label>
-            <input
-              type="text"
-              value={answerValue}
-              onChange={(e) => {
-                if (computedChecked) return;
-                setUserAnswers({ ...userAnswers, [currentIndex]: e.target.value });
-              }}
-              placeholder="Введите ответ..."
-              className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-              disabled={computedChecked}
-            />
+              {answerCount > 1 ? (
+                answerCount === 20 ? (
+                  <div className="grid grid-cols-[32px_1fr_1fr] gap-2">
+                    {Array.from({ length: 10 }).map((_, rowIdx) => {
+                      const leftIdx = rowIdx;
+                      const rightIdx = rowIdx + 10;
+                      return (
+                        <React.Fragment key={rowIdx}>
+                          <div className="flex items-center justify-center text-xs font-bold text-gray-500">
+                            {rowIdx + 1}
+                          </div>
+                          <input
+                            type="text"
+                            value={answerValues[leftIdx] ?? ''}
+                            onChange={(e) => {
+                              if (computedChecked) return;
+                              const value = e.target.value;
+                              setUserAnswers((prev) => {
+                                const next = { ...prev };
+                                const current = Array.isArray(next[currentIndex]) ? [...next[currentIndex]] : Array.from({ length: answerCount }, () => '');
+                                current[leftIdx] = value;
+                                next[currentIndex] = current;
+                                return next;
+                              });
+                            }}
+                            placeholder="Ответ 1"
+                            className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                            disabled={computedChecked}
+                          />
+                          <input
+                            type="text"
+                            value={answerValues[rightIdx] ?? ''}
+                            onChange={(e) => {
+                              if (computedChecked) return;
+                              const value = e.target.value;
+                              setUserAnswers((prev) => {
+                                const next = { ...prev };
+                                const current = Array.isArray(next[currentIndex]) ? [...next[currentIndex]] : Array.from({ length: answerCount }, () => '');
+                                current[rightIdx] = value;
+                                next[currentIndex] = current;
+                                return next;
+                              });
+                            }}
+                            placeholder="Ответ 2"
+                            className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                            disabled={computedChecked}
+                          />
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {Array.from({ length: answerCount }).map((_, idx) => (
+                      <input
+                        key={idx}
+                        type="text"
+                        value={answerValues[idx] ?? ''}
+                        onChange={(e) => {
+                          if (computedChecked) return;
+                          const value = e.target.value;
+                          setUserAnswers((prev) => {
+                            const next = { ...prev };
+                            const current = Array.isArray(next[currentIndex]) ? [...next[currentIndex]] : Array.from({ length: answerCount }, () => '');
+                            current[idx] = value;
+                            next[currentIndex] = current;
+                            return next;
+                          });
+                        }}
+                        placeholder={`Ответ ${idx + 1}`}
+                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                        disabled={computedChecked}
+                      />
+                    ))}
+                  </div>
+                )
+              ) : (
+                <input
+                  type="text"
+                  value={answerValue}
+                  onChange={(e) => {
+                    if (computedChecked) return;
+                    setUserAnswers({ ...userAnswers, [currentIndex]: e.target.value });
+                  }}
+                  placeholder="Введите ответ..."
+                  className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                  disabled={computedChecked}
+                />
+              )}
             {computedChecked && (
               <div className={`text-sm ${computedCorrect ? 'text-green-600' : 'text-red-600'}`}>
                 {computedCorrect ? 'Верно!' : 'Неверно'}
