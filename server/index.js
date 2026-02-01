@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5175;
 
 const __filename = fileURLToPath(import.meta.url);
@@ -15,10 +16,31 @@ const dataDir = path.join(__dirname, 'data');
 const dataFile = path.join(dataDir, 'files.json');
 const foldersFile = path.join(dataDir, 'folders.json');
 const studentsFile = path.join(dataDir, 'students.json');
+const teachersFile = path.join(dataDir, 'teachers.json');
 const progressFile = path.join(dataDir, 'progress.json');
+const testsFile = path.join(dataDir, 'tests.json');
+const authFile = path.join(dataDir, 'auth.json');
+const usageFile = path.join(dataDir, 'usage.json');
 const MAX_TASK_BYTES = 100 * 1024 * 1024;
+const LOGIN_LIMIT = 8;
+const LOGIN_WINDOW_MS = 10 * 60 * 1000;
+const LOGIN_BLOCK_MS = 10 * 60 * 1000;
+const ADMIN_CODE = process.env.ADMIN_CODE || 'admin-7264';
+const ADMIN_NAME = process.env.ADMIN_NAME || 'Администратор';
 const TEACHER_CODE = process.env.TEACHER_CODE || 'admin100';
-const TEACHER_NAME = process.env.TEACHER_NAME || 'Иван Викторович';
+const TEACHER_NAME = process.env.TEACHER_NAME || '\u0423\u0447\u0438\u0442\u0435\u043b\u044c';
+const STUDENT_TRAFFIC_LIMIT_BYTES = (() => {
+  const bytesRaw = Number(process.env.STUDENT_TRAFFIC_LIMIT_BYTES);
+  if (Number.isFinite(bytesRaw) && bytesRaw > 0) return bytesRaw;
+  const gbRaw = Number(process.env.STUDENT_TRAFFIC_LIMIT_GB);
+  if (Number.isFinite(gbRaw) && gbRaw > 0) return Math.round(gbRaw * 1024 * 1024 * 1024);
+  return 2 * 1024 * 1024 * 1024;
+})();
+const STUDENT_TRAFFIC_WARN_RATIO = (() => {
+  const ratio = Number(process.env.STUDENT_TRAFFIC_WARN_RATIO);
+  if (Number.isFinite(ratio) && ratio > 0 && ratio < 1) return ratio;
+  return 0.8;
+})();
 const LEVEL_WEIGHTS = {
   basic: 70,
   advanced: 20,
@@ -75,6 +97,16 @@ const readStudentsDb = () => {
   }
 };
 
+const readTeachersDb = () => {
+  try {
+    const raw = fs.readFileSync(teachersFile, 'utf8');
+    const data = JSON.parse(raw);
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+};
+
 const readProgressDb = () => {
   try {
     const raw = fs.readFileSync(progressFile, 'utf8');
@@ -97,8 +129,184 @@ const writeStudentsDb = (data) => {
   fs.writeFileSync(studentsFile, JSON.stringify(data, null, 2), 'utf8');
 };
 
+const writeTeachersDb = (data) => {
+  fs.writeFileSync(teachersFile, JSON.stringify(data, null, 2), 'utf8');
+};
+
 const writeProgressDb = (data) => {
   fs.writeFileSync(progressFile, JSON.stringify(data, null, 2), 'utf8');
+};
+
+const readUsageDb = () => {
+  try {
+    const raw = fs.readFileSync(usageFile, 'utf8');
+    const data = JSON.parse(raw);
+    return data && typeof data === 'object' ? data : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeUsageDb = (data) => {
+  fs.writeFileSync(usageFile, JSON.stringify(data, null, 2), 'utf8');
+};
+
+const readTestsDb = () => {
+  try {
+    const raw = fs.readFileSync(testsFile, 'utf8');
+    const data = JSON.parse(raw);
+    return data && typeof data === 'object' ? data : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeTestsDb = (data) => {
+  fs.writeFileSync(testsFile, JSON.stringify(data, null, 2), 'utf8');
+};
+
+const getMonthKey = (date = new Date()) => {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+};
+
+const getStudentUsage = (studentId) => {
+  const monthKey = getMonthKey();
+  const db = readUsageDb();
+  const used = Number(db?.[studentId]?.[monthKey]) || 0;
+  const limit = STUDENT_TRAFFIC_LIMIT_BYTES;
+  const remaining = Math.max(0, limit - used);
+  return { monthKey, used, limit, remaining };
+};
+
+const addStudentUsage = (studentId, bytes) => {
+  if (!studentId || !Number.isFinite(bytes) || bytes <= 0) return;
+  const monthKey = getMonthKey();
+  const db = readUsageDb();
+  const studentEntry = db[studentId] && typeof db[studentId] === 'object' ? db[studentId] : {};
+  const used = Number(studentEntry[monthKey]) || 0;
+  studentEntry[monthKey] = used + bytes;
+  db[studentId] = studentEntry;
+  writeUsageDb(db);
+  return studentEntry[monthKey];
+};
+
+const getRangeSize = (rangeHeader, totalSize) => {
+  if (!rangeHeader || typeof rangeHeader !== 'string') return totalSize;
+  const match = rangeHeader.match(/bytes=(\d*)-(\d*)/);
+  if (!match) return totalSize;
+  const startRaw = match[1];
+  const endRaw = match[2];
+  if (!startRaw && endRaw) {
+    const tail = Number(endRaw);
+    if (Number.isFinite(tail) && tail > 0) return Math.min(totalSize, tail);
+    return totalSize;
+  }
+  const start = Number(startRaw);
+  const end = endRaw ? Number(endRaw) : totalSize - 1;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start) {
+    return totalSize;
+  }
+  return Math.min(totalSize, end - start + 1);
+};
+
+const registerUsageOnFinish = (studentId, res, fallbackBytes) => {
+  if (!studentId) return;
+  res.on('finish', () => {
+    if (res.statusCode >= 400) return;
+    const headerLen = Number(res.getHeader('Content-Length'));
+    const bytes = Number.isFinite(headerLen) && headerLen > 0 ? headerLen : fallbackBytes;
+    if (!Number.isFinite(bytes) || bytes <= 0) return;
+    addStudentUsage(studentId, bytes);
+  });
+};
+
+const readAuthDb = () => {
+  try {
+    const raw = fs.readFileSync(authFile, 'utf8');
+    const data = JSON.parse(raw);
+    return data && typeof data === 'object' ? data : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeAuthDb = (data) => {
+  fs.writeFileSync(authFile, JSON.stringify(data, null, 2), 'utf8');
+};
+
+const normalizeAccessCode = (value) => (typeof value === 'string' ? value.trim() : '');
+
+const hashCode = (code) => {
+  const salt = crypto.randomBytes(16).toString('base64');
+  const hash = crypto.scryptSync(code, salt, 64).toString('base64');
+  return `scrypt$${salt}$${hash}`;
+};
+
+const verifyCode = (code, stored) => {
+  if (!code || typeof stored !== 'string') return false;
+  const [method, salt, hash] = stored.split('$');
+  if (method !== 'scrypt' || !salt || !hash) return false;
+  const derived = crypto.scryptSync(code, salt, 64);
+  const storedBuf = Buffer.from(hash, 'base64');
+  if (storedBuf.length !== derived.length) return false;
+  return crypto.timingSafeEqual(storedBuf, derived);
+};
+
+const getCodeHint = (code) => {
+  const normalized = normalizeAccessCode(code);
+  if (!normalized) return '';
+  return normalized.slice(-4);
+};
+
+const ensureAdminAuth = () => {
+  const existing = readAuthDb();
+  if (existing?.adminCodeHash) return existing;
+  const seedCode = normalizeAccessCode(ADMIN_CODE) || 'admin-root';
+  const next = {
+    adminCodeHash: hashCode(seedCode),
+    updatedAt: new Date().toISOString(),
+  };
+  writeAuthDb(next);
+  return next;
+};
+
+const loginAttempts = new Map();
+
+const getClientKey = (req) => req.ip || req.connection?.remoteAddress || 'unknown';
+
+const getRateInfo = (key) => {
+  const entry = loginAttempts.get(key);
+  if (!entry) return { blocked: false };
+  const now = Date.now();
+  if (entry.blockedUntil && entry.blockedUntil > now) {
+    return { blocked: true, retryAfter: Math.ceil((entry.blockedUntil - now) / 1000) };
+  }
+  if (now - entry.firstAt > LOGIN_WINDOW_MS) {
+    loginAttempts.delete(key);
+    return { blocked: false };
+  }
+  return { blocked: false };
+};
+
+const registerLoginFailure = (key) => {
+  const now = Date.now();
+  const entry = loginAttempts.get(key);
+  if (!entry || now - entry.firstAt > LOGIN_WINDOW_MS) {
+    loginAttempts.set(key, { count: 1, firstAt: now, blockedUntil: null });
+    return { blocked: false };
+  }
+  entry.count += 1;
+  if (entry.count >= LOGIN_LIMIT) {
+    entry.blockedUntil = now + LOGIN_BLOCK_MS;
+    return { blocked: true, retryAfter: Math.ceil(LOGIN_BLOCK_MS / 1000) };
+  }
+  return { blocked: false };
+};
+
+const clearLoginFailures = (key) => {
+  loginAttempts.delete(key);
 };
 
 const computeTaskProgress = (taskEntry = {}) => {
@@ -192,22 +400,108 @@ const normalizeStudentName = (name) => {
   return name.trim();
 };
 
-const generateStudentCode = (students) => {
+const normalizeStudentNickname = (value) => {
+  if (typeof value !== 'string') return '';
+  return value.trim();
+};
+
+const normalizeTeacherName = (name) => {
+  if (typeof name !== 'string') return '';
+  return name.trim();
+};
+
+const isPlaceholderName = (value) => typeof value === 'string' && /^\?+$/.test(value.trim());
+
+const codeMatchesStudents = (code, students) => students.some((student) => {
+  if (student?.codeHash) return verifyCode(code, student.codeHash);
+  if (student?.code) return student.code === code;
+  return false;
+});
+
+const codeMatchesTeachers = (code, teachers) => teachers.some((teacher) => {
+  if (teacher?.codeHash) return verifyCode(code, teacher.codeHash);
+  return false;
+});
+
+const generateStudentCode = (students, teachers = []) => {
   let code = '';
-  const existing = new Set(students.map((s) => s.code));
-  while (!code || existing.has(code)) {
+  while (!code || codeMatchesStudents(code, students) || codeMatchesTeachers(code, teachers)) {
     code = String(crypto.randomInt(100000, 999999));
   }
   return code;
 };
 
+const generateTeacherCode = (teachers, students = []) => {
+  let code = '';
+  while (!code || codeMatchesTeachers(code, teachers) || codeMatchesStudents(code, students)) {
+    code = String(crypto.randomInt(100000, 999999));
+  }
+  return code;
+};
+
+const migrateStudentCodes = (students) => {
+  let changed = false;
+  students.forEach((student) => {
+    if (student?.code && !student?.codeHash) {
+      const plain = normalizeAccessCode(student.code);
+      if (plain) {
+        student.codeHash = hashCode(plain);
+        student.codeHint = getCodeHint(plain);
+      }
+      delete student.code;
+      changed = true;
+    }
+    if (student?.codeHash && typeof student.codeHint !== 'string') {
+      student.codeHint = '';
+      changed = true;
+    }
+  });
+  if (changed) writeStudentsDb(students);
+  return students;
+};
+
+const ensureDefaultTeacher = () => {
+  const teachers = readTeachersDb();
+  if (teachers.length === 0) {
+    const plainCode = normalizeAccessCode(TEACHER_CODE) || generateTeacherCode(teachers, readStudentsDb());
+    const entry = {
+      id: crypto.randomUUID(),
+      name: TEACHER_NAME,
+      codeHash: hashCode(plainCode),
+      codeHint: getCodeHint(plainCode),
+      createdAt: new Date().toISOString(),
+    };
+    teachers.push(entry);
+    writeTeachersDb(teachers);
+  } else {
+    const normalizedDefaultName = normalizeTeacherName(TEACHER_NAME);
+    if (normalizedDefaultName) {
+      let changed = false;
+      teachers.forEach((teacher, idx) => {
+        if (isPlaceholderName(teacher?.name)) {
+          teachers[idx] = { ...teacher, name: normalizedDefaultName };
+          changed = true;
+        }
+      });
+      if (changed) writeTeachersDb(teachers);
+    }
+  }
+  return teachers;
+};
+
 const ensureDefaultStudent = () => {
+  const teachers = ensureDefaultTeacher();
+  const defaultTeacherId = teachers[0]?.id || null;
   const students = readStudentsDb();
   if (students.length === 0) {
+    const plainCode = generateStudentCode(students, teachers);
     const entry = {
       id: crypto.randomUUID(),
       name: 'Ученик 1',
-      code: generateStudentCode(students),
+      teacherId: defaultTeacherId,
+      nickname: '',
+      codeHash: hashCode(plainCode),
+      codeHint: getCodeHint(plainCode),
       createdAt: new Date().toISOString(),
     };
     students.push(entry);
@@ -217,15 +511,17 @@ const ensureDefaultStudent = () => {
 };
 
 const ensureStudentIds = () => {
-  const students = ensureDefaultStudent();
-  const defaultId = students[0]?.id;
-  if (!defaultId) return;
+  const teachers = ensureDefaultTeacher();
+  const defaultTeacherId = teachers[0]?.id || null;
+  const students = migrateStudentCodes(ensureDefaultStudent());
+  const defaultStudentId = students[0]?.id || null;
+  if (!defaultTeacherId || !defaultStudentId) return;
 
   const files = readFilesDb();
   let filesChanged = false;
   for (const file of files) {
     if (!file.studentId) {
-      file.studentId = defaultId;
+      file.studentId = defaultStudentId;
       filesChanged = true;
     }
   }
@@ -235,11 +531,22 @@ const ensureStudentIds = () => {
   let foldersChanged = false;
   for (const folder of folders) {
     if (!folder.studentId) {
-      folder.studentId = defaultId;
+      folder.studentId = defaultStudentId;
       foldersChanged = true;
     }
   }
   if (foldersChanged) writeFoldersDb(folders);
+
+  const updatedStudents = students.map((student) => {
+    if (!student.teacherId) return { ...student, teacherId: defaultTeacherId };
+    return student;
+  });
+  if (updatedStudents.some((s, idx) => s.teacherId !== students[idx].teacherId)) {
+    writeStudentsDb(updatedStudents);
+    return updatedStudents;
+  }
+
+  return students;
 };
 
 const looksMojibake = (name) => {
@@ -258,6 +565,8 @@ const normalizeFileName = (name) => {
   }
   return name;
 };
+
+let adminAuth = ensureAdminAuth();
 
 migrateFileNames();
 ensureStudentIds();
@@ -289,44 +598,134 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-app.use('/uploads', express.static(uploadsDir));
+const handleUploadRequest = (req, res) => {
+  const rawName = req.params.storageName || '';
+  const safeName = path.basename(rawName);
+  if (!safeName) return res.status(400).send('Некорректное имя файла');
+
+  const filePath = path.join(uploadsDir, safeName);
+  if (!fs.existsSync(filePath)) return res.status(404).send('Файл не найден');
+
+  const stat = fs.statSync(filePath);
+  const studentId = typeof req.query.studentId === 'string' ? req.query.studentId : '';
+  if (studentId) {
+    const students = readStudentsDb();
+    if (!students.some((s) => s.id === studentId)) {
+      return res.status(404).send('Ученик не найден');
+    }
+    const requestSize = getRangeSize(req.headers.range, stat.size);
+    const usage = getStudentUsage(studentId);
+    if (usage.remaining <= 0 || usage.used + requestSize > usage.limit) {
+      return res.status(429).json({ error: 'Превышен лимит трафика для ученика' });
+    }
+    if (usage.used / usage.limit >= STUDENT_TRAFFIC_WARN_RATIO) {
+      res.setHeader('X-Traffic-Warn', '1');
+    }
+    res.setHeader('X-Traffic-Used', String(usage.used));
+    res.setHeader('X-Traffic-Limit', String(usage.limit));
+    if (req.method === 'GET') {
+      registerUsageOnFinish(studentId, res, requestSize);
+    }
+  }
+
+  return res.sendFile(filePath);
+};
+
+app.get('/uploads/:storageName', handleUploadRequest);
+app.head('/uploads/:storageName', handleUploadRequest);
 
 app.post('/api/login', (req, res) => {
-  const { email, code } = req.body || {};
-  if (!code) return res.status(400).json({ error: 'Введите код доступа' });
-  if (code === TEACHER_CODE) {
-    return res.json({ id: 'admin1', name: TEACHER_NAME, email, role: 'teacher' });
+  const { code } = req.body || {};
+  const normalizedCode = normalizeAccessCode(code);
+  if (!normalizedCode) return res.status(400).json({ error: 'Введите код доступа' });
+
+  const clientKey = getClientKey(req);
+  const rateInfo = getRateInfo(clientKey);
+  if (rateInfo.blocked) {
+    return res.status(429).json({
+      error: 'Слишком много попыток. Попробуйте позже.',
+      retryAfter: rateInfo.retryAfter,
+    });
   }
+
+  if (verifyCode(normalizedCode, adminAuth?.adminCodeHash)) {
+    clearLoginFailures(clientKey);
+    return res.json({ id: 'admin1', name: ADMIN_NAME, role: 'admin' });
+  }
+
+  const teachers = readTeachersDb();
+  const teacher = teachers.find((entry) => entry?.codeHash && verifyCode(normalizedCode, entry.codeHash));
+  if (teacher) {
+    clearLoginFailures(clientKey);
+    return res.json({ id: teacher.id, name: teacher.name, role: 'teacher' });
+  }
+
   const students = readStudentsDb();
-  const student = students.find((s) => s.code === code);
+  const student = students.find((entry) => {
+    if (entry?.codeHash) return verifyCode(normalizedCode, entry.codeHash);
+    if (entry?.code) return entry.code === normalizedCode;
+    return false;
+  });
   if (!student) {
+    const blocked = registerLoginFailure(clientKey);
+    if (blocked.blocked) {
+      return res.status(429).json({
+        error: 'Слишком много попыток. Попробуйте позже.',
+        retryAfter: blocked.retryAfter,
+      });
+    }
     return res.status(401).json({ error: 'Неверный код доступа' });
   }
-  res.json({ id: student.id, name: student.name, email, role: 'student' });
+
+  clearLoginFailures(clientKey);
+  res.json({ id: student.id, name: student.name, role: 'student', teacherId: student.teacherId || null });
 });
 
-app.get('/api/students', (_req, res) => {
-  const students = readStudentsDb();
-  res.json(students);
+app.get('/api/students', (req, res) => {
+  const { teacherId } = req.query;
+  let students = readStudentsDb();
+  if (teacherId) {
+    students = students.filter((s) => s.teacherId === teacherId);
+  }
+  const sanitized = students.map(({ codeHash, code, ...rest }) => rest);
+  res.json(sanitized);
 });
 
 app.post('/api/students', (req, res) => {
-  const { name } = req.body || {};
+  const { name, teacherId } = req.body || {};
   const studentName = normalizeStudentName(name);
   if (!studentName) return res.status(400).json({ error: 'Введите имя ученика' });
   if (studentName.length > 60) return res.status(400).json({ error: 'Имя слишком длинное' });
-  if (/[/\\]/.test(studentName)) return res.status(400).json({ error: 'Недопустимые символы' });
+  if (/[\/\\]/.test(studentName)) return res.status(400).json({ error: 'Недопустимые символы' });
+
+  const teachers = readTeachersDb();
+  const resolvedTeacherId = teacherId || teachers[0]?.id || null;
+  if (!resolvedTeacherId || !teachers.some((t) => t.id === resolvedTeacherId)) {
+    return res.status(400).json({ error: 'Укажите учителя' });
+  }
 
   const students = readStudentsDb();
+  const plainCode = generateStudentCode(students, teachers);
   const entry = {
     id: crypto.randomUUID(),
     name: studentName,
-    code: generateStudentCode(students),
+    teacherId: resolvedTeacherId,
+    nickname: '',
+    codeHash: hashCode(plainCode),
+    codeHint: getCodeHint(plainCode),
     createdAt: new Date().toISOString(),
   };
   students.unshift(entry);
   writeStudentsDb(students);
-  res.json(entry);
+  res.json({
+    id: entry.id,
+    name: entry.name,
+    nickname: entry.nickname || '',
+    teacherId: entry.teacherId,
+    code: plainCode,
+    codeHint: entry.codeHint,
+    createdAt: entry.createdAt
+  });
 });
 
 app.delete('/api/students/:id', (req, res) => {
@@ -364,6 +763,222 @@ app.delete('/api/students/:id', (req, res) => {
     writeProgressDb(progressDb);
   }
 
+  res.json({ ok: true });
+});
+
+app.get('/api/teachers', (_req, res) => {
+  const teachers = readTeachersDb();
+  const sanitized = teachers.map(({ codeHash, ...rest }) => rest);
+  res.json(sanitized);
+});
+
+app.post('/api/teachers', (req, res) => {
+  const { name } = req.body || {};
+  const teacherName = normalizeTeacherName(name);
+  if (!teacherName) return res.status(400).json({ error: 'Введите имя учителя' });
+  if (teacherName.length > 60) return res.status(400).json({ error: 'Имя слишком длинное' });
+  if (/[\/\\]/.test(teacherName)) return res.status(400).json({ error: 'Недопустимые символы' });
+
+  const teachers = readTeachersDb();
+  const students = readStudentsDb();
+  const plainCode = generateTeacherCode(teachers, students);
+  const entry = {
+    id: crypto.randomUUID(),
+    name: teacherName,
+    codeHash: hashCode(plainCode),
+    codeHint: getCodeHint(plainCode),
+    createdAt: new Date().toISOString(),
+  };
+  teachers.unshift(entry);
+  writeTeachersDb(teachers);
+  res.json({ id: entry.id, name: entry.name, code: plainCode, codeHint: entry.codeHint, createdAt: entry.createdAt });
+});
+
+app.patch('/api/teachers/:id', (req, res) => {
+  const { id } = req.params;
+  const { name } = req.body || {};
+  const teacherName = normalizeTeacherName(name);
+  if (!teacherName) return res.status(400).json({ error: 'Введите имя учителя' });
+  if (teacherName.length > 60) return res.status(400).json({ error: 'Имя слишком длинное' });
+  if (/[\/\\]/.test(teacherName)) return res.status(400).json({ error: 'Недопустимые символы' });
+
+  const teachers = readTeachersDb();
+  const idx = teachers.findIndex((t) => t.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Учитель не найден' });
+
+  const updated = { ...teachers[idx], name: teacherName };
+  teachers[idx] = updated;
+  writeTeachersDb(teachers);
+  res.json({ id: updated.id, name: updated.name, codeHint: updated.codeHint, createdAt: updated.createdAt });
+});
+
+app.delete('/api/teachers/:id', (req, res) => {
+  const { id } = req.params;
+  const teachers = readTeachersDb();
+  const idx = teachers.findIndex((t) => t.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Учитель не найден' });
+
+  const removed = teachers.splice(idx, 1)[0];
+  writeTeachersDb(teachers);
+
+  const students = readStudentsDb();
+  const toRemove = students.filter((s) => s.teacherId === id);
+  if (toRemove.length > 0) {
+    const remaining = students.filter((s) => s.teacherId !== id);
+    writeStudentsDb(remaining);
+
+    const files = readFilesDb();
+    const remainingFiles = [];
+    const removedFiles = [];
+    for (const file of files) {
+      if (toRemove.some((s) => s.id === file.studentId)) removedFiles.push(file);
+      else remainingFiles.push(file);
+    }
+    if (removedFiles.length > 0) {
+      writeFilesDb(remainingFiles);
+      for (const file of removedFiles) {
+        if (file?.storageName) {
+          const filePath = path.join(uploadsDir, file.storageName);
+          fs.unlink(filePath, () => {});
+        }
+      }
+    }
+
+    const folders = readFoldersDb().filter((f) => !toRemove.some((s) => s.id === f.studentId));
+    writeFoldersDb(folders);
+
+    const progressDb = readProgressDb();
+    let changed = false;
+    for (const student of toRemove) {
+      if (progressDb[student.id]) {
+        delete progressDb[student.id];
+        changed = true;
+      }
+    }
+    if (changed) writeProgressDb(progressDb);
+  }
+
+  res.json({ ok: true, removedTeacher: { id: removed.id, name: removed.name } });
+});
+
+app.post('/api/teachers/:id/reset-code', (req, res) => {
+  const { id } = req.params;
+  const teachers = readTeachersDb();
+  const idx = teachers.findIndex((t) => t.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Учитель не найден' });
+
+  const students = readStudentsDb();
+  const plainCode = generateTeacherCode(teachers, students);
+  const updated = {
+    ...teachers[idx],
+    codeHash: hashCode(plainCode),
+    codeHint: getCodeHint(plainCode),
+  };
+  teachers[idx] = updated;
+  writeTeachersDb(teachers);
+  res.json({ id: updated.id, code: plainCode, codeHint: updated.codeHint });
+});
+
+app.patch('/api/students/:id', (req, res) => {
+  const { id } = req.params;
+  const { name, nickname } = req.body || {};
+  const hasName = Object.prototype.hasOwnProperty.call(req.body || {}, 'name');
+  const hasNickname = Object.prototype.hasOwnProperty.call(req.body || {}, 'nickname');
+
+  if (!hasName && !hasNickname) {
+    return res.status(400).json({ error: 'Некорректные параметры' });
+  }
+
+  let studentName = null;
+  if (hasName) {
+    studentName = normalizeStudentName(name);
+    if (!studentName) return res.status(400).json({ error: 'Введите имя ученика' });
+    if (studentName.length > 60) return res.status(400).json({ error: 'Имя слишком длинное' });
+    if (/[\/\\]/.test(studentName)) return res.status(400).json({ error: 'Недопустимые символы' });
+  }
+
+  let studentNickname = null;
+  if (hasNickname) {
+    studentNickname = normalizeStudentNickname(nickname);
+    if (studentNickname.length > 60) return res.status(400).json({ error: 'Прозвище слишком длинное' });
+    if (/[\/\\]/.test(studentNickname)) return res.status(400).json({ error: 'Недопустимые символы' });
+  }
+
+  const students = readStudentsDb();
+  const idx = students.findIndex((s) => s.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Ученик не найден' });
+
+  const updated = { ...students[idx] };
+  if (hasName) updated.name = studentName;
+  if (hasNickname) updated.nickname = studentNickname;
+
+  students[idx] = updated;
+  writeStudentsDb(students);
+  res.json({
+    id: updated.id,
+    name: updated.name,
+    nickname: updated.nickname || '',
+    codeHint: updated.codeHint,
+    teacherId: updated.teacherId,
+    createdAt: updated.createdAt
+  });
+});
+
+app.post('/api/students/:id/reset-code', (req, res) => {
+  const { id } = req.params;
+  const students = readStudentsDb();
+  const idx = students.findIndex((s) => s.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Ученик не найден' });
+
+  const teachers = readTeachersDb();
+  const plainCode = generateStudentCode(students, teachers);
+  const updated = {
+    ...students[idx],
+    codeHash: hashCode(plainCode),
+    codeHint: getCodeHint(plainCode),
+  };
+  students[idx] = updated;
+  writeStudentsDb(students);
+  res.json({ id: updated.id, code: plainCode, codeHint: updated.codeHint });
+});
+
+app.get('/api/tests', (_req, res) => {
+  const data = readTestsDb();
+  res.json(data || {});
+});
+
+app.put('/api/tests', (req, res) => {
+  const payload = req.body;
+  if (!payload || typeof payload !== 'object') {
+    return res.status(400).json({ error: 'Некорректные данные' });
+  }
+  writeTestsDb(payload);
+  res.json({ ok: true });
+});
+
+app.patch('/api/teacher-code', (req, res) => {
+  const { teacherId, currentCode, newCode } = req.body || {};
+  const current = normalizeAccessCode(currentCode);
+  const next = normalizeAccessCode(newCode);
+  if (!teacherId) return res.status(400).json({ error: 'teacherId required' });
+  if (!current || !next) return res.status(400).json({ error: 'Введите текущий и новый код' });
+  if (next.length < 4 || next.length > 32) {
+    return res.status(400).json({ error: 'Код должен быть от 4 до 32 символов' });
+  }
+
+  const teachers = readTeachersDb();
+  const idx = teachers.findIndex((t) => t.id === teacherId);
+  if (idx === -1) return res.status(404).json({ error: 'Учитель не найден' });
+  if (!verifyCode(current, teachers[idx]?.codeHash)) {
+    return res.status(401).json({ error: 'Текущий код неверный' });
+  }
+
+  teachers[idx] = {
+    ...teachers[idx],
+    codeHash: hashCode(next),
+    codeHint: getCodeHint(next),
+  };
+  writeTeachersDb(teachers);
   res.json({ ok: true });
 });
 
@@ -612,7 +1227,7 @@ app.get('/api/student-next-lesson', (req, res) => {
   if (!studentId) return res.status(400).json({ error: 'studentId required' });
   const students = readStudentsDb();
   if (!students.some((s) => s.id === studentId)) {
-    return res.status(404).json({ error: '?????? ?? ??????' });
+    return res.status(404).json({ error: 'Ученик не найден' });
   }
   const data = getStudentData(studentId);
   const nextLesson = data.nextLesson && typeof data.nextLesson === 'object'
@@ -626,7 +1241,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
   if (!studentId) return res.status(400).json({ error: 'studentId required' });
   const students = readStudentsDb();
   if (!students.some((s) => s.id === studentId)) {
-    return res.status(404).json({ error: '?????? ?? ??????' });
+    return res.status(404).json({ error: 'Ученик не найден' });
   }
   const data = getStudentData(studentId);
   const nextLesson = {
@@ -916,6 +1531,17 @@ app.patch('/api/files/:id', (req, res) => {
   writeFilesDb(db);
   res.json(updated);
 });
+
+const distDir = path.join(__dirname, '..', 'dist');
+if (fs.existsSync(distDir)) {
+  app.use(express.static(distDir));
+  app.get('*', (req, res) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
+      return res.status(404).end();
+    }
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
 
 app.use((err, _req, res, _next) => {
   if (err?.code === 'LIMIT_FILE_SIZE') {

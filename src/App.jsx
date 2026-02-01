@@ -7,8 +7,13 @@ import {
   BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle, 
   Menu, X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Check, Plus, 
-  Settings, Save, Calendar
-} from 'lucide-react';
+  Settings, Save, Calendar, RefreshCcw
+} from 'lucide-react';  
+import mascotApproval from './assets/mascot/Approval.png';
+import mascotDisapproval from './assets/mascot/disapproval.png';
+import mascotGreetings from './assets/mascot/greetings.png';
+import mascotPeeking from './assets/mascot/peeking.png';
+import mascotPondering from './assets/mascot/pondering.png';
 
 /**
  * CONSTANTS & CONFIG
@@ -23,6 +28,48 @@ const LEVEL_WEIGHTS = {
   basic: 70,
   advanced: 20,
   expert: 10,
+};
+
+const getStudentLabel = (student) => {
+  if (!student) return '';
+  const nickname = typeof student.nickname === 'string' ? student.nickname.trim() : '';
+  if (nickname) return `${nickname} (${student.name})`;
+  return student.name;
+};
+
+const STUDENT_TOUR_KEY = 'ege_student_onboarding_v1';
+
+const loadStudentTourStatus = () => {
+  if (typeof localStorage === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(STUDENT_TOUR_KEY);
+    const data = raw ? JSON.parse(raw) : {};
+    return data && typeof data === 'object' ? data : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveStudentTourStatus = (next) => {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(STUDENT_TOUR_KEY, JSON.stringify(next));
+  } catch {}
+};
+
+const hasStudentSeenTour = (studentId) => {
+  if (!studentId) return false;
+  const key = String(studentId);
+  const data = loadStudentTourStatus();
+  return Boolean(data?.[key]);
+};
+
+const markStudentSeenTour = (studentId) => {
+  if (!studentId) return;
+  const key = String(studentId);
+  const data = loadStudentTourStatus();
+  if (data?.[key]) return;
+  saveStudentTourStatus({ ...data, [key]: true });
 };
 
 // Заглушка списка заданий
@@ -85,25 +132,28 @@ const parseJsonResponse = async (res) => {
 };
 
 const api = {
-  login: async (email, code) => {
+  login: async (code) => {
     const res = await fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, code }),
+      body: JSON.stringify({ code }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
-  getStudents: async () => {
-    const res = await fetch('/api/students');
+  getStudents: async (teacherId) => {
+    const params = new URLSearchParams();
+    if (teacherId) params.append('teacherId', teacherId);
+    const qs = params.toString();
+    const res = await fetch(qs ? `/api/students?${qs}` : '/api/students');
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
-  createStudent: async (name) => {
+  createStudent: async (name, teacherId) => {
     const res = await fetch('/api/students', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, teacherId }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
@@ -113,12 +163,76 @@ const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
-  getTests: () => {
-    const stored = localStorage.getItem('ege_teacher_tests');
-    return stored ? JSON.parse(stored) : INITIAL_TEST_DB;
+  updateStudent: async (id, payload) => {
+    const res = await fetch(`/api/students/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
   },
-  saveTests: (newDb) => {
-    localStorage.setItem('ege_teacher_tests', JSON.stringify(newDb));
+  resetStudentCode: async (id) => {
+    const res = await fetch(`/api/students/${id}/reset-code`, { method: 'POST' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  getTeachers: async () => {
+    const res = await fetch('/api/teachers');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  createTeacher: async (name) => {
+    const res = await fetch('/api/teachers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  updateTeacherName: async (id, name) => {
+    const res = await fetch(`/api/teachers/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  deleteTeacher: async (id) => {
+    const res = await fetch(`/api/teachers/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  resetTeacherCode: async (id) => {
+    const res = await fetch(`/api/teachers/${id}/reset-code`, { method: 'POST' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  updateTeacherCode: async (teacherId, currentCode, newCode) => {
+    const res = await fetch('/api/teacher-code', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teacherId, currentCode, newCode }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  getTests: async () => {
+    const res = await fetch('/api/tests');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    const data = await parseJsonResponse(res);
+    return data && typeof data === 'object' ? data : {};
+  },
+  saveTests: async (newDb) => {
+    const res = await fetch('/api/tests', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newDb),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
   },
   getTasks: () => new Promise(r => setTimeout(() => r(MOCK_TASKS), 600)),
   getStudentProgress: async (studentId) => {
@@ -345,7 +459,84 @@ const getEntrySizeBytes = (entry) => {
   return parseSizeString(entry.size);
 };
 
+const withStudentId = (url, studentId) => {
+  if (!url || !studentId) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}studentId=${encodeURIComponent(studentId)}`;
+};
+
 const highlightPython = (code) => Prism.highlight(code, Prism.languages.python, 'python');
+
+const MASCOT_IMAGES = {
+  greetings: mascotGreetings,
+  peeking: mascotPeeking,
+  pondering: mascotPondering,
+  disapproval: mascotDisapproval,
+  approval: mascotApproval
+};
+
+const STUDENT_TOUR_STEPS = [
+  {
+    id: 'welcome',
+    title: 'Добро пожаловать!',
+    text: 'Покажу основные разделы и где искать материалы.',
+    emotion: 'greetings',
+    target: '[data-tour="main"]',
+    menu: 'close'
+  },
+  {
+    id: 'nav',
+    title: 'Навигация',
+    text: 'Слева меню. Через него переключаются разделы ученика.',
+    emotion: 'peeking',
+    target: '[data-tour="nav"]',
+    menu: 'open'
+  },
+  {
+    id: 'schedule',
+    title: 'Расписание',
+    text: 'Здесь домашка и ссылки к следующему занятию.',
+    emotion: 'approval',
+    target: '[data-tour="schedule"]',
+    view: 'schedule',
+    menu: 'close'
+  },
+  {
+    id: 'progress',
+    title: 'Успеваемость',
+    text: 'Следи за прогрессом по заданиям и пробным.',
+    emotion: 'pondering',
+    target: '[data-tour="progress"]',
+    view: 'progress',
+    menu: 'close'
+  },
+  {
+    id: 'notes',
+    title: 'Конспекты',
+    text: 'Здесь материалы по заданиям и твои файлы.',
+    emotion: 'peeking',
+    target: '[data-tour="notes"]',
+    view: 'notes',
+    menu: 'close'
+  },
+  {
+    id: 'files',
+    title: 'Файлы',
+    text: 'Выбери задание и категорию, затем загружай файлы сюда.',
+    emotion: 'approval',
+    target: '[data-tour="files"]',
+    fallback: '[data-tour="notes"]',
+    view: 'notes',
+    menu: 'close'
+  },
+  {
+    id: 'done',
+    title: 'Готово',
+    text: 'Если потеряешься — просто открой нужный раздел слева.',
+    emotion: 'approval',
+    menu: 'close'
+  }
+];
 
 /**
  * SHARED COMPONENTS
@@ -382,20 +573,36 @@ const ProgressBar = ({ value }) => {
  * TEACHER PANEL COMPONENT
  */
 const TeacherPanel = ({
+  role,
   students,
   studentsLoading,
   studentsError,
   activeStudentId,
   onSelectStudent,
   onStudentCreated,
-  onStudentDeleted
+  onStudentDeleted,
+  onStudentUpdated,
+  teacherId
 }) => {
-  const [testDb, setTestDb] = useState(api.getTests());
+  const [testDb, setTestDb] = useState(null);
+  const [testsLoading, setTestsLoading] = useState(false);
+  const [testsError, setTestsError] = useState('');
   const [selectedTask, setSelectedTask] = useState(1);
   const [selectedLevel, setSelectedLevel] = useState('basic');
   const [newStudentName, setNewStudentName] = useState('');
   const [studentActionLoading, setStudentActionLoading] = useState(false);
   const [studentActionError, setStudentActionError] = useState('');
+  const [lastIssuedCode, setLastIssuedCode] = useState(null);
+  const [resettingStudentId, setResettingStudentId] = useState(null);
+  const [teacherCodeForm, setTeacherCodeForm] = useState({ current: '', next: '', repeat: '' });
+  const [teacherCodeError, setTeacherCodeError] = useState('');
+  const [teacherCodeSuccess, setTeacherCodeSuccess] = useState('');
+  const [teacherCodeSaving, setTeacherCodeSaving] = useState(false);
+  const [editingStudentId, setEditingStudentId] = useState(null);
+  const [editStudentName, setEditStudentName] = useState('');
+  const [editStudentNickname, setEditStudentNickname] = useState('');
+  const [editStudentError, setEditStudentError] = useState('');
+  const [editStudentSaving, setEditStudentSaving] = useState(false);
   const [questionScreenshots, setQuestionScreenshots] = useState([]);
   const [questionFiles, setQuestionFiles] = useState([]);
   const [screenshotPreviews, setScreenshotPreviews] = useState([]);
@@ -416,6 +623,26 @@ const TeacherPanel = ({
       previews.forEach((item) => URL.revokeObjectURL(item.url));
     };
   }, [questionScreenshots]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTestsLoading(true);
+    api.getTests()
+      .then((data) => {
+        if (cancelled) return;
+        setTestDb(data && typeof data === 'object' ? data : {});
+        setTestsError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setTestsError(err?.message || err);
+        setTestDb({});
+      })
+      .finally(() => {
+        if (!cancelled) setTestsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
   
   // Form state
   const [question, setQuestion] = useState("");
@@ -460,14 +687,20 @@ const TeacherPanel = ({
       files: uploadedFiles
     };
 
-    const updatedDb = { ...testDb };
+    const updatedDb = { ...(testDb || {}) };
     if (!updatedDb[selectedTask]) updatedDb[selectedTask] = { basic: [], advanced: [], expert: [] };
     if (!updatedDb[selectedTask][selectedLevel]) updatedDb[selectedTask][selectedLevel] = [];
     
     updatedDb[selectedTask][selectedLevel].push(newQuestion);
     
     setTestDb(updatedDb);
-    api.saveTests(updatedDb);
+    try {
+      await api.saveTests(updatedDb);
+    } catch (err) {
+      setQuestionUploadError(err?.message || err);
+      setIsUploadingQuestion(false);
+      return;
+    }
     
     // Reset form
     setQuestion("");
@@ -481,11 +714,15 @@ const TeacherPanel = ({
 
   const handleDeleteQuestion = async (taskId, level, qId) => {
     if(!confirm("Удалить этот вопрос?")) return;
-    const updatedDb = { ...testDb };
+    const updatedDb = { ...(testDb || {}) };
     const removed = updatedDb[taskId][level].find(q => q.id === qId);
     updatedDb[taskId][level] = updatedDb[taskId][level].filter(q => q.id !== qId);
     setTestDb(updatedDb);
-    api.saveTests(updatedDb);
+    try {
+      await api.saveTests(updatedDb);
+    } catch (err) {
+      alert(err?.message || err);
+    }
     if (removed) {
       const attachments = [
         ...(Array.isArray(removed.screenshots) ? removed.screenshots : []),
@@ -499,7 +736,7 @@ const TeacherPanel = ({
     }
   };
 
-  const currentQuestions = testDb[selectedTask]?.[selectedLevel] || [];
+  const currentQuestions = testDb?.[selectedTask]?.[selectedLevel] || [];
   const studentsList = students || [];
 
   const addScreenshotFiles = (fileList) => {
@@ -578,10 +815,16 @@ const TeacherPanel = ({
       setStudentActionError('Введите имя ученика');
       return;
     }
+    if (!teacherId) {
+      setStudentActionError('Сначала выберите учителя');
+      return;
+    }
     setStudentActionLoading(true);
     try {
-      const created = await api.createStudent(name);
-      onStudentCreated?.(created);
+      const created = await api.createStudent(name, teacherId);
+      const { code, ...rest } = created || {};
+      if (rest?.id) onStudentCreated?.(rest);
+      if (code) setLastIssuedCode({ name: rest?.name || name, code });
       setNewStudentName('');
       setStudentActionError('');
     } catch (err) {
@@ -605,6 +848,101 @@ const TeacherPanel = ({
     }
   };
 
+  const handleResetStudentCode = async (student) => {
+    if (!student?.id) return;
+    if (!confirm(`Сгенерировать новый код для "${student.name}"? Старый код больше не будет работать.`)) return;
+    setResettingStudentId(student.id);
+    try {
+      const res = await api.resetStudentCode(student.id);
+      if (res?.code) setLastIssuedCode({ name: student.name, code: res.code });
+      if (res?.codeHint) onStudentUpdated?.({ ...student, codeHint: res.codeHint });
+    } catch (err) {
+      alert(err?.message || err);
+    } finally {
+      setResettingStudentId(null);
+    }
+  };
+
+  const startEditStudent = (student) => {
+    if (!student?.id) return;
+    setEditingStudentId(student.id);
+    setEditStudentName(student.name || '');
+    setEditStudentNickname(student.nickname || '');
+    setEditStudentError('');
+  };
+
+  const cancelEditStudent = () => {
+    setEditingStudentId(null);
+    setEditStudentName('');
+    setEditStudentNickname('');
+    setEditStudentError('');
+  };
+
+  const saveEditStudent = async (student) => {
+    if (!student?.id) return;
+    const nextName = editStudentName.trim();
+    setEditStudentError('');
+    if (!nextName) {
+      setEditStudentError('Введите имя ученика');
+      return;
+    }
+    if (nextName.length > 60) {
+      setEditStudentError('Имя слишком длинное');
+      return;
+    }
+    if (/[\/\\]/.test(nextName)) {
+      setEditStudentError('Недопустимые символы');
+      return;
+    }
+
+    setEditStudentSaving(true);
+    try {
+      const payload = { name: nextName, nickname: editStudentNickname };
+      const res = await api.updateStudent(student.id, payload);
+      onStudentUpdated?.({ ...student, ...res });
+      cancelEditStudent();
+    } catch (err) {
+      setEditStudentError(err?.message || err);
+    } finally {
+      setEditStudentSaving(false);
+    }
+  };
+
+  const handleChangeTeacherCode = async () => {
+    setTeacherCodeError('');
+    setTeacherCodeSuccess('');
+    if (!teacherId) {
+      setTeacherCodeError('Сначала выберите учителя');
+      return;
+    }
+    const current = teacherCodeForm.current.trim();
+    const next = teacherCodeForm.next.trim();
+    const repeat = teacherCodeForm.repeat.trim();
+    if (!current || !next) {
+      setTeacherCodeError('Введите текущий и новый код');
+      return;
+    }
+    if (next.length < 4 || next.length > 32) {
+      setTeacherCodeError('Код должен быть от 4 до 32 символов');
+      return;
+    }
+    if (next !== repeat) {
+      setTeacherCodeError('Коды не совпадают');
+      return;
+    }
+    setTeacherCodeSaving(true);
+    try {
+      await api.updateTeacherCode(teacherId, current, next);
+      setTeacherCodeForm({ current: '', next: '', repeat: '' });
+      setTeacherCodeSuccess('Код обновлён');
+    } catch (err) {
+      setTeacherCodeError(err?.message || err);
+    } finally {
+      setTeacherCodeSaving(false);
+    }
+  };
+
+
   return (
     <div className="animate-fadeIn pb-10">
       <div className="mb-6">
@@ -613,6 +951,8 @@ const TeacherPanel = ({
           Панель учителя
         </h2>
         <p className="text-gray-500">Добавление и редактирование заданий для тестов</p>
+        {testsLoading && <p className="text-xs text-gray-400 mt-2">Загрузка базы тестов...</p>}
+        {testsError && <p className="text-xs text-red-500 mt-2">{testsError}</p>}
       </div>
 
       <Card className="mb-6">
@@ -638,6 +978,22 @@ const TeacherPanel = ({
           </Button>
         </div>
         {studentActionError && <p className="text-xs text-red-500 mb-3">{studentActionError}</p>}
+        {lastIssuedCode && (
+          <div className="mb-3 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 flex flex-wrap items-center justify-between gap-2">
+            <span>
+              Код доступа для <strong>{lastIssuedCode.name}</strong>:
+              <span className="font-mono ml-2">{lastIssuedCode.code}</span>
+            </span>
+            <button
+              onClick={() => setLastIssuedCode(null)}
+              className="text-xs text-green-700 hover:text-green-900"
+              type="button"
+            >
+              Скрыть
+            </button>
+          </div>
+        )}
+
 
         <div className="space-y-2">
           {studentsLoading ? (
@@ -649,32 +1005,139 @@ const TeacherPanel = ({
               <div
                 key={student.id}
                 onClick={() => onSelectStudent?.(student.id)}
-                className={`p-3 rounded-xl border flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                className={`p-3 rounded-xl border flex items-start justify-between gap-3 cursor-pointer transition-all ${
                   activeStudentId === student.id ? 'border-purple-300 bg-purple-50' : 'border-gray-200 bg-white hover:border-purple-200'
                 }`}
               >
-                <div>
-                  <p className="font-medium text-gray-800">{student.name}</p>
-                  <p className="text-xs text-gray-500">
-                    Код: <span className="font-mono">{student.code}</span>
-                  </p>
+                <div className="min-w-0 flex-1">
+                  {editingStudentId === student.id ? (
+                    <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="text"
+                        value={editStudentName}
+                        onChange={(e) => setEditStudentName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveEditStudent(student);
+                          if (e.key === 'Escape') cancelEditStudent();
+                        }}
+                        placeholder="Имя ученика"
+                        className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+                      />
+                      <input
+                        type="text"
+                        value={editStudentNickname}
+                        onChange={(e) => setEditStudentNickname(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveEditStudent(student);
+                          if (e.key === 'Escape') cancelEditStudent();
+                        }}
+                        placeholder="Прозвище (только для вас)"
+                        className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+                      />
+                      {editStudentError && <p className="text-xs text-red-500">{editStudentError}</p>}
+                    </div>
+                  ) : (
+                    <>
+                      <p className="font-medium text-gray-800 truncate">{student.name}</p>
+                      {student.nickname && (
+                        <p className="text-xs text-purple-600 truncate">Прозвище: {student.nickname}</p>
+                      )}
+                      <p className="text-xs text-gray-500">
+                        Код: <span className="font-mono">{student.codeHint ? `****${student.codeHint}` : 'скрыт'}</span>
+                      </p>
+                    </>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
-                  {activeStudentId === student.id && (
-                    <span className="text-xs font-semibold text-purple-600">Активный</span>
+                  {editingStudentId === student.id ? (
+                    <>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); saveEditStudent(student); }}
+                        className="px-3 py-1 rounded-lg bg-purple-600 text-white text-xs hover:bg-purple-700 disabled:opacity-60"
+                        disabled={editStudentSaving}
+                        type="button"
+                      >
+                        {editStudentSaving ? '...' : 'Сохранить'}
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); cancelEditStudent(); }}
+                        className="px-3 py-1 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
+                        type="button"
+                      >
+                        Отмена
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {activeStudentId === student.id && (
+                        <span className="text-xs font-semibold text-purple-600">Активный</span>
+                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); startEditStudent(student); }}
+                        className="px-3 py-1 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
+                        type="button"
+                      >
+                        Изменить
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleResetStudentCode(student); }}
+                        className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 disabled:opacity-50"
+                        title="Сбросить код"
+                        disabled={resettingStudentId === student.id}
+                        type="button"
+                      >
+                        <RefreshCcw size={16} />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteStudent(student); }}
+                        className="p-2 rounded-lg text-red-500 hover:bg-red-50"
+                        title="Удалить ученика"
+                        type="button"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </>
                   )}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleDeleteStudent(student); }}
-                    className="p-2 rounded-lg text-red-500 hover:bg-red-50"
-                    title="Удалить ученика"
-                  >
-                    <Trash2 size={16} />
-                  </button>
                 </div>
               </div>
             ))
           )}
         </div>
+      </Card>
+
+      <Card className="mb-6">
+        <h3 className="text-lg font-bold text-gray-800 mb-4">Смена кода учителя</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <input
+            type="password"
+            value={teacherCodeForm.current}
+            onChange={(e) => setTeacherCodeForm((prev) => ({ ...prev, current: e.target.value }))}
+            placeholder="Текущий код"
+            className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+          />
+          <input
+            type="password"
+            value={teacherCodeForm.next}
+            onChange={(e) => setTeacherCodeForm((prev) => ({ ...prev, next: e.target.value }))}
+            placeholder="Новый код"
+            className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+          />
+          <input
+            type="password"
+            value={teacherCodeForm.repeat}
+            onChange={(e) => setTeacherCodeForm((prev) => ({ ...prev, repeat: e.target.value }))}
+            placeholder="Повторите код"
+            className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+          />
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+          <span className="text-xs text-gray-500">Код хранится в зашифрованном виде. Новый код вступит в силу сразу.</span>
+          <Button onClick={handleChangeTeacherCode} disabled={teacherCodeSaving}>
+            {teacherCodeSaving ? 'Сохранение...' : 'Обновить код'}
+          </Button>
+        </div>
+        {teacherCodeError && <p className="text-xs text-red-500 mt-2">{teacherCodeError}</p>}
+        {teacherCodeSuccess && <p className="text-xs text-green-600 mt-2">{teacherCodeSuccess}</p>}
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -894,10 +1357,295 @@ const TeacherPanel = ({
   );
 };
 
+const AdminPanel = ({
+  teachers,
+  teachersLoading,
+  teachersError,
+  onTeachersChanged
+}) => {
+  const [newTeacherName, setNewTeacherName] = useState('');
+  const [teacherActionError, setTeacherActionError] = useState('');
+  const [teacherActionLoading, setTeacherActionLoading] = useState(false);
+  const [lastTeacherCode, setLastTeacherCode] = useState(null);
+  const [editingTeacherId, setEditingTeacherId] = useState(null);
+  const [editTeacherName, setEditTeacherName] = useState('');
+  const [editTeacherError, setEditTeacherError] = useState('');
+  const [editTeacherSaving, setEditTeacherSaving] = useState(false);
+  const [resettingTeacherId, setResettingTeacherId] = useState(null);
+  const [adminStudents, setAdminStudents] = useState([]);
+  const [adminStudentsLoading, setAdminStudentsLoading] = useState(false);
+  const [adminStudentsError, setAdminStudentsError] = useState('');
+
+  const loadAllStudents = async () => {
+    setAdminStudentsLoading(true);
+    try {
+      const data = await api.getStudents();
+      setAdminStudents(data);
+      setAdminStudentsError('');
+    } catch (err) {
+      setAdminStudentsError(err?.message || err);
+    } finally {
+      setAdminStudentsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAllStudents();
+  }, [teachers?.length]);
+
+  const handleCreateTeacher = async () => {
+    const name = newTeacherName.trim();
+    if (!name) {
+      setTeacherActionError('Введите имя учителя');
+      return;
+    }
+    setTeacherActionLoading(true);
+    try {
+      const created = await api.createTeacher(name);
+      const { code, ...rest } = created || {};
+      if (code) setLastTeacherCode({ name: rest?.name || name, code });
+      setNewTeacherName('');
+      setTeacherActionError('');
+      onTeachersChanged?.();
+    } catch (err) {
+      setTeacherActionError(err?.message || err);
+    } finally {
+      setTeacherActionLoading(false);
+    }
+  };
+
+  const handleDeleteTeacher = async (teacher) => {
+    if (!teacher?.id) return;
+    if (!confirm(`Удалить учителя "${teacher.name}"? Все его ученики и данные будут удалены.`)) return;
+    try {
+      await api.deleteTeacher(teacher.id);
+      onTeachersChanged?.();
+      loadAllStudents();
+    } catch (err) {
+      alert(err?.message || err);
+    }
+  };
+
+  const handleResetTeacherCode = async (teacher) => {
+    if (!teacher?.id) return;
+    if (!confirm(`Сгенерировать новый код для "${teacher.name}"?`)) return;
+    setResettingTeacherId(teacher.id);
+    try {
+      const res = await api.resetTeacherCode(teacher.id);
+      if (res?.code) setLastTeacherCode({ name: teacher.name, code: res.code });
+      onTeachersChanged?.();
+    } catch (err) {
+      alert(err?.message || err);
+    } finally {
+      setResettingTeacherId(null);
+    }
+  };
+
+  const startEditTeacher = (teacher) => {
+    if (!teacher?.id) return;
+    setEditingTeacherId(teacher.id);
+    setEditTeacherName(teacher.name || '');
+    setEditTeacherError('');
+  };
+
+  const cancelEditTeacher = () => {
+    setEditingTeacherId(null);
+    setEditTeacherName('');
+    setEditTeacherError('');
+  };
+
+  const saveEditTeacher = async (teacher) => {
+    const name = editTeacherName.trim();
+    if (!name) {
+      setEditTeacherError('Введите имя учителя');
+      return;
+    }
+    setEditTeacherSaving(true);
+    try {
+      await api.updateTeacherName(teacher.id, name);
+      cancelEditTeacher();
+      onTeachersChanged?.();
+    } catch (err) {
+      setEditTeacherError(err?.message || err);
+    } finally {
+      setEditTeacherSaving(false);
+    }
+  };
+
+  const teacherMap = useMemo(() => {
+    const map = new Map();
+    (teachers || []).forEach((teacher) => map.set(teacher.id, teacher.name));
+    return map;
+  }, [teachers]);
+
+  return (
+    <div className="animate-fadeIn space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900">Админка</h2>
+        <p className="text-gray-500">Управление учителями и всеми учениками</p>
+      </div>
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-lg font-bold text-gray-800">Учителя</h3>
+            <p className="text-xs text-gray-500">Всего: {teachers?.length || 0}</p>
+          </div>
+          {teachersError && <span className="text-xs text-red-500">{teachersError}</span>}
+        </div>
+
+        <div className="flex flex-col md:flex-row gap-2 mb-4">
+          <input
+            type="text"
+            value={newTeacherName}
+            onChange={(e) => { setNewTeacherName(e.target.value); setTeacherActionError(''); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleCreateTeacher(); }}
+            placeholder="Имя учителя"
+            className="flex-1 px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+          />
+          <Button onClick={handleCreateTeacher} disabled={teacherActionLoading || !newTeacherName.trim()}>
+            <Plus size={16}/> Добавить
+          </Button>
+        </div>
+        {teacherActionError && <p className="text-xs text-red-500 mb-3">{teacherActionError}</p>}
+        {lastTeacherCode && (
+          <div className="mb-3 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 flex flex-wrap items-center justify-between gap-2">
+            <span>
+              Код доступа для <strong>{lastTeacherCode.name}</strong>:
+              <span className="font-mono ml-2">{lastTeacherCode.code}</span>
+            </span>
+            <button
+              onClick={() => setLastTeacherCode(null)}
+              className="text-xs text-green-700 hover:text-green-900"
+              type="button"
+            >
+              Скрыть
+            </button>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          {teachersLoading ? (
+            <div className="text-sm text-gray-500">Загрузка списка...</div>
+          ) : (teachers || []).length === 0 ? (
+            <div className="text-sm text-gray-400">Пока нет учителей. Создайте первого.</div>
+          ) : (
+            (teachers || []).map((teacher) => (
+              <div key={teacher.id} className="p-3 rounded-xl border flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  {editingTeacherId === teacher.id ? (
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        value={editTeacherName}
+                        onChange={(e) => setEditTeacherName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveEditTeacher(teacher);
+                          if (e.key === 'Escape') cancelEditTeacher();
+                        }}
+                        className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+                      />
+                      {editTeacherError && <p className="text-xs text-red-500">{editTeacherError}</p>}
+                    </div>
+                  ) : (
+                    <>
+                      <p className="font-medium text-gray-800 truncate">{teacher.name}</p>
+                      <p className="text-xs text-gray-500">
+                        Код: <span className="font-mono">{teacher.codeHint ? `****${teacher.codeHint}` : 'скрыт'}</span>
+                      </p>
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {editingTeacherId === teacher.id ? (
+                    <>
+                      <button
+                        onClick={() => saveEditTeacher(teacher)}
+                        className="px-3 py-1 rounded-lg bg-purple-600 text-white text-xs hover:bg-purple-700 disabled:opacity-60"
+                        disabled={editTeacherSaving}
+                        type="button"
+                      >
+                        {editTeacherSaving ? '...' : 'Сохранить'}
+                      </button>
+                      <button
+                        onClick={cancelEditTeacher}
+                        className="px-3 py-1 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
+                        type="button"
+                      >
+                        Отмена
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => startEditTeacher(teacher)}
+                        className="px-3 py-1 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
+                        type="button"
+                      >
+                        Изменить
+                      </button>
+                      <button
+                        onClick={() => handleResetTeacherCode(teacher)}
+                        className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 disabled:opacity-50"
+                        title="Сбросить код"
+                        disabled={resettingTeacherId === teacher.id}
+                        type="button"
+                      >
+                        <RefreshCcw size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteTeacher(teacher)}
+                        className="p-2 rounded-lg text-red-500 hover:bg-red-50"
+                        title="Удалить учителя"
+                        type="button"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </Card>
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-lg font-bold text-gray-800">Все ученики</h3>
+            <p className="text-xs text-gray-500">Всего: {adminStudents.length}</p>
+          </div>
+          {adminStudentsError && <span className="text-xs text-red-500">{adminStudentsError}</span>}
+        </div>
+        {adminStudentsLoading ? (
+          <div className="text-sm text-gray-500">Загрузка списка учеников...</div>
+        ) : adminStudents.length === 0 ? (
+          <div className="text-sm text-gray-400">Пока нет учеников.</div>
+        ) : (
+          <div className="space-y-2">
+            {adminStudents.map((student) => (
+              <div key={student.id} className="p-3 rounded-xl border flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-medium text-gray-800 truncate">{student.name}</p>
+                  <p className="text-xs text-gray-500">
+                    Учитель: <span className="font-medium text-gray-700">{teacherMap.get(student.teacherId) || 'Неизвестно'}</span>
+                  </p>
+                </div>
+                <span className="text-xs text-gray-400">{student.codeHint ? `****${student.codeHint}` : 'скрыт'}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+};
+
 /**
  * STUDENT TEST MODAL
  */
-const StudentTestModal = ({ task, onClose, onComplete, progress, studentId }) => {
+const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, testDb }) => {
   const [stage, setStage] = useState('select_level'); // select_level | testing
   const [level, setLevel] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -905,12 +1653,16 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId }) =>
   const [userAnswers, setUserAnswers] = useState({}); // { [idx]: optionIdx | string }
   const [results, setResults] = useState({}); // { [idx]: boolean }
   const [solvedIds, setSolvedIds] = useState(new Set());
+  const [expandedImage, setExpandedImage] = useState(null);
 
-  // Load questions from DB
-  const testDb = api.getTests();
   const currentMastery = progress[task.id] || 0;
 
   const startTest = async (lvlId) => {
+    if (!testDb) {
+      alert("База тестов еще загружается. Попробуйте чуть позже.");
+      return;
+    }
+
     const qs = testDb[task.number]?.[lvlId] || [];
     
     if (qs.length === 0) {
@@ -961,7 +1713,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId }) =>
       const levelConfig = Object.values(LEVELS).find(l => l.id === level);
       if (studentId) {
         try {
-          const taskLevels = testDb[task.number] || {};
+          const taskLevels = testDb?.[task.number] || {};
           const levelTotals = {
             basic: Array.isArray(taskLevels.basic) ? taskLevels.basic.length : 0,
             advanced: Array.isArray(taskLevels.advanced) ? taskLevels.advanced.length : 0,
@@ -1069,8 +1821,10 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId }) =>
     const currentId = String(currentQuestion?.id ?? currentIndex);
     const isSolved = solvedIds.has(currentId);
     const answerValue = isSolved ? String(expectedAnswer ?? '') : String(userAnswers[currentIndex] ?? '');
-    const screenshots = Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [];
-    const extraFiles = Array.isArray(currentQuestion?.files) ? currentQuestion.files : [];
+    const screenshots = (Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [])
+      .map((img) => ({ ...img, url: withStudentId(img?.url, studentId) }));
+    const extraFiles = (Array.isArray(currentQuestion?.files) ? currentQuestion.files : [])
+      .map((file) => ({ ...file, url: withStudentId(file?.url, studentId) }));
     const isAnswerReady = isSolved ? true : Boolean(answerValue.trim());
     const computedChecked = isSolved || isChecked;
     const computedCorrect = isSolved ? true : isCorrect;
@@ -1132,8 +1886,9 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId }) =>
                     <img
                       src={img.url}
                       alt={img.name || 'Скриншот'}
-                      className="w-full object-contain"
+                      className="w-full object-contain cursor-zoom-in"
                       style={{ maxHeight: '65vh' }}
+                      onClick={() => setExpandedImage(img)}
                     />
                   </div>
                 ))}
@@ -1201,6 +1956,29 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId }) =>
             )}
           </Button>
         </div>
+        {expandedImage && (
+          <div
+            className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4"
+            onClick={() => setExpandedImage(null)}
+          >
+            <div className="relative max-w-[95vw] max-h-[95vh]" onClick={(e) => e.stopPropagation()}>
+              <img
+                src={expandedImage.url}
+                alt={expandedImage.name || 'Скриншот'}
+                className="w-full h-full object-contain rounded-2xl shadow-2xl"
+                style={{ maxHeight: '95vh' }}
+              />
+              <button
+                onClick={() => setExpandedImage(null)}
+                className="absolute top-3 right-3 p-2 rounded-full bg-white/90 hover:bg-white"
+                type="button"
+                aria-label="Закрыть"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
     return typeof document !== 'undefined' ? createPortal(modal, document.body) : null;
@@ -1214,7 +1992,6 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId }) =>
  */
 
 const LoginPage = ({ onLogin }) => {
-  const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -1223,7 +2000,7 @@ const LoginPage = ({ onLogin }) => {
     e.preventDefault();
     setLoading(true); setError(null);
     try {
-      const user = await api.login(email.trim(), code.trim());
+      const user = await api.login(code.trim());
       onLogin(user);
     } catch (err) { setError(err?.message || err); } 
     finally { setLoading(false); }
@@ -1238,7 +2015,6 @@ const LoginPage = ({ onLogin }) => {
           <p className="text-gray-500 mt-2">Вход в платформу</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="Email" className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"/>
           <input type="password" value={code} onChange={e => setCode(e.target.value)} required placeholder="Код доступа" className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"/>
           {error && <div className="text-red-500 text-sm text-center">{error}</div>}
           <Button type="submit" className="w-full py-3" disabled={loading}>{loading ? 'Вход...' : 'Войти'}</Button>
@@ -1264,6 +2040,8 @@ const ProgressSection = ({
   const [section, setSection] = useState('progress');
   const [studentData, setStudentData] = useState({ progress: {}, notes: '', notesByTask: {}, mocks: [] });
   const [dataError, setDataError] = useState('');
+  const [testsDb, setTestsDb] = useState(null);
+  const [testsDbError, setTestsDbError] = useState('');
   const [notesSavingId, setNotesSavingId] = useState(null);
   const [mockForm, setMockForm] = useState({ date: '', score: '', comment: '' });
   const studentsList = students || [];
@@ -1296,6 +2074,22 @@ const ProgressSection = ({
   }, [effectiveStudentId]);
 
   useEffect(() => {
+    let cancelled = false;
+    api.getTests()
+      .then((data) => {
+        if (cancelled) return;
+        setTestsDb(data && typeof data === 'object' ? data : {});
+        setTestsDbError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setTestsDb({});
+        setTestsDbError(err?.message || err);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
     setActiveTask(null);
   }, [section, effectiveStudentId]);
 
@@ -1303,7 +2097,18 @@ const ProgressSection = ({
     ? (studentData.progress || {})
     : (Object.keys(progress || {}).length ? progress : (studentData.progress || {}));
 
-  const totalMastery = Math.round((Object.values(progressMap).filter(v => v >= 100).length / MOCK_TASKS.length) * 100);
+  const totalMastery = (() => {
+    const list = tasks.length ? tasks : MOCK_TASKS;
+    if (!list.length) return 0;
+    const total = list.reduce((sum, task) => {
+      const val = Number(progressMap[task.id] || 0);
+      return sum + (Number.isFinite(val) ? Math.max(0, Math.min(100, val)) : 0);
+    }, 0);
+    return Math.round((total / list.length) * 10) / 10;
+  })();
+  const totalMasteryLabel = Number.isFinite(totalMastery) && totalMastery % 1 !== 0
+    ? totalMastery.toFixed(1)
+    : Math.round(totalMastery).toString();
 
   const renderStudentPicker = () => {
     if (role !== 'teacher') return null;
@@ -1322,7 +2127,7 @@ const ProgressSection = ({
           <option value="" disabled>Выберите ученика</option>
           {studentsList.map((student) => (
             <option key={student.id} value={student.id}>
-              {student.name}
+              {getStudentLabel(student)}
             </option>
           ))}
         </select>
@@ -1405,24 +2210,50 @@ const ProgressSection = ({
   }
 
   return (
-    <div className="space-y-6 animate-fadeIn">
+    <div className="space-y-6 animate-fadeIn" data-tour="progress">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Успеваемость</h2>
-          <p className="text-gray-500">Три раздела для контроля прогресса и обратной связи</p>
+          <h2 className="text-2xl font-bold text-gray-900">{'\u0423\u0441\u043f\u0435\u0432\u0430\u0435\u043c\u043e\u0441\u0442\u044c'}</h2>
+          <p className="text-gray-500">{'\u0422\u0440\u0438 \u0440\u0430\u0437\u0434\u0435\u043b\u0430 \u0434\u043b\u044f \u043a\u043e\u043d\u0442\u0440\u043e\u043b\u044f \u043f\u0440\u043e\u0433\u0440\u0435\u0441\u0441\u0430 \u0438 \u043e\u0431\u0440\u0430\u0442\u043d\u043e\u0439 \u0441\u0432\u044f\u0437\u0438'}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {renderStudentPicker()}
-          <div className="bg-white px-4 py-2 rounded-xl border shadow-sm">
-            <span className="text-sm text-gray-500 mr-2">Общий зачет:</span>
-            <span className="text-xl font-bold text-purple-600">{totalMastery}%</span>
+        </div>
+      </div>
+
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-purple-50 p-5 shadow-md">
+        <div className="absolute inset-0 opacity-40">
+          <div className="absolute -left-10 top-0 h-full w-32 bg-gradient-to-r from-transparent via-white/70 to-transparent blur-xl" />
+        </div>
+        <div className="relative z-10 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest bg-purple-600 text-white">
+                {'\u0424\u0438\u043d\u0430\u043b\u044c\u043d\u044b\u0439 \u0437\u0430\u0447\u0451\u0442'}
+              </div>
+              <span className="text-sm text-gray-500">{'\u041e\u0431\u0449\u0438\u0439 \u043f\u0440\u043e\u0433\u0440\u0435\u0441\u0441 \u0415\u0413\u042d'}</span>
+            </div>
+            <div className="text-3xl font-extrabold text-purple-700 drop-shadow-sm">
+              {totalMasteryLabel}%
+            </div>
+          </div>
+          <div className="relative h-8 w-full rounded-full bg-white/80 border border-purple-100 overflow-hidden">
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.55)] transition-[width] duration-700 ease-out"
+              style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
+            />
+            <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-[shine_3s_linear_infinite]" />
+          </div>
+          <div className="flex items-center justify-between text-xs text-gray-500">
+            <span>{'\u0421\u043e\u0431\u0435\u0440\u0438 \u0432\u0441\u0435 \u0437\u0430\u0434\u0430\u043d\u0438\u044f, \u0447\u0442\u043e\u0431\u044b \u0437\u0430\u043a\u0440\u044b\u0442\u044c \u044d\u0442\u043e\u0442 \u0443\u0440\u043e\u0432\u0435\u043d\u044c'}</span>
+            <span>{'0% \u2014 \u0441\u0442\u0430\u0440\u0442 \u2022 100% \u2014 \u043f\u043e\u0431\u0435\u0434\u0430'}</span>
           </div>
         </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
         {[
-          { id: 'progress', label: 'Тестирования (Прогресс ЕГЭ)' },
+          { id: 'progress', label: 'Тестирования' },
           { id: 'notes', label: 'Заметки учителя' },
           { id: 'mocks', label: 'Пробники' }
         ].map((item) => (
@@ -1441,6 +2272,7 @@ const ProgressSection = ({
       </div>
 
       {dataError && <div className="text-xs text-red-500">{dataError}</div>}
+      {testsDbError && <div className="text-xs text-red-500">{testsDbError}</div>}
 
       {section === 'progress' && (
         <>
@@ -1479,6 +2311,7 @@ const ProgressSection = ({
           onClose={() => setActiveTask(null)}
           progress={progressMap}
           studentId={studentId}
+          testDb={testsDb}
           onComplete={(taskId, score, options) => {
             onUpdateProgress(taskId, score, options);
             // setActiveTask(null); // Убрали закрытие, чтобы можно было решать дальше
@@ -1679,7 +2512,7 @@ const ScheduleSection = ({
           <option value="" disabled>Выберите ученика</option>
           {studentsList.map((student) => (
             <option key={student.id} value={student.id}>
-              {student.name}
+              {getStudentLabel(student)}
             </option>
           ))}
         </select>
@@ -1744,7 +2577,7 @@ const ScheduleSection = ({
   }
 
   return (
-    <div className="space-y-6 animate-fadeIn">
+    <div className="space-y-6 animate-fadeIn" data-tour="schedule">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Моё расписание</h2>
@@ -1870,6 +2703,7 @@ const NotesSection = ({
   const fileRef = useRef(null);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
+  const getFileUrl = (file) => withStudentId(file?.url, effectiveStudentId);
 
   const taskNumbers = Array.from({length: 27}, (_,i) => i+1);
   const taskCounts = useMemo(() => {
@@ -2194,12 +3028,14 @@ const NotesSection = ({
   };
 
   const handleDownload = (file) => {
-    if (!file?.url) return;
-    window.open(file.url, '_blank', 'noopener,noreferrer');
+    const url = getFileUrl(file);
+    if (!url) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const togglePyPreview = async (file) => {
-    if (!file?.url || !isPyFile(file.name)) return;
+    const url = getFileUrl(file);
+    if (!url || !isPyFile(file.name)) return;
     setExpandedPyIds((prev) => {
       const next = { ...prev };
       if (next[file.id]) delete next[file.id];
@@ -2210,7 +3046,7 @@ const NotesSection = ({
 
     setPyLoadingId(file.id);
     try {
-      const res = await fetch(file.url);
+      const res = await fetch(url);
       if (!res.ok) throw new Error('Не удалось загрузить файл');
       const text = await res.text();
       setPyContent((prev) => ({ ...prev, [file.id]: text }));
@@ -2222,7 +3058,8 @@ const NotesSection = ({
   };
 
   const togglePdfPreview = (file) => {
-    if (!file?.url || !isPdfFile(file.name)) return;
+    const url = getFileUrl(file);
+    if (!url || !isPdfFile(file.name)) return;
     setExpandedPdfIds((prev) => {
       const next = { ...prev };
       if (next[file.id]) delete next[file.id];
@@ -2327,7 +3164,7 @@ const NotesSection = ({
           <option value="" disabled>Выберите ученика</option>
           {studentsList.map((student) => (
             <option key={student.id} value={student.id}>
-              {student.name}
+              {getStudentLabel(student)}
             </option>
           ))}
         </select>
@@ -2362,7 +3199,7 @@ const NotesSection = ({
   }
 
   if (!currentTask) return (
-    <div className="animate-fadeIn">
+    <div className="animate-fadeIn" data-tour="notes">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h2 className="text-2xl font-bold">Конспекты</h2>
         {renderStudentPicker()}
@@ -2394,7 +3231,7 @@ const NotesSection = ({
   );
 
   if (!currentCategory) return (
-    <div className="animate-fadeIn">
+    <div className="animate-fadeIn" data-tour="notes">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <button onClick={() => setCurrentTask(null)} className="flex items-center text-gray-500 hover:text-purple-600"><ArrowLeft size={16}/> Назад</button>
         {renderStudentPicker()}
@@ -2445,7 +3282,7 @@ const NotesSection = ({
     : 'Без папки';
 
   return (
-    <div className="animate-fadeIn">
+    <div className="animate-fadeIn" data-tour="notes">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <button onClick={() => setCurrentCategory(null)} className="flex items-center text-gray-500 hover:text-purple-600"><ArrowLeft size={16}/> Назад</button>
         {renderStudentPicker()}
@@ -2573,6 +3410,7 @@ const NotesSection = ({
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
+        data-tour="files"
         className={`rounded-2xl border-2 border-dashed p-4 transition-colors ${
           isDragging ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
         }`}
@@ -2644,7 +3482,15 @@ const NotesSection = ({
                   <div className="flex gap-2">
                     {renamingId === f.id ? null : (
                       <>
-                        <button onClick={(e) => { e.stopPropagation(); handleDownload(f); }} className="p-2 hover:bg-gray-100 rounded text-gray-500"><Download size={18}/></button>
+                        {isPdfFile(f.name) && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDownload(f); }}
+                            className="p-2 hover:bg-gray-100 rounded text-gray-500"
+                            title="Скачать PDF"
+                          >
+                            <Download size={18}/>
+                          </button>
+                        )}
                         <button onClick={(e) => { e.stopPropagation(); handleDelete(f); }} className="p-2 hover:bg-red-50 rounded text-red-500"><Trash2 size={18}/></button>
                       </>
                     )}
@@ -2682,7 +3528,7 @@ const NotesSection = ({
                     <div className="bg-white border rounded-xl overflow-hidden">
                       <iframe
                         title={f.name}
-                        src={f.url}
+                        src={getFileUrl(f)}
                         className="w-full h-[60vh]"
                       />
                     </div>
@@ -2697,31 +3543,191 @@ const NotesSection = ({
   );
 };
 
+const StudentTour = ({ user, view, setView, menuOpen, setMenuOpen }) => {
+  const [open, setOpen] = useState(false);
+  const [stepIndex, setStepIndex] = useState(0);
+  const [highlightRect, setHighlightRect] = useState(null);
+  const steps = STUDENT_TOUR_STEPS;
+  const step = steps[stepIndex] || {};
+
+  useEffect(() => {
+    if (!user || user.role !== 'student') {
+      setOpen(false);
+      return;
+    }
+    if (hasStudentSeenTour(user.id)) {
+      setOpen(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setOpen(true);
+      setStepIndex(0);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [user?.id, user?.role]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (step.view && step.view !== view) setView(step.view);
+    if (typeof window === 'undefined') return;
+    if (step.menu === 'open' && window.innerWidth < 768) setMenuOpen(true);
+    if (step.menu === 'close' && window.innerWidth < 768) setMenuOpen(false);
+  }, [open, stepIndex, step.view, step.menu, view, setView, setMenuOpen]);
+
+  useEffect(() => {
+    if (!open || typeof document === 'undefined') return;
+    const targetSelector = step.target;
+    const fallbackSelector = step.fallback;
+    let rafId = 0;
+    const update = () => {
+      if (!targetSelector && !fallbackSelector) {
+        setHighlightRect(null);
+        return;
+      }
+      let el = targetSelector ? document.querySelector(targetSelector) : null;
+      if (!el && fallbackSelector) el = document.querySelector(fallbackSelector);
+      if (!el) {
+        setHighlightRect(null);
+        return;
+      }
+      const rect = el.getBoundingClientRect();
+      if (!rect.width || !rect.height) {
+        setHighlightRect(null);
+        return;
+      }
+      const pad = 10;
+      setHighlightRect({
+        top: rect.top - pad,
+        left: rect.left - pad,
+        width: rect.width + pad * 2,
+        height: rect.height + pad * 2
+      });
+    };
+    const schedule = () => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(update);
+    };
+    schedule();
+    window.addEventListener('resize', schedule);
+    document.addEventListener('scroll', schedule, true);
+    return () => {
+      window.removeEventListener('resize', schedule);
+      document.removeEventListener('scroll', schedule, true);
+      cancelAnimationFrame(rafId);
+    };
+  }, [open, stepIndex, view, menuOpen, step.target, step.fallback]);
+
+  useEffect(() => {
+    if (!open || typeof window === 'undefined') return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        setOpen(false);
+        markStudentSeenTour(user?.id);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, user?.id]);
+
+  const finishTour = (markDone = true) => {
+    setOpen(false);
+    if (markDone) markStudentSeenTour(user?.id);
+  };
+
+  const handleNext = () => {
+    if (stepIndex >= steps.length - 1) {
+      finishTour(true);
+      return;
+    }
+    setStepIndex((prev) => Math.min(prev + 1, steps.length - 1));
+  };
+
+  const handlePrev = () => {
+    setStepIndex((prev) => Math.max(0, prev - 1));
+  };
+
+  if (!open || !user || user.role !== 'student') return null;
+  if (typeof document === 'undefined') return null;
+
+  const mascotSrc = MASCOT_IMAGES[step.emotion] || mascotGreetings;
+  const isLast = stepIndex === steps.length - 1;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[2000]">
+      <div className="absolute inset-0 bg-black/50" />
+      {highlightRect && (
+        <div
+          className="absolute rounded-3xl ring-2 ring-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] pointer-events-none"
+          style={{
+            top: Math.max(8, highlightRect.top),
+            left: Math.max(8, highlightRect.left),
+            width: Math.max(0, highlightRect.width),
+            height: Math.max(0, highlightRect.height)
+          }}
+        />
+      )}
+      <div className="absolute inset-x-0 bottom-0 sm:bottom-6 flex justify-center sm:justify-end">
+        <div className="bg-white w-[min(520px,calc(100%-2rem))] rounded-3xl border border-gray-200 shadow-2xl p-4 sm:p-5 mx-4 sm:mx-0 sm:mr-6">
+          <div className="flex items-start gap-3">
+            <img src={mascotSrc} alt="Маскот" className="w-24 h-24 sm:w-28 sm:h-28 object-contain drop-shadow-sm" />
+            <div>
+              <p className="text-xs uppercase tracking-widest text-gray-400">Шаг {stepIndex + 1} из {steps.length}</p>
+              <h3 className="text-lg font-bold text-gray-900">{step.title}</h3>
+              <p className="text-sm text-gray-600 mt-1">{step.text}</p>
+            </div>
+          </div>
+          <div className="mt-4 flex items-center justify-between gap-2">
+            <button onClick={() => finishTour(true)} className="text-sm text-gray-400 hover:text-gray-600">Пропустить</button>
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" onClick={handlePrev} disabled={stepIndex === 0}>Назад</Button>
+              <Button onClick={handleNext}>{isLast ? 'Готово' : 'Дальше'}</Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
 const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
-  const [view, setView] = useState(user.role === 'teacher' ? 'teacher' : 'progress');
+  const [view, setView] = useState(
+    user.role === 'teacher' ? 'teacher' : (user.role === 'admin' ? 'admin' : 'progress')
+  );
   const [menuOpen, setMenuOpen] = useState(false);
   const [students, setStudents] = useState([]);
   const [studentsLoading, setStudentsLoading] = useState(false);
   const [studentsError, setStudentsError] = useState('');
   const [activeStudentId, setActiveStudentId] = useState(null);
+  const [teachers, setTeachers] = useState([]);
+  const [teachersLoading, setTeachersLoading] = useState(false);
+  const [teachersError, setTeachersError] = useState('');
+  const studentsWithNicknames = useMemo(
+    () => students,
+    [students]
+  );
 
-  const nav = user.role === 'teacher' 
+  const nav = user.role === 'admin'
     ? [
-      { id: 'schedule', label: 'Моё расписание', icon: Calendar },
-      { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
-      { id: 'teacher', label: 'Управление тестами', icon: Settings },
-      { id: 'notes', label: 'Файлы', icon: Folder }
+      { id: 'admin', label: 'Админка', icon: Settings }
     ]
-    : [
-      { id: 'schedule', label: 'Моё расписание', icon: Calendar },
-      { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
-      { id: 'notes', label: 'Конспекты', icon: BookOpen }
-    ];
+    : user.role === 'teacher'
+      ? [
+        { id: 'schedule', label: 'Моё расписание', icon: Calendar },
+        { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
+        { id: 'teacher', label: 'Управление тестами', icon: Settings },
+        { id: 'notes', label: 'Файлы', icon: Folder }
+      ]
+      : [
+        { id: 'schedule', label: 'Моё расписание', icon: Calendar },
+        { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
+        { id: 'notes', label: 'Конспекты', icon: BookOpen }
+      ];
 
-  const loadStudents = async () => {
+  const loadStudents = async (teacherId) => {
     setStudentsLoading(true);
     try {
-      const data = await api.getStudents();
+      const data = await api.getStudents(teacherId);
       setStudents(data);
       setStudentsError('');
       setActiveStudentId((current) => (data.some((s) => s.id === current) ? current : data[0]?.id || null));
@@ -2732,14 +3738,37 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     }
   };
 
+  const loadTeachers = async () => {
+    setTeachersLoading(true);
+    try {
+      const data = await api.getTeachers();
+      setTeachers(data);
+      setTeachersError('');
+    } catch (err) {
+      setTeachersError(err?.message || err);
+    } finally {
+      setTeachersLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (user.role === 'teacher') {
-      loadStudents();
+      loadStudents(user.id);
     } else {
       setStudents([]);
       setActiveStudentId(null);
       setStudentsError('');
       setStudentsLoading(false);
+    }
+  }, [user.role, user.id]);
+
+  useEffect(() => {
+    if (user.role === 'admin') {
+      loadTeachers();
+    } else {
+      setTeachers([]);
+      setTeachersError('');
+      setTeachersLoading(false);
     }
   }, [user.role]);
 
@@ -2758,13 +3787,25 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     });
   };
 
+  const handleStudentUpdated = (student) => {
+    if (!student?.id) return;
+    setStudents((prev) => prev.map((item) => (item.id === student.id ? { ...item, ...student } : item)));
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex font-sans">
+      <StudentTour
+        user={user}
+        view={view}
+        setView={setView}
+        menuOpen={menuOpen}
+        setMenuOpen={setMenuOpen}
+      />
       <aside className={`fixed md:sticky md:top-0 z-40 bg-white w-64 h-screen border-r transition-transform flex flex-col ${menuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="p-6 border-b flex items-center gap-2 font-bold text-xl text-purple-600 shrink-0">
           <CheckCircle className="fill-purple-600 text-white"/> Иван на сотку
         </div>
-        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto" data-tour="nav">
           {nav.map(n => (
             <button key={n.id} onClick={() => { setView(n.id); setMenuOpen(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium ${view === n.id ? 'bg-purple-50 text-purple-700' : 'text-gray-600 hover:bg-gray-50'}`}>
               <n.icon size={20}/> {n.label}
@@ -2776,7 +3817,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
             <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center font-bold text-purple-700">{user.name[0]}</div>
             <div className="overflow-hidden">
               <p className="font-bold text-sm truncate">{user.name}</p>
-              <p className="text-xs text-gray-400 truncate">{user.role === 'teacher' ? 'Преподаватель' : 'Ученик'}</p>
+              <p className="text-xs text-gray-400 truncate">
+                {user.role === 'admin' ? 'Администратор' : (user.role === 'teacher' ? 'Преподаватель' : 'Ученик')}
+              </p>
             </div>
           </div>
           <button onClick={onLogout} className="flex items-center gap-2 text-red-500 hover:text-red-600 text-sm font-medium"><LogOut size={16}/> Выйти</button>
@@ -2788,12 +3831,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           <span className="font-bold text-purple-600">Иван на сотку</span>
           <button onClick={() => setMenuOpen(!menuOpen)}><Menu/></button>
         </header>
-        <main className="flex-1 overflow-y-auto p-4 md:p-8">
+        <main className="flex-1 overflow-y-auto p-4 md:p-8" data-tour="main">
           {view === 'schedule' && (
             <ScheduleSection
               role={user.role}
               studentId={user.id}
-              students={students}
+              students={studentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
               studentsLoading={studentsLoading}
@@ -2805,7 +3848,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               onUpdateProgress={onUpdateProgress}
               role={user.role}
               studentId={user.id}
-              students={students}
+              students={studentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
               studentsLoading={studentsLoading}
@@ -2815,7 +3858,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
             <NotesSection
               role={user.role}
               studentId={user.id}
-              students={students}
+              students={studentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
               studentsLoading={studentsLoading}
@@ -2823,13 +3866,24 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           )}
           {view === 'teacher' && (
             <TeacherPanel
-              students={students}
+              role={user.role}
+              students={studentsWithNicknames}
               studentsLoading={studentsLoading}
               studentsError={studentsError}
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
               onStudentCreated={handleStudentCreated}
               onStudentDeleted={handleStudentDeleted}
+              onStudentUpdated={handleStudentUpdated}
+              teacherId={user.role === 'teacher' ? user.id : null}
+            />
+          )}
+          {view === 'admin' && (
+            <AdminPanel
+              teachers={teachers}
+              teachersLoading={teachersLoading}
+              teachersError={teachersError}
+              onTeachersChanged={loadTeachers}
             />
           )}
         </main>
@@ -2892,7 +3946,7 @@ const App = () => {
   if (!user) return <LoginPage onLogin={handleLogin} />;
   return (
     <>
-      <style>{`@keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } } .animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; }`}</style>
+      <style>{`@keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } } @keyframes shine { 0% { transform: translateX(-120%); } 100% { transform: translateX(120%); } } .animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; }`}</style>
       <DashboardLayout user={user} onLogout={handleLogout} progress={progress} onUpdateProgress={updateProgress} />
     </>
   );
