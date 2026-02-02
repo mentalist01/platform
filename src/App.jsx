@@ -30,6 +30,7 @@ const LEVEL_WEIGHTS = {
   expert: 10,
 };
 const SOFT_DELETE_DAYS = 30;
+const GAME_THEORY_TASK = 19;
 
 const applyTaskTitles = (tasks, overrides = {}) => {
   if (!Array.isArray(tasks)) return [];
@@ -43,11 +44,29 @@ const applyTaskTitles = (tasks, overrides = {}) => {
   });
 };
 
+const normalizeTaskNumber = (value) => {
+  if (value === '' || value === null || typeof value === 'undefined') return NaN;
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return NaN;
+  if (num === 20 || num === 21) return GAME_THEORY_TASK;
+  return num;
+};
+
+const formatTaskNumber = (value) => {
+  const num = normalizeTaskNumber(value);
+  if (num === GAME_THEORY_TASK) return '19-21';
+  if (!Number.isFinite(num)) return '';
+  return String(num);
+};
+
+const getTaskDisplayNumber = (task) => task?.displayNumber ?? formatTaskNumber(task?.number ?? task?.id);
+
 const getAnswerCountForTask = (taskNumber) => {
   const num = Number(taskNumber);
+  if (num === GAME_THEORY_TASK) return 4;
   if (num === 25) return 20;
   if (num === 27) return 4;
-  if (num === 17 || num === 18 || num === 20 || num === 26) return 2;
+  if (num === 17 || num === 18 || num === 26) return 2;
   return 1;
 };
 
@@ -118,7 +137,7 @@ const markStudentSeenTour = (studentId) => {
 };
 
 // Заглушка списка заданий
-const MOCK_TASKS = Array.from({ length: 27 }, (_, i) => ({
+const RAW_TASKS = Array.from({ length: 27 }, (_, i) => ({
   id: i + 1,
   number: i + 1,
   title: [
@@ -132,6 +151,19 @@ const MOCK_TASKS = Array.from({ length: 27 }, (_, i) => ({
   topic: "Тема задания",
   mastery: 0
 }));
+
+const MOCK_TASKS = RAW_TASKS
+  .filter((task) => ![20, 21].includes(task.number))
+  .map((task) => {
+    if (task.number === GAME_THEORY_TASK) {
+      return {
+        ...task,
+        title: '19-21 - Теория Игр',
+        displayNumber: '19-21',
+      };
+    }
+    return task;
+  });
 
 // Начальная база вопросов
 const INITIAL_TEST_DB = {
@@ -693,8 +725,12 @@ const TeacherPanel = ({
   const [editStudentNickname, setEditStudentNickname] = useState('');
   const [editStudentError, setEditStudentError] = useState('');
   const [editStudentSaving, setEditStudentSaving] = useState(false);
+  const [editingQuestionId, setEditingQuestionId] = useState(null);
   const [questionScreenshots, setQuestionScreenshots] = useState([]);
   const [questionFiles, setQuestionFiles] = useState([]);
+  const [existingQuestionScreenshots, setExistingQuestionScreenshots] = useState([]);
+  const [existingQuestionFiles, setExistingQuestionFiles] = useState([]);
+  const [initialQuestionAttachments, setInitialQuestionAttachments] = useState({ screenshots: [], files: [] });
   const [screenshotPreviews, setScreenshotPreviews] = useState([]);
   const [questionUploadError, setQuestionUploadError] = useState('');
   const [isUploadingQuestion, setIsUploadingQuestion] = useState(false);
@@ -746,7 +782,55 @@ const TeacherPanel = ({
     });
   }, [answerCount]);
 
-  const handleAddQuestion = async () => {
+  const getAttachmentKey = (item) => item?.storageName || item?.url || item?.id || item?.name;
+
+  const resetQuestionForm = (options = {}) => {
+    const { keepAnswers = false } = options;
+    setQuestion('');
+    setQuestionScreenshots([]);
+    setQuestionFiles([]);
+    setExistingQuestionScreenshots([]);
+    setExistingQuestionFiles([]);
+    setInitialQuestionAttachments({ screenshots: [], files: [] });
+    setQuestionUploadError('');
+    setEditingQuestionId(null);
+    if (!keepAnswers) {
+      setAnswerInputs(Array.from({ length: getAnswerCountForTask(selectedTask) }, () => ''));
+    }
+    if (screenshotsRef.current) screenshotsRef.current.value = '';
+    if (filesRef.current) filesRef.current.value = '';
+  };
+
+  const startEditQuestion = (questionItem) => {
+    if (!questionItem) return;
+    const requiredCount = getAnswerCountForTask(selectedTask);
+    setEditingQuestionId(questionItem.id);
+    setQuestion(questionItem.question || '');
+    setAnswerInputs(getExpectedAnswers(questionItem, requiredCount));
+    const existingScreens = Array.isArray(questionItem.screenshots) ? questionItem.screenshots : [];
+    const existingFiles = Array.isArray(questionItem.files) ? questionItem.files : [];
+    setExistingQuestionScreenshots(existingScreens);
+    setExistingQuestionFiles(existingFiles);
+    setInitialQuestionAttachments({
+      screenshots: existingScreens,
+      files: existingFiles
+    });
+    setQuestionScreenshots([]);
+    setQuestionFiles([]);
+    setQuestionUploadError('');
+    if (screenshotsRef.current) screenshotsRef.current.value = '';
+    if (filesRef.current) filesRef.current.value = '';
+  };
+
+  const cancelEditQuestion = () => resetQuestionForm();
+
+  useEffect(() => {
+    if (editingQuestionId) {
+      cancelEditQuestion();
+    }
+  }, [selectedTask, selectedLevel]);
+
+  const handleSaveQuestion = async () => {
     const requiredCount = getAnswerCountForTask(selectedTask);
     const trimmedAnswers = answerInputs.map((val) => String(val ?? '').trim());
     const answersSlice = trimmedAnswers.slice(0, requiredCount);
@@ -761,7 +845,12 @@ const TeacherPanel = ({
       alert(requiredCount > 1 ? "Введите все правильные ответы" : "Введите правильный ответ");
       return;
     }
-    if (!question.trim() && questionScreenshots.length === 0 && questionFiles.length === 0) {
+    const hasAnyAttachments =
+      questionScreenshots.length > 0 ||
+      questionFiles.length > 0 ||
+      existingQuestionScreenshots.length > 0 ||
+      existingQuestionFiles.length > 0;
+    if (!question.trim() && !hasAnyAttachments) {
       alert("Добавьте текст вопроса или прикрепите файл/скриншот");
       return;
     }
@@ -787,21 +876,48 @@ const TeacherPanel = ({
       return;
     }
 
-    const newQuestion = {
-      id: Date.now(),
-      question: question.trim(),
-      ...(requiredCount > 1
-        ? { answers: answersSlice }
-        : { answer: trimmedAnswers[0] }),
-      screenshots: uploadedScreenshots,
-      files: uploadedFiles
-    };
-
     const updatedDb = { ...(testDb || {}) };
     if (!updatedDb[selectedTask]) updatedDb[selectedTask] = { basic: [], advanced: [], expert: [] };
     if (!updatedDb[selectedTask][selectedLevel]) updatedDb[selectedTask][selectedLevel] = [];
-    
-    updatedDb[selectedTask][selectedLevel].push(newQuestion);
+    const levelList = updatedDb[selectedTask][selectedLevel];
+    const finalScreenshots = [...existingQuestionScreenshots, ...uploadedScreenshots];
+    const finalFiles = [...existingQuestionFiles, ...uploadedFiles];
+
+    if (editingQuestionId) {
+      const targetIndex = levelList.findIndex((q) => q.id === editingQuestionId);
+      if (targetIndex === -1) {
+        setQuestionUploadError('Не удалось найти вопрос для редактирования.');
+        setIsUploadingQuestion(false);
+        return;
+      }
+      const baseQuestion = levelList[targetIndex] || {};
+      const updatedQuestion = {
+        ...baseQuestion,
+        question: question.trim(),
+        screenshots: finalScreenshots,
+        files: finalFiles,
+        ...(requiredCount > 1
+          ? { answers: answersSlice }
+          : { answer: trimmedAnswers[0] })
+      };
+      if (requiredCount > 1) {
+        delete updatedQuestion.answer;
+      } else {
+        delete updatedQuestion.answers;
+      }
+      levelList[targetIndex] = updatedQuestion;
+    } else {
+      const newQuestion = {
+        id: Date.now(),
+        question: question.trim(),
+        ...(requiredCount > 1
+          ? { answers: answersSlice }
+          : { answer: trimmedAnswers[0] }),
+        screenshots: finalScreenshots,
+        files: finalFiles
+      };
+      levelList.push(newQuestion);
+    }
     
     setTestDb(updatedDb);
     try {
@@ -812,13 +928,24 @@ const TeacherPanel = ({
       return;
     }
     
-    // Reset form
-    setQuestion("");
-    setAnswerInputs(Array.from({ length: requiredCount }, () => ''));
-    setQuestionScreenshots([]);
-    setQuestionFiles([]);
-    if (screenshotsRef.current) screenshotsRef.current.value = '';
-    if (filesRef.current) filesRef.current.value = '';
+    if (editingQuestionId) {
+      const removedScreens = (initialQuestionAttachments.screenshots || []).filter((item) => {
+        const key = getAttachmentKey(item);
+        if (!key) return false;
+        return !finalScreenshots.some((current) => getAttachmentKey(current) === key);
+      });
+      const removedFiles = (initialQuestionAttachments.files || []).filter((item) => {
+        const key = getAttachmentKey(item);
+        if (!key) return false;
+        return !finalFiles.some((current) => getAttachmentKey(current) === key);
+      });
+      const removed = [...removedScreens, ...removedFiles].filter((file) => file?.storageName);
+      if (removed.length > 0) {
+        await Promise.allSettled(removed.map((file) => api.deleteTestFile(file.storageName)));
+      }
+    }
+
+    resetQuestionForm();
     setIsUploadingQuestion(false);
   };
 
@@ -828,6 +955,9 @@ const TeacherPanel = ({
     const removed = updatedDb[taskId][level].find(q => q.id === qId);
     updatedDb[taskId][level] = updatedDb[taskId][level].filter(q => q.id !== qId);
     setTestDb(updatedDb);
+    if (editingQuestionId === qId) {
+      resetQuestionForm();
+    }
     try {
       await api.saveTests(updatedDb);
     } catch (err) {
@@ -1337,7 +1467,7 @@ const TeacherPanel = ({
               className="w-full p-3 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:border-purple-500"
             >
               {tasksList.map(t => (
-                <option key={t.id} value={t.number}>Задание {t.number}: {t.title}</option>
+                <option key={t.id} value={t.number}>Задание {getTaskDisplayNumber(t)}: {t.title}</option>
               ))}
             </select>
           </Card>
@@ -1371,10 +1501,21 @@ const TeacherPanel = ({
         {/* MIDDLE COLUMN: Form */}
         <div className="lg:col-span-2 space-y-6">
           <Card>
-            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-              <Plus size={20} className="text-purple-600"/>
-              Добавить вопрос
-            </h3>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                {editingQuestionId ? <Pencil size={20} className="text-purple-600" /> : <Plus size={20} className="text-purple-600" />}
+                {editingQuestionId ? 'Редактировать вопрос' : 'Добавить вопрос'}
+              </h3>
+              {editingQuestionId && (
+                <button
+                  type="button"
+                  onClick={cancelEditQuestion}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                >
+                  Отменить
+                </button>
+              )}
+            </div>
             
             <div className="space-y-4" onPaste={handlePasteImages}>
               <div>
@@ -1442,6 +1583,35 @@ const TeacherPanel = ({
                       ))}
                     </div>
                   )}
+                  {existingQuestionScreenshots.length > 0 && (
+                    <div className="mt-3 space-y-3">
+                      {existingQuestionScreenshots.map((item, idx) => {
+                        const imgUrl = item?.url || (item?.storageName ? `/uploads/${item.storageName}` : '');
+                        return (
+                          <div key={item.id || item.storageName || item.url || idx} className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+                            <div className="bg-gray-50 p-2 flex items-center justify-between gap-2">
+                              <span className="text-xs text-gray-500 truncate">{item.name || 'Скриншот'}</span>
+                              <button
+                                type="button"
+                                onClick={() => setExistingQuestionScreenshots((prev) => prev.filter((_, i) => i !== idx))}
+                                className="text-xs text-red-500 hover:text-red-600"
+                              >
+                                Удалить
+                              </button>
+                            </div>
+                            {imgUrl && (
+                              <img
+                                src={imgUrl}
+                                alt={item.name || 'Скриншот'}
+                                className="w-full object-contain bg-white"
+                                style={{ maxHeight: '360px' }}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Доп. файлы</label>
@@ -1487,6 +1657,22 @@ const TeacherPanel = ({
                       ))}
                     </div>
                   )}
+                  {existingQuestionFiles.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {existingQuestionFiles.map((file, idx) => (
+                        <div key={file.id || file.storageName || file.url || idx} className="flex items-center justify-between text-xs text-gray-500">
+                          <span className="truncate">• {file.name || 'Файл'}</span>
+                          <button
+                            type="button"
+                            onClick={() => setExistingQuestionFiles((prev) => prev.filter((_, i) => i !== idx))}
+                            className="text-red-500 hover:text-red-600"
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
               {questionUploadError && <p className="text-xs text-red-500">{questionUploadError}</p>}
@@ -1494,7 +1680,80 @@ const TeacherPanel = ({
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Правильный ответ</label>
                 {answerCount > 1 ? (
-                  answerCount === 20 ? (
+                  Number(selectedTask) === GAME_THEORY_TASK ? (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">19</label>
+                        <input
+                          type="text"
+                          value={answerInputs[0] ?? ''}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setAnswerInputs((prev) => {
+                              const next = [...prev];
+                              next[0] = value;
+                              return next;
+                            });
+                          }}
+                          className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
+                          placeholder="Ответ 19"
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1">20.1</label>
+                          <input
+                            type="text"
+                            value={answerInputs[1] ?? ''}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setAnswerInputs((prev) => {
+                                const next = [...prev];
+                                next[1] = value;
+                                return next;
+                              });
+                            }}
+                            className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
+                            placeholder="Ответ 20.1"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1">20.2</label>
+                          <input
+                            type="text"
+                            value={answerInputs[2] ?? ''}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setAnswerInputs((prev) => {
+                                const next = [...prev];
+                                next[2] = value;
+                                return next;
+                              });
+                            }}
+                            className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
+                            placeholder="Ответ 20.2"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">21</label>
+                        <input
+                          type="text"
+                          value={answerInputs[3] ?? ''}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setAnswerInputs((prev) => {
+                              const next = [...prev];
+                              next[3] = value;
+                              return next;
+                            });
+                          }}
+                          className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
+                          placeholder="Ответ 21"
+                        />
+                      </div>
+                    </div>
+                  ) : answerCount === 20 ? (
                     <div className="grid grid-cols-[32px_1fr_1fr] gap-2">
                       {Array.from({ length: 10 }).map((_, rowIdx) => {
                         const leftIdx = rowIdx;
@@ -1569,8 +1828,8 @@ const TeacherPanel = ({
               </div>
 
               <div className="pt-2">
-                <Button onClick={handleAddQuestion} className="w-full" disabled={isUploadingQuestion}>
-                  <Save size={18} /> {isUploadingQuestion ? 'Загрузка...' : 'Сохранить вопрос в базу'}
+                <Button onClick={handleSaveQuestion} className="w-full" disabled={isUploadingQuestion}>
+                  <Save size={18} /> {isUploadingQuestion ? 'Загрузка...' : (editingQuestionId ? 'Сохранить изменения' : 'Сохранить вопрос в базу')}
                 </Button>
               </div>
             </div>
@@ -1585,7 +1844,7 @@ const TeacherPanel = ({
               </div>
             ) : (
               currentQuestions.map((q, idx) => (
-                <div key={q.id} className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex justify-between items-start gap-4">
+                <div key={q.id} className={`bg-white p-4 rounded-xl border shadow-sm flex justify-between items-start gap-4 ${editingQuestionId === q.id ? 'border-purple-300 bg-purple-50/30' : 'border-gray-100'}`}>
                   <div>
                     <span className="text-xs font-bold text-gray-400">#{idx + 1}</span>
                     <p className="text-gray-800 font-medium mb-1">{q.question || 'Вопрос без текста'}</p>
@@ -1602,13 +1861,65 @@ const TeacherPanel = ({
                         </span>
                       </span>
                     </div>
+                    {Array.isArray(q.screenshots) && q.screenshots.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {q.screenshots.map((img) => {
+                          const imgUrl = img?.url || (img?.storageName ? `/uploads/${img.storageName}` : '');
+                          return (
+                          <button
+                            key={img.id || img.url || img.storageName}
+                            type="button"
+                            onClick={() => imgUrl && window.open(imgUrl, '_blank', 'noopener,noreferrer')}
+                            className="rounded-lg border border-gray-200 bg-gray-50 overflow-hidden hover:border-purple-300"
+                            title="Открыть изображение"
+                          >
+                            <img
+                              src={imgUrl}
+                              alt={img.name || 'Скриншот'}
+                              className="h-24 w-24 object-contain"
+                            />
+                          </button>
+                        );
+                        })}
+                      </div>
+                    )}
+                    {Array.isArray(q.files) && q.files.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {q.files.map((file) => {
+                          const fileUrl = file?.url || (file?.storageName ? `/uploads/${file.storageName}` : '');
+                          return (
+                            <a
+                              key={file.id || file.url || file.storageName}
+                              href={fileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 hover:border-purple-300 hover:bg-purple-50"
+                            >
+                              <span className="truncate">{file.name || 'Файл'}</span>
+                              <Download size={16} className="text-purple-600" />
+                            </a>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                  <button 
-                    onClick={() => handleDeleteQuestion(selectedTask, selectedLevel, q.id)}
-                    className="text-gray-400 hover:text-red-500 transition-colors p-1"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => startEditQuestion(q)}
+                      className="text-gray-400 hover:text-purple-600 transition-colors p-1"
+                      title="Редактировать"
+                    >
+                      <Pencil size={18} />
+                    </button>
+                    <button 
+                      onClick={() => handleDeleteQuestion(selectedTask, selectedLevel, q.id)}
+                      className="text-gray-400 hover:text-red-500 transition-colors p-1"
+                      title="Удалить"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -2070,7 +2381,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
           
           <div className="text-center mb-8">
             <h2 className="text-2xl font-bold text-gray-900">Выберите уровень сложности</h2>
-            <p className="text-gray-500">Задание №{task.number}: {task.title}</p>
+            <p className="text-gray-500">Задание №{getTaskDisplayNumber(task)}: {task.title}</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2273,7 +2584,104 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
             <div className="space-y-3 mb-6">
               <label className="block text-xs font-bold text-gray-400 uppercase">Ответ</label>
               {answerCount > 1 ? (
-                answerCount === 20 ? (
+                Number(task?.number) === GAME_THEORY_TASK ? (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">19</label>
+                      <input
+                        type="text"
+                        value={answerValues[0] ?? ''}
+                        onChange={(e) => {
+                          if (computedChecked) return;
+                          const value = e.target.value;
+                          setUserAnswers((prev) => {
+                            const next = { ...prev };
+                            const current = Array.isArray(next[currentIndex])
+                              ? [...next[currentIndex]]
+                              : Array.from({ length: answerCount }, () => '');
+                            current[0] = value;
+                            next[currentIndex] = current;
+                            return next;
+                          });
+                        }}
+                        placeholder="Ответ 19"
+                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                        disabled={computedChecked}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">20.1</label>
+                        <input
+                          type="text"
+                          value={answerValues[1] ?? ''}
+                          onChange={(e) => {
+                            if (computedChecked) return;
+                            const value = e.target.value;
+                            setUserAnswers((prev) => {
+                              const next = { ...prev };
+                              const current = Array.isArray(next[currentIndex])
+                                ? [...next[currentIndex]]
+                                : Array.from({ length: answerCount }, () => '');
+                              current[1] = value;
+                              next[currentIndex] = current;
+                              return next;
+                            });
+                          }}
+                          placeholder="Ответ 20.1"
+                          className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                          disabled={computedChecked}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">20.2</label>
+                        <input
+                          type="text"
+                          value={answerValues[2] ?? ''}
+                          onChange={(e) => {
+                            if (computedChecked) return;
+                            const value = e.target.value;
+                            setUserAnswers((prev) => {
+                              const next = { ...prev };
+                              const current = Array.isArray(next[currentIndex])
+                                ? [...next[currentIndex]]
+                                : Array.from({ length: answerCount }, () => '');
+                              current[2] = value;
+                              next[currentIndex] = current;
+                              return next;
+                            });
+                          }}
+                          placeholder="Ответ 20.2"
+                          className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                          disabled={computedChecked}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">21</label>
+                      <input
+                        type="text"
+                        value={answerValues[3] ?? ''}
+                        onChange={(e) => {
+                          if (computedChecked) return;
+                          const value = e.target.value;
+                          setUserAnswers((prev) => {
+                            const next = { ...prev };
+                            const current = Array.isArray(next[currentIndex])
+                              ? [...next[currentIndex]]
+                              : Array.from({ length: answerCount }, () => '');
+                            current[3] = value;
+                            next[currentIndex] = current;
+                            return next;
+                          });
+                        }}
+                        placeholder="Ответ 21"
+                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                        disabled={computedChecked}
+                      />
+                    </div>
+                  </div>
+                ) : answerCount === 20 ? (
                   <div className="grid grid-cols-[32px_1fr_1fr] gap-2">
                     {Array.from({ length: 10 }).map((_, rowIdx) => {
                       const leftIdx = rowIdx;
@@ -2433,7 +2841,7 @@ const LoginPage = ({ onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4 font-sans">
+    <div className="app-min-h bg-gray-50 flex items-center justify-center p-4 font-sans">
       <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 border border-gray-100">
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4"><CheckCircle size={32} /></div>
@@ -2762,7 +3170,7 @@ const ProgressSection = ({
                   onClick={clickable ? () => setActiveTask(task) : undefined}
                 >
                   <div className="flex justify-between mb-2">
-                    <span className="bg-purple-50 text-purple-700 px-2 py-1 rounded text-xs font-bold">№{task.number}</span>
+                    <span className="bg-purple-50 text-purple-700 px-2 py-1 rounded text-xs font-bold">№{getTaskDisplayNumber(task)}</span>
                     <span className="font-bold text-gray-700">{val}%</span>
                   </div>
                   <div className="flex items-start justify-between gap-2">
@@ -2980,7 +3388,8 @@ const ScheduleSection = ({
   onSelectStudent,
   studentsLoading,
   onOpenTask,
-  solvedRefreshKey
+  solvedRefreshKey,
+  tasks
 }) => {
   const DEFAULT_HOMEWORK = '🟢\n🟢\n🟢';
   const DEFAULT_GOAL = { taskNumber: '', levelId: 'basic', targetInput: '', includeAll: false };
@@ -2996,6 +3405,7 @@ const ScheduleSection = ({
   const [editingId, setEditingId] = useState(null);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
+  const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
 
   const loadNextLesson = async () => {
     if (!effectiveStudentId) {
@@ -3176,7 +3586,9 @@ const ScheduleSection = ({
     if (Array.isArray(entry.goals) && entry.goals.length > 0) {
       return entry.goals
         .map((goal) => ({
-          taskNumber: goal?.taskNumber ? String(goal.taskNumber) : '',
+          taskNumber: Number.isFinite(normalizeTaskNumber(goal?.taskNumber))
+            ? String(normalizeTaskNumber(goal?.taskNumber))
+            : '',
           levelId: goal?.levelId || 'basic',
           targetQuestions: Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [],
           includeAll: Boolean(goal?.includeAll)
@@ -3185,7 +3597,9 @@ const ScheduleSection = ({
     }
     if (entry.taskNumber && entry.levelId) {
       return [{
-        taskNumber: String(entry.taskNumber),
+        taskNumber: Number.isFinite(normalizeTaskNumber(entry.taskNumber))
+          ? String(normalizeTaskNumber(entry.taskNumber))
+          : String(entry.taskNumber),
         levelId: entry.levelId,
         targetQuestions: Array.isArray(entry.targetQuestions) ? entry.targetQuestions : [],
         includeAll: Boolean(entry.includeAll)
@@ -3279,12 +3693,14 @@ const ScheduleSection = ({
         .map((goal) => {
           const taskNumber = String(goal?.taskNumber || '').trim();
           if (!taskNumber) return null;
+          const normalizedTaskNumber = normalizeTaskNumber(taskNumber);
+          if (!Number.isFinite(normalizedTaskNumber)) return null;
           const levelId = goal?.levelId || 'basic';
           const includeAll = Boolean(goal?.includeAll);
-          const availableCount = getQuestionsCount(taskNumber, levelId);
+          const availableCount = getQuestionsCount(normalizedTaskNumber, levelId);
           const targetQuestions = includeAll ? [] : parseTargetInput(goal?.targetInput, availableCount);
           return {
-            taskNumber: Number(taskNumber),
+            taskNumber: normalizedTaskNumber,
             levelId,
             includeAll,
             targetQuestions
@@ -3405,8 +3821,10 @@ const ScheduleSection = ({
                       className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
                     >
                       <option value="">Выберите задание</option>
-                      {Array.from({ length: 27 }, (_, i) => i + 1).map((num) => (
-                        <option key={num} value={num}>Задание {num}</option>
+                      {taskOptions.map((task) => (
+                        <option key={task.id ?? task.number} value={task.number}>
+                          Задание {getTaskDisplayNumber(task)}: {task.title}
+                        </option>
                       ))}
                     </select>
                     <select
@@ -3537,6 +3955,7 @@ const ScheduleSection = ({
                     <div className="space-y-2">
                       {entryGoals.map((goal, goalIndex) => {
                         const taskNumber = Number(goal.taskNumber);
+                        const taskDisplay = formatTaskNumber(taskNumber) || taskNumber;
                         const levelId = goal.levelId;
                         const levelLabel = LEVELS[levelId?.toUpperCase()]?.label || levelId;
                         const questionsList = taskNumber && levelId
@@ -3564,7 +3983,7 @@ const ScheduleSection = ({
                           <div key={`${taskNumber}-${levelId}-${goalIndex}`} className="rounded-xl border border-purple-100 bg-purple-50 px-3 py-2 text-xs text-purple-700 space-y-2">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <span>
-                                {`Задание ${taskNumber} · ${levelLabel}`}
+                                {`Задание ${taskDisplay} · ${levelLabel}`}
                               </span>
                               {onOpenTask && (
                                 <button
@@ -3680,7 +4099,8 @@ const NotesSection = ({
   const [renameFolderValue, setRenameFolderValue] = useState('');
   const [isRenamingFolder, setIsRenamingFolder] = useState(false);
   const [renamingId, setRenamingId] = useState(null);
-  const [renameValue, setRenameValue] = useState('');
+  const [renameBase, setRenameBase] = useState('');
+  const [renameExt, setRenameExt] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
   const [draggingFileId, setDraggingFileId] = useState(null);
   const [dragOverFolderId, setDragOverFolderId] = useState(null);
@@ -3786,7 +4206,8 @@ const NotesSection = ({
     setRenameFolderValue('');
     setIsRenamingFolder(false);
     setRenamingId(null);
-    setRenameValue('');
+    setRenameBase('');
+    setRenameExt('');
     setIsRenaming(false);
     setDraggingFileId(null);
     setDragOverFolderId(null);
@@ -4081,30 +4502,45 @@ const NotesSection = ({
         return next;
       });
       if (renamingId === file.id) {
-        setRenamingId(null);
-        setRenameValue('');
-        setIsRenaming(false);
+        cancelRename();
       }
     } catch(err) {
       alert(err?.message || err);
     }
   };
 
+  const splitFileName = (name = '') => {
+    const lastDot = name.lastIndexOf('.');
+    if (lastDot <= 0 || lastDot === name.length - 1) {
+      return { base: name, ext: '' };
+    }
+    return { base: name.slice(0, lastDot), ext: name.slice(lastDot + 1) };
+  };
+
   const startRename = (file) => {
     setRenamingId(file.id);
-    setRenameValue(file.name || '');
+    const { base, ext } = splitFileName(file?.name || '');
+    setRenameBase(base);
+    setRenameExt(ext);
   };
 
   const cancelRename = () => {
     setRenamingId(null);
-    setRenameValue('');
+    setRenameBase('');
+    setRenameExt('');
     setIsRenaming(false);
   };
 
   const saveRename = async (file, nameOverride) => {
     if (!file?.id) return;
-    const name = (nameOverride ?? renameValue).trim();
-    if (!name || name === file.name) {
+    const base = (nameOverride ?? renameBase).trim();
+    if (!base) {
+      cancelRename();
+      return;
+    }
+    const ext = renameExt ? `.${renameExt}` : '';
+    const name = `${base}${ext}`;
+    if (name === file.name) {
       cancelRename();
       return;
     }
@@ -4439,20 +4875,25 @@ const NotesSection = ({
                     <FileIcon name={f.name} />
                     <div className="min-w-0">
                       {renamingId === f.id ? (
-                        <input
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') saveRename(f);
-                            if (e.key === 'Escape') cancelRename();
-                          }}
-                          onBlur={() => {
-                            if (!isRenaming) saveRename(f);
-                          }}
-                          className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
-                          autoFocus
-                          onClick={(e) => e.stopPropagation()}
-                        />
+                        <div className="flex items-center gap-1 w-full">
+                          <input
+                            value={renameBase}
+                            onChange={(e) => setRenameBase(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveRename(f);
+                              if (e.key === 'Escape') cancelRename();
+                            }}
+                            onBlur={() => {
+                              if (!isRenaming) saveRename(f);
+                            }}
+                            className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          {renameExt ? (
+                            <span className="text-sm text-gray-500 select-none">.{renameExt}</span>
+                          ) : null}
+                        </div>
                       ) : (
                         <button
                           onClick={(e) => {
@@ -4933,14 +5374,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   };
 
   const handleOpenTask = (taskNumber, levelId, targetQuestions) => {
-    if (!taskNumber) return;
+    const normalizedTaskNumber = normalizeTaskNumber(taskNumber);
+    if (!Number.isFinite(normalizedTaskNumber)) return;
     if (user.role !== 'student') {
       setView('progress');
       setMenuOpen(false);
       return;
     }
     setPendingOpenTask({
-      taskNumber,
+      taskNumber: normalizedTaskNumber,
       levelId,
       targetQuestions: Array.isArray(targetQuestions) ? targetQuestions : null
     });
@@ -4968,7 +5410,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         if (Array.isArray(item.goals) && item.goals.length > 0) {
           return item.goals
             .map((goal) => ({
-              taskNumber: goal?.taskNumber ? Number(goal.taskNumber) : null,
+              taskNumber: Number.isFinite(normalizeTaskNumber(goal?.taskNumber))
+                ? normalizeTaskNumber(goal?.taskNumber)
+                : null,
               levelId: goal?.levelId || 'basic',
               targetQuestions: Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [],
               includeAll: Boolean(goal?.includeAll)
@@ -4977,7 +5421,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         }
         if (item.taskNumber && item.levelId) {
           return [{
-            taskNumber: Number(item.taskNumber),
+            taskNumber: Number.isFinite(normalizeTaskNumber(item.taskNumber))
+              ? normalizeTaskNumber(item.taskNumber)
+              : Number(item.taskNumber),
             levelId: item.levelId,
             targetQuestions: Array.isArray(item.targetQuestions) ? item.targetQuestions : [],
             includeAll: Boolean(item.includeAll)
@@ -5014,7 +5460,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       });
 
       const goalsWithStatus = goals.map((goal) => {
-        const taskNumber = goal.taskNumber;
+        const taskNumber = Number.isFinite(normalizeTaskNumber(goal.taskNumber))
+          ? normalizeTaskNumber(goal.taskNumber)
+          : goal.taskNumber;
         const levelId = goal.levelId;
         const questionsList = goalTestsDb?.[String(taskNumber)]?.[levelId] || [];
         const totalCount = questionsList.length;
@@ -5034,7 +5482,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         });
         const completed = targetStatus.length > 0 && targetStatus.every((item) => item.solved);
         const taskInfo = tasksWithTitles.find((task) => Number(task.number) === Number(taskNumber));
-        const taskTitle = taskInfo?.title || `Задание ${taskNumber}`;
+        const taskTitle = taskInfo?.title || `Задание ${formatTaskNumber(taskNumber) || taskNumber}`;
         const levelLabel = LEVELS[levelId?.toUpperCase()]?.label || levelId;
         return {
           taskNumber,
@@ -5101,7 +5549,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex font-sans">
+    <div className="app-min-h bg-gray-50 flex font-sans">
       {user.role === 'teacher' && teacherNotifs.length > 0 && (
         <div className="fixed top-4 right-4 z-[1200] space-y-3 max-w-[320px]">
           {teacherNotifs.map((note) => {
@@ -5122,7 +5570,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                   {note.studentName || 'Ученик'}
                 </div>
                 <div className="text-xs text-gray-500">
-                  {`Решено: задание ${note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
+                  {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
                 </div>
               </div>
             );
@@ -5136,7 +5584,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         menuOpen={menuOpen}
         setMenuOpen={setMenuOpen}
       />
-      <aside className={`fixed md:sticky md:top-0 z-40 bg-white w-64 h-screen border-r transition-transform flex flex-col ${menuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+      <aside className={`fixed md:sticky md:top-0 z-40 bg-white w-64 app-h border-r transition-transform flex flex-col ${menuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="p-6 border-b flex items-center gap-2 font-bold text-xl text-purple-600 shrink-0">
           <CheckCircle className="fill-purple-600 text-white"/> Иван на сотку
         </div>
@@ -5161,7 +5609,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col h-screen overflow-hidden">
+      <div className="flex-1 flex flex-col app-h overflow-hidden">
         <header className="md:hidden bg-white border-b p-4 flex justify-between items-center">
           <span className="font-bold text-purple-600">Иван на сотку</span>
           <button onClick={() => setMenuOpen(!menuOpen)}><Menu/></button>
@@ -5223,12 +5671,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                   <div className="mt-3 grid gap-3">
                     {goalGoals.map((goal, index) => {
                       const hasTargets = goal.targetNumbers?.length > 0 || goal.includeAll;
+                      const taskDisplay = formatTaskNumber(goal.taskNumber) || goal.taskNumber;
                       return (
                         <div key={`${goal.taskNumber}-${goal.levelId}-${index}`} className="rounded-2xl border border-purple-100 bg-white/80 px-4 py-3 space-y-2">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div>
                               <div className="text-xs text-gray-500">
-                                {`Задание ${goal.taskNumber} · ${goal.levelLabel}`}
+                                {`Задание ${taskDisplay} · ${goal.levelLabel}`}
                               </div>
                               <div className="text-xs text-gray-500">
                                 {`Тема: ${goal.taskTitle}`}
@@ -5288,6 +5737,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               studentsLoading={studentsLoading}
               onOpenTask={user.role === 'student' ? handleOpenTask : null}
               solvedRefreshKey={goalRefreshTick}
+              tasks={tasksWithTitles}
             />
           )}
           {view === 'progress' && (
@@ -5359,6 +5809,21 @@ const App = () => {
   useEffect(() => {
     const savedUser = localStorage.getItem('ege_user_session');
     if (savedUser) setUser(JSON.parse(savedUser));
+  }, []);
+
+  useEffect(() => {
+    const updateVh = () => {
+      if (typeof window === 'undefined') return;
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty('--app-vh', `${vh}px`);
+    };
+    updateVh();
+    window.addEventListener('resize', updateVh);
+    window.addEventListener('orientationchange', updateVh);
+    return () => {
+      window.removeEventListener('resize', updateVh);
+      window.removeEventListener('orientationchange', updateVh);
+    };
   }, []);
 
   useEffect(() => {
