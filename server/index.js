@@ -1213,7 +1213,7 @@ app.patch('/api/progress', (req, res) => {
 });
 
 app.post('/api/progress/solve', (req, res) => {
-  const { studentId, taskNumber, levelId, questionId, totalQuestions, levelMax, levelTotals } = req.body || {};
+  const { studentId, taskNumber, levelId, questionId, totalQuestions, levelMax, levelTotals, code } = req.body || {};
   if (!studentId || !taskNumber || !levelId || !questionId) {
     return res.status(400).json({ error: 'Некорректные параметры' });
   }
@@ -1238,6 +1238,9 @@ app.post('/api/progress/solve', (req, res) => {
   const levelEntry = { ...(taskEntry[levelKey] || {}) };
 
   const solvedList = Array.isArray(levelEntry.solved) ? [...levelEntry.solved] : [];
+  const solvedCode = levelEntry.solvedCode && typeof levelEntry.solvedCode === 'object'
+    ? { ...levelEntry.solvedCode }
+    : {};
   const qKey = String(questionId);
   if (!solvedList.includes(qKey)) {
     solvedList.push(qKey);
@@ -1252,10 +1255,15 @@ app.post('/api/progress/solve', (req, res) => {
       solvedAt: new Date().toISOString(),
     });
   }
+  if (typeof code === 'string' && code.trim()) {
+    const safeCode = code.slice(0, 20000);
+    solvedCode[qKey] = safeCode;
+  }
   if (Number.isFinite(total) && total > 0) levelEntry.totalQuestions = total;
   if (Number.isFinite(maxScore) && maxScore > 0) levelEntry.levelMax = maxScore;
 
   levelEntry.solved = solvedList;
+  levelEntry.solvedCode = solvedCode;
   taskEntry[levelKey] = levelEntry;
   solvedByTask[taskKey] = taskEntry;
 
@@ -1323,7 +1331,7 @@ app.get('/api/teacher-solved-events', (req, res) => {
 });
 
 app.get('/api/progress/solved', (req, res) => {
-  const { studentId, taskNumber, levelId } = req.query;
+  const { studentId, taskNumber, levelId, includeCode } = req.query;
   if (!studentId || !taskNumber || !levelId) {
     return res.status(400).json({ error: 'Некорректные параметры' });
   }
@@ -1338,7 +1346,14 @@ app.get('/api/progress/solved', (req, res) => {
   const data = getStudentData(studentId);
   const taskKey = String(taskNum);
   const levelKey = String(levelId);
-  const solved = data?.solvedByTask?.[taskKey]?.[levelKey]?.solved || [];
+  const levelEntry = data?.solvedByTask?.[taskKey]?.[levelKey] || {};
+  const solved = levelEntry?.solved || [];
+  const solvedCode = levelEntry?.solvedCode && typeof levelEntry.solvedCode === 'object'
+    ? levelEntry.solvedCode
+    : {};
+  if (includeCode === '1' || includeCode === 'true') {
+    return res.json({ ids: Array.isArray(solved) ? solved : [], codeById: solvedCode });
+  }
   res.json(Array.isArray(solved) ? solved : []);
 });
 

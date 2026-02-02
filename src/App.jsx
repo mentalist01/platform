@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-python';
 import 'prismjs/themes/prism-tomorrow.css';
+import Editor from '@monaco-editor/react';
 import { 
   BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle, 
   Menu, X, ChevronRight, Folder, FolderPlus, Upload, 
@@ -31,6 +32,7 @@ const LEVEL_WEIGHTS = {
 };
 const SOFT_DELETE_DAYS = 30;
 const GAME_THEORY_TASK = 19;
+const PYTHON_LEVEL_ID = 'python';
 
 const applyTaskTitles = (tasks, overrides = {}) => {
   if (!Array.isArray(tasks)) return [];
@@ -60,6 +62,116 @@ const formatTaskNumber = (value) => {
 };
 
 const getTaskDisplayNumber = (task) => task?.displayNumber ?? formatTaskNumber(task?.number ?? task?.id);
+
+const normalizeOutput = (value) => String(value ?? '').replace(/\r\n/g, '\n').trimEnd();
+
+const parseTestsFromText = (content) => {
+  const normalized = String(content ?? '').replace(/\r\n/g, '\n');
+  const blocks = normalized.split(/\n-{3,}\n/);
+  const tests = blocks.map((block) => {
+    const lines = block.split('\n');
+    let section = '';
+    const inputLines = [];
+    const outputLines = [];
+    lines.forEach((line) => {
+      const trimmed = line.trim().toLowerCase();
+      if (trimmed === 'input:' || trimmed === 'in:' || trimmed === 'stdin:') {
+        section = 'input';
+        return;
+      }
+      if (trimmed === 'output:' || trimmed === 'out:' || trimmed === 'stdout:') {
+        section = 'output';
+        return;
+      }
+      if (section === 'input') inputLines.push(line);
+      if (section === 'output') outputLines.push(line);
+    });
+    const input = inputLines.join('\n').trimEnd();
+    const output = outputLines.join('\n').trimEnd();
+    return { input, output };
+  });
+  return tests.filter((test) => test.input || test.output);
+};
+
+const parseTestsFileContent = (content) => {
+  const trimmed = String(content ?? '').trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    const data = JSON.parse(trimmed);
+    const list = Array.isArray(data) ? data : data?.tests;
+    if (!Array.isArray(list)) return [];
+    return list.map((item) => ({
+      input: String(item?.input ?? '').trimEnd(),
+      output: String(item?.output ?? '').trimEnd(),
+    })).filter((test) => test.input || test.output);
+  }
+  return parseTestsFromText(content);
+};
+
+const extractIframeSrc = (value) => {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  if (text.toLowerCase().includes('<iframe')) {
+    const match = text.match(/src=["']([^"']+)["']/i);
+    if (match) return match[1];
+  }
+  return text;
+};
+
+const buildGoogleDocEmbedUrl = (value) => {
+  const raw = extractIframeSrc(value);
+  if (!raw) return '';
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return '';
+  }
+  if (!url.hostname.includes('docs.google.com')) return '';
+  const path = url.pathname;
+  const publishedMatch = path.match(/\/document\/(?:u\/\d+\/)?d\/e\/([a-zA-Z0-9_-]+)/);
+  if (publishedMatch) {
+    const pubId = publishedMatch[1];
+    return `https://docs.google.com/document/d/e/${pubId}/pub?embedded=true`;
+  }
+  const docMatch = path.match(/\/document\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]+)/);
+  if (!docMatch) return '';
+  const docId = docMatch[1];
+  return `https://docs.google.com/document/d/${docId}/preview`;
+};
+
+const isGoogleDocEmbedUrl = (value) => {
+  try {
+    const url = new URL(String(value ?? ''));
+    if (!url.hostname.includes('docs.google.com')) return false;
+    const isPub = /\/document\/(?:u\/\d+\/)?d\/(e\/)?[a-zA-Z0-9_-]+\/pub/.test(url.pathname)
+      && url.searchParams.get('embedded') === 'true';
+    const isPreview = /\/document\/(?:u\/\d+\/)?d\/[a-zA-Z0-9_-]+\/preview/.test(url.pathname);
+    return isPub || isPreview;
+  } catch {
+    return false;
+  }
+};
+
+const buildGoogleDocFullUrl = (value) => {
+  const raw = extractIframeSrc(value);
+  if (!raw) return '';
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return raw;
+  }
+  if (!url.hostname.includes('docs.google.com')) return raw;
+  const path = url.pathname;
+  const docMatch = path.match(/\/document\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]+)/);
+  if (docMatch && !path.includes('/d/e/')) {
+    return `https://docs.google.com/document/d/${docMatch[1]}/edit`;
+  }
+  const pubE = path.match(/\/document\/(?:u\/\d+\/)?d\/e\/([a-zA-Z0-9_-]+)/);
+  if (pubE) return `https://docs.google.com/document/d/e/${pubE[1]}/pub`;
+  return raw;
+};
 
 const getAnswerCountForTask = (taskNumber) => {
   const num = Number(taskNumber);
@@ -166,6 +278,54 @@ const MOCK_TASKS = RAW_TASKS
   });
 
 // Начальная база вопросов
+const PYTHON_TASKS = [
+  { id: 101, number: 101, title: 'Ввод и вывод данных', displayNumber: '1.0' },
+  { id: 102, number: 102, title: 'Переменные', displayNumber: '1.1' },
+  { id: 103, number: 103, title: 'Условия', displayNumber: '2' },
+  { id: 104, number: 104, title: 'Вычисления', displayNumber: '3' },
+  { id: 105, number: 105, title: 'Цикл for', displayNumber: '4' },
+  { id: 106, number: 106, title: 'Строки', displayNumber: '5' },
+  { id: 107, number: 107, title: 'Цикл while', displayNumber: '6' },
+  { id: 108, number: 108, title: 'Списки', displayNumber: '7.0' },
+  { id: 109, number: 109, title: 'Кортежи', displayNumber: '7.1' },
+  { id: 110, number: 110, title: 'Функции и рекурсия', displayNumber: '8' },
+  { id: 111, number: 111, title: 'Двумерные массивы', displayNumber: '9' }
+];
+
+const ensurePyodideReady = (() => {
+  let pyodidePromise = null;
+  return async () => {
+    if (pyodidePromise) return pyodidePromise;
+    pyodidePromise = new Promise((resolve, reject) => {
+      if (typeof window === 'undefined') {
+        reject(new Error('Pyodide доступен только в браузере.'));
+        return;
+      }
+      if (window.loadPyodide) {
+        window.loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/' })
+          .then(resolve)
+          .catch(reject);
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js';
+      script.async = true;
+      script.onload = () => {
+        if (!window.loadPyodide) {
+          reject(new Error('Не удалось загрузить Pyodide.'));
+          return;
+        }
+        window.loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/' })
+          .then(resolve)
+          .catch(reject);
+      };
+      script.onerror = () => reject(new Error('Ошибка загрузки Pyodide.'));
+      document.body.appendChild(script);
+    });
+    return pyodidePromise;
+  };
+})();
+
 const INITIAL_TEST_DB = {
   1: {
     basic: [
@@ -397,11 +557,12 @@ const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  getSolvedQuestions: async (studentId, taskNumber, levelId) => {
+  getSolvedQuestions: async (studentId, taskNumber, levelId, options = {}) => {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);
     if (taskNumber) params.append('taskNumber', String(taskNumber));
     if (levelId) params.append('levelId', String(levelId));
+    if (options?.includeCode) params.append('includeCode', '1');
     const qs = params.toString();
     const res = await fetch(qs ? `/api/progress/solved?${qs}` : '/api/progress/solved');
     if (!res.ok) throw new Error(await parseApiError(res));
@@ -2309,6 +2470,670 @@ const AdminPanel = ({
 /**
  * STUDENT TEST MODAL
  */
+const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testDb }) => {
+  const [questions, setQuestions] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [solvedIds, setSolvedIds] = useState(new Set());
+  const [solvedCodeById, setSolvedCodeById] = useState({});
+  const [expandedImage, setExpandedImage] = useState(null);
+  const [code, setCode] = useState('');
+  const [runnerLoading, setRunnerLoading] = useState(false);
+  const [runnerError, setRunnerError] = useState('');
+  const [testResults, setTestResults] = useState([]);
+  const [showTheory, setShowTheory] = useState(true);
+
+  const currentMastery = progress[task.id] || 0;
+
+  useEffect(() => {
+    const qs = testDb?.[task.number]?.[PYTHON_LEVEL_ID] || [];
+    setQuestions(Array.isArray(qs) ? qs : []);
+    setCurrentIndex(0);
+    setSolvedIds(new Set());
+    setSolvedCodeById({});
+    setTestResults([]);
+    setRunnerError('');
+    if (studentId) {
+      api.getSolvedQuestions(studentId, task.number, PYTHON_LEVEL_ID, { includeCode: true })
+        .then((payload) => {
+          if (Array.isArray(payload)) {
+            setSolvedIds(new Set(payload.map((id) => String(id))));
+            setSolvedCodeById({});
+          } else {
+            const ids = Array.isArray(payload?.ids) ? payload.ids : [];
+            const codeById = payload?.codeById && typeof payload.codeById === 'object' ? payload.codeById : {};
+            setSolvedIds(new Set(ids.map((id) => String(id))));
+            setSolvedCodeById(codeById);
+          }
+        })
+        .catch((err) => console.error(err));
+    }
+  }, [task?.number, testDb, studentId]);
+
+  useEffect(() => {
+    const current = questions[currentIndex];
+    const currentId = String(current?.id ?? currentIndex);
+    const starter = current?.starterCode || '';
+    const solvedCode = solvedCodeById?.[currentId];
+    setCode(typeof solvedCode === 'string' ? solvedCode : starter);
+    setTestResults([]);
+    setRunnerError('');
+  }, [questions, currentIndex, solvedCodeById]);
+
+  useEffect(() => {
+    document.body.classList.add('overflow-hidden');
+    return () => document.body.classList.remove('overflow-hidden');
+  }, []);
+
+  const runPythonCode = async (source, inputValue) => {
+    const pyodide = await ensurePyodideReady();
+    const wrapped = [
+      'import sys, io, traceback',
+      `_input = ${JSON.stringify(String(inputValue ?? ''))}`,
+      '_stdout = io.StringIO()',
+      '_stderr = io.StringIO()',
+      'sys.stdin = io.StringIO(_input)',
+      'sys.stdout = _stdout',
+      'sys.stderr = _stderr',
+      '_globals = {}',
+      'try:',
+      `    exec(${JSON.stringify(String(source ?? ''))}, _globals, _globals)`,
+      'except Exception:',
+      '    traceback.print_exc()',
+      '__output = _stdout.getvalue()',
+      '__error = _stderr.getvalue()',
+    ].join('\n');
+    await pyodide.runPythonAsync(wrapped);
+    const output = pyodide.globals.get('__output') || '';
+    const error = pyodide.globals.get('__error') || '';
+    pyodide.globals.delete('__output');
+    pyodide.globals.delete('__error');
+    return { output: String(output), error: String(error) };
+  };
+
+  const handleRunTests = async () => {
+    const currentQuestion = questions[currentIndex];
+    if (!currentQuestion) return;
+    setRunnerLoading(true);
+    setRunnerError('');
+    const rawTests = Array.isArray(currentQuestion.tests)
+      ? currentQuestion.tests
+      : (currentQuestion.answer ? [{ input: '', output: currentQuestion.answer }] : []);
+    const sanitizedTests = rawTests.map((test) => ({
+      input: String(test?.input ?? ''),
+      output: String(test?.output ?? ''),
+    }));
+    if (sanitizedTests.length === 0) {
+      setRunnerLoading(false);
+      setRunnerError('Для этой задачи пока нет тестов.');
+      setTestResults([]);
+      return;
+    }
+    try {
+      const resultsList = [];
+      for (const test of sanitizedTests) {
+        const res = await runPythonCode(code, test.input);
+        const normalizedOut = normalizeOutput(res.output);
+        const normalizedExpected = normalizeOutput(test.output);
+        const passed = !res.error && normalizedOut === normalizedExpected;
+        resultsList.push({
+          input: test.input,
+          expected: test.output,
+          output: res.output,
+          error: res.error,
+          passed
+        });
+      }
+      setTestResults(resultsList);
+
+      const allPassed = resultsList.length > 0 && resultsList.every((item) => item.passed);
+      if (allPassed) {
+        const currentId = String(currentQuestion?.id ?? currentIndex);
+        if (studentId) {
+          try {
+            const resp = await api.solveQuestion({
+              studentId,
+              taskNumber: task.number,
+              levelId: PYTHON_LEVEL_ID,
+              questionId: currentQuestion.id,
+              totalQuestions: questions.length,
+              levelMax: 100,
+              levelTotals: { [PYTHON_LEVEL_ID]: questions.length },
+              code
+            });
+            setSolvedIds((prev) => {
+              const next = new Set(prev);
+              next.add(currentId);
+              return next;
+            });
+            setSolvedCodeById((prev) => ({ ...prev, [currentId]: code }));
+            if (typeof resp?.taskProgress === 'number') {
+              onComplete(task.id, resp.taskProgress, { skipServer: true });
+              setRunnerLoading(false);
+              return;
+            }
+          } catch (err) {
+            console.error(err);
+          }
+        }
+        const totalCount = questions.length;
+        if (totalCount > 0) {
+          const prevSolved = solvedIds.size;
+          const nextSolved = solvedIds.has(currentId) ? prevSolved : prevSolved + 1;
+          const nextProgress = Math.round((nextSolved / totalCount) * 100);
+          onComplete(task.id, Math.min(100, nextProgress), { skipServer: true });
+        }
+      }
+    } catch (err) {
+      setRunnerError(err?.message || err);
+    } finally {
+      setRunnerLoading(false);
+    }
+  };
+
+  const handleNext = () => {
+    if (currentIndex < questions.length - 1) setCurrentIndex(currentIndex + 1);
+    else onClose();
+  };
+
+  if (!task) return null;
+
+  if (!Array.isArray(questions) || questions.length === 0) {
+    const emptyModal = (
+      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+        <div className="bg-white rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative animate-fadeIn text-center">
+          <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
+          <h2 className="text-2xl font-bold text-gray-900">Заданий пока нет</h2>
+          <p className="text-gray-500 mt-2">Учитель еще не добавил задания для этой темы.</p>
+          <div className="mt-6">
+            <Button onClick={onClose}>Закрыть</Button>
+          </div>
+        </div>
+      </div>
+    );
+    return typeof document !== 'undefined' ? createPortal(emptyModal, document.body) : null;
+  }
+
+  const currentQuestion = questions[currentIndex];
+  const currentId = String(currentQuestion?.id ?? currentIndex);
+  const isSolved = solvedIds.has(currentId);
+  const screenshots = (Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [])
+    .map((img) => ({ ...img, url: withStudentId(img?.url, studentId) }));
+  const extraFiles = (Array.isArray(currentQuestion?.files) ? currentQuestion.files : [])
+    .map((file) => ({ ...file, url: withStudentId(file?.url, studentId) }));
+  const rawTests = Array.isArray(currentQuestion?.tests)
+    ? currentQuestion.tests
+    : (currentQuestion?.answer ? [{ input: '', output: currentQuestion.answer }] : []);
+  const testsToShow = rawTests.map((test) => ({
+    input: String(test?.input ?? ''),
+    output: String(test?.output ?? '')
+  }));
+  const solvedAllTests = isSolved && testResults.length === 0;
+  const theory = testDb?.[task.number]?.pythonTheory || null;
+  const theoryFullUrl = theory?.type === 'gdoc' ? buildGoogleDocFullUrl(theory.content) : '';
+  const editorOptions = {
+    minimap: { enabled: false },
+    fontSize: 14,
+    tabSize: 4,
+    insertSpaces: true,
+    wordWrap: 'on',
+    automaticLayout: true,
+    scrollBeyondLastLine: false,
+    autoClosingBrackets: 'always',
+    autoClosingQuotes: 'always',
+    autoIndent: 'advanced',
+    formatOnType: true,
+    formatOnPaste: true
+  };
+
+  const modal = (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white rounded-3xl w-full max-w-5xl max-h-[90vh] p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden animate-fadeIn">
+        <div className="flex flex-col gap-4 mb-4">
+          <div className="flex justify-between items-start">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Тема</div>
+              <div className="text-lg font-bold text-gray-900">{task.title}</div>
+            </div>
+            <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {questions.map((q, idx) => {
+              const qId = String(q?.id ?? idx);
+              const solved = solvedIds.has(qId);
+              let btnClass = "w-8 h-8 rounded-lg text-sm font-bold flex items-center justify-center transition-all border-2 ";
+
+              if (idx === currentIndex) {
+                btnClass += "border-purple-600 ring-2 ring-purple-100 text-purple-600 bg-white";
+              } else {
+                btnClass += "border-transparent bg-gray-100 text-gray-500 hover:bg-gray-200 ";
+              }
+
+              if (solved) btnClass = btnClass.replace('bg-gray-100', 'bg-green-100').replace('text-gray-500', 'text-green-600').replace('border-transparent', 'border-green-200');
+
+              return (
+                <button
+                  key={qId}
+                  onClick={() => setCurrentIndex(idx)}
+                  className={btnClass}
+                  title={solved ? 'Решено' : undefined}
+                >
+                  {idx + 1}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto pr-1">
+          {theory?.content && (
+            <div className="mb-6 rounded-2xl border border-purple-100 bg-purple-50/60 p-4">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Теория</div>
+                <div className="flex items-center gap-3">
+                  {theoryFullUrl && (
+                    <a
+                      href={theoryFullUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-purple-600 hover:text-purple-700"
+                    >
+                      Открыть полностью
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowTheory((prev) => !prev)}
+                    className="text-xs text-purple-600 hover:text-purple-700"
+                  >
+                    {showTheory ? 'Свернуть' : 'Показать'}
+                  </button>
+                </div>
+              </div>
+              {showTheory && (
+                theory.type === 'gdoc' ? (
+                  isGoogleDocEmbedUrl(theory.content) ? (
+                    <div className="mt-3 overflow-hidden rounded-xl border border-purple-100 bg-white">
+                      <iframe
+                        title={`theory-${task.number}`}
+                        src={theory.content}
+                        className="w-full h-[360px]"
+                      />
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-sm text-red-500">
+                      Нужна ссылка для встраивания Google Docs (Файл → Опубликовать в интернете → Встроить).
+                    </div>
+                  )
+                ) : (
+                  <div className="mt-3 whitespace-pre-wrap text-sm text-gray-700">
+                    {theory.content}
+                  </div>
+                )
+              )}
+            </div>
+          )}
+          {screenshots.length > 0 && (
+            <div className="space-y-3 mb-6">
+              {screenshots.map((img) => (
+                <div
+                  key={img.id || img.url}
+                  className="border rounded-2xl overflow-hidden bg-gray-900/5"
+                  style={{ maxHeight: '65vh' }}
+                >
+                  <img
+                    src={img.url}
+                    alt={img.name || 'Скриншот'}
+                    className="w-full object-contain cursor-zoom-in"
+                    style={{ maxHeight: '65vh' }}
+                    onClick={() => setExpandedImage(img)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {extraFiles.length > 0 && (
+            <div className="mb-6">
+              <p className="text-xs font-bold text-gray-400 uppercase mb-2">Доп. файлы</p>
+              <div className="space-y-2">
+                {extraFiles.map((file) => (
+                  <a
+                    key={file.id || file.url}
+                    href={file.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-700 hover:border-purple-300 hover:bg-purple-50"
+                  >
+                    <span className="truncate">{file.name}</span>
+                    <Download size={16} className="text-purple-600" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {isSolved && (
+            <div className="mb-2 text-xs font-semibold text-green-600 uppercase tracking-wide">Решено ранее</div>
+          )}
+          {currentQuestion?.question && (
+            <p className="text-lg font-medium text-gray-900 mb-6 whitespace-pre-wrap">{currentQuestion.question}</p>
+          )}
+
+          <div className="space-y-3 mb-6">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-gray-400 uppercase">Код</label>
+              <button
+                type="button"
+                onClick={() => setCode(currentQuestion?.starterCode || '')}
+                className="text-xs text-purple-600 hover:text-purple-700"
+              >
+                Сбросить
+              </button>
+            </div>
+            <div className="rounded-2xl overflow-hidden border border-gray-800">
+              <Editor
+                height="260px"
+                language="python"
+                theme="vs-dark"
+                value={code}
+                onChange={(value) => {
+                  setCode(value ?? '');
+                  if (testResults.length > 0) setTestResults([]);
+                }}
+                options={editorOptions}
+                loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+              />
+            </div>
+          </div>
+
+          {runnerError && (
+            <div className="mb-4 text-sm text-red-500">{runnerError}</div>
+          )}
+
+          <div className="space-y-3 mb-6">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-bold text-gray-400 uppercase">Тесты</div>
+              <Button onClick={handleRunTests} disabled={runnerLoading || !code.trim()}>
+                {runnerLoading ? 'Запуск...' : 'Запустить тесты'}
+              </Button>
+            </div>
+            {testsToShow.length === 0 ? (
+              <div className="text-sm text-gray-500">Учитель еще не добавил тесты.</div>
+            ) : (
+              <div className="space-y-2">
+                {testsToShow.map((item, idx) => {
+                  const result = testResults[idx];
+                  const passed = result?.passed ?? (solvedAllTests ? true : undefined);
+                  return (
+                    <div
+                      key={`${idx}-${item.input}`}
+                      className={`rounded-2xl border p-3 text-sm ${
+                        passed === undefined
+                          ? 'border-gray-200 bg-gray-50'
+                          : (passed ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50')
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold">Тест {idx + 1}</span>
+                        <span className={`text-xs font-bold ${
+                          passed === undefined ? 'text-gray-400' : (passed ? 'text-emerald-700' : 'text-red-600')
+                        }`}>
+                          {passed === undefined ? '—' : (passed ? 'OK' : 'Ошибка')}
+                        </span>
+                      </div>
+                      <div className="mt-2 text-xs text-gray-600">
+                        <div><span className="font-semibold">Вход:</span> {item.input || '—'}</div>
+                        <div><span className="font-semibold">Ожидалось:</span> {item.output || '—'}</div>
+                        {result && (
+                          <>
+                            <div><span className="font-semibold">Вывод:</span> {normalizeOutput(result.output) || '—'}</div>
+                            {result.error && <div className="text-red-600 mt-1">{result.error}</div>}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
+          <div className="text-sm text-gray-500">
+            Прогресс темы: <span className="font-semibold text-purple-700">{currentMastery}%</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={onClose}>Закрыть</Button>
+            <Button onClick={handleNext} disabled={currentIndex >= questions.length - 1}>
+              Дальше
+            </Button>
+          </div>
+        </div>
+      </div>
+      {expandedImage && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setExpandedImage(null)}
+        >
+          <div className="relative max-w-[95vw] max-h-[95vh]" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={expandedImage.url}
+              alt={expandedImage.name || 'Скриншот'}
+              className="w-full h-full object-contain rounded-2xl shadow-2xl"
+              style={{ maxHeight: '95vh' }}
+            />
+            <button
+              onClick={() => setExpandedImage(null)}
+              className="absolute top-3 right-3 p-2 rounded-full bg-white/90 hover:bg-white"
+              type="button"
+              aria-label="Закрыть"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  return typeof document !== 'undefined' ? createPortal(modal, document.body) : null;
+};
+
+const PythonReviewModal = ({ task, onClose, studentId, testDb }) => {
+  const [questions, setQuestions] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [solvedIds, setSolvedIds] = useState(new Set());
+  const [solvedCodeById, setSolvedCodeById] = useState({});
+  const [showTheory, setShowTheory] = useState(true);
+
+  useEffect(() => {
+    const qs = testDb?.[task.number]?.[PYTHON_LEVEL_ID] || [];
+    setQuestions(Array.isArray(qs) ? qs : []);
+    setCurrentIndex(0);
+    setSolvedIds(new Set());
+    setSolvedCodeById({});
+    if (studentId) {
+      api.getSolvedQuestions(studentId, task.number, PYTHON_LEVEL_ID, { includeCode: true })
+        .then((payload) => {
+          if (Array.isArray(payload)) {
+            setSolvedIds(new Set(payload.map((id) => String(id))));
+            setSolvedCodeById({});
+          } else {
+            const ids = Array.isArray(payload?.ids) ? payload.ids : [];
+            const codeById = payload?.codeById && typeof payload.codeById === 'object' ? payload.codeById : {};
+            setSolvedIds(new Set(ids.map((id) => String(id))));
+            setSolvedCodeById(codeById);
+          }
+        })
+        .catch((err) => console.error(err));
+    }
+  }, [task?.number, testDb, studentId]);
+
+  useEffect(() => {
+    document.body.classList.add('overflow-hidden');
+    return () => document.body.classList.remove('overflow-hidden');
+  }, []);
+
+  if (!task) return null;
+
+  if (!Array.isArray(questions) || questions.length === 0) {
+    const emptyModal = (
+      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+        <div className="bg-white rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative animate-fadeIn text-center">
+          <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
+          <h2 className="text-2xl font-bold text-gray-900">Заданий пока нет</h2>
+          <p className="text-gray-500 mt-2">Для этой темы нет задач.</p>
+          <div className="mt-6">
+            <Button onClick={onClose}>Закрыть</Button>
+          </div>
+        </div>
+      </div>
+    );
+    return typeof document !== 'undefined' ? createPortal(emptyModal, document.body) : null;
+  }
+
+  const currentQuestion = questions[currentIndex];
+  const currentId = String(currentQuestion?.id ?? currentIndex);
+  const isSolved = solvedIds.has(currentId);
+  const code = typeof solvedCodeById?.[currentId] === 'string' ? solvedCodeById[currentId] : '';
+  const theory = testDb?.[task.number]?.pythonTheory || null;
+  const theoryFullUrl = theory?.type === 'gdoc' ? buildGoogleDocFullUrl(theory.content) : '';
+  const editorOptions = {
+    minimap: { enabled: false },
+    fontSize: 14,
+    tabSize: 4,
+    insertSpaces: true,
+    wordWrap: 'on',
+    automaticLayout: true,
+    readOnly: true
+  };
+
+  const modal = (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white rounded-3xl w-full max-w-5xl max-h-[90vh] p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden animate-fadeIn">
+        <div className="flex flex-col gap-4 mb-4">
+          <div className="flex justify-between items-start">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Тема</div>
+              <div className="text-lg font-bold text-gray-900">{task.title}</div>
+            </div>
+            <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {questions.map((q, idx) => {
+              const qId = String(q?.id ?? idx);
+              const solved = solvedIds.has(qId);
+              let btnClass = "w-8 h-8 rounded-lg text-sm font-bold flex items-center justify-center transition-all border-2 ";
+
+              if (idx === currentIndex) {
+                btnClass += "border-purple-600 ring-2 ring-purple-100 text-purple-600 bg-white";
+              } else {
+                btnClass += "border-transparent bg-gray-100 text-gray-500 hover:bg-gray-200 ";
+              }
+
+              if (solved) btnClass = btnClass.replace('bg-gray-100', 'bg-green-100').replace('text-gray-500', 'text-green-600').replace('border-transparent', 'border-green-200');
+
+              return (
+                <button
+                  key={qId}
+                  onClick={() => setCurrentIndex(idx)}
+                  className={btnClass}
+                  title={solved ? 'Решено' : 'Не решено'}
+                >
+                  {idx + 1}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto pr-1">
+          {theory?.content && (
+            <div className="mb-6 rounded-2xl border border-purple-100 bg-purple-50/60 p-4">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Теория</div>
+                <div className="flex items-center gap-3">
+                  {theoryFullUrl && (
+                    <a
+                      href={theoryFullUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-purple-600 hover:text-purple-700"
+                    >
+                      Открыть полностью
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowTheory((prev) => !prev)}
+                    className="text-xs text-purple-600 hover:text-purple-700"
+                  >
+                    {showTheory ? 'Свернуть' : 'Показать'}
+                  </button>
+                </div>
+              </div>
+              {showTheory && (
+                theory.type === 'gdoc' ? (
+                  isGoogleDocEmbedUrl(theory.content) ? (
+                    <div className="mt-3 overflow-hidden rounded-xl border border-purple-100 bg-white">
+                      <iframe
+                        title={`theory-review-${task.number}`}
+                        src={theory.content}
+                        className="w-full h-[300px]"
+                      />
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-sm text-red-500">
+                      Нужна ссылка для встраивания Google Docs (Файл → Опубликовать в интернете → Встроить).
+                    </div>
+                  )
+                ) : (
+                  <div className="mt-3 whitespace-pre-wrap text-sm text-gray-700">
+                    {theory.content}
+                  </div>
+                )
+              )}
+            </div>
+          )}
+          {currentQuestion?.question && (
+            <p className="text-lg font-medium text-gray-900 mb-6 whitespace-pre-wrap">{currentQuestion.question}</p>
+          )}
+          <div className="rounded-2xl overflow-hidden border border-gray-800">
+            <Editor
+              height="280px"
+              language="python"
+              theme="vs-dark"
+              value={code || '# Решение еще не сохранено'}
+              options={editorOptions}
+              loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+            />
+          </div>
+          {!isSolved && (
+            <div className="mt-3 text-sm text-gray-500">Ученик еще не решил эту задачу.</div>
+          )}
+        </div>
+
+        <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
+          <div className="text-sm text-gray-500">
+            Решено: {Array.from(solvedIds).length}/{questions.length}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={onClose}>Закрыть</Button>
+            <Button onClick={() => setCurrentIndex((prev) => Math.min(prev + 1, questions.length - 1))} disabled={currentIndex >= questions.length - 1}>
+              Дальше
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  return typeof document !== 'undefined' ? createPortal(modal, document.body) : null;
+};
+
 const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, testDb, initialLevel, targetQuestions }) => {
   const [stage, setStage] = useState('select_level'); // select_level | testing
   const [level, setLevel] = useState(null);
@@ -3466,6 +4291,703 @@ const ProgressSection = ({
             )}
           </div>
         </div>
+      )}
+    </div>
+  );
+};
+
+const PythonSection = ({
+  progress,
+  onUpdateProgress,
+  role,
+  studentId,
+  students,
+  activeStudentId,
+  onSelectStudent,
+  studentsLoading
+}) => {
+  const taskList = PYTHON_TASKS;
+  const [activeTask, setActiveTask] = useState(null);
+  const [reviewTask, setReviewTask] = useState(null);
+  const [studentData, setStudentData] = useState({ progress: {} });
+  const [dataError, setDataError] = useState('');
+  const [testsDb, setTestsDb] = useState(null);
+  const [testsDbError, setTestsDbError] = useState('');
+  const [manageTaskNumber, setManageTaskNumber] = useState(taskList[0]?.number || '');
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskPrompt, setNewTaskPrompt] = useState('');
+  const [newStarterCode, setNewStarterCode] = useState('');
+  const [newTests, setNewTests] = useState([{ input: '', output: '' }]);
+  const [testsFileName, setTestsFileName] = useState('');
+  const [editingQuestionId, setEditingQuestionId] = useState(null);
+  const [questionSaving, setQuestionSaving] = useState(false);
+  const [questionError, setQuestionError] = useState('');
+  const [theoryType, setTheoryType] = useState('text');
+  const [theoryText, setTheoryText] = useState('');
+  const [theoryUrl, setTheoryUrl] = useState('');
+  const [theorySaving, setTheorySaving] = useState(false);
+  const [theoryError, setTheoryError] = useState('');
+  const studentsList = students || [];
+  const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
+
+  useEffect(() => {
+    if (!effectiveStudentId) {
+      setStudentData({ progress: {} });
+      return;
+    }
+    let cancelled = false;
+    api.getStudentData(effectiveStudentId)
+      .then((data) => {
+        if (cancelled) return;
+        setStudentData({ progress: data?.progress || {} });
+        setDataError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setDataError(err?.message || err);
+      });
+    return () => { cancelled = true; };
+  }, [effectiveStudentId]);
+
+  useEffect(() => {
+    setReviewTask(null);
+  }, [effectiveStudentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getTests()
+      .then((data) => {
+        if (cancelled) return;
+        setTestsDb(data && typeof data === 'object' ? data : {});
+        setTestsDbError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setTestsDb({});
+        setTestsDbError(err?.message || err);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!taskList.length) return;
+    if (!taskList.some((task) => task.number === manageTaskNumber)) {
+      setManageTaskNumber(taskList[0].number);
+    }
+    setEditingQuestionId(null);
+    setReviewTask(null);
+    setNewTaskTitle('');
+    setNewTaskPrompt('');
+    setNewStarterCode('');
+    setNewTests([{ input: '', output: '' }]);
+    setTestsFileName('');
+    setQuestionError('');
+    setTheoryError('');
+  }, [taskList, manageTaskNumber]);
+
+  useEffect(() => {
+    if (!manageTaskNumber) return;
+    const theory = testsDb?.[manageTaskNumber]?.pythonTheory || {};
+    const type = theory?.type === 'gdoc' ? 'gdoc' : 'text';
+    setTheoryType(type);
+    setTheoryText(type === 'text' ? String(theory?.content || '') : '');
+    setTheoryUrl(type === 'gdoc' ? String(theory?.content || '') : '');
+    setTheoryError('');
+  }, [testsDb, manageTaskNumber]);
+
+  const progressMap = role === 'teacher'
+    ? (studentData.progress || {})
+    : (Object.keys(progress || {}).length ? progress : (studentData.progress || {}));
+
+  const manageQuestions = manageTaskNumber
+    ? (testsDb?.[manageTaskNumber]?.[PYTHON_LEVEL_ID] || [])
+    : [];
+
+  const handleSavePythonTask = async () => {
+    if (role !== 'teacher') return;
+    const question = newTaskPrompt.trim();
+    const title = newTaskTitle.trim();
+    const starterCode = newStarterCode.trim();
+    if (!manageTaskNumber) return;
+    const preparedTests = newTests
+      .map((test) => ({
+        input: String(test?.input ?? '').trimEnd(),
+        output: String(test?.output ?? '').trimEnd(),
+      }))
+      .filter((test) => test.input || test.output);
+    if (!question) {
+      setQuestionError('Введите условие задачи.');
+      return;
+    }
+    if (preparedTests.length === 0 || preparedTests.some((test) => !test.output)) {
+      setQuestionError('Добавьте хотя бы один тест и заполните ожидаемый вывод.');
+      return;
+    }
+    const updatedDb = { ...(testsDb || {}) };
+    if (!updatedDb[manageTaskNumber]) updatedDb[manageTaskNumber] = {};
+    if (!Array.isArray(updatedDb[manageTaskNumber][PYTHON_LEVEL_ID])) {
+      updatedDb[manageTaskNumber][PYTHON_LEVEL_ID] = [];
+    }
+    const list = updatedDb[manageTaskNumber][PYTHON_LEVEL_ID];
+    if (editingQuestionId) {
+      const idx = list.findIndex((item) => item.id === editingQuestionId);
+      if (idx === -1) {
+        setQuestionError('Не удалось найти задачу для редактирования.');
+        return;
+      }
+      list[idx] = {
+        ...list[idx],
+        title,
+        question,
+        starterCode,
+        tests: preparedTests
+      };
+    } else {
+      list.push({
+        id: Date.now(),
+        title,
+        question,
+        starterCode,
+        tests: preparedTests
+      });
+    }
+    setQuestionSaving(true);
+    setTestsDb(updatedDb);
+    try {
+      await api.saveTests(updatedDb);
+      setNewTaskTitle('');
+      setNewTaskPrompt('');
+      setNewStarterCode('');
+      setNewTests([{ input: '', output: '' }]);
+      setQuestionError('');
+      setEditingQuestionId(null);
+      setTestsFileName('');
+    } catch (err) {
+      setQuestionError(err?.message || err);
+    } finally {
+      setQuestionSaving(false);
+    }
+  };
+
+  const startEditPythonTask = (task) => {
+    if (!task) return;
+    setEditingQuestionId(task.id);
+    setNewTaskTitle(task.title || '');
+    setNewTaskPrompt(task.question || '');
+    setNewStarterCode(task.starterCode || '');
+    if (Array.isArray(task.tests) && task.tests.length > 0) {
+      setNewTests(task.tests.map((test) => ({
+        input: String(test?.input ?? ''),
+        output: String(test?.output ?? '')
+      })));
+    } else if (task.answer) {
+      setNewTests([{ input: '', output: String(task.answer) }]);
+    } else {
+      setNewTests([{ input: '', output: '' }]);
+    }
+    setQuestionError('');
+    setTestsFileName('');
+  };
+
+  const cancelEditPythonTask = () => {
+    setEditingQuestionId(null);
+    setNewTaskTitle('');
+    setNewTaskPrompt('');
+    setNewStarterCode('');
+    setNewTests([{ input: '', output: '' }]);
+    setTestsFileName('');
+    setQuestionError('');
+  };
+
+  const handleTestsFileUpload = (file) => {
+    if (!file) return;
+    setQuestionError('');
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = parseTestsFileContent(reader.result);
+        if (!parsed.length || parsed.some((test) => !test.output)) {
+          setQuestionError('Неверный формат тестов: проверьте наличие ожидаемого вывода.');
+          return;
+        }
+        setNewTests(parsed);
+        setTestsFileName(file.name);
+      } catch (err) {
+        setQuestionError(err?.message || 'Не удалось прочитать файл с тестами.');
+      }
+    };
+    reader.onerror = () => {
+      setQuestionError('Не удалось прочитать файл с тестами.');
+    };
+    reader.readAsText(file);
+  };
+
+  const handleSavePythonTheory = async () => {
+    if (role !== 'teacher') return;
+    if (!manageTaskNumber) return;
+    const raw = theoryType === 'gdoc' ? theoryUrl.trim() : theoryText.trim();
+    if (!raw) {
+      setTheoryError('Добавьте текст теории или ссылку на Google Docs.');
+      return;
+    }
+    let content = raw;
+    if (theoryType === 'gdoc') {
+      const embedUrl = buildGoogleDocEmbedUrl(raw);
+      if (!embedUrl) {
+        setTheoryError('Нужна ссылка на Google Docs (поддерживаются ссылки на документ или iframe).');
+        return;
+      }
+      content = embedUrl;
+      setTheoryUrl(embedUrl);
+    }
+    const updatedDb = { ...(testsDb || {}) };
+    if (!updatedDb[manageTaskNumber]) updatedDb[manageTaskNumber] = {};
+    updatedDb[manageTaskNumber] = {
+      ...(updatedDb[manageTaskNumber] || {}),
+      pythonTheory: { type: theoryType, content }
+    };
+    setTheorySaving(true);
+    setTestsDb(updatedDb);
+    try {
+      await api.saveTests(updatedDb);
+      setTheoryError('');
+    } catch (err) {
+      setTheoryError(err?.message || err);
+    } finally {
+      setTheorySaving(false);
+    }
+  };
+
+  const handleClearPythonTheory = async () => {
+    if (role !== 'teacher') return;
+    if (!manageTaskNumber) return;
+    const updatedDb = { ...(testsDb || {}) };
+    if (!updatedDb[manageTaskNumber]) updatedDb[manageTaskNumber] = {};
+    const { pythonTheory, ...rest } = updatedDb[manageTaskNumber] || {};
+    updatedDb[manageTaskNumber] = { ...rest };
+    setTheorySaving(true);
+    setTestsDb(updatedDb);
+    try {
+      await api.saveTests(updatedDb);
+      setTheoryText('');
+      setTheoryUrl('');
+      setTheoryError('');
+    } catch (err) {
+      setTheoryError(err?.message || err);
+    } finally {
+      setTheorySaving(false);
+    }
+  };
+
+  const handleDeletePythonQuestion = async (taskNumber, questionId) => {
+    if (role !== 'teacher') return;
+    if (!confirm('Удалить эту задачу?')) return;
+    const updatedDb = { ...(testsDb || {}) };
+    const list = Array.isArray(updatedDb?.[taskNumber]?.[PYTHON_LEVEL_ID])
+      ? updatedDb[taskNumber][PYTHON_LEVEL_ID]
+      : [];
+    updatedDb[taskNumber] = {
+      ...(updatedDb[taskNumber] || {}),
+      [PYTHON_LEVEL_ID]: list.filter((q) => q.id !== questionId)
+    };
+    setQuestionSaving(true);
+    setTestsDb(updatedDb);
+    try {
+      await api.saveTests(updatedDb);
+    } catch (err) {
+      setQuestionError(err?.message || err);
+    } finally {
+      setQuestionSaving(false);
+    }
+  };
+
+  const totalMastery = (() => {
+    if (!taskList.length) return 0;
+    const total = taskList.reduce((sum, task) => {
+      const val = Number(progressMap[task.id] || 0);
+      return sum + (Number.isFinite(val) ? Math.max(0, Math.min(100, val)) : 0);
+    }, 0);
+    return Math.round((total / taskList.length) * 10) / 10;
+  })();
+  const totalMasteryLabel = Number.isFinite(totalMastery) && totalMastery % 1 !== 0
+    ? totalMastery.toFixed(1)
+    : Math.round(totalMastery).toString();
+
+  const renderStudentPicker = () => {
+    if (role !== 'teacher') return null;
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-gray-500">Ученик:</span>
+        <select
+          value={activeStudentId || ''}
+          onChange={(e) => {
+            const value = e.target.value;
+            onSelectStudent?.(value || null);
+          }}
+          disabled={studentsLoading || studentsList.length === 0}
+          className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+        >
+          <option value="" disabled>Выберите ученика</option>
+          {studentsList.map((student) => (
+            <option key={student.id} value={student.id}>
+              {getStudentLabel(student)}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  };
+
+  if (role === 'teacher' && studentsList.length === 0) {
+    return (
+      <div className="animate-fadeIn space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-2xl font-bold">Изучение Python</h2>
+          {renderStudentPicker()}
+        </div>
+        <div className="text-gray-500">
+          {studentsLoading ? 'Загрузка списка учеников...' : 'Сначала создайте ученика в панели учителя.'}
+        </div>
+      </div>
+    );
+  }
+
+  if (role === 'teacher' && !effectiveStudentId) {
+    return (
+      <div className="animate-fadeIn space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-2xl font-bold">Изучение Python</h2>
+          {renderStudentPicker()}
+        </div>
+        <div className="text-gray-500">Выберите ученика, чтобы посмотреть его прогресс.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 animate-fadeIn">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Изучение Python</h2>
+          <p className="text-gray-500">Тестирования по темам курса и общий прогресс</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          {renderStudentPicker()}
+        </div>
+      </div>
+
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-purple-50 p-5 shadow-md">
+        <div className="absolute inset-0 opacity-40">
+          <div className="absolute -left-10 top-0 h-full w-32 bg-gradient-to-r from-transparent via-white/70 to-transparent blur-xl" />
+        </div>
+        <div className="relative z-10 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest bg-purple-600 text-white">
+                Прогресс Python
+              </div>
+              <span className="text-sm text-gray-500">Общий прогресс изучения</span>
+            </div>
+            <div className="text-3xl font-extrabold text-purple-700 drop-shadow-sm">
+              {totalMasteryLabel}%
+            </div>
+          </div>
+          <div className="relative h-8 w-full rounded-full bg-white/80 border border-purple-100 overflow-hidden">
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.55)] transition-[width] duration-700 ease-out"
+              style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
+            />
+            <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-[shine_3s_linear_infinite]" />
+          </div>
+          <div className="flex items-center justify-between text-xs text-gray-500">
+            <span>Проходите темы последовательно</span>
+            <span>0% — старт • 100% — уверенно</span>
+          </div>
+        </div>
+      </div>
+
+      {dataError && <div className="text-xs text-red-500">{dataError}</div>}
+      {testsDbError && <div className="text-xs text-red-500">{testsDbError}</div>}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {taskList.map((task) => {
+          const val = progressMap[task.id] || 0;
+          const clickable = role === 'student' || role === 'teacher';
+          return (
+            <Card
+              key={task.id}
+              className="group relative"
+              onClick={clickable ? () => {
+                if (role === 'teacher') setReviewTask(task);
+                else setActiveTask(task);
+              } : undefined}
+            >
+              <div className="flex justify-between mb-2">
+                <span className="bg-purple-50 text-purple-700 px-2 py-1 rounded text-xs font-bold">№{getTaskDisplayNumber(task)}</span>
+                <span className="font-bold text-gray-700">{val}%</span>
+              </div>
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="font-bold text-gray-800 truncate">{task.title}</h3>
+              </div>
+              <ProgressBar value={val} />
+
+              {clickable && (
+                <div className="absolute inset-0 bg-white/90 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-2xl cursor-pointer backdrop-blur-[2px]">
+                  <div className="flex items-center gap-2 text-purple-600 font-bold bg-white px-4 py-2 rounded-full shadow-lg border border-purple-100">
+                    <PlayCircle size={20} /> {role === 'teacher' ? 'Решения' : 'Решать'}
+                  </div>
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+
+      {role === 'teacher' && (
+        <Card className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-bold text-gray-800">
+                {editingQuestionId ? 'Редактировать задачу' : 'Добавить задачу'}
+              </h3>
+              <p className="text-xs text-gray-500">Задачи для тестирования по теме</p>
+            </div>
+            <select
+              value={manageTaskNumber || ''}
+              onChange={(e) => setManageTaskNumber(Number(e.target.value))}
+              className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+            >
+              {taskList.map((task) => (
+                <option key={task.id} value={task.number}>
+                  {getTaskDisplayNumber(task)} · {task.title}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <input
+              type="text"
+              value={newTaskTitle}
+              onChange={(e) => setNewTaskTitle(e.target.value)}
+              placeholder="Название задачи (необязательно)"
+              className="md:col-span-1 px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+            />
+            <textarea
+              value={newTaskPrompt}
+              onChange={(e) => setNewTaskPrompt(e.target.value)}
+              placeholder="Условие задачи"
+              className="md:col-span-2 px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none min-h-[80px]"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Стартовый код</label>
+            <textarea
+              value={newStarterCode}
+              onChange={(e) => setNewStarterCode(e.target.value)}
+              placeholder="Например: print('Hello')"
+              className="w-full px-4 py-2 rounded-xl bg-gray-900 text-gray-100 font-mono text-sm border border-gray-800 focus:border-purple-400 outline-none min-h-[120px]"
+              spellCheck={false}
+            />
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-gray-400 uppercase">Тесты</span>
+              <div className="flex items-center gap-3 text-xs text-gray-500">
+                <label className="cursor-pointer text-purple-600 hover:text-purple-700">
+                  Загрузить из файла
+                  <input
+                    type="file"
+                    accept=".json,.txt"
+                    className="hidden"
+                    onChange={(e) => handleTestsFileUpload(e.target.files?.[0])}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setNewTests((prev) => [...prev, { input: '', output: '' }])}
+                  className="text-purple-600 hover:text-purple-700"
+                >
+                  Добавить тест
+                </button>
+              </div>
+            </div>
+            {testsFileName && (
+              <div className="text-[11px] text-gray-400">Файл: {testsFileName}</div>
+            )}
+            <div className="space-y-2">
+              {newTests.map((test, idx) => (
+                <div key={idx} className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <textarea
+                    value={test.input}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setNewTests((prev) => prev.map((item, i) => (i === idx ? { ...item, input: value } : item)));
+                    }}
+                    placeholder="Входные данные"
+                    className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none min-h-[60px]"
+                  />
+                  <div className="relative">
+                    <textarea
+                      value={test.output}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setNewTests((prev) => prev.map((item, i) => (i === idx ? { ...item, output: value } : item)));
+                      }}
+                      placeholder="Ожидаемый вывод"
+                      className="w-full px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none min-h-[60px]"
+                    />
+                    {newTests.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setNewTests((prev) => prev.filter((_, i) => i !== idx))}
+                        className="absolute top-2 right-2 text-xs text-red-500 hover:text-red-600"
+                      >
+                        Удалить
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {questionError && <span className="text-xs text-red-500">{questionError}</span>}
+            <div className="flex items-center gap-2">
+              {editingQuestionId && (
+                <Button variant="secondary" onClick={cancelEditPythonTask} disabled={questionSaving}>
+                  Отменить
+                </Button>
+              )}
+              <Button onClick={handleSavePythonTask} disabled={questionSaving}>
+                {questionSaving ? 'Сохранение...' : (editingQuestionId ? 'Сохранить' : 'Добавить задачу')}
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {manageQuestions.length === 0 ? (
+              <div className="text-sm text-gray-500">Пока нет задач для выбранной темы.</div>
+            ) : (
+              manageQuestions.map((q, idx) => (
+                <div key={q.id || idx} className="p-3 rounded-xl border flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-800 truncate">{q.title || q.question || `Задача ${idx + 1}`}</p>
+                    <p className="text-xs text-gray-500 mt-1">Тестов: {Array.isArray(q.tests) ? q.tests.length : (q.answer ? 1 : 0)}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => startEditPythonTask(q)}
+                      className="p-2 rounded-lg text-gray-500 hover:text-purple-600 hover:bg-purple-50"
+                      title="Редактировать"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePythonQuestion(manageTaskNumber, q.id)}
+                      className="p-2 rounded-lg text-red-500 hover:bg-red-50"
+                      title="Удалить"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+      )}
+
+      {role === 'teacher' && (
+        <Card className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-bold text-gray-800">Теория темы</h3>
+              <p className="text-xs text-gray-500">Текст или встраиваемый Google Docs</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: 'text', label: 'Текст' },
+              { id: 'gdoc', label: 'Google Docs' }
+            ].map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setTheoryType(item.id)}
+                className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
+                  theoryType === item.id
+                    ? 'bg-purple-600 text-white border-purple-600'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-purple-300'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          {theoryType === 'text' ? (
+            <textarea
+              value={theoryText}
+              onChange={(e) => setTheoryText(e.target.value)}
+              placeholder="Вставьте текст теории..."
+              className="w-full min-h-[160px] px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+            />
+          ) : (
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={theoryUrl}
+                onChange={(e) => setTheoryUrl(e.target.value)}
+                placeholder="Вставьте ссылку на документ или iframe Google Docs"
+                className="w-full px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+              />
+              <p className="text-xs text-gray-400">
+                Используйте ссылку для встраивания из Google Docs (Файл → Опубликовать в интернете → Встроить).
+              </p>
+              <p className="text-[11px] text-gray-400">
+                Подойдут и обычные ссылки на документ (view/edit) — они встроятся через preview. Для оглавления используйте «Открыть полностью».
+              </p>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {theoryError && <span className="text-xs text-red-500">{theoryError}</span>}
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" onClick={handleClearPythonTheory} disabled={theorySaving}>
+                Очистить
+              </Button>
+              <Button onClick={handleSavePythonTheory} disabled={theorySaving}>
+                {theorySaving ? 'Сохранение...' : 'Сохранить теорию'}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {role === 'student' && activeTask && (
+        <PythonTestModal
+          task={activeTask}
+          onClose={() => setActiveTask(null)}
+          progress={progressMap}
+          studentId={studentId}
+          testDb={testsDb}
+          onComplete={(taskId, score, options) => {
+            onUpdateProgress(taskId, score, options);
+          }}
+        />
+      )}
+      {role === 'teacher' && reviewTask && (
+        <PythonReviewModal
+          task={reviewTask}
+          onClose={() => setReviewTask(null)}
+          studentId={effectiveStudentId}
+          testDb={testsDb}
+        />
       )}
     </div>
   );
@@ -5292,12 +6814,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       ? [
         { id: 'schedule', label: 'Моё расписание', icon: Calendar },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
+        { id: 'python', label: 'Изучение Python', icon: FileText },
         { id: 'teacher', label: 'Управление тестами', icon: Settings },
         { id: 'notes', label: 'Конспекты', icon: Folder }
       ]
       : [
         { id: 'schedule', label: 'Моё расписание', icon: Calendar },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
+        { id: 'python', label: 'Изучение Python', icon: FileText },
         { id: 'notes', label: 'Конспекты', icon: BookOpen }
       ];
 
@@ -5888,6 +7412,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               studentsLoading={studentsLoading}
               openTask={pendingOpenTask}
               onOpenTaskHandled={() => setPendingOpenTask(null)}
+            />
+          )}
+          {view === 'python' && (
+            <PythonSection
+              progress={progress}
+              onUpdateProgress={(...args) => {
+                onUpdateProgress(...args);
+                if (user.role === 'student') setGoalRefreshTick((prev) => prev + 1);
+              }}
+              role={user.role}
+              studentId={user.id}
+              students={studentsWithNicknames}
+              activeStudentId={activeStudentId}
+              onSelectStudent={setActiveStudentId}
+              studentsLoading={studentsLoading}
             />
           )}
           {view === 'notes' && (
