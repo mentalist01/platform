@@ -2025,16 +2025,12 @@ if (fs.existsSync(distDir)) {
   });
 }
 
-app.use((err, _req, res, next) => {
-  if (err?.code === 'LIMIT_FILE_SIZE') {
-    return res.status(413).json({ error: 'File too large (max 50 MB)' });
-  }
-  return next(err);
-});
-
 app.use((err, _req, res, _next) => {
   if (err?.code === 'LIMIT_FILE_SIZE') {
-    return res.status(413).json({ error: 'Файл больше 20 МБ' });
+    return res.status(413).json({ error: 'Файл больше 50 МБ' });
+  }
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Слишком большой запрос. Уменьшите размер данных.' });
   }
   console.error(err);
   res.status(500).json({ error: 'Ошибка сервера' });
@@ -2043,3 +2039,4 @@ app.use((err, _req, res, _next) => {
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+

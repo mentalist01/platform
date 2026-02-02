@@ -193,6 +193,9 @@ const parseApiError = async (res) => {
     const text = await res.text();
     if (text && text.length <= 200) return text;
   } catch {}
+  if (res.status === 413) {
+    return '\u0421\u043b\u0438\u0448\u043a\u043e\u043c \u0431\u043e\u043b\u044c\u0448\u043e\u0439 \u0437\u0430\u043f\u0440\u043e\u0441. \u0423\u043c\u0435\u043d\u044c\u0448\u0438\u0442\u0435 \u0440\u0430\u0437\u043c\u0435\u0440 \u0434\u0430\u043d\u043d\u044b\u0445.';
+  }
   return `Ошибка запроса (${res.status} ${res.statusText})`;
 };
 
@@ -4440,7 +4443,13 @@ const NotesSection = ({
   const handleDownload = (file) => {
     const url = getFileUrl(file);
     if (!url) return;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    const link = document.createElement('a');
+    link.href = url;
+    if (file?.name) link.download = file.name;
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
   const togglePyPreview = async (file) => {
@@ -4912,11 +4921,11 @@ const NotesSection = ({
                   <div className="flex gap-2">
                     {renamingId === f.id ? null : (
                       <>
-                        {isPdfFile(f.name) && (
+                        {!isPyFile(f.name) && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleDownload(f); }}
                             className="p-2 hover:bg-gray-100 rounded text-gray-500"
-                            title="Скачать PDF"
+                            title="Скачать файл"
                           >
                             <Download size={18}/>
                           </button>
