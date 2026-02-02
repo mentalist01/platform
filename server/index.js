@@ -1930,7 +1930,7 @@ app.post('/api/files', upload.single('file'), (req, res) => {
     try {
       fs.unlinkSync(req.file.path);
     } catch {}
-    return res.status(413).json({ error: 'Превышен лимит 100 МБ для этого задания' });
+    return res.status(413).json({ error: 'Превышен лимит 200 МБ для этого задания' });
   }
 
   const id = req.fileId || crypto.randomUUID();

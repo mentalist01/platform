@@ -640,7 +640,7 @@ const STUDENT_TOUR_STEPS = [
   },
   {
     id: 'files',
-    title: 'Файлы',
+    title: 'Конспекты',
     text: 'Выбери задание и категорию, затем загружай файлы сюда.',
     emotion: 'approval',
     target: '[data-tour="files"]',
@@ -785,6 +785,39 @@ const TeacherPanel = ({
     });
   }, [answerCount]);
 
+  const splitUploadFileName = (name = '') => {
+    const lastDot = name.lastIndexOf('.');
+    if (lastDot <= 0 || lastDot === name.length - 1) {
+      return { base: name, ext: '' };
+    }
+    return { base: name.slice(0, lastDot), ext: name.slice(lastDot + 1) };
+  };
+
+  const makeQuestionFileEntry = (file) => {
+    const { base, ext } = splitUploadFileName(file?.name || '');
+    const id = `${file?.name || 'file'}-${file?.size || 0}-${file?.lastModified || 0}-${Math.random().toString(36).slice(2, 8)}`;
+    return { id, file, base, ext, originalBase: base };
+  };
+
+  const getQuestionFileName = (entry) => {
+    const base = String(entry?.base ?? '').trim();
+    const ext = entry?.ext ? String(entry.ext).trim() : '';
+    const fallback = entry?.file?.name || '';
+    if (!base) return fallback;
+    return ext ? `${base}.${ext}` : base;
+  };
+
+  const buildQuestionUploadFile = (entry) => {
+    if (!entry?.file) return null;
+    const name = getQuestionFileName(entry);
+    if (!name || name === entry.file.name) return entry.file;
+    try {
+      return new File([entry.file], name, { type: entry.file.type, lastModified: entry.file.lastModified });
+    } catch {
+      return entry.file;
+    }
+  };
+
   const getAttachmentKey = (item) => item?.storageName || item?.url || item?.id || item?.name;
 
   const resetQuestionForm = (options = {}) => {
@@ -870,7 +903,10 @@ const TeacherPanel = ({
       }
       if (questionFiles.length > 0) {
         uploadedFiles = await Promise.all(
-          questionFiles.map((file) => api.uploadTestFile(file))
+          questionFiles
+            .map((entry) => buildQuestionUploadFile(entry) || entry?.file)
+            .filter(Boolean)
+            .map((file) => api.uploadTestFile(file))
         );
       }
     } catch (err) {
@@ -1006,7 +1042,8 @@ const TeacherPanel = ({
   const addExtraFiles = (fileList) => {
     const incoming = Array.from(fileList || []).filter(Boolean);
     if (incoming.length === 0) return;
-    setQuestionFiles((prev) => [...prev, ...incoming]);
+    const entries = incoming.map((file) => makeQuestionFileEntry(file));
+    setQuestionFiles((prev) => [...prev, ...entries]);
   };
 
   const removeScreenshot = (idx) => {
@@ -1646,9 +1683,30 @@ const TeacherPanel = ({
                   </div>
                   {questionFiles.length > 0 && (
                     <div className="mt-2 space-y-1">
-                      {questionFiles.map((file, idx) => (
-                        <div key={`${file.name}-${idx}`} className="flex items-center justify-between text-xs text-gray-500">
-                          <span className="truncate">• {file.name}</span>
+                      {questionFiles.map((entry, idx) => (
+                        <div key={entry.id || idx} className="flex items-center justify-between text-xs text-gray-500 gap-2">
+                          <div className="flex items-center gap-1 min-w-0">
+                            <span className="text-gray-400">•</span>
+                            <input
+                              type="text"
+                              value={entry.base}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setQuestionFiles((prev) => prev.map((item, i) => (i === idx ? { ...item, base: value } : item)));
+                              }}
+                              onBlur={() => {
+                                setQuestionFiles((prev) => prev.map((item, i) => {
+                                  if (i !== idx) return item;
+                                  const nextBase = String(item.base ?? '').trim();
+                                  if (nextBase) return item;
+                                  const fallback = item.originalBase || splitUploadFileName(item.file?.name || '').base || 'Файл';
+                                  return { ...item, base: fallback };
+                                }));
+                              }}
+                              className="text-xs text-gray-600 bg-transparent border-b border-dashed border-gray-300 focus:border-purple-400 outline-none min-w-[60px] max-w-[220px]"
+                            />
+                            {entry.ext ? <span className="text-xs text-gray-400">.{entry.ext}</span> : null}
+                          </div>
                           <button
                             type="button"
                             onClick={() => removeExtraFile(idx)}
@@ -1662,18 +1720,48 @@ const TeacherPanel = ({
                   )}
                   {existingQuestionFiles.length > 0 && (
                     <div className="mt-2 space-y-1">
-                      {existingQuestionFiles.map((file, idx) => (
-                        <div key={file.id || file.storageName || file.url || idx} className="flex items-center justify-between text-xs text-gray-500">
-                          <span className="truncate">• {file.name || 'Файл'}</span>
-                          <button
-                            type="button"
-                            onClick={() => setExistingQuestionFiles((prev) => prev.filter((_, i) => i !== idx))}
-                            className="text-red-500 hover:text-red-600"
-                          >
-                            Удалить
-                          </button>
-                        </div>
-                      ))}
+                      {existingQuestionFiles.map((file, idx) => {
+                        const { base, ext } = splitUploadFileName(file?.name || '');
+                        return (
+                          <div key={file.id || file.storageName || file.url || idx} className="flex items-center justify-between text-xs text-gray-500 gap-2">
+                            <div className="flex items-center gap-1 min-w-0">
+                              <span className="text-gray-400">•</span>
+                              <input
+                                type="text"
+                                value={base}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setExistingQuestionFiles((prev) => prev.map((item, i) => {
+                                    if (i !== idx) return item;
+                                    const suffix = ext ? `.${ext}` : '';
+                                    return { ...item, name: `${value}${suffix}` };
+                                  }));
+                                }}
+                                onBlur={() => {
+                                  setExistingQuestionFiles((prev) => prev.map((item, i) => {
+                                    if (i !== idx) return item;
+                                    const current = String(item?.name || '').trim();
+                                    const parsed = splitUploadFileName(current);
+                                    if (parsed.base) return item;
+                                    const fallbackBase = 'Файл';
+                                    const suffix = parsed.ext ? `.${parsed.ext}` : '';
+                                    return { ...item, name: `${fallbackBase}${suffix}` };
+                                  }));
+                                }}
+                                className="text-xs text-gray-600 bg-transparent border-b border-dashed border-gray-300 focus:border-purple-400 outline-none min-w-[60px] max-w-[220px]"
+                              />
+                              {ext ? <span className="text-xs text-gray-400">.{ext}</span> : null}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setExistingQuestionFiles((prev) => prev.filter((_, i) => i !== idx))}
+                              className="text-red-500 hover:text-red-600"
+                            >
+                              Удалить
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -2230,7 +2318,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
   const [results, setResults] = useState({}); // { [idx]: boolean }
   const [solvedIds, setSolvedIds] = useState(new Set());
   const [expandedImage, setExpandedImage] = useState(null);
-  const [autoStartDone, setAutoStartDone] = useState(false);
+  const autoStartRef = useRef(false);
 
   const currentMastery = progress[task.id] || 0;
 
@@ -2272,15 +2360,15 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
 
   useEffect(() => {
     if (stage !== 'select_level') return;
-    if (!initialLevel || autoStartDone) return;
+    if (!initialLevel || autoStartRef.current) return;
     if (!['basic', 'advanced', 'expert'].includes(initialLevel)) return;
     if (!testDb) return;
-    setAutoStartDone(true);
+    autoStartRef.current = true;
     startTest(initialLevel, { silent: true });
-  }, [stage, initialLevel, autoStartDone, testDb]);
+  }, [stage, initialLevel, testDb]);
 
   useEffect(() => {
-    setAutoStartDone(false);
+    autoStartRef.current = false;
   }, [task?.number]);
 
   const normalizeAnswer = (value) => {
@@ -4261,7 +4349,7 @@ const NotesSection = ({
     setIsUploading(false);
     if (fileRef.current) fileRef.current.value = '';
     if (skipped > 0) {
-      alert(`Не хватило места для ${skipped} файла(ов). Лимит 100 МБ на задание.`);
+      alert(`Не хватило места для ${skipped} файла(ов). Лимит 200 МБ на задание.`);
     }
   };
 
@@ -4380,6 +4468,20 @@ const NotesSection = ({
 
   const isPyFile = (name) => name?.toLowerCase().endsWith('.py');
   const isPdfFile = (name) => name?.toLowerCase().endsWith('.pdf');
+  const isExcelFile = (name) => {
+    const lower = name?.toLowerCase() || '';
+    return (
+      lower.endsWith('.xls') ||
+      lower.endsWith('.xlsx') ||
+      lower.endsWith('.xlsm') ||
+      lower.endsWith('.xlsb') ||
+      lower.endsWith('.xlt') ||
+      lower.endsWith('.xltx') ||
+      lower.endsWith('.ods') ||
+      lower.endsWith('.ots') ||
+      lower.endsWith('.fods')
+    );
+  };
 
   const PdfLogo = () => (
     <svg viewBox="0 0 24 24" className="w-6 h-6" aria-hidden="true">
@@ -4412,6 +4514,22 @@ const NotesSection = ({
     </svg>
   );
 
+  const ExcelLogo = () => (
+    <svg viewBox="0 0 24 24" className="w-6 h-6" aria-hidden="true">
+      <rect x="3" y="2" width="18" height="20" rx="3" fill="#1F7A3E" />
+      <text
+        x="12"
+        y="15"
+        textAnchor="middle"
+        fontSize="7"
+        fontFamily="Arial, sans-serif"
+        fill="#FFFFFF"
+      >
+        XLS
+      </text>
+    </svg>
+  );
+
   const FileIcon = ({ name }) => {
     if (isPdfFile(name)) {
       return (
@@ -4420,6 +4538,16 @@ const NotesSection = ({
             <PdfLogo />
           </div>
           <span className="text-[10px] font-bold text-red-600 mt-1">PDF</span>
+        </div>
+      );
+    }
+    if (isExcelFile(name)) {
+      return (
+        <div className="flex flex-col items-center w-12">
+          <div className="w-10 h-10 flex items-center justify-center bg-transparent">
+            <ExcelLogo />
+          </div>
+          <span className="text-[10px] font-bold text-green-700 mt-1">XLS</span>
         </div>
       );
     }
@@ -4988,22 +5116,16 @@ const StudentTour = ({ user, view, setView, menuOpen, setMenuOpen }) => {
   const [highlightRect, setHighlightRect] = useState(null);
   const steps = STUDENT_TOUR_STEPS;
   const step = steps[stepIndex] || {};
+  const canShowTour = Boolean(user && user.role === 'student' && !hasStudentSeenTour(user.id));
 
   useEffect(() => {
-    if (!user || user.role !== 'student') {
-      setOpen(false);
-      return;
-    }
-    if (hasStudentSeenTour(user.id)) {
-      setOpen(false);
-      return;
-    }
+    if (!canShowTour) return;
     const timer = setTimeout(() => {
       setOpen(true);
       setStepIndex(0);
     }, 250);
     return () => clearTimeout(timer);
-  }, [user?.id, user?.role]);
+  }, [canShowTour]);
 
   useEffect(() => {
     if (!open) return;
@@ -5085,7 +5207,7 @@ const StudentTour = ({ user, view, setView, menuOpen, setMenuOpen }) => {
     setStepIndex((prev) => Math.max(0, prev - 1));
   };
 
-  if (!open || !user || user.role !== 'student') return null;
+  if (!open || !canShowTour || !user || user.role !== 'student') return null;
   if (typeof document === 'undefined') return null;
 
   const mascotSrc = MASCOT_IMAGES[step.emotion] || mascotGreetings;
@@ -5171,7 +5293,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         { id: 'schedule', label: 'Моё расписание', icon: Calendar },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
         { id: 'teacher', label: 'Управление тестами', icon: Settings },
-        { id: 'notes', label: 'Файлы', icon: Folder }
+        { id: 'notes', label: 'Конспекты', icon: Folder }
       ]
       : [
         { id: 'schedule', label: 'Моё расписание', icon: Calendar },
@@ -5812,13 +5934,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
 };
 
 const App = () => {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    if (typeof localStorage === 'undefined') return null;
+    try {
+      const savedUser = localStorage.getItem('ege_user_session');
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch {
+      return null;
+    }
+  });
   const [progress, setProgress] = useState({});
-
-  useEffect(() => {
-    const savedUser = localStorage.getItem('ege_user_session');
-    if (savedUser) setUser(JSON.parse(savedUser));
-  }, []);
 
   useEffect(() => {
     const updateVh = () => {
@@ -5836,10 +5961,7 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    if (!user || user.role !== 'student') {
-      setProgress({});
-      return;
-    }
+    if (!user || user.role !== 'student') return;
     let cancelled = false;
     api.getStudentProgress(user.id)
       .then((data) => {
@@ -5852,10 +5974,11 @@ const App = () => {
         setProgress({});
       });
     return () => { cancelled = true; };
-  }, [user]);
+  }, [user?.id, user?.role]);
 
   const handleLogin = (u) => {
     setUser(u);
+    setProgress({});
     localStorage.setItem('ege_user_session', JSON.stringify(u));
   };
 
