@@ -22,7 +22,9 @@ const testsFile = path.join(dataDir, 'tests.json');
 const taskTitlesFile = path.join(dataDir, 'task-titles.json');
 const authFile = path.join(dataDir, 'auth.json');
 const usageFile = path.join(dataDir, 'usage.json');
-const MAX_TASK_BYTES = 100 * 1024 * 1024;
+const MAX_TASK_BYTES = 200 * 1024 * 1024;
+const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
+const JSON_BODY_LIMIT = '20mb';
 const LOGIN_LIMIT = 8;
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_BLOCK_MS = 10 * 60 * 1000;
@@ -54,7 +56,7 @@ const SOFT_DELETE_TTL_MS = SOFT_DELETE_DAYS * 24 * 60 * 60 * 1000;
 fs.mkdirSync(uploadsDir, { recursive: true });
 fs.mkdirSync(dataDir, { recursive: true });
 
-app.use(express.json());
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
 const readFilesDb = () => {
   try {
@@ -760,7 +762,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: MAX_UPLOAD_FILE_BYTES },
 });
 
 const handleUploadRequest = (req, res) => {
@@ -2022,6 +2024,13 @@ if (fs.existsSync(distDir)) {
     res.sendFile(path.join(distDir, 'index.html'));
   });
 }
+
+app.use((err, _req, res, next) => {
+  if (err?.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'File too large (max 50 MB)' });
+  }
+  return next(err);
+});
 
 app.use((err, _req, res, _next) => {
   if (err?.code === 'LIMIT_FILE_SIZE') {
