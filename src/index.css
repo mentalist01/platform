@@ -1,3 +1,19 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --app-vh: 1vh;
+}
+
+.app-h {
+  height: calc(var(--app-vh, 1vh) * 100);
+  height: 100dvh;
+  height: 100svh;
+}
+
+.app-min-h {
+  min-height: calc(var(--app-vh, 1vh) * 100);
+  min-height: 100dvh;
+  min-height: 100svh;
+}
