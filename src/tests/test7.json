@@ -1,0 +1,6 @@
+[
+        { "input": "10 5 8 2\n", "output": "2 5 8 10\n" },
+        { "input": "3 1 2\n", "output": "1 2 3\n" },
+        { "input": "100 1\n", "output": "1 100\n" },
+        { "input": "5 5 0\n", "output": "0 5 5\n" }
+    ]

@@ -1,18 +1,6 @@
 [
-  {
-    "input": "Иван\n",
-    "output": "Привет, Иван!\n"
-  },
-  {
-    "input": "Мария\n",
-    "output": "Привет, Мария!\n"
-  },
-  {
-    "input": "Ученик\n",
-    "output": "Привет, Ученик!\n"
-  },
-  {
-    "input": "Python\n",
-    "output": "Привет, Python!\n"
-  }
-]
+        { "input": "100\n10\n", "output": "90.0\n" },
+        { "input": "200\n50\n", "output": "100.0\n" },
+        { "input": "1000\n0\n", "output": "1000.0\n" },
+        { "input": "500\n100\n", "output": "0.0\n" }
+    ]

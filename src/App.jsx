@@ -292,6 +292,12 @@ const PYTHON_TASKS = [
   { id: 111, number: 111, title: 'Двумерные массивы', displayNumber: '9' }
 ];
 
+const PYTHON_TASK_MAP = new Map(PYTHON_TASKS.map((task) => [Number(task.number), task]));
+
+const isPythonTaskNumber = (value) => PYTHON_TASK_MAP.has(Number(value));
+
+const getPythonTaskInfo = (value) => PYTHON_TASK_MAP.get(Number(value)) || null;
+
 const ensurePyodideReady = (() => {
   let pyodidePromise = null;
   return async () => {
@@ -3881,6 +3887,10 @@ const ProgressSection = ({
 
   useEffect(() => {
     if (role !== 'student' || !openTask) return;
+    if (openTask.section === 'python' || isPythonTaskNumber(openTask.taskNumber)) {
+      onOpenTaskHandled?.();
+      return;
+    }
     const target = taskList.find((task) => Number(task.number) === Number(openTask.taskNumber));
     if (!target) {
       onOpenTaskHandled?.();
@@ -4304,7 +4314,9 @@ const PythonSection = ({
   students,
   activeStudentId,
   onSelectStudent,
-  studentsLoading
+  studentsLoading,
+  openTask,
+  onOpenTaskHandled
 }) => {
   const taskList = PYTHON_TASKS;
   const [activeTask, setActiveTask] = useState(null);
@@ -4368,6 +4380,21 @@ const PythonSection = ({
       });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (role !== 'student' || !openTask) return;
+    if (!isPythonTaskNumber(openTask.taskNumber)) {
+      onOpenTaskHandled?.();
+      return;
+    }
+    const target = taskList.find((task) => Number(task.number) === Number(openTask.taskNumber));
+    if (!target) {
+      onOpenTaskHandled?.();
+      return;
+    }
+    setActiveTask(target);
+    onOpenTaskHandled?.();
+  }, [openTask, role, taskList, onOpenTaskHandled]);
 
   useEffect(() => {
     if (!taskList.length) return;
@@ -5019,6 +5046,7 @@ const ScheduleSection = ({
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
+  const pythonTaskOptions = PYTHON_TASKS;
 
   const loadNextLesson = async () => {
     if (!effectiveStudentId) {
@@ -5189,8 +5217,10 @@ const ScheduleSection = ({
   };
 
   const getQuestionsCount = (taskNumber, levelId) => {
-    if (!testsDb || !taskNumber || !levelId) return null;
-    const list = testsDb?.[String(taskNumber)]?.[levelId];
+    if (!testsDb || !taskNumber) return null;
+    const effectiveLevelId = isPythonTaskNumber(taskNumber) ? PYTHON_LEVEL_ID : levelId;
+    if (!effectiveLevelId) return null;
+    const list = testsDb?.[String(taskNumber)]?.[effectiveLevelId];
     return Array.isArray(list) ? list.length : null;
   };
 
@@ -5198,22 +5228,30 @@ const ScheduleSection = ({
     if (!entry) return [];
     if (Array.isArray(entry.goals) && entry.goals.length > 0) {
       return entry.goals
-        .map((goal) => ({
-          taskNumber: Number.isFinite(normalizeTaskNumber(goal?.taskNumber))
-            ? String(normalizeTaskNumber(goal?.taskNumber))
-            : '',
-          levelId: goal?.levelId || 'basic',
-          targetQuestions: Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [],
-          includeAll: Boolean(goal?.includeAll)
-        }))
+        .map((goal) => {
+          const normalizedTaskNumber = normalizeTaskNumber(goal?.taskNumber);
+          const taskNumberValue = Number.isFinite(normalizedTaskNumber)
+            ? String(normalizedTaskNumber)
+            : '';
+          const isPythonGoal = Number.isFinite(normalizedTaskNumber)
+            ? isPythonTaskNumber(normalizedTaskNumber)
+            : false;
+          return {
+            taskNumber: taskNumberValue,
+            levelId: isPythonGoal ? PYTHON_LEVEL_ID : (goal?.levelId || 'basic'),
+            targetQuestions: Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [],
+            includeAll: Boolean(goal?.includeAll)
+          };
+        })
         .filter((goal) => goal.taskNumber);
     }
     if (entry.taskNumber && entry.levelId) {
+      const entryTaskNumber = Number(entry.taskNumber);
       return [{
         taskNumber: Number.isFinite(normalizeTaskNumber(entry.taskNumber))
           ? String(normalizeTaskNumber(entry.taskNumber))
           : String(entry.taskNumber),
-        levelId: entry.levelId,
+        levelId: isPythonTaskNumber(entryTaskNumber) ? PYTHON_LEVEL_ID : entry.levelId,
         targetQuestions: Array.isArray(entry.targetQuestions) ? entry.targetQuestions : [],
         includeAll: Boolean(entry.includeAll)
       }];
@@ -5308,7 +5346,9 @@ const ScheduleSection = ({
           if (!taskNumber) return null;
           const normalizedTaskNumber = normalizeTaskNumber(taskNumber);
           if (!Number.isFinite(normalizedTaskNumber)) return null;
-          const levelId = goal?.levelId || 'basic';
+          const levelId = isPythonTaskNumber(normalizedTaskNumber)
+            ? PYTHON_LEVEL_ID
+            : (goal?.levelId || 'basic');
           const includeAll = Boolean(goal?.includeAll);
           const availableCount = getQuestionsCount(normalizedTaskNumber, levelId);
           const targetQuestions = includeAll ? [] : parseTargetInput(goal?.targetInput, availableCount);
@@ -5417,7 +5457,13 @@ const ScheduleSection = ({
           <div className="space-y-3">
             {(Array.isArray(form.goals) ? form.goals : []).map((goal, index) => {
               const hasTask = Boolean(goal?.taskNumber);
-              const availableCount = hasTask ? getQuestionsCount(goal.taskNumber, goal.levelId) : null;
+              const normalizedGoalTaskNumber = normalizeTaskNumber(goal?.taskNumber);
+              const isPythonGoal = isPythonTaskNumber(normalizedGoalTaskNumber);
+              const effectiveLevelId = isPythonGoal ? PYTHON_LEVEL_ID : goal.levelId;
+              const taskNumberValue = Number.isFinite(normalizedGoalTaskNumber)
+                ? normalizedGoalTaskNumber
+                : goal?.taskNumber;
+              const availableCount = hasTask ? getQuestionsCount(taskNumberValue, effectiveLevelId) : null;
               return (
                 <div key={`${index}-${goal?.taskNumber || 'goal'}`} className="rounded-2xl border border-gray-200 bg-white p-3 space-y-3">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -5425,8 +5471,11 @@ const ScheduleSection = ({
                       value={goal.taskNumber || ''}
                       onChange={(e) => {
                         const value = e.target.value;
+                        const valueNum = value ? Number(value) : null;
+                        const nextIsPython = valueNum ? isPythonTaskNumber(valueNum) : false;
                         updateGoal(index, {
                           taskNumber: value,
+                          levelId: nextIsPython ? PYTHON_LEVEL_ID : (goal.levelId || 'basic'),
                           includeAll: value ? goal.includeAll : false,
                           targetInput: value ? goal.targetInput : ''
                         });
@@ -5434,21 +5483,34 @@ const ScheduleSection = ({
                       className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
                     >
                       <option value="">Выберите задание</option>
-                      {taskOptions.map((task) => (
-                        <option key={task.id ?? task.number} value={task.number}>
-                          Задание {getTaskDisplayNumber(task)}: {task.title}
-                        </option>
-                      ))}
+                      <optgroup label="ЕГЭ">
+                        {taskOptions.map((task) => (
+                          <option key={task.id ?? task.number} value={task.number}>
+                            Задание {getTaskDisplayNumber(task)}: {task.title}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Python">
+                        {pythonTaskOptions.map((task) => (
+                          <option key={task.id ?? task.number} value={task.number}>
+                            {task.displayNumber} · {task.title}
+                          </option>
+                        ))}
+                      </optgroup>
                     </select>
                     <select
-                      value={goal.levelId || 'basic'}
+                      value={isPythonGoal ? PYTHON_LEVEL_ID : (goal.levelId || 'basic')}
                       onChange={(e) => updateGoal(index, { levelId: e.target.value })}
-                      disabled={!hasTask}
+                      disabled={!hasTask || isPythonGoal}
                       className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none disabled:opacity-60"
                     >
-                      {Object.values(LEVELS).map((lvl) => (
-                        <option key={lvl.id} value={lvl.id}>{lvl.label}</option>
-                      ))}
+                      {isPythonGoal ? (
+                        <option value={PYTHON_LEVEL_ID}>Python</option>
+                      ) : (
+                        Object.values(LEVELS).map((lvl) => (
+                          <option key={lvl.id} value={lvl.id}>{lvl.label}</option>
+                        ))
+                      )}
                     </select>
                     <div className="flex items-center justify-between gap-3">
                       <label className={`flex items-center gap-2 text-xs font-semibold ${hasTask ? 'text-gray-600' : 'text-gray-400'}`}>
@@ -5568,9 +5630,15 @@ const ScheduleSection = ({
                     <div className="space-y-2">
                       {entryGoals.map((goal, goalIndex) => {
                         const taskNumber = Number(goal.taskNumber);
-                        const taskDisplay = formatTaskNumber(taskNumber) || taskNumber;
-                        const levelId = goal.levelId;
-                        const levelLabel = LEVELS[levelId?.toUpperCase()]?.label || levelId;
+                        const isPythonGoal = isPythonTaskNumber(taskNumber);
+                        const pythonTask = isPythonGoal ? getPythonTaskInfo(taskNumber) : null;
+                        const taskDisplay = isPythonGoal
+                          ? (pythonTask?.displayNumber || taskNumber)
+                          : (formatTaskNumber(taskNumber) || taskNumber);
+                        const levelId = isPythonGoal ? PYTHON_LEVEL_ID : goal.levelId;
+                        const levelLabel = isPythonGoal
+                          ? 'Python'
+                          : (LEVELS[levelId?.toUpperCase()]?.label || levelId);
                         const questionsList = taskNumber && levelId
                           ? (testsDb?.[String(taskNumber)]?.[levelId] || [])
                           : [];
@@ -5722,6 +5790,11 @@ const NotesSection = ({
   const [pyContent, setPyContent] = useState({});
   const [pyError, setPyError] = useState({});
   const [pyLoadingId, setPyLoadingId] = useState(null);
+  const [showPyCreator, setShowPyCreator] = useState(false);
+  const [pyDraftName, setPyDraftName] = useState('');
+  const [pyDraftCode, setPyDraftCode] = useState('');
+  const [pyDraftError, setPyDraftError] = useState('');
+  const [pyDraftSaving, setPyDraftSaving] = useState(false);
   const fileRef = useRef(null);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
@@ -5826,6 +5899,11 @@ const NotesSection = ({
     setDragOverFolderId(null);
     setExpandedPyIds({});
     setExpandedPdfIds({});
+    setShowPyCreator(false);
+    setPyDraftName('');
+    setPyDraftCode('');
+    setPyDraftError('');
+    setPyDraftSaving(false);
   }, [currentTask, currentCategory]);
 
   useEffect(() => {
@@ -5836,6 +5914,11 @@ const NotesSection = ({
     setFiles([]);
     setExpandedPyIds({});
     setExpandedPdfIds({});
+    setShowPyCreator(false);
+    setPyDraftName('');
+    setPyDraftCode('');
+    setPyDraftError('');
+    setPyDraftSaving(false);
   }, [effectiveStudentId]);
 
   const handleUploadFiles = async (fileList) => {
@@ -6003,6 +6086,51 @@ const NotesSection = ({
       lower.endsWith('.ots') ||
       lower.endsWith('.fods')
     );
+  };
+
+  const normalizePyFileName = (value) => {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return '';
+    return trimmed.toLowerCase().endsWith('.py') ? trimmed : `${trimmed}.py`;
+  };
+
+  const getPyDraftSize = (code) => new Blob([code ?? ''], { type: 'text/x-python' }).size;
+
+  const handleCreatePyFile = async () => {
+    if (!effectiveStudentId) {
+      setPyDraftError('Сначала выберите ученика.');
+      return;
+    }
+    if (!currentTask || !currentCategory) {
+      setPyDraftError('Сначала выберите задание и категорию.');
+      return;
+    }
+    const normalizedName = normalizePyFileName(pyDraftName);
+    if (!normalizedName) {
+      setPyDraftError('Введите название файла.');
+      return;
+    }
+    const code = String(pyDraftCode ?? '');
+    const sizeBytes = getPyDraftSize(code);
+    if (taskUsageBytes + sizeBytes > MAX_TASK_BYTES) {
+      setPyDraftError('Недостаточно места для сохранения файла в этом задании.');
+      return;
+    }
+    if (pyDraftSaving) return;
+    setPyDraftSaving(true);
+    setPyDraftError('');
+    try {
+      const file = new File([code], normalizedName, { type: 'text/x-python' });
+      const created = await api.uploadFile(file, currentTask, currentCategory, currentFolderId || null, effectiveStudentId);
+      setFiles((prev) => [created, ...prev]);
+      setPyDraftName('');
+      setPyDraftCode('');
+      setShowPyCreator(false);
+    } catch (err) {
+      setPyDraftError(err?.message || err);
+    } finally {
+      setPyDraftSaving(false);
+    }
   };
 
   const PdfLogo = () => (
@@ -6364,6 +6492,14 @@ const NotesSection = ({
   const currentFolderLabel = currentFolderId
     ? (folders.find((f) => f.id === currentFolderId)?.name || 'Папка')
     : 'Без папки';
+  const pyEditorOptions = {
+    minimap: { enabled: false },
+    fontSize: 14,
+    tabSize: 4,
+    insertSpaces: true,
+    wordWrap: 'on',
+    automaticLayout: true
+  };
 
   return (
     <div className="animate-fadeIn" data-tour="notes">
@@ -6405,6 +6541,49 @@ const NotesSection = ({
           <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} multiple/>
           <Button onClick={() => fileRef.current.click()} disabled={isUploading}><Upload size={18}/> {isUploading ? '...' : 'Загрузить'}</Button>
         </div>
+      </div>
+      <div className="bg-white rounded-2xl border p-4 mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-gray-700">Python файл</h3>
+          <Button variant="secondary" onClick={() => setShowPyCreator((v) => !v)}>
+            <Plus size={16}/> {showPyCreator ? 'Скрыть' : 'Создать'}
+          </Button>
+        </div>
+        {showPyCreator && (
+          <div className="space-y-3">
+            <div className="flex flex-col md:flex-row gap-2">
+              <input
+                type="text"
+                value={pyDraftName}
+                onChange={(e) => { setPyDraftName(e.target.value); setPyDraftError(''); }}
+                placeholder="Название файла (без .py)"
+                className="flex-1 px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+              />
+              <Button onClick={handleCreatePyFile} disabled={pyDraftSaving || !pyDraftName.trim()}>
+                {pyDraftSaving ? 'Сохранение...' : 'Сохранить файл'}
+              </Button>
+            </div>
+            <div className="rounded-2xl overflow-hidden border border-gray-800">
+              <Editor
+                height="220px"
+                language="python"
+                theme="vs-dark"
+                value={pyDraftCode}
+                onChange={(value) => {
+                  setPyDraftCode(value ?? '');
+                  if (pyDraftError) setPyDraftError('');
+                }}
+                options={pyEditorOptions}
+                loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+              />
+            </div>
+            <div className="flex flex-wrap items-center justify-between text-xs text-gray-400 gap-2">
+              <span>Файл сохранится в папке: {currentFolderLabel}</span>
+              <span>Размер: {formatBytes(getPyDraftSize(pyDraftCode))}</span>
+            </div>
+            {pyDraftError && <p className="text-xs text-red-500">{pyDraftError}</p>}
+          </div>
+        )}
       </div>
       <div className="bg-white rounded-2xl border p-4 mb-6">
         <div className="flex items-center justify-between mb-3">
@@ -7031,17 +7210,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const handleOpenTask = (taskNumber, levelId, targetQuestions) => {
     const normalizedTaskNumber = normalizeTaskNumber(taskNumber);
     if (!Number.isFinite(normalizedTaskNumber)) return;
+    const pythonTask = isPythonTaskNumber(normalizedTaskNumber);
     if (user.role !== 'student') {
-      setView('progress');
+      setView(pythonTask ? 'python' : 'progress');
       setMenuOpen(false);
       return;
     }
     setPendingOpenTask({
       taskNumber: normalizedTaskNumber,
-      levelId,
-      targetQuestions: Array.isArray(targetQuestions) ? targetQuestions : null
+      levelId: pythonTask ? PYTHON_LEVEL_ID : levelId,
+      targetQuestions: Array.isArray(targetQuestions) ? targetQuestions : null,
+      section: pythonTask ? 'python' : 'progress'
     });
-    setView('progress');
+    setView(pythonTask ? 'python' : 'progress');
     setMenuOpen(false);
   };
 
@@ -7064,22 +7245,29 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         if (!item) return [];
         if (Array.isArray(item.goals) && item.goals.length > 0) {
           return item.goals
-            .map((goal) => ({
-              taskNumber: Number.isFinite(normalizeTaskNumber(goal?.taskNumber))
-                ? normalizeTaskNumber(goal?.taskNumber)
-                : null,
-              levelId: goal?.levelId || 'basic',
-              targetQuestions: Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [],
-              includeAll: Boolean(goal?.includeAll)
-            }))
+            .map((goal) => {
+              const normalizedTaskNumber = normalizeTaskNumber(goal?.taskNumber);
+              const taskNumberValue = Number.isFinite(normalizedTaskNumber)
+                ? normalizedTaskNumber
+                : null;
+              const isPythonGoal = taskNumberValue ? isPythonTaskNumber(taskNumberValue) : false;
+              return {
+                taskNumber: taskNumberValue,
+                levelId: isPythonGoal ? PYTHON_LEVEL_ID : (goal?.levelId || 'basic'),
+                targetQuestions: Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [],
+                includeAll: Boolean(goal?.includeAll)
+              };
+            })
             .filter((goal) => Number.isFinite(goal.taskNumber));
         }
         if (item.taskNumber && item.levelId) {
+          const normalizedTaskNumber = Number.isFinite(normalizeTaskNumber(item.taskNumber))
+            ? normalizeTaskNumber(item.taskNumber)
+            : Number(item.taskNumber);
+          const isPythonGoal = isPythonTaskNumber(normalizedTaskNumber);
           return [{
-            taskNumber: Number.isFinite(normalizeTaskNumber(item.taskNumber))
-              ? normalizeTaskNumber(item.taskNumber)
-              : Number(item.taskNumber),
-            levelId: item.levelId,
+            taskNumber: normalizedTaskNumber,
+            levelId: isPythonGoal ? PYTHON_LEVEL_ID : item.levelId,
             targetQuestions: Array.isArray(item.targetQuestions) ? item.targetQuestions : [],
             includeAll: Boolean(item.includeAll)
           }];
@@ -7118,7 +7306,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         const taskNumber = Number.isFinite(normalizeTaskNumber(goal.taskNumber))
           ? normalizeTaskNumber(goal.taskNumber)
           : goal.taskNumber;
-        const levelId = goal.levelId;
+        const isPythonGoal = isPythonTaskNumber(taskNumber);
+        const levelId = isPythonGoal ? PYTHON_LEVEL_ID : goal.levelId;
         const questionsList = goalTestsDb?.[String(taskNumber)]?.[levelId] || [];
         const totalCount = questionsList.length;
         const targetNumbers = goal.includeAll
@@ -7136,9 +7325,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           return { num, solved };
         });
         const completed = targetStatus.length > 0 && targetStatus.every((item) => item.solved);
-        const taskInfo = tasksWithTitles.find((task) => Number(task.number) === Number(taskNumber));
-        const taskTitle = taskInfo?.title || `Задание ${formatTaskNumber(taskNumber) || taskNumber}`;
-        const levelLabel = LEVELS[levelId?.toUpperCase()]?.label || levelId;
+        const pythonTask = isPythonGoal ? getPythonTaskInfo(taskNumber) : null;
+        const taskInfo = !isPythonGoal
+          ? tasksWithTitles.find((task) => Number(task.number) === Number(taskNumber))
+          : null;
+        const taskTitle = pythonTask?.title || taskInfo?.title || `Задание ${formatTaskNumber(taskNumber) || taskNumber}`;
+        const levelLabel = isPythonGoal
+          ? 'Python'
+          : (LEVELS[levelId?.toUpperCase()]?.label || levelId);
         return {
           taskNumber,
           levelId,
@@ -7208,7 +7402,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       {user.role === 'teacher' && teacherNotifs.length > 0 && (
         <div className="fixed top-4 right-4 z-[1200] space-y-3 max-w-[320px]">
           {teacherNotifs.map((note) => {
-            const levelLabel = LEVELS[note.levelId?.toUpperCase()]?.label || note.levelId || '';
+            const levelLabel = note.levelId === PYTHON_LEVEL_ID
+              ? 'Python'
+              : (LEVELS[note.levelId?.toUpperCase()]?.label || note.levelId || '');
             const questionPart = note.questionNumber ? ` · вопрос ${note.questionNumber}` : '';
             return (
               <div key={note.id} className="rounded-2xl border border-purple-200 bg-white shadow-lg px-4 py-3 text-sm text-gray-700 relative">
@@ -7326,7 +7522,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                   <div className="mt-3 grid gap-3">
                     {goalGoals.map((goal, index) => {
                       const hasTargets = goal.targetNumbers?.length > 0 || goal.includeAll;
-                      const taskDisplay = formatTaskNumber(goal.taskNumber) || goal.taskNumber;
+                      const pythonTask = isPythonTaskNumber(goal.taskNumber)
+                        ? getPythonTaskInfo(goal.taskNumber)
+                        : null;
+                      const taskDisplay = pythonTask?.displayNumber || formatTaskNumber(goal.taskNumber) || goal.taskNumber;
                       return (
                         <div key={`${goal.taskNumber}-${goal.levelId}-${index}`} className="rounded-2xl border border-purple-100 bg-white/80 px-4 py-3 space-y-2">
                           <div className="flex flex-wrap items-start justify-between gap-2">
@@ -7427,6 +7626,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
               studentsLoading={studentsLoading}
+              openTask={pendingOpenTask}
+              onOpenTaskHandled={() => setPendingOpenTask(null)}
             />
           )}
           {view === 'notes' && (

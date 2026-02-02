@@ -481,15 +481,19 @@ const filterTargetsByCount = (targets, count) => {
   return targets.filter((val) => val <= count);
 };
 
+const isPythonTaskNumber = (taskNum) => Number.isFinite(taskNum) && taskNum >= 100 && taskNum <= 199;
+
 const normalizeGoals = (goals, testsDb = null) => {
   if (!Array.isArray(goals)) return [];
   const result = [];
   goals.forEach((goal) => {
     if (!goal || typeof goal !== 'object') return;
     const taskNum = Number(goal.taskNumber);
-    if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) return;
-    const levelId = String(goal.levelId || '').trim();
-    if (!['basic', 'advanced', 'expert'].includes(levelId)) return;
+    const isPython = isPythonTaskNumber(taskNum);
+    if (!Number.isFinite(taskNum) || (!isPython && (taskNum < 1 || taskNum > 27))) return;
+    let levelId = String(goal.levelId || '').trim();
+    if (isPython) levelId = 'python';
+    if (!isPython && !['basic', 'advanced', 'expert'].includes(levelId)) return;
     const includeAll = Boolean(goal.includeAll);
     const rawTargets = Array.isArray(goal.targetQuestions) ? goal.targetQuestions : [];
     const targetsRaw = includeAll
@@ -510,9 +514,11 @@ const normalizeGoals = (goals, testsDb = null) => {
 const normalizeGoalsFromLegacy = (entry, testsDb = null) => {
   if (!entry) return [];
   const taskNum = Number(entry.taskNumber);
-  const levelId = String(entry.levelId || '').trim();
-  if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) return [];
-  if (!['basic', 'advanced', 'expert'].includes(levelId)) return [];
+  let levelId = String(entry.levelId || '').trim();
+  const isPython = isPythonTaskNumber(taskNum);
+  if (!Number.isFinite(taskNum) || (!isPython && (taskNum < 1 || taskNum > 27))) return [];
+  if (isPython) levelId = 'python';
+  if (!isPython && !['basic', 'advanced', 'expert'].includes(levelId)) return [];
   const includeAll = Boolean(entry.includeAll);
   const rawTargets = Array.isArray(entry.targetQuestions) ? entry.targetQuestions : [];
   const targetsRaw = includeAll

@@ -1,0 +1,6 @@
+[
+        { "input": "Python это круто\n", "output": "Python#это#круто\n" },
+        { "input": "один два\n", "output": "один#два\n" },
+        { "input": "А Б В\n", "output": "А#Б#В\n" },
+        { "input": "Слово\n", "output": "Слово\n" }
+    ]
