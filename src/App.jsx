@@ -4179,9 +4179,53 @@ const ProgressSection = ({
     }, 0);
     return Math.round((total / taskList.length) * 10) / 10;
   })();
-  const totalMasteryLabel = Number.isFinite(totalMastery) && totalMastery % 1 !== 0
-    ? totalMastery.toFixed(1)
-    : Math.round(totalMastery).toString();
+  const totalMasteryRounded = Math.round(totalMastery);
+  const totalMasteryLabel = Number.isFinite(totalMasteryRounded)
+    ? totalMasteryRounded.toString()
+    : '0';
+  const getBallLabel = (value) => {
+    if (!Number.isFinite(value)) return 'баллов';
+    if (value % 1 !== 0) return 'балла';
+    const abs = Math.abs(Math.round(value));
+    const mod100 = abs % 100;
+    if (mod100 >= 11 && mod100 <= 14) return 'баллов';
+    const mod10 = abs % 10;
+    if (mod10 === 1) return 'балл';
+    if (mod10 >= 2 && mod10 <= 4) return 'балла';
+    return 'баллов';
+  };
+  const getProgressHeadline = (value) => {
+    if (!Number.isFinite(value)) return 'Хорошее начало';
+    const score = Math.max(0, Math.min(100, Math.round(value)));
+    const labels = [
+      { min: 0, label: 'Хорошее начало' },
+      { min: 5, label: 'Разогрев в пути' },
+      { min: 10, label: 'Первые победы' },
+      { min: 15, label: 'Набираем темп' },
+      { min: 20, label: 'Уверенный старт' },
+      { min: 25, label: 'Держим курс' },
+      { min: 30, label: 'Ровный прогресс' },
+      { min: 35, label: 'Ритм пойман' },
+      { min: 40, label: 'Середина пути' },
+      { min: 45, label: 'Хорошая динамика' },
+      { min: 50, label: 'Экватор' },
+      { min: 55, label: 'Сильная половина' },
+      { min: 60, label: 'Уровень растёт' },
+      { min: 65, label: 'Уже близко' },
+      { min: 70, label: 'Уверенный результат' },
+      { min: 75, label: 'Фокус на детали' },
+      { min: 80, label: 'Очень близко' },
+      { min: 85, label: 'Финишная подготовка' },
+      { min: 90, label: 'Финишная прямая' },
+      { min: 95, label: 'Почти 100' },
+      { min: 100, label: 'Сотка!' }
+    ];
+    let current = labels[0].label;
+    for (const entry of labels) {
+      if (score >= entry.min) current = entry.label;
+    }
+    return current;
+  };
 
   const renderStudentPicker = () => {
     if (role !== 'teacher') return null;
@@ -4208,11 +4252,35 @@ const ProgressSection = ({
     );
   };
 
+  const getNotesTaskKeys = (value) => {
+    const normalized = normalizeTaskNumber(value);
+    if (!Number.isFinite(normalized)) return [];
+    if (normalized === GAME_THEORY_TASK) return [19, 20, 21];
+    return [normalized];
+  };
+
+  const getMergedNote = (value) => {
+    const keys = getNotesTaskKeys(value);
+    if (!keys.length) return '';
+    for (const key of keys) {
+      const noteValue = studentData.notesByTask?.[key];
+      if (typeof noteValue === 'string' && noteValue.trim()) return noteValue;
+    }
+    const fallback = studentData.notesByTask?.[keys[0]];
+    return typeof fallback === 'string' ? fallback : '';
+  };
+
   const saveTaskNote = async (taskNumber, note) => {
     if (!effectiveStudentId || role !== 'teacher') return;
     const nextNotes = { ...(studentData.notesByTask || {}) };
-    if (note) nextNotes[taskNumber] = note;
-    else delete nextNotes[taskNumber];
+    const keys = getNotesTaskKeys(taskNumber);
+    if (keys.length === 0) return;
+    if (note) {
+      keys.forEach((key) => { if (key !== keys[0]) delete nextNotes[key]; });
+      nextNotes[keys[0]] = note;
+    } else {
+      keys.forEach((key) => delete nextNotes[key]);
+    }
     setNotesSavingId(taskNumber);
     try {
       const res = await api.updateStudentNotes(effectiveStudentId, { notesByTask: nextNotes });
@@ -4302,12 +4370,12 @@ const ProgressSection = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest bg-purple-600 text-white">
-                {'\u0424\u0438\u043d\u0430\u043b\u044c\u043d\u044b\u0439 \u0437\u0430\u0447\u0451\u0442'}
+                {getProgressHeadline(totalMasteryRounded)}
               </div>
               <span className="text-sm text-gray-500">{'\u041e\u0431\u0449\u0438\u0439 \u043f\u0440\u043e\u0433\u0440\u0435\u0441\u0441 \u0415\u0413\u042d'}</span>
             </div>
             <div className="text-3xl font-extrabold text-purple-700 drop-shadow-sm">
-              {totalMasteryLabel}%
+              {totalMasteryLabel} {getBallLabel(totalMasteryRounded)}
             </div>
           </div>
           <div className="relative h-8 w-full rounded-full bg-white/80 border border-purple-100 overflow-hidden">
@@ -4318,8 +4386,7 @@ const ProgressSection = ({
             <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-[shine_3s_linear_infinite]" />
           </div>
           <div className="flex items-center justify-between text-xs text-gray-500">
-            <span>{'\u0421\u043e\u0431\u0435\u0440\u0438 \u0432\u0441\u0435 \u0437\u0430\u0434\u0430\u043d\u0438\u044f, \u0447\u0442\u043e\u0431\u044b \u0437\u0430\u043a\u0440\u044b\u0442\u044c \u044d\u0442\u043e\u0442 \u0443\u0440\u043e\u0432\u0435\u043d\u044c'}</span>
-            <span>{'0% \u2014 \u0441\u0442\u0430\u0440\u0442 \u2022 100% \u2014 \u043f\u043e\u0431\u0435\u0434\u0430'}</span>
+            <span>Реши все задания, чтобы сдать ЕГЭ на 100 баллов</span>
           </div>
         </div>
       </div>
@@ -4465,12 +4532,13 @@ const ProgressSection = ({
             <span className="text-xs text-gray-400">Комментируйте задания кратко</span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {Array.from({ length: 27 }, (_, i) => i + 1).map((num) => {
-              const note = (studentData.notesByTask || {})[num] || '';
+            {taskList.map((task) => {
+              const num = task.number;
+              const note = getMergedNote(num);
               const hasNote = Boolean(note && note.trim());
               return (
                 <div
-                  key={num}
+                  key={task.id ?? num}
                   className={`rounded-3xl border p-4 flex flex-col gap-3 transition-all duration-200 shadow-sm hover:shadow-md ${
                     hasNote
                       ? 'border-emerald-300 bg-gradient-to-br from-emerald-50 via-white to-emerald-50'
@@ -4484,7 +4552,7 @@ const ProgressSection = ({
                           hasNote ? 'bg-emerald-600 text-white shadow-md shadow-emerald-200' : 'bg-white text-gray-500 border border-gray-200'
                         }`}
                       >
-                        {num}
+                        {getTaskDisplayNumber(task)}
                       </div>
                       <span className={`text-xs font-semibold ${hasNote ? 'text-emerald-700' : 'text-gray-400'}`}>
                         {hasNote ? 'Есть заметка' : 'Пусто'}
@@ -4499,9 +4567,16 @@ const ProgressSection = ({
                       value={note}
                       onChange={(e) => {
                         const value = e.target.value.slice(0, 80);
+                        const keys = getNotesTaskKeys(num);
+                        if (!keys.length) return;
                         setStudentData((prev) => ({
                           ...prev,
-                          notesByTask: { ...(prev.notesByTask || {}), [num]: value }
+                          notesByTask: (() => {
+                            const nextNotes = { ...(prev.notesByTask || {}) };
+                            keys.forEach((key) => { if (key !== keys[0]) delete nextNotes[key]; });
+                            nextNotes[keys[0]] = value;
+                            return nextNotes;
+                          })()
                         }));
                       }}
                       onBlur={(e) => saveTaskNote(num, e.target.value.trim())}
