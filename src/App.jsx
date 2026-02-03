@@ -3990,14 +3990,28 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
           </div>
 
           <Button 
-            onClick={computedChecked ? handleNext : handleCheck} 
+            onClick={() => {
+              if (!computedChecked) {
+                handleCheck();
+                return;
+              }
+              if (!computedCorrect) {
+                setResults((prev) => {
+                  const next = { ...prev };
+                  delete next[currentIndex];
+                  return next;
+                });
+                return;
+              }
+              handleNext();
+            }} 
             disabled={!computedChecked && !isAnswerReady} 
             className="w-full"
             variant={computedChecked ? (computedCorrect ? 'success' : 'danger') : 'primary'}
           >
             {!computedChecked ? 'Проверить' : (
               currentIndex < questions.length - 1 
-                ? (computedCorrect ? 'Верно! Следующий вопрос' : 'Ошибка. Следующий вопрос')
+                ? (computedCorrect ? 'Верно! Следующий вопрос' : 'Попробовать снова')
                 : 'Закрыть'
             )}
           </Button>
