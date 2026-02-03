@@ -2499,8 +2499,13 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
   const [runnerError, setRunnerError] = useState('');
   const [testResults, setTestResults] = useState([]);
   const [showTheory, setShowTheory] = useState(true);
+  const currentQuestionIdRef = useRef(null);
 
   const currentMastery = progress[task.id] || 0;
+  const getDraftKey = (questionId) => {
+    const safeStudentId = studentId || 'anon';
+    return `py_draft_${safeStudentId}_${task?.number || 'task'}_${questionId}`;
+  };
 
   useEffect(() => {
     const qs = testDb?.[task.number]?.[PYTHON_LEVEL_ID] || [];
@@ -2530,12 +2535,35 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
   useEffect(() => {
     const current = questions[currentIndex];
     const currentId = String(current?.id ?? currentIndex);
+    currentQuestionIdRef.current = currentId;
     const starter = current?.starterCode || '';
     const solvedCode = solvedCodeById?.[currentId];
-    setCode(typeof solvedCode === 'string' ? solvedCode : starter);
+    let nextCode = typeof solvedCode === 'string' ? solvedCode : starter;
+    if (typeof window !== 'undefined') {
+      try {
+        const draft = window.localStorage.getItem(getDraftKey(currentId));
+        if (typeof draft === 'string' && draft.length > 0) {
+          nextCode = draft;
+        }
+      } catch {}
+    }
+    setCode(nextCode);
     setTestResults([]);
     setRunnerError('');
-  }, [questions, currentIndex, solvedCodeById]);
+  }, [questions, currentIndex, solvedCodeById, studentId, task?.number]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const currentId = currentQuestionIdRef.current;
+    if (!currentId) return;
+    try {
+      if (code && code.length > 0) {
+        window.localStorage.setItem(getDraftKey(currentId), code);
+      } else {
+        window.localStorage.removeItem(getDraftKey(currentId));
+      }
+    } catch {}
+  }, [code, studentId, task?.number]);
 
   useEffect(() => {
     document.body.classList.add('overflow-hidden');
@@ -7343,7 +7371,7 @@ const NotesSection = ({
   );
 };
 
-const StudentTour = ({ user, view, setView, menuOpen, setMenuOpen }) => {
+const StudentTour = ({ user, view, setView, menuOpen, setMenuOpen, onFinish }) => {
   const [open, setOpen] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [highlightRect, setHighlightRect] = useState(null);
@@ -7417,15 +7445,17 @@ const StudentTour = ({ user, view, setView, menuOpen, setMenuOpen }) => {
       if (e.key === 'Escape') {
         setOpen(false);
         markStudentSeenTour(user?.id);
+        onFinish?.();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, user?.id]);
+  }, [open, user?.id, onFinish]);
 
   const finishTour = (markDone = true) => {
     setOpen(false);
     if (markDone) markStudentSeenTour(user?.id);
+    onFinish?.();
   };
 
   const handleNext = () => {
@@ -7809,6 +7839,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   };
   const checkHomeworkPopup = async () => {
     if (user.role !== 'student') return;
+    if (!hasStudentSeenTour(user.id)) return;
     try {
       const data = await api.getStudentNextLesson(user.id);
       const latest = data?.latest || null;
@@ -8264,22 +8295,29 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         setView={setView}
         menuOpen={menuOpen}
         setMenuOpen={setMenuOpen}
+        onFinish={() => checkHomeworkPopup()}
       />
-      {user.role === 'student' && isDesktopWide && homeworkPopupOpen && homeworkPopupEntry && (
-        <NewHomeworkModal
-          entry={homeworkPopupEntry}
-          open={homeworkPopupOpen}
-          testsDb={goalTestsDb}
-          solvedByTask={solvedByTask}
-          onClose={() => markHomeworkSeen(homeworkPopupEntry)}
-          onOpenTask={handleOpenTask}
-          onOpenSchedule={() => {
-            setView('schedule');
-            setMenuOpen(false);
-            markHomeworkSeen(homeworkPopupEntry);
-          }}
-        />
-      )}
+      {/*
+        Временно скрыто окно "квеста" (домашки).
+        Вернуть можно, раскомментировав блок ниже.
+      */}
+      {/*
+        {user.role === 'student' && isDesktopWide && homeworkPopupOpen && homeworkPopupEntry && (
+          <NewHomeworkModal
+            entry={homeworkPopupEntry}
+            open={homeworkPopupOpen}
+            testsDb={goalTestsDb}
+            solvedByTask={solvedByTask}
+            onClose={() => markHomeworkSeen(homeworkPopupEntry)}
+            onOpenTask={handleOpenTask}
+            onOpenSchedule={() => {
+              setView('schedule');
+              setMenuOpen(false);
+              markHomeworkSeen(homeworkPopupEntry);
+            }}
+          />
+        )}
+      */}
       <aside className={`fixed md:sticky md:top-0 z-40 bg-white w-64 app-h border-r transition-transform flex flex-col ${menuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="p-6 border-b flex items-center gap-2 font-bold text-xl text-purple-600 shrink-0">
           <CheckCircle className="fill-purple-600 text-white"/> Иван на сотку
