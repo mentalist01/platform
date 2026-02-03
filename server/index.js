@@ -1756,6 +1756,47 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
   res.json({ homeworks: updated.homeworks || [], latest: nextLesson });
 });
 
+app.delete('/api/student-next-lesson/:id', (req, res) => {
+  const { id } = req.params;
+  const studentId = req.query.studentId || req.body?.studentId;
+  if (!studentId) return res.status(400).json({ error: 'studentId required' });
+  const students = readStudentsDb();
+  if (!hasActiveStudent(students, studentId)) {
+    return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
+  }
+  const data = getStudentData(studentId);
+  const homeworks = Array.isArray(data.homeworks) ? [...data.homeworks] : [];
+
+  let updatedHomeworks = homeworks;
+  if (id === 'legacy' && homeworks.length === 0) {
+    updatedHomeworks = [];
+  } else {
+    const index = homeworks.findIndex((entry) => entry?.id === id);
+    if (index === -1) {
+      return res.status(404).json({ error: 'Р”РѕРјР°С€РєР° РЅРµ РЅР°Р№РґРµРЅР°' });
+    }
+    updatedHomeworks = homeworks.filter((_, idx) => idx !== index);
+  }
+
+  const latestEntry = updatedHomeworks[0] || null;
+  const nextLesson = latestEntry
+    ? {
+        homeWork: latestEntry.homeWork,
+        lessonLink: latestEntry.lessonLink,
+        boardLink: latestEntry.boardLink,
+        issuedAt: latestEntry.issuedAt,
+        daysToComplete: latestEntry.daysToComplete,
+        taskNumber: latestEntry.taskNumber ?? null,
+        levelId: latestEntry.levelId ?? null,
+        targetQuestions: Array.isArray(latestEntry.targetQuestions) ? latestEntry.targetQuestions : [],
+        goals: Array.isArray(latestEntry.goals) ? latestEntry.goals : normalizeGoalsFromLegacy(latestEntry),
+      }
+    : { homeWork: '', lessonLink: '', boardLink: '', issuedAt: '', daysToComplete: 7, taskNumber: null, levelId: null, targetQuestions: [], goals: [] };
+
+  const updated = setStudentData(studentId, { ...data, nextLesson, homeworks: updatedHomeworks });
+  res.json({ homeworks: updated.homeworks || [], latest: nextLesson });
+});
+
 
 app.post('/api/test-files', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не найден' });

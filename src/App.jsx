@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+﻿import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-python';
@@ -554,6 +554,17 @@ const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  deleteStudentHomework: async (studentId, homeworkId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', studentId);
+    const qs = params.toString();
+    const res = await fetch(
+      qs ? `/api/student-next-lesson/${homeworkId}?${qs}` : `/api/student-next-lesson/${homeworkId}`,
+      { method: 'DELETE' }
+    );
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   solveQuestion: async (payload) => {
     const res = await fetch('/api/progress/solve', {
       method: 'POST',
@@ -720,6 +731,7 @@ const api = {
 };
 
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
+const HOMEWORK_POPUP_BG = '/homework-quest.png';
 
 const formatBytes = (bytes) => {
   if (!Number.isFinite(bytes)) return '0 МБ';
@@ -5442,10 +5454,23 @@ const ScheduleSection = ({
   const [testsDbError, setTestsDbError] = useState('');
   const [solvedByKey, setSolvedByKey] = useState({});
   const [editingId, setEditingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const pythonTaskOptions = PYTHON_TASKS;
+
+  const buildNextLessonData = (latest, fallback = {}) => ({
+    homeWork: latest?.homeWork || '',
+    lessonLink: latest?.lessonLink || '',
+    boardLink: latest?.boardLink || '',
+    daysToComplete: Number(latest?.daysToComplete) || fallback.daysToComplete || 7,
+    issuedAt: latest?.issuedAt || '',
+    taskNumber: latest?.taskNumber ?? null,
+    levelId: latest?.levelId ?? null,
+    targetQuestions: Array.isArray(latest?.targetQuestions) ? latest.targetQuestions : [],
+    goals: Array.isArray(latest?.goals) ? latest.goals : [],
+  });
 
   const loadNextLesson = async () => {
     if (!effectiveStudentId) {
@@ -5460,17 +5485,7 @@ const ScheduleSection = ({
       const data = await api.getStudentNextLesson(effectiveStudentId);
       const list = Array.isArray(data?.homeworks) ? data.homeworks : [];
       const latest = data?.latest && typeof data.latest === 'object' ? data.latest : {};
-      const safeData = {
-        homeWork: latest?.homeWork || '',
-        lessonLink: latest?.lessonLink || '',
-        boardLink: latest?.boardLink || '',
-        daysToComplete: Number(latest?.daysToComplete) || 7,
-        issuedAt: latest?.issuedAt || '',
-        taskNumber: latest?.taskNumber ?? null,
-        levelId: latest?.levelId ?? null,
-        targetQuestions: Array.isArray(latest?.targetQuestions) ? latest.targetQuestions : [],
-        goals: Array.isArray(latest?.goals) ? latest.goals : []
-      };
+      const safeData = buildNextLessonData(latest);
       setHomeworks(list);
       setNextLesson(safeData);
       setEditingId(null);
@@ -5771,16 +5786,7 @@ const ScheduleSection = ({
         : await api.updateStudentNextLesson(effectiveStudentId, payload);
       const list = Array.isArray(updated?.homeworks) ? updated.homeworks : [];
       const latest = updated?.latest && typeof updated.latest === 'object' ? updated.latest : {};
-      const safeData = {
-        homeWork: latest?.homeWork || '',
-        lessonLink: latest?.lessonLink || '',
-        boardLink: latest?.boardLink || '',
-        daysToComplete: Number(latest?.daysToComplete) || form.daysToComplete || 7,
-        issuedAt: latest?.issuedAt || '',
-        taskNumber: latest?.taskNumber ?? null,
-        levelId: latest?.levelId ?? null,
-        targetQuestions: Array.isArray(latest?.targetQuestions) ? latest.targetQuestions : []
-      };
+      const safeData = buildNextLessonData(latest, form);
       setHomeworks(list);
       setNextLesson(safeData);
       resetFormToDefault(safeData);
@@ -5789,6 +5795,26 @@ const ScheduleSection = ({
       setError(err?.message || err);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteHomework = async (entry) => {
+    if (role !== 'teacher' || !effectiveStudentId || !entry?.id) return;
+    if (!window.confirm('Удалить домашку?')) return;
+    setDeletingId(entry.id);
+    try {
+      const updated = await api.deleteStudentHomework(effectiveStudentId, entry.id);
+      const list = Array.isArray(updated?.homeworks) ? updated.homeworks : [];
+      const latest = updated?.latest && typeof updated.latest === 'object' ? updated.latest : {};
+      const safeData = buildNextLessonData(latest, form);
+      setHomeworks(list);
+      setNextLesson(safeData);
+      if (editingId === entry.id) resetFormToDefault(safeData);
+      setError('');
+    } catch (err) {
+      setError(err?.message || err);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -6016,13 +6042,25 @@ const ScheduleSection = ({
                       {`Учитель выдал домашку ${dateText || 'сегодня'}. У тебя есть ${daysText} на выполнение.`}
                     </div>
                     {role === 'teacher' && (
-                      <button
-                        type="button"
-                        onClick={() => startEditHomework(entry)}
-                        className="px-3 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-                      >
-                        Редактировать
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startEditHomework(entry)}
+                          className="px-3 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                        >
+                          Редактировать
+                        </button>
+                        {entry.id && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteHomework(entry)}
+                            disabled={deletingId === entry.id}
+                            className="px-3 py-1 rounded-lg border border-red-200 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60"
+                          >
+                            {deletingId === entry.id ? 'Удаление...' : 'Удалить'}
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                   {entryGoals.length > 0 && (
@@ -7446,6 +7484,203 @@ const StudentTour = ({ user, view, setView, menuOpen, setMenuOpen }) => {
   );
 };
 
+const NewHomeworkModal = ({ entry, open, onClose, onOpenSchedule, testsDb, solvedByTask }) => {
+  if (!open || !entry) return null;
+  const homeWorkText = typeof entry.homeWork === 'string' ? entry.homeWork.trim() : '';
+  const lessonLink = typeof entry.lessonLink === 'string' ? entry.lessonLink.trim() : '';
+  const boardLink = typeof entry.boardLink === 'string' ? entry.boardLink.trim() : '';
+  const issuedAt = entry.issuedAt ? new Date(entry.issuedAt) : null;
+  const issuedLabel = issuedAt && !Number.isNaN(issuedAt.getTime())
+    ? issuedAt.toLocaleDateString('ru-RU')
+    : '';
+  const cleanHomeworkLine = (line) => String(line ?? '')
+    .replace(/^[\s\u2022\u2013\u2014-]+/, '')
+    .replace(/^(?:\u2705|\u{1F7E2})+\s*/u, '')
+    .trim();
+  const homeworkLines = homeWorkText
+    ? homeWorkText.split('\n').map(cleanHomeworkLine).filter(Boolean)
+    : [];
+  const rawGoals = Array.isArray(entry.goals) && entry.goals.length > 0
+    ? entry.goals
+    : (entry?.taskNumber && entry?.levelId
+      ? [{
+          taskNumber: entry.taskNumber,
+          levelId: entry.levelId,
+          targetQuestions: entry.targetQuestions,
+          includeAll: entry.includeAll,
+        }]
+      : []);
+  const getQuestionsCountForGoal = (goal, taskNumberValue, levelIdValue) => {
+    if (!goal?.includeAll) return 0;
+    if (!testsDb || !taskNumberValue || !levelIdValue) return 0;
+    const task = testsDb[String(taskNumberValue)] || testsDb[taskNumberValue];
+    const list = task?.[String(levelIdValue)] || task?.[levelIdValue];
+    return Array.isArray(list) ? list.length : 0;
+  };
+  const getSolvedCountForGoal = (goal, taskNumberValue, levelIdValue, targetQuestions) => {
+    if (!solvedByTask || !taskNumberValue || !levelIdValue) return 0;
+    const taskEntry = solvedByTask?.[String(taskNumberValue)] || {};
+    const levelEntry = taskEntry?.[String(levelIdValue)] || {};
+    const solvedIds = Array.isArray(levelEntry?.solved) ? levelEntry.solved : [];
+    if (!testsDb || solvedIds.length === 0) {
+      return goal?.includeAll ? solvedIds.length : 0;
+    }
+    const task = testsDb[String(taskNumberValue)] || testsDb[taskNumberValue];
+    const list = task?.[String(levelIdValue)] || task?.[levelIdValue];
+    if (!Array.isArray(list)) {
+      return goal?.includeAll ? solvedIds.length : 0;
+    }
+    const idToNumber = new Map();
+    list.forEach((question, index) => {
+      const id = question?.id;
+      if (id !== undefined && id !== null) {
+        idToNumber.set(String(id), index + 1);
+      }
+    });
+    const solvedNumbers = new Set();
+    solvedIds.forEach((id) => {
+      const mapped = idToNumber.get(String(id));
+      if (Number.isFinite(mapped)) solvedNumbers.add(mapped);
+    });
+    if (goal?.includeAll) return solvedNumbers.size;
+    const targets = Array.isArray(targetQuestions) ? targetQuestions : [];
+    return targets.filter((num) => solvedNumbers.has(Number(num))).length;
+  };
+  const goalItems = rawGoals
+    .map((goal) => {
+      const normalizedTaskNumber = normalizeTaskNumber(goal?.taskNumber);
+      const taskNumberValue = Number.isFinite(normalizedTaskNumber)
+        ? Number(normalizedTaskNumber)
+        : Number(goal?.taskNumber);
+      const isPythonGoal = Number.isFinite(taskNumberValue) ? isPythonTaskNumber(taskNumberValue) : false;
+      const pythonTask = isPythonGoal ? getPythonTaskInfo(taskNumberValue) : null;
+      const taskInfo = !isPythonGoal
+        ? MOCK_TASKS.find((task) => Number(task.number) === Number(taskNumberValue))
+        : null;
+      const taskTitle = pythonTask?.title || taskInfo?.title || '';
+      const taskDisplay = pythonTask?.displayNumber
+        || formatTaskNumber(taskNumberValue)
+        || (Number.isFinite(taskNumberValue) ? String(taskNumberValue) : '');
+      const levelLabel = isPythonGoal
+        ? 'Python'
+        : (LEVELS[goal?.levelId?.toUpperCase()]?.label || goal?.levelId || '');
+      const labelBase = taskTitle
+        ? `${taskDisplay ? `${taskDisplay}. ` : ''}${taskTitle}`
+        : (taskDisplay ? `Задание ${taskDisplay}` : 'Задание');
+      const label = levelLabel ? `${labelBase} · ${levelLabel}` : labelBase;
+      const targetQuestions = Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [];
+      const effectiveLevelId = isPythonGoal ? PYTHON_LEVEL_ID : goal?.levelId;
+      const totalCount = goal?.includeAll
+        ? getQuestionsCountForGoal(goal, taskNumberValue, effectiveLevelId)
+        : targetQuestions.length;
+      const solvedCount = getSolvedCountForGoal(goal, taskNumberValue, effectiveLevelId, targetQuestions);
+      const totalLabel = totalCount
+        ? String(totalCount)
+        : (goal?.includeAll ? 'все' : '');
+      const progressLabel = totalLabel ? `${Math.min(solvedCount, Number(totalLabel) || solvedCount)}/${totalLabel}` : '';
+      return { label, progressLabel };
+    })
+    .filter((item) => item.label);
+  const headline = homeworkLines[0]
+    || (goalItems.length === 1 ? goalItems[0].label : '');
+  const listItems = homeworkLines.length > 1
+    ? homeworkLines.slice(1).map((line) => ({ label: line, progressLabel: '' }))
+    : goalItems;
+  const splitGoalLabel = (label) => {
+    const parts = String(label || '').split(' \u00b7 ');
+    if (parts.length <= 1) return { title: label, level: '' };
+    return { title: parts[0], level: parts.slice(1).join(' \u00b7 ') };
+  };
+
+  const modal = (
+    <div className="fixed inset-0 z-[1600] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/70" />
+      <div className="relative w-[min(980px,95vw)] aspect-[3/2]">
+        <img
+          src={HOMEWORK_POPUP_BG}
+          alt={'\u041d\u043e\u0432\u0430\u044f \u0434\u043e\u043c\u0430\u0448\u043a\u0430'}
+          className="absolute inset-0 w-full h-full object-contain drop-shadow-2xl"
+        />
+        <div className="absolute left-[25.5%] right-[26%] top-[29%] bottom-[23%] z-10 flex flex-col">
+          <div className="flex-1 flex flex-col items-center text-sky-50/90">
+            {headline && (
+              <div className="text-[15px] text-sky-100/85 text-center">[{headline}]</div>
+            )}
+            <div className="mt-3 text-[16px] font-semibold tracking-[0.35em] uppercase text-sky-50/90">{'\u0426\u0415\u041b\u042c'}</div>
+            <div className="mt-4 w-full max-w-[420px] space-y-3 text-[16px] text-sky-50/90 mx-auto text-left">
+              {listItems.length > 0 ? (
+                listItems.map((item, idx) => {
+                  const { title, level } = splitGoalLabel(item.label);
+                  return (
+                    <div key={`${idx}-${item.label.slice(0, 24)}`} className="grid grid-cols-[1fr_auto] items-start gap-4">
+                      <div className="leading-snug">
+                        <div>{title}</div>
+                        {level && <div className="text-[15px] text-sky-100/80">{level}</div>}
+                      </div>
+                      <div className="flex items-center gap-3 pt-0.5">
+                        {item.progressLabel && (
+                          <span className="text-sm text-sky-100/70">[{item.progressLabel}]</span>
+                        )}
+                        <span className="inline-flex w-4 h-4 border border-sky-200/70 rounded-sm" />
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center text-sm text-sky-100/70">
+                  {'\u0414\u043e\u043c\u0430\u0448\u043a\u0430 \u043f\u043e\u043a\u0430 \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430.'}
+                </div>
+              )}
+            </div>
+            {(lessonLink || boardLink) && (
+              <div className="mt-4 text-xs text-sky-100/80 space-y-1">
+                {lessonLink && (
+                  <div>
+                    {'\u0421\u0441\u044b\u043b\u043a\u0430 \u043d\u0430 \u0443\u0440\u043e\u043a: '}
+                    <a className="underline" href={lessonLink} target="_blank" rel="noopener noreferrer">{lessonLink}</a>
+                  </div>
+                )}
+                {boardLink && (
+                  <div>
+                    {'\u0414\u043e\u0441\u043a\u0430: '}
+                    <a className="underline" href={boardLink} target="_blank" rel="noopener noreferrer">{boardLink}</a>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="mt-auto w-full flex flex-wrap items-center justify-between gap-3 text-[12px] text-sky-100/80">
+              <div className="flex flex-wrap items-center gap-3">
+                {Number.isFinite(entry.daysToComplete) && (
+                  <span className="ml-2">
+                    {'\u0421\u0440\u043e\u043a: '}{entry.daysToComplete}{' \u0434\u043d.'}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  className="bg-white/80 text-gray-800 border border-white/80 hover:bg-white"
+                  onClick={onClose}
+                >
+                  {'\u041f\u043e\u043d\u044f\u043b'}
+                </Button>
+                <Button
+                  className="bg-sky-500/80 hover:bg-sky-500 text-white"
+                  onClick={onOpenSchedule}
+                >
+                  {'\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0440\u0430\u0441\u043f\u0438\u0441\u0430\u043d\u0438\u0435'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  return typeof document !== 'undefined' ? createPortal(modal, document.body) : null;
+};
+
 const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const [view, setView] = useState(
     user.role === 'teacher' ? 'teacher' : (user.role === 'admin' ? 'admin' : 'progress')
@@ -7456,6 +7691,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const [goalTestsDb, setGoalTestsDb] = useState(null);
   const [goalRefreshTick, setGoalRefreshTick] = useState(0);
   const [goalCollapsed, setGoalCollapsed] = useState(false);
+  const [homeworkPopupEntry, setHomeworkPopupEntry] = useState(null);
+  const [homeworkPopupOpen, setHomeworkPopupOpen] = useState(false);
+  const [solvedByTask, setSolvedByTask] = useState({});
+  const [isDesktopWide, setIsDesktopWide] = useState(
+    typeof window !== 'undefined' ? window.innerWidth > 1000 : true
+  );
   const [teacherNotifs, setTeacherNotifs] = useState([]);
   const teacherReadIdsRef = useRef(new Set());
   const teacherShownIdsRef = useRef(new Set());
@@ -7538,6 +7779,58 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     }
   };
 
+  const getHomeworkSeenKey = () => `ege_homework_popup_${user.id}`;
+  const getHomeworkEntryId = (entry) => String(entry?.id || entry?.issuedAt || '').trim();
+  const readHomeworkPopupState = () => {
+    try {
+      const raw = localStorage.getItem(getHomeworkSeenKey());
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  };
+  const writeHomeworkPopupState = (state) => {
+    try {
+      localStorage.setItem(getHomeworkSeenKey(), JSON.stringify(state));
+    } catch {}
+  };
+  const hasHomeworkContent = (entry) => {
+    if (!entry) return false;
+    const hasText = typeof entry.homeWork === 'string' && entry.homeWork.trim();
+    const hasLinks = (typeof entry.lessonLink === 'string' && entry.lessonLink.trim())
+      || (typeof entry.boardLink === 'string' && entry.boardLink.trim());
+    const hasGoals = Array.isArray(entry.goals) && entry.goals.length > 0;
+    return Boolean(hasText || hasLinks || hasGoals);
+  };
+  const markHomeworkSeen = (entry) => {
+    const id = getHomeworkEntryId(entry);
+    if (id) {
+      writeHomeworkPopupState({ id, status: 'seen' });
+    }
+    setHomeworkPopupOpen(false);
+  };
+  const checkHomeworkPopup = async () => {
+    if (user.role !== 'student') return;
+    try {
+      const data = await api.getStudentNextLesson(user.id);
+      const latest = data?.latest || null;
+      if (!latest || !hasHomeworkContent(latest)) return;
+      const latestId = getHomeworkEntryId(latest);
+      if (!latestId) return;
+      const stored = readHomeworkPopupState();
+      if (stored?.id === latestId) {
+        if (stored.status === 'pending') {
+          setHomeworkPopupEntry(latest);
+          setHomeworkPopupOpen(true);
+        }
+        return;
+      }
+      writeHomeworkPopupState({ id: latestId, status: 'pending' });
+      setHomeworkPopupEntry(latest);
+      setHomeworkPopupOpen(true);
+    } catch {}
+  };
+
   useEffect(() => {
     if (user.role === 'teacher') {
       loadStudents(user.id);
@@ -7595,6 +7888,26 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
 
   useEffect(() => {
     if (user.role !== 'student') {
+      setSolvedByTask({});
+      return;
+    }
+    let cancelled = false;
+    api.getStudentData(user.id)
+      .then((data) => {
+        if (cancelled) return;
+        const solved = data?.solvedByTask && typeof data.solvedByTask === 'object'
+          ? data.solvedByTask
+          : {};
+        setSolvedByTask(solved);
+      })
+      .catch(() => {
+        if (!cancelled) setSolvedByTask({});
+      });
+    return () => { cancelled = true; };
+  }, [user.role, user.id]);
+
+  useEffect(() => {
+    if (user.role !== 'student') {
       setGoalCollapsed(false);
       return;
     }
@@ -7610,6 +7923,22 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       localStorage.setItem('ege_goal_collapsed_v1', goalCollapsed ? '1' : '0');
     } catch {}
   }, [goalCollapsed, user.role]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const update = () => {
+      setIsDesktopWide(window.innerWidth > 1000);
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
+  useEffect(() => {
+    if (!isDesktopWide && homeworkPopupOpen) {
+      setHomeworkPopupOpen(false);
+    }
+  }, [isDesktopWide, homeworkPopupOpen]);
 
   useEffect(() => {
     if (user.role !== 'teacher') {
@@ -7862,6 +8191,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     refreshGoalState();
   }, [user.role, user.id, goalRefreshTick, goalTestsDb, taskTitles]);
 
+  useEffect(() => {
+    if (user.role !== 'student') return;
+    checkHomeworkPopup();
+    const intervalId = setInterval(() => {
+      checkHomeworkPopup();
+    }, 60000);
+    return () => clearInterval(intervalId);
+  }, [user.role, user.id]);
+
   const goalGoals = Array.isArray(goalState?.goals) ? goalState.goals : [];
   const goalTotals = goalGoals.reduce(
     (acc, goal) => {
@@ -7929,6 +8267,20 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         menuOpen={menuOpen}
         setMenuOpen={setMenuOpen}
       />
+      {user.role === 'student' && isDesktopWide && homeworkPopupOpen && homeworkPopupEntry && (
+        <NewHomeworkModal
+          entry={homeworkPopupEntry}
+          open={homeworkPopupOpen}
+          testsDb={goalTestsDb}
+          solvedByTask={solvedByTask}
+          onClose={() => markHomeworkSeen(homeworkPopupEntry)}
+          onOpenSchedule={() => {
+            setView('schedule');
+            setMenuOpen(false);
+            markHomeworkSeen(homeworkPopupEntry);
+          }}
+        />
+      )}
       <aside className={`fixed md:sticky md:top-0 z-40 bg-white w-64 app-h border-r transition-transform flex flex-col ${menuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="p-6 border-b flex items-center gap-2 font-bold text-xl text-purple-600 shrink-0">
           <CheckCircle className="fill-purple-600 text-white"/> Иван на сотку
