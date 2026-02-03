@@ -7484,7 +7484,7 @@ const StudentTour = ({ user, view, setView, menuOpen, setMenuOpen }) => {
   );
 };
 
-const NewHomeworkModal = ({ entry, open, onClose, onOpenSchedule, testsDb, solvedByTask }) => {
+const NewHomeworkModal = ({ entry, open, onClose, onOpenSchedule, onOpenTask, testsDb, solvedByTask }) => {
   if (!open || !entry) return null;
   const homeWorkText = typeof entry.homeWork === 'string' ? entry.homeWork.trim() : '';
   const lessonLink = typeof entry.lessonLink === 'string' ? entry.lessonLink.trim() : '';
@@ -7510,6 +7510,15 @@ const NewHomeworkModal = ({ entry, open, onClose, onOpenSchedule, testsDb, solve
           includeAll: entry.includeAll,
         }]
       : []);
+  const firstGoal = rawGoals.find((goal) => Number.isFinite(normalizeTaskNumber(goal?.taskNumber)));
+  const firstGoalTaskNumber = firstGoal ? normalizeTaskNumber(firstGoal.taskNumber) : null;
+  const firstGoalIsPython = Number.isFinite(firstGoalTaskNumber) ? isPythonTaskNumber(firstGoalTaskNumber) : false;
+  const firstGoalLevelId = firstGoal
+    ? (firstGoalIsPython ? PYTHON_LEVEL_ID : firstGoal.levelId)
+    : null;
+  const firstGoalTargets = firstGoal && !firstGoal.includeAll
+    ? (Array.isArray(firstGoal.targetQuestions) ? firstGoal.targetQuestions : null)
+    : null;
   const getQuestionsCountForGoal = (goal, taskNumberValue, levelIdValue) => {
     if (!goal?.includeAll) return 0;
     if (!testsDb || !taskNumberValue || !levelIdValue) return 0;
@@ -7603,9 +7612,6 @@ const NewHomeworkModal = ({ entry, open, onClose, onOpenSchedule, testsDb, solve
         />
         <div className="absolute left-[25.5%] right-[26%] top-[29%] bottom-[23%] z-10 flex flex-col">
           <div className="flex-1 flex flex-col items-center text-sky-50/90">
-            {headline && (
-              <div className="text-[15px] text-sky-100/85 text-center">[{headline}]</div>
-            )}
             <div className="mt-3 text-[16px] font-semibold tracking-[0.35em] uppercase text-sky-50/90">{'\u0426\u0415\u041b\u042c'}</div>
             <div className="mt-4 w-full max-w-[420px] space-y-3 text-[16px] text-sky-50/90 mx-auto text-left">
               {listItems.length > 0 ? (
@@ -7632,22 +7638,6 @@ const NewHomeworkModal = ({ entry, open, onClose, onOpenSchedule, testsDb, solve
                 </div>
               )}
             </div>
-            {(lessonLink || boardLink) && (
-              <div className="mt-4 text-xs text-sky-100/80 space-y-1">
-                {lessonLink && (
-                  <div>
-                    {'\u0421\u0441\u044b\u043b\u043a\u0430 \u043d\u0430 \u0443\u0440\u043e\u043a: '}
-                    <a className="underline" href={lessonLink} target="_blank" rel="noopener noreferrer">{lessonLink}</a>
-                  </div>
-                )}
-                {boardLink && (
-                  <div>
-                    {'\u0414\u043e\u0441\u043a\u0430: '}
-                    <a className="underline" href={boardLink} target="_blank" rel="noopener noreferrer">{boardLink}</a>
-                  </div>
-                )}
-              </div>
-            )}
             <div className="mt-auto w-full flex flex-wrap items-center justify-between gap-3 text-[12px] text-sky-100/80">
               <div className="flex flex-wrap items-center gap-3">
                 {Number.isFinite(entry.daysToComplete) && (
@@ -7666,9 +7656,17 @@ const NewHomeworkModal = ({ entry, open, onClose, onOpenSchedule, testsDb, solve
                 </Button>
                 <Button
                   className="bg-sky-500/80 hover:bg-sky-500 text-white"
-                  onClick={onOpenSchedule}
+                  onClick={() => {
+                    if (firstGoal && Number.isFinite(firstGoalTaskNumber)) {
+                      onClose?.();
+                      onOpenTask?.(firstGoalTaskNumber, firstGoalLevelId, firstGoalTargets);
+                    } else {
+                      onOpenSchedule();
+                    }
+                  }}
+                  disabled={!firstGoal || !Number.isFinite(firstGoalTaskNumber)}
                 >
-                  {'\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0440\u0430\u0441\u043f\u0438\u0441\u0430\u043d\u0438\u0435'}
+                  {'\u041f\u0435\u0440\u0435\u0439\u0442\u0438 \u043a \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u0438\u044e'}
                 </Button>
               </div>
             </div>
@@ -8274,6 +8272,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           testsDb={goalTestsDb}
           solvedByTask={solvedByTask}
           onClose={() => markHomeworkSeen(homeworkPopupEntry)}
+          onOpenTask={handleOpenTask}
           onOpenSchedule={() => {
             setView('schedule');
             setMenuOpen(false);
