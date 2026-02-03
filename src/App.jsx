@@ -5800,47 +5800,113 @@ const NotesSection = ({
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const getFileUrl = (file) => withStudentId(file?.url, effectiveStudentId);
 
-  const taskNumbers = Array.from({length: 27}, (_,i) => i+1);
+  const taskOptions = MOCK_TASKS;
+  const normalizedCurrentTask = normalizeTaskNumber(currentTask);
+  const getNotesTaskNumber = (value) => normalizeTaskNumber(value);
+  const getNotesTaskNumbers = (value) => {
+    const normalized = normalizeTaskNumber(value);
+    if (!Number.isFinite(normalized)) return [];
+    if (normalized === GAME_THEORY_TASK) return [19, 20, 21];
+    return [normalized];
+  };
   const taskCounts = useMemo(() => {
     const map = new Map();
     for (const f of files) {
-      if (!Number.isFinite(f?.taskNumber)) continue;
-      map.set(f.taskNumber, (map.get(f.taskNumber) || 0) + 1);
+      const normalizedTask = getNotesTaskNumber(f?.taskNumber);
+      if (!Number.isFinite(normalizedTask)) continue;
+      map.set(normalizedTask, (map.get(normalizedTask) || 0) + 1);
     }
     return map;
   }, [files]);
 
+  const taskUsageByNumber = useMemo(() => {
+    const map = new Map();
+    for (const f of files) {
+      const taskNum = Number(f?.taskNumber);
+      if (!Number.isFinite(taskNum)) continue;
+      map.set(taskNum, (map.get(taskNum) || 0) + getEntrySizeBytes(f));
+    }
+    return map;
+  }, [files]);
+
+  const getFolderTaskNumber = (folderId) => {
+    if (!folderId) return null;
+    const folder = folders.find((item) => item.id === folderId);
+    const taskNum = Number(folder?.taskNumber);
+    return Number.isFinite(taskNum) ? taskNum : null;
+  };
+
+  const getUploadCandidates = (folderIdOverride) => {
+    if (!Number.isFinite(normalizedCurrentTask) || !currentCategory) return [];
+    const folderId = typeof folderIdOverride === 'undefined' ? currentFolderId : folderIdOverride;
+    const folderTaskNumber = getFolderTaskNumber(folderId);
+    if (Number.isFinite(folderTaskNumber)) return [folderTaskNumber];
+    return getNotesTaskNumbers(normalizedCurrentTask);
+  };
+
+  const selectUploadTaskNumber = (sizeBytes, usageMap, folderIdOverride) => {
+    const candidates = getUploadCandidates(folderIdOverride);
+    if (!candidates.length) return null;
+    let chosen = null;
+    let bestRemaining = -1;
+    for (const taskNumber of candidates) {
+      const used = usageMap.get(taskNumber) || 0;
+      const remaining = MAX_TASK_BYTES - used;
+      if (remaining >= sizeBytes && remaining > bestRemaining) {
+        chosen = taskNumber;
+        bestRemaining = remaining;
+      }
+    }
+    return chosen;
+  };
+
   const categoryCounts = useMemo(() => {
-    if (!currentTask) return { class: 0, home: 0 };
+    if (!Number.isFinite(normalizedCurrentTask)) return { class: 0, home: 0 };
     const counts = { class: 0, home: 0 };
     for (const f of files) {
-      if (f?.taskNumber !== currentTask) continue;
+      if (getNotesTaskNumber(f?.taskNumber) !== normalizedCurrentTask) continue;
       if (f?.category === 'class') counts.class += 1;
       if (f?.category === 'home') counts.home += 1;
     }
     return counts;
-  }, [files, currentTask]);
+  }, [files, normalizedCurrentTask]);
 
   const folderCounts = useMemo(() => {
-    if (!currentTask || !currentCategory) return { root: 0, map: new Map() };
+    if (!Number.isFinite(normalizedCurrentTask) || !currentCategory) return { root: 0, map: new Map() };
     const map = new Map();
     let root = 0;
     for (const f of files) {
-      if (f?.taskNumber !== currentTask || f?.category !== currentCategory) continue;
+      if (getNotesTaskNumber(f?.taskNumber) !== normalizedCurrentTask || f?.category !== currentCategory) continue;
       if (f?.folderId) map.set(f.folderId, (map.get(f.folderId) || 0) + 1);
       else root += 1;
     }
     return { root, map };
-  }, [files, currentTask, currentCategory]);
+  }, [files, normalizedCurrentTask, currentCategory]);
 
   const taskUsageBytes = useMemo(() => {
-    if (!currentTask) return 0;
-    return files
-      .filter((f) => f?.taskNumber === currentTask)
-      .reduce((sum, f) => sum + getEntrySizeBytes(f), 0);
-  }, [files, currentTask]);
+    if (!Number.isFinite(normalizedCurrentTask)) return 0;
+    const folderTaskNumber = getFolderTaskNumber(currentFolderId);
+    if (Number.isFinite(folderTaskNumber)) {
+      return taskUsageByNumber.get(folderTaskNumber) || 0;
+    }
+    if (normalizedCurrentTask === GAME_THEORY_TASK) {
+      return getNotesTaskNumbers(normalizedCurrentTask)
+        .reduce((sum, taskNumber) => sum + (taskUsageByNumber.get(taskNumber) || 0), 0);
+    }
+    return taskUsageByNumber.get(normalizedCurrentTask) || 0;
+  }, [normalizedCurrentTask, currentFolderId, taskUsageByNumber, folders]);
 
-  const remainingBytes = Math.max(0, MAX_TASK_BYTES - taskUsageBytes);
+  const totalLimitBytes = useMemo(() => {
+    if (!Number.isFinite(normalizedCurrentTask)) return MAX_TASK_BYTES;
+    const folderTaskNumber = getFolderTaskNumber(currentFolderId);
+    if (Number.isFinite(folderTaskNumber)) return MAX_TASK_BYTES;
+    if (normalizedCurrentTask === GAME_THEORY_TASK) {
+      return MAX_TASK_BYTES * getNotesTaskNumbers(normalizedCurrentTask).length;
+    }
+    return MAX_TASK_BYTES;
+  }, [normalizedCurrentTask, currentFolderId, folders]);
+
+  const remainingBytes = Math.max(0, totalLimitBytes - taskUsageBytes);
 
   useEffect(() => {
     if (!effectiveStudentId) {
@@ -5864,16 +5930,26 @@ const NotesSection = ({
   }, [effectiveStudentId]);
 
   useEffect(() => {
-    if (!currentTask || !currentCategory || !effectiveStudentId) {
+    if (!Number.isFinite(normalizedCurrentTask) || !currentCategory || !effectiveStudentId) {
       setFolders([]);
       setFoldersError('');
       return;
     }
     let cancelled = false;
-    api.getFolders(currentTask, currentCategory, effectiveStudentId)
-      .then((data) => {
+    const taskNumbers = getNotesTaskNumbers(normalizedCurrentTask);
+    Promise.all(taskNumbers.map((taskNumber) => api.getFolders(taskNumber, currentCategory, effectiveStudentId)))
+      .then((lists) => {
         if (cancelled) return;
-        setFolders(data);
+        const merged = [];
+        const seen = new Set();
+        for (const list of lists) {
+          for (const folder of list || []) {
+            if (!folder?.id || seen.has(folder.id)) continue;
+            seen.add(folder.id);
+            merged.push(folder);
+          }
+        }
+        setFolders(merged);
         setFoldersError('');
       })
       .catch((err) => {
@@ -5882,7 +5958,7 @@ const NotesSection = ({
         setFoldersError('Не удалось загрузить папки.');
       });
     return () => { cancelled = true; };
-  }, [currentTask, currentCategory, effectiveStudentId]);
+  }, [normalizedCurrentTask, currentCategory, effectiveStudentId]);
 
   useEffect(() => {
     setCurrentFolderId(null);
@@ -5928,24 +6004,26 @@ const NotesSection = ({
       alert('Сначала выберите ученика.');
       return;
     }
-    if (!currentTask || !currentCategory) {
+    const candidates = getUploadCandidates();
+    if (!candidates.length) {
       alert('Сначала выберите задание и категорию.');
       return;
     }
     if (isUploading) return;
     setIsUploading(true);
-    let usedBytes = taskUsageBytes;
+    const usageByTask = new Map(taskUsageByNumber);
     let skipped = 0;
 
     for (const file of filesToUpload) {
-      if (usedBytes + file.size > MAX_TASK_BYTES) {
+      const targetTaskNumber = selectUploadTaskNumber(file.size, usageByTask);
+      if (!Number.isFinite(targetTaskNumber)) {
         skipped += 1;
         continue;
       }
       try {
-        const newF = await api.uploadFile(file, currentTask, currentCategory, currentFolderId || null, effectiveStudentId);
+        const newF = await api.uploadFile(file, targetTaskNumber, currentCategory, currentFolderId || null, effectiveStudentId);
         setFiles(prev => [newF, ...prev]);
-        usedBytes += file.size;
+        usageByTask.set(targetTaskNumber, (usageByTask.get(targetTaskNumber) || 0) + file.size);
       } catch(err) {
         alert(err?.message || err);
       }
@@ -5954,7 +6032,10 @@ const NotesSection = ({
     setIsUploading(false);
     if (fileRef.current) fileRef.current.value = '';
     if (skipped > 0) {
-      alert(`Не хватило места для ${skipped} файла(ов). Лимит 200 МБ на задание.`);
+      const limitNote = normalizedCurrentTask === GAME_THEORY_TASK && !currentFolderId
+        ? 'Лимит 200 МБ на каждое из заданий 19-21.'
+        : 'Лимит 200 МБ на задание.';
+      alert(`Не хватило места для ${skipped} файла(ов). ${limitNote}`);
     }
   };
 
@@ -5989,9 +6070,10 @@ const NotesSection = ({
       setFoldersError('Введите название папки.');
       return;
     }
-    if (!currentTask || !currentCategory || !effectiveStudentId) return;
+    const uploadTaskNumber = normalizedCurrentTask;
+    if (!Number.isFinite(uploadTaskNumber) || !currentCategory || !effectiveStudentId) return;
     try {
-      const created = await api.createFolder(currentTask, currentCategory, name, effectiveStudentId);
+      const created = await api.createFolder(uploadTaskNumber, currentCategory, name, effectiveStudentId);
       setFolders(prev => [created, ...prev]);
       setNewFolderName('');
       setIsCreatingFolder(false);
@@ -6060,6 +6142,17 @@ const NotesSection = ({
     e.preventDefault();
     const fileId = e.dataTransfer.getData('text/plain');
     if (!fileId) return;
+    if (folderId) {
+      const file = files.find((item) => item.id === fileId);
+      const folder = folders.find((item) => item.id === folderId);
+      const fileTask = Number(file?.taskNumber);
+      const folderTask = Number(folder?.taskNumber);
+      if (Number.isFinite(fileTask) && Number.isFinite(folderTask) && fileTask !== folderTask) {
+        alert('Нельзя переместить файл в папку другого задания.');
+        setDragOverFolderId(null);
+        return;
+      }
+    }
     try {
       const updated = await api.moveFile(fileId, folderId);
       setFiles((prev) => prev.map((f) => (f.id === updated.id ? { ...f, folderId: updated.folderId, folderName: updated.folderName } : f)));
@@ -6101,7 +6194,7 @@ const NotesSection = ({
       setPyDraftError('Сначала выберите ученика.');
       return;
     }
-    if (!currentTask || !currentCategory) {
+    if (!Number.isFinite(normalizedCurrentTask) || !currentCategory) {
       setPyDraftError('Сначала выберите задание и категорию.');
       return;
     }
@@ -6112,7 +6205,9 @@ const NotesSection = ({
     }
     const code = String(pyDraftCode ?? '');
     const sizeBytes = getPyDraftSize(code);
-    if (taskUsageBytes + sizeBytes > MAX_TASK_BYTES) {
+    const usageByTask = new Map(taskUsageByNumber);
+    const uploadTaskNumber = selectUploadTaskNumber(sizeBytes, usageByTask);
+    if (!Number.isFinite(uploadTaskNumber)) {
       setPyDraftError('Недостаточно места для сохранения файла в этом задании.');
       return;
     }
@@ -6121,7 +6216,7 @@ const NotesSection = ({
     setPyDraftError('');
     try {
       const file = new File([code], normalizedName, { type: 'text/x-python' });
-      const created = await api.uploadFile(file, currentTask, currentCategory, currentFolderId || null, effectiveStudentId);
+      const created = await api.uploadFile(file, uploadTaskNumber, currentCategory, currentFolderId || null, effectiveStudentId);
       setFiles((prev) => [created, ...prev]);
       setPyDraftName('');
       setPyDraftCode('');
@@ -6417,24 +6512,24 @@ const NotesSection = ({
         {renderStudentPicker()}
       </div>
       <div className="grid grid-cols-3 md:grid-cols-5 gap-4">
-        {taskNumbers.map(n => (
+        {taskOptions.map((task) => (
           <Card
-            key={n}
-            onClick={() => setCurrentTask(n)}
+            key={task.number}
+            onClick={() => setCurrentTask(normalizeTaskNumber(task.number))}
             className={`flex flex-col items-center justify-center p-6 cursor-pointer ${
-              (taskCounts.get(n) || 0) > 0 ? 'hover:bg-purple-50' : 'opacity-70 hover:bg-gray-50'
+              (taskCounts.get(task.number) || 0) > 0 ? 'hover:bg-purple-50' : 'opacity-70 hover:bg-gray-50'
             }`}
           >
             <Folder size={32} className="text-blue-400 mb-2 fill-current" />
-            <span className="font-bold text-gray-700">Задание {n}</span>
+            <span className="font-bold text-gray-700">Задание {getTaskDisplayNumber(task)}</span>
             <span
               className={`mt-2 text-xs font-bold px-2 py-1 rounded-full border ${
-                (taskCounts.get(n) || 0) > 0
+                (taskCounts.get(task.number) || 0) > 0
                   ? 'bg-green-50 text-green-700 border-green-200'
                   : 'bg-gray-100 text-gray-500 border-gray-200'
               }`}
             >
-              {(taskCounts.get(n) || 0) > 0 ? `Файлов: ${taskCounts.get(n)}` : 'Пусто'}
+              {(taskCounts.get(task.number) || 0) > 0 ? `Файлов: ${taskCounts.get(task.number)}` : 'Пусто'}
             </span>
           </Card>
         ))}
@@ -6448,7 +6543,7 @@ const NotesSection = ({
         <button onClick={() => setCurrentTask(null)} className="flex items-center text-gray-500 hover:text-purple-600"><ArrowLeft size={16}/> Назад</button>
         {renderStudentPicker()}
       </div>
-      <h2 className="text-2xl font-bold mb-6">Задание {currentTask}</h2>
+      <h2 className="text-2xl font-bold mb-6">Задание {formatTaskNumber(currentTask) || currentTask}</h2>
       <div className="grid grid-cols-2 gap-6">
         <Card
           onClick={() => setCurrentCategory('class')}
@@ -6484,8 +6579,8 @@ const NotesSection = ({
     </div>
   );
 
-  const filtered = files.filter(f =>
-    f.taskNumber === currentTask &&
+  const filtered = files.filter((f) =>
+    getNotesTaskNumber(f?.taskNumber) === normalizedCurrentTask &&
     f.category === currentCategory &&
     (currentFolderId ? f.folderId === currentFolderId : !f.folderId)
   );
@@ -6515,7 +6610,7 @@ const NotesSection = ({
               className="hover:text-purple-600"
               type="button"
             >
-              Задание {currentTask}
+              Задание {formatTaskNumber(currentTask) || currentTask}
             </button>
             <ChevronRight size={16} className="text-gray-300" />
             <button
@@ -6531,7 +6626,7 @@ const NotesSection = ({
             </span>
           </div>
           <div className="text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-3">
-            <span>Использовано: {formatBytes(taskUsageBytes)} из {formatBytes(MAX_TASK_BYTES)}</span>
+            <span>Использовано: {formatBytes(taskUsageBytes)} из {formatBytes(totalLimitBytes)}</span>
             <span className={remainingBytes <= 10 * 1024 * 1024 ? 'text-red-600 font-medium' : ''}>
               Осталось: {formatBytes(remainingBytes)}
             </span>
