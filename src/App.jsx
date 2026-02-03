@@ -2716,6 +2716,13 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
               }
 
               if (solved) btnClass = btnClass.replace('bg-gray-100', 'bg-green-100').replace('text-gray-500', 'text-green-600').replace('border-transparent', 'border-green-200');
+              if (idx === currentIndex && solved) {
+                btnClass = btnClass
+                  .replace('border-purple-600', 'border-green-400')
+                  .replace('ring-purple-100', 'ring-green-100')
+                  .replace('text-purple-600', 'text-green-700')
+                  .replace('bg-white', 'bg-green-100');
+              }
 
               return (
                 <button
@@ -3041,6 +3048,13 @@ const PythonReviewModal = ({ task, onClose, studentId, testDb }) => {
               }
 
               if (solved) btnClass = btnClass.replace('bg-gray-100', 'bg-green-100').replace('text-gray-500', 'text-green-600').replace('border-transparent', 'border-green-200');
+              if (idx === currentIndex && solved) {
+                btnClass = btnClass
+                  .replace('border-purple-600', 'border-green-400')
+                  .replace('ring-purple-100', 'ring-green-100')
+                  .replace('text-purple-600', 'text-green-700')
+                  .replace('bg-white', 'bg-green-100');
+              }
 
               return (
                 <button
@@ -3274,9 +3288,16 @@ const ProgressReviewModal = ({ task, onClose, studentId, testDb }) => {
                   btnClass += "border-transparent bg-gray-100 text-gray-500 hover:bg-gray-200 ";
                 }
 
-                if (solved) btnClass = btnClass.replace('bg-gray-100', 'bg-green-100').replace('text-gray-500', 'text-green-600').replace('border-transparent', 'border-green-200');
+              if (solved) btnClass = btnClass.replace('bg-gray-100', 'bg-green-100').replace('text-gray-500', 'text-green-600').replace('border-transparent', 'border-green-200');
+              if (idx === currentIndex && solved) {
+                btnClass = btnClass
+                  .replace('border-purple-600', 'border-green-400')
+                  .replace('ring-purple-100', 'ring-green-100')
+                  .replace('text-purple-600', 'text-green-700')
+                  .replace('bg-white', 'bg-green-100');
+              }
 
-                return (
+              return (
                   <button
                     key={qId}
                     onClick={() => setCurrentIndex(idx)}
@@ -3702,6 +3723,13 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
               if (solved) btnClass = btnClass.replace('bg-gray-100', 'bg-green-100').replace('text-gray-500', 'text-green-600').replace('border-transparent', 'border-green-200');
               if (!solved && status === true) btnClass = btnClass.replace('bg-gray-100', 'bg-green-100').replace('text-gray-500', 'text-green-600').replace('border-transparent', 'border-green-200');
               if (!solved && status === false) btnClass = btnClass.replace('bg-gray-100', 'bg-red-100').replace('text-gray-500', 'text-red-600').replace('border-transparent', 'border-red-200');
+              if (idx === currentIndex && (solved || status === true)) {
+                btnClass = btnClass
+                  .replace('border-purple-600', 'border-green-400')
+                  .replace('ring-purple-100', 'ring-green-100')
+                  .replace('text-purple-600', 'text-green-700')
+                  .replace('bg-white', 'bg-green-100');
+              }
 
               return (
                 <button 
