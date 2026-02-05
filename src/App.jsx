@@ -248,6 +248,68 @@ const markStudentSeenTour = (studentId) => {
   saveStudentTourStatus({ ...data, [key]: true });
 };
 
+const LAST_LOCATION_KEY = 'ege_last_location_v1';
+
+const buildUserLocationKey = (user) => {
+  if (!user) return '';
+  const role = user.role || 'user';
+  const id = typeof user.id !== 'undefined' && user.id !== null ? String(user.id) : 'unknown';
+  return `${role}:${id}`;
+};
+
+const loadLastLocationStore = () => {
+  if (typeof localStorage === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(LAST_LOCATION_KEY);
+    const data = raw ? JSON.parse(raw) : {};
+    return data && typeof data === 'object' ? data : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveLastLocationStore = (store) => {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(LAST_LOCATION_KEY, JSON.stringify(store));
+  } catch {}
+};
+
+const readUserLocation = (user) => {
+  const key = buildUserLocationKey(user);
+  if (!key) return {};
+  const store = loadLastLocationStore();
+  const entry = store?.[key];
+  return entry && typeof entry === 'object' ? entry : {};
+};
+
+const updateUserLocation = (user, patch) => {
+  const key = buildUserLocationKey(user);
+  if (!key) return;
+  const store = loadLastLocationStore();
+  const prev = store?.[key];
+  const safePrev = prev && typeof prev === 'object' ? prev : {};
+  store[key] = { ...safePrev, ...patch };
+  saveLastLocationStore(store);
+};
+
+const normalizeStoredOpenTask = (entry) => {
+  if (!entry || typeof entry !== 'object') return null;
+  const normalizedTaskNumber = normalizeTaskNumber(entry.taskNumber);
+  if (!Number.isFinite(normalizedTaskNumber)) return null;
+  const pythonTask = isPythonTaskNumber(normalizedTaskNumber);
+  const section = pythonTask ? 'python' : 'progress';
+  const rawIndex = Number(entry.questionIndex);
+  const questionIndex = Number.isFinite(rawIndex) && rawIndex >= 0 ? Math.floor(rawIndex) : null;
+  return {
+    taskNumber: normalizedTaskNumber,
+    levelId: pythonTask ? PYTHON_LEVEL_ID : entry.levelId,
+    targetQuestions: Array.isArray(entry.targetQuestions) ? entry.targetQuestions : null,
+    section,
+    questionIndex
+  };
+};
+
 // Заглушка списка заданий
 const RAW_TASKS = Array.from({ length: 27 }, (_, i) => ({
   id: i + 1,
@@ -2488,7 +2550,7 @@ const AdminPanel = ({
 /**
  * STUDENT TEST MODAL
  */
-const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testDb }) => {
+const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testDb, initialQuestionIndex, onQuestionChange }) => {
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [solvedIds, setSolvedIds] = useState(new Set());
@@ -2502,6 +2564,11 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
   const currentQuestionIdRef = useRef(null);
 
   const currentMastery = progress[task.id] || 0;
+  const getQuestionIndexKey = () => {
+    const safeStudentId = studentId || 'anon';
+    const taskNum = task?.number || 'task';
+    return `py_last_q_${safeStudentId}_${taskNum}`;
+  };
   const getDraftKey = (questionId) => {
     const safeStudentId = studentId || 'anon';
     return `py_draft_${safeStudentId}_${task?.number || 'task'}_${questionId}`;
@@ -2509,8 +2576,20 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
 
   useEffect(() => {
     const qs = testDb?.[task.number]?.[PYTHON_LEVEL_ID] || [];
-    setQuestions(Array.isArray(qs) ? qs : []);
-    setCurrentIndex(0);
+    const list = Array.isArray(qs) ? qs : [];
+    let rawIndex = Number(initialQuestionIndex);
+    if (!Number.isFinite(rawIndex) && typeof window !== 'undefined') {
+      try {
+        rawIndex = Number(window.localStorage.getItem(getQuestionIndexKey()));
+      } catch {}
+    }
+    const safeIndex = Number.isFinite(rawIndex) && list.length > 0
+      ? Math.max(0, Math.min(list.length - 1, Math.floor(rawIndex)))
+      : 0;
+    setQuestions(list);
+    if (list.length > 0) {
+      setCurrentIndex(safeIndex);
+    }
     setSolvedIds(new Set());
     setSolvedCodeById({});
     setTestResults([]);
@@ -2530,7 +2609,17 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
         })
         .catch((err) => console.error(err));
     }
-  }, [task?.number, testDb, studentId]);
+  }, [task?.number, testDb, studentId, initialQuestionIndex]);
+
+  useEffect(() => {
+    if (!Number.isFinite(currentIndex)) return;
+    if (!questions.length) return;
+    onQuestionChange?.(currentIndex);
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(getQuestionIndexKey(), String(currentIndex));
+    } catch {}
+  }, [currentIndex, questions.length, onQuestionChange]);
 
   useEffect(() => {
     const current = questions[currentIndex];
@@ -3456,7 +3545,7 @@ const ProgressReviewModal = ({ task, onClose, studentId, testDb }) => {
   return typeof document !== 'undefined' ? createPortal(modal, document.body) : null;
 };
 
-const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, testDb, initialLevel, targetQuestions }) => {
+const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, testDb, initialLevel, targetQuestions, onLevelSelect, initialQuestionIndex, onQuestionChange }) => {
   const [stage, setStage] = useState('select_level'); // select_level | testing
   const [level, setLevel] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -3488,11 +3577,17 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
 
     setQuestions(qs);
     setLevel(lvlId);
-    setCurrentIndex(0);
+    const wantsStoredIndex = Number.isFinite(Number(options?.initialIndex));
+    const rawIndex = wantsStoredIndex ? Number(options.initialIndex) : 0;
+    const safeIndex = qs.length > 0
+      ? Math.max(0, Math.min(qs.length - 1, Math.floor(rawIndex)))
+      : 0;
+    setCurrentIndex(safeIndex);
     setUserAnswers({});
     setResults({});
     setSolvedIds(new Set());
     setStage('testing');
+    onLevelSelect?.(lvlId);
 
     if (studentId) {
       try {
@@ -3511,12 +3606,18 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     if (!['basic', 'advanced', 'expert'].includes(initialLevel)) return;
     if (!testDb) return;
     autoStartRef.current = true;
-    startTest(initialLevel, { silent: true });
-  }, [stage, initialLevel, testDb]);
+    startTest(initialLevel, { silent: true, initialIndex: initialQuestionIndex });
+  }, [stage, initialLevel, initialQuestionIndex, testDb]);
 
   useEffect(() => {
     autoStartRef.current = false;
   }, [task?.number]);
+
+  useEffect(() => {
+    if (stage !== 'testing') return;
+    if (!Number.isFinite(currentIndex)) return;
+    onQuestionChange?.(currentIndex);
+  }, [currentIndex, stage, onQuestionChange]);
 
   const normalizeAnswer = (value) => {
     return String(value ?? '')
@@ -3636,7 +3737,10 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
               return (
                 <div 
                   key={lvl.id}
-                  onClick={() => startTest(lvl.id)}
+                  onClick={() => {
+                    const shouldRestoreIndex = initialLevel && initialLevel === lvl.id;
+                    startTest(lvl.id, shouldRestoreIndex ? { initialIndex: initialQuestionIndex } : {});
+                  }}
                   className={`border-2 rounded-2xl p-5 flex flex-col justify-between cursor-pointer transition-all hover:scale-105 ${isCompleted ? 'border-green-200 bg-green-50 opacity-80' : 'hover:shadow-lg bg-white'} ${lvl.color.replace('bg-', 'border-')}`}
                 >
                   <div>
@@ -4137,14 +4241,21 @@ const ProgressSection = ({
   onSelectStudent,
   studentsLoading,
   openTask,
-  onOpenTaskHandled
+  onOpenTaskHandled,
+  initialSection,
+  onSectionChange,
+  onTaskStateChange
 }) => {
   const taskList = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const [activeTask, setActiveTask] = useState(null);
   const [reviewTask, setReviewTask] = useState(null);
   const [autoLevel, setAutoLevel] = useState(null);
   const [autoTargetQuestions, setAutoTargetQuestions] = useState(null);
-  const [section, setSection] = useState('progress');
+  const [activeLevel, setActiveLevel] = useState(null);
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(null);
+  const [section, setSection] = useState(() => (
+    ['progress', 'notes', 'mocks'].includes(initialSection) ? initialSection : 'progress'
+  ));
   const [studentData, setStudentData] = useState({ progress: {}, notes: '', notesByTask: {}, mocks: [] });
   const [dataError, setDataError] = useState('');
   const [testsDb, setTestsDb] = useState(null);
@@ -4228,8 +4339,14 @@ const ProgressSection = ({
     setReviewTask(null);
     setAutoLevel(null);
     setAutoTargetQuestions(null);
+    setActiveLevel(null);
+    setActiveQuestionIndex(null);
     cancelEditTaskTitle();
   }, [section, effectiveStudentId]);
+
+  useEffect(() => {
+    onSectionChange?.(section);
+  }, [section, onSectionChange]);
 
   useEffect(() => {
     if (role !== 'student' || !openTask) return;
@@ -4243,11 +4360,33 @@ const ProgressSection = ({
       return;
     }
     setSection('progress');
+    setActiveLevel(null);
     setActiveTask(target);
     setAutoLevel(openTask.levelId || null);
     setAutoTargetQuestions(Array.isArray(openTask.targetQuestions) ? openTask.targetQuestions : null);
+    if (Number.isFinite(openTask.questionIndex)) {
+      setActiveQuestionIndex(openTask.questionIndex);
+    } else {
+      setActiveQuestionIndex(null);
+    }
     onOpenTaskHandled?.();
   }, [openTask, role, taskList, onOpenTaskHandled]);
+
+  useEffect(() => {
+    if (role !== 'student') return;
+    if (!activeTask) {
+      if (openTask) return;
+      onTaskStateChange?.(null);
+      return;
+    }
+    onTaskStateChange?.({
+      taskNumber: activeTask.number,
+      levelId: activeLevel || autoLevel || null,
+      targetQuestions: autoTargetQuestions,
+      section: 'progress',
+      questionIndex: Number.isFinite(activeQuestionIndex) ? activeQuestionIndex : null
+    });
+  }, [activeTask, activeLevel, autoLevel, autoTargetQuestions, activeQuestionIndex, role, onTaskStateChange, openTask]);
 
   const progressMap = role === 'teacher'
     ? (studentData.progress || {})
@@ -4510,7 +4649,11 @@ const ProgressSection = ({
                     clickable
                       ? () => {
                           if (role === 'teacher') setReviewTask(task);
-                          else setActiveTask(task);
+                          else {
+                            setActiveLevel(null);
+                            setActiveQuestionIndex(null);
+                            setActiveTask(task);
+                          }
                         }
                       : undefined
                   }
@@ -4584,12 +4727,17 @@ const ProgressSection = ({
             setActiveTask(null);
             setAutoLevel(null);
             setAutoTargetQuestions(null);
+            setActiveLevel(null);
+            setActiveQuestionIndex(null);
           }}
           progress={progressMap}
           studentId={studentId}
           testDb={testsDb}
           initialLevel={autoLevel}
           targetQuestions={autoTargetQuestions}
+          initialQuestionIndex={activeQuestionIndex}
+          onLevelSelect={setActiveLevel}
+          onQuestionChange={setActiveQuestionIndex}
           onComplete={(taskId, score, options) => {
             onUpdateProgress(taskId, score, options);
             // setActiveTask(null); // Убрали закрытие, чтобы можно было решать дальше
@@ -4755,11 +4903,13 @@ const PythonSection = ({
   onSelectStudent,
   studentsLoading,
   openTask,
-  onOpenTaskHandled
+  onOpenTaskHandled,
+  onTaskStateChange
 }) => {
   const taskList = PYTHON_TASKS;
   const [activeTask, setActiveTask] = useState(null);
   const [reviewTask, setReviewTask] = useState(null);
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(null);
   const [studentData, setStudentData] = useState({ progress: {} });
   const [dataError, setDataError] = useState('');
   const [testsDb, setTestsDb] = useState(null);
@@ -4802,6 +4952,8 @@ const PythonSection = ({
 
   useEffect(() => {
     setReviewTask(null);
+    setActiveTask(null);
+    setActiveQuestionIndex(null);
   }, [effectiveStudentId]);
 
   useEffect(() => {
@@ -4832,8 +4984,29 @@ const PythonSection = ({
       return;
     }
     setActiveTask(target);
+    if (Number.isFinite(openTask.questionIndex)) {
+      setActiveQuestionIndex(openTask.questionIndex);
+    } else {
+      setActiveQuestionIndex(null);
+    }
     onOpenTaskHandled?.();
   }, [openTask, role, taskList, onOpenTaskHandled]);
+
+  useEffect(() => {
+    if (role !== 'student') return;
+    if (!activeTask) {
+      if (openTask) return;
+      onTaskStateChange?.(null);
+      return;
+    }
+    onTaskStateChange?.({
+      taskNumber: activeTask.number,
+      levelId: PYTHON_LEVEL_ID,
+      targetQuestions: null,
+      section: 'python',
+      questionIndex: Number.isFinite(activeQuestionIndex) ? activeQuestionIndex : null
+    });
+  }, [activeTask, activeQuestionIndex, role, onTaskStateChange, openTask]);
 
   useEffect(() => {
     if (!taskList.length) return;
@@ -5185,7 +5358,10 @@ const PythonSection = ({
               className="group relative"
               onClick={clickable ? () => {
                 if (role === 'teacher') setReviewTask(task);
-                else setActiveTask(task);
+                else {
+                  setActiveQuestionIndex(null);
+                  setActiveTask(task);
+                }
               } : undefined}
             >
               <div className="flex justify-between mb-2">
@@ -5438,10 +5614,15 @@ const PythonSection = ({
       {role === 'student' && activeTask && (
         <PythonTestModal
           task={activeTask}
-          onClose={() => setActiveTask(null)}
+          onClose={() => {
+            setActiveTask(null);
+            setActiveQuestionIndex(null);
+          }}
           progress={progressMap}
           studentId={studentId}
           testDb={testsDb}
+          initialQuestionIndex={activeQuestionIndex}
+          onQuestionChange={setActiveQuestionIndex}
           onComplete={(taskId, score, options) => {
             onUpdateProgress(taskId, score, options);
           }}
@@ -6228,7 +6409,9 @@ const NotesSection = ({
   students,
   activeStudentId,
   onSelectStudent,
-  studentsLoading
+  studentsLoading,
+  initialLocation,
+  onLocationChange
 }) => {
   const [currentTask, setCurrentTask] = useState(null);
   const [currentCategory, setCurrentCategory] = useState(null);
@@ -6260,6 +6443,10 @@ const NotesSection = ({
   const [pyDraftCode, setPyDraftCode] = useState('');
   const [pyDraftError, setPyDraftError] = useState('');
   const [pyDraftSaving, setPyDraftSaving] = useState(false);
+  const restoringRef = useRef(false);
+  const didRestoreRef = useRef(false);
+  const skipNullSaveRef = useRef(true);
+  const pendingFolderIdRef = useRef(null);
   const fileRef = useRef(null);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
@@ -6274,6 +6461,36 @@ const NotesSection = ({
     if (normalized === GAME_THEORY_TASK) return [19, 20, 21];
     return [normalized];
   };
+
+  useEffect(() => {
+    if (!effectiveStudentId) return;
+    if (didRestoreRef.current) return;
+    const studentKey = String(effectiveStudentId);
+    const entry = initialLocation && typeof initialLocation === 'object' ? initialLocation : null;
+    if (entry && entry.studentId && String(entry.studentId) !== studentKey) {
+      didRestoreRef.current = true;
+      return;
+    }
+    if (!entry) {
+      didRestoreRef.current = true;
+      return;
+    }
+    const normalizedTask = normalizeTaskNumber(entry.taskNumber);
+    const nextTask = Number.isFinite(normalizedTask) ? normalizedTask : null;
+    const nextCategory = entry.category === 'class' || entry.category === 'home' ? entry.category : null;
+    const nextFolderId = entry.folderId || null;
+    if (!nextTask && !nextCategory && !nextFolderId) {
+      didRestoreRef.current = true;
+      restoringRef.current = false;
+      return;
+    }
+    restoringRef.current = true;
+    pendingFolderIdRef.current = nextFolderId;
+    setCurrentTask(nextTask);
+    setCurrentCategory(nextCategory);
+    setCurrentFolderId(null);
+    didRestoreRef.current = true;
+  }, [effectiveStudentId, initialLocation]);
   const taskCounts = useMemo(() => {
     const map = new Map();
     for (const f of files) {
@@ -6426,7 +6643,21 @@ const NotesSection = ({
   }, [normalizedCurrentTask, currentCategory, effectiveStudentId]);
 
   useEffect(() => {
-    setCurrentFolderId(null);
+    if (!pendingFolderIdRef.current) return;
+    const targetId = pendingFolderIdRef.current;
+    pendingFolderIdRef.current = null;
+    if (targetId && folders.some((item) => item.id === targetId)) {
+      setCurrentFolderId(targetId);
+    } else {
+      setCurrentFolderId(null);
+    }
+  }, [folders]);
+
+  useEffect(() => {
+    const preserveFolder = restoringRef.current;
+    if (!preserveFolder) {
+      setCurrentFolderId(null);
+    }
     setNewFolderName('');
     setIsCreatingFolder(false);
     setRenamingFolderId(null);
@@ -6445,9 +6676,26 @@ const NotesSection = ({
     setPyDraftCode('');
     setPyDraftError('');
     setPyDraftSaving(false);
+    if (restoringRef.current && (currentTask || currentCategory)) {
+      restoringRef.current = false;
+    }
   }, [currentTask, currentCategory]);
 
   useEffect(() => {
+    if (restoringRef.current) {
+      setFolders([]);
+      setFiles([]);
+      setExpandedPyIds({});
+      setExpandedPdfIds({});
+      setShowPyCreator(false);
+      setPyDraftName('');
+      setPyDraftCode('');
+      setPyDraftError('');
+      setPyDraftSaving(false);
+      didRestoreRef.current = false;
+      skipNullSaveRef.current = true;
+      return;
+    }
     setCurrentTask(null);
     setCurrentCategory(null);
     setCurrentFolderId(null);
@@ -6460,7 +6708,27 @@ const NotesSection = ({
     setPyDraftCode('');
     setPyDraftError('');
     setPyDraftSaving(false);
+    pendingFolderIdRef.current = null;
+    restoringRef.current = false;
+    didRestoreRef.current = false;
+    skipNullSaveRef.current = true;
   }, [effectiveStudentId]);
+
+  useEffect(() => {
+    if (!effectiveStudentId) return;
+    if (restoringRef.current) return;
+    if (skipNullSaveRef.current && !currentTask && !currentCategory && !currentFolderId) {
+      skipNullSaveRef.current = false;
+      return;
+    }
+    skipNullSaveRef.current = false;
+    onLocationChange?.({
+      studentId: effectiveStudentId,
+      taskNumber: currentTask,
+      category: currentCategory,
+      folderId: currentFolderId
+    });
+  }, [effectiveStudentId, currentTask, currentCategory, currentFolderId, onLocationChange]);
 
   const handleUploadFiles = async (fileList) => {
     const filesToUpload = Array.from(fileList || []).filter(Boolean);
@@ -7710,11 +7978,42 @@ const NewHomeworkModal = ({ entry, open, onClose, onOpenSchedule, onOpenTask, te
 };
 
 const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
-  const [view, setView] = useState(
-    user.role === 'teacher' ? 'teacher' : (user.role === 'admin' ? 'admin' : 'progress')
-  );
+  const allowedViews = user.role === 'admin'
+    ? ['admin']
+    : user.role === 'teacher'
+      ? ['schedule', 'progress', 'python', 'teacher', 'notes']
+      : ['schedule', 'progress', 'python', 'notes'];
+  const defaultView = user.role === 'teacher' ? 'teacher' : (user.role === 'admin' ? 'admin' : 'progress');
+  const storedLocation = readUserLocation(user);
+  const storedView = storedLocation?.view;
+  const storedPythonLocation = storedLocation?.pythonLocation && typeof storedLocation.pythonLocation === 'object'
+    ? storedLocation.pythonLocation
+    : null;
+  const fallbackPythonOpenTask = storedPythonLocation
+    ? normalizeStoredOpenTask({
+      taskNumber: storedPythonLocation?.taskNumber,
+      levelId: PYTHON_LEVEL_ID,
+      questionIndex: storedPythonLocation?.questionIndex
+    })
+    : null;
+  const restoredOpenTask = user.role === 'student'
+    ? (normalizeStoredOpenTask(storedLocation?.openTask)
+        || (storedView === 'python' ? fallbackPythonOpenTask : null))
+    : null;
+  const storedActiveStudentId = storedLocation?.activeStudentId ? String(storedLocation.activeStudentId) : null;
+  const initialView = (restoredOpenTask?.section && allowedViews.includes(restoredOpenTask.section))
+    ? restoredOpenTask.section
+    : (allowedViews.includes(storedView) ? storedView : defaultView);
+  const initialProgressSection = ['progress', 'notes', 'mocks'].includes(storedLocation?.progressSection)
+    ? storedLocation.progressSection
+    : 'progress';
+  const initialNotesLocation = storedLocation?.notesLocation && typeof storedLocation.notesLocation === 'object'
+    ? storedLocation.notesLocation
+    : null;
+
+  const [view, setView] = useState(initialView);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [pendingOpenTask, setPendingOpenTask] = useState(null);
+  const [pendingOpenTask, setPendingOpenTask] = useState(() => (user.role === 'student' ? restoredOpenTask : null));
   const [goalState, setGoalState] = useState(null);
   const [goalTestsDb, setGoalTestsDb] = useState(null);
   const [goalRefreshTick, setGoalRefreshTick] = useState(0);
@@ -7748,6 +8047,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     [taskTitles]
   );
 
+  useEffect(() => {
+    updateUserLocation(user, { view });
+    if (view !== 'progress' && view !== 'python') {
+      updateUserLocation(user, { openTask: null });
+    }
+  }, [view, user]);
+
+  useEffect(() => {
+    if (user.role !== 'teacher') return;
+    updateUserLocation(user, { activeStudentId: activeStudentId || null });
+  }, [activeStudentId, user]);
+
   const nav = user.role === 'admin'
     ? [
       { id: 'admin', label: 'Админка', icon: Settings }
@@ -7773,7 +8084,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       const data = await api.getStudents(teacherId);
       setStudents(data);
       setStudentsError('');
-      setActiveStudentId((current) => (data.some((s) => s.id === current) ? current : data[0]?.id || null));
+      setActiveStudentId((current) => {
+        if (data.some((s) => s.id === current)) return current;
+        if (storedActiveStudentId && data.some((s) => String(s.id) === storedActiveStudentId)) {
+          return storedActiveStudentId;
+        }
+        return data[0]?.id || null;
+      });
     } catch (err) {
       setStudentsError(err?.message || err);
     } finally {
@@ -8059,6 +8376,29 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     });
   };
 
+  const handleProgressSectionChange = (nextSection) => {
+    updateUserLocation(user, { progressSection: nextSection });
+  };
+
+  const handleTaskStateChange = (nextTask) => {
+    if (user.role !== 'student') return;
+    updateUserLocation(user, { openTask: nextTask });
+    if (!nextTask || nextTask.section !== 'python') {
+      updateUserLocation(user, { pythonLocation: null });
+      return;
+    }
+    updateUserLocation(user, {
+      pythonLocation: {
+        taskNumber: nextTask.taskNumber,
+        questionIndex: Number.isFinite(nextTask.questionIndex) ? nextTask.questionIndex : null
+      }
+    });
+  };
+
+  const handleNotesLocationChange = (location) => {
+    updateUserLocation(user, { notesLocation: location });
+  };
+
   const handleOpenTask = (taskNumber, levelId, targetQuestions) => {
     const normalizedTaskNumber = normalizeTaskNumber(taskNumber);
     if (!Number.isFinite(normalizedTaskNumber)) return;
@@ -8068,14 +8408,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       setMenuOpen(false);
       return;
     }
-    setPendingOpenTask({
+    const nextTask = {
       taskNumber: normalizedTaskNumber,
       levelId: pythonTask ? PYTHON_LEVEL_ID : levelId,
       targetQuestions: Array.isArray(targetQuestions) ? targetQuestions : null,
-      section: pythonTask ? 'python' : 'progress'
-    });
+      section: pythonTask ? 'python' : 'progress',
+      questionIndex: null
+    };
+    setPendingOpenTask(nextTask);
     setView(pythonTask ? 'python' : 'progress');
     setMenuOpen(false);
+    updateUserLocation(user, { view: pythonTask ? 'python' : 'progress', openTask: nextTask });
   };
 
   const formatDaysText = (days) => {
@@ -8494,6 +8837,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               studentsLoading={studentsLoading}
               openTask={pendingOpenTask}
               onOpenTaskHandled={() => setPendingOpenTask(null)}
+              initialSection={initialProgressSection}
+              onSectionChange={handleProgressSectionChange}
+              onTaskStateChange={handleTaskStateChange}
             />
           )}
           {view === 'python' && (
@@ -8511,6 +8857,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               studentsLoading={studentsLoading}
               openTask={pendingOpenTask}
               onOpenTaskHandled={() => setPendingOpenTask(null)}
+              onTaskStateChange={handleTaskStateChange}
             />
           )}
           {view === 'notes' && (
@@ -8521,6 +8868,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
               studentsLoading={studentsLoading}
+              initialLocation={initialNotesLocation}
+              onLocationChange={handleNotesLocationChange}
             />
           )}
           {view === 'teacher' && (
