@@ -8976,7 +8976,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               </div>
               <div className="mt-4 rounded-2xl border border-purple-100 bg-purple-50 px-4 py-2 text-[11px] text-purple-700 shadow-sm">
                 {streakPopup.isNewRecord
-                  ? `Новый рекорд! ${streakPopup.current} ${formatDaysText(streakPopup.current)} подряд.`
+                  ? `Новый рекорд! ${formatDaysText(streakPopup.current)} подряд.`
                   : `Отлично! Серия ${formatDaysText(streakPopup.current)} подряд.`}
               </div>
               <button
