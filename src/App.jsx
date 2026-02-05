@@ -5,7 +5,7 @@ import 'prismjs/components/prism-python';
 import 'prismjs/themes/prism-tomorrow.css';
 import Editor from '@monaco-editor/react';
 import { 
-  BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle, 
+  BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle,
   Menu, X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil
@@ -1049,6 +1049,13 @@ const STUDENT_TOUR_STEPS = [
 /**
  * SHARED COMPONENTS
  */
+const LogoMark = ({ className = '' }) => (
+  <span className={`font-display font-extrabold tracking-tight ${className}`}>
+    <span className="text-slate-900">IVAN</span>
+    <span className="text-purple-600 logo-glow">100</span>
+  </span>
+);
+
 const Button = ({ children, onClick, variant = 'primary', className = '', ...props }) => {
   const baseStyle = "px-4 py-2 rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-[1px] disabled:opacity-50 disabled:cursor-not-allowed";
   const variants = {
@@ -4458,8 +4465,16 @@ const LoginPage = ({ onLogin }) => {
       <div className="absolute -bottom-32 -left-24 h-72 w-72 rounded-full bg-amber-200/40 blur-3xl" />
       <div className="relative max-w-md w-full surface-card rounded-4xl p-8">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4 floating"><CheckCircle size={32} /></div>
-          <h1 className="text-2xl font-bold text-gray-900">Иван на сотку</h1>
+          <div className="inline-flex items-center justify-center px-4 py-2 rounded-2xl bg-purple-100 mx-auto mb-4 floating md:hidden">
+            <LogoMark className="text-lg" />
+          </div>
+          <div className="hidden md:flex w-16 h-16 bg-purple-100 text-purple-600 rounded-2xl items-center justify-center mx-auto mb-4 floating">
+            <CheckCircle size={32} />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900">
+            <span className="md:hidden"><LogoMark /></span>
+            <span className="hidden md:inline">Иван на сотку</span>
+          </h1>
           <p className="text-gray-500 mt-2">Вход в платформу</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -9037,8 +9052,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         )}
       */}
       <aside className={`fixed md:sticky md:top-0 z-40 bg-white/85 backdrop-blur-xl w-64 app-h border-r border-slate-200/70 transition-transform flex flex-col ${menuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
-        <div className="p-6 border-b border-slate-200/70 flex items-center gap-2 font-display font-bold text-xl text-purple-600 shrink-0">
-          <CheckCircle className="fill-purple-600 text-white"/> Иван на сотку
+        <div className="p-6 border-b border-slate-200/70 shrink-0">
+          <div className="hidden md:flex items-center gap-2 font-display font-bold text-xl text-purple-600">
+            <CheckCircle className="fill-purple-600 text-white"/> Иван на сотку
+          </div>
+          <div className="flex md:hidden items-center">
+            <LogoMark className="text-lg" />
+          </div>
         </div>
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto" data-tour="nav">
           {nav.map(n => (
@@ -9071,7 +9091,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
 
       <div className="flex-1 flex flex-col app-h overflow-hidden">
         <header className="md:hidden bg-white/80 backdrop-blur border-b border-slate-200/70 p-4 flex justify-between items-center">
-          <span className="font-display font-bold text-purple-600">Иван на сотку</span>
+          <LogoMark className="text-lg" />
           <button onClick={() => setMenuOpen(!menuOpen)}><Menu/></button>
         </header>
         <main className="flex-1 overflow-y-auto p-4 md:p-8" data-tour="main">

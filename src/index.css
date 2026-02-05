@@ -189,6 +189,7 @@
 .animate-fadeIn { animation: fadeIn 0.45s ease-out both; }
 .goal-expand { animation: goalExpand 0.28s ease-out both; transform-origin: top center; }
 .goal-collapse { animation: goalCollapse 0.22s ease-out both; transform-origin: top center; }
+.logo-glow { text-shadow: 0 2px 8px rgba(126, 34, 206, 0.35); }
 .streak-badge { transition: transform 0.2s ease, box-shadow 0.2s ease; }
 .streak-badge--active { animation: streakPulse 2.2s ease-in-out infinite; }
 .streak-flame { transform-origin: center bottom; animation: streakFlicker 1.6s ease-in-out infinite; }
