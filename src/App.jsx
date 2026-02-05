@@ -7,7 +7,7 @@ import Editor from '@monaco-editor/react';
 import { 
   BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle, 
   Menu, X, ChevronRight, Folder, FolderPlus, Upload, 
-  ArrowLeft, Trash2, PlayCircle, Check, Plus, 
+  ArrowLeft, Trash2, PlayCircle, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
@@ -64,6 +64,80 @@ const formatTaskNumber = (value) => {
 const getTaskDisplayNumber = (task) => task?.displayNumber ?? formatTaskNumber(task?.number ?? task?.id);
 
 const normalizeOutput = (value) => String(value ?? '').replace(/\r\n/g, '\n').trimEnd();
+
+const getLocalDayKey = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const normalizeDayKey = (value) => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(dt.getTime())) return null;
+  if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) return null;
+  return trimmed;
+};
+
+const dayKeyToNumber = (dayKey) => {
+  const normalized = normalizeDayKey(dayKey);
+  if (!normalized) return NaN;
+  const [year, month, day] = normalized.split('-').map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return NaN;
+  return Math.floor(Date.UTC(year, month - 1, day) / (24 * 60 * 60 * 1000));
+};
+
+const numberToDayKey = (dayNumber) => {
+  if (!Number.isFinite(dayNumber)) return null;
+  return new Date(dayNumber * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+};
+
+const getWeekStartKey = (dayKey) => {
+  const dayNum = dayKeyToNumber(dayKey);
+  if (!Number.isFinite(dayNum)) return null;
+  const dt = new Date(dayNum * 24 * 60 * 60 * 1000);
+  const weekday = dt.getUTCDay(); // 0 = Sunday, 1 = Monday
+  const mondayIndex = (weekday + 6) % 7;
+  return numberToDayKey(dayNum - mondayIndex);
+};
+
+const getDefaultStreak = () => ({
+  current: 0,
+  best: 0,
+  lastActiveDay: null,
+  freezeUsedWeekStart: null,
+  freezeUsedDay: null,
+});
+
+const normalizeStreak = (value) => {
+  if (!value || typeof value !== 'object') return getDefaultStreak();
+  const current = Number(value.current);
+  const best = Number(value.best);
+  const normalized = {
+    current: Number.isFinite(current) && current > 0 ? Math.floor(current) : 0,
+    best: Number.isFinite(best) && best > 0 ? Math.floor(best) : 0,
+    lastActiveDay: normalizeDayKey(value.lastActiveDay) || null,
+    freezeUsedWeekStart: normalizeDayKey(value.freezeUsedWeekStart) || null,
+    freezeUsedDay: normalizeDayKey(value.freezeUsedDay) || null,
+  };
+  if (normalized.best < normalized.current) normalized.best = normalized.current;
+  return normalized;
+};
+
+const formatStreakDate = (dayKey) => {
+  const normalized = normalizeDayKey(dayKey);
+  if (!normalized) return '';
+  const dt = new Date(`${normalized}T00:00:00`);
+  return dt.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+};
 
 const parseTestsFromText = (content) => {
   const normalized = String(content ?? '').replace(/\r\n/g, '\n');
@@ -393,6 +467,80 @@ const ensurePyodideReady = (() => {
     return pyodidePromise;
   };
 })();
+
+const PYODIDE_RUN_TIMEOUT_MS = 8000;
+
+const createPyodideWorker = () => {
+  const workerSource = `
+    let pyodidePromise = null;
+    const ensurePyodide = () => {
+      if (pyodidePromise) return pyodidePromise;
+      pyodidePromise = new Promise((resolve, reject) => {
+        try {
+          importScripts('https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js');
+        } catch (err) {
+          reject(err);
+          return;
+        }
+        if (!self.loadPyodide) {
+          reject(new Error('Pyodide loader not available'));
+          return;
+        }
+        self.loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/' })
+          .then(resolve)
+          .catch(reject);
+      });
+      return pyodidePromise;
+    };
+
+    const runPython = async (source, inputValue) => {
+      const pyodide = await ensurePyodide();
+      const safeInput = inputValue == null ? '' : String(inputValue);
+      const safeSource = source == null ? '' : String(source);
+      const wrapped = [
+        'import sys, io, traceback',
+        '_input = ' + JSON.stringify(safeInput),
+        '_stdout = io.StringIO()',
+        '_stderr = io.StringIO()',
+        'sys.stdin = io.StringIO(_input)',
+        'sys.stdout = _stdout',
+        'sys.stderr = _stderr',
+        '_globals = {}',
+        'try:',
+        '    exec(' + JSON.stringify(safeSource) + ', _globals, _globals)',
+        'except Exception:',
+        '    traceback.print_exc()',
+        '__output = _stdout.getvalue()',
+        '__error = _stderr.getvalue()',
+      ].join('\\n');
+      await pyodide.runPythonAsync(wrapped);
+      const output = pyodide.globals.get('__output') || '';
+      const error = pyodide.globals.get('__error') || '';
+      pyodide.globals.delete('__output');
+      pyodide.globals.delete('__error');
+      return { output: String(output), error: String(error) };
+    };
+
+    self.onmessage = async (event) => {
+      const data = event.data || {};
+      const id = data.id;
+      if (!id) return;
+      try {
+        const result = await runPython(data.source, data.input);
+        self.postMessage({ id, output: result.output, error: result.error });
+      } catch (err) {
+        const message = err && err.message ? err.message : String(err);
+        self.postMessage({ id, output: '', error: message });
+      }
+    };
+  `;
+
+  const blob = new Blob([workerSource], { type: 'text/javascript' });
+  const url = URL.createObjectURL(blob);
+  const worker = new Worker(url);
+  URL.revokeObjectURL(url);
+  return worker;
+};
 
 const INITIAL_TEST_DB = {
   1: {
@@ -2550,7 +2698,7 @@ const AdminPanel = ({
 /**
  * STUDENT TEST MODAL
  */
-const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testDb, initialQuestionIndex, onQuestionChange }) => {
+const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testDb, initialQuestionIndex, onQuestionChange, onStreakSaved }) => {
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [solvedIds, setSolvedIds] = useState(new Set());
@@ -2562,6 +2710,8 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
   const [testResults, setTestResults] = useState([]);
   const [showTheory, setShowTheory] = useState(true);
   const currentQuestionIdRef = useRef(null);
+  const runnerWorkerRef = useRef(null);
+  const runnerPendingRef = useRef(new Map());
 
   const currentMastery = progress[task.id] || 0;
   const getQuestionIndexKey = () => {
@@ -2659,7 +2809,49 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
     return () => document.body.classList.remove('overflow-hidden');
   }, []);
 
-  const runPythonCode = async (source, inputValue) => {
+  const resolvePendingRuns = (message) => {
+    runnerPendingRef.current.forEach((entry) => {
+      clearTimeout(entry.timer);
+      entry.resolve({ output: '', error: message });
+    });
+    runnerPendingRef.current.clear();
+  };
+
+  const disposeRunnerWorker = (message) => {
+    if (runnerWorkerRef.current) {
+      runnerWorkerRef.current.terminate();
+      runnerWorkerRef.current = null;
+    }
+    if (message) resolvePendingRuns(message);
+  };
+
+  const ensureRunnerWorker = () => {
+    if (typeof Worker === 'undefined') return null;
+    if (runnerWorkerRef.current) return runnerWorkerRef.current;
+    try {
+      const worker = createPyodideWorker();
+      worker.onmessage = (event) => {
+        const data = event.data || {};
+        const pending = runnerPendingRef.current.get(data.id);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        runnerPendingRef.current.delete(data.id);
+        const output = typeof data.output === 'string' ? data.output : String(data.output ?? '');
+        const error = typeof data.error === 'string' ? data.error : (data.error ? String(data.error) : '');
+        pending.resolve({ output, error });
+      };
+      worker.onerror = () => disposeRunnerWorker('Ошибка выполнения Python.');
+      worker.onmessageerror = () => disposeRunnerWorker('Ошибка выполнения Python.');
+      runnerWorkerRef.current = worker;
+      return worker;
+    } catch {
+      return null;
+    }
+  };
+
+  useEffect(() => () => disposeRunnerWorker('Python runner stopped.'), []);
+
+  const runPythonInMainThread = async (source, inputValue) => {
     const pyodide = await ensurePyodideReady();
     const wrapped = [
       'import sys, io, traceback',
@@ -2683,6 +2875,26 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
     pyodide.globals.delete('__output');
     pyodide.globals.delete('__error');
     return { output: String(output), error: String(error) };
+  };
+
+  const runPythonCode = async (source, inputValue) => {
+    const worker = ensureRunnerWorker();
+    if (worker) {
+      const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          runnerPendingRef.current.delete(id);
+          resolve({
+            output: '',
+            error: `Превышено время выполнения (${Math.round(PYODIDE_RUN_TIMEOUT_MS / 1000)} сек).`
+          });
+          disposeRunnerWorker('Превышено время выполнения.');
+        }, PYODIDE_RUN_TIMEOUT_MS);
+        runnerPendingRef.current.set(id, { resolve, timer });
+        worker.postMessage({ id, source, input: inputValue });
+      });
+    }
+    return runPythonInMainThread(source, inputValue);
   };
 
   const handleRunTests = async () => {
@@ -2733,7 +2945,8 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
               totalQuestions: questions.length,
               levelMax: 100,
               levelTotals: { [PYTHON_LEVEL_ID]: questions.length },
-              code
+              code,
+              localDay: getLocalDayKey(),
             });
             setSolvedIds((prev) => {
               const next = new Set(prev);
@@ -2741,6 +2954,17 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
               return next;
             });
             setSolvedCodeById((prev) => ({ ...prev, [currentId]: code }));
+            if (typeof onStreakSaved === 'function') {
+              if (resp?.streak) {
+                onStreakSaved(resp.streak);
+              } else {
+                api.getStudentData(studentId)
+                  .then((data) => {
+                    if (data?.streak) onStreakSaved(data.streak);
+                  })
+                  .catch(() => {});
+              }
+            }
             if (typeof resp?.taskProgress === 'number') {
               onComplete(task.id, resp.taskProgress, { skipServer: true });
               setRunnerLoading(false);
@@ -3545,7 +3769,7 @@ const ProgressReviewModal = ({ task, onClose, studentId, testDb }) => {
   return typeof document !== 'undefined' ? createPortal(modal, document.body) : null;
 };
 
-const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, testDb, initialLevel, targetQuestions, onLevelSelect, initialQuestionIndex, onQuestionChange }) => {
+const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, testDb, initialLevel, targetQuestions, onLevelSelect, initialQuestionIndex, onQuestionChange, onStreakSaved }) => {
   const [stage, setStage] = useState('select_level'); // select_level | testing
   const [level, setLevel] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -3678,17 +3902,29 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
             totalQuestions: questions.length,
             levelMax: levelConfig?.maxScore || 100,
             levelTotals,
-            ...(answerPayload ? { code: answerPayload } : {})
+            ...(answerPayload ? { code: answerPayload } : {}),
+            localDay: getLocalDayKey(),
           });
           setSolvedIds((prev) => {
             const next = new Set(prev);
             next.add(String(currentQuestion.id));
             return next;
           });
-          if (typeof resp?.taskProgress === 'number') {
-            onComplete(task.id, resp.taskProgress, { skipServer: true });
-            return;
-          }
+            if (typeof onStreakSaved === 'function') {
+              if (resp?.streak) {
+                onStreakSaved(resp.streak);
+              } else {
+                api.getStudentData(studentId)
+                  .then((data) => {
+                    if (data?.streak) onStreakSaved(data.streak);
+                  })
+                  .catch(() => {});
+              }
+            }
+            if (typeof resp?.taskProgress === 'number') {
+              onComplete(task.id, resp.taskProgress, { skipServer: true });
+              return;
+            }
         } catch (err) {
           console.error(err);
         }
@@ -4244,7 +4480,8 @@ const ProgressSection = ({
   onOpenTaskHandled,
   initialSection,
   onSectionChange,
-  onTaskStateChange
+  onTaskStateChange,
+  onStreakSaved
 }) => {
   const taskList = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const [activeTask, setActiveTask] = useState(null);
@@ -4738,6 +4975,7 @@ const ProgressSection = ({
           initialQuestionIndex={activeQuestionIndex}
           onLevelSelect={setActiveLevel}
           onQuestionChange={setActiveQuestionIndex}
+          onStreakSaved={onStreakSaved}
           onComplete={(taskId, score, options) => {
             onUpdateProgress(taskId, score, options);
             // setActiveTask(null); // Убрали закрытие, чтобы можно было решать дальше
@@ -4904,7 +5142,8 @@ const PythonSection = ({
   studentsLoading,
   openTask,
   onOpenTaskHandled,
-  onTaskStateChange
+  onTaskStateChange,
+  onStreakSaved
 }) => {
   const taskList = PYTHON_TASKS;
   const [activeTask, setActiveTask] = useState(null);
@@ -5623,6 +5862,7 @@ const PythonSection = ({
           testDb={testsDb}
           initialQuestionIndex={activeQuestionIndex}
           onQuestionChange={setActiveQuestionIndex}
+          onStreakSaved={onStreakSaved}
           onComplete={(taskId, score, options) => {
             onUpdateProgress(taskId, score, options);
           }}
@@ -8021,6 +8261,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const [homeworkPopupEntry, setHomeworkPopupEntry] = useState(null);
   const [homeworkPopupOpen, setHomeworkPopupOpen] = useState(false);
   const [solvedByTask, setSolvedByTask] = useState({});
+  const [studentStreak, setStudentStreak] = useState(getDefaultStreak());
+  const [streakPopup, setStreakPopup] = useState({
+    open: false,
+    current: 0,
+    best: 0,
+    isNewRecord: false
+  });
+  const studentStreakRef = useRef(studentStreak);
   const [isDesktopWide, setIsDesktopWide] = useState(
     typeof window !== 'undefined' ? window.innerWidth > 1000 : true
   );
@@ -8077,6 +8325,75 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         { id: 'python', label: 'Изучение Python', icon: FileText },
         { id: 'notes', label: 'Конспекты', icon: BookOpen }
       ];
+  const handleStreakSaved = (nextStreak) => {
+    const normalizedNext = normalizeStreak(nextStreak);
+    const normalizedPrev = normalizeStreak(studentStreakRef.current);
+    setStudentStreak(normalizedNext);
+    const todayKey = getLocalDayKey();
+    const activeDay = normalizeDayKey(normalizedNext.lastActiveDay);
+    const streakIncreased = normalizedNext.current > normalizedPrev.current;
+    const isNewRecord = normalizedNext.current > normalizedPrev.best;
+    if (streakIncreased && activeDay && activeDay === todayKey) {
+      setStreakPopup({
+        open: true,
+        current: normalizedNext.current,
+        best: normalizedNext.best,
+        isNewRecord
+      });
+    }
+  };
+  const streak = normalizeStreak(studentStreak);
+  const todayKey = getLocalDayKey();
+  const todayNum = dayKeyToNumber(todayKey);
+  const lastActiveKey = normalizeDayKey(streak.lastActiveDay);
+  const lastActiveLabel = formatStreakDate(lastActiveKey);
+  const lastDayNum = dayKeyToNumber(lastActiveKey);
+  let diffDays = Number.isFinite(todayNum) && Number.isFinite(lastDayNum) ? todayNum - lastDayNum : null;
+  if (Number.isFinite(diffDays) && diffDays < 0) diffDays = 0;
+  const weekStart = getWeekStartKey(todayKey);
+  const freezeUsedThisWeek = weekStart && streak.freezeUsedWeekStart === weekStart;
+  const freezeAvailable = !freezeUsedThisWeek;
+  const displayStreakCurrent = (() => {
+    if (!lastActiveKey) return 0;
+    if (!Number.isFinite(diffDays) || diffDays <= 1) return streak.current;
+    if (diffDays === 2 && freezeAvailable) return streak.current;
+    return 0;
+  })();
+  const streakStatusText = (() => {
+    if (!lastActiveKey) return 'Начните решать, чтобы запустить серию.';
+    if (diffDays === 0) return 'Сегодняшняя активность засчитана.';
+    if (diffDays === 1) return 'Решите сегодня, чтобы сохранить серию.';
+    if (diffDays === 2) {
+      return freezeAvailable ? 'Заморозка сохранит серию — решите сегодня.' : 'Серия сброшена.';
+    }
+    if (Number.isFinite(diffDays) && diffDays > 2) return 'Серия сброшена.';
+    return 'Продолжайте решать задачи.';
+  })();
+  const streakWeek = (() => {
+    if (!Number.isFinite(todayNum)) return [];
+    const lastNum = Number.isFinite(lastDayNum) ? lastDayNum : null;
+    const startNum = displayStreakCurrent > 0 && Number.isFinite(lastNum)
+      ? lastNum - (displayStreakCurrent - 1)
+      : null;
+    const freezeDayKey = normalizeDayKey(streak.freezeUsedDay);
+    const freezeNum = dayKeyToNumber(freezeDayKey);
+    const list = [];
+    for (let offset = 6; offset >= 0; offset -= 1) {
+      const dayNum = todayNum - offset;
+      const dayKey = numberToDayKey(dayNum);
+      const labelRaw = dayKey
+        ? new Date(`${dayKey}T12:00:00`).toLocaleDateString('ru-RU', { weekday: 'short' })
+        : '';
+      const label = labelRaw.replace('.', '').toUpperCase();
+      const isInStreak = Number.isFinite(startNum)
+        && Number.isFinite(lastNum)
+        && dayNum >= startNum
+        && dayNum <= lastNum;
+      const isFreeze = isInStreak && Number.isFinite(freezeNum) && dayNum === freezeNum;
+      list.push({ dayKey, label, isInStreak, isFreeze, isToday: dayNum === todayNum });
+    }
+    return list;
+  })();
 
   const loadStudents = async (teacherId) => {
     setStudentsLoading(true);
@@ -8235,6 +8552,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   useEffect(() => {
     if (user.role !== 'student') {
       setSolvedByTask({});
+      setStudentStreak(getDefaultStreak());
       return;
     }
     let cancelled = false;
@@ -8245,12 +8563,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           ? data.solvedByTask
           : {};
         setSolvedByTask(solved);
+        setStudentStreak(normalizeStreak(data?.streak));
       })
       .catch(() => {
-        if (!cancelled) setSolvedByTask({});
+        if (!cancelled) {
+          setSolvedByTask({});
+          setStudentStreak(getDefaultStreak());
+        }
       });
     return () => { cancelled = true; };
-  }, [user.role, user.id]);
+  }, [user.role, user.id, goalRefreshTick]);
 
   useEffect(() => {
     if (user.role !== 'student') {
@@ -8285,6 +8607,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       setHomeworkPopupOpen(false);
     }
   }, [isDesktopWide, homeworkPopupOpen]);
+
+  useEffect(() => {
+    studentStreakRef.current = studentStreak;
+  }, [studentStreak]);
 
   useEffect(() => {
     if (user.role !== 'teacher') {
@@ -8632,6 +8958,37 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           })}
         </div>
       )}
+      {streakPopup.open && (
+          <div
+            className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/30 streak-overlay"
+            onClick={() => setStreakPopup((prev) => ({ ...prev, open: false }))}
+          >
+            <div
+              className="w-[280px] rounded-[32px] bg-white px-6 py-6 text-center shadow-2xl streak-card"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-full bg-purple-100 streak-mascot">
+                <img src={mascotApproval} alt="Маскот" className="h-16 w-16 object-contain" />
+              </div>
+              <div className="text-5xl font-extrabold text-purple-600">{streakPopup.current}</div>
+              <div className="mt-1 text-sm font-semibold text-purple-600">
+                {`${formatDaysText(streakPopup.current)} подряд`}
+              </div>
+              <div className="mt-4 rounded-2xl border border-purple-100 bg-purple-50 px-4 py-2 text-[11px] text-purple-700 shadow-sm">
+                {streakPopup.isNewRecord
+                  ? `Новый рекорд! ${streakPopup.current} ${formatDaysText(streakPopup.current)} подряд.`
+                  : `Отлично! Серия ${formatDaysText(streakPopup.current)} подряд.`}
+              </div>
+              <button
+                type="button"
+                onClick={() => setStreakPopup((prev) => ({ ...prev, open: false }))}
+                className="mt-4 w-full rounded-xl border border-purple-200 bg-white px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-50"
+              >
+                Ок
+              </button>
+            </div>
+          </div>
+      )}
       <StudentTour
         user={user}
         view={view}
@@ -8692,6 +9049,66 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           <button onClick={() => setMenuOpen(!menuOpen)}><Menu/></button>
         </header>
         <main className="flex-1 overflow-y-auto p-4 md:p-8" data-tour="main">
+          {user.role === 'student' && (
+            <div className="mb-3 flex justify-end">
+              <div className="relative group">
+                <div
+                  className={`flex items-center gap-2 rounded-full border border-purple-200 bg-white px-3.5 py-2 text-sm font-semibold text-purple-600 shadow-sm cursor-default streak-badge ${displayStreakCurrent > 0 ? 'streak-badge--active' : ''}`}
+                  aria-label={`Серия: ${displayStreakCurrent}`}
+                >
+                  <Flame
+                    size={18}
+                    className={`${displayStreakCurrent > 0 ? 'text-purple-500 streak-flame' : 'text-gray-300'}`}
+                    fill={displayStreakCurrent > 0 ? 'currentColor' : 'none'}
+                    stroke={displayStreakCurrent > 0 ? 'currentColor' : 'currentColor'}
+                  />
+                  <span className="text-gray-900">{displayStreakCurrent}</span>
+                </div>
+                <div className="pointer-events-none absolute right-0 z-50 mt-3 w-72 origin-top-right translate-y-1 rounded-3xl border border-purple-200 bg-white p-4 text-gray-700 shadow-xl opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 streak-popover">
+                  <div className="absolute right-6 -top-1 h-3 w-3 rotate-45 border-l border-t border-purple-200 bg-white" />
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-100 text-purple-600">
+                      <Flame size={22} />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-purple-700">Серия</div>
+                      <div className="text-xs text-gray-500">Решайте каждый день, чтобы поддерживать серию.</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-end gap-2">
+                    <div className="text-3xl font-bold text-gray-900">{displayStreakCurrent}</div>
+                    <div className="text-xs text-gray-500">дней подряд</div>
+                  </div>
+                  <div className="mt-1 text-xs text-gray-500">{streakStatusText}</div>
+                  <div className="mt-3 grid grid-cols-7 gap-2 text-[10px] text-gray-400">
+                    {streakWeek.map((day) => (
+                      <div key={day.dayKey || day.label} className="flex flex-col items-center gap-1">
+                        <span className="uppercase">{day.label}</span>
+                        <div
+                          className={`flex h-7 w-7 items-center justify-center rounded-full border ${
+                            day.isInStreak
+                              ? 'border-purple-400 bg-purple-500 text-white'
+                              : 'border-gray-200 bg-gray-100 text-gray-400'
+                          }`}
+                        >
+                          {day.isInStreak && (
+                            day.isFreeze ? <Snowflake size={14} /> : <Check size={16} />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-[11px] text-gray-500">
+                    <span>{`Рекорд: ${streak.best}`}</span>
+                    <span>{`Заморозка: ${freezeAvailable ? 'доступна' : 'использована'}`}</span>
+                  </div>
+                  {lastActiveLabel && (
+                    <div className="mt-1 text-[11px] text-gray-400">{`Последняя активность: ${lastActiveLabel}`}</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           {user.role === 'student' && goalState?.entry && !goalState.completed && goalGoals.length > 0 && (
             <div className="sticky top-0 z-30 mb-4">
               {goalCollapsed ? (
@@ -8840,6 +9257,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               initialSection={initialProgressSection}
               onSectionChange={handleProgressSectionChange}
               onTaskStateChange={handleTaskStateChange}
+              onStreakSaved={handleStreakSaved}
             />
           )}
           {view === 'python' && (
@@ -8858,6 +9276,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               openTask={pendingOpenTask}
               onOpenTaskHandled={() => setPendingOpenTask(null)}
               onTaskStateChange={handleTaskStateChange}
+              onStreakSaved={handleStreakSaved}
             />
           )}
           {view === 'notes' && (
@@ -8975,7 +9394,24 @@ const App = () => {
   if (!user) return <LoginPage onLogin={handleLogin} />;
   return (
     <>
-      <style>{`@keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } } @keyframes shine { 0% { transform: translateX(-120%); } 100% { transform: translateX(120%); } } .animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; }`}</style>
+      <style>{`
+        @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes shine { 0% { transform: translateX(-120%); } 100% { transform: translateX(120%); } }
+        @keyframes streakPop { 0% { opacity:0; transform: translateY(8px) scale(0.94); } 60% { opacity:1; transform: translateY(-2px) scale(1.03); } 100% { opacity:1; transform: translateY(0) scale(1); } }
+        @keyframes streakBackdrop { from { opacity:0; } to { opacity:1; } }
+        @keyframes streakPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.35); } 50% { box-shadow: 0 0 0 8px rgba(168, 85, 247, 0); } }
+        @keyframes streakFlicker { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-1px) scale(1.04); } }
+        @keyframes streakPopover { from { opacity:0; transform: translateY(6px) scale(0.98); } to { opacity:1; transform: translateY(0) scale(1); } }
+
+        .animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; }
+        .streak-badge { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+        .streak-badge--active { animation: streakPulse 2.2s ease-in-out infinite; }
+        .streak-flame { transform-origin: center bottom; animation: streakFlicker 1.6s ease-in-out infinite; }
+        .group:hover .streak-popover { animation: streakPopover 0.2s ease-out; }
+        .streak-overlay { animation: streakBackdrop 0.18s ease-out; }
+        .streak-card { animation: streakPop 0.28s ease-out; }
+        .streak-mascot { animation: streakFlicker 2.4s ease-in-out infinite; }
+      `}</style>
       <DashboardLayout user={user} onLogout={handleLogout} progress={progress} onUpdateProgress={updateProgress} />
     </>
   );

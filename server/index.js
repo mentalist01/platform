@@ -51,6 +51,68 @@ const LEVEL_WEIGHTS = {
 };
 const SOFT_DELETE_DAYS = 30;
 const SOFT_DELETE_TTL_MS = SOFT_DELETE_DAYS * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const normalizeDayKey = (value) => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(dt.getTime())) return null;
+  if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) return null;
+  return trimmed;
+};
+
+const dayKeyToNumber = (dayKey) => {
+  const normalized = normalizeDayKey(dayKey);
+  if (!normalized) return NaN;
+  const [year, month, day] = normalized.split('-').map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return NaN;
+  return Math.floor(Date.UTC(year, month - 1, day) / DAY_MS);
+};
+
+const numberToDayKey = (dayNumber) => {
+  if (!Number.isFinite(dayNumber)) return null;
+  const ms = dayNumber * DAY_MS;
+  return new Date(ms).toISOString().slice(0, 10);
+};
+
+const getWeekStartKey = (dayKey) => {
+  const dayNum = dayKeyToNumber(dayKey);
+  if (!Number.isFinite(dayNum)) return null;
+  const dt = new Date(dayNum * DAY_MS);
+  const weekday = dt.getUTCDay(); // 0 = Sunday, 1 = Monday
+  const mondayIndex = (weekday + 6) % 7; // Monday = 0
+  return numberToDayKey(dayNum - mondayIndex);
+};
+
+const getDefaultStreak = () => ({
+  current: 0,
+  best: 0,
+  lastActiveDay: null,
+  freezeUsedWeekStart: null,
+  freezeUsedDay: null,
+});
+
+const normalizeStreak = (value) => {
+  if (!value || typeof value !== 'object') return getDefaultStreak();
+  const current = Number(value.current);
+  const best = Number(value.best);
+  const normalized = {
+    current: Number.isFinite(current) && current > 0 ? Math.floor(current) : 0,
+    best: Number.isFinite(best) && best > 0 ? Math.floor(best) : 0,
+    lastActiveDay: normalizeDayKey(value.lastActiveDay) || null,
+    freezeUsedWeekStart: normalizeDayKey(value.freezeUsedWeekStart) || null,
+    freezeUsedDay: normalizeDayKey(value.freezeUsedDay) || null,
+  };
+  if (normalized.best < normalized.current) normalized.best = normalized.current;
+  return normalized;
+};
 
 
 fs.mkdirSync(uploadsDir, { recursive: true });
@@ -434,8 +496,8 @@ const recomputeProgressFromSolved = (data) => {
 const getStudentData = (studentId) => {
   const db = readProgressDb();
   const raw = db[studentId];
-  if (!raw) return { progress: {}, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [] };
-  if (raw.progress || raw.notes || raw.notesByTask || raw.mocks || raw.schedule || raw.solvedByTask) {
+  if (!raw) return { progress: {}, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], streak: getDefaultStreak(), nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [] };
+  if (raw.progress || raw.notes || raw.notesByTask || raw.mocks || raw.schedule || raw.solvedByTask || raw.streak) {
     return {
       progress: raw.progress || {},
       notes: raw.notes || '',
@@ -444,11 +506,12 @@ const getStudentData = (studentId) => {
       schedule: Array.isArray(raw.schedule) ? raw.schedule : [],
       solvedByTask: raw.solvedByTask && typeof raw.solvedByTask === 'object' ? raw.solvedByTask : {},
       solvedEvents: Array.isArray(raw.solvedEvents) ? raw.solvedEvents : [],
+      streak: normalizeStreak(raw.streak),
       nextLesson: raw.nextLesson && typeof raw.nextLesson === 'object' ? raw.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
       homeworks: Array.isArray(raw.homeworks) ? raw.homeworks : [],
     };
   }
-  return { progress: raw, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [] };
+  return { progress: raw, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], streak: getDefaultStreak(), nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [] };
 };
 
 const setStudentData = (studentId, data) => {
@@ -461,6 +524,7 @@ const setStudentData = (studentId, data) => {
     schedule: Array.isArray(data.schedule) ? data.schedule : [],
     solvedByTask: data.solvedByTask && typeof data.solvedByTask === 'object' ? data.solvedByTask : {},
     solvedEvents: Array.isArray(data.solvedEvents) ? data.solvedEvents : [],
+    streak: normalizeStreak(data.streak),
     nextLesson: data.nextLesson && typeof data.nextLesson === 'object' ? data.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
     homeworks: Array.isArray(data.homeworks) ? data.homeworks : [],
   };
@@ -1219,7 +1283,7 @@ app.patch('/api/progress', (req, res) => {
 });
 
 app.post('/api/progress/solve', (req, res) => {
-  const { studentId, taskNumber, levelId, questionId, totalQuestions, levelMax, levelTotals, code } = req.body || {};
+  const { studentId, taskNumber, levelId, questionId, totalQuestions, levelMax, levelTotals, code, localDay } = req.body || {};
   if (!studentId || !taskNumber || !levelId || !questionId) {
     return res.status(400).json({ error: 'Некорректные параметры' });
   }
@@ -1229,6 +1293,17 @@ app.post('/api/progress/solve', (req, res) => {
   if (!Number.isFinite(taskNum)) {
     return res.status(400).json({ error: 'Некорректный номер задания' });
   }
+  const serverDayKey = new Date().toISOString().slice(0, 10);
+  const clientDayKey = normalizeDayKey(localDay);
+  const resolvedDayKey = (() => {
+    if (!clientDayKey) return serverDayKey;
+    const serverNum = dayKeyToNumber(serverDayKey);
+    const clientNum = dayKeyToNumber(clientDayKey);
+    if (!Number.isFinite(serverNum) || !Number.isFinite(clientNum)) return serverDayKey;
+    const diff = clientNum - serverNum;
+    if (diff < -1 || diff > 1) return serverDayKey;
+    return clientDayKey;
+  })();
   const students = readStudentsDb();
   if (!hasActiveStudent(students, studentId)) {
     return res.status(404).json({ error: 'Ученик не найден' });
@@ -1237,6 +1312,7 @@ app.post('/api/progress/solve', (req, res) => {
   const data = getStudentData(studentId);
   const solvedByTask = { ...(data.solvedByTask || {}) };
   const solvedEvents = Array.isArray(data.solvedEvents) ? [...data.solvedEvents] : [];
+  const streak = normalizeStreak(data.streak);
   const testsDb = readTestsDb();
   const taskKey = String(taskNum);
   const levelKey = String(levelId);
@@ -1248,8 +1324,10 @@ app.post('/api/progress/solve', (req, res) => {
     ? { ...levelEntry.solvedCode }
     : {};
   const qKey = String(questionId);
+  let solvedAdded = false;
   if (!solvedList.includes(qKey)) {
     solvedList.push(qKey);
+    solvedAdded = true;
     const questionNumber = getQuestionNumberById(testsDb, taskNum, levelKey, qKey);
     solvedEvents.push({
       id: crypto.randomUUID(),
@@ -1259,6 +1337,7 @@ app.post('/api/progress/solve', (req, res) => {
       questionId: qKey,
       questionNumber,
       solvedAt: new Date().toISOString(),
+      localDay: resolvedDayKey,
     });
   }
   if (typeof code === 'string' && code.trim()) {
@@ -1290,8 +1369,45 @@ app.post('/api/progress/solve', (req, res) => {
   if (solvedEvents.length > 200) {
     solvedEvents.splice(0, solvedEvents.length - 200);
   }
-  const updated = setStudentData(studentId, { ...data, solvedByTask, solvedEvents, progress });
-  res.json({ taskProgress, progress: updated.progress });
+  if (solvedAdded && resolvedDayKey) {
+    const currentDayNum = dayKeyToNumber(resolvedDayKey);
+    const lastActiveDay = normalizeDayKey(streak.lastActiveDay);
+    const lastDayNum = dayKeyToNumber(lastActiveDay);
+    if (!Number.isFinite(lastDayNum) || !lastActiveDay) {
+      streak.current = 1;
+      streak.best = Math.max(streak.best, streak.current);
+      streak.lastActiveDay = resolvedDayKey;
+    } else if (Number.isFinite(currentDayNum)) {
+      const diff = currentDayNum - lastDayNum;
+      if (diff === 1) {
+        streak.current += 1;
+        streak.lastActiveDay = resolvedDayKey;
+        streak.best = Math.max(streak.best, streak.current);
+      } else if (diff === 2) {
+        const skippedDay = numberToDayKey(lastDayNum + 1);
+        const skippedWeekStart = getWeekStartKey(skippedDay);
+        const freezeWeek = normalizeDayKey(streak.freezeUsedWeekStart);
+        if (skippedWeekStart && (!freezeWeek || freezeWeek !== skippedWeekStart)) {
+          streak.current += 1;
+          streak.lastActiveDay = resolvedDayKey;
+          streak.freezeUsedWeekStart = skippedWeekStart;
+          streak.freezeUsedDay = skippedDay;
+          streak.best = Math.max(streak.best, streak.current);
+        } else {
+          streak.current = 1;
+          streak.lastActiveDay = resolvedDayKey;
+          streak.best = Math.max(streak.best, streak.current);
+        }
+      } else if (diff > 2) {
+        streak.current = 1;
+        streak.lastActiveDay = resolvedDayKey;
+        streak.best = Math.max(streak.best, streak.current);
+      }
+    }
+  }
+
+  const updated = setStudentData(studentId, { ...data, solvedByTask, solvedEvents, progress, streak });
+  res.json({ taskProgress, progress: updated.progress, streak: updated.streak });
 });
 
 app.get('/api/teacher-solved-events', (req, res) => {
