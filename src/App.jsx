@@ -9138,7 +9138,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           {user.role === 'student' && goalState?.entry && !goalState.completed && goalGoals.length > 0 && (
             <div className="sticky top-0 z-30 mb-4">
               {goalCollapsed ? (
-                <div className="surface-panel rounded-2xl px-4 py-3 text-sm text-gray-700 shadow-soft flex flex-wrap items-center justify-between gap-3">
+                <div className="surface-panel goal-collapse rounded-2xl px-4 py-3 text-sm text-gray-700 shadow-soft flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Цель недели</div>
                     <div className="mt-1 text-sm font-semibold text-gray-900">
@@ -9170,7 +9170,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                   </div>
                 </div>
               ) : (
-                <div className="rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-fuchsia-50 px-5 py-4 text-sm text-gray-700 shadow-soft">
+                <div className="goal-expand rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-fuchsia-50 px-5 py-4 text-sm text-gray-700 shadow-soft">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Цель недели</div>

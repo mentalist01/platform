@@ -145,6 +145,16 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes goalExpand {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes goalCollapse {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 @keyframes sheen {
   0% { transform: translateX(-120%); }
   100% { transform: translateX(120%); }
@@ -177,6 +187,8 @@
 @keyframes streakPopover { from { opacity:0; transform: translateY(6px) scale(0.98); } to { opacity:1; transform: translateY(0) scale(1); } }
 
 .animate-fadeIn { animation: fadeIn 0.45s ease-out both; }
+.goal-expand { animation: goalExpand 0.28s ease-out both; transform-origin: top center; }
+.goal-collapse { animation: goalCollapse 0.22s ease-out both; transform-origin: top center; }
 .streak-badge { transition: transform 0.2s ease, box-shadow 0.2s ease; }
 .streak-badge--active { animation: streakPulse 2.2s ease-in-out infinite; }
 .streak-flame { transform-origin: center bottom; animation: streakFlicker 1.6s ease-in-out infinite; }
