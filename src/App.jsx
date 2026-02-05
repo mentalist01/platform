@@ -1050,19 +1050,25 @@ const STUDENT_TOUR_STEPS = [
  * SHARED COMPONENTS
  */
 const Button = ({ children, onClick, variant = 'primary', className = '', ...props }) => {
-  const baseStyle = "px-4 py-2 rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed";
+  const baseStyle = "px-4 py-2 rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-[1px] disabled:opacity-50 disabled:cursor-not-allowed";
   const variants = {
-    primary: "bg-purple-600 text-white hover:bg-purple-700 shadow-md shadow-purple-200",
-    secondary: "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50",
-    ghost: "text-gray-500 hover:bg-gray-100 hover:text-purple-600",
-    danger: "bg-red-50 text-red-600 hover:bg-red-100",
-    success: "bg-green-600 text-white hover:bg-green-700"
+    primary: "bg-purple-600 text-white hover:bg-purple-700 shadow-md shadow-purple-200 hover:-translate-y-[1px]",
+    secondary: "bg-white/80 text-gray-700 border border-slate-200 hover:bg-white",
+    ghost: "text-gray-500 hover:bg-purple-50 hover:text-purple-700",
+    danger: "bg-rose-50 text-rose-600 hover:bg-rose-100",
+    success: "bg-emerald-600 text-white hover:bg-emerald-700"
   };
   return <button className={`${baseStyle} ${variants[variant]} ${className}`} onClick={onClick} {...props}>{children}</button>;
 };
 
-const Card = ({ children, className = '', onClick }) => (
-  <div onClick={onClick} className={`bg-white rounded-2xl p-5 shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300 ${onClick ? 'cursor-pointer hover:border-purple-200 active:scale-[0.99]' : ''} ${className}`}>{children}</div>
+const Card = ({ children, className = '', onClick, ...props }) => (
+  <div
+    onClick={onClick}
+    className={`surface-card rounded-3xl p-5 transition-all duration-300 ${onClick ? 'cursor-pointer hover:border-purple-200 hover:shadow-lift hover:-translate-y-1 active:translate-y-0' : ''} ${className}`}
+    {...props}
+  >
+    {children}
+  </div>
 );
 
 const ProgressBar = ({ value }) => {
@@ -1071,8 +1077,8 @@ const ProgressBar = ({ value }) => {
   if (value >= 70) color = 'bg-purple-500';
   if (value >= 90) color = 'bg-green-500';
   return (
-    <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden mt-2">
-      <div className={`h-2.5 rounded-full ${color} transition-all duration-1000 ease-out`} style={{ width: `${value}%` }}></div>
+    <div className="w-full bg-slate-100/80 rounded-full h-2.5 overflow-hidden mt-2 ring-1 ring-slate-200/70">
+      <div className={`h-2.5 rounded-full ${color} transition-all duration-700 ease-out`} style={{ width: `${value}%` }}></div>
     </div>
   );
 };
@@ -2998,8 +3004,8 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
 
   if (!Array.isArray(questions) || questions.length === 0) {
     const emptyModal = (
-      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-        <div className="bg-white rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative animate-fadeIn text-center">
+      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
+        <div className="surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
           <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
           <h2 className="text-2xl font-bold text-gray-900">Заданий пока нет</h2>
           <p className="text-gray-500 mt-2">Учитель еще не добавил задания для этой темы.</p>
@@ -3045,8 +3051,8 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
   };
 
   const modal = (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-3xl w-full max-w-5xl max-h-[90vh] p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden animate-fadeIn">
+    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="surface-card modal-card rounded-3xl w-full max-w-5xl max-h-[90vh] p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
         <div className="flex flex-col gap-4 mb-4">
           <div className="flex justify-between items-start">
             <div>
@@ -3280,7 +3286,7 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
       </div>
       {expandedImage && (
         <div
-          className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4"
+          className="fixed inset-0 z-[60] bg-black/80 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm"
           onClick={() => setExpandedImage(null)}
         >
           <div className="relative max-w-[95vw] max-h-[95vh]" onClick={(e) => e.stopPropagation()}>
@@ -3346,8 +3352,8 @@ const PythonReviewModal = ({ task, onClose, studentId, testDb }) => {
 
   if (!Array.isArray(questions) || questions.length === 0) {
     const emptyModal = (
-      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-        <div className="bg-white rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative animate-fadeIn text-center">
+      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
+        <div className="surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
           <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
           <h2 className="text-2xl font-bold text-gray-900">Заданий пока нет</h2>
           <p className="text-gray-500 mt-2">Для этой темы нет задач.</p>
@@ -3377,8 +3383,8 @@ const PythonReviewModal = ({ task, onClose, studentId, testDb }) => {
   };
 
   const modal = (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-3xl w-full max-w-5xl max-h-[90vh] p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden animate-fadeIn">
+    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="surface-card modal-card rounded-3xl w-full max-w-5xl max-h-[90vh] p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
         <div className="flex flex-col gap-4 mb-4">
           <div className="flex justify-between items-start">
             <div>
@@ -3600,8 +3606,8 @@ const ProgressReviewModal = ({ task, onClose, studentId, testDb }) => {
     .map((file) => ({ ...file, url: withStudentId(file?.url, studentId) }));
 
   const modal = (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-3xl w-full max-w-5xl max-h-[90vh] p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden animate-fadeIn">
+    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
+    <div className="surface-card modal-card rounded-3xl w-full max-w-5xl max-h-[90vh] p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
         <div className="flex flex-col gap-4 mb-4">
           <div className="flex justify-between items-start">
             <div>
@@ -3957,8 +3963,8 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
 
   if (stage === 'select_level') {
     const modal = (
-      <div className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center p-4 md:p-8 overflow-y-auto backdrop-blur-sm">
-        <div className="bg-white rounded-3xl max-w-2xl w-full p-8 shadow-2xl relative animate-fadeIn">
+      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-start justify-center p-4 md:p-8 overflow-y-auto backdrop-blur-sm">
+        <div className="surface-card modal-card rounded-3xl max-w-2xl w-full p-8 shadow-2xl relative">
           <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
           
           <div className="text-center mb-8">
@@ -4052,8 +4058,8 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     const targetSolvedCount = targetStatus.filter((item) => item.solved).length;
 
     const modal = (
-      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-        <div className="bg-white rounded-3xl w-full max-w-5xl max-h-[90vh] p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden animate-fadeIn">
+      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
+        <div className="surface-card modal-card rounded-3xl w-full max-w-5xl max-h-[90vh] p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
           {/* Header & Navigation */}
           <div className="flex flex-col gap-4 mb-4">
             <div className="flex justify-between items-start">
@@ -4398,7 +4404,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
         </div>
         {expandedImage && (
           <div
-            className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4"
+            className="fixed inset-0 z-[60] bg-black/80 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm"
             onClick={() => setExpandedImage(null)}
           >
             <div className="relative max-w-[95vw] max-h-[95vh]" onClick={(e) => e.stopPropagation()}>
@@ -4447,10 +4453,12 @@ const LoginPage = ({ onLogin }) => {
   };
 
   return (
-    <div className="app-min-h bg-gray-50 flex items-center justify-center p-4 font-sans">
-      <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 border border-gray-100">
+    <div className="app-min-h app-shell relative overflow-hidden flex items-center justify-center p-4 font-sans">
+      <div className="absolute -top-32 -right-24 h-72 w-72 rounded-full bg-purple-200/40 blur-3xl" />
+      <div className="absolute -bottom-32 -left-24 h-72 w-72 rounded-full bg-amber-200/40 blur-3xl" />
+      <div className="relative max-w-md w-full surface-card rounded-4xl p-8">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4"><CheckCircle size={32} /></div>
+          <div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4 floating"><CheckCircle size={32} /></div>
           <h1 className="text-2xl font-bold text-gray-900">Иван на сотку</h1>
           <p className="text-gray-500 mt-2">Вход в платформу</p>
         </div>
@@ -4820,7 +4828,7 @@ const ProgressSection = ({
         </div>
       </div>
 
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-purple-50 p-5 shadow-md">
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-fuchsia-50 p-5 shadow-soft">
         <div className="absolute inset-0 opacity-40">
           <div className="absolute -left-10 top-0 h-full w-32 bg-gradient-to-r from-transparent via-white/70 to-transparent blur-xl" />
         </div>
@@ -4838,10 +4846,13 @@ const ProgressSection = ({
           </div>
           <div className="relative h-8 w-full rounded-full bg-white/80 border border-purple-100 overflow-hidden">
             <div
-              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.55)] transition-[width] duration-700 ease-out"
+              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.45)] transition-[width] duration-700 ease-out"
               style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
             />
-            <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-[shine_3s_linear_infinite]" />
+            <div
+              key={`sheen-${totalMasteryRounded}`}
+              className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-sheen"
+            />
           </div>
           <div className="flex items-center justify-between text-xs text-gray-500">
             <span>Реши все задания, чтобы сдать ЕГЭ на 100 баллов</span>
@@ -4874,13 +4885,14 @@ const ProgressSection = ({
 
       {section === 'progress' && (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {taskList.map((task) => {
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 stagger-children">
+            {taskList.map((task, idx) => {
               const val = progressMap[task.id] || 0;
               const clickable = role === 'student' || role === 'teacher';
               return (
                 <Card
                   key={task.id}
+                  style={{ '--i': idx }}
                   className={`group relative ${clickable ? 'cursor-pointer' : ''}`}
                   onClick={
                     clickable
@@ -4999,14 +5011,15 @@ const ProgressSection = ({
             <h3 className="text-lg font-bold text-gray-800">Заметки учителя</h3>
             <span className="text-xs text-gray-400">Комментируйте задания кратко</span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {taskList.map((task) => {
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 stagger-children">
+            {taskList.map((task, idx) => {
               const num = task.number;
               const note = getMergedNote(num);
               const hasNote = Boolean(note && note.trim());
               return (
                 <div
                   key={task.id ?? num}
+                  style={{ '--i': idx }}
                   className={`rounded-3xl border p-4 flex flex-col gap-3 transition-all duration-200 shadow-sm hover:shadow-md ${
                     hasNote
                       ? 'border-emerald-300 bg-gradient-to-br from-emerald-50 via-white to-emerald-50'
@@ -5487,9 +5500,10 @@ const PythonSection = ({
     }, 0);
     return Math.round((total / taskList.length) * 10) / 10;
   })();
+  const totalMasteryRounded = Math.round(totalMastery);
   const totalMasteryLabel = Number.isFinite(totalMastery) && totalMastery % 1 !== 0
     ? totalMastery.toFixed(1)
-    : Math.round(totalMastery).toString();
+    : totalMasteryRounded.toString();
 
   const renderStudentPicker = () => {
     if (role !== 'teacher') return null;
@@ -5554,7 +5568,7 @@ const PythonSection = ({
         </div>
       </div>
 
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-purple-50 p-5 shadow-md">
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-fuchsia-50 p-5 shadow-soft">
         <div className="absolute inset-0 opacity-40">
           <div className="absolute -left-10 top-0 h-full w-32 bg-gradient-to-r from-transparent via-white/70 to-transparent blur-xl" />
         </div>
@@ -5572,10 +5586,13 @@ const PythonSection = ({
           </div>
           <div className="relative h-8 w-full rounded-full bg-white/80 border border-purple-100 overflow-hidden">
             <div
-              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.55)] transition-[width] duration-700 ease-out"
+              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.45)] transition-[width] duration-700 ease-out"
               style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
             />
-            <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-[shine_3s_linear_infinite]" />
+            <div
+              key={`sheen-python-${totalMasteryRounded}`}
+              className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-sheen"
+            />
           </div>
           <div className="flex items-center justify-between text-xs text-gray-500">
             <span>Проходите темы последовательно</span>
@@ -5587,13 +5604,14 @@ const PythonSection = ({
       {dataError && <div className="text-xs text-red-500">{dataError}</div>}
       {testsDbError && <div className="text-xs text-red-500">{testsDbError}</div>}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {taskList.map((task) => {
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 stagger-children">
+        {taskList.map((task, idx) => {
           const val = progressMap[task.id] || 0;
           const clickable = role === 'student' || role === 'teacher';
           return (
             <Card
               key={task.id}
+              style={{ '--i': idx }}
               className="group relative"
               onClick={clickable ? () => {
                 if (role === 'teacher') setReviewTask(task);
@@ -7484,12 +7502,12 @@ const NotesSection = ({
         <h2 className="text-2xl font-bold">Конспекты</h2>
         {renderStudentPicker()}
       </div>
-      <div className="grid grid-cols-3 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
         {taskOptions.map((task) => (
           <Card
             key={task.number}
             onClick={() => setCurrentTask(normalizeTaskNumber(task.number))}
-            className={`flex flex-col items-center justify-center p-6 cursor-pointer ${
+            className={`flex flex-col items-center justify-center p-4 sm:p-6 cursor-pointer ${
               (taskCounts.get(task.number) || 0) > 0 ? 'hover:bg-purple-50' : 'opacity-70 hover:bg-gray-50'
             }`}
           >
@@ -7517,7 +7535,7 @@ const NotesSection = ({
         {renderStudentPicker()}
       </div>
       <h2 className="text-2xl font-bold mb-6">Задание {formatTaskNumber(currentTask) || currentTask}</h2>
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
         <Card
           onClick={() => setCurrentCategory('class')}
           className={`p-8 flex items-center gap-4 cursor-pointer ${
@@ -7986,7 +8004,7 @@ const StudentTour = ({ user, view, setView, menuOpen, setMenuOpen, onFinish }) =
 
   return createPortal(
     <div className="fixed inset-0 z-[2000]">
-      <div className="absolute inset-0 bg-black/50" />
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
       {highlightRect && (
         <div
           className="absolute rounded-3xl ring-2 ring-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] pointer-events-none"
@@ -7999,7 +8017,7 @@ const StudentTour = ({ user, view, setView, menuOpen, setMenuOpen, onFinish }) =
         />
       )}
       <div className="absolute inset-x-0 bottom-0 sm:bottom-6 flex justify-center sm:justify-end">
-        <div className="bg-white w-[min(520px,calc(100%-2rem))] rounded-3xl border border-gray-200 shadow-2xl p-4 sm:p-5 mx-4 sm:mx-0 sm:mr-6">
+        <div className="surface-card modal-card w-[min(520px,calc(100%-2rem))] rounded-3xl p-4 sm:p-5 mx-4 sm:mx-0 sm:mr-6">
           <div className="flex items-start gap-3">
             <img src={mascotSrc} alt="Маскот" className="w-24 h-24 sm:w-28 sm:h-28 object-contain drop-shadow-sm" />
             <div>
@@ -8149,9 +8167,9 @@ const NewHomeworkModal = ({ entry, open, onClose, onOpenSchedule, onOpenTask, te
           className="absolute inset-0 w-full h-full object-contain drop-shadow-2xl"
         />
         <div className="absolute left-[25.5%] right-[26%] top-[29%] bottom-[23%] z-10 flex flex-col">
-          <div className="flex-1 flex flex-col items-center text-sky-50/90">
-            <div className="mt-3 text-[16px] font-semibold tracking-[0.35em] uppercase text-sky-50/90">{'\u0426\u0415\u041b\u042c'}</div>
-            <div className="mt-4 w-full max-w-[420px] space-y-3 text-[16px] text-sky-50/90 mx-auto text-left">
+          <div className="flex-1 flex flex-col items-center text-purple-50/90">
+            <div className="mt-3 text-[16px] font-semibold tracking-[0.35em] uppercase text-purple-50/90">{'\u0426\u0415\u041b\u042c'}</div>
+            <div className="mt-4 w-full max-w-[420px] space-y-3 text-[16px] text-purple-50/90 mx-auto text-left">
               {listItems.length > 0 ? (
                 listItems.map((item, idx) => {
                   const { title, level } = splitGoalLabel(item.label);
@@ -8159,24 +8177,24 @@ const NewHomeworkModal = ({ entry, open, onClose, onOpenSchedule, onOpenTask, te
                     <div key={`${idx}-${item.label.slice(0, 24)}`} className="grid grid-cols-[1fr_auto] items-start gap-4">
                       <div className="leading-snug">
                         <div>{title}</div>
-                        {level && <div className="text-[15px] text-sky-100/80">{level}</div>}
+                        {level && <div className="text-[15px] text-purple-100/80">{level}</div>}
                       </div>
                       <div className="flex items-center gap-3 pt-0.5">
                         {item.progressLabel && (
-                          <span className="text-sm text-sky-100/70">[{item.progressLabel}]</span>
+                          <span className="text-sm text-purple-100/70">[{item.progressLabel}]</span>
                         )}
-                        <span className="inline-flex w-4 h-4 border border-sky-200/70 rounded-sm" />
+                        <span className="inline-flex w-4 h-4 border border-purple-200/70 rounded-sm" />
                       </div>
                     </div>
                   );
                 })
               ) : (
-                <div className="text-center text-sm text-sky-100/70">
+                <div className="text-center text-sm text-purple-100/70">
                   {'\u0414\u043e\u043c\u0430\u0448\u043a\u0430 \u043f\u043e\u043a\u0430 \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430.'}
                 </div>
               )}
             </div>
-            <div className="mt-auto w-full flex flex-wrap items-center justify-between gap-3 text-[12px] text-sky-100/80">
+            <div className="mt-auto w-full flex flex-wrap items-center justify-between gap-3 text-[12px] text-purple-100/80">
               <div className="flex flex-wrap items-center gap-3">
                 {Number.isFinite(entry.daysToComplete) && (
                   <span className="ml-2">
@@ -8193,7 +8211,7 @@ const NewHomeworkModal = ({ entry, open, onClose, onOpenSchedule, onOpenTask, te
                   {'\u041f\u043e\u043d\u044f\u043b'}
                 </Button>
                 <Button
-                  className="bg-sky-500/80 hover:bg-sky-500 text-white"
+                  className="bg-purple-500/80 hover:bg-purple-500 text-white"
                   onClick={() => {
                     if (firstGoal && Number.isFinite(firstGoalTaskNumber)) {
                       onClose?.();
@@ -8928,7 +8946,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   };
 
   return (
-    <div className="app-min-h bg-gray-50 flex font-sans">
+    <div className="app-min-h app-shell flex font-sans text-slate-900">
       {user.role === 'teacher' && teacherNotifs.length > 0 && (
         <div className="fixed top-4 right-4 z-[1200] space-y-3 max-w-[320px]">
           {teacherNotifs.map((note) => {
@@ -8937,7 +8955,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               : (LEVELS[note.levelId?.toUpperCase()]?.label || note.levelId || '');
             const questionPart = note.questionNumber ? ` · вопрос ${note.questionNumber}` : '';
             return (
-              <div key={note.id} className="rounded-2xl border border-purple-200 bg-white shadow-lg px-4 py-3 text-sm text-gray-700 relative">
+              <div key={note.id} className="surface-panel toast-enter rounded-2xl px-4 py-3 text-sm text-slate-700 relative">
                 <button
                   type="button"
                   onClick={() => dismissTeacherNotif(note.id)}
@@ -8960,7 +8978,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       )}
       {streakPopup.open && (
           <div
-            className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/30 streak-overlay"
+            className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/30 backdrop-blur-sm streak-overlay"
             onClick={() => setStreakPopup((prev) => ({ ...prev, open: false }))}
           >
             <div
@@ -9018,18 +9036,26 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           />
         )}
       */}
-      <aside className={`fixed md:sticky md:top-0 z-40 bg-white w-64 app-h border-r transition-transform flex flex-col ${menuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
-        <div className="p-6 border-b flex items-center gap-2 font-bold text-xl text-purple-600 shrink-0">
+      <aside className={`fixed md:sticky md:top-0 z-40 bg-white/85 backdrop-blur-xl w-64 app-h border-r border-slate-200/70 transition-transform flex flex-col ${menuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+        <div className="p-6 border-b border-slate-200/70 flex items-center gap-2 font-display font-bold text-xl text-purple-600 shrink-0">
           <CheckCircle className="fill-purple-600 text-white"/> Иван на сотку
         </div>
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto" data-tour="nav">
           {nav.map(n => (
-            <button key={n.id} onClick={() => { setView(n.id); setMenuOpen(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium ${view === n.id ? 'bg-purple-50 text-purple-700' : 'text-gray-600 hover:bg-gray-50'}`}>
+            <button
+              key={n.id}
+              onClick={() => { setView(n.id); setMenuOpen(false); }}
+              className={`relative w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-300 ease-out before:content-[''] before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-purple-500 before:opacity-0 before:scale-y-75 before:origin-center before:transition-all before:duration-300 before:ease-out ${
+                view === n.id
+                  ? "bg-white/80 text-purple-700 shadow-sm before:opacity-100 before:scale-y-100"
+                  : 'text-gray-600 hover:bg-white/70 hover:translate-x-0.5'
+              }`}
+            >
               <n.icon size={20}/> {n.label}
             </button>
           ))}
         </nav>
-        <div className="p-4 border-t bg-white shrink-0">
+        <div className="p-4 border-t border-slate-200/70 bg-white/90 shrink-0">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center font-bold text-purple-700">{user.name[0]}</div>
             <div className="overflow-hidden">
@@ -9044,8 +9070,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       </aside>
 
       <div className="flex-1 flex flex-col app-h overflow-hidden">
-        <header className="md:hidden bg-white border-b p-4 flex justify-between items-center">
-          <span className="font-bold text-purple-600">Иван на сотку</span>
+        <header className="md:hidden bg-white/80 backdrop-blur border-b border-slate-200/70 p-4 flex justify-between items-center">
+          <span className="font-display font-bold text-purple-600">Иван на сотку</span>
           <button onClick={() => setMenuOpen(!menuOpen)}><Menu/></button>
         </header>
         <main className="flex-1 overflow-y-auto p-4 md:p-8" data-tour="main">
@@ -9064,7 +9090,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                   />
                   <span className="text-gray-900">{displayStreakCurrent}</span>
                 </div>
-                <div className="pointer-events-none absolute right-0 z-50 mt-3 w-72 origin-top-right translate-y-1 rounded-3xl border border-purple-200 bg-white p-4 text-gray-700 shadow-xl opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 streak-popover">
+                <div className="pointer-events-none absolute right-0 z-50 mt-3 w-72 origin-top-right translate-y-1 rounded-3xl surface-panel p-4 text-gray-700 shadow-xl opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 streak-popover">
                   <div className="absolute right-6 -top-1 h-3 w-3 rotate-45 border-l border-t border-purple-200 bg-white" />
                   <div className="flex items-center gap-3">
                     <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-100 text-purple-600">
@@ -9112,7 +9138,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           {user.role === 'student' && goalState?.entry && !goalState.completed && goalGoals.length > 0 && (
             <div className="sticky top-0 z-30 mb-4">
               {goalCollapsed ? (
-                <div className="rounded-2xl border border-purple-200 bg-white/90 px-4 py-3 text-sm text-gray-700 shadow-sm flex flex-wrap items-center justify-between gap-3">
+                <div className="surface-panel rounded-2xl px-4 py-3 text-sm text-gray-700 shadow-soft flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Цель недели</div>
                     <div className="mt-1 text-sm font-semibold text-gray-900">
@@ -9144,7 +9170,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                   </div>
                 </div>
               ) : (
-                <div className="rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-purple-50 px-5 py-4 text-sm text-gray-700 shadow-sm">
+                <div className="rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-fuchsia-50 px-5 py-4 text-sm text-gray-700 shadow-soft">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Цель недели</div>
@@ -9393,27 +9419,7 @@ const App = () => {
 
   if (!user) return <LoginPage onLogin={handleLogin} />;
   return (
-    <>
-      <style>{`
-        @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
-        @keyframes shine { 0% { transform: translateX(-120%); } 100% { transform: translateX(120%); } }
-        @keyframes streakPop { 0% { opacity:0; transform: translateY(8px) scale(0.94); } 60% { opacity:1; transform: translateY(-2px) scale(1.03); } 100% { opacity:1; transform: translateY(0) scale(1); } }
-        @keyframes streakBackdrop { from { opacity:0; } to { opacity:1; } }
-        @keyframes streakPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.35); } 50% { box-shadow: 0 0 0 8px rgba(168, 85, 247, 0); } }
-        @keyframes streakFlicker { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-1px) scale(1.04); } }
-        @keyframes streakPopover { from { opacity:0; transform: translateY(6px) scale(0.98); } to { opacity:1; transform: translateY(0) scale(1); } }
-
-        .animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; }
-        .streak-badge { transition: transform 0.2s ease, box-shadow 0.2s ease; }
-        .streak-badge--active { animation: streakPulse 2.2s ease-in-out infinite; }
-        .streak-flame { transform-origin: center bottom; animation: streakFlicker 1.6s ease-in-out infinite; }
-        .group:hover .streak-popover { animation: streakPopover 0.2s ease-out; }
-        .streak-overlay { animation: streakBackdrop 0.18s ease-out; }
-        .streak-card { animation: streakPop 0.28s ease-out; }
-        .streak-mascot { animation: streakFlicker 2.4s ease-in-out infinite; }
-      `}</style>
-      <DashboardLayout user={user} onLogout={handleLogout} progress={progress} onUpdateProgress={updateProgress} />
-    </>
+    <DashboardLayout user={user} onLogout={handleLogout} progress={progress} onUpdateProgress={updateProgress} />
   );
 };
 
