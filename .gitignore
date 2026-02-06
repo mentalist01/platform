@@ -21,11 +21,13 @@ server/data/auth.json
 server/data/tests.json
 server/data/usage.json
 server/data/task-titles.json
+server/data/mock-exams.json
 
 # Local artifacts
 .git2/
 repo.tar
 tmp-test-upload.txt
+tmp_codex.txt
 
 # Editor directories and files
 .vscode/*
