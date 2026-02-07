@@ -10232,9 +10232,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         }`}
       >
         <div className="flex h-full flex-col">
-          <div className="px-6 py-7 border-b border-purple-200/40">
+          <div className="px-6 py-7 border-b border-purple-200/40 bg-white/70 backdrop-blur">
             <div className="hidden md:flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-md bg-purple-600 text-white shadow-sm shadow-purple-200/40 font-display text-lg font-bold tracking-tight">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-600 text-white shadow-md shadow-purple-200/50 font-display text-lg font-bold tracking-tight">
                 100
               </div>
               <div>
@@ -10243,16 +10243,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               </div>
             </div>
             <div className="flex md:hidden items-center">
-              <div className="rounded-md bg-white/80 px-4 py-2.5 shadow-sm">
+              <div className="rounded-xl border border-purple-200/40 bg-white/80 px-4 py-2.5 shadow-sm">
                 <span className="font-display text-lg font-bold tracking-tight text-purple-700">100</span>
               </div>
             </div>
           </div>
-          <nav className="flex-1 px-4 pb-6 pt-4 overflow-y-auto" data-tour="nav">
-            <div className="px-2 pb-3 text-xs font-semibold uppercase tracking-[0.28em] text-purple-700/80">
+          <nav className="flex-1 px-4 pb-7 pt-5 overflow-y-auto" data-tour="nav">
+            <div className="px-2 pb-3 text-[11px] font-semibold uppercase tracking-[0.32em] text-purple-700/70">
               Разделы
             </div>
-            <div className="space-y-3 stagger-children">
+            <div className="space-y-2.5 stagger-children">
               {nav.map((n) => (
                 <button
                   key={n.id}
@@ -10261,18 +10261,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                     setMenuOpen(false);
                   }}
                   aria-current={view === n.id ? 'page' : undefined}
-                  className={`group relative w-full overflow-hidden rounded-md border border-transparent px-5 py-4 text-left transition-all duration-200 ease-out flex items-center justify-between gap-4 before:content-[''] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-1 before:bg-purple-500 before:opacity-0 before:scale-y-75 before:origin-center before:transition-all before:duration-200 before:ease-out ${
+                  className={`group relative w-full overflow-hidden rounded-xl border border-transparent px-5 py-4 text-left transition-all duration-200 ease-out flex items-center justify-between gap-4 before:content-[''] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-1 before:bg-gradient-to-b before:from-purple-500 before:to-fuchsia-500 before:opacity-0 before:scale-y-75 before:origin-center before:transition-all before:duration-200 before:ease-out ${
                     view === n.id
-                      ? "bg-white text-slate-900 shadow-sm border-purple-200/60 before:opacity-100 before:scale-y-100"
-                      : 'text-slate-700 hover:bg-white/70 hover:border-purple-200/50 hover:text-slate-900'
+                      ? "bg-white/90 text-slate-900 shadow-md shadow-purple-200/40 border-purple-200/70 before:opacity-100 before:scale-y-100"
+                      : 'text-slate-700 hover:bg-white/80 hover:border-purple-200/60 hover:text-slate-900 hover:shadow-sm'
                   }`}
                 >
                   <span className="flex items-center gap-3">
                     <span
-                      className={`grid h-10 w-10 place-items-center rounded-md border transition-all duration-200 ${
+                      className={`grid h-10 w-10 place-items-center rounded-xl border transition-all duration-200 ${
                         view === n.id
-                          ? 'bg-purple-100/80 text-purple-700 border-purple-200/80'
-                          : 'bg-white/70 text-purple-600 border-purple-100/60 group-hover:bg-white group-hover:border-purple-200/60'
+                          ? 'bg-purple-100/90 text-purple-700 border-purple-200/80 shadow-sm shadow-purple-200/50'
+                          : 'bg-white/80 text-purple-600 border-purple-100/70 group-hover:bg-white group-hover:border-purple-200/60'
                       }`}
                     >
                       <n.icon size={20} />
@@ -10280,10 +10280,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                     <span className="text-base font-semibold">{n.label}</span>
                   </span>
                   <span
-                    className={`ml-auto flex h-8 w-8 items-center justify-center rounded-md border transition-all duration-200 ${
+                    className={`ml-auto flex h-8 w-8 items-center justify-center rounded-lg border transition-all duration-200 ${
                       view === n.id
-                        ? 'border-purple-200/80 bg-purple-100/70 text-purple-700 opacity-100'
-                        : 'border-purple-100/60 bg-white/60 text-purple-400 opacity-60 group-hover:opacity-100 group-hover:text-purple-600'
+                        ? 'border-purple-200/80 bg-purple-100/80 text-purple-700 opacity-100 shadow-sm shadow-purple-200/40'
+                        : 'border-purple-100/70 bg-white/70 text-purple-400 opacity-60 group-hover:opacity-100 group-hover:text-purple-600 group-hover:border-purple-200/60'
                     }`}
                   >
                     <ChevronRight size={16} />
@@ -10292,10 +10292,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               ))}
             </div>
           </nav>
-          <div className="p-5 border-t border-purple-200/40 bg-white/60 shrink-0">
-            <div className="rounded-md border border-purple-200/40 bg-white/80 p-4 shadow-sm">
+          <div className="p-5 border-t border-purple-200/40 bg-white/70 backdrop-blur shrink-0">
+            <div className="rounded-xl border border-purple-200/40 bg-white/80 p-4 shadow-sm">
               <div className="flex items-center gap-3">
-                <div className="h-11 w-11 rounded-md bg-purple-600 text-white flex items-center justify-center font-bold shadow-sm shadow-purple-200/40">
+                <div className="h-11 w-11 rounded-xl bg-purple-600 text-white flex items-center justify-center font-bold shadow-sm shadow-purple-200/40">
                   {user.name[0]}
                 </div>
                 <div className="min-w-0">
@@ -10308,7 +10308,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
             </div>
             <button
               onClick={onLogout}
-              className="mt-4 w-full flex items-center justify-center gap-2 rounded-md border border-rose-200/60 bg-rose-50/70 px-4 py-2.5 text-base font-semibold text-rose-600 transition hover:bg-rose-100/80"
+              className="mt-4 w-full flex items-center justify-center gap-2 rounded-md border border-rose-200/60 bg-rose-50/70 px-4 py-2.5 text-base font-semibold text-rose-600 transition hover:bg-rose-100/80 hover:shadow-sm"
             >
               <LogOut size={16} /> Выйти
             </button>
