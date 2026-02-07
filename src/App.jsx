@@ -4582,11 +4582,11 @@ const LoginPage = ({ onLogin }) => {
       <div className="absolute -bottom-32 -left-24 h-72 w-72 rounded-full bg-amber-200/40 blur-3xl" />
       <div className="relative max-w-md w-full surface-card rounded-4xl p-8">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center px-4 py-2 rounded-2xl bg-purple-100 mx-auto mb-4 floating md:hidden">
-            <LogoMark className="text-lg" />
+          <div className="inline-flex items-center justify-center px-4 py-2 rounded-2xl bg-purple-100 text-purple-700 font-display text-lg font-bold tracking-tight mx-auto mb-4 floating md:hidden">
+            100
           </div>
-          <div className="hidden md:flex w-16 h-16 bg-purple-100 text-purple-600 rounded-2xl items-center justify-center mx-auto mb-4 floating">
-            <CheckCircle size={32} />
+          <div className="hidden md:flex w-16 h-16 bg-purple-100 text-purple-700 rounded-2xl items-center justify-center mx-auto mb-4 floating font-display text-2xl font-bold tracking-tight">
+            100
           </div>
           <h1 className="text-2xl font-bold text-gray-900">
             <span className="md:hidden"><LogoMark /></span>
@@ -10226,41 +10226,93 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           />
         )}
       */}
-      <aside className={`fixed md:sticky md:top-0 z-40 bg-white/85 backdrop-blur-xl w-64 app-h border-r border-slate-200/70 transition-transform flex flex-col ${menuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
-        <div className="p-6 border-b border-slate-200/70 shrink-0">
-          <div className="hidden md:flex items-center gap-2 font-display font-bold text-xl text-purple-600">
-            <CheckCircle className="fill-purple-600 text-white"/> Иван на сотку
-          </div>
-          <div className="flex md:hidden items-center">
-            <LogoMark className="text-lg" />
-          </div>
-        </div>
-        <nav className="flex-1 p-4 space-y-2 overflow-y-auto" data-tour="nav">
-          {nav.map(n => (
-            <button
-              key={n.id}
-              onClick={() => { setView(n.id); setMenuOpen(false); }}
-              className={`relative w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-300 ease-out before:content-[''] before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-purple-500 before:opacity-0 before:scale-y-75 before:origin-center before:transition-all before:duration-300 before:ease-out ${
-                view === n.id
-                  ? "bg-white/80 text-purple-700 shadow-sm before:opacity-100 before:scale-y-100"
-                  : 'text-gray-600 hover:bg-white/70 hover:translate-x-0.5'
-              }`}
-            >
-              <n.icon size={20}/> {n.label}
-            </button>
-          ))}
-        </nav>
-        <div className="p-4 border-t border-slate-200/70 bg-white/90 shrink-0">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center font-bold text-purple-700">{user.name[0]}</div>
-            <div className="overflow-hidden">
-              <p className="font-bold text-sm truncate">{user.name}</p>
-              <p className="text-xs text-gray-400 truncate">
-                {user.role === 'admin' ? 'Администратор' : (user.role === 'teacher' ? 'Преподаватель' : 'Ученик')}
-              </p>
+      <aside
+        className={`fixed md:sticky md:top-0 z-40 w-64 lg:w-72 app-h transition-transform sidebar-shell rounded-none overflow-hidden ${
+          menuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        }`}
+      >
+        <div className="flex h-full flex-col">
+          <div className="px-6 py-7 border-b border-purple-200/40">
+            <div className="hidden md:flex items-center gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-md bg-purple-600 text-white shadow-sm shadow-purple-200/40 font-display text-lg font-bold tracking-tight">
+                100
+              </div>
+              <div>
+                <div className="font-display text-xl font-bold text-slate-900">Иван на сотку</div>
+                <div className="text-sm font-semibold text-purple-700/80">Личный профиль</div>
+              </div>
+            </div>
+            <div className="flex md:hidden items-center">
+              <div className="rounded-md bg-white/80 px-4 py-2.5 shadow-sm">
+                <span className="font-display text-lg font-bold tracking-tight text-purple-700">100</span>
+              </div>
             </div>
           </div>
-          <button onClick={onLogout} className="flex items-center gap-2 text-red-500 hover:text-red-600 text-sm font-medium"><LogOut size={16}/> Выйти</button>
+          <nav className="flex-1 px-4 pb-6 pt-4 overflow-y-auto" data-tour="nav">
+            <div className="px-2 pb-3 text-xs font-semibold uppercase tracking-[0.28em] text-purple-700/80">
+              Разделы
+            </div>
+            <div className="space-y-3 stagger-children">
+              {nav.map((n) => (
+                <button
+                  key={n.id}
+                  onClick={() => {
+                    setView(n.id);
+                    setMenuOpen(false);
+                  }}
+                  aria-current={view === n.id ? 'page' : undefined}
+                  className={`group relative w-full overflow-hidden rounded-md border border-transparent px-5 py-4 text-left transition-all duration-200 ease-out flex items-center justify-between gap-4 before:content-[''] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-1 before:bg-purple-500 before:opacity-0 before:scale-y-75 before:origin-center before:transition-all before:duration-200 before:ease-out ${
+                    view === n.id
+                      ? "bg-white text-slate-900 shadow-sm border-purple-200/60 before:opacity-100 before:scale-y-100"
+                      : 'text-slate-700 hover:bg-white/70 hover:border-purple-200/50 hover:text-slate-900'
+                  }`}
+                >
+                  <span className="flex items-center gap-3">
+                    <span
+                      className={`grid h-10 w-10 place-items-center rounded-md border transition-all duration-200 ${
+                        view === n.id
+                          ? 'bg-purple-100/80 text-purple-700 border-purple-200/80'
+                          : 'bg-white/70 text-purple-600 border-purple-100/60 group-hover:bg-white group-hover:border-purple-200/60'
+                      }`}
+                    >
+                      <n.icon size={20} />
+                    </span>
+                    <span className="text-base font-semibold">{n.label}</span>
+                  </span>
+                  <span
+                    className={`ml-auto flex h-8 w-8 items-center justify-center rounded-md border transition-all duration-200 ${
+                      view === n.id
+                        ? 'border-purple-200/80 bg-purple-100/70 text-purple-700 opacity-100'
+                        : 'border-purple-100/60 bg-white/60 text-purple-400 opacity-60 group-hover:opacity-100 group-hover:text-purple-600'
+                    }`}
+                  >
+                    <ChevronRight size={16} />
+                  </span>
+                </button>
+              ))}
+            </div>
+          </nav>
+          <div className="p-5 border-t border-purple-200/40 bg-white/60 shrink-0">
+            <div className="rounded-md border border-purple-200/40 bg-white/80 p-4 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="h-11 w-11 rounded-md bg-purple-600 text-white flex items-center justify-center font-bold shadow-sm shadow-purple-200/40">
+                  {user.name[0]}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-base font-semibold text-slate-900 truncate">{user.name}</p>
+                  <div className="mt-1 inline-flex items-center rounded-md bg-purple-100/80 px-2.5 py-1 text-xs font-semibold text-purple-700">
+                    {user.role === 'admin' ? 'Администратор' : (user.role === 'teacher' ? 'Преподаватель' : 'Ученик')}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={onLogout}
+              className="mt-4 w-full flex items-center justify-center gap-2 rounded-md border border-rose-200/60 bg-rose-50/70 px-4 py-2.5 text-base font-semibold text-rose-600 transition hover:bg-rose-100/80"
+            >
+              <LogOut size={16} /> Выйти
+            </button>
+          </div>
         </div>
       </aside>
 
