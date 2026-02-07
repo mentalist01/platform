@@ -310,6 +310,13 @@ const getAnswerCountForTask = (taskNumber) => {
   return 1;
 };
 
+const getMockAnswerCountForTask = (taskNumber) => {
+  const num = Number(taskNumber);
+  if (num === 20) return 2;
+  if (num === GAME_THEORY_TASK) return 1;
+  return getAnswerCountForTask(num);
+};
+
 const allowsPartialAnswers = (taskNumber) => Number(taskNumber) === 25;
 
 const getExpectedAnswers = (question, count) => {
@@ -318,7 +325,15 @@ const getExpectedAnswers = (question, count) => {
     const fallback = Array.isArray(question?.options)
       ? question.options[question.correctIndex]
       : '';
-    return [question.answer ?? fallback ?? ''];
+    const directAnswer = question?.answer;
+    if (directAnswer !== undefined && directAnswer !== null && String(directAnswer).trim() !== '') {
+      return [directAnswer];
+    }
+    const fromArray = Array.isArray(question?.answers) ? question.answers : [];
+    if (fromArray.length > 0 && String(fromArray[0] ?? '').trim() !== '') {
+      return [fromArray[0]];
+    }
+    return [fallback ?? ''];
   }
   const fromArray = Array.isArray(question.answers) ? question.answers : [];
   if (fromArray.length) {
@@ -8723,7 +8738,7 @@ const MockExamEditorModal = ({ exam, onClose, onSave }) => {
   const loadTask = (taskNumber) => {
     const key = String(taskNumber);
     const entry = exam?.tasks?.[key] || null;
-    const requiredCount = getAnswerCountForTask(taskNumber);
+    const requiredCount = getMockAnswerCountForTask(taskNumber);
     setQuestion(entry?.question || '');
     setAnswerInputs(getExpectedAnswers(entry, requiredCount));
     setExistingScreenshots(Array.isArray(entry?.screenshots) ? entry.screenshots : []);
@@ -8778,7 +8793,7 @@ const MockExamEditorModal = ({ exam, onClose, onSave }) => {
 
   const handleSaveTask = async () => {
     if (!exam) return;
-    const requiredCount = getAnswerCountForTask(selectedTask);
+    const requiredCount = getMockAnswerCountForTask(selectedTask);
     const trimmedAnswers = answerInputs.map((val) => String(val ?? '').trim());
     const answersSlice = trimmedAnswers.slice(0, requiredCount);
     const hasEmpty = answersSlice.some((val) => !val);
@@ -8894,8 +8909,9 @@ const MockExamEditorModal = ({ exam, onClose, onSave }) => {
           <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="space-y-4">
             <div>
               <label className="text-xs font-semibold text-gray-500">Название пробника</label>
               <input
@@ -9065,7 +9081,7 @@ const MockExamEditorModal = ({ exam, onClose, onSave }) => {
             <div>
               <label className="text-xs font-semibold text-gray-500">Правильные ответы</label>
               <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-                {Array.from({ length: getAnswerCountForTask(selectedTask) }).map((_, idx) => (
+                {Array.from({ length: getMockAnswerCountForTask(selectedTask) }).map((_, idx) => (
                   <input
                     key={idx}
                     type="text"
@@ -9104,6 +9120,7 @@ const MockExamEditorModal = ({ exam, onClose, onSave }) => {
               </div>
             </div>
           </div>
+          </div>
         </div>
       </div>
     </div>
@@ -9133,12 +9150,18 @@ const MockExamModal = ({ exam, studentId, initialAttempt, onClose, onAttemptSave
 
   const taskKey = String(selectedTask);
   const currentQuestion = exam?.tasks?.[taskKey];
-  const answerCount = getAnswerCountForTask(selectedTask);
+  const answerCount = getMockAnswerCountForTask(selectedTask);
   const expectedAnswers = getExpectedAnswers(currentQuestion, answerCount);
-  const currentAnswers = Array.isArray(answers[taskKey])
-    ? answers[taskKey]
-    : Array.from({ length: answerCount }, () => '');
-  const singleAnswer = typeof answers[taskKey] === 'string' ? answers[taskKey] : '';
+  const rawAnswer = answers[taskKey];
+  const currentAnswers = Array.isArray(rawAnswer)
+    ? rawAnswer
+    : (typeof rawAnswer === 'string'
+      ? [rawAnswer, ...Array.from({ length: Math.max(0, answerCount - 1) }, () => '')]
+      : Array.from({ length: answerCount }, () => '')
+    );
+  const singleAnswer = typeof rawAnswer === 'string'
+    ? rawAnswer
+    : (Array.isArray(rawAnswer) ? (rawAnswer[0] ?? '') : '');
 
   const handleCheck = async () => {
     if (!currentQuestion) return;
@@ -9368,7 +9391,13 @@ const MockExamModal = ({ exam, studentId, initialAttempt, onClose, onAttemptSave
                             const value = e.target.value;
                             setAnswers((prev) => {
                               const next = { ...prev };
-                              const arr = Array.isArray(next[taskKey]) ? [...next[taskKey]] : Array.from({ length: answerCount }, () => '');
+                              const prevEntry = next[taskKey];
+                              const arr = Array.isArray(prevEntry)
+                                ? [...prevEntry]
+                                : (typeof prevEntry === 'string'
+                                  ? [prevEntry, ...Array.from({ length: Math.max(0, answerCount - 1) }, () => '')]
+                                  : Array.from({ length: answerCount }, () => '')
+                                );
                               arr[idx] = value;
                               next[taskKey] = arr;
                               return next;
