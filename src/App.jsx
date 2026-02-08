@@ -12059,11 +12059,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           menuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
       >
-        <div className="flex h-full flex-col">
-          <div className="px-6 py-7 border-b border-purple-200/40 bg-white/70 backdrop-blur">
+        <div className="relative flex h-full flex-col">
+          <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div className="sidebar-aurora sidebar-aurora--top" />
+            <div className="sidebar-aurora sidebar-aurora--bottom" />
+          </div>
+          <div className="px-6 py-7 border-b border-white/70 bg-white/60 backdrop-blur-xl">
             <div className="hidden md:flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-600 text-white shadow-md shadow-purple-200/50 font-display text-lg font-bold tracking-tight">
+              <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-purple-600 to-fuchsia-500 text-white shadow-lg shadow-purple-300/40 ring-1 ring-white/70 font-display text-lg font-bold tracking-tight">
                 100
+                <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-white/90" />
               </div>
               <div>
                 <div className="font-display text-xl font-bold text-slate-900">Иван на сотку</div>
@@ -12071,12 +12076,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               </div>
             </div>
             <div className="flex md:hidden items-center">
-              <div className="rounded-xl border border-purple-200/40 bg-white/80 px-4 py-2.5 shadow-sm">
+              <div className="rounded-2xl border border-white/70 bg-gradient-to-br from-white/90 to-purple-50/90 px-4 py-2.5 shadow-sm">
                 <span className="font-display text-lg font-bold tracking-tight text-purple-700">100</span>
               </div>
             </div>
           </div>
-          <nav className="flex-1 px-4 pb-7 pt-5 overflow-y-auto" data-tour="nav">
+          <nav className="flex-1 px-4 pb-7 pr-2 pt-5 overflow-y-auto sidebar-nav" data-tour="nav">
             <div className="px-2 pb-3 text-[11px] font-semibold uppercase tracking-[0.32em] text-purple-700/70">
               Разделы
             </div>
@@ -12089,18 +12094,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                     setMenuOpen(false);
                   }}
                   aria-current={view === n.id ? 'page' : undefined}
-                  className={`group relative w-full overflow-hidden rounded-xl border border-transparent px-5 py-4 text-left transition-all duration-200 ease-out flex items-center justify-between gap-4 before:content-[''] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-1 before:bg-gradient-to-b before:from-purple-500 before:to-fuchsia-500 before:opacity-0 before:scale-y-75 before:origin-center before:transition-all before:duration-200 before:ease-out ${
+                  className={`group relative flex w-full items-center justify-between gap-4 overflow-hidden rounded-xl border border-transparent px-5 py-4 text-left transition-all duration-200 ease-out before:content-[''] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-1 before:rounded-r-full before:bg-gradient-to-b before:from-violet-500 before:to-fuchsia-500 before:opacity-0 before:scale-y-75 before:origin-center before:transition-all before:duration-200 before:ease-out ${
                     view === n.id
-                      ? "bg-white/90 text-slate-900 shadow-md shadow-purple-200/40 border-purple-200/70 before:opacity-100 before:scale-y-100"
-                      : 'text-slate-700 hover:bg-white/80 hover:border-purple-200/60 hover:text-slate-900 hover:shadow-sm'
+                      ? "bg-white text-slate-900 border-purple-200/80 shadow-[0_14px_28px_rgba(124,58,237,0.14)] before:opacity-100 before:scale-y-100"
+                      : 'text-slate-700 hover:-translate-y-[1px] hover:bg-white/90 hover:border-purple-200/70 hover:text-slate-900 hover:shadow-[0_8px_20px_rgba(148,163,184,0.2)]'
                   }`}
                 >
                   <span className="flex items-center gap-3">
                     <span
                       className={`grid h-10 w-10 place-items-center rounded-xl border transition-all duration-200 ${
                         view === n.id
-                          ? 'bg-purple-100/90 text-purple-700 border-purple-200/80 shadow-sm shadow-purple-200/50'
-                          : 'bg-white/80 text-purple-600 border-purple-100/70 group-hover:bg-white group-hover:border-purple-200/60'
+                          ? 'bg-gradient-to-br from-violet-100 to-fuchsia-100 text-purple-700 border-purple-200/80 shadow-sm shadow-purple-200/60'
+                          : 'bg-white/85 text-purple-600 border-purple-100/80 group-hover:bg-white group-hover:border-purple-200/70'
                       }`}
                     >
                       <n.icon size={20} />
@@ -12108,27 +12113,27 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                     <span className="text-base font-semibold">{n.label}</span>
                   </span>
                   <span
-                    className={`ml-auto flex h-8 w-8 items-center justify-center rounded-lg border transition-all duration-200 ${
-                      view === n.id
-                        ? 'border-purple-200/80 bg-purple-100/80 text-purple-700 opacity-100 shadow-sm shadow-purple-200/40'
-                        : 'border-purple-100/70 bg-white/70 text-purple-400 opacity-60 group-hover:opacity-100 group-hover:text-purple-600 group-hover:border-purple-200/60'
-                    }`}
-                  >
-                    <ChevronRight size={16} />
-                  </span>
+                      className={`ml-auto flex h-8 w-8 items-center justify-center rounded-lg border transition-all duration-200 ${
+                        view === n.id
+                          ? 'translate-x-0.5 border-purple-200/80 bg-purple-100/85 text-purple-700 opacity-100 shadow-sm shadow-purple-200/40'
+                          : 'border-purple-100/70 bg-white/70 text-purple-400 opacity-60 group-hover:translate-x-0.5 group-hover:opacity-100 group-hover:text-purple-600 group-hover:border-purple-200/60'
+                      }`}
+                    >
+                      <ChevronRight size={16} />
+                    </span>
                 </button>
               ))}
             </div>
           </nav>
-          <div className="p-5 border-t border-purple-200/40 bg-white/70 backdrop-blur shrink-0">
-            <div className="rounded-xl border border-purple-200/40 bg-white/80 p-4 shadow-sm">
+          <div className="p-5 border-t border-white/70 bg-white/60 backdrop-blur-xl shrink-0">
+            <div className="rounded-2xl border border-white/70 bg-gradient-to-br from-white to-purple-50/70 p-4 shadow-[0_8px_20px_rgba(148,163,184,0.2)]">
               <div className="flex items-center gap-3">
-                <div className="h-11 w-11 rounded-xl bg-purple-600 text-white flex items-center justify-center font-bold shadow-sm shadow-purple-200/40">
+                <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white flex items-center justify-center font-bold shadow-md shadow-purple-300/40 ring-1 ring-white/70">
                   {user.name[0]}
                 </div>
                 <div className="min-w-0">
                   <p className="text-base font-semibold text-slate-900 truncate">{user.name}</p>
-                  <div className="mt-1 inline-flex items-center rounded-md bg-purple-100/80 px-2.5 py-1 text-xs font-semibold text-purple-700">
+                  <div className="mt-1 inline-flex items-center rounded-md bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2.5 py-1 text-xs font-semibold text-purple-700">
                     {user.role === 'admin' ? 'Администратор' : (user.role === 'teacher' ? 'Преподаватель' : 'Ученик')}
                   </div>
                 </div>
@@ -12136,7 +12141,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
             </div>
             <button
               onClick={onLogout}
-              className="mt-4 w-full flex items-center justify-center gap-2 rounded-md border border-rose-200/60 bg-rose-50/70 px-4 py-2.5 text-base font-semibold text-rose-600 transition hover:bg-rose-100/80 hover:shadow-sm"
+              className="mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/70 bg-white/80 px-4 py-2.5 text-sm font-semibold text-rose-600 transition hover:-translate-y-[1px] hover:bg-rose-50 hover:shadow-sm"
             >
               <LogOut size={16} /> Выйти
             </button>
