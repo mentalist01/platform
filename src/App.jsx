@@ -12082,9 +12082,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
             </div>
           </div>
           <nav className="flex-1 px-4 pb-7 pr-2 pt-5 overflow-y-auto sidebar-nav" data-tour="nav">
-            <div className="px-2 pb-3 text-[11px] font-semibold uppercase tracking-[0.32em] text-purple-700/70">
-              Разделы
-            </div>
             <div className="space-y-2.5 stagger-children">
               {nav.map((n) => (
                 <button
@@ -12094,32 +12091,32 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                     setMenuOpen(false);
                   }}
                   aria-current={view === n.id ? 'page' : undefined}
-                  className={`group relative flex w-full items-center justify-between gap-4 overflow-hidden rounded-xl border border-transparent px-5 py-4 text-left transition-all duration-200 ease-out before:content-[''] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-1 before:rounded-r-full before:bg-gradient-to-b before:from-violet-500 before:to-fuchsia-500 before:opacity-0 before:scale-y-75 before:origin-center before:transition-all before:duration-200 before:ease-out ${
+                  className={`group relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-xl border border-transparent px-3 py-3 text-left transition-all duration-200 ease-out before:content-[''] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-1 before:rounded-r-full before:bg-gradient-to-b before:from-violet-500 before:to-fuchsia-500 before:opacity-0 before:scale-y-75 before:origin-center before:transition-all before:duration-200 before:ease-out ${
                     view === n.id
                       ? "bg-white text-slate-900 border-purple-200/80 shadow-[0_14px_28px_rgba(124,58,237,0.14)] before:opacity-100 before:scale-y-100"
                       : 'text-slate-700 hover:-translate-y-[1px] hover:bg-white/90 hover:border-purple-200/70 hover:text-slate-900 hover:shadow-[0_8px_20px_rgba(148,163,184,0.2)]'
                   }`}
                 >
-                  <span className="flex items-center gap-3">
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
                     <span
-                      className={`grid h-10 w-10 place-items-center rounded-xl border transition-all duration-200 ${
+                      className={`grid h-9 w-9 place-items-center rounded-xl border transition-all duration-200 ${
                         view === n.id
                           ? 'bg-gradient-to-br from-violet-100 to-fuchsia-100 text-purple-700 border-purple-200/80 shadow-sm shadow-purple-200/60'
                           : 'bg-white/85 text-purple-600 border-purple-100/80 group-hover:bg-white group-hover:border-purple-200/70'
                       }`}
                     >
-                      <n.icon size={20} />
+                      <n.icon size={18} />
                     </span>
-                    <span className="text-base font-semibold">{n.label}</span>
+                    <span className="whitespace-nowrap text-[13px] font-semibold leading-tight md:text-sm">{n.label}</span>
                   </span>
                   <span
-                      className={`ml-auto flex h-8 w-8 items-center justify-center rounded-lg border transition-all duration-200 ${
+                      className={`ml-auto flex h-7 w-7 items-center justify-center rounded-lg border transition-all duration-200 ${
                         view === n.id
                           ? 'translate-x-0.5 border-purple-200/80 bg-purple-100/85 text-purple-700 opacity-100 shadow-sm shadow-purple-200/40'
                           : 'border-purple-100/70 bg-white/70 text-purple-400 opacity-60 group-hover:translate-x-0.5 group-hover:opacity-100 group-hover:text-purple-600 group-hover:border-purple-200/60'
                       }`}
                     >
-                      <ChevronRight size={16} />
+                      <ChevronRight size={14} />
                     </span>
                 </button>
               ))}
