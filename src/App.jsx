@@ -5865,6 +5865,16 @@ const ProgressSection = ({
   const totalMasteryLabel = Number.isFinite(totalMasteryRounded)
     ? totalMasteryRounded.toString()
     : '0';
+  const masteredTasksCount = taskList.filter((task) => Number(progressMap[task.id] || 0) >= 70).length;
+  const needsAttentionTasksCount = taskList.filter((task) => Number(progressMap[task.id] || 0) < 40).length;
+  const activeSectionLabel = section === 'progress'
+    ? 'Тестирования'
+    : (section === 'notes' ? 'Заметки учителя' : 'Пробники');
+  const sectionTabs = [
+    { id: 'progress', label: 'Тестирования', icon: BarChart2 },
+    { id: 'notes', label: 'Заметки учителя', icon: FileText },
+    { id: 'mocks', label: 'Пробники', icon: BookOpen }
+  ];
   const getBallLabel = (value) => {
     if (!Number.isFinite(value)) return 'баллов';
     if (value % 1 !== 0) return 'балла';
@@ -6144,70 +6154,103 @@ const ProgressSection = ({
 
   return (
     <div className="space-y-6 animate-fadeIn" data-tour="progress">
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">{'\u0423\u0441\u043f\u0435\u0432\u0430\u0435\u043c\u043e\u0441\u0442\u044c'}</h2>
-          <p className="text-gray-500">{'\u0422\u0440\u0438 \u0440\u0430\u0437\u0434\u0435\u043b\u0430 \u0434\u043b\u044f \u043a\u043e\u043d\u0442\u0440\u043e\u043b\u044f \u043f\u0440\u043e\u0433\u0440\u0435\u0441\u0441\u0430 \u0438 \u043e\u0431\u0440\u0430\u0442\u043d\u043e\u0439 \u0441\u0432\u044f\u0437\u0438'}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {renderStudentPicker()}
-        </div>
-      </div>
-
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-fuchsia-50 p-5 shadow-soft">
-        <div className="absolute inset-0 opacity-40">
-          <div className="absolute -left-10 top-0 h-full w-32 bg-gradient-to-r from-transparent via-white/70 to-transparent blur-xl" />
-        </div>
-        <div className="relative z-10 flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest bg-purple-600 text-white">
-                {getProgressHeadline(totalMasteryRounded)}
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-5 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
+        <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
+        <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
+        <div className="relative z-10 flex flex-col gap-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-3">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Успеваемость</h2>
+                <p className="text-sm text-slate-600">Тестирования, заметки и пробники</p>
               </div>
-              <span className="text-sm text-gray-500">{'\u041e\u0431\u0449\u0438\u0439 \u043f\u0440\u043e\u0433\u0440\u0435\u0441\u0441 \u0415\u0413\u042d'}</span>
+              <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white/90 px-2.5 py-1 text-purple-700">
+                  <BarChart2 size={14} />
+                  {`Общий прогресс: ${totalMasteryLabel}%`}
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-white/90 px-2.5 py-1 text-emerald-700">
+                  <CheckCircle size={14} />
+                  {`Уверенно: ${masteredTasksCount}/${taskList.length}`}
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-white/90 px-2.5 py-1 text-amber-700">
+                  <RefreshCcw size={12} />
+                  {`Подтянуть: ${needsAttentionTasksCount}`}
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-slate-600">
+                  {`Раздел: ${activeSectionLabel}`}
+                </span>
+              </div>
             </div>
-            <div className="text-3xl font-extrabold text-purple-700 drop-shadow-sm">
-              {totalMasteryLabel} {getBallLabel(totalMasteryRounded)}
+            <div className="flex flex-wrap items-center gap-3">
+              {renderStudentPicker()}
             </div>
           </div>
-          <div className="relative h-8 w-full rounded-full bg-white/80 border border-purple-100 overflow-hidden">
-            <div
-              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.45)] transition-[width] duration-700 ease-out"
-              style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
-            />
-            <div
-              key={`sheen-${totalMasteryRounded}`}
-              className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-sheen"
-            />
-          </div>
-          <div className="flex items-center justify-between text-xs text-gray-500">
-            <span>Реши все задания, чтобы сдать ЕГЭ на 100 баллов</span>
+
+          <div className="relative overflow-hidden rounded-2xl border border-purple-200/80 bg-white/80 p-4 shadow-[0_10px_24px_rgba(99,102,241,0.12)]">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="rounded-full bg-purple-600 px-3 py-1 text-xs font-bold uppercase tracking-widest text-white">
+                  {getProgressHeadline(totalMasteryRounded)}
+                </div>
+                <span className="text-sm text-gray-500">Общий прогресс ЕГЭ</span>
+              </div>
+              <div className="text-3xl font-extrabold text-purple-700 drop-shadow-sm">
+                {totalMasteryLabel} {getBallLabel(totalMasteryRounded)}
+              </div>
+            </div>
+            <div className="relative mt-3 h-8 w-full overflow-hidden rounded-full border border-purple-100 bg-white/90">
+              <div
+                className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.45)] transition-[width] duration-700 ease-out"
+                style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
+              />
+              <div
+                key={`sheen-${totalMasteryRounded}`}
+                className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-sheen"
+              />
+            </div>
+            <div className="mt-2 text-xs text-gray-500">
+              Решай задания регулярно, чтобы повышать итоговый балл.
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {[
-          { id: 'progress', label: 'Тестирования' },
-          { id: 'notes', label: 'Заметки учителя' },
-          { id: 'mocks', label: 'Пробники' }
-        ].map((item) => (
-          <button
-            key={item.id}
-            onClick={() => setSection(item.id)}
-            className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
-              section === item.id
-                ? 'bg-purple-600 text-white border-purple-600'
-                : 'bg-white text-gray-600 border-gray-200 hover:border-purple-300'
-            }`}
-          >
-            {item.label}
-          </button>
-        ))}
+      <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white/85 p-2">
+        {sectionTabs.map((item) => {
+          const Icon = item.icon;
+          const active = section === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setSection(item.id)}
+              className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition-all ${
+                active
+                  ? 'border-purple-600 bg-purple-600 text-white shadow-md shadow-purple-200'
+                  : 'border-transparent bg-white text-slate-600 hover:border-purple-200 hover:text-purple-700'
+              }`}
+            >
+              <Icon size={16} />
+              {item.label}
+            </button>
+          );
+        })}
       </div>
 
-      {dataError && <div className="text-xs text-red-500">{dataError}</div>}
-      {testsDbError && <div className="text-xs text-red-500">{testsDbError}</div>}
+      {(dataError || testsDbError) && (
+        <div className="space-y-2">
+          {dataError && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-2 text-xs font-medium text-rose-600">
+              {dataError}
+            </div>
+          )}
+          {testsDbError && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-700">
+              {testsDbError}
+            </div>
+          )}
+        </div>
+      )}
 
       {section === 'progress' && (
         <>
@@ -6215,10 +6258,18 @@ const ProgressSection = ({
             {taskList.map((task, idx) => {
               const val = progressMap[task.id] || 0;
               const clickable = role === 'student' || role === 'teacher';
+              const cardTone = val >= 85
+                ? 'border-emerald-200/90 bg-gradient-to-br from-emerald-50/60 via-white to-emerald-50/50'
+                : (val >= 60
+                    ? 'border-purple-200/90 bg-gradient-to-br from-purple-50/65 via-white to-fuchsia-50/45'
+                    : (val >= 40
+                        ? 'border-amber-200/90 bg-gradient-to-br from-amber-50/60 via-white to-orange-50/35'
+                        : 'border-slate-200/90 bg-gradient-to-br from-white via-slate-50 to-slate-100/70'));
+              const statusLabel = val >= 85 ? 'Сильная тема' : (val >= 60 ? 'В работе' : (val >= 40 ? 'Нужна практика' : 'Зона внимания'));
               return (
                 <div key={task.id} style={{ '--i': idx }} className="space-y-2">
                   <Card
-                    className={`group relative ${clickable ? 'cursor-pointer' : ''}`}
+                    className={`group relative ${cardTone} ${clickable ? 'cursor-pointer' : ''}`}
                     onClick={
                       clickable
                         ? () => {
@@ -6232,9 +6283,13 @@ const ProgressSection = ({
                         : undefined
                     }
                   >
-                    <div className="flex justify-between mb-2">
-                      <span className="bg-purple-50 text-purple-700 px-2 py-1 rounded text-xs font-bold">№{getTaskDisplayNumber(task)}</span>
-                      <span className="font-bold text-gray-700">{val}%</span>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center rounded-lg border border-purple-200 bg-white/90 px-2 py-1 text-xs font-bold text-purple-700">
+                        №{getTaskDisplayNumber(task)}
+                      </span>
+                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                        {statusLabel}
+                      </span>
                     </div>
                     <div className="flex items-start justify-between gap-2">
                       {editingTaskId === task.number ? (
@@ -6276,6 +6331,10 @@ const ProgressSection = ({
                           <Save size={14} />
                         </button>
                       )}
+                    </div>
+                    <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                      <span>Прогресс темы</span>
+                      <span className="text-base font-bold text-slate-700">{val}%</span>
                     </div>
                     <ProgressBar value={val} />
 
@@ -6976,6 +7035,8 @@ const PythonSection = ({
   const totalMasteryLabel = Number.isFinite(totalMastery) && totalMastery % 1 !== 0
     ? totalMastery.toFixed(1)
     : totalMasteryRounded.toString();
+  const masteredTopicsCount = taskList.filter((task) => Number(progressMap[task.id] || 0) >= 70).length;
+  const needsPracticeTopicsCount = taskList.filter((task) => Number(progressMap[task.id] || 0) < 40).length;
 
   const renderStudentPicker = () => {
     if (role !== 'teacher') return null;
@@ -7030,61 +7091,98 @@ const PythonSection = ({
 
   return (
     <div className="space-y-6 animate-fadeIn">
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Изучение Python</h2>
-          <p className="text-gray-500">Тестирования по темам курса и общий прогресс</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {renderStudentPicker()}
-        </div>
-      </div>
-
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-fuchsia-50 p-5 shadow-soft">
-        <div className="absolute inset-0 opacity-40">
-          <div className="absolute -left-10 top-0 h-full w-32 bg-gradient-to-r from-transparent via-white/70 to-transparent blur-xl" />
-        </div>
-        <div className="relative z-10 flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest bg-purple-600 text-white">
-                Прогресс Python
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-5 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
+        <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
+        <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
+        <div className="relative z-10 flex flex-col gap-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-3">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Изучение Python</h2>
+                <p className="text-sm text-slate-600">Тестирования по темам курса и общий прогресс</p>
               </div>
-              <span className="text-sm text-gray-500">Общий прогресс изучения</span>
+              <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white/90 px-2.5 py-1 text-purple-700">
+                  <BarChart2 size={14} />
+                  {`Общий прогресс: ${totalMasteryLabel}%`}
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-white/90 px-2.5 py-1 text-emerald-700">
+                  <CheckCircle size={14} />
+                  {`Уверенно: ${masteredTopicsCount}/${taskList.length}`}
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-white/90 px-2.5 py-1 text-amber-700">
+                  <RefreshCcw size={12} />
+                  {`Подтянуть: ${needsPracticeTopicsCount}`}
+                </span>
+              </div>
             </div>
-            <div className="text-3xl font-extrabold text-purple-700 drop-shadow-sm">
-              {totalMasteryLabel}%
+            <div className="flex flex-wrap items-center gap-3">
+              {renderStudentPicker()}
             </div>
           </div>
-          <div className="relative h-8 w-full rounded-full bg-white/80 border border-purple-100 overflow-hidden">
-            <div
-              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.45)] transition-[width] duration-700 ease-out"
-              style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
-            />
-            <div
-              key={`sheen-python-${totalMasteryRounded}`}
-              className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-sheen"
-            />
-          </div>
-          <div className="flex items-center justify-between text-xs text-gray-500">
-            <span>Проходите темы последовательно</span>
-            <span>0% — старт • 100% — уверенно</span>
+
+          <div className="relative overflow-hidden rounded-2xl border border-purple-200/80 bg-white/80 p-4 shadow-[0_10px_24px_rgba(99,102,241,0.12)]">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="rounded-full bg-purple-600 px-3 py-1 text-xs font-bold uppercase tracking-widest text-white">
+                  Прогресс Python
+                </div>
+                <span className="text-sm text-gray-500">Общий прогресс изучения</span>
+              </div>
+              <div className="text-3xl font-extrabold text-purple-700 drop-shadow-sm">
+                {totalMasteryLabel}%
+              </div>
+            </div>
+            <div className="relative mt-3 h-8 w-full overflow-hidden rounded-full border border-purple-100 bg-white/90">
+              <div
+                className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.45)] transition-[width] duration-700 ease-out"
+                style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
+              />
+              <div
+                key={`sheen-python-${totalMasteryRounded}`}
+                className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-sheen"
+              />
+            </div>
+            <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+              <span>Проходите темы последовательно</span>
+              <span>0% — старт • 100% — уверенно</span>
+            </div>
           </div>
         </div>
       </div>
 
-      {dataError && <div className="text-xs text-red-500">{dataError}</div>}
-      {testsDbError && <div className="text-xs text-red-500">{testsDbError}</div>}
+      {(dataError || testsDbError) && (
+        <div className="space-y-2">
+          {dataError && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-2 text-xs font-medium text-rose-600">
+              {dataError}
+            </div>
+          )}
+          {testsDbError && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-700">
+              {testsDbError}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 stagger-children">
         {taskList.map((task, idx) => {
           const val = progressMap[task.id] || 0;
           const clickable = role === 'student' || role === 'teacher';
+          const cardTone = val >= 85
+            ? 'border-emerald-200/90 bg-gradient-to-br from-emerald-50/60 via-white to-emerald-50/50'
+            : (val >= 60
+                ? 'border-purple-200/90 bg-gradient-to-br from-purple-50/65 via-white to-fuchsia-50/45'
+                : (val >= 40
+                    ? 'border-amber-200/90 bg-gradient-to-br from-amber-50/60 via-white to-orange-50/35'
+                    : 'border-slate-200/90 bg-gradient-to-br from-white via-slate-50 to-slate-100/70'));
+          const statusLabel = val >= 85 ? 'Сильная тема' : (val >= 60 ? 'В работе' : (val >= 40 ? 'Нужна практика' : 'Зона внимания'));
           return (
             <Card
               key={task.id}
               style={{ '--i': idx }}
-              className="group relative"
+              className={`group relative ${cardTone}`}
               onClick={clickable ? () => {
                 if (role === 'teacher') setReviewTask(task);
                 else {
@@ -7093,12 +7191,20 @@ const PythonSection = ({
                 }
               } : undefined}
             >
-              <div className="flex justify-between mb-2">
-                <span className="bg-purple-50 text-purple-700 px-2 py-1 rounded text-xs font-bold">№{getTaskDisplayNumber(task)}</span>
-                <span className="font-bold text-gray-700">{val}%</span>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="inline-flex items-center rounded-lg border border-purple-200 bg-white/90 px-2 py-1 text-xs font-bold text-purple-700">
+                  №{getTaskDisplayNumber(task)}
+                </span>
+                <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                  {statusLabel}
+                </span>
               </div>
               <div className="flex items-start justify-between gap-2">
                 <h3 className="font-bold text-gray-800 truncate">{task.title}</h3>
+              </div>
+              <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                <span>Прогресс темы</span>
+                <span className="text-base font-bold text-slate-700">{val}%</span>
               </div>
               <ProgressBar value={val} />
 
@@ -7115,7 +7221,7 @@ const PythonSection = ({
       </div>
 
       {role === 'teacher' && (
-        <Card className="space-y-4">
+        <Card className="space-y-4 border-purple-200/60 bg-gradient-to-br from-white via-white to-purple-50/40">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-bold text-gray-800">
@@ -7126,7 +7232,7 @@ const PythonSection = ({
             <select
               value={manageTaskNumber || ''}
               onChange={(e) => setManageTaskNumber(Number(e.target.value))}
-              className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+              className="px-3 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none text-sm"
             >
               {taskList.map((task) => (
                 <option key={task.id} value={task.number}>
@@ -7142,13 +7248,13 @@ const PythonSection = ({
               value={newTaskTitle}
               onChange={(e) => setNewTaskTitle(e.target.value)}
               placeholder="Название задачи (необязательно)"
-              className="md:col-span-1 px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+              className="md:col-span-1 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
             />
             <textarea
               value={newTaskPrompt}
               onChange={(e) => setNewTaskPrompt(e.target.value)}
               placeholder="Условие задачи"
-              className="md:col-span-2 px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none min-h-[80px]"
+              className="md:col-span-2 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none min-h-[80px]"
             />
           </div>
           <div>
@@ -7197,7 +7303,7 @@ const PythonSection = ({
                       setNewTests((prev) => prev.map((item, i) => (i === idx ? { ...item, input: value } : item)));
                     }}
                     placeholder="Входные данные"
-                    className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none min-h-[60px]"
+                    className="px-3 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none min-h-[60px]"
                   />
                   <div className="relative">
                     <textarea
@@ -7207,7 +7313,7 @@ const PythonSection = ({
                         setNewTests((prev) => prev.map((item, i) => (i === idx ? { ...item, output: value } : item)));
                       }}
                       placeholder="Ожидаемый вывод"
-                      className="w-full px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none min-h-[60px]"
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none min-h-[60px]"
                     />
                     {newTests.length > 1 && (
                       <button
@@ -7242,7 +7348,7 @@ const PythonSection = ({
               <div className="text-sm text-gray-500">Пока нет задач для выбранной темы.</div>
             ) : (
               manageQuestions.map((q, idx) => (
-                <div key={q.id || idx} className="p-3 rounded-xl border flex items-start justify-between gap-3">
+                <div key={q.id || idx} className="p-3 rounded-xl border border-purple-100 bg-white/85 flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-gray-800 truncate">{q.title || q.question || `Задача ${idx + 1}`}</p>
                     <p className="text-xs text-gray-500 mt-1">Тестов: {Array.isArray(q.tests) ? q.tests.length : (q.answer ? 1 : 0)}</p>
@@ -7273,7 +7379,7 @@ const PythonSection = ({
       )}
 
       {role === 'teacher' && (
-        <Card className="space-y-4">
+        <Card className="space-y-4 border-slate-200 bg-white/90">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-bold text-gray-800">Теория темы</h3>
@@ -7293,7 +7399,7 @@ const PythonSection = ({
                 className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
                   theoryType === item.id
                     ? 'bg-purple-600 text-white border-purple-600'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-purple-300'
+                    : 'bg-white text-gray-600 border-purple-100 hover:border-purple-300'
                 }`}
               >
                 {item.label}
@@ -7306,7 +7412,7 @@ const PythonSection = ({
               value={theoryText}
               onChange={(e) => setTheoryText(e.target.value)}
               placeholder="Вставьте текст теории..."
-              className="w-full min-h-[160px] px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+              className="w-full min-h-[160px] px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
             />
           ) : (
             <div className="space-y-2">
@@ -7315,7 +7421,7 @@ const PythonSection = ({
                 value={theoryUrl}
                 onChange={(e) => setTheoryUrl(e.target.value)}
                 placeholder="Вставьте ссылку на документ или iframe Google Docs"
-                className="w-full px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
               />
               <p className="text-xs text-gray-400">
                 Используйте ссылку для встраивания из Google Docs (Файл → Опубликовать в интернете → Встроить).
