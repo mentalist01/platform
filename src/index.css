@@ -22,8 +22,9 @@
   --surface-soft: 248 250 252;
   --surface-tint: 250 245 255;
   --ring: 168 85 247;
-  --shadow-soft: 0 10px 35px rgba(15, 23, 42, 0.10);
-  --shadow-lift: 0 18px 50px rgba(168, 85, 247, 0.18);
+  --shadow-soft: 0 12px 34px rgba(15, 23, 42, 0.10), 0 2px 8px rgba(148, 163, 184, 0.16);
+  --shadow-panel: 0 8px 26px rgba(15, 23, 42, 0.07), 0 1px 2px rgba(148, 163, 184, 0.24);
+  --shadow-lift: 0 22px 56px rgba(79, 70, 229, 0.18), 0 10px 30px rgba(15, 23, 42, 0.10);
 }
 
 @layer base {
@@ -31,6 +32,8 @@
     font-family: "Manrope", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     color: rgb(var(--ink));
     background-color: rgb(var(--surface-soft));
+    line-height: 1.45;
+    scroll-behavior: smooth;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
   }
@@ -38,6 +41,15 @@
   body {
     min-height: 100%;
     background-color: rgb(var(--surface-soft));
+    background-image:
+      radial-gradient(circle at 15% -10%, rgba(236, 72, 153, 0.08), transparent 35%),
+      radial-gradient(circle at 85% -20%, rgba(59, 130, 246, 0.08), transparent 38%),
+      linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.92));
+    background-attachment: fixed;
+  }
+
+  #root {
+    min-height: 100%;
   }
 
   h1, h2, h3, .font-display {
@@ -47,10 +59,44 @@
 
   input:focus-visible,
   textarea:focus-visible,
-  select:focus-visible {
+  select:focus-visible,
+  button:focus-visible {
     outline: none;
     border-color: rgba(168, 85, 247, 0.6);
     box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.18);
+  }
+
+  button {
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+  }
+
+  button:not(:disabled):active {
+    transform: translateY(1px);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(139, 92, 246, 0.55) rgba(241, 245, 249, 0.75);
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: rgba(241, 245, 249, 0.7);
+    border-radius: 999px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(167, 139, 250, 0.8), rgba(99, 102, 241, 0.75));
+    border: 2px solid rgba(241, 245, 249, 0.9);
+    border-radius: 999px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(147, 51, 234, 0.86), rgba(79, 70, 229, 0.82));
   }
 
   ::selection {
@@ -61,32 +107,47 @@
 @layer components {
   .app-shell {
     background:
-      radial-gradient(circle at top left, rgba(168, 85, 247, 0.12), transparent 52%),
-      radial-gradient(circle at 30% 20%, rgba(217, 70, 239, 0.10), transparent 45%),
-      radial-gradient(circle at 80% 0%, rgba(129, 140, 248, 0.10), transparent 50%),
-      linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(241, 245, 249, 0.95));
+      radial-gradient(circle at -10% -20%, rgba(236, 72, 153, 0.11), transparent 38%),
+      radial-gradient(circle at 18% 0%, rgba(59, 130, 246, 0.12), transparent 40%),
+      radial-gradient(circle at 82% -8%, rgba(168, 85, 247, 0.13), transparent 48%),
+      repeating-linear-gradient(-32deg, rgba(255, 255, 255, 0.35) 0 1px, transparent 1px 34px),
+      linear-gradient(180deg, rgba(248, 250, 252, 0.93), rgba(241, 245, 249, 0.97));
   }
 
   .sidebar-shell {
     background:
-      linear-gradient(180deg, rgba(251, 248, 255, 0.98), rgba(243, 238, 255, 0.97));
-    border-right: 1px solid rgba(167, 139, 250, 0.22);
-    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+      linear-gradient(180deg, rgba(252, 249, 255, 0.98), rgba(242, 238, 255, 0.97));
+    border-right: 1px solid rgba(167, 139, 250, 0.24);
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
   }
 
   .surface-card {
-    background: rgba(255, 255, 255, 0.86);
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: linear-gradient(165deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.86));
+    border: 1px solid rgba(148, 163, 184, 0.28);
     box-shadow: var(--shadow-soft);
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .surface-card:hover {
+    box-shadow: var(--shadow-lift);
   }
 
   .surface-panel {
-    background: rgba(255, 255, 255, 0.92);
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.93), rgba(255, 255, 255, 0.88));
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    box-shadow: var(--shadow-panel);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  .main-content-shell {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    margin-inline: 0;
   }
 
   .field-focus {

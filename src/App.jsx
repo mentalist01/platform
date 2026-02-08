@@ -12147,9 +12147,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       <div className="flex-1 flex flex-col app-h overflow-hidden">
         <header className="md:hidden bg-white/80 backdrop-blur border-b border-slate-200/70 p-4 flex justify-between items-center">
           <LogoMark className="text-lg" />
-          <button onClick={() => setMenuOpen(!menuOpen)}><Menu/></button>
+          <button
+            type="button"
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="grid h-10 w-10 place-items-center rounded-xl border border-purple-200/70 bg-white text-purple-700 shadow-sm"
+            aria-label={menuOpen ? 'Закрыть меню' : 'Открыть меню'}
+          >
+            {menuOpen ? <X size={18} /> : <Menu size={18} />}
+          </button>
         </header>
         <main className="flex-1 overflow-y-auto p-4 md:p-8" data-tour="main">
+          <div className="main-content-shell animate-soft">
           {user.role === 'student' && (
             <div className="mb-3 flex justify-end">
               <div className="relative group">
@@ -12452,6 +12460,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               onTeachersChanged={loadTeachers}
             />
           )}
+          </div>
         </main>
       </div>
     </div>
