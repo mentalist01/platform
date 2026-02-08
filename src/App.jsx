@@ -7726,6 +7726,235 @@ const ScheduleSection = ({
     return list.sort((a, b) => new Date(b?.issuedAt || 0) - new Date(a?.issuedAt || 0));
   }, [homeworks]);
 
+  const nextHomeworkEntry = sortedHomeworks[0] || null;
+  const previousHomeworkEntries = sortedHomeworks.slice(1);
+  const totalHomeworkCount = sortedHomeworks.length;
+  const latestIssuedLabel = nextHomeworkEntry?.issuedAt ? formatDate(nextHomeworkEntry.issuedAt) : '';
+  const nextDeadlineLabel = formatDaysText(nextHomeworkEntry?.daysToComplete || nextLesson?.daysToComplete || 7);
+
+  const renderHomeworkEntryCard = (entry, section = 'next', key) => {
+    if (!entry) return null;
+    const dateText = formatDate(entry?.issuedAt);
+    const daysText = formatDaysText(entry?.daysToComplete || 7);
+    const isEditing = editingId && entry?.id === editingId;
+    const entryGoals = normalizeEntryGoals(entry);
+    const sectionTone = section === 'next'
+      ? 'border-purple-300/80 bg-gradient-to-br from-white via-purple-50/85 to-fuchsia-50/65 shadow-[0_12px_30px_rgba(147,51,234,0.12)]'
+      : 'border-slate-200/90 bg-white';
+    const cardTone = isEditing ? 'border-purple-400 bg-purple-50/70 ring-2 ring-purple-200/70' : sectionTone;
+    const sectionLabel = section === 'next' ? 'Следующий урок' : 'Предыдущая домашка';
+
+    return (
+      <div key={key} className={`rounded-2xl border p-4 md:p-5 space-y-4 ${cardTone}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                section === 'next'
+                  ? 'bg-purple-600 text-white shadow-sm shadow-purple-300/50'
+                  : 'bg-slate-100 text-slate-600'
+              }`}>
+                {sectionLabel}
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                <Calendar size={13} />
+                {dateText || 'сегодня'}
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                <RefreshCcw size={12} />
+                {`Срок: ${daysText}`}
+              </span>
+            </div>
+            <div className="text-xs text-slate-500">
+              {section === 'next'
+                ? 'Эту домашку нужно выполнить к ближайшему занятию.'
+                : 'Ранее выданная домашка для повторения и контроля прогресса.'}
+            </div>
+          </div>
+          {role === 'teacher' && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => startEditHomework(entry)}
+                className="px-3 py-1 rounded-lg border border-slate-200 bg-white/90 text-xs font-semibold text-slate-600 hover:bg-white"
+              >
+                Редактировать
+              </button>
+              {entry.id && (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteHomework(entry)}
+                  disabled={deletingId === entry.id}
+                  className="px-3 py-1 rounded-lg border border-red-200 bg-red-50/70 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60"
+                >
+                  {deletingId === entry.id ? 'Удаление...' : 'Удалить'}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+        {entryGoals.length > 0 && (
+          <div className="space-y-2">
+            {entryGoals.map((goal, goalIndex) => {
+              if (goal.type === GOAL_TYPE_MOCK) {
+                const mockExamId = normalizeMockExamId(goal.mockExamId);
+                const mockExam = mockExamById[mockExamId] || null;
+                const mockProgress = getMockGoalProgress(mockExam, mockAttemptsByExam?.[mockExamId]);
+                const mockTitle = mockExam?.title || 'Пробник недоступен';
+                return (
+                  <div key={`mock-${mockExamId}-${goalIndex}`} className="rounded-xl border border-purple-100 bg-purple-50 px-3 py-2 text-xs text-purple-700 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span>{`Пробник · ${mockTitle}`}</span>
+                      {onOpenMockGoal && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenMockGoal(mockExamId)}
+                          className="px-3 py-1 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700"
+                        >
+                          Перейти к пробнику
+                        </button>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-purple-600">
+                      {mockProgress.totalCount > 0
+                        ? `Выполнено ${mockProgress.solvedCount}/${mockProgress.totalCount}`
+                        : 'В пробнике пока нет заданий.'}
+                    </div>
+                  </div>
+                );
+              }
+              const taskNumber = Number(goal.taskNumber);
+              const isPythonGoal = isPythonTaskNumber(taskNumber);
+              const pythonTask = isPythonGoal ? getPythonTaskInfo(taskNumber) : null;
+              const taskDisplay = isPythonGoal
+                ? (pythonTask?.displayNumber || taskNumber)
+                : (formatTaskNumber(taskNumber) || taskNumber);
+              const levelId = isPythonGoal ? PYTHON_LEVEL_ID : goal.levelId;
+              const levelLabel = isPythonGoal
+                ? 'Python'
+                : (LEVELS[levelId?.toUpperCase()]?.label || levelId);
+              const questionsList = taskNumber && levelId
+                ? (testsDb?.[String(taskNumber)]?.[levelId] || [])
+                : [];
+              const totalCount = questionsList.length;
+              const targetNumbers = goal.includeAll
+                ? (totalCount > 0 ? Array.from({ length: totalCount }, (_, i) => i + 1) : [])
+                : Array.from(new Set(
+                    (Array.isArray(goal.targetQuestions) ? goal.targetQuestions : [])
+                      .map((val) => Number(val))
+                      .filter((val) => Number.isFinite(val) && val > 0)
+                  )).sort((a, b) => a - b);
+              const targetsKey = taskNumber && levelId ? `${taskNumber}|${levelId}` : null;
+              const solvedSet = targetsKey ? solvedByKey?.[targetsKey] : null;
+              const targetStatus = targetNumbers.map((num) => {
+                const question = questionsList[num - 1];
+                const qId = question?.id;
+                const solved = qId ? solvedSet?.has(String(qId)) : false;
+                return { num, solved };
+              });
+              const targetSolvedCount = targetStatus.filter((item) => item.solved).length;
+              const hasTargets = targetNumbers.length > 0 || goal.includeAll;
+              return (
+                <div key={`${taskNumber}-${levelId}-${goalIndex}`} className="rounded-xl border border-purple-100 bg-purple-50 px-3 py-2 text-xs text-purple-700 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      {`Задание ${taskDisplay} · ${levelLabel}`}
+                    </span>
+                    {onOpenTask && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenTask(taskNumber, levelId, targetNumbers)}
+                        className="px-3 py-1 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700"
+                      >
+                        Перейти к заданию
+                      </button>
+                    )}
+                  </div>
+                  {hasTargets && (
+                    <div className="space-y-2">
+                      <div className="text-[11px] font-semibold text-purple-700">Цель — решить эти задания:</div>
+                      {targetNumbers.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {targetStatus.map((item) => (
+                            <span
+                              key={item.num}
+                              className={`px-2 py-1 rounded-lg border text-[11px] font-semibold ${
+                                item.solved
+                                  ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
+                                  : 'border-purple-200 bg-white text-purple-700'
+                              }`}
+                            >
+                              №{item.num}{item.solved ? ' ✓' : ''}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-[11px] text-purple-600">
+                          Все задания этого уровня
+                        </div>
+                      )}
+                      {targetNumbers.length > 0 && (
+                        <div className="text-[11px] text-purple-600">
+                          Выполнено {targetSolvedCount}/{targetStatus.length}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div className="rounded-xl border border-purple-100/70 bg-white/85 p-4">
+          <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-purple-500">Домашка</p>
+          <p className="text-sm leading-relaxed text-gray-700 whitespace-pre-wrap">
+            {entry?.homeWork ? entry.homeWork : 'Комментариев учителя нет.'}
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {entry?.lessonLink ? (
+            <a
+              href={normalizeUrl(entry.lessonLink)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-center justify-between gap-3 rounded-xl border border-purple-200 bg-purple-50/80 px-4 py-3 text-sm font-semibold text-purple-700 hover:border-purple-400 hover:bg-white"
+            >
+              <span className="inline-flex items-center gap-2">
+                <Calendar size={16} />
+                Ссылка на занятие
+              </span>
+              <ChevronRight size={16} className="text-purple-400 transition group-hover:translate-x-0.5 group-hover:text-purple-600" />
+            </a>
+          ) : (
+            <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-3 text-xs text-slate-400">
+              <Calendar size={14} />
+              Ссылка на занятие не указана
+            </div>
+          )}
+          {entry?.boardLink ? (
+            <a
+              href={normalizeUrl(entry.boardLink)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-center justify-between gap-3 rounded-xl border border-purple-200 bg-purple-50/80 px-4 py-3 text-sm font-semibold text-purple-700 hover:border-purple-400 hover:bg-white"
+            >
+              <span className="inline-flex items-center gap-2">
+                <BookOpen size={16} />
+                Онлайн-доска
+              </span>
+              <ChevronRight size={16} className="text-purple-400 transition group-hover:translate-x-0.5 group-hover:text-purple-600" />
+            </a>
+          ) : (
+            <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-3 text-xs text-slate-400">
+              <BookOpen size={14} />
+              Ссылка на доску не указана
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const resetFormToDefault = (base = null) => {
     const source = base || nextLesson || {};
     setForm({
@@ -7898,29 +8127,69 @@ const ScheduleSection = ({
 
   return (
     <div className="space-y-6 animate-fadeIn" data-tour="schedule">
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Моё расписание</h2>
-          <p className="text-gray-500">Домашка и ссылки к следующему занятию</p>
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/75 to-sky-50/70 p-5 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
+        <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
+        <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
+        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="space-y-3">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Моё расписание</h2>
+              <p className="text-sm text-slate-600">Домашка, цели и полезные ссылки к занятиям</p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs font-semibold">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white/85 px-2.5 py-1 text-purple-700">
+                <Calendar size={14} />
+                {`Всего домашних: ${totalHomeworkCount}`}
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-white/85 px-2.5 py-1 text-sky-700">
+                <RefreshCcw size={12} />
+                {`Срок текущей: ${nextDeadlineLabel}`}
+              </span>
+              {latestIssuedLabel && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/85 px-2.5 py-1 text-slate-600">
+                  {`Выдано: ${latestIssuedLabel}`}
+                </span>
+              )}
+            </div>
+          </div>
+          {renderStudentPicker()}
         </div>
-        {renderStudentPicker()}
       </div>
 
-      {error && <div className="text-xs text-red-500">{error}</div>}
-      {testsDbError && <div className="text-xs text-red-500">{testsDbError}</div>}
-      {mockExamsError && <div className="text-xs text-red-500">{mockExamsError}</div>}
+      {(error || testsDbError || mockExamsError) && (
+        <div className="space-y-2">
+          {error && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-2 text-xs font-medium text-rose-600">
+              {error}
+            </div>
+          )}
+          {testsDbError && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-700">
+              {testsDbError}
+            </div>
+          )}
+          {mockExamsError && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-700">
+              {mockExamsError}
+            </div>
+          )}
+        </div>
+      )}
 
       {role === 'teacher' && (
-        <Card className="space-y-3">
+        <Card className="space-y-4 border-purple-200/60 bg-gradient-to-br from-white via-white to-purple-50/40">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-lg font-bold text-gray-800">
-              {editingId ? 'Редактировать домашку' : 'Обновить данные'}
-            </h3>
+            <div className="space-y-1">
+              <h3 className="text-lg font-bold text-gray-800">
+                {editingId ? 'Редактировать домашку' : 'Обновить данные'}
+              </h3>
+              <p className="text-xs text-slate-500">Заполните домашку, цели и ссылки на ближайшее занятие</p>
+            </div>
             {editingId && (
               <button
                 type="button"
                 onClick={() => resetFormToDefault()}
-                className="px-3 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                className="px-3 py-1 rounded-lg border border-gray-200 bg-white/90 text-xs font-semibold text-gray-600 hover:bg-white"
               >
                 Отменить
               </button>
@@ -7930,7 +8199,7 @@ const ScheduleSection = ({
             value={form.homeWork}
             onChange={(e) => setForm((prev) => ({ ...prev, homeWork: e.target.value }))}
             placeholder="Домашка на следующий урок"
-            className="w-full min-h-[120px] px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none resize-none"
+            className="w-full min-h-[120px] resize-none rounded-xl border border-purple-100 bg-white/90 px-4 py-3 shadow-inner shadow-purple-100/40 focus:border-purple-500 outline-none"
           />
           <div className="space-y-3">
             {(Array.isArray(form.goals) ? form.goals : []).map((goal, index) => {
@@ -7948,7 +8217,7 @@ const ScheduleSection = ({
                 ? mockExamById[normalizeMockExamId(goal?.mockExamId)]
                 : null;
               return (
-                <div key={`${index}-${goalType}-${goal?.taskNumber || goal?.mockExamId || 'goal'}`} className="rounded-2xl border border-gray-200 bg-white p-3 space-y-3">
+                <div key={`${index}-${goalType}-${goal?.taskNumber || goal?.mockExamId || 'goal'}`} className="rounded-2xl border border-purple-100/70 bg-white/90 p-3.5 space-y-3 shadow-sm shadow-purple-100/40">
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                     <select
                       value={goalType}
@@ -7960,7 +8229,7 @@ const ScheduleSection = ({
                         }
                         updateGoal(index, { ...DEFAULT_GOAL, type: GOAL_TYPE_TASK, levelId: goal.levelId || 'basic' });
                       }}
-                      className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                      className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
                     >
                       <option value={GOAL_TYPE_TASK}>Задание</option>
                       <option value={GOAL_TYPE_MOCK}>Пробник</option>
@@ -7970,7 +8239,7 @@ const ScheduleSection = ({
                         <select
                           value={goal?.mockExamId || ''}
                           onChange={(e) => updateGoal(index, { mockExamId: e.target.value })}
-                          className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none md:col-span-2"
+                          className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none md:col-span-2"
                         >
                           <option value="">Выберите пробник</option>
                           {mockExams.map((exam) => (
@@ -8004,7 +8273,7 @@ const ScheduleSection = ({
                               targetInput: value ? goal.targetInput : ''
                             });
                           }}
-                          className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                          className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
                         >
                           <option value="">Выберите задание</option>
                           <optgroup label="ЕГЭ">
@@ -8026,7 +8295,7 @@ const ScheduleSection = ({
                           value={isPythonGoal ? PYTHON_LEVEL_ID : (goal.levelId || 'basic')}
                           onChange={(e) => updateGoal(index, { levelId: e.target.value })}
                           disabled={!hasTask || isPythonGoal}
-                          className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none disabled:opacity-60"
+                          className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none disabled:opacity-60"
                         >
                           {isPythonGoal ? (
                             <option value={PYTHON_LEVEL_ID}>Python</option>
@@ -8078,7 +8347,7 @@ const ScheduleSection = ({
                           onChange={(e) => updateGoal(index, { targetInput: e.target.value })}
                           placeholder="Номера вопросов (например: 1, 3, 5)"
                           disabled={!hasTask || goal.includeAll}
-                          className="w-full px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none disabled:opacity-60"
+                          className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none disabled:opacity-60"
                         />
                         <div className="text-xs text-gray-400">
                           {goal.includeAll
@@ -8096,7 +8365,7 @@ const ScheduleSection = ({
             <button
               type="button"
               onClick={addGoalRow}
-              className="px-3 py-2 rounded-xl border border-purple-200 text-xs font-semibold text-purple-700 hover:bg-purple-50"
+              className="px-3 py-2 rounded-xl border border-purple-200 bg-white/90 text-xs font-semibold text-purple-700 hover:bg-purple-50"
             >
               + Добавить цель
             </button>
@@ -8108,230 +8377,90 @@ const ScheduleSection = ({
               value={form.daysToComplete}
               onChange={(e) => setForm((prev) => ({ ...prev, daysToComplete: e.target.value }))}
               placeholder="Дней на выполнение"
-              className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+              className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
             />
             <input
               type="url"
               value={form.lessonLink}
               onChange={(e) => setForm((prev) => ({ ...prev, lessonLink: e.target.value }))}
               placeholder="Ссылка на следующее занятие"
-              className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+              className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
             />
             <input
               type="url"
               value={form.boardLink}
               onChange={(e) => setForm((prev) => ({ ...prev, boardLink: e.target.value }))}
               placeholder="Ссылка на онлайн-доску"
-              className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+              className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
             />
           </div>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={handleSave} disabled={saving} className="md:self-start md:px-5">
             <Save size={16} /> {saving ? 'Сохранение...' : (editingId ? 'Сохранить изменения' : 'Добавить домашку')}
           </Button>
         </Card>
       )}
 
-      <Card className="space-y-4">
+      <div className="space-y-5">
         <div>
-          <h3 className="text-lg font-bold text-gray-800">Следующее занятие</h3>
-          <p className="text-xs text-gray-500">Домашка и ссылки доступны ученику</p>
+          <h3 className="text-lg font-bold text-gray-800">Домашние задания</h3>
+          <p className="text-xs text-slate-500">Текущая домашка и архив предыдущих заданий</p>
         </div>
 
         {loading ? (
-          <div className="text-gray-500">Загрузка...</div>
+          <Card className="border-slate-200 bg-white/85">
+            <div className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-600">
+              <RefreshCcw size={14} className="animate-spin" />
+              Загрузка...
+            </div>
+          </Card>
         ) : sortedHomeworks.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-gray-400">
-            Комментариев учителя нет.
-          </div>
+          <Card className="border-slate-200 bg-white/85">
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4 text-sm text-slate-500">
+              Комментариев учителя нет.
+            </div>
+          </Card>
         ) : (
-          <div className="space-y-4">
-            {sortedHomeworks.map((entry, idx) => {
-              const dateText = formatDate(entry?.issuedAt);
-              const daysText = formatDaysText(entry?.daysToComplete || 7);
-              const isEditing = editingId && entry?.id === editingId;
-              const entryGoals = normalizeEntryGoals(entry);
-              return (
-                <div key={entry.id || `${entry.issuedAt}-${idx}`} className={`rounded-2xl border p-4 space-y-3 ${isEditing ? 'border-purple-300 bg-purple-50/40' : 'border-gray-200 bg-white'}`}>
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="text-xs text-gray-500">
-                      {`Учитель выдал домашку ${dateText || 'сегодня'}. У тебя есть ${daysText} на выполнение.`}
-                    </div>
-                    {role === 'teacher' && (
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => startEditHomework(entry)}
-                          className="px-3 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-                        >
-                          Редактировать
-                        </button>
-                        {entry.id && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteHomework(entry)}
-                            disabled={deletingId === entry.id}
-                            className="px-3 py-1 rounded-lg border border-red-200 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60"
-                          >
-                            {deletingId === entry.id ? 'Удаление...' : 'Удалить'}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  {entryGoals.length > 0 && (
-                    <div className="space-y-2">
-                      {entryGoals.map((goal, goalIndex) => {
-                        if (goal.type === GOAL_TYPE_MOCK) {
-                          const mockExamId = normalizeMockExamId(goal.mockExamId);
-                          const mockExam = mockExamById[mockExamId] || null;
-                          const mockProgress = getMockGoalProgress(mockExam, mockAttemptsByExam?.[mockExamId]);
-                          const mockTitle = mockExam?.title || 'Пробник недоступен';
-                          return (
-                            <div key={`mock-${mockExamId}-${goalIndex}`} className="rounded-xl border border-purple-100 bg-purple-50 px-3 py-2 text-xs text-purple-700 space-y-2">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span>{`Пробник · ${mockTitle}`}</span>
-                                {onOpenMockGoal && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onOpenMockGoal(mockExamId)}
-                                    className="px-3 py-1 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700"
-                                  >
-                                    Перейти к пробнику
-                                  </button>
-                                )}
-                              </div>
-                              <div className="text-[11px] text-purple-600">
-                                {mockProgress.totalCount > 0
-                                  ? `Выполнено ${mockProgress.solvedCount}/${mockProgress.totalCount}`
-                                  : 'В пробнике пока нет заданий.'}
-                              </div>
-                            </div>
-                          );
-                        }
-                        const taskNumber = Number(goal.taskNumber);
-                        const isPythonGoal = isPythonTaskNumber(taskNumber);
-                        const pythonTask = isPythonGoal ? getPythonTaskInfo(taskNumber) : null;
-                        const taskDisplay = isPythonGoal
-                          ? (pythonTask?.displayNumber || taskNumber)
-                          : (formatTaskNumber(taskNumber) || taskNumber);
-                        const levelId = isPythonGoal ? PYTHON_LEVEL_ID : goal.levelId;
-                        const levelLabel = isPythonGoal
-                          ? 'Python'
-                          : (LEVELS[levelId?.toUpperCase()]?.label || levelId);
-                        const questionsList = taskNumber && levelId
-                          ? (testsDb?.[String(taskNumber)]?.[levelId] || [])
-                          : [];
-                        const totalCount = questionsList.length;
-                        const targetNumbers = goal.includeAll
-                          ? (totalCount > 0 ? Array.from({ length: totalCount }, (_, i) => i + 1) : [])
-                          : Array.from(new Set(
-                              (Array.isArray(goal.targetQuestions) ? goal.targetQuestions : [])
-                                .map((val) => Number(val))
-                                .filter((val) => Number.isFinite(val) && val > 0)
-                            )).sort((a, b) => a - b);
-                        const targetsKey = taskNumber && levelId ? `${taskNumber}|${levelId}` : null;
-                        const solvedSet = targetsKey ? solvedByKey?.[targetsKey] : null;
-                        const targetStatus = targetNumbers.map((num) => {
-                          const question = questionsList[num - 1];
-                          const qId = question?.id;
-                          const solved = qId ? solvedSet?.has(String(qId)) : false;
-                          return { num, solved };
-                        });
-                        const targetSolvedCount = targetStatus.filter((item) => item.solved).length;
-                        const hasTargets = targetNumbers.length > 0 || goal.includeAll;
-                        return (
-                          <div key={`${taskNumber}-${levelId}-${goalIndex}`} className="rounded-xl border border-purple-100 bg-purple-50 px-3 py-2 text-xs text-purple-700 space-y-2">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <span>
-                                {`Задание ${taskDisplay} · ${levelLabel}`}
-                              </span>
-                              {onOpenTask && (
-                                <button
-                                  type="button"
-                                  onClick={() => onOpenTask(taskNumber, levelId, targetNumbers)}
-                                  className="px-3 py-1 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700"
-                                >
-                                  Перейти к заданию
-                                </button>
-                              )}
-                            </div>
-                            {hasTargets && (
-                              <div className="space-y-2">
-                                <div className="text-[11px] font-semibold text-purple-700">Цель — решить эти задания:</div>
-                                {targetNumbers.length > 0 ? (
-                                  <div className="flex flex-wrap gap-2">
-                                    {targetStatus.map((item) => (
-                                      <span
-                                        key={item.num}
-                                        className={`px-2 py-1 rounded-lg border text-[11px] font-semibold ${
-                                          item.solved
-                                            ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
-                                            : 'border-purple-200 bg-white text-purple-700'
-                                        }`}
-                                      >
-                                        №{item.num}{item.solved ? ' ✓' : ''}
-                                      </span>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div className="text-[11px] text-purple-600">
-                                    Все задания этого уровня
-                                  </div>
-                                )}
-                                {targetNumbers.length > 0 && (
-                                  <div className="text-[11px] text-purple-600">
-                                    Выполнено {targetSolvedCount}/{targetStatus.length}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <div className="rounded-xl border bg-gray-50 p-4">
-                    <p className="text-xs font-bold text-gray-400 uppercase mb-2">Домашка</p>
-                    <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                      {entry?.homeWork ? entry.homeWork : 'Комментариев учителя нет.'}
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {entry?.lessonLink ? (
-                      <a
-                        href={normalizeUrl(entry.lessonLink)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-4 py-3 rounded-xl border border-purple-200 bg-purple-50 text-purple-700 font-semibold text-sm hover:border-purple-400"
-                      >
-                        Ссылка на занятие
-                      </a>
-                    ) : (
-                      <div className="px-4 py-3 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400">
-                        Ссылка на занятие не указана
-                      </div>
-                    )}
-                    {entry?.boardLink ? (
-                      <a
-                        href={normalizeUrl(entry.boardLink)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-4 py-3 rounded-xl border border-purple-200 bg-purple-50 text-purple-700 font-semibold text-sm hover:border-purple-400"
-                      >
-                        Онлайн-доска
-                      </a>
-                    ) : (
-                      <div className="px-4 py-3 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400">
-                        Ссылка на доску не указана
-                      </div>
-                    )}
-                  </div>
+          <div className="space-y-6">
+            <Card className="space-y-3 border-purple-200/80 bg-gradient-to-br from-purple-50/70 via-white to-fuchsia-50/45 shadow-[0_14px_30px_rgba(147,51,234,0.14)]">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="inline-flex items-center gap-2 text-sm font-semibold text-purple-700">
+                  <Calendar size={16} />
+                  На следующий урок
+                </h4>
+                {nextHomeworkEntry?.issuedAt && (
+                  <span className="rounded-full border border-purple-200 bg-purple-50 px-2.5 py-0.5 text-[11px] font-semibold text-purple-600">
+                    {formatDate(nextHomeworkEntry.issuedAt)}
+                  </span>
+                )}
+              </div>
+              {renderHomeworkEntryCard(nextHomeworkEntry, 'next')}
+            </Card>
+
+            <Card className="space-y-3 border-slate-200 bg-white/90">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <RefreshCcw size={14} />
+                  Предыдущие домашки
+                </h4>
+                <span className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-0.5 text-[11px] font-semibold text-gray-500">
+                  {previousHomeworkEntries.length}
+                </span>
+              </div>
+              {previousHomeworkEntries.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4 text-sm text-slate-500">
+                  Пока нет предыдущих домашних.
                 </div>
-              );
-            })}
+              ) : (
+                <div className="space-y-4">
+                  {previousHomeworkEntries.map((entry, idx) =>
+                    renderHomeworkEntryCard(entry, 'history', entry.id || `${entry?.issuedAt || 'entry'}-${idx}`)
+                  )}
+                </div>
+              )}
+            </Card>
           </div>
         )}
-      </Card>
+      </div>
     </div>
   );
 };
