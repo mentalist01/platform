@@ -9722,8 +9722,8 @@ const NotesSection = ({
   const renderStudentPicker = () => {
     if (role !== 'teacher') return null;
     return (
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-gray-500">Ученик:</span>
+      <div className="inline-flex items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-purple-100/40">
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
         <select
           value={activeStudentId || ''}
           onChange={(e) => {
@@ -9731,7 +9731,7 @@ const NotesSection = ({
             onSelectStudent?.(value || null);
           }}
           disabled={studentsLoading || studentsList.length === 0}
-          className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+          className="min-w-[180px] rounded-xl border border-purple-100 bg-white px-3 py-1.5 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
         >
           <option value="" disabled>Выберите ученика</option>
           {studentsList.map((student) => (
@@ -9744,100 +9744,186 @@ const NotesSection = ({
     );
   };
 
-  if (role === 'teacher' && studentsList.length === 0) {
-    return (
-      <div className="animate-fadeIn space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-2xl font-bold">Конспекты</h2>
-          {renderStudentPicker()}
-        </div>
-        <div className="text-gray-500">
-          {studentsLoading ? 'Загрузка списка учеников...' : 'Сначала создайте ученика в панели учителя.'}
+  const tasksWithFilesCount = taskOptions.reduce((sum, task) => {
+    return sum + ((taskCounts.get(task.number) || 0) > 0 ? 1 : 0);
+  }, 0);
+
+  const renderNotesIntro = (message) => (
+    <div className="animate-fadeIn">
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-5 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
+        <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
+        <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
+        <div className="relative z-10 space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Конспекты</h2>
+              <p className="text-sm text-slate-600">Материалы по заданиям, папкам и категориям</p>
+            </div>
+            {renderStudentPicker()}
+          </div>
+          <div className="rounded-2xl border border-dashed border-purple-200 bg-white/75 px-4 py-3 text-sm text-slate-600">
+            {message}
+          </div>
         </div>
       </div>
+    </div>
+  );
+
+  if (role === 'teacher' && studentsList.length === 0) {
+    return renderNotesIntro(
+      studentsLoading ? 'Загрузка списка учеников...' : 'Сначала создайте ученика в панели учителя.'
     );
   }
 
   if (role === 'teacher' && !effectiveStudentId) {
-    return (
-      <div className="animate-fadeIn space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-2xl font-bold">Конспекты</h2>
-          {renderStudentPicker()}
-        </div>
-        <div className="text-gray-500">Выберите ученика, чтобы открыть его материалы.</div>
-      </div>
-    );
+    return renderNotesIntro('Выберите ученика, чтобы открыть его материалы.');
   }
 
   if (!currentTask) return (
-    <div className="animate-fadeIn" data-tour="notes">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <h2 className="text-2xl font-bold">Конспекты</h2>
-        {renderStudentPicker()}
+    <div className="animate-fadeIn space-y-5" data-tour="notes">
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-5 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
+        <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
+        <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
+        <div className="relative z-10 flex flex-col gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Конспекты</h2>
+              <p className="text-sm text-slate-600">Выберите задание, чтобы открыть материалы</p>
+            </div>
+            {renderStudentPicker()}
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs font-semibold">
+            <span className="inline-flex items-center rounded-full border border-purple-200 bg-white/90 px-2.5 py-1 text-purple-700">
+              {`Всего файлов: ${files.length}`}
+            </span>
+            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-white/90 px-2.5 py-1 text-emerald-700">
+              {`Заполнено заданий: ${tasksWithFilesCount}/${taskOptions.length}`}
+            </span>
+          </div>
+        </div>
       </div>
+
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
-        {taskOptions.map((task) => (
-          <Card
-            key={task.number}
-            onClick={() => setCurrentTask(normalizeTaskNumber(task.number))}
-            className={`flex flex-col items-center justify-center p-4 sm:p-6 cursor-pointer ${
-              (taskCounts.get(task.number) || 0) > 0 ? 'hover:bg-purple-50' : 'opacity-70 hover:bg-gray-50'
-            }`}
-          >
-            <Folder size={32} className="text-blue-400 mb-2 fill-current" />
-            <span className="font-bold text-gray-700">Задание {getTaskDisplayNumber(task)}</span>
-            <span
-              className={`mt-2 text-xs font-bold px-2 py-1 rounded-full border ${
-                (taskCounts.get(task.number) || 0) > 0
-                  ? 'bg-green-50 text-green-700 border-green-200'
-                  : 'bg-gray-100 text-gray-500 border-gray-200'
+        {taskOptions.map((task) => {
+          const taskFilesCount = taskCounts.get(task.number) || 0;
+          const hasFiles = taskFilesCount > 0;
+          return (
+            <Card
+              key={task.number}
+              onClick={() => setCurrentTask(normalizeTaskNumber(task.number))}
+              className={`group space-y-3 p-4 sm:p-5 ${
+                hasFiles
+                  ? 'border-purple-200/80 bg-gradient-to-br from-purple-50/65 via-white to-fuchsia-50/35'
+                  : 'border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-slate-100/70'
               }`}
             >
-              {(taskCounts.get(task.number) || 0) > 0 ? `Файлов: ${taskCounts.get(task.number)}` : 'Пусто'}
-            </span>
-          </Card>
-        ))}
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center rounded-lg border border-purple-200 bg-white/90 px-2 py-1 text-xs font-bold text-purple-700">
+                  Задание {getTaskDisplayNumber(task)}
+                </span>
+                <span
+                  className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                    hasFiles
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      : 'border-slate-200 bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  {hasFiles ? `${taskFilesCount} файлов` : 'Пусто'}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border ${
+                  hasFiles ? 'border-purple-200 bg-white text-purple-600' : 'border-slate-200 bg-white text-slate-400'
+                }`}>
+                  <Folder size={22} />
+                </span>
+                <p className="text-xs text-slate-500">
+                  {hasFiles ? 'Открыть материалы задания' : 'Добавьте материалы для этой темы'}
+                </p>
+              </div>
+            </Card>
+          );
+        })}
       </div>
     </div>
   );
 
   if (!currentCategory) return (
-    <div className="animate-fadeIn" data-tour="notes">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <button onClick={() => setCurrentTask(null)} className="flex items-center text-gray-500 hover:text-purple-600"><ArrowLeft size={16}/> Назад</button>
-        {renderStudentPicker()}
+    <div className="animate-fadeIn space-y-5" data-tour="notes">
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-5 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
+        <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
+        <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
+        <div className="relative z-10 flex flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <button
+              onClick={() => setCurrentTask(null)}
+              className="inline-flex items-center gap-1 rounded-xl border border-purple-100 bg-white/90 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-purple-300 hover:text-purple-700"
+            >
+              <ArrowLeft size={16} />
+              К заданиям
+            </button>
+            {renderStudentPicker()}
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs font-semibold">
+            <span className="inline-flex items-center rounded-full border border-purple-200 bg-white/90 px-2.5 py-1 text-purple-700">
+              {`Задание ${formatTaskNumber(currentTask) || currentTask}`}
+            </span>
+            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-white/90 px-2.5 py-1 text-emerald-700">
+              {`Файлов: ${taskCounts.get(normalizedCurrentTask) || 0}`}
+            </span>
+          </div>
+        </div>
       </div>
-      <h2 className="text-2xl font-bold mb-6">Задание {formatTaskNumber(currentTask) || currentTask}</h2>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
         <Card
           onClick={() => setCurrentCategory('class')}
-          className={`p-8 flex items-center gap-4 cursor-pointer ${
-            categoryCounts.class > 0 ? 'hover:border-purple-300' : 'opacity-80 hover:border-gray-300'
+          className={`p-6 md:p-7 flex items-center gap-4 ${
+            categoryCounts.class > 0
+              ? 'border-orange-200/80 bg-gradient-to-br from-orange-50/70 via-white to-amber-50/45'
+              : 'border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-slate-100/70'
           }`}
         >
-          <BookOpen size={32} className="text-orange-500"/>
+          <div className={`inline-flex h-14 w-14 items-center justify-center rounded-2xl border ${
+            categoryCounts.class > 0 ? 'border-orange-200 bg-white text-orange-500' : 'border-slate-200 bg-white text-slate-400'
+          }`}>
+            <BookOpen size={28} />
+          </div>
           <div>
-            <h3 className="font-bold text-lg">На уроке</h3>
+            <h3 className="font-bold text-lg text-gray-800">На уроке</h3>
             <p className="text-gray-500 text-sm">Презентации и скрипты</p>
-            <p className={`mt-2 text-xs font-bold ${categoryCounts.class > 0 ? 'text-green-700' : 'text-gray-500'}`}>
+            <span className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
+              categoryCounts.class > 0
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-slate-200 bg-slate-100 text-slate-500'
+            }`}>
               {categoryCounts.class > 0 ? `Файлов: ${categoryCounts.class}` : 'Пусто'}
-            </p>
+            </span>
           </div>
         </Card>
         <Card
           onClick={() => setCurrentCategory('home')}
-          className={`p-8 flex items-center gap-4 cursor-pointer ${
-            categoryCounts.home > 0 ? 'hover:border-purple-300' : 'opacity-80 hover:border-gray-300'
+          className={`p-6 md:p-7 flex items-center gap-4 ${
+            categoryCounts.home > 0
+              ? 'border-emerald-200/80 bg-gradient-to-br from-emerald-50/70 via-white to-lime-50/45'
+              : 'border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-slate-100/70'
           }`}
         >
-          <FileText size={32} className="text-green-500"/>
+          <div className={`inline-flex h-14 w-14 items-center justify-center rounded-2xl border ${
+            categoryCounts.home > 0 ? 'border-emerald-200 bg-white text-emerald-500' : 'border-slate-200 bg-white text-slate-400'
+          }`}>
+            <FileText size={28} />
+          </div>
           <div>
-            <h3 className="font-bold text-lg">Домашка</h3>
+            <h3 className="font-bold text-lg text-gray-800">Домашка</h3>
             <p className="text-gray-500 text-sm">Файлы заданий</p>
-            <p className={`mt-2 text-xs font-bold ${categoryCounts.home > 0 ? 'text-green-700' : 'text-gray-500'}`}>
+            <span className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
+              categoryCounts.home > 0
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-slate-200 bg-slate-100 text-slate-500'
+            }`}>
               {categoryCounts.home > 0 ? `Файлов: ${categoryCounts.home}` : 'Пусто'}
-            </p>
+            </span>
           </div>
         </Card>
       </div>
@@ -9860,53 +9946,82 @@ const NotesSection = ({
     wordWrap: 'on',
     automaticLayout: true
   };
+  const currentTaskLabel = formatTaskNumber(currentTask) || currentTask;
+  const currentCategoryLabel = currentCategory === 'class' ? 'На уроке' : 'Домашка';
 
   return (
-    <div className="animate-fadeIn" data-tour="notes">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <button onClick={() => setCurrentCategory(null)} className="flex items-center text-gray-500 hover:text-purple-600"><ArrowLeft size={16}/> Назад</button>
-        {renderStudentPicker()}
-      </div>
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-6">
-        <div>
-          <div className="text-base md:text-lg font-semibold text-gray-700 flex flex-wrap items-center gap-2">
+    <div className="animate-fadeIn space-y-5" data-tour="notes">
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-5 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
+        <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
+        <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
+        <div className="relative z-10 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <button
               onClick={() => setCurrentCategory(null)}
-              className="hover:text-purple-600"
-              type="button"
+              className="inline-flex items-center gap-1 rounded-xl border border-purple-100 bg-white/90 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-purple-300 hover:text-purple-700"
             >
-              Задание {formatTaskNumber(currentTask) || currentTask}
+              <ArrowLeft size={16} />
+              Назад
             </button>
-            <ChevronRight size={16} className="text-gray-300" />
-            <button
-              onClick={() => setCurrentFolderId(null)}
-              className="hover:text-purple-600"
-              type="button"
-            >
-              {currentCategory === 'class' ? 'На уроке' : 'Домашка'}
-            </button>
-            <ChevronRight size={16} className="text-gray-300" />
-            <span className={currentFolderId ? 'text-gray-700' : 'text-gray-400'}>
-              {currentFolderLabel}
-            </span>
+            {renderStudentPicker()}
           </div>
-          <div className="text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-3">
-            <span>Использовано: {formatBytes(taskUsageBytes)} из {formatBytes(totalLimitBytes)}</span>
-            <span className={remainingBytes <= 10 * 1024 * 1024 ? 'text-red-600 font-medium' : ''}>
-              Осталось: {formatBytes(remainingBytes)}
-            </span>
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="space-y-2">
+              <div className="text-base md:text-lg font-semibold text-gray-700 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => setCurrentCategory(null)}
+                  className="hover:text-purple-600"
+                  type="button"
+                >
+                  Задание {currentTaskLabel}
+                </button>
+                <ChevronRight size={16} className="text-gray-300" />
+                <button
+                  onClick={() => setCurrentFolderId(null)}
+                  className="hover:text-purple-600"
+                  type="button"
+                >
+                  {currentCategoryLabel}
+                </button>
+                <ChevronRight size={16} className="text-gray-300" />
+                <span className={currentFolderId ? 'text-gray-700' : 'text-gray-400'}>
+                  {currentFolderLabel}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+                <span className="inline-flex items-center rounded-full border border-purple-200 bg-white/90 px-2.5 py-1 text-purple-700">
+                  Использовано: {formatBytes(taskUsageBytes)} из {formatBytes(totalLimitBytes)}
+                </span>
+                <span className={`inline-flex items-center rounded-full border px-2.5 py-1 ${
+                  remainingBytes <= 10 * 1024 * 1024
+                    ? 'border-rose-200 bg-rose-50 text-rose-600'
+                    : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                }`}>
+                  Осталось: {formatBytes(remainingBytes)}
+                </span>
+                <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-slate-600">
+                  {`Файлов в разделе: ${filtered.length}`}
+                </span>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} multiple />
+              <Button onClick={() => fileRef.current.click()} disabled={isUploading} className="min-w-[128px]">
+                <Upload size={18} /> {isUploading ? 'Загрузка...' : 'Загрузить'}
+              </Button>
+            </div>
           </div>
-        </div>
-        <div className="flex gap-2">
-          <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} multiple/>
-          <Button onClick={() => fileRef.current.click()} disabled={isUploading}><Upload size={18}/> {isUploading ? '...' : 'Загрузить'}</Button>
         </div>
       </div>
-      <div className="bg-white rounded-2xl border p-4 mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-gray-700">Python файл</h3>
+
+      <Card className="space-y-4 border-purple-200/70 bg-gradient-to-br from-white via-white to-purple-50/45">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-gray-800">Python файл</h3>
+            <p className="text-xs text-slate-500">Создайте .py файл сразу в текущей папке</p>
+          </div>
           <Button variant="secondary" onClick={() => setShowPyCreator((v) => !v)}>
-            <Plus size={16}/> {showPyCreator ? 'Скрыть' : 'Создать'}
+            <Plus size={16} /> {showPyCreator ? 'Скрыть' : 'Создать'}
           </Button>
         </div>
         {showPyCreator && (
@@ -9917,7 +10032,7 @@ const NotesSection = ({
                 value={pyDraftName}
                 onChange={(e) => { setPyDraftName(e.target.value); setPyDraftError(''); }}
                 placeholder="Название файла (без .py)"
-                className="flex-1 px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                className="flex-1 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
               />
               <Button onClick={handleCreatePyFile} disabled={pyDraftSaving || !pyDraftName.trim()}>
                 {pyDraftSaving ? 'Сохранение...' : 'Сохранить файл'}
@@ -9944,12 +10059,16 @@ const NotesSection = ({
             {pyDraftError && <p className="text-xs text-red-500">{pyDraftError}</p>}
           </div>
         )}
-      </div>
-      <div className="bg-white rounded-2xl border p-4 mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-gray-700">Папки</h3>
+      </Card>
+
+      <Card className="space-y-4 border-slate-200 bg-white/90">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-gray-800">Папки</h3>
+            <p className="text-xs text-slate-500">Организуйте материалы внутри выбранного раздела</p>
+          </div>
           <Button variant="secondary" onClick={() => setIsCreatingFolder((v) => !v)}>
-            <FolderPlus size={16}/> Новая папка
+            <FolderPlus size={16} /> Новая папка
           </Button>
         </div>
 
@@ -9961,7 +10080,7 @@ const NotesSection = ({
               onChange={(e) => { setNewFolderName(e.target.value); setFoldersError(''); }}
               onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); }}
               placeholder="Название папки"
-              className="flex-1 px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+              className="flex-1 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
             />
             <Button onClick={handleCreateFolder} disabled={!newFolderName.trim()}>
               Создать
@@ -10015,7 +10134,7 @@ const NotesSection = ({
                   onBlur={() => {
                     if (!isRenamingFolder) saveRenameFolder(folder);
                   }}
-                  className="px-2 py-1 rounded-lg bg-white border border-gray-200 focus:border-purple-500 outline-none text-sm"
+                  className="px-2 py-1 rounded-lg bg-white border border-purple-100 focus:border-purple-500 outline-none text-sm"
                   autoFocus
                 />
               ) : (
@@ -10028,34 +10147,39 @@ const NotesSection = ({
           ))}
         </div>
         {foldersError && <p className="text-xs text-red-500 mt-2">{foldersError}</p>}
-      </div>
+      </Card>
+
       <div
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         data-tour="files"
-        className={`rounded-2xl border-2 border-dashed p-4 transition-colors ${
-          isDragging ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
+        className={`rounded-3xl border-2 border-dashed p-4 md:p-5 transition-all ${
+          isDragging
+            ? 'border-purple-400 bg-gradient-to-br from-purple-50 via-white to-fuchsia-50/40'
+            : 'border-slate-200 bg-gradient-to-br from-white via-white to-slate-50/70'
         }`}
       >
-        <div className="text-sm text-gray-500 mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
           <span>Перетащите файл сюда или вставьте изображение через Ctrl+V</span>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-slate-400">
             Папка: {currentFolderLabel} • Осталось {formatBytes(remainingBytes)}
           </span>
-          {isUploading && <span className="text-xs text-purple-600 font-bold">Загрузка...</span>}
+          {isUploading && <span className="text-xs font-bold text-purple-600">Загрузка...</span>}
         </div>
 
         {filtered.length === 0 ? (
-          <div className="text-center p-10 bg-white border border-dashed rounded-2xl text-gray-400">
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-white/80 p-10 text-center text-sm text-slate-400">
             {filesError || 'Пусто'}
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {filtered.map(f => (
               <div key={f.id} className="space-y-2">
                 <div
-                className={`bg-white p-4 rounded-xl border flex justify-between items-center ${draggingFileId === f.id ? 'opacity-60' : ''}`}
+                className={`flex items-center justify-between rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm transition-all ${
+                  draggingFileId === f.id ? 'opacity-60' : 'hover:border-purple-200 hover:shadow-md'
+                }`}
                 draggable={renamingId !== f.id}
                 onDragStart={(e) => handleDragStartFile(e, f)}
                 onDragEnd={handleDragEndFile}
