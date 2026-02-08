@@ -8,7 +8,7 @@ import {
   BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle,
   Menu, X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Check, Plus, Flame, Snowflake,
-  Settings, Save, Calendar, RefreshCcw, Pencil
+  Settings, Save, Calendar, RefreshCcw, Pencil, Image as ImageIcon
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
 import mascotDisapproval from './assets/mascot/disapproval.png';
@@ -33,6 +33,8 @@ const LEVEL_WEIGHTS = {
 const SOFT_DELETE_DAYS = 30;
 const GAME_THEORY_TASK = 19;
 const PYTHON_LEVEL_ID = 'python';
+const GOAL_TYPE_TASK = 'task';
+const GOAL_TYPE_MOCK = 'mock';
 const MOCK_TASK_NUMBERS = Array.from({ length: 27 }, (_, i) => i + 1);
 const PRIMARY_TO_SECONDARY = {
   1: 7,
@@ -116,6 +118,50 @@ const formatTaskNumber = (value) => {
 };
 
 const getTaskDisplayNumber = (task) => task?.displayNumber ?? formatTaskNumber(task?.number ?? task?.id);
+const normalizeMockExamId = (value) => String(value || '').trim();
+
+const normalizeGoalType = (goal) => {
+  const rawType = String(goal?.type || '').trim().toLowerCase();
+  if (rawType === GOAL_TYPE_MOCK) return GOAL_TYPE_MOCK;
+  if (!rawType && normalizeMockExamId(goal?.mockExamId)) return GOAL_TYPE_MOCK;
+  return GOAL_TYPE_TASK;
+};
+
+const getMockExamTaskKeys = (exam) => {
+  const tasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
+  return Object.keys(tasks)
+    .map((taskKey) => String(taskKey || '').trim())
+    .filter(Boolean)
+    .sort((a, b) => {
+      const aNum = Number(a);
+      const bNum = Number(b);
+      if (Number.isFinite(aNum) && Number.isFinite(bNum)) return aNum - bNum;
+      return a.localeCompare(b, 'ru');
+    });
+};
+
+const getMockGoalProgress = (exam, attempt) => {
+  const taskKeys = getMockExamTaskKeys(exam);
+  const solvedMap = attempt?.solved && typeof attempt.solved === 'object' ? attempt.solved : {};
+  const taskStatus = taskKeys.map((taskKey) => {
+    const taskNumber = Number(taskKey);
+    const label = formatTaskNumber(taskNumber);
+    return {
+      taskKey,
+      taskNumber: Number.isFinite(taskNumber) ? taskNumber : null,
+      label: label || taskKey,
+      solved: Boolean(solvedMap[String(taskKey)])
+    };
+  });
+  const solvedCount = taskStatus.filter((item) => item.solved).length;
+  const totalCount = taskStatus.length;
+  return {
+    taskStatus,
+    solvedCount,
+    totalCount,
+    completed: totalCount > 0 && solvedCount >= totalCount
+  };
+};
 
 const normalizeOutput = (value) => String(value ?? '').replace(/\r\n/g, '\n').trimEnd();
 
@@ -552,6 +598,7 @@ const ensurePyodideReady = (() => {
 })();
 
 const PYODIDE_RUN_TIMEOUT_MS = 8000;
+const ALLOW_MAIN_THREAD_PYTHON_FALLBACK = false;
 
 const createPyodideWorker = () => {
   const workerSource = `
@@ -670,9 +717,48 @@ const parseJsonResponse = async (res) => {
   return res.json();
 };
 
+const USER_SESSION_KEY = 'ege_user_session';
+let unauthorizedHandler = null;
+
+const sanitizeAuthUserPayload = (value) => {
+  if (!value || typeof value !== 'object') return null;
+  const role = typeof value.role === 'string' ? value.role.trim() : '';
+  const id = typeof value.id === 'string' ? value.id.trim() : '';
+  const name = typeof value.name === 'string' ? value.name : '';
+  if (!role || !id || !name) return null;
+  const safe = { role, id, name };
+  if (role === 'student') {
+    const teacherId = value.teacherId;
+    safe.teacherId = teacherId ? String(teacherId) : null;
+  }
+  return safe;
+};
+
+const setUnauthorizedHandler = (handler) => {
+  unauthorizedHandler = typeof handler === 'function' ? handler : null;
+};
+
+const clearStoredSession = () => {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.removeItem(USER_SESSION_KEY);
+  } catch {}
+};
+
+const apiFetch = async (input, init = {}) => {
+  const res = await fetch(input, init);
+  if (res.status === 401) {
+    clearStoredSession();
+    try {
+      unauthorizedHandler?.();
+    } catch {}
+  }
+  return res;
+};
+
 const api = {
   login: async (code) => {
-    const res = await fetch('/api/login', {
+    const res = await apiFetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code }),
@@ -680,18 +766,23 @@ const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
+  logout: async () => {
+    const res = await apiFetch('/api/logout', { method: 'POST' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getStudents: async (teacherId, options = {}) => {
     const params = new URLSearchParams();
     if (teacherId) params.append('teacherId', teacherId);
     if (options?.includeDeleted) params.append('includeDeleted', '1');
     if (options?.deletedOnly) params.append('deletedOnly', '1');
     const qs = params.toString();
-    const res = await fetch(qs ? `/api/students?${qs}` : '/api/students');
+    const res = await apiFetch(qs ? `/api/students?${qs}` : '/api/students');
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
   createStudent: async (name, teacherId) => {
-    const res = await fetch('/api/students', {
+    const res = await apiFetch('/api/students', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, teacherId }),
@@ -700,17 +791,17 @@ const api = {
     return res.json();
   },
   deleteStudent: async (id) => {
-    const res = await fetch(`/api/students/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/students/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
   restoreStudent: async (id) => {
-    const res = await fetch(`/api/students/${id}/restore`, { method: 'POST' });
+    const res = await apiFetch(`/api/students/${id}/restore`, { method: 'POST' });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
   updateStudent: async (id, payload) => {
-    const res = await fetch(`/api/students/${id}`, {
+    const res = await apiFetch(`/api/students/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload || {}),
@@ -719,17 +810,17 @@ const api = {
     return res.json();
   },
   resetStudentCode: async (id) => {
-    const res = await fetch(`/api/students/${id}/reset-code`, { method: 'POST' });
+    const res = await apiFetch(`/api/students/${id}/reset-code`, { method: 'POST' });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
   getTeachers: async () => {
-    const res = await fetch('/api/teachers');
+    const res = await apiFetch('/api/teachers');
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
   createTeacher: async (name) => {
-    const res = await fetch('/api/teachers', {
+    const res = await apiFetch('/api/teachers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
@@ -738,7 +829,7 @@ const api = {
     return res.json();
   },
   updateTeacherName: async (id, name) => {
-    const res = await fetch(`/api/teachers/${id}`, {
+    const res = await apiFetch(`/api/teachers/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
@@ -747,17 +838,17 @@ const api = {
     return res.json();
   },
   deleteTeacher: async (id) => {
-    const res = await fetch(`/api/teachers/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/teachers/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
   resetTeacherCode: async (id) => {
-    const res = await fetch(`/api/teachers/${id}/reset-code`, { method: 'POST' });
+    const res = await apiFetch(`/api/teachers/${id}/reset-code`, { method: 'POST' });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
   updateTeacherCode: async (teacherId, currentCode, newCode) => {
-    const res = await fetch('/api/teacher-code', {
+    const res = await apiFetch('/api/teacher-code', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ teacherId, currentCode, newCode }),
@@ -766,13 +857,13 @@ const api = {
     return res.json();
   },
   getTests: async () => {
-    const res = await fetch('/api/tests');
+    const res = await apiFetch('/api/tests');
     if (!res.ok) throw new Error(await parseApiError(res));
     const data = await parseJsonResponse(res);
     return data && typeof data === 'object' ? data : {};
   },
   saveTests: async (newDb) => {
-    const res = await fetch('/api/tests', {
+    const res = await apiFetch('/api/tests', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newDb),
@@ -784,12 +875,12 @@ const api = {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', String(studentId));
     const qs = params.toString();
-    const res = await fetch(qs ? `/api/mock-exams?${qs}` : '/api/mock-exams');
+    const res = await apiFetch(qs ? `/api/mock-exams?${qs}` : '/api/mock-exams');
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
   createMockExam: async (title) => {
-    const res = await fetch('/api/mock-exams', {
+    const res = await apiFetch('/api/mock-exams', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title }),
@@ -798,7 +889,7 @@ const api = {
     return parseJsonResponse(res);
   },
   updateMockExam: async (id, payload) => {
-    const res = await fetch(`/api/mock-exams/${id}`, {
+    const res = await apiFetch(`/api/mock-exams/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload || {}),
@@ -807,7 +898,7 @@ const api = {
     return parseJsonResponse(res);
   },
   deleteMockExamDefinition: async (id) => {
-    const res = await fetch(`/api/mock-exams/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/mock-exams/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
@@ -816,12 +907,12 @@ const api = {
     if (studentId) params.append('studentId', String(studentId));
     if (examId) params.append('examId', String(examId));
     const qs = params.toString();
-    const res = await fetch(qs ? `/api/mock-exams/attempt?${qs}` : '/api/mock-exams/attempt');
+    const res = await apiFetch(qs ? `/api/mock-exams/attempt?${qs}` : '/api/mock-exams/attempt');
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
   saveMockAttempt: async (studentId, examId, payload) => {
-    const res = await fetch('/api/mock-exams/attempt', {
+    const res = await apiFetch('/api/mock-exams/attempt', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ studentId, examId, ...(payload || {}) }),
@@ -830,12 +921,12 @@ const api = {
     return parseJsonResponse(res);
   },
   getTaskTitles: async () => {
-    const res = await fetch('/api/task-titles');
+    const res = await apiFetch('/api/task-titles');
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
   updateTaskTitle: async (number, title) => {
-    const res = await fetch('/api/task-titles', {
+    const res = await apiFetch('/api/task-titles', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ number, title }),
@@ -847,12 +938,12 @@ const api = {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);
     const qs = params.toString();
-    const res = await fetch(qs ? `/api/progress?${qs}` : '/api/progress');
+    const res = await apiFetch(qs ? `/api/progress?${qs}` : '/api/progress');
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
   updateStudentProgress: async (studentId, taskId, value) => {
-    const res = await fetch('/api/progress', {
+    const res = await apiFetch('/api/progress', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ studentId, taskId, value }),
@@ -864,12 +955,12 @@ const api = {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);
     const qs = params.toString();
-    const res = await fetch(qs ? `/api/student-data?${qs}` : '/api/student-data');
+    const res = await apiFetch(qs ? `/api/student-data?${qs}` : '/api/student-data');
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
   updateStudentNotes: async (studentId, payload) => {
-    const res = await fetch('/api/student-notes', {
+    const res = await apiFetch('/api/student-notes', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ studentId, ...payload }),
@@ -883,12 +974,12 @@ const api = {
     if (since) params.append('since', String(since));
     if (limit) params.append('limit', String(limit));
     const qs = params.toString();
-    const res = await fetch(qs ? `/api/teacher-solved-events?${qs}` : '/api/teacher-solved-events');
+    const res = await apiFetch(qs ? `/api/teacher-solved-events?${qs}` : '/api/teacher-solved-events');
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
   updateStudentHomework: async (studentId, homeworkId, payload) => {
-    const res = await fetch(`/api/student-next-lesson/${homeworkId}`, {
+    const res = await apiFetch(`/api/student-next-lesson/${homeworkId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ studentId, ...payload }),
@@ -900,7 +991,7 @@ const api = {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);
     const qs = params.toString();
-    const res = await fetch(
+    const res = await apiFetch(
       qs ? `/api/student-next-lesson/${homeworkId}?${qs}` : `/api/student-next-lesson/${homeworkId}`,
       { method: 'DELETE' }
     );
@@ -908,7 +999,7 @@ const api = {
     return parseJsonResponse(res);
   },
   solveQuestion: async (payload) => {
-    const res = await fetch('/api/progress/solve', {
+    const res = await apiFetch('/api/progress/solve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -923,12 +1014,50 @@ const api = {
     if (levelId) params.append('levelId', String(levelId));
     if (options?.includeCode) params.append('includeCode', '1');
     const qs = params.toString();
-    const res = await fetch(qs ? `/api/progress/solved?${qs}` : '/api/progress/solved');
+    const res = await apiFetch(qs ? `/api/progress/solved?${qs}` : '/api/progress/solved');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getTaskCode: async (studentId, taskNumber) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', studentId);
+    if (taskNumber) params.append('taskNumber', String(taskNumber));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/progress/task-code?${qs}` : '/api/progress/task-code');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  saveTaskCode: async (studentId, taskNumber, payload = {}) => {
+    const res = await apiFetch('/api/progress/task-code', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, taskNumber, ...payload }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getQuestionCode: async (studentId, taskNumber, levelId, questionId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', studentId);
+    if (taskNumber) params.append('taskNumber', String(taskNumber));
+    if (levelId) params.append('levelId', String(levelId));
+    if (questionId !== undefined && questionId !== null) params.append('questionId', String(questionId));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/progress/question-code?${qs}` : '/api/progress/question-code');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  saveQuestionCode: async (studentId, taskNumber, levelId, questionId, payload = {}) => {
+    const res = await apiFetch('/api/progress/question-code', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, taskNumber, levelId, questionId, ...payload }),
+    });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
   addMockExam: async (studentId, payload) => {
-    const res = await fetch('/api/mocks', {
+    const res = await apiFetch('/api/mocks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ studentId, ...payload }),
@@ -940,20 +1069,20 @@ const api = {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);
     const qs = params.toString();
-    const res = await fetch(qs ? `/api/mocks/${id}?${qs}` : `/api/mocks/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(qs ? `/api/mocks/${id}?${qs}` : `/api/mocks/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
   uploadTestFile: async (file) => {
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch('/api/test-files', { method: 'POST', body: form });
+    const res = await apiFetch('/api/test-files', { method: 'POST', body: form });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
   deleteTestFile: async (storageName) => {
     if (!storageName) return { ok: true };
-    const res = await fetch(`/api/test-files/${encodeURIComponent(storageName)}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/test-files/${encodeURIComponent(storageName)}`, { method: 'DELETE' });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
@@ -961,12 +1090,12 @@ const api = {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);
     const qs = params.toString();
-    const res = await fetch(qs ? `/api/student-schedule?${qs}` : '/api/student-schedule');
+    const res = await apiFetch(qs ? `/api/student-schedule?${qs}` : '/api/student-schedule');
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
   addScheduleEntry: async (studentId, payload) => {
-    const res = await fetch('/api/student-schedule', {
+    const res = await apiFetch('/api/student-schedule', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ studentId, ...payload }),
@@ -978,7 +1107,7 @@ const api = {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);
     const qs = params.toString();
-    const res = await fetch(qs ? `/api/student-schedule/${id}?${qs}` : `/api/student-schedule/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(qs ? `/api/student-schedule/${id}?${qs}` : `/api/student-schedule/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
@@ -986,12 +1115,12 @@ const api = {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);
     const qs = params.toString();
-    const res = await fetch(qs ? `/api/student-next-lesson?${qs}` : '/api/student-next-lesson');
+    const res = await apiFetch(qs ? `/api/student-next-lesson?${qs}` : '/api/student-next-lesson');
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
   updateStudentNextLesson: async (studentId, payload) => {
-    const res = await fetch('/api/student-next-lesson', {
+    const res = await apiFetch('/api/student-next-lesson', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ studentId, ...payload }),
@@ -1003,7 +1132,7 @@ const api = {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);
     const qs = params.toString();
-    const res = await fetch(qs ? `/api/files?${qs}` : '/api/files');
+    const res = await apiFetch(qs ? `/api/files?${qs}` : '/api/files');
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
@@ -1013,12 +1142,12 @@ const api = {
     if (category) params.append('category', category);
     if (studentId) params.append('studentId', studentId);
     const qs = params.toString();
-    const res = await fetch(qs ? `/api/folders?${qs}` : '/api/folders');
+    const res = await apiFetch(qs ? `/api/folders?${qs}` : '/api/folders');
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
   createFolder: async (taskNumber, category, name, studentId) => {
-    const res = await fetch('/api/folders', {
+    const res = await apiFetch('/api/folders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ taskNumber, category, name, studentId }),
@@ -1027,7 +1156,7 @@ const api = {
     return res.json();
   },
   renameFolder: async (id, name) => {
-    const res = await fetch(`/api/folders/${id}`, {
+    const res = await apiFetch(`/api/folders/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
@@ -1043,17 +1172,17 @@ const api = {
     form.append('studentId', studentId);
     if (folderId) form.append('folderId', folderId);
 
-    const res = await fetch('/api/files', { method: 'POST', body: form });
+    const res = await apiFetch('/api/files', { method: 'POST', body: form });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
   deleteFile: async (id) => {
-    const res = await fetch(`/api/files/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/files/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
   renameFile: async (id, name) => {
-    const res = await fetch(`/api/files/${id}`, {
+    const res = await apiFetch(`/api/files/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
@@ -1062,10 +1191,19 @@ const api = {
     return res.json();
   },
   moveFile: async (id, folderId) => {
-    const res = await fetch(`/api/files/${id}`, {
+    const res = await apiFetch(`/api/files/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ folderId }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  updateFileContent: async (id, content) => {
+    const res = await apiFetch(`/api/files/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
@@ -1100,9 +1238,17 @@ const getEntrySizeBytes = (entry) => {
 };
 
 const withStudentId = (url, studentId) => {
-  if (!url || !studentId) return url;
-  const separator = url.includes('?') ? '&' : '?';
-  return `${url}${separator}studentId=${encodeURIComponent(studentId)}`;
+  if (!url) return url;
+  let nextUrl = url;
+  if (studentId && !/[?&]studentId=/.test(nextUrl)) {
+    const separator = nextUrl.includes('?') ? '&' : '?';
+    nextUrl = `${nextUrl}${separator}studentId=${encodeURIComponent(studentId)}`;
+  }
+  return nextUrl;
+};
+
+const withUploadsAuthToken = (url) => {
+  return String(url || '');
 };
 
 const highlightPython = (code) => Prism.highlight(code, Prism.languages.python, 'python');
@@ -1183,8 +1329,8 @@ const STUDENT_TOUR_STEPS = [
  */
 const LogoMark = ({ className = '' }) => (
   <span className={`font-display font-extrabold tracking-tight ${className}`}>
-    <span className="text-slate-900">IVAN</span>
-    <span className="text-purple-600 logo-glow">100</span>
+    <span className="text-slate-900">Плат</span>
+    <span className="text-purple-600 logo-glow">форма</span>
   </span>
 );
 
@@ -2160,7 +2306,7 @@ const TeacherPanel = ({
                   {existingQuestionScreenshots.length > 0 && (
                     <div className="mt-3 space-y-3">
                       {existingQuestionScreenshots.map((item, idx) => {
-                        const imgUrl = item?.url || (item?.storageName ? `/uploads/${item.storageName}` : '');
+                        const imgUrl = withUploadsAuthToken(item?.url || (item?.storageName ? `/uploads/${item.storageName}` : ''));
                         return (
                           <div key={item.id || item.storageName || item.url || idx} className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
                             <div className="bg-gray-50 p-2 flex items-center justify-between gap-2">
@@ -2489,7 +2635,7 @@ const TeacherPanel = ({
                     {Array.isArray(q.screenshots) && q.screenshots.length > 0 && (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {q.screenshots.map((img) => {
-                          const imgUrl = img?.url || (img?.storageName ? `/uploads/${img.storageName}` : '');
+                          const imgUrl = withUploadsAuthToken(img?.url || (img?.storageName ? `/uploads/${img.storageName}` : ''));
                           return (
                           <button
                             key={img.id || img.url || img.storageName}
@@ -2511,7 +2657,7 @@ const TeacherPanel = ({
                     {Array.isArray(q.files) && q.files.length > 0 && (
                       <div className="mt-3 space-y-2">
                         {q.files.map((file) => {
-                          const fileUrl = file?.url || (file?.storageName ? `/uploads/${file.storageName}` : '');
+                          const fileUrl = withUploadsAuthToken(file?.url || (file?.storageName ? `/uploads/${file.storageName}` : ''));
                           return (
                             <a
                               key={file.id || file.url || file.storageName}
@@ -3039,6 +3185,12 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
         worker.postMessage({ id, source, input: inputValue });
       });
     }
+    if (!ALLOW_MAIN_THREAD_PYTHON_FALLBACK) {
+      return {
+        output: '',
+        error: 'Не удалось запустить Python в изолированном режиме. Перезагрузите страницу.'
+      };
+    }
     return runPythonInMainThread(source, inputValue);
   };
 
@@ -3050,9 +3202,12 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
     const rawTests = Array.isArray(currentQuestion.tests)
       ? currentQuestion.tests
       : (currentQuestion.answer ? [{ input: '', output: currentQuestion.answer }] : []);
+    const hasExpectedOutputs = rawTests.every((test) => (
+      Object.prototype.hasOwnProperty.call(test || {}, 'output')
+    ));
     const sanitizedTests = rawTests.map((test) => ({
       input: String(test?.input ?? ''),
-      output: String(test?.output ?? ''),
+      output: hasExpectedOutputs ? String(test?.output ?? '') : '',
     }));
     if (sanitizedTests.length === 0) {
       setRunnerLoading(false);
@@ -3066,7 +3221,9 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
         const res = await runPythonCode(code, test.input);
         const normalizedOut = normalizeOutput(res.output);
         const normalizedExpected = normalizeOutput(test.output);
-        const passed = !res.error && normalizedOut === normalizedExpected;
+        const passed = hasExpectedOutputs
+          ? (!res.error && normalizedOut === normalizedExpected)
+          : undefined;
         resultsList.push({
           input: test.input,
           expected: test.output,
@@ -3077,8 +3234,15 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
       }
       setTestResults(resultsList);
 
-      const allPassed = resultsList.length > 0 && resultsList.every((item) => item.passed);
-      if (allPassed) {
+      const allPassed = hasExpectedOutputs
+        && resultsList.length > 0
+        && resultsList.every((item) => item.passed === true);
+      const canSubmitWithoutExpected = !hasExpectedOutputs
+        && resultsList.length > 0
+        && resultsList.every((item) => !String(item.error ?? '').trim());
+      const shouldSubmit = allPassed || canSubmitWithoutExpected;
+
+      if (shouldSubmit) {
         const currentId = String(currentQuestion?.id ?? currentIndex);
         if (studentId) {
           try {
@@ -3092,6 +3256,11 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
               levelTotals: { [PYTHON_LEVEL_ID]: questions.length },
               code,
               localDay: getLocalDayKey(),
+              pythonResults: resultsList.map((item) => ({
+                input: String(item?.input ?? ''),
+                output: String(item?.output ?? ''),
+                error: String(item?.error ?? ''),
+              })),
             });
             setSolvedIds((prev) => {
               const next = new Set(prev);
@@ -3116,8 +3285,13 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
               return;
             }
           } catch (err) {
-            console.error(err);
+            const message = String(err?.message || err || '');
+            setRunnerError(message || 'Не удалось сохранить результат');
+            return;
           }
+        } else if (!allPassed) {
+          setRunnerError('Проверка без эталонных ответов доступна только для ученика.');
+          return;
         }
         const totalCount = questions.length;
         if (totalCount > 0) {
@@ -3458,6 +3632,75 @@ const PythonReviewModal = ({ task, onClose, studentId, testDb }) => {
   const [solvedIds, setSolvedIds] = useState(new Set());
   const [solvedCodeById, setSolvedCodeById] = useState({});
   const [showTheory, setShowTheory] = useState(true);
+  const [questionCodeById, setQuestionCodeById] = useState({});
+  const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
+  const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
+
+  const getQuestionCodeEntry = (questionId) => {
+    const key = String(questionId ?? '').trim();
+    const cached = questionCodeById?.[key];
+    if (!cached || typeof cached !== 'object') {
+      return { code: '', input: '', updatedAt: '', loaded: false };
+    }
+    return {
+      code: typeof cached.code === 'string' ? cached.code : '',
+      input: typeof cached.input === 'string' ? cached.input : '',
+      updatedAt: typeof cached.updatedAt === 'string' ? cached.updatedAt : '',
+      loaded: Boolean(cached.loaded),
+    };
+  };
+
+  const setQuestionCodeEntry = (questionId, patch) => {
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    setQuestionCodeById((prev) => {
+      const current = prev?.[key] && typeof prev[key] === 'object'
+        ? prev[key]
+        : { code: '', input: '', updatedAt: '', loaded: false };
+      return {
+        ...(prev || {}),
+        [key]: {
+          ...current,
+          ...(patch || {}),
+          loaded: true,
+        },
+      };
+    });
+  };
+
+  const setQuestionCodeError = (questionId, message) => {
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    setQuestionCodeErrorById((prev) => ({ ...(prev || {}), [key]: message || '' }));
+  };
+
+  const loadQuestionCode = async (questionId, force = false) => {
+    if (!studentId || !task?.number) return;
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    if (questionCodeLoadingById?.[key]) return;
+    const cached = getQuestionCodeEntry(key);
+    if (cached.loaded && !force) return;
+    setQuestionCodeLoadingById((prev) => ({ ...(prev || {}), [key]: true }));
+    try {
+      const payload = await api.getQuestionCode(studentId, task.number, PYTHON_LEVEL_ID, key);
+      setQuestionCodeEntry(key, {
+        code: typeof payload?.code === 'string' ? payload.code : '',
+        input: typeof payload?.input === 'string' ? payload.input : '',
+        updatedAt: typeof payload?.updatedAt === 'string' ? payload.updatedAt : '',
+      });
+      setQuestionCodeErrorById((prev) => {
+        if (!prev?.[key]) return prev;
+        const next = { ...(prev || {}) };
+        delete next[key];
+        return next;
+      });
+    } catch (err) {
+      setQuestionCodeError(key, err?.message || err);
+    } finally {
+      setQuestionCodeLoadingById((prev) => ({ ...(prev || {}), [key]: false }));
+    }
+  };
 
   useEffect(() => {
     const qs = testDb?.[task.number]?.[PYTHON_LEVEL_ID] || [];
@@ -3465,6 +3708,9 @@ const PythonReviewModal = ({ task, onClose, studentId, testDb }) => {
     setCurrentIndex(0);
     setSolvedIds(new Set());
     setSolvedCodeById({});
+    setQuestionCodeById({});
+    setQuestionCodeLoadingById({});
+    setQuestionCodeErrorById({});
     if (studentId) {
       api.getSolvedQuestions(studentId, task.number, PYTHON_LEVEL_ID, { includeCode: true })
         .then((payload) => {
@@ -3487,6 +3733,14 @@ const PythonReviewModal = ({ task, onClose, studentId, testDb }) => {
     return () => document.body.classList.remove('overflow-hidden');
   }, []);
 
+  useEffect(() => {
+    if (!studentId || !task?.number) return;
+    const current = questions[currentIndex];
+    const currentId = String(current?.id ?? currentIndex).trim();
+    if (!currentId) return;
+    loadQuestionCode(currentId);
+  }, [studentId, task?.number, questions, currentIndex]);
+
   if (!task) return null;
 
   if (!Array.isArray(questions) || questions.length === 0) {
@@ -3508,7 +3762,14 @@ const PythonReviewModal = ({ task, onClose, studentId, testDb }) => {
   const currentQuestion = questions[currentIndex];
   const currentId = String(currentQuestion?.id ?? currentIndex);
   const isSolved = solvedIds.has(currentId);
-  const code = typeof solvedCodeById?.[currentId] === 'string' ? solvedCodeById[currentId] : '';
+  const questionCodeEntry = getQuestionCodeEntry(currentId);
+  const fallbackSolvedCode = typeof solvedCodeById?.[currentId] === 'string' ? solvedCodeById[currentId] : '';
+  const code = questionCodeEntry.code || fallbackSolvedCode;
+  const questionCodeLoading = Boolean(questionCodeLoadingById?.[currentId]);
+  const questionCodeError = questionCodeErrorById?.[currentId] || '';
+  const updatedAtLabel = questionCodeEntry.updatedAt
+    ? new Date(questionCodeEntry.updatedAt).toLocaleString('ru-RU')
+    : '';
   const theory = testDb?.[task.number]?.pythonTheory || null;
   const theoryFullUrl = theory?.type === 'gdoc' ? buildGoogleDocFullUrl(theory.content) : '';
   const editorOptions = {
@@ -3619,15 +3880,32 @@ const PythonReviewModal = ({ task, onClose, studentId, testDb }) => {
           {currentQuestion?.question && (
             <p className="text-lg font-medium text-gray-900 mb-6 whitespace-pre-wrap">{currentQuestion.question}</p>
           )}
-          <div className="rounded-2xl overflow-hidden border border-gray-800">
-            <Editor
-              height="280px"
-              language="python"
-              theme="vs-dark"
-              value={code || '# Решение еще не сохранено'}
-              options={editorOptions}
-              loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
-            />
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-bold text-gray-400 uppercase">Код ученика</div>
+              <div className="text-xs text-gray-500">
+                {updatedAtLabel ? `Сохранено: ${updatedAtLabel}` : (fallbackSolvedCode ? 'Код из решения' : 'Код не сохранён')}
+              </div>
+            </div>
+            {questionCodeLoading ? (
+              <div className="text-sm text-gray-500">Загрузка кода...</div>
+            ) : (
+              <div className="rounded-2xl overflow-hidden border border-gray-800">
+                <Editor
+                  height="280px"
+                  language="python"
+                  theme="vs-dark"
+                  value={code || '# Решение еще не сохранено'}
+                  options={editorOptions}
+                  loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+                />
+              </div>
+            )}
+            <div className="rounded-xl border p-2 bg-gray-50">
+              <div className="text-xs font-semibold text-gray-600 mb-2">Ввод (stdin)</div>
+              <pre className="text-xs bg-white border rounded-lg p-2 overflow-auto max-h-[140px] whitespace-pre-wrap break-words text-gray-800">{questionCodeEntry.input || '—'}</pre>
+            </div>
+            {questionCodeError && <div className="text-xs text-red-500">{questionCodeError}</div>}
           </div>
           {!isSolved && (
             <div className="mt-3 text-sm text-gray-500">Ученик еще не решил эту задачу.</div>
@@ -3659,6 +3937,75 @@ const ProgressReviewModal = ({ task, onClose, studentId, testDb }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [solvedIds, setSolvedIds] = useState(new Set());
   const [answerById, setAnswerById] = useState({});
+  const [questionCodeById, setQuestionCodeById] = useState({});
+  const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
+  const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
+
+  const getQuestionCodeEntry = (questionId) => {
+    const key = String(questionId ?? '').trim();
+    const cached = questionCodeById?.[key];
+    if (!cached || typeof cached !== 'object') {
+      return { code: '', input: '', updatedAt: '', loaded: false };
+    }
+    return {
+      code: typeof cached.code === 'string' ? cached.code : '',
+      input: typeof cached.input === 'string' ? cached.input : '',
+      updatedAt: typeof cached.updatedAt === 'string' ? cached.updatedAt : '',
+      loaded: Boolean(cached.loaded),
+    };
+  };
+
+  const setQuestionCodeEntry = (questionId, patch) => {
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    setQuestionCodeById((prev) => {
+      const current = prev?.[key] && typeof prev[key] === 'object'
+        ? prev[key]
+        : { code: '', input: '', updatedAt: '', loaded: false };
+      return {
+        ...(prev || {}),
+        [key]: {
+          ...current,
+          ...(patch || {}),
+          loaded: true,
+        },
+      };
+    });
+  };
+
+  const setQuestionCodeError = (questionId, message) => {
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    setQuestionCodeErrorById((prev) => ({ ...(prev || {}), [key]: message || '' }));
+  };
+
+  const loadQuestionCode = async (questionId, force = false) => {
+    if (!studentId || !task?.number || !levelId) return;
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    if (questionCodeLoadingById?.[key]) return;
+    const cached = getQuestionCodeEntry(key);
+    if (cached.loaded && !force) return;
+    setQuestionCodeLoadingById((prev) => ({ ...(prev || {}), [key]: true }));
+    try {
+      const payload = await api.getQuestionCode(studentId, task.number, levelId, key);
+      setQuestionCodeEntry(key, {
+        code: typeof payload?.code === 'string' ? payload.code : '',
+        input: typeof payload?.input === 'string' ? payload.input : '',
+        updatedAt: typeof payload?.updatedAt === 'string' ? payload.updatedAt : '',
+      });
+      setQuestionCodeErrorById((prev) => {
+        if (!prev?.[key]) return prev;
+        const next = { ...(prev || {}) };
+        delete next[key];
+        return next;
+      });
+    } catch (err) {
+      setQuestionCodeError(key, err?.message || err);
+    } finally {
+      setQuestionCodeLoadingById((prev) => ({ ...(prev || {}), [key]: false }));
+    }
+  };
 
   useEffect(() => {
     if (!task) return;
@@ -3677,6 +4024,9 @@ const ProgressReviewModal = ({ task, onClose, studentId, testDb }) => {
     setCurrentIndex(0);
     setSolvedIds(new Set());
     setAnswerById({});
+    setQuestionCodeById({});
+    setQuestionCodeLoadingById({});
+    setQuestionCodeErrorById({});
     if (studentId) {
       api.getSolvedQuestions(studentId, task.number, levelId, { includeCode: true })
         .then((payload) => {
@@ -3698,6 +4048,14 @@ const ProgressReviewModal = ({ task, onClose, studentId, testDb }) => {
     document.body.classList.add('overflow-hidden');
     return () => document.body.classList.remove('overflow-hidden');
   }, []);
+
+  useEffect(() => {
+    if (!studentId || !task?.number || !levelId) return;
+    const current = questions[currentIndex];
+    const currentId = String(current?.id ?? currentIndex).trim();
+    if (!currentId) return;
+    loadQuestionCode(currentId);
+  }, [studentId, task?.number, levelId, questions, currentIndex]);
 
   if (!task) return null;
 
@@ -3743,6 +4101,21 @@ const ProgressReviewModal = ({ task, onClose, studentId, testDb }) => {
     .map((img) => ({ ...img, url: withStudentId(img?.url, studentId) }));
   const extraFiles = (Array.isArray(currentQuestion?.files) ? currentQuestion.files : [])
     .map((file) => ({ ...file, url: withStudentId(file?.url, studentId) }));
+  const questionCodeEntry = getQuestionCodeEntry(currentId);
+  const questionCodeLoading = Boolean(questionCodeLoadingById?.[currentId]);
+  const questionCodeError = questionCodeErrorById?.[currentId] || '';
+  const questionCodeUpdatedAtLabel = questionCodeEntry.updatedAt
+    ? new Date(questionCodeEntry.updatedAt).toLocaleString('ru-RU')
+    : '';
+  const codeEditorOptions = {
+    minimap: { enabled: false },
+    fontSize: 14,
+    tabSize: 4,
+    insertSpaces: true,
+    wordWrap: 'on',
+    automaticLayout: true,
+    readOnly: true
+  };
 
   const modal = (
     <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
@@ -3892,6 +4265,34 @@ const ProgressReviewModal = ({ task, onClose, studentId, testDb }) => {
                   </div>
                 )}
               </div>
+
+              <div className="space-y-3 mb-6">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-gray-400 uppercase">Код ученика</label>
+                  <span className="text-xs text-gray-500">
+                    {questionCodeUpdatedAtLabel ? `Сохранено: ${questionCodeUpdatedAtLabel}` : 'Код не сохранён'}
+                  </span>
+                </div>
+                {questionCodeLoading ? (
+                  <div className="text-sm text-gray-500">Загрузка кода...</div>
+                ) : (
+                  <div className="rounded-2xl overflow-hidden border border-gray-800">
+                    <Editor
+                      height="240px"
+                      language="python"
+                      theme="vs-dark"
+                      value={questionCodeEntry.code || '# Код не сохранён'}
+                      options={codeEditorOptions}
+                      loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+                    />
+                  </div>
+                )}
+                <div className="rounded-xl border p-2 bg-gray-50">
+                  <div className="text-xs font-semibold text-gray-600 mb-2">Ввод (stdin)</div>
+                  <pre className="text-xs bg-white border rounded-lg p-2 overflow-auto max-h-[140px] whitespace-pre-wrap break-words text-gray-800">{questionCodeEntry.input || '—'}</pre>
+                </div>
+                {questionCodeError && <div className="text-xs text-red-500">{questionCodeError}</div>}
+              </div>
             </>
           )}
         </div>
@@ -3923,9 +4324,226 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
   const [results, setResults] = useState({}); // { [idx]: boolean }
   const [solvedIds, setSolvedIds] = useState(new Set());
   const [expandedImage, setExpandedImage] = useState(null);
+  const [questionCodeById, setQuestionCodeById] = useState({});
+  const [questionCodeOpen, setQuestionCodeOpen] = useState(false);
+  const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
+  const [questionCodeSavingById, setQuestionCodeSavingById] = useState({});
+  const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
+  const [questionRunStateById, setQuestionRunStateById] = useState({});
   const autoStartRef = useRef(false);
+  const questionRunnerWorkerRef = useRef(null);
+  const questionRunnerPendingRef = useRef(new Map());
 
   const currentMastery = progress[task.id] || 0;
+  const activeQuestion = questions[currentIndex];
+  const activeQuestionId = activeQuestion ? String(activeQuestion?.id ?? currentIndex) : '';
+
+  const getQuestionCodeEntry = (questionId) => {
+    const key = String(questionId ?? '').trim();
+    const cached = questionCodeById?.[key];
+    if (!cached || typeof cached !== 'object') {
+      return { code: '', input: '', updatedAt: '', loaded: false };
+    }
+    return {
+      code: typeof cached.code === 'string' ? cached.code : '',
+      input: typeof cached.input === 'string' ? cached.input : '',
+      updatedAt: typeof cached.updatedAt === 'string' ? cached.updatedAt : '',
+      loaded: Boolean(cached.loaded),
+    };
+  };
+
+  const setQuestionCodeEntry = (questionId, patch) => {
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    setQuestionCodeById((prev) => {
+      const current = prev?.[key] && typeof prev[key] === 'object'
+        ? prev[key]
+        : { code: '', input: '', updatedAt: '', loaded: false };
+      return {
+        ...(prev || {}),
+        [key]: {
+          ...current,
+          ...(patch || {}),
+          loaded: true,
+        },
+      };
+    });
+  };
+
+  const clearQuestionCodeError = (questionId) => {
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    setQuestionCodeErrorById((prev) => {
+      if (!prev?.[key]) return prev;
+      const next = { ...(prev || {}) };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const setQuestionCodeError = (questionId, message) => {
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    setQuestionCodeErrorById((prev) => ({ ...(prev || {}), [key]: message || '' }));
+  };
+
+  const resolveQuestionRunnerPending = (message) => {
+    questionRunnerPendingRef.current.forEach((entry) => {
+      clearTimeout(entry.timer);
+      entry.resolve({ output: '', error: message });
+    });
+    questionRunnerPendingRef.current.clear();
+  };
+
+  const disposeQuestionRunnerWorker = (message = '') => {
+    if (questionRunnerWorkerRef.current) {
+      questionRunnerWorkerRef.current.terminate();
+      questionRunnerWorkerRef.current = null;
+    }
+    if (message) resolveQuestionRunnerPending(message);
+  };
+
+  const ensureQuestionRunnerWorker = () => {
+    if (typeof Worker === 'undefined') return null;
+    if (questionRunnerWorkerRef.current) return questionRunnerWorkerRef.current;
+    try {
+      const worker = createPyodideWorker();
+      worker.onmessage = (event) => {
+        const data = event.data || {};
+        const pending = questionRunnerPendingRef.current.get(data.id);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        questionRunnerPendingRef.current.delete(data.id);
+        const output = typeof data.output === 'string' ? data.output : String(data.output ?? '');
+        const error = typeof data.error === 'string' ? data.error : (data.error ? String(data.error) : '');
+        pending.resolve({ output, error });
+      };
+      worker.onerror = () => disposeQuestionRunnerWorker('Ошибка выполнения Python.');
+      worker.onmessageerror = () => disposeQuestionRunnerWorker('Ошибка выполнения Python.');
+      questionRunnerWorkerRef.current = worker;
+      return worker;
+    } catch {
+      return null;
+    }
+  };
+
+  const runQuestionCodeMainThread = async (source, inputValue) => {
+    const pyodide = await ensurePyodideReady();
+    const wrapped = [
+      'import sys, io, traceback',
+      `_input = ${JSON.stringify(String(inputValue ?? ''))}`,
+      '_stdout = io.StringIO()',
+      '_stderr = io.StringIO()',
+      'sys.stdin = io.StringIO(_input)',
+      'sys.stdout = _stdout',
+      'sys.stderr = _stderr',
+      '_globals = {}',
+      'try:',
+      `    exec(${JSON.stringify(String(source ?? ''))}, _globals, _globals)`,
+      'except Exception:',
+      '    traceback.print_exc()',
+      '__output = _stdout.getvalue()',
+      '__error = _stderr.getvalue()',
+    ].join('\n');
+    await pyodide.runPythonAsync(wrapped);
+    const output = pyodide.globals.get('__output') || '';
+    const error = pyodide.globals.get('__error') || '';
+    pyodide.globals.delete('__output');
+    pyodide.globals.delete('__error');
+    return { output: String(output), error: String(error) };
+  };
+
+  const runQuestionCode = async (source, inputValue) => {
+    const worker = ensureQuestionRunnerWorker();
+    if (worker) {
+      const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          questionRunnerPendingRef.current.delete(id);
+          resolve({
+            output: '',
+            error: `Превышено время выполнения (${Math.round(PYODIDE_RUN_TIMEOUT_MS / 1000)} сек).`,
+          });
+          disposeQuestionRunnerWorker('Превышено время выполнения.');
+        }, PYODIDE_RUN_TIMEOUT_MS);
+        questionRunnerPendingRef.current.set(id, { resolve, timer });
+        worker.postMessage({ id, source, input: inputValue });
+      });
+    }
+    if (!ALLOW_MAIN_THREAD_PYTHON_FALLBACK) {
+      return {
+        output: '',
+        error: 'Не удалось запустить Python в изолированном режиме. Перезагрузите страницу.'
+      };
+    }
+    return runQuestionCodeMainThread(source, inputValue);
+  };
+
+  const loadQuestionCode = async (questionId, force = false) => {
+    if (!studentId || !task?.number || !level) return;
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    if (questionCodeLoadingById?.[key]) return;
+    const cached = getQuestionCodeEntry(key);
+    if (cached.loaded && !force) return;
+    setQuestionCodeLoadingById((prev) => ({ ...(prev || {}), [key]: true }));
+    try {
+      const payload = await api.getQuestionCode(studentId, task.number, level, key);
+      setQuestionCodeEntry(key, {
+        code: typeof payload?.code === 'string' ? payload.code : '',
+        input: typeof payload?.input === 'string' ? payload.input : '',
+        updatedAt: typeof payload?.updatedAt === 'string' ? payload.updatedAt : '',
+      });
+      clearQuestionCodeError(key);
+    } catch (err) {
+      setQuestionCodeError(key, err?.message || err);
+    } finally {
+      setQuestionCodeLoadingById((prev) => ({ ...(prev || {}), [key]: false }));
+    }
+  };
+
+  const saveQuestionCode = async (questionId) => {
+    if (!studentId || !task?.number || !level) return;
+    const key = String(questionId ?? '').trim();
+    if (!key || questionCodeSavingById?.[key]) return;
+    const entry = getQuestionCodeEntry(key);
+    setQuestionCodeSavingById((prev) => ({ ...(prev || {}), [key]: true }));
+    try {
+      const payload = await api.saveQuestionCode(studentId, task.number, level, key, {
+        code: entry.code,
+        input: entry.input,
+      });
+      setQuestionCodeEntry(key, {
+        code: typeof payload?.code === 'string' ? payload.code : '',
+        input: typeof payload?.input === 'string' ? payload.input : '',
+        updatedAt: typeof payload?.updatedAt === 'string' ? payload.updatedAt : '',
+      });
+      clearQuestionCodeError(key);
+    } catch (err) {
+      setQuestionCodeError(key, err?.message || err);
+    } finally {
+      setQuestionCodeSavingById((prev) => ({ ...(prev || {}), [key]: false }));
+    }
+  };
+
+  const runQuestionCodeForQuestion = async (questionId) => {
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    const entry = getQuestionCodeEntry(key);
+    setQuestionRunStateById((prev) => ({ ...(prev || {}), [key]: { loading: true, output: '', error: '' } }));
+    try {
+      const result = await runQuestionCode(entry.code || '', entry.input || '');
+      setQuestionRunStateById((prev) => ({
+        ...(prev || {}),
+        [key]: { loading: false, output: result?.output || '', error: result?.error || '' },
+      }));
+    } catch (err) {
+      setQuestionRunStateById((prev) => ({
+        ...(prev || {}),
+        [key]: { loading: false, output: '', error: err?.message || 'Ошибка выполнения Python' },
+      }));
+    }
+  };
 
   const startTest = async (lvlId, options = {}) => {
     if (!testDb) {
@@ -3955,6 +4573,13 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     setUserAnswers({});
     setResults({});
     setSolvedIds(new Set());
+    setQuestionCodeById({});
+    setQuestionCodeOpen(false);
+    setQuestionCodeLoadingById({});
+    setQuestionCodeSavingById({});
+    setQuestionCodeErrorById({});
+    setQuestionRunStateById({});
+    disposeQuestionRunnerWorker();
     setStage('testing');
     onLevelSelect?.(lvlId);
 
@@ -3980,6 +4605,13 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
 
   useEffect(() => {
     autoStartRef.current = false;
+    setQuestionCodeOpen(false);
+    setQuestionCodeById({});
+    setQuestionCodeLoadingById({});
+    setQuestionCodeSavingById({});
+    setQuestionCodeErrorById({});
+    setQuestionRunStateById({});
+    disposeQuestionRunnerWorker();
   }, [task?.number]);
 
   useEffect(() => {
@@ -3987,6 +4619,14 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     if (!Number.isFinite(currentIndex)) return;
     onQuestionChange?.(currentIndex);
   }, [currentIndex, stage, onQuestionChange]);
+
+  useEffect(() => {
+    if (stage !== 'testing' || !questionCodeOpen) return;
+    if (!activeQuestionId) return;
+    loadQuestionCode(activeQuestionId);
+  }, [stage, questionCodeOpen, activeQuestionId, studentId, task?.number, level]);
+
+  useEffect(() => () => disposeQuestionRunnerWorker('Python runner stopped.'), []);
 
   const normalizeAnswer = (value) => {
     return String(value ?? '')
@@ -3999,9 +4639,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     const currentQuestion = questions[currentIndex];
     const currentId = String(currentQuestion?.id ?? currentIndex);
     const answerCount = getAnswerCountForTask(task?.number);
-    const expectedAnswers = getExpectedAnswers(currentQuestion, answerCount);
-
-    let correct = false;
+    let fallbackCorrect = false;
     let answerPayload = null;
     if (answerCount > 1) {
       const answerEntry = Array.isArray(userAnswers[currentIndex]) ? userAnswers[currentIndex] : [];
@@ -4013,67 +4651,75 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
       if (trimmedProvided.some((val) => val)) {
         answerPayload = JSON.stringify({ answers: trimmedProvided });
       }
-      correct = expectedAnswers.every((exp, i) => {
-        const expectedNorm = normalizeAnswer(exp);
-        const providedNorm = normalizeAnswer(provided[i]);
-        if (!expectedNorm) return !providedNorm;
-        return providedNorm === expectedNorm;
-      });
+      if (!studentId) {
+        const expectedAnswers = getExpectedAnswers(currentQuestion, answerCount);
+        fallbackCorrect = expectedAnswers.every((exp, i) => {
+          const expectedNorm = normalizeAnswer(exp);
+          const providedNorm = normalizeAnswer(provided[i]);
+          if (!expectedNorm) return !providedNorm;
+          return providedNorm === expectedNorm;
+        });
+      }
     } else {
       const answerValue = userAnswers[currentIndex];
       if (!String(answerValue ?? '').trim()) return;
       answerPayload = String(answerValue ?? '').trim();
-      correct = normalizeAnswer(answerValue) === normalizeAnswer(expectedAnswers[0]);
+      if (!studentId) {
+        const expectedAnswers = getExpectedAnswers(currentQuestion, answerCount);
+        fallbackCorrect = normalizeAnswer(answerValue) === normalizeAnswer(expectedAnswers[0]);
+      }
     }
-    const newResults = { ...results, [currentIndex]: correct };
-    setResults(newResults);
+
+    let correct = false;
+    let serverProgressApplied = false;
+    const levelConfig = Object.values(LEVELS).find(l => l.id === level);
+    if (studentId) {
+      try {
+        const resp = await api.solveQuestion({
+          studentId,
+          taskNumber: task.number,
+          levelId: level,
+          questionId: currentQuestion.id,
+          ...(answerPayload ? { code: answerPayload } : {}),
+          localDay: getLocalDayKey(),
+        });
+        correct = true;
+        setSolvedIds((prev) => {
+          const next = new Set(prev);
+          next.add(String(currentQuestion.id));
+          return next;
+        });
+        if (typeof onStreakSaved === 'function') {
+          if (resp?.streak) {
+            onStreakSaved(resp.streak);
+          } else {
+            api.getStudentData(studentId)
+              .then((data) => {
+                if (data?.streak) onStreakSaved(data.streak);
+              })
+              .catch(() => {});
+          }
+        }
+        if (typeof resp?.taskProgress === 'number') {
+          onComplete(task.id, resp.taskProgress, { skipServer: true });
+          serverProgressApplied = true;
+        }
+      } catch (err) {
+        const message = String(err?.message || err || '');
+        if (message !== 'Ответ неверный') {
+          console.error(err);
+          alert(message || 'Не удалось проверить ответ');
+          return;
+        }
+      }
+    } else {
+      correct = fallbackCorrect;
+    }
+    setResults((prev) => ({ ...prev, [currentIndex]: correct }));
     
     // Если ответ верный, обновляем прогресс
     if (correct) {
-      const levelConfig = Object.values(LEVELS).find(l => l.id === level);
-      if (studentId) {
-        try {
-          const taskLevels = testDb?.[task.number] || {};
-          const levelTotals = {
-            basic: Array.isArray(taskLevels.basic) ? taskLevels.basic.length : 0,
-            advanced: Array.isArray(taskLevels.advanced) ? taskLevels.advanced.length : 0,
-            expert: Array.isArray(taskLevels.expert) ? taskLevels.expert.length : 0,
-          };
-          const resp = await api.solveQuestion({
-            studentId,
-            taskNumber: task.number,
-            levelId: level,
-            questionId: currentQuestion.id,
-            totalQuestions: questions.length,
-            levelMax: levelConfig?.maxScore || 100,
-            levelTotals,
-            ...(answerPayload ? { code: answerPayload } : {}),
-            localDay: getLocalDayKey(),
-          });
-          setSolvedIds((prev) => {
-            const next = new Set(prev);
-            next.add(String(currentQuestion.id));
-            return next;
-          });
-            if (typeof onStreakSaved === 'function') {
-              if (resp?.streak) {
-                onStreakSaved(resp.streak);
-              } else {
-                api.getStudentData(studentId)
-                  .then((data) => {
-                    if (data?.streak) onStreakSaved(data.streak);
-                  })
-                  .catch(() => {});
-              }
-            }
-            if (typeof resp?.taskProgress === 'number') {
-              onComplete(task.id, resp.taskProgress, { skipServer: true });
-              return;
-            }
-        } catch (err) {
-          console.error(err);
-        }
-      }
+      if (serverProgressApplied) return;
       const weight = LEVEL_WEIGHTS[level] ?? levelConfig?.maxScore ?? 100;
       const totalCount = questions.length;
       if (Number.isFinite(weight) && totalCount > 0) {
@@ -4084,7 +4730,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
         const nextProgress = Math.round(Math.max(0, currentMastery - prevContribution + nextContribution));
         onComplete(task.id, Math.min(100, nextProgress), { skipServer: true });
       } else if (levelConfig?.maxScore > currentMastery) {
-        onComplete(task.id, levelConfig.maxScore);
+        onComplete(task.id, levelConfig.maxScore, { skipServer: true });
       }
     }
   };
@@ -4195,6 +4841,14 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
       return { num, solved };
     });
     const targetSolvedCount = targetStatus.filter((item) => item.solved).length;
+    const questionCodeEntry = getQuestionCodeEntry(currentId);
+    const questionCodeLoading = Boolean(questionCodeLoadingById?.[currentId]);
+    const questionCodeSaving = Boolean(questionCodeSavingById?.[currentId]);
+    const questionCodeError = questionCodeErrorById?.[currentId] || '';
+    const questionRunState = questionRunStateById?.[currentId] || { loading: false, output: '', error: '' };
+    const questionCodeUpdatedAtLabel = questionCodeEntry.updatedAt
+      ? new Date(questionCodeEntry.updatedAt).toLocaleString('ru-RU')
+      : '';
 
     const modal = (
       <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
@@ -4512,6 +5166,109 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
               </div>
             )}
             </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-3 mb-6 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-bold text-gray-500 uppercase">
+                  Код решения для задания {currentIndex + 1}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextOpen = !questionCodeOpen;
+                    setQuestionCodeOpen(nextOpen);
+                    if (nextOpen && currentId) {
+                      loadQuestionCode(currentId);
+                    }
+                  }}
+                  className="text-xs text-purple-600 hover:text-purple-700 font-semibold"
+                >
+                  {questionCodeOpen ? 'Скрыть код' : 'Открыть код'}
+                </button>
+              </div>
+
+              {questionCodeOpen && (
+                questionCodeLoading ? (
+                  <div className="text-sm text-gray-500">Загрузка кода...</div>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs text-gray-500">
+                        {questionCodeUpdatedAtLabel ? `Сохранено: ${questionCodeUpdatedAtLabel}` : 'Код ещё не сохранён'}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="secondary"
+                          onClick={() => runQuestionCodeForQuestion(currentId)}
+                          disabled={questionRunState.loading}
+                        >
+                          {questionRunState.loading ? 'Запуск...' : 'Запустить'}
+                        </Button>
+                        <Button
+                          onClick={() => saveQuestionCode(currentId)}
+                          disabled={questionCodeSaving || !studentId}
+                        >
+                          {questionCodeSaving ? 'Сохранение...' : 'Сохранить код'}
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="rounded-xl overflow-hidden border border-gray-800">
+                      <Editor
+                        height="240px"
+                        language="python"
+                        theme="vs-dark"
+                        value={questionCodeEntry.code}
+                        onChange={(value) => {
+                          setQuestionCodeEntry(currentId, { code: value ?? '' });
+                          clearQuestionCodeError(currentId);
+                        }}
+                        options={{
+                          minimap: { enabled: false },
+                          fontSize: 14,
+                          tabSize: 4,
+                          insertSpaces: true,
+                          wordWrap: 'on',
+                          automaticLayout: true,
+                        }}
+                        loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
+                      <div className="rounded-xl border p-2 bg-gray-50">
+                        <div className="text-xs font-semibold text-gray-600 mb-2">Ввод (stdin)</div>
+                        <textarea
+                          value={questionCodeEntry.input}
+                          onChange={(e) => {
+                            setQuestionCodeEntry(currentId, { input: e.target.value });
+                            clearQuestionCodeError(currentId);
+                          }}
+                          placeholder="Введите данные для input()"
+                          className="w-full min-h-[110px] text-xs px-3 py-2 rounded-lg border border-gray-200 bg-white outline-none focus:border-purple-500 resize-y"
+                        />
+                      </div>
+                      <div className="rounded-xl border p-2 bg-gray-50">
+                        <div className="text-xs font-semibold text-gray-600 mb-2">Вывод</div>
+                        {questionRunState.output ? (
+                          <pre className="text-xs bg-white border rounded-lg p-2 overflow-auto max-h-[130px] whitespace-pre-wrap break-words text-gray-800">{questionRunState.output}</pre>
+                        ) : (
+                          <div className="text-xs text-gray-400 bg-white border rounded-lg p-2 min-h-[44px]">
+                            stdout пуст
+                          </div>
+                        )}
+                        {questionRunState.error ? (
+                          <pre className="text-xs bg-red-50 border border-red-200 rounded-lg p-2 overflow-auto max-h-[130px] whitespace-pre-wrap break-words text-red-700 mt-2">{questionRunState.error}</pre>
+                        ) : (
+                          <div className="text-xs text-gray-400 bg-white border rounded-lg p-2 min-h-[44px] mt-2">
+                            stderr пуст
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {questionCodeError && <div className="text-xs text-red-500">{questionCodeError}</div>}
+                  </>
+                )
+              )}
+            </div>
           </div>
 
           <Button 
@@ -4634,9 +5391,11 @@ const ProgressSection = ({
   openTask,
   onOpenTaskHandled,
   initialSection,
+  sectionJumpToken,
   onSectionChange,
   onTaskStateChange,
-  onStreakSaved
+  onStreakSaved,
+  onMockAttemptSaved
 }) => {
   const taskList = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const [activeTask, setActiveTask] = useState(null);
@@ -4670,6 +5429,15 @@ const ProgressSection = ({
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [editingTaskTitle, setEditingTaskTitle] = useState('');
   const [savingTaskTitleId, setSavingTaskTitleId] = useState(null);
+  const [openTaskCodeNumber, setOpenTaskCodeNumber] = useState(null);
+  const [taskCodeCache, setTaskCodeCache] = useState({});
+  const [taskCodeLoadingNumber, setTaskCodeLoadingNumber] = useState(null);
+  const [taskCodeSavingNumber, setTaskCodeSavingNumber] = useState(null);
+  const [taskCodeErrorByTask, setTaskCodeErrorByTask] = useState({});
+  const [taskRunStateByTask, setTaskRunStateByTask] = useState({});
+  const taskRunnerWorkerRef = useRef(null);
+  const taskRunnerPendingRef = useRef(new Map());
+  const mockAttemptRequestIdRef = useRef(0);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
 
@@ -4677,6 +5445,221 @@ const ProgressSection = ({
     if (role !== 'student') return mockExams || [];
     return (mockExams || []).filter((exam) => isMockExamAccessible(exam, effectiveStudentId));
   }, [mockExams, role, effectiveStudentId]);
+
+  const getTaskCodeEntry = (taskNumber) => {
+    const key = String(taskNumber);
+    const cached = taskCodeCache?.[key];
+    if (!cached || typeof cached !== 'object') {
+      return { code: '', input: '', updatedAt: '', loaded: false };
+    }
+    return {
+      code: typeof cached.code === 'string' ? cached.code : '',
+      input: typeof cached.input === 'string' ? cached.input : '',
+      updatedAt: typeof cached.updatedAt === 'string' ? cached.updatedAt : '',
+      loaded: Boolean(cached.loaded),
+    };
+  };
+
+  const setTaskCodeEntry = (taskNumber, patch) => {
+    const key = String(taskNumber);
+    setTaskCodeCache((prev) => {
+      const current = prev?.[key] && typeof prev[key] === 'object'
+        ? prev[key]
+        : { code: '', input: '', updatedAt: '', loaded: false };
+      return {
+        ...(prev || {}),
+        [key]: {
+          ...current,
+          ...(patch || {}),
+          loaded: true
+        }
+      };
+    });
+  };
+
+  const clearTaskCodeError = (taskNumber) => {
+    const key = String(taskNumber);
+    setTaskCodeErrorByTask((prev) => {
+      if (!prev?.[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const setTaskCodeError = (taskNumber, message) => {
+    const key = String(taskNumber);
+    setTaskCodeErrorByTask((prev) => ({ ...(prev || {}), [key]: message || '' }));
+  };
+
+  const resolveTaskRunnerPending = (message) => {
+    taskRunnerPendingRef.current.forEach((entry) => {
+      clearTimeout(entry.timer);
+      entry.resolve({ output: '', error: message });
+    });
+    taskRunnerPendingRef.current.clear();
+  };
+
+  const disposeTaskRunnerWorker = (message = '') => {
+    if (taskRunnerWorkerRef.current) {
+      taskRunnerWorkerRef.current.terminate();
+      taskRunnerWorkerRef.current = null;
+    }
+    if (message) resolveTaskRunnerPending(message);
+  };
+
+  const ensureTaskRunnerWorker = () => {
+    if (typeof Worker === 'undefined') return null;
+    if (taskRunnerWorkerRef.current) return taskRunnerWorkerRef.current;
+    try {
+      const worker = createPyodideWorker();
+      worker.onmessage = (event) => {
+        const data = event.data || {};
+        const pending = taskRunnerPendingRef.current.get(data.id);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        taskRunnerPendingRef.current.delete(data.id);
+        const output = typeof data.output === 'string' ? data.output : String(data.output ?? '');
+        const error = typeof data.error === 'string' ? data.error : (data.error ? String(data.error) : '');
+        pending.resolve({ output, error });
+      };
+      worker.onerror = () => disposeTaskRunnerWorker('Ошибка выполнения Python.');
+      worker.onmessageerror = () => disposeTaskRunnerWorker('Ошибка выполнения Python.');
+      taskRunnerWorkerRef.current = worker;
+      return worker;
+    } catch {
+      return null;
+    }
+  };
+
+  const runTaskCodeMainThread = async (source, inputValue) => {
+    const pyodide = await ensurePyodideReady();
+    const wrapped = [
+      'import sys, io, traceback',
+      `_input = ${JSON.stringify(String(inputValue ?? ''))}`,
+      '_stdout = io.StringIO()',
+      '_stderr = io.StringIO()',
+      'sys.stdin = io.StringIO(_input)',
+      'sys.stdout = _stdout',
+      'sys.stderr = _stderr',
+      '_globals = {}',
+      'try:',
+      `    exec(${JSON.stringify(String(source ?? ''))}, _globals, _globals)`,
+      'except Exception:',
+      '    traceback.print_exc()',
+      '__output = _stdout.getvalue()',
+      '__error = _stderr.getvalue()',
+    ].join('\n');
+    await pyodide.runPythonAsync(wrapped);
+    const output = pyodide.globals.get('__output') || '';
+    const error = pyodide.globals.get('__error') || '';
+    pyodide.globals.delete('__output');
+    pyodide.globals.delete('__error');
+    return { output: String(output), error: String(error) };
+  };
+
+  const runTaskCode = async (source, inputValue) => {
+    const worker = ensureTaskRunnerWorker();
+    if (worker) {
+      const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          taskRunnerPendingRef.current.delete(id);
+          resolve({
+            output: '',
+            error: `Превышено время выполнения (${Math.round(PYODIDE_RUN_TIMEOUT_MS / 1000)} сек).`
+          });
+          disposeTaskRunnerWorker('Превышено время выполнения.');
+        }, PYODIDE_RUN_TIMEOUT_MS);
+        taskRunnerPendingRef.current.set(id, { resolve, timer });
+        worker.postMessage({ id, source, input: inputValue });
+      });
+    }
+    if (!ALLOW_MAIN_THREAD_PYTHON_FALLBACK) {
+      return {
+        output: '',
+        error: 'Не удалось запустить Python в изолированном режиме. Перезагрузите страницу.'
+      };
+    }
+    return runTaskCodeMainThread(source, inputValue);
+  };
+
+  const loadTaskCode = async (taskNumber, force = false) => {
+    if (!effectiveStudentId || !Number.isFinite(Number(taskNumber))) return;
+    const key = String(taskNumber);
+    const cached = getTaskCodeEntry(taskNumber);
+    if (cached.loaded && !force) return;
+    if (taskCodeLoadingNumber === taskNumber) return;
+    setTaskCodeLoadingNumber(taskNumber);
+    try {
+      const payload = await api.getTaskCode(effectiveStudentId, taskNumber);
+      setTaskCodeEntry(taskNumber, {
+        code: typeof payload?.code === 'string' ? payload.code : '',
+        input: typeof payload?.input === 'string' ? payload.input : '',
+        updatedAt: typeof payload?.updatedAt === 'string' ? payload.updatedAt : '',
+      });
+      clearTaskCodeError(taskNumber);
+      setTaskRunStateByTask((prev) => ({ ...(prev || {}), [key]: { loading: false, output: '', error: '' } }));
+    } catch (err) {
+      setTaskCodeError(taskNumber, err?.message || err);
+    } finally {
+      setTaskCodeLoadingNumber(null);
+    }
+  };
+
+  const toggleTaskCodePanel = async (taskNumber) => {
+    if (!Number.isFinite(Number(taskNumber))) return;
+    if (openTaskCodeNumber === taskNumber) {
+      setOpenTaskCodeNumber(null);
+      return;
+    }
+    setOpenTaskCodeNumber(taskNumber);
+    await loadTaskCode(taskNumber);
+  };
+
+  const saveTaskCode = async (taskNumber) => {
+    if (!effectiveStudentId || !Number.isFinite(Number(taskNumber))) return;
+    if (taskCodeSavingNumber === taskNumber) return;
+    const entry = getTaskCodeEntry(taskNumber);
+    setTaskCodeSavingNumber(taskNumber);
+    try {
+      const payload = await api.saveTaskCode(effectiveStudentId, taskNumber, {
+        code: entry.code,
+        input: entry.input
+      });
+      setTaskCodeEntry(taskNumber, {
+        code: typeof payload?.code === 'string' ? payload.code : '',
+        input: typeof payload?.input === 'string' ? payload.input : '',
+        updatedAt: typeof payload?.updatedAt === 'string' ? payload.updatedAt : '',
+      });
+      clearTaskCodeError(taskNumber);
+    } catch (err) {
+      setTaskCodeError(taskNumber, err?.message || err);
+    } finally {
+      setTaskCodeSavingNumber(null);
+    }
+  };
+
+  const runTaskCodeForTask = async (taskNumber) => {
+    if (!Number.isFinite(Number(taskNumber))) return;
+    const key = String(taskNumber);
+    const entry = getTaskCodeEntry(taskNumber);
+    setTaskRunStateByTask((prev) => ({ ...(prev || {}), [key]: { loading: true, output: '', error: '' } }));
+    try {
+      const result = await runTaskCode(entry.code || '', entry.input || '');
+      setTaskRunStateByTask((prev) => ({
+        ...(prev || {}),
+        [key]: { loading: false, output: result?.output || '', error: result?.error || '' }
+      }));
+    } catch (err) {
+      setTaskRunStateByTask((prev) => ({
+        ...(prev || {}),
+        [key]: { loading: false, output: '', error: err?.message || 'Ошибка выполнения Python' }
+      }));
+    }
+  };
+
+  useEffect(() => () => disposeTaskRunnerWorker('Python runner stopped.'), []);
 
   const startEditTaskTitle = (task) => {
     if (!task) return;
@@ -4765,7 +5748,7 @@ const ProgressSection = ({
   }, []);
 
   useEffect(() => {
-    if (role !== 'student' || !effectiveStudentId) {
+    if (!effectiveStudentId) {
       setMockAttemptsByExam({});
       setMockAttemptsLoading(false);
       return;
@@ -4806,9 +5789,21 @@ const ProgressSection = ({
     setAutoTargetQuestions(null);
     setActiveLevel(null);
     setActiveQuestionIndex(null);
+    setOpenTaskCodeNumber(null);
+    setTaskCodeCache({});
+    setTaskCodeLoadingNumber(null);
+    setTaskCodeSavingNumber(null);
+    setTaskCodeErrorByTask({});
+    setTaskRunStateByTask({});
+    disposeTaskRunnerWorker();
     cancelEditTaskTitle();
     closeMockAccessEditor();
   }, [section, effectiveStudentId]);
+
+  useEffect(() => {
+    const nextSection = ['progress', 'notes', 'mocks'].includes(initialSection) ? initialSection : 'progress';
+    setSection((prev) => (prev === nextSection ? prev : nextSection));
+  }, [initialSection, sectionJumpToken]);
 
   useEffect(() => {
     onSectionChange?.(section);
@@ -5088,7 +6083,11 @@ const ProgressSection = ({
       await api.deleteMockExamDefinition(examId);
       setMockExams((prev) => (prev || []).filter((exam) => exam.id !== examId));
       if (mockEditorExam?.id === examId) setMockEditorExam(null);
-      if (activeMockExam?.id === examId) setActiveMockExam(null);
+      if (activeMockExam?.id === examId) {
+        mockAttemptRequestIdRef.current += 1;
+        setActiveMockExam(null);
+        setActiveMockAttempt(null);
+      }
       if (mockAccessExamId === examId) closeMockAccessEditor();
     } catch (err) {
       alert(err?.message || err);
@@ -5097,19 +6096,23 @@ const ProgressSection = ({
 
   const handleOpenMockExam = async (exam) => {
     if (!exam) return;
+    const requestId = mockAttemptRequestIdRef.current + 1;
+    mockAttemptRequestIdRef.current = requestId;
     setActiveMockExam(exam);
-    setActiveMockAttempt(null);
-    if (role === 'student' && effectiveStudentId) {
-      try {
-        const attempt = await api.getMockAttempt(effectiveStudentId, exam.id);
-        setActiveMockAttempt(attempt && typeof attempt === 'object' ? attempt : {});
-        setMockAttemptsByExam((prev) => ({
-          ...prev,
-          [exam.id]: attempt && typeof attempt === 'object' ? attempt : {}
-        }));
-      } catch (err) {
-        setActiveMockAttempt({});
-      }
+    const cachedAttempt = mockAttemptsByExam?.[exam.id];
+    setActiveMockAttempt(cachedAttempt && typeof cachedAttempt === 'object' ? cachedAttempt : null);
+    if (!effectiveStudentId) return;
+    try {
+      const attempt = await api.getMockAttempt(effectiveStudentId, exam.id);
+      if (mockAttemptRequestIdRef.current !== requestId) return;
+      setActiveMockAttempt(attempt && typeof attempt === 'object' ? attempt : {});
+      setMockAttemptsByExam((prev) => ({
+        ...prev,
+        [exam.id]: attempt && typeof attempt === 'object' ? attempt : {}
+      }));
+    } catch (err) {
+      if (mockAttemptRequestIdRef.current !== requestId) return;
+      setActiveMockAttempt({});
     }
   };
 
@@ -5213,81 +6216,81 @@ const ProgressSection = ({
               const val = progressMap[task.id] || 0;
               const clickable = role === 'student' || role === 'teacher';
               return (
-                <Card
-                  key={task.id}
-                  style={{ '--i': idx }}
-                  className={`group relative ${clickable ? 'cursor-pointer' : ''}`}
-                  onClick={
-                    clickable
-                      ? () => {
-                          if (role === 'teacher') setReviewTask(task);
-                          else {
-                            setActiveLevel(null);
-                            setActiveQuestionIndex(null);
-                            setActiveTask(task);
+                <div key={task.id} style={{ '--i': idx }} className="space-y-2">
+                  <Card
+                    className={`group relative ${clickable ? 'cursor-pointer' : ''}`}
+                    onClick={
+                      clickable
+                        ? () => {
+                            if (role === 'teacher') setReviewTask(task);
+                            else {
+                              setActiveLevel(null);
+                              setActiveQuestionIndex(null);
+                              setActiveTask(task);
+                            }
                           }
-                        }
-                      : undefined
-                  }
-                >
-                  <div className="flex justify-between mb-2">
-                    <span className="bg-purple-50 text-purple-700 px-2 py-1 rounded text-xs font-bold">№{getTaskDisplayNumber(task)}</span>
-                    <span className="font-bold text-gray-700">{val}%</span>
-                  </div>
-                  <div className="flex items-start justify-between gap-2">
-                    {editingTaskId === task.number ? (
-                      <input
-                        type="text"
-                        value={editingTaskTitle}
-                        onChange={(e) => setEditingTaskTitle(e.target.value)}
-                        onBlur={() => saveTaskTitle(task)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') saveTaskTitle(task);
-                          if (e.key === 'Escape') cancelEditTaskTitle();
-                        }}
-                        className="w-full px-2 py-1 rounded-lg bg-white border border-purple-200 focus:border-purple-500 outline-none text-sm font-semibold text-gray-800"
-                        placeholder="Название темы"
-                        autoFocus
-                      />
-                    ) : (
-                      <h3 className="font-bold text-gray-800 truncate">{task.title}</h3>
-                    )}
-                    {role === 'teacher' && editingTaskId !== task.number && (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); startEditTaskTitle(task); }}
-                        className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:text-purple-600 hover:border-purple-200"
-                        title="Переименовать тему"
-                      >
-                        <Pencil size={14} />
-                      </button>
-                    )}
-                    {role === 'teacher' && editingTaskId === task.number && (
-                      <button
-                        type="button"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={(e) => { e.stopPropagation(); saveTaskTitle(task); }}
-                        className="p-1.5 rounded-lg border border-purple-200 text-purple-600 hover:bg-purple-50 disabled:opacity-50"
-                        title="Сохранить"
-                        disabled={savingTaskTitleId === task.number}
-                      >
-                        <Save size={14} />
-                      </button>
-                    )}
-                  </div>
-                  <ProgressBar value={val} />
-
-                  {role === 'student' && clickable && (
-                    <div className="absolute inset-0 bg-white/90 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-2xl cursor-pointer backdrop-blur-[2px]">
-                      <div className="flex items-center gap-2 text-purple-600 font-bold bg-white px-4 py-2 rounded-full shadow-lg border border-purple-100">
-                        <PlayCircle size={20} /> Решать
-                      </div>
+                        : undefined
+                    }
+                  >
+                    <div className="flex justify-between mb-2">
+                      <span className="bg-purple-50 text-purple-700 px-2 py-1 rounded text-xs font-bold">№{getTaskDisplayNumber(task)}</span>
+                      <span className="font-bold text-gray-700">{val}%</span>
                     </div>
-                  )}
-                  {role === 'teacher' && (
-                    <div className="mt-3 text-xs font-semibold text-purple-600">Смотреть ответы</div>
-                  )}
-                </Card>
+                    <div className="flex items-start justify-between gap-2">
+                      {editingTaskId === task.number ? (
+                        <input
+                          type="text"
+                          value={editingTaskTitle}
+                          onChange={(e) => setEditingTaskTitle(e.target.value)}
+                          onBlur={() => saveTaskTitle(task)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveTaskTitle(task);
+                            if (e.key === 'Escape') cancelEditTaskTitle();
+                          }}
+                          className="w-full px-2 py-1 rounded-lg bg-white border border-purple-200 focus:border-purple-500 outline-none text-sm font-semibold text-gray-800"
+                          placeholder="Название темы"
+                          autoFocus
+                        />
+                      ) : (
+                        <h3 className="font-bold text-gray-800 truncate">{task.title}</h3>
+                      )}
+                      {role === 'teacher' && editingTaskId !== task.number && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); startEditTaskTitle(task); }}
+                          className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:text-purple-600 hover:border-purple-200"
+                          title="Переименовать тему"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      )}
+                      {role === 'teacher' && editingTaskId === task.number && (
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={(e) => { e.stopPropagation(); saveTaskTitle(task); }}
+                          className="p-1.5 rounded-lg border border-purple-200 text-purple-600 hover:bg-purple-50 disabled:opacity-50"
+                          title="Сохранить"
+                          disabled={savingTaskTitleId === task.number}
+                        >
+                          <Save size={14} />
+                        </button>
+                      )}
+                    </div>
+                    <ProgressBar value={val} />
+
+                    {role === 'student' && clickable && (
+                      <div className="absolute inset-0 bg-white/90 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-2xl cursor-pointer backdrop-blur-[2px]">
+                        <div className="flex items-center gap-2 text-purple-600 font-bold bg-white px-4 py-2 rounded-full shadow-lg border border-purple-100">
+                          <PlayCircle size={20} /> Решать
+                        </div>
+                      </div>
+                    )}
+                    {role === 'teacher' && (
+                      <div className="mt-3 text-xs font-semibold text-purple-600">Смотреть ответы</div>
+                    )}
+                  </Card>
+                </div>
               );
             })}
           </div>
@@ -5598,8 +6601,10 @@ const ProgressSection = ({
               onAttemptSaved={(examId, attempt) => {
                 setActiveMockAttempt(attempt);
                 setMockAttemptsByExam((prev) => ({ ...prev, [examId]: attempt }));
+                onMockAttemptSaved?.(examId, attempt);
               }}
               onClose={() => {
+                mockAttemptRequestIdRef.current += 1;
                 setActiveMockExam(null);
                 setActiveMockAttempt(null);
               }}
@@ -6373,11 +7378,12 @@ const ScheduleSection = ({
   onSelectStudent,
   studentsLoading,
   onOpenTask,
+  onOpenMockGoal,
   solvedRefreshKey,
   tasks
 }) => {
   const DEFAULT_HOMEWORK = '🟢\n🟢\n🟢';
-  const DEFAULT_GOAL = { taskNumber: '', levelId: 'basic', targetInput: '', includeAll: false };
+  const DEFAULT_GOAL = { type: GOAL_TYPE_TASK, taskNumber: '', levelId: 'basic', targetInput: '', includeAll: false, mockExamId: '' };
   const [homeworks, setHomeworks] = useState([]);
   const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '', daysToComplete: 7, issuedAt: '', taskNumber: null, levelId: null, targetQuestions: [], goals: [] });
   const [form, setForm] = useState({ homeWork: DEFAULT_HOMEWORK, lessonLink: '', boardLink: '', daysToComplete: 7, goals: [{ ...DEFAULT_GOAL }] });
@@ -6387,12 +7393,25 @@ const ScheduleSection = ({
   const [testsDb, setTestsDb] = useState(null);
   const [testsDbError, setTestsDbError] = useState('');
   const [solvedByKey, setSolvedByKey] = useState({});
+  const [mockExams, setMockExams] = useState([]);
+  const [mockExamsLoading, setMockExamsLoading] = useState(false);
+  const [mockExamsError, setMockExamsError] = useState('');
+  const [mockAttemptsByExam, setMockAttemptsByExam] = useState({});
   const [editingId, setEditingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const pythonTaskOptions = PYTHON_TASKS;
+  const mockExamById = useMemo(
+    () => (Array.isArray(mockExams)
+      ? mockExams.reduce((acc, exam) => {
+          if (exam?.id) acc[String(exam.id)] = exam;
+          return acc;
+        }, {})
+      : {}),
+    [mockExams]
+  );
 
   const buildNextLessonData = (latest, fallback = {}) => ({
     homeWork: latest?.homeWork || '',
@@ -6462,12 +7481,38 @@ const ScheduleSection = ({
 
   useEffect(() => {
     if (!effectiveStudentId) {
+      setMockExams([]);
+      setMockExamsLoading(false);
+      setMockExamsError('');
+      return;
+    }
+    let cancelled = false;
+    setMockExamsLoading(true);
+    api.getMockExams(effectiveStudentId)
+      .then((data) => {
+        if (cancelled) return;
+        setMockExams(Array.isArray(data) ? data : []);
+        setMockExamsError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setMockExams([]);
+        setMockExamsError(err?.message || err);
+      })
+      .finally(() => {
+        if (!cancelled) setMockExamsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [effectiveStudentId]);
+
+  useEffect(() => {
+    if (!effectiveStudentId) {
       setSolvedByKey({});
       return;
     }
     const entries = Array.isArray(homeworks)
       ? homeworks.flatMap((entry) => {
-          const goals = normalizeEntryGoals(entry);
+          const goals = normalizeEntryGoals(entry).filter((goal) => goal.type === GOAL_TYPE_TASK);
           return goals.map((goal) => ({
             taskNumber: goal.taskNumber,
             levelId: goal.levelId
@@ -6506,6 +7551,43 @@ const ScheduleSection = ({
       }
     };
     loadSolved();
+    return () => { cancelled = true; };
+  }, [effectiveStudentId, homeworks, solvedRefreshKey]);
+
+  useEffect(() => {
+    if (!effectiveStudentId) {
+      setMockAttemptsByExam({});
+      return;
+    }
+    const uniqueExamIds = Array.from(new Set(
+      (Array.isArray(homeworks) ? homeworks : [])
+        .flatMap((entry) => normalizeEntryGoals(entry))
+        .filter((goal) => goal.type === GOAL_TYPE_MOCK)
+        .map((goal) => normalizeMockExamId(goal.mockExamId))
+        .filter(Boolean)
+    ));
+    if (uniqueExamIds.length === 0) {
+      setMockAttemptsByExam({});
+      return;
+    }
+    let cancelled = false;
+    const loadMockAttempts = async () => {
+      try {
+        const results = await Promise.all(
+          uniqueExamIds.map((examId) => api.getMockAttempt(effectiveStudentId, examId).catch(() => null))
+        );
+        if (cancelled) return;
+        const next = {};
+        uniqueExamIds.forEach((examId, idx) => {
+          const attempt = results[idx];
+          if (attempt && typeof attempt === 'object') next[examId] = attempt;
+        });
+        setMockAttemptsByExam(next);
+      } catch {
+        if (!cancelled) setMockAttemptsByExam({});
+      }
+    };
+    loadMockAttempts();
     return () => { cancelled = true; };
   }, [effectiveStudentId, homeworks, solvedRefreshKey]);
 
@@ -6577,6 +7659,15 @@ const ScheduleSection = ({
     if (Array.isArray(entry.goals) && entry.goals.length > 0) {
       return entry.goals
         .map((goal) => {
+          const goalType = normalizeGoalType(goal);
+          if (goalType === GOAL_TYPE_MOCK) {
+            const mockExamId = normalizeMockExamId(goal?.mockExamId);
+            if (!mockExamId) return null;
+            return {
+              type: GOAL_TYPE_MOCK,
+              mockExamId
+            };
+          }
           const normalizedTaskNumber = normalizeTaskNumber(goal?.taskNumber);
           const taskNumberValue = Number.isFinite(normalizedTaskNumber)
             ? String(normalizedTaskNumber)
@@ -6585,17 +7676,23 @@ const ScheduleSection = ({
             ? isPythonTaskNumber(normalizedTaskNumber)
             : false;
           return {
+            type: GOAL_TYPE_TASK,
             taskNumber: taskNumberValue,
             levelId: isPythonGoal ? PYTHON_LEVEL_ID : (goal?.levelId || 'basic'),
             targetQuestions: Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [],
             includeAll: Boolean(goal?.includeAll)
           };
         })
-        .filter((goal) => goal.taskNumber);
+        .filter((goal) => (
+          goal?.type === GOAL_TYPE_MOCK
+            ? Boolean(goal?.mockExamId)
+            : Boolean(goal?.taskNumber)
+        ));
     }
     if (entry.taskNumber && entry.levelId) {
       const entryTaskNumber = Number(entry.taskNumber);
       return [{
+        type: GOAL_TYPE_TASK,
         taskNumber: Number.isFinite(normalizeTaskNumber(entry.taskNumber))
           ? String(normalizeTaskNumber(entry.taskNumber))
           : String(entry.taskNumber),
@@ -6651,12 +7748,23 @@ const ScheduleSection = ({
       boardLink: entry.boardLink || '',
       daysToComplete: Number(entry.daysToComplete) || 7,
       goals: goals.length
-        ? goals.map((goal) => ({
-            taskNumber: goal.taskNumber,
-            levelId: goal.levelId || 'basic',
-            includeAll: goal.includeAll,
-            targetInput: goal.includeAll ? '' : formatTargetInput(goal.targetQuestions)
-          }))
+        ? goals.map((goal) => {
+            if (goal.type === GOAL_TYPE_MOCK) {
+              return {
+                ...DEFAULT_GOAL,
+                type: GOAL_TYPE_MOCK,
+                mockExamId: goal.mockExamId
+              };
+            }
+            return {
+              ...DEFAULT_GOAL,
+              type: GOAL_TYPE_TASK,
+              taskNumber: goal.taskNumber,
+              levelId: goal.levelId || 'basic',
+              includeAll: goal.includeAll,
+              targetInput: goal.includeAll ? '' : formatTargetInput(goal.targetQuestions)
+            };
+          })
         : [{ ...DEFAULT_GOAL }]
     });
   };
@@ -6690,6 +7798,15 @@ const ScheduleSection = ({
     try {
       const goalsPayload = (Array.isArray(form.goals) ? form.goals : [])
         .map((goal) => {
+          const goalType = normalizeGoalType(goal);
+          if (goalType === GOAL_TYPE_MOCK) {
+            const mockExamId = normalizeMockExamId(goal?.mockExamId);
+            if (!mockExamId) return null;
+            return {
+              type: GOAL_TYPE_MOCK,
+              mockExamId
+            };
+          }
           const taskNumber = String(goal?.taskNumber || '').trim();
           if (!taskNumber) return null;
           const normalizedTaskNumber = normalizeTaskNumber(taskNumber);
@@ -6701,6 +7818,7 @@ const ScheduleSection = ({
           const availableCount = getQuestionsCount(normalizedTaskNumber, levelId);
           const targetQuestions = includeAll ? [] : parseTargetInput(goal?.targetInput, availableCount);
           return {
+            type: GOAL_TYPE_TASK,
             taskNumber: normalizedTaskNumber,
             levelId,
             includeAll,
@@ -6790,6 +7908,7 @@ const ScheduleSection = ({
 
       {error && <div className="text-xs text-red-500">{error}</div>}
       {testsDbError && <div className="text-xs text-red-500">{testsDbError}</div>}
+      {mockExamsError && <div className="text-xs text-red-500">{mockExamsError}</div>}
 
       {role === 'teacher' && (
         <Card className="space-y-3">
@@ -6815,7 +7934,9 @@ const ScheduleSection = ({
           />
           <div className="space-y-3">
             {(Array.isArray(form.goals) ? form.goals : []).map((goal, index) => {
-              const hasTask = Boolean(goal?.taskNumber);
+              const goalType = normalizeGoalType(goal);
+              const isMockGoal = goalType === GOAL_TYPE_MOCK;
+              const hasTask = !isMockGoal && Boolean(goal?.taskNumber);
               const normalizedGoalTaskNumber = normalizeTaskNumber(goal?.taskNumber);
               const isPythonGoal = isPythonTaskNumber(normalizedGoalTaskNumber);
               const effectiveLevelId = isPythonGoal ? PYTHON_LEVEL_ID : goal.levelId;
@@ -6823,91 +7944,151 @@ const ScheduleSection = ({
                 ? normalizedGoalTaskNumber
                 : goal?.taskNumber;
               const availableCount = hasTask ? getQuestionsCount(taskNumberValue, effectiveLevelId) : null;
+              const selectedMockExam = isMockGoal
+                ? mockExamById[normalizeMockExamId(goal?.mockExamId)]
+                : null;
               return (
-                <div key={`${index}-${goal?.taskNumber || 'goal'}`} className="rounded-2xl border border-gray-200 bg-white p-3 space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div key={`${index}-${goalType}-${goal?.taskNumber || goal?.mockExamId || 'goal'}`} className="rounded-2xl border border-gray-200 bg-white p-3 space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                     <select
-                      value={goal.taskNumber || ''}
+                      value={goalType}
                       onChange={(e) => {
                         const value = e.target.value;
-                        const valueNum = value ? Number(value) : null;
-                        const nextIsPython = valueNum ? isPythonTaskNumber(valueNum) : false;
-                        updateGoal(index, {
-                          taskNumber: value,
-                          levelId: nextIsPython ? PYTHON_LEVEL_ID : (goal.levelId || 'basic'),
-                          includeAll: value ? goal.includeAll : false,
-                          targetInput: value ? goal.targetInput : ''
-                        });
+                        if (value === GOAL_TYPE_MOCK) {
+                          updateGoal(index, { ...DEFAULT_GOAL, type: GOAL_TYPE_MOCK });
+                          return;
+                        }
+                        updateGoal(index, { ...DEFAULT_GOAL, type: GOAL_TYPE_TASK, levelId: goal.levelId || 'basic' });
                       }}
                       className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
                     >
-                      <option value="">Выберите задание</option>
-                      <optgroup label="ЕГЭ">
-                        {taskOptions.map((task) => (
-                          <option key={task.id ?? task.number} value={task.number}>
-                            Задание {getTaskDisplayNumber(task)}: {task.title}
-                          </option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="Python">
-                        {pythonTaskOptions.map((task) => (
-                          <option key={task.id ?? task.number} value={task.number}>
-                            {task.displayNumber} · {task.title}
-                          </option>
-                        ))}
-                      </optgroup>
+                      <option value={GOAL_TYPE_TASK}>Задание</option>
+                      <option value={GOAL_TYPE_MOCK}>Пробник</option>
                     </select>
-                    <select
-                      value={isPythonGoal ? PYTHON_LEVEL_ID : (goal.levelId || 'basic')}
-                      onChange={(e) => updateGoal(index, { levelId: e.target.value })}
-                      disabled={!hasTask || isPythonGoal}
-                      className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none disabled:opacity-60"
-                    >
-                      {isPythonGoal ? (
-                        <option value={PYTHON_LEVEL_ID}>Python</option>
-                      ) : (
-                        Object.values(LEVELS).map((lvl) => (
-                          <option key={lvl.id} value={lvl.id}>{lvl.label}</option>
-                        ))
-                      )}
-                    </select>
-                    <div className="flex items-center justify-between gap-3">
-                      <label className={`flex items-center gap-2 text-xs font-semibold ${hasTask ? 'text-gray-600' : 'text-gray-400'}`}>
-                        <input
-                          type="checkbox"
-                          checked={Boolean(goal.includeAll)}
-                          disabled={!hasTask}
-                          onChange={(e) => updateGoal(index, { includeAll: e.target.checked, targetInput: e.target.checked ? '' : goal.targetInput })}
-                        />
-                        Все задания
-                      </label>
-                      {(Array.isArray(form.goals) ? form.goals.length : 0) > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeGoalRow(index)}
-                          className="px-2 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-500 hover:bg-gray-50"
+                    {isMockGoal ? (
+                      <>
+                        <select
+                          value={goal?.mockExamId || ''}
+                          onChange={(e) => updateGoal(index, { mockExamId: e.target.value })}
+                          className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none md:col-span-2"
                         >
-                          Удалить
-                        </button>
-                      )}
-                    </div>
+                          <option value="">Выберите пробник</option>
+                          {mockExams.map((exam) => (
+                            <option key={exam.id} value={exam.id}>{exam.title}</option>
+                          ))}
+                        </select>
+                        <div className="flex items-center justify-end gap-3">
+                          {(Array.isArray(form.goals) ? form.goals.length : 0) > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeGoalRow(index)}
+                              className="px-2 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-500 hover:bg-gray-50"
+                            >
+                              Удалить
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <select
+                          value={goal.taskNumber || ''}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            const valueNum = value ? Number(value) : null;
+                            const nextIsPython = valueNum ? isPythonTaskNumber(valueNum) : false;
+                            updateGoal(index, {
+                              taskNumber: value,
+                              levelId: nextIsPython ? PYTHON_LEVEL_ID : (goal.levelId || 'basic'),
+                              includeAll: value ? goal.includeAll : false,
+                              targetInput: value ? goal.targetInput : ''
+                            });
+                          }}
+                          className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                        >
+                          <option value="">Выберите задание</option>
+                          <optgroup label="ЕГЭ">
+                            {taskOptions.map((task) => (
+                              <option key={task.id ?? task.number} value={task.number}>
+                                Задание {getTaskDisplayNumber(task)}: {task.title}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="Python">
+                            {pythonTaskOptions.map((task) => (
+                              <option key={task.id ?? task.number} value={task.number}>
+                                {task.displayNumber} · {task.title}
+                              </option>
+                            ))}
+                          </optgroup>
+                        </select>
+                        <select
+                          value={isPythonGoal ? PYTHON_LEVEL_ID : (goal.levelId || 'basic')}
+                          onChange={(e) => updateGoal(index, { levelId: e.target.value })}
+                          disabled={!hasTask || isPythonGoal}
+                          className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none disabled:opacity-60"
+                        >
+                          {isPythonGoal ? (
+                            <option value={PYTHON_LEVEL_ID}>Python</option>
+                          ) : (
+                            Object.values(LEVELS).map((lvl) => (
+                              <option key={lvl.id} value={lvl.id}>{lvl.label}</option>
+                            ))
+                          )}
+                        </select>
+                        <div className="flex items-center justify-between gap-3">
+                          <label className={`flex items-center gap-2 text-xs font-semibold ${hasTask ? 'text-gray-600' : 'text-gray-400'}`}>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(goal.includeAll)}
+                              disabled={!hasTask}
+                              onChange={(e) => updateGoal(index, { includeAll: e.target.checked, targetInput: e.target.checked ? '' : goal.targetInput })}
+                            />
+                            Все задания
+                          </label>
+                          {(Array.isArray(form.goals) ? form.goals.length : 0) > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeGoalRow(index)}
+                              className="px-2 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-500 hover:bg-gray-50"
+                            >
+                              Удалить
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                   <div className="space-y-2">
-                    <input
-                      type="text"
-                      value={goal.targetInput || ''}
-                      onChange={(e) => updateGoal(index, { targetInput: e.target.value })}
-                      placeholder="Номера вопросов (например: 1, 3, 5)"
-                      disabled={!hasTask || goal.includeAll}
-                      className="w-full px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none disabled:opacity-60"
-                    />
-                    <div className="text-xs text-gray-400">
-                      {goal.includeAll
-                        ? 'Выбраны все задания этого уровня.'
-                        : (availableCount
-                            ? `Всего вопросов в уровне: ${availableCount}`
-                            : 'Можно оставить пустым — тогда цель не задаётся.')}
-                    </div>
+                    {isMockGoal ? (
+                      <div className="text-xs text-gray-500">
+                        {mockExamsLoading
+                          ? 'Загружаем пробники...'
+                          : (selectedMockExam
+                              ? `Выбран пробник: ${selectedMockExam.title}`
+                              : (mockExams.length > 0
+                                  ? 'Выберите пробник из списка.'
+                                  : 'Для этого ученика нет доступных пробников.'))}
+                      </div>
+                    ) : (
+                      <>
+                        <input
+                          type="text"
+                          value={goal.targetInput || ''}
+                          onChange={(e) => updateGoal(index, { targetInput: e.target.value })}
+                          placeholder="Номера вопросов (например: 1, 3, 5)"
+                          disabled={!hasTask || goal.includeAll}
+                          className="w-full px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none disabled:opacity-60"
+                        />
+                        <div className="text-xs text-gray-400">
+                          {goal.includeAll
+                            ? 'Выбраны все задания этого уровня.'
+                            : (availableCount
+                                ? `Всего вопросов в уровне: ${availableCount}`
+                                : 'Можно оставить пустым — тогда цель не задаётся.')}
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               );
@@ -6917,7 +8098,7 @@ const ScheduleSection = ({
               onClick={addGoalRow}
               className="px-3 py-2 rounded-xl border border-purple-200 text-xs font-semibold text-purple-700 hover:bg-purple-50"
             >
-              + Добавить задание
+              + Добавить цель
             </button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -7000,6 +8181,33 @@ const ScheduleSection = ({
                   {entryGoals.length > 0 && (
                     <div className="space-y-2">
                       {entryGoals.map((goal, goalIndex) => {
+                        if (goal.type === GOAL_TYPE_MOCK) {
+                          const mockExamId = normalizeMockExamId(goal.mockExamId);
+                          const mockExam = mockExamById[mockExamId] || null;
+                          const mockProgress = getMockGoalProgress(mockExam, mockAttemptsByExam?.[mockExamId]);
+                          const mockTitle = mockExam?.title || 'Пробник недоступен';
+                          return (
+                            <div key={`mock-${mockExamId}-${goalIndex}`} className="rounded-xl border border-purple-100 bg-purple-50 px-3 py-2 text-xs text-purple-700 space-y-2">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span>{`Пробник · ${mockTitle}`}</span>
+                                {onOpenMockGoal && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenMockGoal(mockExamId)}
+                                    className="px-3 py-1 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700"
+                                  >
+                                    Перейти к пробнику
+                                  </button>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-purple-600">
+                                {mockProgress.totalCount > 0
+                                  ? `Выполнено ${mockProgress.solvedCount}/${mockProgress.totalCount}`
+                                  : 'В пробнике пока нет заданий.'}
+                              </div>
+                            </div>
+                          );
+                        }
                         const taskNumber = Number(goal.taskNumber);
                         const isPythonGoal = isPythonTaskNumber(taskNumber);
                         const pythonTask = isPythonGoal ? getPythonTaskInfo(taskNumber) : null;
@@ -7160,9 +8368,18 @@ const NotesSection = ({
   const [dragOverFolderId, setDragOverFolderId] = useState(null);
   const [expandedPyIds, setExpandedPyIds] = useState({});
   const [expandedPdfIds, setExpandedPdfIds] = useState({});
+  const [expandedImageIds, setExpandedImageIds] = useState({});
   const [pyContent, setPyContent] = useState({});
   const [pyError, setPyError] = useState({});
   const [pyLoadingId, setPyLoadingId] = useState(null);
+  const [editingPyId, setEditingPyId] = useState(null);
+  const [pyEditDraft, setPyEditDraft] = useState('');
+  const [pyEditSaving, setPyEditSaving] = useState(false);
+  const [pyEditError, setPyEditError] = useState('');
+  const [pyRunInput, setPyRunInput] = useState('');
+  const [pyRunOutput, setPyRunOutput] = useState('');
+  const [pyRunError, setPyRunError] = useState('');
+  const [pyRunLoading, setPyRunLoading] = useState(false);
   const [showPyCreator, setShowPyCreator] = useState(false);
   const [pyDraftName, setPyDraftName] = useState('');
   const [pyDraftCode, setPyDraftCode] = useState('');
@@ -7173,6 +8390,9 @@ const NotesSection = ({
   const skipNullSaveRef = useRef(true);
   const pendingFolderIdRef = useRef(null);
   const fileRef = useRef(null);
+  const pyRunnerWorkerRef = useRef(null);
+  const pyRunnerPendingRef = useRef(new Map());
+  const editingPyIdRef = useRef(null);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const getFileUrl = (file) => withStudentId(file?.url, effectiveStudentId);
@@ -7186,6 +8406,10 @@ const NotesSection = ({
     if (normalized === GAME_THEORY_TASK) return [19, 20, 21];
     return [normalized];
   };
+
+  useEffect(() => {
+    editingPyIdRef.current = editingPyId;
+  }, [editingPyId]);
 
   useEffect(() => {
     if (!effectiveStudentId) return;
@@ -7396,6 +8620,15 @@ const NotesSection = ({
     setDragOverFolderId(null);
     setExpandedPyIds({});
     setExpandedPdfIds({});
+    setExpandedImageIds({});
+    setEditingPyId(null);
+    setPyEditDraft('');
+    setPyEditSaving(false);
+    setPyEditError('');
+    setPyRunInput('');
+    setPyRunOutput('');
+    setPyRunError('');
+    setPyRunLoading(false);
     setShowPyCreator(false);
     setPyDraftName('');
     setPyDraftCode('');
@@ -7412,6 +8645,15 @@ const NotesSection = ({
       setFiles([]);
       setExpandedPyIds({});
       setExpandedPdfIds({});
+      setExpandedImageIds({});
+      setEditingPyId(null);
+      setPyEditDraft('');
+      setPyEditSaving(false);
+      setPyEditError('');
+      setPyRunInput('');
+      setPyRunOutput('');
+      setPyRunError('');
+      setPyRunLoading(false);
       setShowPyCreator(false);
       setPyDraftName('');
       setPyDraftCode('');
@@ -7428,6 +8670,15 @@ const NotesSection = ({
     setFiles([]);
     setExpandedPyIds({});
     setExpandedPdfIds({});
+    setExpandedImageIds({});
+    setEditingPyId(null);
+    setPyEditDraft('');
+    setPyEditSaving(false);
+    setPyEditError('');
+    setPyRunInput('');
+    setPyRunOutput('');
+    setPyRunError('');
+    setPyRunLoading(false);
     setShowPyCreator(false);
     setPyDraftName('');
     setPyDraftCode('');
@@ -7454,6 +8705,69 @@ const NotesSection = ({
       folderId: currentFolderId
     });
   }, [effectiveStudentId, currentTask, currentCategory, currentFolderId, onLocationChange]);
+
+  const isImageMimeType = (value) => String(value || '').toLowerCase().startsWith('image/');
+  const isImageFileName = (name) => /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico|heic|heif)$/i.test(String(name || ''));
+
+  const getImageExtensionFromMime = (mime) => {
+    const normalized = String(mime || '').toLowerCase();
+    if (normalized === 'image/jpeg' || normalized === 'image/jpg') return 'jpg';
+    if (normalized === 'image/png') return 'png';
+    if (normalized === 'image/gif') return 'gif';
+    if (normalized === 'image/webp') return 'webp';
+    if (normalized === 'image/bmp') return 'bmp';
+    if (normalized === 'image/svg+xml') return 'svg';
+    if (normalized === 'image/avif') return 'avif';
+    if (normalized === 'image/heic') return 'heic';
+    if (normalized === 'image/heif') return 'heif';
+    if (normalized === 'image/x-icon' || normalized === 'image/vnd.microsoft.icon') return 'ico';
+    return 'png';
+  };
+
+  const ensureFileName = (file, prefix = 'upload', index = 0) => {
+    if (!file) return null;
+    const trimmedName = String(file.name || '').trim();
+    if (trimmedName) return file;
+    const ext = getImageExtensionFromMime(file.type);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    return new File([file], `${prefix}-${stamp}-${index + 1}.${ext}`, { type: file.type || 'application/octet-stream' });
+  };
+
+  const getDataTransferFiles = (dataTransfer) => {
+    const list = Array.from(dataTransfer?.files || []).filter(Boolean);
+    if (list.length > 0) return list;
+    const items = Array.from(dataTransfer?.items || []);
+    const fromItems = [];
+    for (const item of items) {
+      if (item?.kind !== 'file') continue;
+      const file = item.getAsFile?.();
+      if (file) fromItems.push(file);
+    }
+    return fromItems;
+  };
+
+  const getClipboardImageFiles = (clipboardData) => {
+    const files = [];
+    const fromFiles = Array.from(clipboardData?.files || []);
+    fromFiles.forEach((file) => {
+      if (!file) return;
+      if (!isImageMimeType(file.type) && !isImageFileName(file.name)) return;
+      const normalized = ensureFileName(file, 'clipboard', files.length);
+      if (normalized) files.push(normalized);
+    });
+    if (files.length > 0) return files;
+
+    const items = Array.from(clipboardData?.items || []);
+    items.forEach((item) => {
+      if (item?.kind !== 'file') return;
+      const file = item.getAsFile?.();
+      if (!file) return;
+      if (!isImageMimeType(file.type) && !isImageFileName(file.name)) return;
+      const normalized = ensureFileName(file, 'clipboard', files.length);
+      if (normalized) files.push(normalized);
+    });
+    return files;
+  };
 
   const handleUploadFiles = async (fileList) => {
     const filesToUpload = Array.from(fileList || []).filter(Boolean);
@@ -7505,8 +8819,8 @@ const NotesSection = ({
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    const list = e.dataTransfer?.files;
-    handleUploadFiles(list);
+    const dropped = getDataTransferFiles(e.dataTransfer);
+    handleUploadFiles(dropped);
   };
 
   const handleDragOver = (e) => {
@@ -7521,6 +8835,27 @@ const NotesSection = ({
     e.stopPropagation();
     setIsDragging(false);
   };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onPaste = (event) => {
+      if (!effectiveStudentId || !Number.isFinite(normalizedCurrentTask) || !currentCategory) return;
+      if (isUploading) return;
+      const imageFiles = getClipboardImageFiles(event.clipboardData);
+      if (!imageFiles.length) return;
+      event.preventDefault();
+      event.stopPropagation();
+      handleUploadFiles(imageFiles);
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [
+    effectiveStudentId,
+    normalizedCurrentTask,
+    currentCategory,
+    isUploading,
+    handleUploadFiles
+  ]);
 
   const handleCreateFolder = async () => {
     const name = newFolderName.trim();
@@ -7624,6 +8959,11 @@ const NotesSection = ({
 
   const isPyFile = (name) => name?.toLowerCase().endsWith('.py');
   const isPdfFile = (name) => name?.toLowerCase().endsWith('.pdf');
+  const isImageFile = (value) => {
+    const name = typeof value === 'string' ? value : value?.name;
+    const mime = typeof value === 'string' ? '' : value?.type;
+    return isImageFileName(name) || isImageMimeType(mime);
+  };
   const isExcelFile = (name) => {
     const lower = name?.toLowerCase() || '';
     return (
@@ -7734,6 +9074,16 @@ const NotesSection = ({
   );
 
   const FileIcon = ({ name }) => {
+    if (isImageFile(name)) {
+      return (
+        <div className="flex flex-col items-center w-12">
+          <div className="w-10 h-10 flex items-center justify-center bg-transparent">
+            <ImageIcon size={22} className="text-violet-600" />
+          </div>
+          <span className="text-[10px] font-bold text-violet-700 mt-1">IMG</span>
+        </div>
+      );
+    }
     if (isPdfFile(name)) {
       return (
         <div className="flex flex-col items-center w-12">
@@ -7783,27 +9133,217 @@ const NotesSection = ({
     link.remove();
   };
 
-  const togglePyPreview = async (file) => {
+  const getPyFileSize = (code) => new Blob([code ?? ''], { type: 'text/x-python' }).size;
+
+  const resolvePyRunnerPending = (message) => {
+    pyRunnerPendingRef.current.forEach((entry) => {
+      clearTimeout(entry.timer);
+      entry.resolve({ output: '', error: message });
+    });
+    pyRunnerPendingRef.current.clear();
+  };
+
+  const disposePyRunnerWorker = (message = '') => {
+    if (pyRunnerWorkerRef.current) {
+      pyRunnerWorkerRef.current.terminate();
+      pyRunnerWorkerRef.current = null;
+    }
+    if (message) resolvePyRunnerPending(message);
+  };
+
+  const ensurePyRunnerWorker = () => {
+    if (typeof Worker === 'undefined') return null;
+    if (pyRunnerWorkerRef.current) return pyRunnerWorkerRef.current;
+    try {
+      const worker = createPyodideWorker();
+      worker.onmessage = (event) => {
+        const data = event.data || {};
+        const pending = pyRunnerPendingRef.current.get(data.id);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        pyRunnerPendingRef.current.delete(data.id);
+        const output = typeof data.output === 'string' ? data.output : String(data.output ?? '');
+        const error = typeof data.error === 'string' ? data.error : (data.error ? String(data.error) : '');
+        pending.resolve({ output, error });
+      };
+      worker.onerror = () => disposePyRunnerWorker('Ошибка выполнения Python.');
+      worker.onmessageerror = () => disposePyRunnerWorker('Ошибка выполнения Python.');
+      pyRunnerWorkerRef.current = worker;
+      return worker;
+    } catch {
+      return null;
+    }
+  };
+
+  useEffect(() => () => disposePyRunnerWorker('Python runner stopped.'), []);
+
+  const runPyInMainThread = async (source, inputValue) => {
+    const pyodide = await ensurePyodideReady();
+    const wrapped = [
+      'import sys, io, traceback',
+      `_input = ${JSON.stringify(String(inputValue ?? ''))}`,
+      '_stdout = io.StringIO()',
+      '_stderr = io.StringIO()',
+      'sys.stdin = io.StringIO(_input)',
+      'sys.stdout = _stdout',
+      'sys.stderr = _stderr',
+      '_globals = {}',
+      'try:',
+      `    exec(${JSON.stringify(String(source ?? ''))}, _globals, _globals)`,
+      'except Exception:',
+      '    traceback.print_exc()',
+      '__output = _stdout.getvalue()',
+      '__error = _stderr.getvalue()',
+    ].join('\n');
+    await pyodide.runPythonAsync(wrapped);
+    const output = pyodide.globals.get('__output') || '';
+    const error = pyodide.globals.get('__error') || '';
+    pyodide.globals.delete('__output');
+    pyodide.globals.delete('__error');
+    return { output: String(output), error: String(error) };
+  };
+
+  const runPyCode = async (source, inputValue) => {
+    const worker = ensurePyRunnerWorker();
+    if (worker) {
+      const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          pyRunnerPendingRef.current.delete(id);
+          resolve({
+            output: '',
+            error: `Превышено время выполнения (${Math.round(PYODIDE_RUN_TIMEOUT_MS / 1000)} сек).`
+          });
+          disposePyRunnerWorker('Превышено время выполнения.');
+        }, PYODIDE_RUN_TIMEOUT_MS);
+        pyRunnerPendingRef.current.set(id, { resolve, timer });
+        worker.postMessage({ id, source, input: inputValue });
+      });
+    }
+    if (!ALLOW_MAIN_THREAD_PYTHON_FALLBACK) {
+      return {
+        output: '',
+        error: 'Не удалось запустить Python в изолированном режиме. Перезагрузите страницу.'
+      };
+    }
+    return runPyInMainThread(source, inputValue);
+  };
+
+  const handleRunEditedPyFile = async () => {
+    if (!editingPyId) return;
+    if (pyRunLoading) return;
+    const targetId = editingPyId;
+    setPyRunLoading(true);
+    setPyRunError('');
+    setPyRunOutput('');
+    try {
+      const result = await runPyCode(pyEditDraft, pyRunInput);
+      if (editingPyIdRef.current !== targetId) return;
+      setPyRunOutput(result.output || '');
+      setPyRunError(result.error || '');
+    } catch (err) {
+      if (editingPyIdRef.current !== targetId) return;
+      setPyRunOutput('');
+      setPyRunError(err?.message || 'Ошибка выполнения Python');
+    } finally {
+      if (editingPyIdRef.current !== targetId && editingPyIdRef.current !== null) return;
+      setPyRunLoading(false);
+    }
+  };
+
+  const loadPyFileContent = async (file) => {
     const url = getFileUrl(file);
-    if (!url || !isPyFile(file.name)) return;
+    if (!url || !isPyFile(file?.name)) return null;
+    if (Object.prototype.hasOwnProperty.call(pyContent, file.id)) {
+      return pyContent[file.id] ?? '';
+    }
+    if (pyError[file.id]) return null;
+
+    setPyLoadingId(file.id);
+    try {
+      const res = await apiFetch(url);
+      if (!res.ok) throw new Error('Не удалось загрузить файл');
+      const text = await res.text();
+      setPyContent((prev) => ({ ...prev, [file.id]: text }));
+      return text;
+    } catch (err) {
+      setPyError((prev) => ({ ...prev, [file.id]: err?.message || 'Ошибка загрузки' }));
+      return null;
+    } finally {
+      setPyLoadingId(null);
+    }
+  };
+
+  const togglePyPreview = async (file) => {
+    if (!isPyFile(file?.name)) return;
+    const willOpen = !expandedPyIds[file.id];
     setExpandedPyIds((prev) => {
       const next = { ...prev };
       if (next[file.id]) delete next[file.id];
       else next[file.id] = true;
       return next;
     });
-    if (pyContent[file.id] || pyError[file.id]) return;
+    if (!willOpen && editingPyId === file.id) {
+      setEditingPyId(null);
+      setPyEditDraft('');
+      setPyEditSaving(false);
+      setPyEditError('');
+      setPyRunInput('');
+      setPyRunOutput('');
+      setPyRunError('');
+      setPyRunLoading(false);
+      return;
+    }
+    if (!willOpen) return;
+    await loadPyFileContent(file);
+  };
 
-    setPyLoadingId(file.id);
+  const startEditingPyFile = async (file) => {
+    if (!isPyFile(file?.name)) return;
+    if (pyEditSaving) return;
+    if (!expandedPyIds[file.id]) {
+      setExpandedPyIds((prev) => ({ ...prev, [file.id]: true }));
+    }
+    let content = Object.prototype.hasOwnProperty.call(pyContent, file.id) ? (pyContent[file.id] ?? '') : null;
+    if (content === null) {
+      content = await loadPyFileContent(file);
+    }
+    if (content === null) return;
+    setEditingPyId(file.id);
+    setPyEditDraft(String(content ?? ''));
+    setPyEditError('');
+    setPyRunInput('');
+    setPyRunOutput('');
+    setPyRunError('');
+    setPyRunLoading(false);
+  };
+
+  const cancelEditingPyFile = () => {
+    setEditingPyId(null);
+    setPyEditDraft('');
+    setPyEditSaving(false);
+    setPyEditError('');
+    setPyRunInput('');
+    setPyRunOutput('');
+    setPyRunError('');
+    setPyRunLoading(false);
+  };
+
+  const saveEditingPyFile = async (file) => {
+    if (!isPyFile(file?.name) || !file?.id) return;
+    if (editingPyId !== file.id || pyEditSaving) return;
+    setPyEditSaving(true);
+    setPyEditError('');
     try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('Не удалось загрузить файл');
-      const text = await res.text();
-      setPyContent((prev) => ({ ...prev, [file.id]: text }));
+      const content = String(pyEditDraft ?? '');
+      const updated = await api.updateFileContent(file.id, content);
+      setFiles((prev) => prev.map((entry) => (entry.id === updated.id ? { ...entry, ...updated } : entry)));
+      setPyContent((prev) => ({ ...prev, [file.id]: content }));
+      cancelEditingPyFile();
     } catch (err) {
-      setPyError((prev) => ({ ...prev, [file.id]: err?.message || 'Ошибка загрузки' }));
+      setPyEditError(err?.message || 'Не удалось сохранить файл');
     } finally {
-      setPyLoadingId(null);
+      setPyEditSaving(false);
     }
   };
 
@@ -7818,9 +9358,21 @@ const NotesSection = ({
     });
   };
 
+  const toggleImagePreview = (file) => {
+    const url = getFileUrl(file);
+    if (!url || !isImageFile(file)) return;
+    setExpandedImageIds((prev) => {
+      const next = { ...prev };
+      if (next[file.id]) delete next[file.id];
+      else next[file.id] = true;
+      return next;
+    });
+  };
+
   const toggleFilePreview = (file) => {
     if (isPyFile(file.name)) return togglePyPreview(file);
     if (isPdfFile(file.name)) return togglePdfPreview(file);
+    if (isImageFile(file)) return toggleImagePreview(file);
     return null;
   };
 
@@ -7841,8 +9393,17 @@ const NotesSection = ({
         delete next[file.id];
         return next;
       });
+      setExpandedImageIds((prev) => {
+        if (!prev[file.id]) return prev;
+        const next = { ...prev };
+        delete next[file.id];
+        return next;
+      });
       if (renamingId === file.id) {
         cancelRename();
+      }
+      if (editingPyId === file.id) {
+        cancelEditingPyFile();
       }
     } catch(err) {
       alert(err?.message || err);
@@ -7895,9 +9456,20 @@ const NotesSection = ({
           delete next[file.id];
           return next;
         });
+        if (editingPyId === file.id) {
+          cancelEditingPyFile();
+        }
       }
       if (!isPdfFile(updated.name)) {
         setExpandedPdfIds((prev) => {
+          if (!prev[file.id]) return prev;
+          const next = { ...prev };
+          delete next[file.id];
+          return next;
+        });
+      }
+      if (!isImageFile(updated)) {
+        setExpandedImageIds((prev) => {
           if (!prev[file.id]) return prev;
           const next = { ...prev };
           delete next[file.id];
@@ -8232,7 +9804,7 @@ const NotesSection = ({
         }`}
       >
         <div className="text-sm text-gray-500 mb-4 flex flex-wrap items-center justify-between gap-2">
-          <span>Перетащите файл сюда для загрузки</span>
+          <span>Перетащите файл сюда или вставьте изображение через Ctrl+V</span>
           <span className="text-xs text-gray-400">
             Папка: {currentFolderLabel} • Осталось {formatBytes(remainingBytes)}
           </span>
@@ -8253,10 +9825,10 @@ const NotesSection = ({
                 onDragStart={(e) => handleDragStartFile(e, f)}
                 onDragEnd={handleDragEndFile}
                 onClick={() => toggleFilePreview(f)}
-                role={(isPyFile(f.name) || isPdfFile(f.name)) ? 'button' : undefined}
-                tabIndex={(isPyFile(f.name) || isPdfFile(f.name)) ? 0 : undefined}
+                role={(isPyFile(f.name) || isPdfFile(f.name) || isImageFile(f)) ? 'button' : undefined}
+                tabIndex={(isPyFile(f.name) || isPdfFile(f.name) || isImageFile(f)) ? 0 : undefined}
                 onKeyDown={(e) => {
-                  if ((e.key === 'Enter' || e.key === ' ') && (isPyFile(f.name) || isPdfFile(f.name))) {
+                  if ((e.key === 'Enter' || e.key === ' ') && (isPyFile(f.name) || isPdfFile(f.name) || isImageFile(f))) {
                     e.preventDefault();
                     toggleFilePreview(f);
                   }
@@ -8319,25 +9891,131 @@ const NotesSection = ({
                 </div>
                 {isPyFile(f.name) && (
                   <div className={`overflow-hidden transition-all duration-300 ease-out ${
-                    expandedPyIds[f.id] ? 'max-h-[60vh] opacity-100' : 'max-h-0 opacity-0'
+                    expandedPyIds[f.id] ? 'max-h-[80vh] opacity-100' : 'max-h-0 opacity-0'
                   }`}>
-                    <div className="rounded-xl max-h-[50vh] overflow-auto">
-                      {pyLoadingId === f.id && (
-                        <pre className="language-python m-0 p-4 text-sm"><code>Загрузка...</code></pre>
+                    <div className="bg-white border rounded-xl p-2 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs text-gray-500">
+                          {editingPyId === f.id
+                            ? `Размер: ${formatBytes(getPyFileSize(pyEditDraft))}`
+                            : 'Просмотр Python'}
+                        </span>
+                        {editingPyId === f.id ? (
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="secondary"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                cancelEditingPyFile();
+                              }}
+                              disabled={pyEditSaving}
+                            >
+                              Отмена
+                            </Button>
+                            <Button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                saveEditingPyFile(f);
+                              }}
+                              disabled={pyEditSaving}
+                            >
+                              {pyEditSaving ? 'Сохранение...' : 'Сохранить'}
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            variant="secondary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startEditingPyFile(f);
+                            }}
+                            disabled={pyLoadingId === f.id || Boolean(pyError[f.id])}
+                          >
+                            Редактировать
+                          </Button>
+                        )}
+                      </div>
+                      {editingPyId === f.id ? (
+                        <div className="space-y-2">
+                          <div className="rounded-xl overflow-hidden border border-gray-800">
+                            <Editor
+                              height="340px"
+                              language="python"
+                              theme="vs-dark"
+                              value={pyEditDraft}
+                              onChange={(value) => {
+                                setPyEditDraft(value ?? '');
+                                if (pyEditError) setPyEditError('');
+                                if (pyRunOutput) setPyRunOutput('');
+                                if (pyRunError) setPyRunError('');
+                              }}
+                              options={pyEditorOptions}
+                              loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+                            />
+                          </div>
+                          <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
+                            <div className="rounded-xl border p-2 bg-gray-50">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-semibold text-gray-600">Ввод (stdin)</span>
+                                <Button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRunEditedPyFile();
+                                  }}
+                                  disabled={pyRunLoading || pyEditSaving}
+                                >
+                                  {pyRunLoading ? 'Запуск...' : 'Запустить'}
+                                </Button>
+                              </div>
+                              <textarea
+                                value={pyRunInput}
+                                onChange={(e) => setPyRunInput(e.target.value)}
+                                placeholder="Введите данные для input()"
+                                className="w-full min-h-[120px] text-xs px-3 py-2 rounded-lg border border-gray-200 bg-white outline-none focus:border-purple-500 resize-y"
+                              />
+                            </div>
+                            <div className="rounded-xl border p-2 bg-gray-50">
+                              <div className="text-xs font-semibold text-gray-600 mb-2">Вывод</div>
+                              {pyRunOutput ? (
+                                <pre className="text-xs bg-white border rounded-lg p-2 overflow-auto max-h-[160px] whitespace-pre-wrap break-words text-gray-800">{pyRunOutput}</pre>
+                              ) : (
+                                <div className="text-xs text-gray-400 bg-white border rounded-lg p-2 min-h-[52px]">
+                                  stdout пуст
+                                </div>
+                              )}
+                              {pyRunError ? (
+                                <pre className="text-xs bg-red-50 border border-red-200 rounded-lg p-2 overflow-auto max-h-[160px] whitespace-pre-wrap break-words text-red-700 mt-2">{pyRunError}</pre>
+                              ) : (
+                                <div className="text-xs text-gray-400 bg-white border rounded-lg p-2 min-h-[52px] mt-2">
+                                  stderr пуст
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="rounded-xl max-h-[55vh] overflow-auto">
+                          {pyLoadingId === f.id && (
+                            <pre className="language-python m-0 p-4 text-sm"><code>Загрузка...</code></pre>
+                          )}
+                          {pyLoadingId !== f.id && pyError[f.id] && (
+                            <pre className="language-python m-0 p-4 text-sm"><code>{pyError[f.id]}</code></pre>
+                          )}
+                          {pyLoadingId !== f.id && !pyError[f.id] && (
+                            pyContent[f.id]
+                              ? (
+                                <pre className="language-python m-0 p-4 text-sm">
+                                  <code dangerouslySetInnerHTML={{ __html: highlightPython(pyContent[f.id]) }} />
+                                </pre>
+                              )
+                              : (
+                                <pre className="language-python m-0 p-4 text-sm"><code># Пустой файл</code></pre>
+                              )
+                          )}
+                        </div>
                       )}
-                      {pyLoadingId !== f.id && pyError[f.id] && (
-                        <pre className="language-python m-0 p-4 text-sm"><code>{pyError[f.id]}</code></pre>
-                      )}
-                      {pyLoadingId !== f.id && !pyError[f.id] && (
-                        pyContent[f.id]
-                          ? (
-                            <pre className="language-python m-0 p-4 text-sm">
-                              <code dangerouslySetInnerHTML={{ __html: highlightPython(pyContent[f.id]) }} />
-                            </pre>
-                          )
-                          : (
-                            <pre className="language-python m-0 p-4 text-sm"><code># Пустой файл</code></pre>
-                          )
+                      {editingPyId === f.id && pyEditError && (
+                        <p className="text-xs text-red-500">{pyEditError}</p>
                       )}
                     </div>
                   </div>
@@ -8351,6 +10029,20 @@ const NotesSection = ({
                         title={f.name}
                         src={getFileUrl(f)}
                         className="w-full h-[60vh]"
+                      />
+                    </div>
+                  </div>
+                )}
+                {isImageFile(f) && (
+                  <div className={`overflow-hidden transition-all duration-300 ease-out ${
+                    expandedImageIds[f.id] ? 'max-h-[80vh] opacity-100' : 'max-h-0 opacity-0'
+                  }`}>
+                    <div className="bg-white border rounded-xl p-2 flex items-center justify-center">
+                      <img
+                        src={getFileUrl(f)}
+                        alt={f.name || 'Изображение'}
+                        className="max-h-[72vh] w-auto max-w-full object-contain rounded-lg"
+                        loading="lazy"
                       />
                     </div>
                   </div>
@@ -8580,6 +10272,10 @@ const NewHomeworkModal = ({ entry, open, onClose, onOpenSchedule, onOpenTask, te
   };
   const goalItems = rawGoals
     .map((goal) => {
+      const goalType = normalizeGoalType(goal);
+      if (goalType === GOAL_TYPE_MOCK) {
+        return { label: 'Пробник', progressLabel: '' };
+      }
       const normalizedTaskNumber = normalizeTaskNumber(goal?.taskNumber);
       const taskNumberValue = Number.isFinite(normalizedTaskNumber)
         ? Number(normalizedTaskNumber)
@@ -9134,24 +10830,41 @@ const MockExamModal = ({ exam, studentId, initialAttempt, onClose, onAttemptSave
   const [answers, setAnswers] = useState({});
   const [solved, setSolved] = useState({});
   const [results, setResults] = useState({});
+  const [saveError, setSaveError] = useState('');
   const [expandedImage, setExpandedImage] = useState(null);
+  const hasLocalAttemptChangesRef = useRef(false);
+
+  const readAttemptAnswers = (attempt) => (
+    attempt?.answers && typeof attempt.answers === 'object' ? attempt.answers : {}
+  );
+  const readAttemptSolved = (attempt) => (
+    attempt?.solved && typeof attempt.solved === 'object' ? attempt.solved : {}
+  );
 
   useEffect(() => {
-    setAnswers(initialAttempt?.answers && typeof initialAttempt.answers === 'object' ? initialAttempt.answers : {});
-    setSolved(initialAttempt?.solved && typeof initialAttempt.solved === 'object' ? initialAttempt.solved : {});
+    hasLocalAttemptChangesRef.current = false;
+    setAnswers(readAttemptAnswers(initialAttempt));
+    setSolved(readAttemptSolved(initialAttempt));
     setResults({});
-  }, [exam?.id, initialAttempt]);
+    setSaveError('');
+    setSelectedTask(MOCK_TASK_NUMBERS[0]);
+  }, [exam?.id, studentId]);
 
   useEffect(() => {
-    setSelectedTask(MOCK_TASK_NUMBERS[0]);
-  }, [exam?.id]);
+    if (hasLocalAttemptChangesRef.current) return;
+    setAnswers(readAttemptAnswers(initialAttempt));
+    setSolved(readAttemptSolved(initialAttempt));
+    setResults({});
+    setSaveError('');
+  }, [initialAttempt]);
 
-  const normalizeAnswer = (value) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  useEffect(() => {
+    setSaveError('');
+  }, [selectedTask]);
 
   const taskKey = String(selectedTask);
   const currentQuestion = exam?.tasks?.[taskKey];
   const answerCount = getMockAnswerCountForTask(selectedTask);
-  const expectedAnswers = getExpectedAnswers(currentQuestion, answerCount);
   const rawAnswer = answers[taskKey];
   const currentAnswers = Array.isArray(rawAnswer)
     ? rawAnswer
@@ -9164,34 +10877,29 @@ const MockExamModal = ({ exam, studentId, initialAttempt, onClose, onAttemptSave
     : (Array.isArray(rawAnswer) ? (rawAnswer[0] ?? '') : '');
 
   const handleCheck = async () => {
-    if (!currentQuestion) return;
-    let correct = false;
+    if (!currentQuestion || !studentId) return;
     if (answerCount > 1) {
       const allowPartial = allowsPartialAnswers(selectedTask);
       const provided = Array.from({ length: answerCount }, (_, i) => String(currentAnswers[i] ?? ''));
       if (!allowPartial && provided.some((val) => !val.trim())) return;
       if (allowPartial && provided.every((val) => !val.trim())) return;
-      correct = expectedAnswers.every((exp, i) => normalizeAnswer(exp) === normalizeAnswer(provided[i]));
     } else {
       if (!String(singleAnswer ?? '').trim()) return;
-      correct = normalizeAnswer(singleAnswer) === normalizeAnswer(expectedAnswers[0]);
     }
-    const nextSolved = { ...solved, [taskKey]: correct };
-    const nextResults = { ...results, [taskKey]: correct };
-    setSolved(nextSolved);
-    setResults(nextResults);
-    if (studentId) {
-      try {
-        const saved = await api.saveMockAttempt(studentId, exam.id, {
-          answers,
-          solved: nextSolved
-        });
-        if (saved && typeof saved === 'object') {
-          onAttemptSaved?.(exam.id, saved);
-        }
-      } catch {
-        // ignore save errors
+    hasLocalAttemptChangesRef.current = true;
+    setSaveError('');
+    try {
+      const saved = await api.saveMockAttempt(studentId, exam.id, { answers });
+      if (saved && typeof saved === 'object') {
+        const savedSolved = readAttemptSolved(saved);
+        const isCorrect = Boolean(savedSolved[taskKey]);
+        setSolved(savedSolved);
+        setResults((prev) => ({ ...prev, [taskKey]: isCorrect }));
+        onAttemptSaved?.(exam.id, saved);
       }
+    } catch (err) {
+      const message = typeof err?.message === 'string' ? err.message : '';
+      setSaveError(message || 'Не удалось сохранить ответ. Попробуйте снова.');
     }
   };
 
@@ -9389,6 +11097,8 @@ const MockExamModal = ({ exam, studentId, initialAttempt, onClose, onAttemptSave
                           value={currentAnswers[idx] ?? ''}
                           onChange={(e) => {
                             const value = e.target.value;
+                            hasLocalAttemptChangesRef.current = true;
+                            setSaveError('');
                             setAnswers((prev) => {
                               const next = { ...prev };
                               const prevEntry = next[taskKey];
@@ -9412,7 +11122,11 @@ const MockExamModal = ({ exam, studentId, initialAttempt, onClose, onAttemptSave
                     <input
                       type="text"
                       value={singleAnswer}
-                      onChange={(e) => setAnswers((prev) => ({ ...prev, [taskKey]: e.target.value }))}
+                      onChange={(e) => {
+                        hasLocalAttemptChangesRef.current = true;
+                        setSaveError('');
+                        setAnswers((prev) => ({ ...prev, [taskKey]: e.target.value }));
+                      }}
                       placeholder="Введите ответ..."
                       className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
                     />
@@ -9425,6 +11139,9 @@ const MockExamModal = ({ exam, studentId, initialAttempt, onClose, onAttemptSave
                     }`}>
                       {results[taskKey] ? 'Верно' : 'Неверно'}
                     </div>
+                  )}
+                  {saveError && (
+                    <div className="mt-2 text-xs text-rose-600">{saveError}</div>
                   )}
                 </div>
               </div>
@@ -9490,6 +11207,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
 
   const [view, setView] = useState(initialView);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [progressSectionJumpToken, setProgressSectionJumpToken] = useState(0);
   const [pendingOpenTask, setPendingOpenTask] = useState(() => (user.role === 'student' ? restoredOpenTask : null));
   const [goalState, setGoalState] = useState(null);
   const [goalTestsDb, setGoalTestsDb] = useState(null);
@@ -9984,6 +11702,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     updateUserLocation(user, { view: pythonTask ? 'python' : 'progress', openTask: nextTask });
   };
 
+  const handleOpenMockGoal = (mockExamId = null) => {
+    if (user.role !== 'student') return;
+    const normalizedMockExamId = normalizeMockExamId(mockExamId);
+    setPendingOpenTask(null);
+    setView('progress');
+    setMenuOpen(false);
+    updateUserLocation(user, {
+      view: 'progress',
+      openTask: null,
+      progressSection: 'mocks',
+      mockExamId: normalizedMockExamId || null
+    });
+    setProgressSectionJumpToken((prev) => prev + 1);
+  };
+
   const formatDaysText = (days) => {
     const value = Number(days) || 0;
     const mod10 = value % 10;
@@ -10004,19 +11737,33 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         if (Array.isArray(item.goals) && item.goals.length > 0) {
           return item.goals
             .map((goal) => {
+              const goalType = normalizeGoalType(goal);
+              if (goalType === GOAL_TYPE_MOCK) {
+                const mockExamId = normalizeMockExamId(goal?.mockExamId);
+                if (!mockExamId) return null;
+                return {
+                  type: GOAL_TYPE_MOCK,
+                  mockExamId
+                };
+              }
               const normalizedTaskNumber = normalizeTaskNumber(goal?.taskNumber);
               const taskNumberValue = Number.isFinite(normalizedTaskNumber)
                 ? normalizedTaskNumber
                 : null;
               const isPythonGoal = taskNumberValue ? isPythonTaskNumber(taskNumberValue) : false;
               return {
+                type: GOAL_TYPE_TASK,
                 taskNumber: taskNumberValue,
                 levelId: isPythonGoal ? PYTHON_LEVEL_ID : (goal?.levelId || 'basic'),
                 targetQuestions: Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [],
                 includeAll: Boolean(goal?.includeAll)
               };
             })
-            .filter((goal) => Number.isFinite(goal.taskNumber));
+            .filter((goal) => (
+              goal?.type === GOAL_TYPE_MOCK
+                ? Boolean(goal?.mockExamId)
+                : Number.isFinite(goal?.taskNumber)
+            ));
         }
         if (item.taskNumber && item.levelId) {
           const normalizedTaskNumber = Number.isFinite(normalizeTaskNumber(item.taskNumber))
@@ -10024,6 +11771,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
             : Number(item.taskNumber);
           const isPythonGoal = isPythonTaskNumber(normalizedTaskNumber);
           return [{
+            type: GOAL_TYPE_TASK,
             taskNumber: normalizedTaskNumber,
             levelId: isPythonGoal ? PYTHON_LEVEL_ID : item.levelId,
             targetQuestions: Array.isArray(item.targetQuestions) ? item.targetQuestions : [],
@@ -10043,24 +11791,67 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         setGoalState(null);
         return;
       }
+      const taskGoals = goals.filter((goal) => goal.type === GOAL_TYPE_TASK);
       const unique = [];
       const seen = new Set();
-      goals.forEach((goal) => {
+      taskGoals.forEach((goal) => {
         const key = `${goal.taskNumber}|${goal.levelId}`;
         if (seen.has(key)) return;
         seen.add(key);
         unique.push({ key, taskNumber: goal.taskNumber, levelId: goal.levelId });
       });
-      const solvedResults = await Promise.all(
-        unique.map((item) => api.getSolvedQuestions(user.id, item.taskNumber, item.levelId).catch(() => []))
-      );
       const solvedMap = {};
-      unique.forEach((item, idx) => {
-        const list = Array.isArray(solvedResults[idx]) ? solvedResults[idx] : [];
-        solvedMap[item.key] = new Set(list.map((val) => String(val)));
-      });
+      if (unique.length > 0) {
+        const solvedResults = await Promise.all(
+          unique.map((item) => api.getSolvedQuestions(user.id, item.taskNumber, item.levelId).catch(() => []))
+        );
+        unique.forEach((item, idx) => {
+          const list = Array.isArray(solvedResults[idx]) ? solvedResults[idx] : [];
+          solvedMap[item.key] = new Set(list.map((val) => String(val)));
+        });
+      }
+
+      const mockGoalIds = Array.from(new Set(
+        goals
+          .filter((goal) => goal.type === GOAL_TYPE_MOCK)
+          .map((goal) => normalizeMockExamId(goal.mockExamId))
+          .filter(Boolean)
+      ));
+      let mockExamById = {};
+      let mockAttemptById = {};
+      if (mockGoalIds.length > 0) {
+        const mockExams = await api.getMockExams(user.id).catch(() => []);
+        mockExamById = Array.isArray(mockExams)
+          ? mockExams.reduce((acc, exam) => {
+              if (exam?.id) acc[String(exam.id)] = exam;
+              return acc;
+            }, {})
+          : {};
+        const attempts = await Promise.all(
+          mockGoalIds.map((examId) => api.getMockAttempt(user.id, examId).catch(() => null))
+        );
+        mockAttemptById = mockGoalIds.reduce((acc, examId, idx) => {
+          const attempt = attempts[idx];
+          if (attempt && typeof attempt === 'object') acc[examId] = attempt;
+          return acc;
+        }, {});
+      }
 
       const goalsWithStatus = goals.map((goal) => {
+        if (goal.type === GOAL_TYPE_MOCK) {
+          const mockExamId = normalizeMockExamId(goal.mockExamId);
+          const mockExam = mockExamById[mockExamId] || null;
+          const mockProgress = getMockGoalProgress(mockExam, mockAttemptById[mockExamId]);
+          return {
+            type: GOAL_TYPE_MOCK,
+            mockExamId,
+            mockExamTitle: mockExam?.title || 'Пробник',
+            taskStatus: mockProgress.taskStatus,
+            solvedCount: mockProgress.solvedCount,
+            totalCount: mockProgress.totalCount,
+            completed: mockProgress.completed
+          };
+        }
         const taskNumber = Number.isFinite(normalizeTaskNumber(goal.taskNumber))
           ? normalizeTaskNumber(goal.taskNumber)
           : goal.taskNumber;
@@ -10082,6 +11873,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           const solved = qId ? solvedSet.has(String(qId)) : false;
           return { num, solved };
         });
+        const solvedCount = targetStatus.filter((item) => item.solved).length;
         const completed = targetStatus.length > 0 && targetStatus.every((item) => item.solved);
         const pythonTask = isPythonGoal ? getPythonTaskInfo(taskNumber) : null;
         const taskInfo = !isPythonGoal
@@ -10092,19 +11884,26 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           ? 'Python'
           : (LEVELS[levelId?.toUpperCase()]?.label || levelId);
         return {
+          type: GOAL_TYPE_TASK,
           taskNumber,
           levelId,
           levelLabel,
           taskTitle,
           targetNumbers,
           targetStatus,
+          solvedCount,
+          totalCount: targetStatus.length,
           completed,
           includeAll: goal.includeAll
         };
       });
 
       const filteredGoals = goalsWithStatus.filter(
-        (goal) => goal.includeAll || (Array.isArray(goal.targetNumbers) && goal.targetNumbers.length > 0)
+        (goal) => (
+          goal.type === GOAL_TYPE_MOCK
+            ? Boolean(goal.mockExamId)
+            : (goal.includeAll || (Array.isArray(goal.targetNumbers) && goal.targetNumbers.length > 0))
+        )
       );
       if (filteredGoals.length === 0) {
         setGoalState(null);
@@ -10138,10 +11937,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const goalGoals = Array.isArray(goalState?.goals) ? goalState.goals : [];
   const goalTotals = goalGoals.reduce(
     (acc, goal) => {
-      const total = Array.isArray(goal?.targetStatus) ? goal.targetStatus.length : 0;
-      const solved = Array.isArray(goal?.targetStatus)
+      const total = Number(goal?.totalCount) || (Array.isArray(goal?.targetStatus) ? goal.targetStatus.length : 0);
+      const solved = Number(goal?.solvedCount) || (Array.isArray(goal?.targetStatus)
         ? goal.targetStatus.filter((item) => item.solved).length
-        : 0;
+        : 0);
       return { total: acc.total + total, solved: acc.solved + solved };
     },
     { total: 0, solved: 0 }
@@ -10429,7 +12228,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                       onClick={() => {
                         const firstGoal = goalGoals[0];
                         if (firstGoal) {
-                          handleOpenTask(firstGoal.taskNumber, firstGoal.levelId, firstGoal.targetNumbers);
+                          if (firstGoal.type === GOAL_TYPE_MOCK) {
+                            handleOpenMockGoal(firstGoal.mockExamId);
+                          } else {
+                            handleOpenTask(firstGoal.taskNumber, firstGoal.levelId, firstGoal.targetNumbers);
+                          }
                         }
                       }}
                       className="px-3 py-2 rounded-xl bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 shadow-sm"
@@ -10451,7 +12254,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                     <div>
                       <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Цель недели</div>
                       <div className="mt-1 text-base font-semibold text-gray-900">
-                        {`За ${formatDaysText(goalState.entry?.daysToComplete || 7)} выполнить эти задания`}
+                        {`За ${formatDaysText(goalState.entry?.daysToComplete || 7)} выполнить эти цели`}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -10466,6 +12269,30 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                   </div>
                   <div className="mt-3 grid gap-3">
                     {goalGoals.map((goal, index) => {
+                      if (goal.type === GOAL_TYPE_MOCK) {
+                        return (
+                          <div key={`mock-${goal.mockExamId}-${index}`} className="rounded-2xl border border-purple-100 bg-white/80 px-4 py-3 space-y-2">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div>
+                                <div className="text-xs text-gray-500">Пробник</div>
+                                <div className="text-xs text-gray-500">{goal.mockExamTitle || 'Пробник'}</div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenMockGoal(goal.mockExamId)}
+                                className="px-3 py-2 rounded-xl bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 shadow-sm"
+                              >
+                                Перейти
+                              </button>
+                            </div>
+                            <div className="text-[11px] text-purple-600">
+                              {goal.totalCount > 0
+                                ? `Выполнено ${goal.solvedCount}/${goal.totalCount}`
+                                : 'В пробнике пока нет заданий.'}
+                            </div>
+                          </div>
+                        );
+                      }
                       const hasTargets = goal.targetNumbers?.length > 0 || goal.includeAll;
                       const pythonTask = isPythonTaskNumber(goal.taskNumber)
                         ? getPythonTaskInfo(goal.taskNumber)
@@ -10535,6 +12362,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               onSelectStudent={setActiveStudentId}
               studentsLoading={studentsLoading}
               onOpenTask={user.role === 'student' ? handleOpenTask : null}
+              onOpenMockGoal={user.role === 'student' ? handleOpenMockGoal : null}
               solvedRefreshKey={goalRefreshTick}
               tasks={tasksWithTitles}
             />
@@ -10557,9 +12385,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               openTask={pendingOpenTask}
               onOpenTaskHandled={() => setPendingOpenTask(null)}
               initialSection={initialProgressSection}
+              sectionJumpToken={progressSectionJumpToken}
               onSectionChange={handleProgressSectionChange}
               onTaskStateChange={handleTaskStateChange}
               onStreakSaved={handleStreakSaved}
+              onMockAttemptSaved={() => {
+                if (user.role === 'student') setGoalRefreshTick((prev) => prev + 1);
+              }}
             />
           )}
           {view === 'python' && (
@@ -10630,13 +12462,30 @@ const App = () => {
   const [user, setUser] = useState(() => {
     if (typeof localStorage === 'undefined') return null;
     try {
-      const savedUser = localStorage.getItem('ege_user_session');
-      return savedUser ? JSON.parse(savedUser) : null;
+      const savedUser = localStorage.getItem(USER_SESSION_KEY);
+      const parsed = savedUser ? JSON.parse(savedUser) : null;
+      const normalized = sanitizeAuthUserPayload(parsed);
+      if (!normalized) {
+        localStorage.removeItem(USER_SESSION_KEY);
+        return null;
+      }
+      if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
+        localStorage.setItem(USER_SESSION_KEY, JSON.stringify(normalized));
+      }
+      return normalized;
     } catch {
       return null;
     }
   });
   const [progress, setProgress] = useState({});
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setUser((current) => (current ? null : current));
+      setProgress({});
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
 
   useEffect(() => {
     const updateVh = () => {
@@ -10670,27 +12519,30 @@ const App = () => {
   }, [user?.id, user?.role]);
 
   const handleLogin = (u) => {
-    setUser(u);
+    const normalized = sanitizeAuthUserPayload(u);
+    if (!normalized) {
+      clearStoredSession();
+      setUser(null);
+      setProgress({});
+      return;
+    }
+    setUser(normalized);
     setProgress({});
-    localStorage.setItem('ege_user_session', JSON.stringify(u));
+    localStorage.setItem(USER_SESSION_KEY, JSON.stringify(normalized));
   };
 
   const handleLogout = () => {
+    api.logout().catch(() => {});
+    clearStoredSession();
     setUser(null);
     setProgress({});
-    localStorage.removeItem('ege_user_session');
   };
 
   const updateProgress = async (taskId, val, options = {}) => {
     if (!user || user.role !== 'student') return;
     setProgress((prev) => ({ ...prev, [taskId]: val }));
-    if (!options?.skipServer) {
-      try {
-        await api.updateStudentProgress(user.id, taskId, val);
-      } catch (err) {
-        console.error(err);
-      }
-    }
+    if (options?.skipServer) return;
+    // Прогресс ученика сохраняется через /api/progress/solve после проверки ответа.
   };
 
   if (!user) return <LoginPage onLogin={handleLogin} />;

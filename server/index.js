@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const app = express();
@@ -29,8 +30,16 @@ const JSON_BODY_LIMIT = '20mb';
 const LOGIN_LIMIT = 8;
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_BLOCK_MS = 10 * 60 * 1000;
+const AUTH_SESSION_TTL_MS = (() => {
+  const daysRaw = Number(process.env.AUTH_SESSION_TTL_DAYS);
+  if (Number.isFinite(daysRaw) && daysRaw > 0) return Math.round(daysRaw * 24 * 60 * 60 * 1000);
+  const hoursRaw = Number(process.env.AUTH_SESSION_TTL_HOURS);
+  if (Number.isFinite(hoursRaw) && hoursRaw > 0) return Math.round(hoursRaw * 60 * 60 * 1000);
+  return 30 * 24 * 60 * 60 * 1000;
+})();
+const AUTH_SESSION_SWEEP_MS = 10 * 60 * 1000;
 const ADMIN_CODE = process.env.ADMIN_CODE || 'admin-7264';
-const ADMIN_NAME = process.env.ADMIN_NAME || 'РђРґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ';
+const ADMIN_NAME = process.env.ADMIN_NAME || 'Администратор';
 const TEACHER_CODE = process.env.TEACHER_CODE || 'admin100';
 const TEACHER_NAME = process.env.TEACHER_NAME || '\u0423\u0447\u0438\u0442\u0435\u043b\u044c';
 const STUDENT_TRAFFIC_LIMIT_BYTES = (() => {
@@ -53,6 +62,92 @@ const LEVEL_WEIGHTS = {
 const SOFT_DELETE_DAYS = 30;
 const SOFT_DELETE_TTL_MS = SOFT_DELETE_DAYS * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const GAME_THEORY_TASK = 19;
+const PYTHON_LEVEL_ID = 'python';
+const AUTH_COOKIE_NAME = 'ege_auth_token';
+const PYTHON_RUN_TIMEOUT_MS = (() => {
+  const parsed = Number(process.env.PYTHON_RUN_TIMEOUT_MS);
+  if (Number.isFinite(parsed) && parsed >= 1000) return Math.floor(parsed);
+  return 5000;
+})();
+const PYTHON_RUN_MAX_BUFFER_BYTES = (() => {
+  const parsed = Number(process.env.PYTHON_RUN_MAX_BUFFER_BYTES);
+  if (Number.isFinite(parsed) && parsed >= 1024) return Math.floor(parsed);
+  return 512 * 1024;
+})();
+const PYTHON_RUN_MAX_CODE_CHARS = (() => {
+  const parsed = Number(process.env.PYTHON_RUN_MAX_CODE_CHARS);
+  if (Number.isFinite(parsed) && parsed >= 1000) return Math.floor(parsed);
+  return 20000;
+})();
+const PYTHON_RUN_MAX_CONCURRENT = (() => {
+  const parsed = Number(process.env.PYTHON_RUN_MAX_CONCURRENT);
+  if (Number.isFinite(parsed) && parsed >= 1) return Math.floor(parsed);
+  return 2;
+})();
+const PYTHON_RUNNER_SCRIPT = [
+  'import ast',
+  'import builtins as _builtins',
+  'from base64 import b64decode',
+  'import sys',
+  'import traceback',
+  'source = b64decode(sys.argv[1]).decode("utf-8", "replace")',
+  'forbidden_names = {"__builtins__", "__import__", "open", "eval", "exec", "compile", "globals", "locals", "vars", "getattr", "setattr", "delattr", "breakpoint", "help"}',
+  'forbidden_modules = {"os", "sys", "subprocess", "socket", "pathlib", "shutil", "ctypes", "inspect", "importlib", "pickle", "marshal"}',
+  'forbidden_calls = {"__import__", "open", "eval", "exec", "compile", "globals", "locals", "vars", "getattr", "setattr", "delattr"}',
+  'forbidden_nodes = (ast.Import, ast.ImportFrom, ast.With, ast.AsyncWith, ast.Try, ast.Raise, ast.Global, ast.Nonlocal, ast.ClassDef)',
+  'tree = ast.parse(source, mode="exec")',
+  'for node in ast.walk(tree):',
+  '    if isinstance(node, forbidden_nodes):',
+  '        raise RuntimeError("Недопустимая конструкция Python")',
+  '    if isinstance(node, ast.Name) and node.id in forbidden_names:',
+  '        raise RuntimeError("Недопустимое имя в коде")',
+  '    if isinstance(node, ast.Attribute) and node.attr.startswith("__"):',
+  '        raise RuntimeError("Недопустимый доступ к атрибуту")',
+  '    if isinstance(node, ast.alias) and node.name.split(".")[0] in forbidden_modules:',
+  '        raise RuntimeError("Импорт модулей запрещен")',
+  '    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in forbidden_calls:',
+  '        raise RuntimeError("Недопустимый вызов функции")',
+  'safe_builtin_names = {',
+  '    "abs", "all", "any", "bin", "bool", "chr", "dict", "divmod", "enumerate", "filter", "float", "hex",',
+  '    "int", "len", "list", "map", "max", "min", "oct", "ord", "pow", "print", "range", "reversed",',
+  '    "round", "set", "sorted", "str", "sum", "tuple", "zip", "input"',
+  '}',
+  'safe_builtins = {name: getattr(_builtins, name) for name in safe_builtin_names}',
+  'globals_ns = {"__name__": "__main__", "__builtins__": safe_builtins}',
+  'try:',
+  '    exec(compile(tree, "<submitted>", "exec"), globals_ns, globals_ns)',
+  'except Exception:',
+  '    traceback.print_exc()',
+  '    raise',
+].join('\n');
+const PYTHON_RUNNER_CANDIDATES = (() => {
+  const envRunner = typeof process.env.PYTHON_EXECUTABLE === 'string'
+    ? process.env.PYTHON_EXECUTABLE.trim()
+    : '';
+  const defaults = process.platform === 'win32'
+    ? [
+      { command: 'py', baseArgs: ['-3'] },
+      { command: 'py', baseArgs: [] },
+      { command: 'python', baseArgs: [] },
+      { command: 'python3', baseArgs: [] },
+    ]
+    : [
+      { command: 'python3', baseArgs: [] },
+      { command: 'python', baseArgs: [] },
+    ];
+  if (!envRunner) return defaults;
+  const normalized = envRunner.toLowerCase();
+  return [
+    { command: envRunner, baseArgs: [] },
+    ...defaults.filter((item) => item.command.toLowerCase() !== normalized),
+  ];
+})();
+let cachedPythonRunner = null;
+let pythonRunnerResolved = false;
+let pythonRunnerResolvePromise = null;
+let pythonRunActiveCount = 0;
+const pythonRunQueue = [];
 
 const normalizeDayKey = (value) => {
   if (typeof value !== 'string') return null;
@@ -131,18 +226,65 @@ const readFilesDb = () => {
   }
 };
 
+const normalizeUploadEntryName = (entry) => {
+  if (!entry || typeof entry !== 'object' || typeof entry.name !== 'string') return false;
+  const fixed = normalizeFileName(entry.name);
+  if (!fixed || fixed === entry.name) return false;
+  entry.name = fixed;
+  return true;
+};
+
 const migrateFileNames = () => {
   const files = readFilesDb();
   let changed = false;
   for (const file of files) {
-    if (typeof file?.name !== 'string') continue;
-    const fixed = normalizeFileName(file.name);
-    if (fixed && fixed !== file.name) {
-      file.name = fixed;
-      changed = true;
-    }
+    if (normalizeUploadEntryName(file)) changed = true;
   }
   if (changed) writeFilesDb(files);
+};
+
+const migrateTestsFileNames = () => {
+  const tests = readTestsDb();
+  let changed = false;
+  for (const taskLevels of Object.values(tests || {})) {
+    if (!taskLevels || typeof taskLevels !== 'object') continue;
+    for (const level of ['basic', 'advanced', 'expert']) {
+      const questions = taskLevels[level];
+      if (!Array.isArray(questions)) continue;
+      for (const question of questions) {
+        if (!question || typeof question !== 'object') continue;
+        for (const field of ['files', 'screenshots']) {
+          const items = question[field];
+          if (!Array.isArray(items)) continue;
+          for (const item of items) {
+            if (normalizeUploadEntryName(item)) changed = true;
+          }
+        }
+      }
+    }
+  }
+  if (changed) writeTestsDb(tests);
+};
+
+const migrateMockExamFileNames = () => {
+  const exams = readMockExamsDb();
+  let changed = false;
+  for (const exam of exams) {
+    if (!exam || typeof exam !== 'object') continue;
+    const tasks = exam.tasks;
+    if (!tasks || typeof tasks !== 'object') continue;
+    for (const task of Object.values(tasks)) {
+      if (!task || typeof task !== 'object') continue;
+      for (const field of ['files', 'screenshots']) {
+        const items = task[field];
+        if (!Array.isArray(items)) continue;
+        for (const item of items) {
+          if (normalizeUploadEntryName(item)) changed = true;
+        }
+      }
+    }
+  }
+  if (changed) writeMockExamsDb(exams);
 };
 
 const readFoldersDb = () => {
@@ -236,8 +378,6 @@ const writeUsageDb = (data) => {
 
 const isStudentDeleted = (student) => Boolean(student?.deletedAt);
 const isActiveStudent = (student) => Boolean(student && !student.deletedAt);
-const hasActiveStudent = (students, studentId) =>
-  students.some((student) => student.id === studentId && !student.deletedAt);
 
 const hardDeleteStudentData = (studentIds = []) => {
   const ids = Array.isArray(studentIds) ? studentIds.filter(Boolean) : [];
@@ -468,6 +608,270 @@ const ensureAdminAuth = () => {
   return next;
 };
 
+const authSessions = new Map();
+
+const createAuthToken = () => crypto.randomBytes(32).toString('hex');
+
+const buildSessionUser = (user) => {
+  if (!user || typeof user !== 'object') return null;
+  const role = String(user.role || '');
+  const id = String(user.id || '');
+  const name = typeof user.name === 'string' ? user.name : '';
+  if (!['admin', 'teacher', 'student'].includes(role) || !id || !name) return null;
+  const payload = { id, name, role };
+  if (role === 'student') {
+    payload.teacherId = user.teacherId ? String(user.teacherId) : null;
+  }
+  return payload;
+};
+
+const resolveSessionUser = (sessionUser) => {
+  const role = String(sessionUser?.role || '');
+  if (role === 'admin') {
+    return { id: 'admin1', name: ADMIN_NAME, role: 'admin' };
+  }
+  if (role === 'teacher') {
+    const teacher = readTeachersDb().find((entry) => entry.id === String(sessionUser.id));
+    if (!teacher) return null;
+    return { id: teacher.id, name: teacher.name, role: 'teacher' };
+  }
+  if (role === 'student') {
+    const student = readStudentsDb().find((entry) => entry.id === String(sessionUser.id) && !entry.deletedAt);
+    if (!student) return null;
+    return {
+      id: student.id,
+      name: student.name,
+      role: 'student',
+      teacherId: student.teacherId || null,
+    };
+  }
+  return null;
+};
+
+const purgeExpiredAuthSessions = () => {
+  const now = Date.now();
+  for (const [token, session] of authSessions.entries()) {
+    if (!session || !Number.isFinite(session.expiresAtMs) || session.expiresAtMs <= now) {
+      authSessions.delete(token);
+    }
+  }
+};
+
+const authSessionSweepTimer = setInterval(purgeExpiredAuthSessions, AUTH_SESSION_SWEEP_MS);
+if (typeof authSessionSweepTimer.unref === 'function') {
+  authSessionSweepTimer.unref();
+}
+
+const createAuthSession = (user) => {
+  const payload = buildSessionUser(user);
+  if (!payload) return null;
+  const now = Date.now();
+  const session = {
+    token: createAuthToken(),
+    user: payload,
+    createdAtMs: now,
+    expiresAtMs: now + AUTH_SESSION_TTL_MS,
+  };
+  authSessions.set(session.token, session);
+  return session;
+};
+
+const touchAuthSession = (session) => {
+  if (!session) return;
+  session.expiresAtMs = Date.now() + AUTH_SESSION_TTL_MS;
+};
+
+const getAuthSession = (token) => {
+  if (!token) return null;
+  const session = authSessions.get(token);
+  if (!session) return null;
+  if (!Number.isFinite(session.expiresAtMs) || session.expiresAtMs <= Date.now()) {
+    authSessions.delete(token);
+    return null;
+  }
+  const user = resolveSessionUser(session.user);
+  if (!user) {
+    authSessions.delete(token);
+    return null;
+  }
+  session.user = user;
+  touchAuthSession(session);
+  return session;
+};
+
+const serializeAuthSession = (session) => ({
+  ...session.user,
+});
+
+const parseCookies = (cookieHeader) => {
+  if (typeof cookieHeader !== 'string' || !cookieHeader.trim()) return {};
+  return cookieHeader
+    .split(';')
+    .map((chunk) => chunk.trim())
+    .filter(Boolean)
+    .reduce((acc, chunk) => {
+      const eqIndex = chunk.indexOf('=');
+      if (eqIndex <= 0) return acc;
+      const key = chunk.slice(0, eqIndex).trim();
+      const valueRaw = chunk.slice(eqIndex + 1).trim();
+      if (!key) return acc;
+      try {
+        acc[key] = decodeURIComponent(valueRaw);
+      } catch {
+        acc[key] = valueRaw;
+      }
+      return acc;
+    }, {});
+};
+
+const appendSetCookie = (res, cookieValue) => {
+  const existing = res.getHeader('Set-Cookie');
+  if (!existing) {
+    res.setHeader('Set-Cookie', cookieValue);
+    return;
+  }
+  if (Array.isArray(existing)) {
+    res.setHeader('Set-Cookie', [...existing, cookieValue]);
+    return;
+  }
+  res.setHeader('Set-Cookie', [String(existing), cookieValue]);
+};
+
+const setAuthSessionCookie = (res, session) => {
+  if (!session?.token || !Number.isFinite(session.expiresAtMs)) return;
+  const maxAgeSec = Math.max(0, Math.floor((session.expiresAtMs - Date.now()) / 1000));
+  const cookieParts = [
+    `${AUTH_COOKIE_NAME}=${encodeURIComponent(session.token)}`,
+    'Path=/',
+    `Max-Age=${maxAgeSec}`,
+    'HttpOnly',
+    'SameSite=Lax',
+  ];
+  if (String(process.env.NODE_ENV || '').toLowerCase() === 'production') {
+    cookieParts.push('Secure');
+  }
+  appendSetCookie(res, cookieParts.join('; '));
+};
+
+const clearAuthSessionCookie = (res) => {
+  const cookieParts = [
+    `${AUTH_COOKIE_NAME}=`,
+    'Path=/',
+    'Max-Age=0',
+    'HttpOnly',
+    'SameSite=Lax',
+  ];
+  if (String(process.env.NODE_ENV || '').toLowerCase() === 'production') {
+    cookieParts.push('Secure');
+  }
+  appendSetCookie(res, cookieParts.join('; '));
+};
+
+const respondWithSession = (res, session) => {
+  if (!session) return res.status(500).json({ error: 'Ошибка сервера' });
+  setAuthSessionCookie(res, session);
+  return res.json(serializeAuthSession(session));
+};
+
+const getAuthTokenFromRequest = (req) => {
+  const header = req.headers.authorization;
+  if (typeof header === 'string') {
+    const match = header.match(/^Bearer\s+(.+)$/i);
+    if (match && match[1]) return match[1].trim();
+  }
+  const cookies = parseCookies(req.headers.cookie);
+  const cookieToken = typeof cookies?.[AUTH_COOKIE_NAME] === 'string'
+    ? cookies[AUTH_COOKIE_NAME].trim()
+    : '';
+  if (cookieToken) {
+    return cookieToken;
+  }
+  return '';
+};
+
+const isAdminRole = (auth) => auth?.role === 'admin';
+const isTeacherRole = (auth) => auth?.role === 'teacher';
+const isStudentRole = (auth) => auth?.role === 'student';
+
+const findTeacherById = (teacherId) => {
+  if (!teacherId) return null;
+  const id = String(teacherId);
+  return readTeachersDb().find((teacher) => teacher.id === id) || null;
+};
+
+const findStudentById = (studentId, options = {}) => {
+  if (!studentId) return null;
+  const allowDeleted = Boolean(options.allowDeleted);
+  const id = String(studentId);
+  const student = readStudentsDb().find((entry) => entry.id === id);
+  if (!student) return null;
+  if (!allowDeleted && student.deletedAt) return null;
+  return student;
+};
+
+const canAccessStudentByRole = (auth, student, options = {}) => {
+  if (!auth || !student) return false;
+  const allowDeleted = Boolean(options.allowDeleted);
+  if (!allowDeleted && student.deletedAt) return false;
+  if (isAdminRole(auth)) return true;
+  if (isTeacherRole(auth)) return student.teacherId === auth.id;
+  if (isStudentRole(auth)) return !student.deletedAt && student.id === auth.id;
+  return false;
+};
+
+const ensureStudentAccess = (req, res, studentId, options = {}) => {
+  const required = options.required !== false;
+  const allowDeleted = Boolean(options.allowDeleted);
+  const missingError = options.missingError || 'studentId required';
+  const id = String(studentId || '').trim();
+  if (!id) {
+    if (required) {
+      res.status(400).json({ error: missingError });
+    }
+    return null;
+  }
+  const student = findStudentById(id, { allowDeleted });
+  if (!student) {
+    res.status(404).json({ error: 'Ученик не найден' });
+    return null;
+  }
+  if (!canAccessStudentByRole(req.auth, student, { allowDeleted })) {
+    res.status(403).json({ error: 'Недостаточно прав' });
+    return null;
+  }
+  return student;
+};
+
+const ensureTeacherAccess = (req, res, teacherId, options = {}) => {
+  const required = options.required !== false;
+  const missingError = options.missingError || 'teacherId required';
+  const id = String(teacherId || '').trim();
+  if (!id) {
+    if (required) {
+      res.status(400).json({ error: missingError });
+    }
+    return null;
+  }
+  const teacher = findTeacherById(id);
+  if (!teacher) {
+    res.status(404).json({ error: 'Учитель не найден' });
+    return null;
+  }
+  if (isAdminRole(req.auth)) return teacher;
+  if (isTeacherRole(req.auth) && req.auth.id === id) return teacher;
+  res.status(403).json({ error: 'Недостаточно прав' });
+  return null;
+};
+
+const forbid = (res) => res.status(403).json({ error: 'Недостаточно прав' });
+const ensureStaffWriteAccess = (req, res) => {
+  if (isStudentRole(req.auth)) {
+    forbid(res);
+    return false;
+  }
+  return true;
+};
+
 const loginAttempts = new Map();
 
 const getClientKey = (req) => req.ip || req.connection?.remoteAddress || 'unknown';
@@ -506,7 +910,9 @@ const clearLoginFailures = (key) => {
 };
 
 const computeTaskProgress = (taskEntry = {}) => {
-  const levelProgressValues = Object.entries(taskEntry).map(([levelKey, entry]) => {
+  const levelProgressValues = Object.entries(taskEntry)
+    .filter(([levelKey]) => !String(levelKey).startsWith('_'))
+    .map(([levelKey, entry]) => {
     const entryTotal = Number(entry?.totalQuestions) || 0;
     const entrySolved = Array.isArray(entry?.solved) ? entry.solved.length : 0;
     if (!entryTotal || entrySolved === 0) return 0;
@@ -525,6 +931,168 @@ const computeTaskProgress = (taskEntry = {}) => {
   return Math.round(levelProgressValues.reduce((sum, val) => sum + val, 0));
 };
 
+const normalizeAnswerValue = (value) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+const getAnswerCountForTask = (taskNumber) => {
+  const num = Number(taskNumber);
+  if (num === GAME_THEORY_TASK) return 4;
+  if (num === 25) return 20;
+  if (num === 27) return 4;
+  if (num === 17 || num === 18 || num === 26) return 2;
+  return 1;
+};
+
+const getMockAnswerCountForTask = (taskNumber) => {
+  const num = Number(taskNumber);
+  if (num === 20) return 2;
+  if (num === GAME_THEORY_TASK) return 1;
+  return getAnswerCountForTask(num);
+};
+
+const allowsPartialMockAnswers = (taskNumber) => Number(taskNumber) === 25;
+
+const getExpectedAnswersForQuestion = (question, count) => {
+  if (!question || typeof question !== 'object') {
+    return Array.from({ length: count }, () => '');
+  }
+  if (count <= 1) {
+    const fallback = Array.isArray(question?.options)
+      ? question.options[question.correctIndex]
+      : '';
+    const directAnswer = question?.answer;
+    if (directAnswer !== undefined && directAnswer !== null && String(directAnswer).trim() !== '') {
+      return [directAnswer];
+    }
+    const fromArray = Array.isArray(question?.answers) ? question.answers : [];
+    if (fromArray.length > 0 && String(fromArray[0] ?? '').trim() !== '') {
+      return [fromArray[0]];
+    }
+    return [fallback ?? ''];
+  }
+  const fromArray = Array.isArray(question.answers) ? question.answers : [];
+  if (fromArray.length > 0) {
+    const filled = [...fromArray];
+    while (filled.length < count) filled.push('');
+    return filled.slice(0, count);
+  }
+  const answers = [];
+  for (let i = 1; i <= count; i += 1) {
+    const key = i === 1 ? 'answer' : `answer${i}`;
+    answers.push(question?.[key] ?? '');
+  }
+  return answers;
+};
+
+const parseSubmittedAnswers = (rawValue, count) => {
+  if (count <= 1) return [String(rawValue ?? '')];
+  if (typeof rawValue !== 'string') {
+    return Array.from({ length: count }, () => '');
+  }
+  const trimmed = rawValue.trim();
+  if (!trimmed) {
+    return Array.from({ length: count }, () => '');
+  }
+  let values = null;
+  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) values = parsed;
+      else if (parsed && typeof parsed === 'object') {
+        if (Array.isArray(parsed.answers)) values = parsed.answers;
+        else if (typeof parsed.answer !== 'undefined') values = [parsed.answer];
+      }
+    } catch {
+      values = null;
+    }
+  }
+  if (!Array.isArray(values)) values = [trimmed];
+  const normalized = Array.from({ length: count }, (_, index) => String(values[index] ?? ''));
+  return normalized;
+};
+
+const parseMockAttemptAnswers = (rawValue, count) => {
+  if (count <= 1) {
+    if (Array.isArray(rawValue)) return [String(rawValue[0] ?? '')];
+    return [String(rawValue ?? '')];
+  }
+  if (Array.isArray(rawValue)) {
+    return Array.from({ length: count }, (_, index) => String(rawValue[index] ?? ''));
+  }
+  if (typeof rawValue === 'string') {
+    return Array.from({ length: count }, (_, index) => (index === 0 ? rawValue : ''));
+  }
+  return Array.from({ length: count }, () => '');
+};
+
+const normalizeMockAttemptAnswers = (exam, rawAnswers) => {
+  const tasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
+  const source = rawAnswers && typeof rawAnswers === 'object' ? rawAnswers : {};
+  const normalized = {};
+  Object.keys(tasks).forEach((taskKey) => {
+    const answerCount = getMockAnswerCountForTask(taskKey);
+    const provided = parseMockAttemptAnswers(source[taskKey], answerCount);
+    normalized[taskKey] = answerCount <= 1 ? provided[0] : provided;
+  });
+  return normalized;
+};
+
+const recomputeMockSolvedMap = (exam, answersMap) => {
+  const tasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
+  const solved = {};
+  Object.entries(tasks).forEach(([taskKey, question]) => {
+    const answerCount = getMockAnswerCountForTask(taskKey);
+    const expectedAnswers = getExpectedAnswersForQuestion(question, answerCount);
+    const provided = parseMockAttemptAnswers(answersMap?.[taskKey], answerCount);
+    if (answerCount <= 1) {
+      const value = String(provided[0] ?? '');
+      if (!value.trim()) {
+        solved[taskKey] = false;
+        return;
+      }
+      solved[taskKey] = normalizeAnswerValue(value) === normalizeAnswerValue(expectedAnswers[0]);
+      return;
+    }
+    const allowPartial = allowsPartialMockAnswers(taskKey);
+    if (!allowPartial && provided.some((value) => !String(value ?? '').trim())) {
+      solved[taskKey] = false;
+      return;
+    }
+    if (allowPartial && provided.every((value) => !String(value ?? '').trim())) {
+      solved[taskKey] = false;
+      return;
+    }
+    solved[taskKey] = expectedAnswers.every((expected, index) => (
+      normalizeAnswerValue(expected) === normalizeAnswerValue(provided[index])
+    ));
+  });
+  return solved;
+};
+
+const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt) => {
+  const answers = normalizeMockAttemptAnswers(exam, rawAnswers);
+  return {
+    answers,
+    solved: recomputeMockSolvedMap(exam, answers),
+    updatedAt: typeof updatedAt === 'string' && updatedAt.trim()
+      ? updatedAt
+      : new Date().toISOString(),
+  };
+};
+
+const isSolvedAnswerValid = (question, rawValue, taskNumber) => {
+  const answerCount = getAnswerCountForTask(taskNumber);
+  const expectedAnswers = getExpectedAnswersForQuestion(question, answerCount);
+  const providedAnswers = parseSubmittedAnswers(rawValue, answerCount);
+  if (answerCount <= 1) {
+    if (!String(providedAnswers[0] ?? '').trim()) return false;
+    return normalizeAnswerValue(providedAnswers[0]) === normalizeAnswerValue(expectedAnswers[0]);
+  }
+  if (providedAnswers.every((value) => !String(value ?? '').trim())) return false;
+  return expectedAnswers.every((expected, index) => (
+    normalizeAnswerValue(expected) === normalizeAnswerValue(providedAnswers[index])
+  ));
+};
+
 const recomputeProgressFromSolved = (data) => {
   const baseProgress = { ...(data.progress || {}) };
   const solvedByTask = data.solvedByTask && typeof data.solvedByTask === 'object' ? data.solvedByTask : {};
@@ -532,6 +1100,20 @@ const recomputeProgressFromSolved = (data) => {
     baseProgress[taskKey] = computeTaskProgress(entry || {});
   });
   return baseProgress;
+};
+
+const normalizeNotesByTaskMap = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const next = {};
+  Object.entries(value).forEach(([taskKey, noteValue]) => {
+    const taskNum = Number(taskKey);
+    if (!Number.isFinite(taskNum) || taskNum <= 0) return;
+    if (typeof noteValue !== 'string') return;
+    const note = noteValue.trim().slice(0, 80);
+    if (!note) return;
+    next[String(Math.trunc(taskNum))] = note;
+  });
+  return next;
 };
 
 const getStudentData = (studentId) => {
@@ -542,7 +1124,7 @@ const getStudentData = (studentId) => {
     return {
       progress: raw.progress || {},
       notes: raw.notes || '',
-      notesByTask: raw.notesByTask && typeof raw.notesByTask === 'object' ? raw.notesByTask : {},
+      notesByTask: normalizeNotesByTaskMap(raw.notesByTask),
       mocks: Array.isArray(raw.mocks) ? raw.mocks : [],
       schedule: Array.isArray(raw.schedule) ? raw.schedule : [],
       solvedByTask: raw.solvedByTask && typeof raw.solvedByTask === 'object' ? raw.solvedByTask : {},
@@ -561,7 +1143,7 @@ const setStudentData = (studentId, data) => {
   const payload = {
     progress: data.progress || {},
     notes: data.notes || '',
-    notesByTask: data.notesByTask && typeof data.notesByTask === 'object' ? data.notesByTask : {},
+    notesByTask: normalizeNotesByTaskMap(data.notesByTask),
     mocks: Array.isArray(data.mocks) ? data.mocks : [],
     schedule: Array.isArray(data.schedule) ? data.schedule : [],
     solvedByTask: data.solvedByTask && typeof data.solvedByTask === 'object' ? data.solvedByTask : {},
@@ -583,18 +1165,53 @@ const getQuestionsCountForLevel = (testsDb, taskNum, levelId) => {
   return Array.isArray(list) ? list.length : 0;
 };
 
+const getTaskLevelsFromTestsDb = (testsDb, taskNum) => {
+  if (!testsDb || !Number.isFinite(taskNum)) return null;
+  const entry = testsDb[String(taskNum)] || testsDb[taskNum];
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+  return entry;
+};
+
+const getQuestionEntryFromTestsDb = (testsDb, taskNum, levelId, questionId) => {
+  const taskLevels = getTaskLevelsFromTestsDb(testsDb, taskNum);
+  if (!taskLevels) return { taskLevels: null, questions: null, question: null };
+  const questions = taskLevels?.[String(levelId)];
+  if (!Array.isArray(questions)) return { taskLevels, questions: null, question: null };
+  const questionKey = String(questionId || '').trim();
+  const question = questions.find((entry) => String(entry?.id ?? '').trim() === questionKey) || null;
+  return { taskLevels, questions, question };
+};
+
 const filterTargetsByCount = (targets, count) => {
   if (!Number.isFinite(count) || count <= 0) return targets;
   return targets.filter((val) => val <= count);
 };
 
 const isPythonTaskNumber = (taskNum) => Number.isFinite(taskNum) && taskNum >= 100 && taskNum <= 199;
+const isClassicTaskNumber = (taskNum) => Number.isFinite(taskNum) && taskNum >= 1 && taskNum <= 27;
+const isKnownTaskNumber = (taskNum) => isClassicTaskNumber(taskNum) || isPythonTaskNumber(taskNum);
+const GOAL_TYPE_TASK = 'task';
+const GOAL_TYPE_MOCK = 'mock';
+
+const normalizeGoalType = (goal) => {
+  const rawType = String(goal?.type || '').trim().toLowerCase();
+  if (rawType === GOAL_TYPE_MOCK) return GOAL_TYPE_MOCK;
+  if (!rawType && String(goal?.mockExamId || '').trim()) return GOAL_TYPE_MOCK;
+  return GOAL_TYPE_TASK;
+};
 
 const normalizeGoals = (goals, testsDb = null) => {
   if (!Array.isArray(goals)) return [];
   const result = [];
   goals.forEach((goal) => {
     if (!goal || typeof goal !== 'object') return;
+    const goalType = normalizeGoalType(goal);
+    if (goalType === GOAL_TYPE_MOCK) {
+      const mockExamId = String(goal.mockExamId || '').trim();
+      if (!mockExamId) return;
+      result.push({ type: GOAL_TYPE_MOCK, mockExamId });
+      return;
+    }
     const taskNum = Number(goal.taskNumber);
     const isPython = isPythonTaskNumber(taskNum);
     if (!Number.isFinite(taskNum) || (!isPython && (taskNum < 1 || taskNum > 27))) return;
@@ -613,7 +1230,7 @@ const normalizeGoals = (goals, testsDb = null) => {
         ));
     const totalCount = getQuestionsCountForLevel(testsDb, taskNum, levelId);
     const targets = filterTargetsByCount(targetsRaw, totalCount);
-    result.push({ taskNumber: taskNum, levelId, includeAll, targetQuestions: targets });
+    result.push({ type: GOAL_TYPE_TASK, taskNumber: taskNum, levelId, includeAll, targetQuestions: targets });
   });
   return result;
 };
@@ -638,7 +1255,7 @@ const normalizeGoalsFromLegacy = (entry, testsDb = null) => {
       ));
   const totalCount = getQuestionsCountForLevel(testsDb, taskNum, levelId);
   const targets = filterTargetsByCount(targetsRaw, totalCount);
-  return [{ taskNumber: taskNum, levelId, includeAll, targetQuestions: targets }];
+  return [{ type: GOAL_TYPE_TASK, taskNumber: taskNum, levelId, includeAll, targetQuestions: targets }];
 };
 
 const getQuestionNumberById = (testsDb, taskNum, levelId, questionId) => {
@@ -652,10 +1269,307 @@ const getQuestionNumberById = (testsDb, taskNum, levelId, questionId) => {
   return idx + 1;
 };
 
+const sanitizeStudentQuestion = (question) => {
+  if (!question || typeof question !== 'object') return question;
+  const safe = { ...question };
+  delete safe.correctIndex;
+  delete safe.answer;
+  delete safe.answers;
+  Object.keys(safe).forEach((key) => {
+    if (/^answer\d+$/i.test(key)) {
+      delete safe[key];
+    }
+  });
+  return safe;
+};
+
+const normalizeOutputValue = (value) => String(value ?? '').replace(/\r\n/g, '\n').trimEnd();
+
+const getPythonChildEnv = () => {
+  const env = {
+    PYTHONIOENCODING: 'utf-8',
+    PYTHONNOUSERSITE: '1',
+    PYTHONHASHSEED: '0',
+  };
+  const keepKeys = process.platform === 'win32'
+    ? ['PATH', 'PATHEXT', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'TEMP', 'TMP']
+    : ['PATH', 'HOME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TMPDIR'];
+  keepKeys.forEach((key) => {
+    if (typeof process.env[key] === 'string' && process.env[key]) {
+      env[key] = process.env[key];
+    }
+  });
+  return env;
+};
+
+const runChildProcess = (command, args, options = {}) => new Promise((resolve) => {
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs)) ? Math.max(0, Number(options.timeoutMs)) : 0;
+  const maxBufferBytes = Number.isFinite(Number(options.maxBufferBytes))
+    ? Math.max(1024, Number(options.maxBufferBytes))
+    : PYTHON_RUN_MAX_BUFFER_BYTES;
+  const stdinInput = typeof options.input === 'string' ? options.input : String(options.input ?? '');
+  const stdoutChunks = [];
+  const stderrChunks = [];
+  let outputBytes = 0;
+  let timedOut = false;
+  let overflow = false;
+  let settled = false;
+  let timer = null;
+
+  const finish = (payload) => {
+    if (settled) return;
+    settled = true;
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    const stdout = Buffer.concat(stdoutChunks).toString('utf8');
+    const stderr = Buffer.concat(stderrChunks).toString('utf8');
+    resolve({
+      status: payload?.status,
+      signal: payload?.signal,
+      error: payload?.error || null,
+      timedOut,
+      overflow,
+      stdout,
+      stderr,
+    });
+  };
+
+  let child;
+  try {
+    child = spawn(command, args, {
+      windowsHide: true,
+      env: options.env || process.env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  } catch (error) {
+    finish({ error });
+    return;
+  }
+
+  const terminate = () => {
+    if (!child || child.killed) return;
+    try {
+      child.kill();
+    } catch {}
+  };
+
+  if (timeoutMs > 0) {
+    timer = setTimeout(() => {
+      timedOut = true;
+      terminate();
+    }, timeoutMs);
+  }
+
+  const pushOutput = (target, chunk) => {
+    const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk ?? ''), 'utf8');
+    outputBytes += data.length;
+    if (outputBytes > maxBufferBytes) {
+      overflow = true;
+      terminate();
+      return;
+    }
+    target.push(data);
+  };
+
+  if (child.stdout) {
+    child.stdout.on('data', (chunk) => pushOutput(stdoutChunks, chunk));
+  }
+  if (child.stderr) {
+    child.stderr.on('data', (chunk) => pushOutput(stderrChunks, chunk));
+  }
+
+  if (child.stdin) {
+    child.stdin.on('error', () => {});
+    if (stdinInput) child.stdin.write(stdinInput);
+    child.stdin.end();
+  }
+
+  child.on('error', (error) => finish({ error }));
+  child.on('close', (status, signal) => finish({ status, signal }));
+});
+
+const acquirePythonRunSlot = () => new Promise((resolve) => {
+  if (pythonRunActiveCount < PYTHON_RUN_MAX_CONCURRENT) {
+    pythonRunActiveCount += 1;
+    resolve();
+    return;
+  }
+  pythonRunQueue.push(resolve);
+});
+
+const releasePythonRunSlot = () => {
+  if (pythonRunActiveCount > 0) pythonRunActiveCount -= 1;
+  const next = pythonRunQueue.shift();
+  if (typeof next === 'function') {
+    pythonRunActiveCount += 1;
+    next();
+  }
+};
+
+const resolvePythonRunner = async () => {
+  if (pythonRunnerResolved) return cachedPythonRunner;
+  if (pythonRunnerResolvePromise) return pythonRunnerResolvePromise;
+  pythonRunnerResolvePromise = (async () => {
+    for (const candidate of PYTHON_RUNNER_CANDIDATES) {
+      const probe = await runChildProcess(candidate.command, [...candidate.baseArgs, '--version'], {
+        timeoutMs: 2000,
+        maxBufferBytes: 64 * 1024,
+      });
+      if (!probe.error && !probe.timedOut && probe.status === 0) {
+        cachedPythonRunner = candidate;
+        pythonRunnerResolved = true;
+        return cachedPythonRunner;
+      }
+    }
+    pythonRunnerResolved = true;
+    cachedPythonRunner = null;
+    return null;
+  })().finally(() => {
+    pythonRunnerResolvePromise = null;
+  });
+  return pythonRunnerResolvePromise;
+};
+
+const invalidatePythonRunner = () => {
+  cachedPythonRunner = null;
+  pythonRunnerResolved = false;
+};
+
+const runPythonSourceForInput = async (runner, encodedSource, inputValue) => {
+  if (!runner || !encodedSource) return { ok: false, launchError: true };
+  await acquirePythonRunSlot();
+  try {
+    const args = [...runner.baseArgs, '-I', '-S', '-B', '-c', PYTHON_RUNNER_SCRIPT, encodedSource];
+    const execution = await runChildProcess(runner.command, args, {
+      input: String(inputValue ?? ''),
+      timeoutMs: PYTHON_RUN_TIMEOUT_MS,
+      maxBufferBytes: PYTHON_RUN_MAX_BUFFER_BYTES,
+      env: getPythonChildEnv(),
+    });
+    if (execution.error) {
+      invalidatePythonRunner();
+      return { ok: false, launchError: true };
+    }
+    if (execution.timedOut) {
+      return { ok: false, timeout: true };
+    }
+    if (execution.overflow) {
+      return { ok: false, outputOverflow: true };
+    }
+    if (execution.status !== 0) {
+      return { ok: false, runtimeError: true };
+    }
+    return { ok: true, output: String(execution.stdout ?? '') };
+  } finally {
+    releasePythonRunSlot();
+  }
+};
+
+const sanitizePythonQuestionForStudent = (question) => {
+  const safe = sanitizeStudentQuestion(question);
+  if (!safe || typeof safe !== 'object') return safe;
+  const tests = Array.isArray(question?.tests) ? question.tests : [];
+  safe.tests = tests.map((test) => ({
+    input: String(test?.input ?? ''),
+  }));
+  return safe;
+};
+
+const validatePythonSolveResults = async (question, sourceRaw) => {
+  const tests = Array.isArray(question?.tests) ? question.tests : [];
+  if (tests.length === 0) {
+    return { ok: false, error: 'Для этой задачи не заданы тесты' };
+  }
+  const hasExpectedOutputs = tests.every((test) => (
+    Object.prototype.hasOwnProperty.call(test || {}, 'output')
+  ));
+  if (!hasExpectedOutputs) {
+    return { ok: false, error: 'Для этой задачи не заданы эталонные ответы' };
+  }
+  const source = typeof sourceRaw === 'string' ? sourceRaw : '';
+  if (!source.trim()) {
+    return { ok: false, error: 'Добавьте код решения' };
+  }
+  if (source.length > PYTHON_RUN_MAX_CODE_CHARS) {
+    return { ok: false, error: `Код слишком большой (максимум ${PYTHON_RUN_MAX_CODE_CHARS} символов)` };
+  }
+  const runner = await resolvePythonRunner();
+  if (!runner) {
+    return { ok: false, error: 'Проверка Python временно недоступна на сервере' };
+  }
+  const encodedSource = Buffer.from(source, 'utf8').toString('base64');
+  const timeoutMessage = `Превышено время выполнения (${Math.round(PYTHON_RUN_TIMEOUT_MS / 1000)} сек).`;
+  for (let index = 0; index < tests.length; index += 1) {
+    const expectedTest = tests[index] && typeof tests[index] === 'object' ? tests[index] : {};
+    const expectedInput = String(expectedTest.input ?? '');
+    const expectedOutput = normalizeOutputValue(expectedTest.output ?? '');
+    const execution = await runPythonSourceForInput(runner, encodedSource, expectedInput);
+    if (!execution.ok) {
+      if (execution.timeout) {
+        return { ok: false, error: timeoutMessage };
+      }
+      if (execution.outputOverflow) {
+        return { ok: false, error: 'Превышен допустимый объём вывода программы' };
+      }
+      if (execution.launchError) {
+        return { ok: false, error: 'Не удалось запустить Python на сервере' };
+      }
+      return { ok: false, error: `Ошибка выполнения кода на тесте ${index + 1}` };
+    }
+    const providedOutput = normalizeOutputValue(execution.output);
+    if (providedOutput !== expectedOutput) {
+      return { ok: false, error: 'Тесты не пройдены' };
+    }
+  }
+  return { ok: true };
+};
+
+const sanitizeTestsDbForStudent = (testsDb) => {
+  if (!testsDb || typeof testsDb !== 'object') return {};
+  const sanitizedDb = {};
+  Object.entries(testsDb).forEach(([taskKey, taskValue]) => {
+    if (!taskValue || typeof taskValue !== 'object' || Array.isArray(taskValue)) {
+      sanitizedDb[taskKey] = taskValue;
+      return;
+    }
+    const taskNum = Number(taskKey);
+    const pythonTask = isPythonTaskNumber(taskNum);
+    const nextTask = {};
+    Object.entries(taskValue).forEach(([levelKey, levelValue]) => {
+      if (!Array.isArray(levelValue)) {
+        nextTask[levelKey] = levelValue;
+        return;
+      }
+      const keepAnswers = pythonTask || levelKey === PYTHON_LEVEL_ID;
+      nextTask[levelKey] = keepAnswers
+        ? levelValue.map((question) => sanitizePythonQuestionForStudent(question))
+        : levelValue.map((question) => sanitizeStudentQuestion(question));
+    });
+    sanitizedDb[taskKey] = nextTask;
+  });
+  return sanitizedDb;
+};
+
+const sanitizeMockExamForStudent = (exam) => {
+  if (!exam || typeof exam !== 'object') return exam;
+  const safe = { ...exam };
+  const tasks = exam.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
+  const sanitizedTasks = {};
+  Object.entries(tasks).forEach(([taskKey, taskValue]) => {
+    sanitizedTasks[taskKey] = sanitizeStudentQuestion(taskValue);
+  });
+  safe.tasks = sanitizedTasks;
+  return safe;
+};
+
 const formatSize = (bytes) => {
   if (!Number.isFinite(bytes)) return '0 MB';
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 };
+
+const isPyFileName = (name) => String(name || '').toLowerCase().endsWith('.py');
 
 const parseSizeString = (value) => {
   if (typeof value !== 'string') return 0;
@@ -777,7 +1691,7 @@ const ensureDefaultStudent = () => {
     const plainCode = generateStudentCode(students, teachers);
     const entry = {
       id: crypto.randomUUID(),
-      name: 'РЈС‡РµРЅРёРє 1',
+      name: 'Ученик 1',
       teacherId: defaultTeacherId,
       nickname: '',
       codeHash: hashCode(plainCode),
@@ -829,26 +1743,31 @@ const ensureStudentIds = () => {
   return students;
 };
 
+const hasCyrillic = (value) => /[\u0400-\u04FF]/.test(value);
+
 const looksMojibake = (name) => {
-  if (!name) return false;
-  // Typical UTF-8 bytes read as Latin-1: "Гђ", "Г‘"
-  return /[ГђГ‘]/.test(name) && !/[\u0400-\u04FF]/.test(name);
+  if (!name || hasCyrillic(name)) return false;
+  // Typical case: UTF-8 bytes for Cyrillic interpreted as latin1 ("Ð", "Ñ" + 0x80..0xBF).
+  if (/(?:\u00D0|\u00D1)[\u0080-\u00BF]/.test(name)) return true;
+  // C1 controls should not appear in normal file names; they are common in mojibake.
+  return /[\u0080-\u009F]/.test(name);
 };
 
 const normalizeFileName = (name) => {
   if (typeof name !== 'string') return '';
-  if (looksMojibake(name)) {
-    try {
-      const fixed = Buffer.from(name, 'latin1').toString('utf8');
-      if (fixed) return fixed;
-    } catch {}
-  }
+  if (!looksMojibake(name)) return name;
+  try {
+    const fixed = Buffer.from(name, 'latin1').toString('utf8');
+    if (fixed && !fixed.includes('\uFFFD')) return fixed;
+  } catch {}
   return name;
 };
 
 let adminAuth = ensureAdminAuth();
 
 migrateFileNames();
+migrateTestsFileNames();
+migrateMockExamFileNames();
 ensureStudentIds();
 
 const getEntrySizeBytes = (entry) => {
@@ -879,24 +1798,55 @@ const upload = multer({
 });
 
 const handleUploadRequest = (req, res) => {
+  const token = getAuthTokenFromRequest(req);
+  const session = getAuthSession(token);
+  if (!session) {
+    clearAuthSessionCookie(res);
+    return res.status(401).send('Требуется авторизация');
+  }
+  req.auth = session.user;
+
   const rawName = req.params.storageName || '';
   const safeName = path.basename(rawName);
-  if (!safeName) return res.status(400).send('РќРµРєРѕСЂСЂРµРєС‚РЅРѕРµ РёРјСЏ С„Р°Р№Р»Р°');
+  if (!safeName) return res.status(400).send('Некорректное имя файла');
 
   const filePath = path.join(uploadsDir, safeName);
-  if (!fs.existsSync(filePath)) return res.status(404).send('Р¤Р°Р№Р» РЅРµ РЅР°Р№РґРµРЅ');
+  if (!fs.existsSync(filePath)) return res.status(404).send('Файл не найден');
+
+  const ownedFile = readFilesDb().find((entry) => entry?.storageName === safeName);
+  const ownerStudentId = typeof ownedFile?.studentId === 'string' ? ownedFile.studentId.trim() : '';
+  if (ownedFile?.studentId) {
+    const ownerStudent = findStudentById(ownedFile.studentId, { allowDeleted: true });
+    if (!ownerStudent) return res.status(404).send('Файл не найден');
+    if (!canAccessStudentByRole(req.auth, ownerStudent, { allowDeleted: true })) {
+      return res.status(403).send('Недостаточно прав');
+    }
+  }
 
   const stat = fs.statSync(filePath);
-  const studentId = typeof req.query.studentId === 'string' ? req.query.studentId : '';
-  if (studentId) {
-    const students = readStudentsDb();
-    if (!hasActiveStudent(students, studentId)) {
-      return res.status(404).send('РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ');
+  const queryStudentId = typeof req.query.studentId === 'string' ? req.query.studentId.trim() : '';
+  if (queryStudentId) {
+    if (ownerStudentId && queryStudentId !== ownerStudentId) {
+      return res.status(400).send('Некорректный studentId');
     }
+    const student = findStudentById(queryStudentId);
+    if (!student) return res.status(404).send('Ученик не найден');
+    if (!canAccessStudentByRole(req.auth, student)) return res.status(403).send('Недостаточно прав');
+  }
+
+  const usageStudentId = (() => {
+    if (!isStudentRole(req.auth)) return '';
+    if (ownerStudentId) return ownerStudentId;
+    if (queryStudentId) return queryStudentId;
+    return req.auth.id;
+  })();
+  if (usageStudentId) {
+    const student = findStudentById(usageStudentId);
+    if (!student) return res.status(404).send('Ученик не найден');
     const requestSize = getRangeSize(req.headers.range, stat.size);
-    const usage = getStudentUsage(studentId);
+    const usage = getStudentUsage(usageStudentId);
     if (usage.remaining <= 0 || usage.used + requestSize > usage.limit) {
-      return res.status(429).json({ error: 'РџСЂРµРІС‹С€РµРЅ Р»РёРјРёС‚ С‚СЂР°С„РёРєР° РґР»СЏ СѓС‡РµРЅРёРєР°' });
+      return res.status(429).json({ error: 'Превышен лимит трафика для ученика' });
     }
     if (usage.used / usage.limit >= STUDENT_TRAFFIC_WARN_RATIO) {
       res.setHeader('X-Traffic-Warn', '1');
@@ -904,7 +1854,7 @@ const handleUploadRequest = (req, res) => {
     res.setHeader('X-Traffic-Used', String(usage.used));
     res.setHeader('X-Traffic-Limit', String(usage.limit));
     if (req.method === 'GET') {
-      registerUsageOnFinish(studentId, res, requestSize);
+      registerUsageOnFinish(usageStudentId, res, requestSize);
     }
   }
 
@@ -917,27 +1867,29 @@ app.head('/uploads/:storageName', handleUploadRequest);
 app.post('/api/login', (req, res) => {
   const { code } = req.body || {};
   const normalizedCode = normalizeAccessCode(code);
-  if (!normalizedCode) return res.status(400).json({ error: 'Р’РІРµРґРёС‚Рµ РєРѕРґ РґРѕСЃС‚СѓРїР°' });
+  if (!normalizedCode) return res.status(400).json({ error: 'Введите код доступа' });
 
   const clientKey = getClientKey(req);
   const rateInfo = getRateInfo(clientKey);
   if (rateInfo.blocked) {
     return res.status(429).json({
-      error: 'РЎР»РёС€РєРѕРј РјРЅРѕРіРѕ РїРѕРїС‹С‚РѕРє. РџРѕРїСЂРѕР±СѓР№С‚Рµ РїРѕР·Р¶Рµ.',
+      error: 'Слишком много попыток. Попробуйте позже.',
       retryAfter: rateInfo.retryAfter,
     });
   }
 
   if (verifyCode(normalizedCode, adminAuth?.adminCodeHash)) {
     clearLoginFailures(clientKey);
-    return res.json({ id: 'admin1', name: ADMIN_NAME, role: 'admin' });
+    const session = createAuthSession({ id: 'admin1', name: ADMIN_NAME, role: 'admin' });
+    return respondWithSession(res, session);
   }
 
   const teachers = readTeachersDb();
   const teacher = teachers.find((entry) => entry?.codeHash && verifyCode(normalizedCode, entry.codeHash));
   if (teacher) {
     clearLoginFailures(clientKey);
-    return res.json({ id: teacher.id, name: teacher.name, role: 'teacher' });
+    const session = createAuthSession({ id: teacher.id, name: teacher.name, role: 'teacher' });
+    return respondWithSession(res, session);
   }
 
   const students = readStudentsDb();
@@ -955,26 +1907,55 @@ app.post('/api/login', (req, res) => {
       return false;
     });
     if (deletedMatch) {
-      return res.status(403).json({ error: 'Р РЋРЎвЂљРЎС“Р Т‘Р ВµР Р…РЎвЂљ РЎС“Р Т‘Р В°Р В»РЎвЂР Р…. Р С›Р В±РЎР‚Р В°РЎвЂљР С‘РЎвЂљР ВµРЎРѓРЎРЉ Р С” РЎС“РЎвЂЎР С‘РЎвЂљР ВµР В»РЎР‹.' });
+      return res.status(403).json({ error: 'Студент удалён. Обратитесь к учителю.' });
     }
     const blocked = registerLoginFailure(clientKey);
     if (blocked.blocked) {
       return res.status(429).json({
-        error: 'РЎР»РёС€РєРѕРј РјРЅРѕРіРѕ РїРѕРїС‹С‚РѕРє. РџРѕРїСЂРѕР±СѓР№С‚Рµ РїРѕР·Р¶Рµ.',
+        error: 'Слишком много попыток. Попробуйте позже.',
         retryAfter: blocked.retryAfter,
       });
     }
-    return res.status(401).json({ error: 'РќРµРІРµСЂРЅС‹Р№ РєРѕРґ РґРѕСЃС‚СѓРїР°' });
+    return res.status(401).json({ error: 'Неверный код доступа' });
   }
 
   clearLoginFailures(clientKey);
-  res.json({ id: student.id, name: student.name, role: 'student', teacherId: student.teacherId || null });
+  const session = createAuthSession({
+    id: student.id,
+    name: student.name,
+    role: 'student',
+    teacherId: student.teacherId || null,
+  });
+  return respondWithSession(res, session);
+});
+
+app.post('/api/logout', (req, res) => {
+  const token = getAuthTokenFromRequest(req);
+  if (token) authSessions.delete(token);
+  clearAuthSessionCookie(res);
+  res.json({ ok: true });
+});
+
+app.use('/api', (req, res, next) => {
+  const token = getAuthTokenFromRequest(req);
+  const session = getAuthSession(token);
+  if (!session) {
+    clearAuthSessionCookie(res);
+    return res.status(401).json({ error: 'Требуется авторизация' });
+  }
+  req.auth = session.user;
+  req.authToken = session.token;
+  setAuthSessionCookie(res, session);
+  return next();
 });
 
 app.get('/api/students', (req, res) => {
   const { teacherId, includeDeleted, deletedOnly } = req.query;
+  if (isStudentRole(req.auth)) return forbid(res);
   let students = readStudentsDb();
-  if (teacherId) {
+  if (isTeacherRole(req.auth)) {
+    students = students.filter((s) => s.teacherId === req.auth.id);
+  } else if (teacherId) {
     students = students.filter((s) => s.teacherId === teacherId);
   }
   const includeDeletedFlag = includeDeleted === '1' || includeDeleted === 'true';
@@ -990,15 +1971,22 @@ app.get('/api/students', (req, res) => {
 
 app.post('/api/students', (req, res) => {
   const { name, teacherId } = req.body || {};
+  if (isStudentRole(req.auth)) return forbid(res);
   const studentName = normalizeStudentName(name);
-  if (!studentName) return res.status(400).json({ error: 'Р’РІРµРґРёС‚Рµ РёРјСЏ СѓС‡РµРЅРёРєР°' });
-  if (studentName.length > 60) return res.status(400).json({ error: 'РРјСЏ СЃР»РёС€РєРѕРј РґР»РёРЅРЅРѕРµ' });
-  if (/[\/\\]/.test(studentName)) return res.status(400).json({ error: 'РќРµРґРѕРїСѓСЃС‚РёРјС‹Рµ СЃРёРјРІРѕР»С‹' });
+  if (!studentName) return res.status(400).json({ error: 'Введите имя ученика' });
+  if (studentName.length > 60) return res.status(400).json({ error: 'Имя слишком длинное' });
+  if (/[\/\\]/.test(studentName)) return res.status(400).json({ error: 'Недопустимые символы' });
 
   const teachers = readTeachersDb();
-  const resolvedTeacherId = teacherId || teachers[0]?.id || null;
+  const requestedTeacherId = typeof teacherId === 'string' ? teacherId.trim() : '';
+  if (isTeacherRole(req.auth) && requestedTeacherId && requestedTeacherId !== req.auth.id) {
+    return forbid(res);
+  }
+  const resolvedTeacherId = isTeacherRole(req.auth)
+    ? req.auth.id
+    : (requestedTeacherId || teachers[0]?.id || null);
   if (!resolvedTeacherId || !teachers.some((t) => t.id === resolvedTeacherId)) {
-    return res.status(400).json({ error: 'РЈРєР°Р¶РёС‚Рµ СѓС‡РёС‚РµР»СЏ' });
+    return res.status(400).json({ error: 'Укажите учителя' });
   }
 
   const students = readStudentsDb();
@@ -1027,11 +2015,13 @@ app.post('/api/students', (req, res) => {
 });
 
 app.delete('/api/students/:id', (req, res) => {
+  if (isStudentRole(req.auth)) return forbid(res);
   const { id } = req.params;
   const students = readStudentsDb();
   const idx = students.findIndex((s) => s.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Р Р€РЎвЂЎР ВµР Р…Р С‘Р С” Р Р…Р Вµ Р Р…Р В°Р в„–Р Т‘Р ВµР Р…' });
-  if (students[idx]?.deletedAt) return res.status(404).json({ error: 'Р Р€РЎвЂЎР ВµР Р…Р С‘Р С” РЎС“Р Т‘Р В°Р В»РЎвЂР Р…' });
+  if (idx === -1) return res.status(404).json({ error: 'Ученик не найден' });
+  if (students[idx]?.deletedAt) return res.status(404).json({ error: 'Ученик удалён' });
+  if (isTeacherRole(req.auth) && students[idx]?.teacherId !== req.auth.id) return forbid(res);
 
   const existing = students[idx];
   if (existing?.deletedAt) {
@@ -1045,24 +2035,26 @@ app.delete('/api/students/:id', (req, res) => {
 });
 
 app.post('/api/students/:id/restore', (req, res) => {
+  if (isStudentRole(req.auth)) return forbid(res);
   const { id } = req.params;
   const students = readStudentsDb();
   const idx = students.findIndex((s) => s.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Р Р€РЎвЂЎР ВµР Р…Р С‘Р С” Р Р…Р Вµ Р Р…Р В°Р в„–Р Т‘Р ВµР Р…' });
+  if (idx === -1) return res.status(404).json({ error: 'Ученик не найден' });
+  if (isTeacherRole(req.auth) && students[idx]?.teacherId !== req.auth.id) return forbid(res);
 
   const existing = students[idx];
   if (!existing?.deletedAt) {
-    return res.status(400).json({ error: 'Р Р€РЎвЂЎР ВµР Р…Р С‘Р С” Р Р…Р Вµ РЎС“Р Т‘Р В°Р В»РЎвЂР Р…' });
+    return res.status(400).json({ error: 'Ученик не удалён' });
   }
   const deletedAtMs = Date.parse(existing.deletedAt);
   if (!Number.isFinite(deletedAtMs)) {
-    return res.status(400).json({ error: 'Р СњР ВµР С”Р С•РЎР‚РЎР‚Р ВµР С”РЎвЂљР Р…Р В°РЎРЏ Р Т‘Р В°РЎвЂљР В° РЎС“Р Т‘Р В°Р В»Р ВµР Р…Р С‘РЎРЏ' });
+    return res.status(400).json({ error: 'Некорректная дата удаления' });
   }
   if (Date.now() - deletedAtMs > SOFT_DELETE_TTL_MS) {
     students.splice(idx, 1);
     writeStudentsDb(students);
     hardDeleteStudentData([existing.id]);
-    return res.status(410).json({ error: 'Р РЋРЎР‚Р С•Р С” Р Р†Р С•РЎРѓРЎРѓРЎвЂљР В°Р Р…Р С•Р Р†Р В»Р ВµР Р…Р С‘РЎРЏ Р С‘РЎРѓРЎвЂљРЎвЂР С”' });
+    return res.status(410).json({ error: 'Срок восстановления истёк' });
   }
 
   const restored = { ...existing, deletedAt: null };
@@ -1085,10 +2077,11 @@ app.get('/api/task-titles', (_req, res) => {
 });
 
 app.patch('/api/task-titles', (req, res) => {
+  if (isStudentRole(req.auth)) return forbid(res);
   const { number, title } = req.body || {};
   const taskNumber = Number(number);
   if (!Number.isFinite(taskNumber) || taskNumber < 1 || taskNumber > 27) {
-    return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ РЅРѕРјРµСЂ Р·Р°РґР°РЅРёСЏ' });
+    return res.status(400).json({ error: 'Некорректный номер задания' });
   }
   const trimmed = typeof title === 'string' ? title.trim() : '';
   const db = readTaskTitlesDb();
@@ -1099,7 +2092,7 @@ app.patch('/api/task-titles', (req, res) => {
     return res.json({ ok: true, number: taskNumber, title: '' });
   }
   if (trimmed.length > 120) {
-    return res.status(400).json({ error: 'РќР°Р·РІР°РЅРёРµ СЃР»РёС€РєРѕРј РґР»РёРЅРЅРѕРµ' });
+    return res.status(400).json({ error: 'Название слишком длинное' });
   }
   db[key] = trimmed;
   writeTaskTitlesDb(db);
@@ -1107,17 +2100,19 @@ app.patch('/api/task-titles', (req, res) => {
 });
 
 app.get('/api/teachers', (_req, res) => {
+  if (!isAdminRole(_req.auth)) return forbid(res);
   const teachers = readTeachersDb();
   const sanitized = teachers.map(({ codeHash, ...rest }) => rest);
   res.json(sanitized);
 });
 
 app.post('/api/teachers', (req, res) => {
+  if (!isAdminRole(req.auth)) return forbid(res);
   const { name } = req.body || {};
   const teacherName = normalizeTeacherName(name);
-  if (!teacherName) return res.status(400).json({ error: 'Р’РІРµРґРёС‚Рµ РёРјСЏ СѓС‡РёС‚РµР»СЏ' });
-  if (teacherName.length > 60) return res.status(400).json({ error: 'РРјСЏ СЃР»РёС€РєРѕРј РґР»РёРЅРЅРѕРµ' });
-  if (/[\/\\]/.test(teacherName)) return res.status(400).json({ error: 'РќРµРґРѕРїСѓСЃС‚РёРјС‹Рµ СЃРёРјРІРѕР»С‹' });
+  if (!teacherName) return res.status(400).json({ error: 'Введите имя учителя' });
+  if (teacherName.length > 60) return res.status(400).json({ error: 'Имя слишком длинное' });
+  if (/[\/\\]/.test(teacherName)) return res.status(400).json({ error: 'Недопустимые символы' });
 
   const teachers = readTeachersDb();
   const students = readStudentsDb();
@@ -1135,16 +2130,17 @@ app.post('/api/teachers', (req, res) => {
 });
 
 app.patch('/api/teachers/:id', (req, res) => {
+  if (!isAdminRole(req.auth)) return forbid(res);
   const { id } = req.params;
   const { name } = req.body || {};
   const teacherName = normalizeTeacherName(name);
-  if (!teacherName) return res.status(400).json({ error: 'Р’РІРµРґРёС‚Рµ РёРјСЏ СѓС‡РёС‚РµР»СЏ' });
-  if (teacherName.length > 60) return res.status(400).json({ error: 'РРјСЏ СЃР»РёС€РєРѕРј РґР»РёРЅРЅРѕРµ' });
-  if (/[\/\\]/.test(teacherName)) return res.status(400).json({ error: 'РќРµРґРѕРїСѓСЃС‚РёРјС‹Рµ СЃРёРјРІРѕР»С‹' });
+  if (!teacherName) return res.status(400).json({ error: 'Введите имя учителя' });
+  if (teacherName.length > 60) return res.status(400).json({ error: 'Имя слишком длинное' });
+  if (/[\/\\]/.test(teacherName)) return res.status(400).json({ error: 'Недопустимые символы' });
 
   const teachers = readTeachersDb();
   const idx = teachers.findIndex((t) => t.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'РЈС‡РёС‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ' });
+  if (idx === -1) return res.status(404).json({ error: 'Учитель не найден' });
 
   const updated = { ...teachers[idx], name: teacherName };
   teachers[idx] = updated;
@@ -1153,10 +2149,11 @@ app.patch('/api/teachers/:id', (req, res) => {
 });
 
 app.delete('/api/teachers/:id', (req, res) => {
+  if (!isAdminRole(req.auth)) return forbid(res);
   const { id } = req.params;
   const teachers = readTeachersDb();
   const idx = teachers.findIndex((t) => t.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'РЈС‡РёС‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ' });
+  if (idx === -1) return res.status(404).json({ error: 'Учитель не найден' });
 
   const removed = teachers.splice(idx, 1)[0];
   writeTeachersDb(teachers);
@@ -1173,10 +2170,11 @@ app.delete('/api/teachers/:id', (req, res) => {
 });
 
 app.post('/api/teachers/:id/reset-code', (req, res) => {
+  if (!isAdminRole(req.auth)) return forbid(res);
   const { id } = req.params;
   const teachers = readTeachersDb();
   const idx = teachers.findIndex((t) => t.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'РЈС‡РёС‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ' });
+  if (idx === -1) return res.status(404).json({ error: 'Учитель не найден' });
 
   const students = readStudentsDb();
   const plainCode = generateTeacherCode(teachers, students);
@@ -1191,33 +2189,35 @@ app.post('/api/teachers/:id/reset-code', (req, res) => {
 });
 
 app.patch('/api/students/:id', (req, res) => {
+  if (isStudentRole(req.auth)) return forbid(res);
   const { id } = req.params;
   const { name, nickname } = req.body || {};
   const hasName = Object.prototype.hasOwnProperty.call(req.body || {}, 'name');
   const hasNickname = Object.prototype.hasOwnProperty.call(req.body || {}, 'nickname');
 
   if (!hasName && !hasNickname) {
-    return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Рµ РїР°СЂР°РјРµС‚СЂС‹' });
+    return res.status(400).json({ error: 'Некорректные параметры' });
   }
 
   let studentName = null;
   if (hasName) {
     studentName = normalizeStudentName(name);
-    if (!studentName) return res.status(400).json({ error: 'Р’РІРµРґРёС‚Рµ РёРјСЏ СѓС‡РµРЅРёРєР°' });
-    if (studentName.length > 60) return res.status(400).json({ error: 'РРјСЏ СЃР»РёС€РєРѕРј РґР»РёРЅРЅРѕРµ' });
-    if (/[\/\\]/.test(studentName)) return res.status(400).json({ error: 'РќРµРґРѕРїСѓСЃС‚РёРјС‹Рµ СЃРёРјРІРѕР»С‹' });
+    if (!studentName) return res.status(400).json({ error: 'Введите имя ученика' });
+    if (studentName.length > 60) return res.status(400).json({ error: 'Имя слишком длинное' });
+    if (/[\/\\]/.test(studentName)) return res.status(400).json({ error: 'Недопустимые символы' });
   }
 
   let studentNickname = null;
   if (hasNickname) {
     studentNickname = normalizeStudentNickname(nickname);
-    if (studentNickname.length > 60) return res.status(400).json({ error: 'РџСЂРѕР·РІРёС‰Рµ СЃР»РёС€РєРѕРј РґР»РёРЅРЅРѕРµ' });
-    if (/[\/\\]/.test(studentNickname)) return res.status(400).json({ error: 'РќРµРґРѕРїСѓСЃС‚РёРјС‹Рµ СЃРёРјРІРѕР»С‹' });
+    if (studentNickname.length > 60) return res.status(400).json({ error: 'Прозвище слишком длинное' });
+    if (/[\/\\]/.test(studentNickname)) return res.status(400).json({ error: 'Недопустимые символы' });
   }
 
   const students = readStudentsDb();
   const idx = students.findIndex((s) => s.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
+  if (idx === -1) return res.status(404).json({ error: 'Ученик не найден' });
+  if (isTeacherRole(req.auth) && students[idx]?.teacherId !== req.auth.id) return forbid(res);
 
   const updated = { ...students[idx] };
   if (hasName) updated.name = studentName;
@@ -1236,11 +2236,13 @@ app.patch('/api/students/:id', (req, res) => {
 });
 
 app.post('/api/students/:id/reset-code', (req, res) => {
+  if (isStudentRole(req.auth)) return forbid(res);
   const { id } = req.params;
   const students = readStudentsDb();
   const idx = students.findIndex((s) => s.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
-  if (students[idx]?.deletedAt) return res.status(404).json({ error: 'РЈС‡РµРЅРёРє СѓРґР°Р»С‘РЅ' });
+  if (idx === -1) return res.status(404).json({ error: 'Ученик не найден' });
+  if (students[idx]?.deletedAt) return res.status(404).json({ error: 'Ученик удалён' });
+  if (isTeacherRole(req.auth) && students[idx]?.teacherId !== req.auth.id) return forbid(res);
 
   const teachers = readTeachersDb();
   const plainCode = generateStudentCode(students, teachers);
@@ -1254,15 +2256,19 @@ app.post('/api/students/:id/reset-code', (req, res) => {
   res.json({ id: updated.id, code: plainCode, codeHint: updated.codeHint });
 });
 
-app.get('/api/tests', (_req, res) => {
+app.get('/api/tests', (req, res) => {
   const data = readTestsDb();
-  res.json(data || {});
+  if (isStudentRole(req.auth)) {
+    return res.json(sanitizeTestsDbForStudent(data || {}));
+  }
+  return res.json(data || {});
 });
 
 app.put('/api/tests', (req, res) => {
+  if (isStudentRole(req.auth)) return forbid(res);
   const payload = req.body;
   if (!payload || typeof payload !== 'object') {
-    return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Рµ РґР°РЅРЅС‹Рµ' });
+    return res.status(400).json({ error: 'Некорректные данные' });
   }
   writeTestsDb(payload);
   res.json({ ok: true });
@@ -1271,13 +2277,19 @@ app.put('/api/tests', (req, res) => {
 app.get('/api/mock-exams', (req, res) => {
   const list = readMockExamsDb();
   const { studentId } = req.query || {};
-  if (studentId) {
-    const students = readStudentsDb();
-    if (!hasActiveStudent(students, String(studentId))) {
-      return res.status(404).json({ error: 'Student not found' });
-    }
+  const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
+  if (isStudentRole(req.auth)) {
+    if (requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
     const filtered = (Array.isArray(list) ? list : []).filter((exam) => (
-      isMockExamVisibleToStudent(exam, studentId)
+      isMockExamVisibleToStudent(exam, req.auth.id)
+    ));
+    return res.json(filtered.map((exam) => sanitizeMockExamForStudent(exam)));
+  }
+  if (requestedStudentId) {
+    const student = ensureStudentAccess(req, res, requestedStudentId);
+    if (!student) return;
+    const filtered = (Array.isArray(list) ? list : []).filter((exam) => (
+      isMockExamVisibleToStudent(exam, student.id)
     ));
     return res.json(filtered);
   }
@@ -1285,6 +2297,7 @@ app.get('/api/mock-exams', (req, res) => {
 });
 
 app.post('/api/mock-exams', (req, res) => {
+  if (isStudentRole(req.auth)) return forbid(res);
   const { title } = req.body || {};
   const trimmed = typeof title === 'string' ? title.trim() : '';
   const entry = {
@@ -1303,47 +2316,50 @@ app.post('/api/mock-exams', (req, res) => {
 
 app.get('/api/mock-exams/attempt', (req, res) => {
   const { studentId, examId } = req.query;
-  if (!studentId || !examId) return res.status(400).json({ error: 'studentId and examId required' });
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'Student not found' });
-  }
+  const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
+  if (isStudentRole(req.auth) && requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
+  const effectiveStudentId = isStudentRole(req.auth) ? req.auth.id : requestedStudentId;
+  if (!effectiveStudentId || !examId) return res.status(400).json({ error: 'studentId and examId required' });
+  const student = ensureStudentAccess(req, res, effectiveStudentId);
+  if (!student) return;
   const list = readMockExamsDb();
   const exam = (Array.isArray(list) ? list : []).find((item) => item.id === String(examId));
   if (!exam) return res.status(404).json({ error: 'Mock exam not found' });
-  if (!isMockExamVisibleToStudent(exam, studentId)) {
+  if (!isMockExamVisibleToStudent(exam, student.id)) {
     return res.status(403).json({ error: 'Mock exam access denied' });
   }
-  const data = getStudentData(studentId);
+  const data = getStudentData(student.id);
   const attempts = data.mockAttempts && typeof data.mockAttempts === 'object' ? data.mockAttempts : {};
-  res.json(attempts[String(examId)] || {});
+  const stored = attempts[String(examId)] && typeof attempts[String(examId)] === 'object'
+    ? attempts[String(examId)]
+    : {};
+  res.json(normalizeMockAttemptPayload(exam, stored.answers, stored.updatedAt));
 });
 
 app.put('/api/mock-exams/attempt', (req, res) => {
-  const { studentId, examId, answers, solved } = req.body || {};
-  if (!studentId || !examId) return res.status(400).json({ error: 'studentId and examId required' });
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'Student not found' });
-  }
+  const { studentId, examId, answers } = req.body || {};
+  const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
+  if (isStudentRole(req.auth) && requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
+  const effectiveStudentId = isStudentRole(req.auth) ? req.auth.id : requestedStudentId;
+  if (!effectiveStudentId || !examId) return res.status(400).json({ error: 'studentId and examId required' });
+  const student = ensureStudentAccess(req, res, effectiveStudentId);
+  if (!student) return;
   const list = readMockExamsDb();
   const exam = (Array.isArray(list) ? list : []).find((item) => item.id === String(examId));
   if (!exam) return res.status(404).json({ error: 'Mock exam not found' });
-  if (!isMockExamVisibleToStudent(exam, studentId)) {
+  if (!isMockExamVisibleToStudent(exam, student.id)) {
     return res.status(403).json({ error: 'Mock exam access denied' });
   }
-  const data = getStudentData(studentId);
+  const data = getStudentData(student.id);
   const attempts = data.mockAttempts && typeof data.mockAttempts === 'object' ? { ...data.mockAttempts } : {};
-  attempts[String(examId)] = {
-    answers: answers && typeof answers === 'object' ? answers : {},
-    solved: solved && typeof solved === 'object' ? solved : {},
-    updatedAt: new Date().toISOString(),
-  };
-  const updated = setStudentData(studentId, { ...data, mockAttempts: attempts });
-  res.json(updated.mockAttempts?.[String(examId)] || {});
+  const normalizedAttempt = normalizeMockAttemptPayload(exam, answers, new Date().toISOString());
+  attempts[String(examId)] = normalizedAttempt;
+  const updated = setStudentData(student.id, { ...data, mockAttempts: attempts });
+  res.json(updated.mockAttempts?.[String(examId)] || normalizedAttempt);
 });
 
 app.patch('/api/mock-exams/:id', (req, res) => {
+  if (isStudentRole(req.auth)) return forbid(res);
   const { id } = req.params;
   const { title, tasks, access } = req.body || {};
   const list = readMockExamsDb();
@@ -1364,6 +2380,7 @@ app.patch('/api/mock-exams/:id', (req, res) => {
 });
 
 app.delete('/api/mock-exams/:id', (req, res) => {
+  if (isStudentRole(req.auth)) return forbid(res);
   const { id } = req.params;
   const list = readMockExamsDb();
   const filtered = list.filter((exam) => exam.id !== id);
@@ -1376,16 +2393,17 @@ app.patch('/api/teacher-code', (req, res) => {
   const current = normalizeAccessCode(currentCode);
   const next = normalizeAccessCode(newCode);
   if (!teacherId) return res.status(400).json({ error: 'teacherId required' });
-  if (!current || !next) return res.status(400).json({ error: 'Р’РІРµРґРёС‚Рµ С‚РµРєСѓС‰РёР№ Рё РЅРѕРІС‹Р№ РєРѕРґ' });
+  if (!current || !next) return res.status(400).json({ error: 'Введите текущий и новый код' });
   if (next.length < 4 || next.length > 32) {
-    return res.status(400).json({ error: 'РљРѕРґ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РѕС‚ 4 РґРѕ 32 СЃРёРјРІРѕР»РѕРІ' });
+    return res.status(400).json({ error: 'Код должен быть от 4 до 32 символов' });
   }
+  if (!ensureTeacherAccess(req, res, teacherId)) return;
 
   const teachers = readTeachersDb();
   const idx = teachers.findIndex((t) => t.id === teacherId);
-  if (idx === -1) return res.status(404).json({ error: 'РЈС‡РёС‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ' });
+  if (idx === -1) return res.status(404).json({ error: 'Учитель не найден' });
   if (!verifyCode(current, teachers[idx]?.codeHash)) {
-    return res.status(401).json({ error: 'РўРµРєСѓС‰РёР№ РєРѕРґ РЅРµРІРµСЂРЅС‹Р№' });
+    return res.status(401).json({ error: 'Текущий код неверный' });
   }
 
   teachers[idx] = {
@@ -1399,45 +2417,86 @@ app.patch('/api/teacher-code', (req, res) => {
 
 app.get('/api/progress', (req, res) => {
   const { studentId } = req.query;
-  if (!studentId) return res.status(400).json({ error: 'studentId required' });
-  const data = getStudentData(studentId);
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const data = getStudentData(student.id);
   const progress = recomputeProgressFromSolved(data);
   res.json(progress || {});
 });
 
 app.patch('/api/progress', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
   const { studentId, taskId, value } = req.body || {};
-  if (!studentId || !Number.isFinite(Number(taskId))) {
-    return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Рµ РїР°СЂР°РјРµС‚СЂС‹' });
+  if (!Number.isFinite(Number(taskId))) {
+    return res.status(400).json({ error: 'Некорректные параметры' });
   }
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
   const score = Number(value);
   if (!Number.isFinite(score)) {
-    return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅРѕРµ Р·РЅР°С‡РµРЅРёРµ' });
+    return res.status(400).json({ error: 'Некорректное значение' });
   }
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
-  }
-
-  const data = getStudentData(studentId);
+  const data = getStudentData(student.id);
   const key = String(taskId);
   const clamped = Math.max(0, Math.min(100, score));
   const progress = { ...(data.progress || {}) };
   progress[key] = clamped;
-  const updated = setStudentData(studentId, { ...data, progress });
+  const updated = setStudentData(student.id, { ...data, progress });
   res.json(updated.progress);
 });
 
-app.post('/api/progress/solve', (req, res) => {
-  const { studentId, taskNumber, levelId, questionId, totalQuestions, levelMax, levelTotals, code, localDay } = req.body || {};
-  if (!studentId || !taskNumber || !levelId || !questionId) {
-    return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Рµ РїР°СЂР°РјРµС‚СЂС‹' });
+app.post('/api/progress/solve', async (req, res) => {
+  try {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const {
+    studentId,
+    taskNumber,
+    levelId,
+    questionId,
+    code,
+    localDay
+  } = req.body || {};
+  if (!taskNumber || !levelId || !questionId) {
+    return res.status(400).json({ error: 'Некорректные параметры' });
   }
+  const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
+  if (requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.auth.id);
+  if (!student) return;
   const taskNum = Number(taskNumber);
-  const total = Number(totalQuestions);
-  const maxScore = Number(levelMax);
   if (!Number.isFinite(taskNum)) {
-    return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ РЅРѕРјРµСЂ Р·Р°РґР°РЅРёСЏ' });
+    return res.status(400).json({ error: 'Некорректный номер задания' });
+  }
+  const testsDb = readTestsDb();
+  const taskKey = String(taskNum);
+  const levelKey = String(levelId).trim();
+  const qKey = String(questionId).trim();
+  if (!qKey) {
+    return res.status(400).json({ error: 'Некорректный questionId' });
+  }
+  const taskLevels = testsDb?.[taskKey];
+  if (!taskLevels || typeof taskLevels !== 'object') {
+    return res.status(400).json({ error: 'Задание не найдено' });
+  }
+  const questions = taskLevels?.[levelKey];
+  if (!Array.isArray(questions)) {
+    return res.status(400).json({ error: 'Уровень не найден' });
+  }
+  const questionEntry = questions.find((entry) => String(entry?.id ?? '').trim() === qKey);
+  if (!questionEntry) {
+    return res.status(400).json({ error: 'Вопрос не найден' });
+  }
+  const isPythonLevel = isPythonTaskNumber(taskNum) || levelKey === PYTHON_LEVEL_ID;
+  if (isPythonLevel) {
+    if (typeof code !== 'string' || !code.trim()) {
+      return res.status(400).json({ error: 'Добавьте код решения' });
+    }
+    const validation = await validatePythonSolveResults(questionEntry, code);
+    if (!validation.ok) {
+      return res.status(400).json({ error: validation.error || 'Тесты не пройдены' });
+    }
+  } else if (!isSolvedAnswerValid(questionEntry, code, taskNum)) {
+    return res.status(400).json({ error: 'Ответ неверный' });
   }
   const serverDayKey = new Date().toISOString().slice(0, 10);
   const clientDayKey = normalizeDayKey(localDay);
@@ -1450,18 +2509,10 @@ app.post('/api/progress/solve', (req, res) => {
     if (diff < -1 || diff > 1) return serverDayKey;
     return clientDayKey;
   })();
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
-  }
-
-  const data = getStudentData(studentId);
+  const data = getStudentData(student.id);
   const solvedByTask = { ...(data.solvedByTask || {}) };
   const solvedEvents = Array.isArray(data.solvedEvents) ? [...data.solvedEvents] : [];
   const streak = normalizeStreak(data.streak);
-  const testsDb = readTestsDb();
-  const taskKey = String(taskNum);
-  const levelKey = String(levelId);
   const taskEntry = { ...(solvedByTask[taskKey] || {}) };
   const levelEntry = { ...(taskEntry[levelKey] || {}) };
 
@@ -1469,7 +2520,6 @@ app.post('/api/progress/solve', (req, res) => {
   const solvedCode = levelEntry.solvedCode && typeof levelEntry.solvedCode === 'object'
     ? { ...levelEntry.solvedCode }
     : {};
-  const qKey = String(questionId);
   let solvedAdded = false;
   if (!solvedList.includes(qKey)) {
     solvedList.push(qKey);
@@ -1477,7 +2527,7 @@ app.post('/api/progress/solve', (req, res) => {
     const questionNumber = getQuestionNumberById(testsDb, taskNum, levelKey, qKey);
     solvedEvents.push({
       id: crypto.randomUUID(),
-      studentId,
+      studentId: student.id,
       taskNumber: taskNum,
       levelId: levelKey,
       questionId: qKey,
@@ -1490,23 +2540,27 @@ app.post('/api/progress/solve', (req, res) => {
     const safeCode = code.slice(0, 20000);
     solvedCode[qKey] = safeCode;
   }
-  if (Number.isFinite(total) && total > 0) levelEntry.totalQuestions = total;
-  if (Number.isFinite(maxScore) && maxScore > 0) levelEntry.levelMax = maxScore;
+  if (questions.length > 0) {
+    levelEntry.totalQuestions = questions.length;
+  }
+  if (isPythonLevel) {
+    levelEntry.levelMax = 100;
+  }
 
   levelEntry.solved = solvedList;
   levelEntry.solvedCode = solvedCode;
   taskEntry[levelKey] = levelEntry;
   solvedByTask[taskKey] = taskEntry;
 
-  if (levelTotals && typeof levelTotals === 'object') {
-    Object.entries(levelTotals).forEach(([lvl, count]) => {
-      const totalCount = Number(count);
-      if (!Number.isFinite(totalCount) || totalCount <= 0) return;
-      const key = String(lvl);
-      const existing = taskEntry[key] || {};
-      taskEntry[key] = { ...existing, totalQuestions: totalCount };
-    });
-  }
+  Object.entries(taskLevels).forEach(([lvl, list]) => {
+    if (!Array.isArray(list) || list.length <= 0) return;
+    const existing = taskEntry[lvl] || {};
+    const next = { ...existing, totalQuestions: list.length };
+    if (lvl === PYTHON_LEVEL_ID && (!Number.isFinite(Number(next.levelMax)) || Number(next.levelMax) <= 0)) {
+      next.levelMax = 100;
+    }
+    taskEntry[lvl] = next;
+  });
   const taskProgress = computeTaskProgress(taskEntry);
 
   const progress = { ...(data.progress || {}) };
@@ -1552,19 +2606,21 @@ app.post('/api/progress/solve', (req, res) => {
     }
   }
 
-  const updated = setStudentData(studentId, { ...data, solvedByTask, solvedEvents, progress, streak });
+  const updated = setStudentData(student.id, { ...data, solvedByTask, solvedEvents, progress, streak });
   res.json({ taskProgress, progress: updated.progress, streak: updated.streak });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка сервера' });
+  }
 });
 
 app.get('/api/teacher-solved-events', (req, res) => {
   const { teacherId, since, limit } = req.query;
-  if (!teacherId) return res.status(400).json({ error: 'teacherId required' });
-  const teachers = readTeachersDb();
-  if (!teachers.some((t) => t.id === teacherId)) {
-    return res.status(404).json({ error: 'РЈС‡РёС‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ' });
-  }
+  if (isStudentRole(req.auth)) return forbid(res);
+  const teacher = ensureTeacherAccess(req, res, teacherId);
+  if (!teacher) return;
   const testsDb = readTestsDb();
-  const students = readStudentsDb().filter((s) => s.teacherId === teacherId && !s.deletedAt);
+  const students = readStudentsDb().filter((s) => s.teacherId === teacher.id && !s.deletedAt);
   const sinceMs = since ? Date.parse(String(since)) : null;
   const sinceTime = Number.isFinite(sinceMs) ? sinceMs : 0;
   const events = [];
@@ -1600,18 +2656,16 @@ app.get('/api/teacher-solved-events', (req, res) => {
 
 app.get('/api/progress/solved', (req, res) => {
   const { studentId, taskNumber, levelId, includeCode } = req.query;
-  if (!studentId || !taskNumber || !levelId) {
-    return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Рµ РїР°СЂР°РјРµС‚СЂС‹' });
+  if (!taskNumber || !levelId) {
+    return res.status(400).json({ error: 'Некорректные параметры' });
   }
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
   const taskNum = Number(taskNumber);
   if (!Number.isFinite(taskNum)) {
-    return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ РЅРѕРјРµСЂ Р·Р°РґР°РЅРёСЏ' });
+    return res.status(400).json({ error: 'Некорректный номер задания' });
   }
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
-  }
-  const data = getStudentData(studentId);
+  const data = getStudentData(student.id);
   const taskKey = String(taskNum);
   const levelKey = String(levelId);
   const levelEntry = data?.solvedByTask?.[taskKey]?.[levelKey] || {};
@@ -1625,47 +2679,232 @@ app.get('/api/progress/solved', (req, res) => {
   res.json(Array.isArray(solved) ? solved : []);
 });
 
+app.get('/api/progress/task-code', (req, res) => {
+  const { studentId, taskNumber } = req.query;
+  if (!taskNumber) {
+    return res.status(400).json({ error: 'Некорректные параметры' });
+  }
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const taskNum = Number(taskNumber);
+  if (!Number.isFinite(taskNum)) {
+    return res.status(400).json({ error: 'Некорректный номер задания' });
+  }
+  if (!isKnownTaskNumber(taskNum)) {
+    return res.status(400).json({ error: 'Задание не найдено' });
+  }
+  const data = getStudentData(student.id);
+  const taskEntry = data?.solvedByTask?.[String(taskNum)];
+  const stored = taskEntry?._taskCode && typeof taskEntry._taskCode === 'object'
+    ? taskEntry._taskCode
+    : {};
+  return res.json({
+    code: typeof stored.code === 'string' ? stored.code : '',
+    input: typeof stored.input === 'string' ? stored.input : '',
+    updatedAt: typeof stored.updatedAt === 'string' ? stored.updatedAt : '',
+  });
+});
+
+app.patch('/api/progress/task-code', (req, res) => {
+  const { studentId, taskNumber, code, input } = req.body || {};
+  if (!taskNumber) {
+    return res.status(400).json({ error: 'Некорректные параметры' });
+  }
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const taskNum = Number(taskNumber);
+  if (!Number.isFinite(taskNum)) {
+    return res.status(400).json({ error: 'Некорректный номер задания' });
+  }
+  if (!isKnownTaskNumber(taskNum)) {
+    return res.status(400).json({ error: 'Задание не найдено' });
+  }
+  if (typeof code !== 'string') {
+    return res.status(400).json({ error: 'Некорректный код' });
+  }
+  if (typeof input !== 'string' && typeof input !== 'undefined') {
+    return res.status(400).json({ error: 'Некорректный ввод' });
+  }
+  const data = getStudentData(student.id);
+  const solvedByTask = { ...(data.solvedByTask || {}) };
+  const taskKey = String(taskNum);
+  const taskEntry = { ...(solvedByTask[taskKey] || {}) };
+  const safeCode = code.slice(0, 20000);
+  const safeInput = typeof input === 'string' ? input.slice(0, 5000) : '';
+  const hasPayload = Boolean(safeCode.trim() || safeInput.trim());
+
+  if (hasPayload) {
+    taskEntry._taskCode = {
+      code: safeCode,
+      input: safeInput,
+      updatedAt: new Date().toISOString(),
+    };
+  } else {
+    delete taskEntry._taskCode;
+  }
+
+  if (Object.keys(taskEntry).length > 0) solvedByTask[taskKey] = taskEntry;
+  else delete solvedByTask[taskKey];
+
+  const updated = setStudentData(student.id, { ...data, solvedByTask });
+  const stored = updated?.solvedByTask?.[taskKey]?._taskCode && typeof updated.solvedByTask[taskKey]._taskCode === 'object'
+    ? updated.solvedByTask[taskKey]._taskCode
+    : {};
+  return res.json({
+    code: typeof stored.code === 'string' ? stored.code : '',
+    input: typeof stored.input === 'string' ? stored.input : '',
+    updatedAt: typeof stored.updatedAt === 'string' ? stored.updatedAt : '',
+  });
+});
+
+app.get('/api/progress/question-code', (req, res) => {
+  const { studentId, taskNumber, levelId, questionId } = req.query;
+  if (!taskNumber || !levelId || !String(questionId || '').trim()) {
+    return res.status(400).json({ error: 'Некорректные параметры' });
+  }
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const taskNum = Number(taskNumber);
+  if (!Number.isFinite(taskNum)) {
+    return res.status(400).json({ error: 'Некорректный номер задания' });
+  }
+  if (!isKnownTaskNumber(taskNum)) {
+    return res.status(400).json({ error: 'Задание не найдено' });
+  }
+  const taskKey = String(taskNum);
+  const levelKey = String(levelId);
+  const questionKey = String(questionId).trim();
+  const testsDb = readTestsDb();
+  const { taskLevels, questions, question } = getQuestionEntryFromTestsDb(testsDb, taskNum, levelKey, questionKey);
+  if (!taskLevels) return res.status(400).json({ error: 'Задание не найдено' });
+  if (!questions) return res.status(400).json({ error: 'Уровень не найден' });
+  if (!question) return res.status(400).json({ error: 'Вопрос не найден' });
+  const data = getStudentData(student.id);
+  const levelEntry = data?.solvedByTask?.[taskKey]?.[levelKey] || {};
+  const byId = levelEntry?._questionCodeById && typeof levelEntry._questionCodeById === 'object'
+    ? levelEntry._questionCodeById
+    : {};
+  const stored = byId?.[questionKey] && typeof byId[questionKey] === 'object'
+    ? byId[questionKey]
+    : {};
+  return res.json({
+    code: typeof stored.code === 'string' ? stored.code : '',
+    input: typeof stored.input === 'string' ? stored.input : '',
+    updatedAt: typeof stored.updatedAt === 'string' ? stored.updatedAt : '',
+  });
+});
+
+app.patch('/api/progress/question-code', (req, res) => {
+  const { studentId, taskNumber, levelId, questionId, code, input } = req.body || {};
+  if (!taskNumber || !levelId || !String(questionId || '').trim()) {
+    return res.status(400).json({ error: 'Некорректные параметры' });
+  }
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const taskNum = Number(taskNumber);
+  if (!Number.isFinite(taskNum)) {
+    return res.status(400).json({ error: 'Некорректный номер задания' });
+  }
+  if (!isKnownTaskNumber(taskNum)) {
+    return res.status(400).json({ error: 'Задание не найдено' });
+  }
+  if (typeof code !== 'string') {
+    return res.status(400).json({ error: 'Некорректный код' });
+  }
+  if (typeof input !== 'string' && typeof input !== 'undefined') {
+    return res.status(400).json({ error: 'Некорректный ввод' });
+  }
+  const taskKey = String(taskNum);
+  const levelKey = String(levelId);
+  const questionKey = String(questionId).trim();
+  const testsDb = readTestsDb();
+  const { taskLevels, questions, question } = getQuestionEntryFromTestsDb(testsDb, taskNum, levelKey, questionKey);
+  if (!taskLevels) return res.status(400).json({ error: 'Задание не найдено' });
+  if (!questions) return res.status(400).json({ error: 'Уровень не найден' });
+  if (!question) return res.status(400).json({ error: 'Вопрос не найден' });
+  const safeCode = code.slice(0, 20000);
+  const safeInput = typeof input === 'string' ? input.slice(0, 5000) : '';
+  const hasPayload = Boolean(safeCode.trim() || safeInput.trim());
+
+  const data = getStudentData(student.id);
+  const solvedByTask = { ...(data.solvedByTask || {}) };
+  const taskEntry = { ...(solvedByTask[taskKey] || {}) };
+  const levelEntry = { ...(taskEntry[levelKey] || {}) };
+  const byId = levelEntry._questionCodeById && typeof levelEntry._questionCodeById === 'object'
+    ? { ...levelEntry._questionCodeById }
+    : {};
+
+  if (hasPayload) {
+    byId[questionKey] = {
+      code: safeCode,
+      input: safeInput,
+      updatedAt: new Date().toISOString(),
+    };
+  } else {
+    delete byId[questionKey];
+  }
+
+  if (Object.keys(byId).length > 0) {
+    levelEntry._questionCodeById = byId;
+  } else {
+    delete levelEntry._questionCodeById;
+  }
+
+  if (Object.keys(levelEntry).length > 0) taskEntry[levelKey] = levelEntry;
+  else delete taskEntry[levelKey];
+
+  if (Object.keys(taskEntry).length > 0) solvedByTask[taskKey] = taskEntry;
+  else delete solvedByTask[taskKey];
+
+  const updated = setStudentData(student.id, { ...data, solvedByTask });
+  const stored = updated?.solvedByTask?.[taskKey]?.[levelKey]?._questionCodeById?.[questionKey]
+    && typeof updated.solvedByTask[taskKey][levelKey]._questionCodeById[questionKey] === 'object'
+      ? updated.solvedByTask[taskKey][levelKey]._questionCodeById[questionKey]
+      : {};
+  return res.json({
+    code: typeof stored.code === 'string' ? stored.code : '',
+    input: typeof stored.input === 'string' ? stored.input : '',
+    updatedAt: typeof stored.updatedAt === 'string' ? stored.updatedAt : '',
+  });
+});
+
 app.get('/api/student-data', (req, res) => {
   const { studentId } = req.query;
-  if (!studentId) return res.status(400).json({ error: 'studentId required' });
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
-  }
-  const data = getStudentData(studentId);
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const data = getStudentData(student.id);
   const progress = recomputeProgressFromSolved(data);
   res.json({ ...data, progress });
 });
 
 app.patch('/api/student-notes', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
   const { studentId, notes, notesByTask } = req.body || {};
-  if (!studentId) return res.status(400).json({ error: 'studentId required' });
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
-  }
-  const data = getStudentData(studentId);
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const data = getStudentData(student.id);
   const payload = { ...data };
-  if (typeof notesByTask === 'object' && notesByTask !== null) {
-    payload.notesByTask = notesByTask;
+  if (typeof notesByTask !== 'undefined') {
+    if (!notesByTask || typeof notesByTask !== 'object' || Array.isArray(notesByTask)) {
+      return res.status(400).json({ error: 'Некорректный формат заметок' });
+    }
+    payload.notesByTask = normalizeNotesByTaskMap(notesByTask);
   } else {
     payload.notes = String(notes ?? '').trim();
   }
-  const updated = setStudentData(studentId, payload);
+  const updated = setStudentData(student.id, payload);
   res.json({ notes: updated.notes, notesByTask: updated.notesByTask || {} });
 });
 
 app.post('/api/mocks', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
   const { studentId, date, score, comment } = req.body || {};
-  if (!studentId) return res.status(400).json({ error: 'studentId required' });
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
-  }
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
   const examDate = typeof date === 'string' && date.trim() ? date.trim() : new Date().toISOString().slice(0, 10);
   const numericScore = Number(score);
   if (!Number.isFinite(numericScore)) {
-    return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ Р±Р°Р»Р»' });
+    return res.status(400).json({ error: 'Некорректный балл' });
   }
   const clamped = Math.max(0, Math.min(100, numericScore));
   const entry = {
@@ -1675,51 +2914,44 @@ app.post('/api/mocks', (req, res) => {
     comment: typeof comment === 'string' ? comment.trim() : '',
     createdAt: new Date().toISOString(),
   };
-  const data = getStudentData(studentId);
+  const data = getStudentData(student.id);
   const mocks = [entry, ...(data.mocks || [])];
-  setStudentData(studentId, { ...data, mocks });
+  setStudentData(student.id, { ...data, mocks });
   res.json(entry);
 });
 
 app.delete('/api/mocks/:id', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
   const { id } = req.params;
   const { studentId } = req.query;
-  if (!studentId) return res.status(400).json({ error: 'studentId required' });
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
-  }
-  const data = getStudentData(studentId);
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const data = getStudentData(student.id);
   const mocks = (data.mocks || []).filter((m) => m.id !== id);
-  setStudentData(studentId, { ...data, mocks });
+  setStudentData(student.id, { ...data, mocks });
   res.json({ ok: true });
 });
 
 app.get('/api/student-schedule', (req, res) => {
   const { studentId } = req.query;
-  if (!studentId) return res.status(400).json({ error: 'studentId required' });
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
-  }
-  const data = getStudentData(studentId);
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const data = getStudentData(student.id);
   res.json(data.schedule || []);
 });
 
 app.post('/api/student-schedule', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
   const { studentId, day, date, time, subject, note, boardLink, lessonLink } = req.body || {};
-  if (!studentId) return res.status(400).json({ error: 'studentId required' });
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
   const trimmedDate = typeof date === 'string' ? date.trim() : '';
   const trimmedDay = typeof day === 'string' ? day.trim() : '';
   if ((!trimmedDate && !trimmedDay) || !time || !subject) {
     return res.status(400).json({ error: '\u0417\u0430\u043f\u043e\u043b\u043d\u0438\u0442\u0435 \u0434\u0430\u0442\u0443, \u0432\u0440\u0435\u043c\u044f \u0438 \u043f\u0440\u0435\u0434\u043c\u0435\u0442' });
   }
-  if (trimmedDate && !/^\\d{4}-\\d{2}-\\d{2}$/.test(trimmedDate)) {
+  if (trimmedDate && !/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) {
     return res.status(400).json({ error: '\u041d\u0435\u043a\u043e\u0440\u0440\u0435\u043a\u0442\u043d\u0430\u044f \u0434\u0430\u0442\u0430' });
-  }
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
   }
   const resolvedDay = (() => {
     if (trimmedDay) return trimmedDay;
@@ -1741,34 +2973,29 @@ app.post('/api/student-schedule', (req, res) => {
     lessonLink: typeof lessonLink === 'string' ? lessonLink.trim() : '',
     createdAt: new Date().toISOString(),
   };
-  const data = getStudentData(studentId);
+  const data = getStudentData(student.id);
   const schedule = [entry, ...(data.schedule || [])];
-  setStudentData(studentId, { ...data, schedule });
+  setStudentData(student.id, { ...data, schedule });
   res.json(entry);
 });
 
 app.delete('/api/student-schedule/:id', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
   const { id } = req.params;
   const { studentId } = req.query;
-  if (!studentId) return res.status(400).json({ error: 'studentId required' });
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
-  }
-  const data = getStudentData(studentId);
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const data = getStudentData(student.id);
   const schedule = (data.schedule || []).filter((item) => item.id !== id);
-  setStudentData(studentId, { ...data, schedule });
+  setStudentData(student.id, { ...data, schedule });
   res.json({ ok: true });
 });
 
 app.get('/api/student-next-lesson', (req, res) => {
   const { studentId } = req.query;
-  if (!studentId) return res.status(400).json({ error: 'studentId required' });
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
-  }
-  const data = getStudentData(studentId);
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const data = getStudentData(student.id);
   const legacyNextLesson = data.nextLesson && typeof data.nextLesson === 'object'
     ? data.nextLesson
     : { homeWork: '', lessonLink: '', boardLink: '' };
@@ -1810,13 +3037,11 @@ app.get('/api/student-next-lesson', (req, res) => {
 });
 
 app.patch('/api/student-next-lesson', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
   const { studentId, homeWork, lessonLink, boardLink, daysToComplete, taskNumber, levelId, targetQuestions, goals } = req.body || {};
-  if (!studentId) return res.status(400).json({ error: 'studentId required' });
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
-  }
-  const data = getStudentData(studentId);
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const data = getStudentData(student.id);
   const payloadHomeWork = typeof homeWork === 'string' ? homeWork.trim() : '';
   const payloadLessonLink = typeof lessonLink === 'string' ? lessonLink.trim() : '';
   const payloadBoardLink = typeof boardLink === 'string' ? boardLink.trim() : '';
@@ -1858,11 +3083,11 @@ app.patch('/api/student-next-lesson', (req, res) => {
   if (hasTaskNumber) {
     const taskNum = Number(taskNumber);
     if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) {
-      return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ РЅРѕРјРµСЂ Р·Р°РґР°РЅРёСЏ' });
+      return res.status(400).json({ error: 'Некорректный номер задания' });
     }
     const normalizedLevel = String(levelId || '').trim();
     if (!['basic', 'advanced', 'expert'].includes(normalizedLevel)) {
-      return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ СѓСЂРѕРІРµРЅСЊ' });
+      return res.status(400).json({ error: 'Некорректный уровень' });
     }
     normalizedTaskNumber = taskNum;
     normalizedLevelId = normalizedLevel;
@@ -1878,6 +3103,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
   }
   if (normalizedGoals.length === 0 && (normalizedTaskNumber || normalizedLevelId)) {
     normalizedGoals = [{
+      type: GOAL_TYPE_TASK,
       taskNumber: normalizedTaskNumber,
       levelId: normalizedLevelId,
       includeAll: false,
@@ -1909,23 +3135,21 @@ app.patch('/api/student-next-lesson', (req, res) => {
     targetQuestions: newEntry.targetQuestions,
     goals: newEntry.goals,
   };
-  const updated = setStudentData(studentId, { ...data, nextLesson, homeworks: updatedHomeworks });
+  const updated = setStudentData(student.id, { ...data, nextLesson, homeworks: updatedHomeworks });
   res.json({ homeworks: updated.homeworks || [], latest: nextLesson });
 });
 
 app.patch('/api/student-next-lesson/:id', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
   const { id } = req.params;
   const { studentId, homeWork, lessonLink, boardLink, daysToComplete, taskNumber, levelId, targetQuestions, goals } = req.body || {};
-  if (!studentId) return res.status(400).json({ error: 'studentId required' });
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
-  }
-  const data = getStudentData(studentId);
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const data = getStudentData(student.id);
   const homeworks = Array.isArray(data.homeworks) ? [...data.homeworks] : [];
   const index = homeworks.findIndex((entry) => entry?.id === id);
   if (index === -1) {
-    return res.status(404).json({ error: 'Р”РѕРјР°С€РєР° РЅРµ РЅР°Р№РґРµРЅР°' });
+    return res.status(404).json({ error: 'Домашка не найдена' });
   }
 
   const existing = homeworks[index] || {};
@@ -1945,10 +3169,19 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
   if (hasGoalsField) {
     normalizedGoals = normalizeGoals(goals, testsDb);
     if (normalizedGoals.length > 0) {
-      const primary = normalizedGoals[0];
-      normalizedTaskNumber = primary.taskNumber;
-      normalizedLevelId = primary.levelId;
-      normalizedTargets = primary.includeAll ? [] : primary.targetQuestions;
+      const primaryTaskGoal = normalizedGoals.find((goalItem) => (
+        normalizeGoalType(goalItem) === GOAL_TYPE_TASK
+        && Number.isFinite(goalItem?.taskNumber)
+      ));
+      if (primaryTaskGoal) {
+        normalizedTaskNumber = primaryTaskGoal.taskNumber;
+        normalizedLevelId = primaryTaskGoal.levelId;
+        normalizedTargets = primaryTaskGoal.includeAll ? [] : primaryTaskGoal.targetQuestions;
+      } else {
+        normalizedTaskNumber = null;
+        normalizedLevelId = null;
+        normalizedTargets = [];
+      }
     } else {
       normalizedTaskNumber = null;
       normalizedLevelId = null;
@@ -1963,11 +3196,11 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
     } else {
       const taskNum = Number(taskNumber);
       if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) {
-        return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ РЅРѕРјРµСЂ Р·Р°РґР°РЅРёСЏ' });
+        return res.status(400).json({ error: 'Некорректный номер задания' });
       }
       const normalizedLevel = String(levelId || '').trim();
       if (!['basic', 'advanced', 'expert'].includes(normalizedLevel)) {
-        return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ СѓСЂРѕРІРµРЅСЊ' });
+        return res.status(400).json({ error: 'Некорректный уровень' });
       }
       normalizedTaskNumber = taskNum;
       normalizedLevelId = normalizedLevel;
@@ -1982,7 +3215,7 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
       }
     }
     normalizedGoals = normalizedTaskNumber && normalizedLevelId
-      ? [{ taskNumber: normalizedTaskNumber, levelId: normalizedLevelId, includeAll: false, targetQuestions: normalizedTargets }]
+      ? [{ type: GOAL_TYPE_TASK, taskNumber: normalizedTaskNumber, levelId: normalizedLevelId, includeAll: false, targetQuestions: normalizedTargets }]
       : [];
   }
 
@@ -2014,19 +3247,17 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
       }
     : (data.nextLesson || { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] });
 
-  const updated = setStudentData(studentId, { ...data, nextLesson, homeworks });
+  const updated = setStudentData(student.id, { ...data, nextLesson, homeworks });
   res.json({ homeworks: updated.homeworks || [], latest: nextLesson });
 });
 
 app.delete('/api/student-next-lesson/:id', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
   const { id } = req.params;
   const studentId = req.query.studentId || req.body?.studentId;
-  if (!studentId) return res.status(400).json({ error: 'studentId required' });
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'Р Р€РЎвЂЎР ВµР Р…Р С‘Р С” Р Р…Р Вµ Р Р…Р В°Р в„–Р Т‘Р ВµР Р…' });
-  }
-  const data = getStudentData(studentId);
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const data = getStudentData(student.id);
   const homeworks = Array.isArray(data.homeworks) ? [...data.homeworks] : [];
 
   let updatedHomeworks = homeworks;
@@ -2035,7 +3266,7 @@ app.delete('/api/student-next-lesson/:id', (req, res) => {
   } else {
     const index = homeworks.findIndex((entry) => entry?.id === id);
     if (index === -1) {
-      return res.status(404).json({ error: 'Р вЂќР С•Р СР В°РЎв‚¬Р С”Р В° Р Р…Р Вµ Р Р…Р В°Р в„–Р Т‘Р ВµР Р…Р В°' });
+      return res.status(404).json({ error: 'Домашка не найдена' });
     }
     updatedHomeworks = homeworks.filter((_, idx) => idx !== index);
   }
@@ -2055,13 +3286,14 @@ app.delete('/api/student-next-lesson/:id', (req, res) => {
       }
     : { homeWork: '', lessonLink: '', boardLink: '', issuedAt: '', daysToComplete: 7, taskNumber: null, levelId: null, targetQuestions: [], goals: [] };
 
-  const updated = setStudentData(studentId, { ...data, nextLesson, homeworks: updatedHomeworks });
+  const updated = setStudentData(student.id, { ...data, nextLesson, homeworks: updatedHomeworks });
   res.json({ homeworks: updated.homeworks || [], latest: nextLesson });
 });
 
 
 app.post('/api/test-files', upload.single('file'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Р¤Р°Р№Р» РЅРµ РЅР°Р№РґРµРЅ' });
+  if (isStudentRole(req.auth)) return forbid(res);
+  if (!req.file) return res.status(400).json({ error: 'Файл не найден' });
   const id = req.fileId || crypto.randomUUID();
   res.json({
     id,
@@ -2074,21 +3306,31 @@ app.post('/api/test-files', upload.single('file'), (req, res) => {
 });
 
 app.delete('/api/test-files/:storageName', (req, res) => {
+  if (isStudentRole(req.auth)) return forbid(res);
   const rawName = req.params.storageName || '';
   const safeName = path.basename(rawName);
-  if (!safeName) return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅРѕРµ РёРјСЏ С„Р°Р№Р»Р°' });
+  if (!safeName) return res.status(400).json({ error: 'Некорректное имя файла' });
   const filePath = path.join(uploadsDir, safeName);
   fs.unlink(filePath, (err) => {
-    if (err) return res.status(404).json({ error: 'Р¤Р°Р№Р» РЅРµ РЅР°Р№РґРµРЅ' });
+    if (err) return res.status(404).json({ error: 'Файл не найден' });
     res.json({ ok: true });
   });
 });
 
 app.get('/api/folders', (req, res) => {
   const { taskNumber, category, studentId } = req.query;
+  const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
+  const effectiveStudentId = requestedStudentId || (isStudentRole(req.auth) ? req.auth.id : '');
+  if (!effectiveStudentId && !isAdminRole(req.auth)) {
+    return res.status(400).json({ error: 'studentId required' });
+  }
+  if (effectiveStudentId) {
+    const student = ensureStudentAccess(req, res, effectiveStudentId);
+    if (!student) return;
+  }
   let folders = readFoldersDb();
-  if (studentId) {
-    folders = folders.filter((f) => f.studentId === studentId);
+  if (effectiveStudentId) {
+    folders = folders.filter((f) => f.studentId === effectiveStudentId);
   }
   if (taskNumber) {
     const taskNum = Number(taskNumber);
@@ -2105,35 +3347,33 @@ app.post('/api/folders', (req, res) => {
   const taskNum = Number(taskNumber);
   const folderName = normalizeFolderName(name);
 
-  if (!studentId || !Number.isFinite(taskNum) || !category || !folderName) {
-    return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Рµ РїР°СЂР°РјРµС‚СЂС‹' });
+  if (!Number.isFinite(taskNum) || !category || !folderName) {
+    return res.status(400).json({ error: 'Некорректные параметры' });
   }
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
-    return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
-  }
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
   if (folderName.length > 60) {
-    return res.status(400).json({ error: 'РќР°Р·РІР°РЅРёРµ СЃР»РёС€РєРѕРј РґР»РёРЅРЅРѕРµ' });
+    return res.status(400).json({ error: 'Название слишком длинное' });
   }
   if (/[/\\]/.test(folderName)) {
-    return res.status(400).json({ error: 'РќРµРґРѕРїСѓСЃС‚РёРјС‹Рµ СЃРёРјРІРѕР»С‹' });
+    return res.status(400).json({ error: 'Недопустимые символы' });
   }
 
   const folders = readFoldersDb();
   const exists = folders.some(
     (f) =>
-      f.studentId === studentId &&
+      f.studentId === student.id &&
       f.taskNumber === taskNum &&
       f.category === category &&
       f.name?.toLowerCase() === folderName.toLowerCase()
   );
   if (exists) {
-    return res.status(409).json({ error: 'РўР°РєР°СЏ РїР°РїРєР° СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓРµС‚' });
+    return res.status(409).json({ error: 'Такая папка уже существует' });
   }
 
   const entry = {
     id: crypto.randomUUID(),
-    studentId,
+    studentId: student.id,
     taskNumber: taskNum,
     category,
     name: folderName,
@@ -2150,17 +3390,18 @@ app.patch('/api/folders/:id', (req, res) => {
   const { name } = req.body || {};
   const folderName = normalizeFolderName(name);
 
-  if (!folderName) return res.status(400).json({ error: 'Р’РІРµРґРёС‚Рµ РЅР°Р·РІР°РЅРёРµ РїР°РїРєРё' });
-  if (folderName.length > 60) return res.status(400).json({ error: 'РќР°Р·РІР°РЅРёРµ СЃР»РёС€РєРѕРј РґР»РёРЅРЅРѕРµ' });
+  if (!folderName) return res.status(400).json({ error: 'Введите название папки' });
+  if (folderName.length > 60) return res.status(400).json({ error: 'Название слишком длинное' });
   if (/[/\\]/.test(folderName)) {
-    return res.status(400).json({ error: 'РќРµРґРѕРїСѓСЃС‚РёРјС‹Рµ СЃРёРјРІРѕР»С‹' });
+    return res.status(400).json({ error: 'Недопустимые символы' });
   }
 
   const folders = readFoldersDb();
   const idx = folders.findIndex((f) => f.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'РџР°РїРєР° РЅРµ РЅР°Р№РґРµРЅР°' });
+  if (idx === -1) return res.status(404).json({ error: 'Папка не найдена' });
 
   const current = folders[idx];
+  if (!ensureStudentAccess(req, res, current.studentId, { allowDeleted: true })) return;
   const exists = folders.some(
     (f) =>
       f.id !== id &&
@@ -2170,7 +3411,7 @@ app.patch('/api/folders/:id', (req, res) => {
       f.name?.toLowerCase() === folderName.toLowerCase()
   );
   if (exists) {
-    return res.status(409).json({ error: 'РўР°РєР°СЏ РїР°РїРєР° СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓРµС‚' });
+    return res.status(409).json({ error: 'Такая папка уже существует' });
   }
 
   const updated = { ...current, name: folderName };
@@ -2193,9 +3434,18 @@ app.patch('/api/folders/:id', (req, res) => {
 
 app.get('/api/files', (req, res) => {
   const { taskNumber, category, studentId } = req.query;
+  const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
+  const effectiveStudentId = requestedStudentId || (isStudentRole(req.auth) ? req.auth.id : '');
+  if (!effectiveStudentId && !isAdminRole(req.auth)) {
+    return res.status(400).json({ error: 'studentId required' });
+  }
+  if (effectiveStudentId) {
+    const student = ensureStudentAccess(req, res, effectiveStudentId);
+    if (!student) return;
+  }
   let files = readFilesDb();
-  if (studentId) {
-    files = files.filter((f) => f.studentId === studentId);
+  if (effectiveStudentId) {
+    files = files.filter((f) => f.studentId === effectiveStudentId);
   }
   if (taskNumber) {
     const taskNum = Number(taskNumber);
@@ -2209,21 +3459,21 @@ app.get('/api/files', (req, res) => {
 
 app.post('/api/files', upload.single('file'), (req, res) => {
   const { taskNumber, category, folderId, studentId } = req.body;
-  if (!req.file) return res.status(400).json({ error: 'Р¤Р°Р№Р» РЅРµ РЅР°Р№РґРµРЅ' });
+  if (!req.file) return res.status(400).json({ error: 'Файл не найден' });
 
   const taskNum = Number(taskNumber);
-  if (!studentId || !Number.isFinite(taskNum) || !category) {
+  if (!Number.isFinite(taskNum) || !category) {
     try {
       fs.unlinkSync(req.file.path);
     } catch {}
-    return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Рµ РїР°СЂР°РјРµС‚СЂС‹' });
+    return res.status(400).json({ error: 'Некорректные параметры' });
   }
-  const students = readStudentsDb();
-  if (!hasActiveStudent(students, studentId)) {
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) {
     try {
       fs.unlinkSync(req.file.path);
     } catch {}
-    return res.status(404).json({ error: 'РЈС‡РµРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
+    return;
   }
 
   let folderName = null;
@@ -2233,7 +3483,7 @@ app.post('/api/files', upload.single('file'), (req, res) => {
     folderRef = folders.find(
       (f) =>
         f.id === folderId &&
-        f.studentId === studentId &&
+        f.studentId === student.id &&
         f.taskNumber === taskNum &&
         f.category === category
     );
@@ -2241,26 +3491,26 @@ app.post('/api/files', upload.single('file'), (req, res) => {
       try {
         fs.unlinkSync(req.file.path);
       } catch {}
-      return res.status(400).json({ error: 'РџР°РїРєР° РЅРµ РЅР°Р№РґРµРЅР°' });
+      return res.status(400).json({ error: 'Папка не найдена' });
     }
     folderName = folderRef.name;
   }
 
   const db = readFilesDb();
   const currentTotal = db
-    .filter((f) => f.taskNumber === taskNum && f.studentId === studentId)
+    .filter((f) => f.taskNumber === taskNum && f.studentId === student.id)
     .reduce((sum, f) => sum + getEntrySizeBytes(f), 0);
   if (currentTotal + req.file.size > MAX_TASK_BYTES) {
     try {
       fs.unlinkSync(req.file.path);
     } catch {}
-    return res.status(413).json({ error: 'РџСЂРµРІС‹С€РµРЅ Р»РёРјРёС‚ 200 РњР‘ РґР»СЏ СЌС‚РѕРіРѕ Р·Р°РґР°РЅРёСЏ' });
+    return res.status(413).json({ error: 'Превышен лимит 200 МБ для этого задания' });
   }
 
   const id = req.fileId || crypto.randomUUID();
   const entry = {
     id,
-    studentId,
+    studentId: student.id,
     taskNumber: taskNum,
     category,
     folderId: folderRef?.id || null,
@@ -2283,7 +3533,8 @@ app.delete('/api/files/:id', (req, res) => {
   const { id } = req.params;
   const db = readFilesDb();
   const idx = db.findIndex((f) => f.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Р¤Р°Р№Р» РЅРµ РЅР°Р№РґРµРЅ' });
+  if (idx === -1) return res.status(404).json({ error: 'Файл не найден' });
+  if (!ensureStudentAccess(req, res, db[idx]?.studentId, { allowDeleted: true })) return;
 
   const [removed] = db.splice(idx, 1);
   writeFilesDb(db);
@@ -2299,17 +3550,20 @@ app.delete('/api/files/:id', (req, res) => {
 app.patch('/api/files/:id', (req, res) => {
   const { id } = req.params;
   const { name } = req.body || {};
+  const hasContentField = Object.prototype.hasOwnProperty.call(req.body || {}, 'content');
+  const content = hasContentField ? req.body.content : undefined;
 
   const db = readFilesDb();
   const idx = db.findIndex((f) => f.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Р¤Р°Р№Р» РЅРµ РЅР°Р№РґРµРЅ' });
+  if (idx === -1) return res.status(404).json({ error: 'Файл не найден' });
+  if (!ensureStudentAccess(req, res, db[idx]?.studentId, { allowDeleted: true })) return;
 
   let updated = { ...db[idx] };
 
   if (typeof name !== 'undefined') {
     const newName = normalizeFolderName(name);
-    if (!newName) return res.status(400).json({ error: 'Р’РІРµРґРёС‚Рµ РЅР°Р·РІР°РЅРёРµ С„Р°Р№Р»Р°' });
-    if (newName.length > 120) return res.status(400).json({ error: 'РќР°Р·РІР°РЅРёРµ СЃР»РёС€РєРѕРј РґР»РёРЅРЅРѕРµ' });
+    if (!newName) return res.status(400).json({ error: 'Введите название файла' });
+    if (newName.length > 120) return res.status(400).json({ error: 'Название слишком длинное' });
     updated.name = newName;
   }
 
@@ -2327,10 +3581,38 @@ app.patch('/api/files/:id', (req, res) => {
           f.taskNumber === updated.taskNumber &&
           f.category === updated.category
       );
-      if (!folderRef) return res.status(400).json({ error: 'РџР°РїРєР° РЅРµ РЅР°Р№РґРµРЅР°' });
+      if (!folderRef) return res.status(400).json({ error: 'Папка не найдена' });
       updated.folderId = folderRef.id;
       updated.folderName = folderRef.name;
     }
+  }
+
+  if (hasContentField) {
+    if (typeof content !== 'string') {
+      return res.status(400).json({ error: 'Некорректное содержимое файла' });
+    }
+    if (!isPyFileName(updated.name)) {
+      return res.status(400).json({ error: 'Редактировать можно только .py файлы' });
+    }
+    const safeStorageName = path.basename(updated.storageName || '');
+    if (!safeStorageName) {
+      return res.status(400).json({ error: 'Некорректное имя файла на диске' });
+    }
+    const filePath = path.join(uploadsDir, safeStorageName);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Файл на диске не найден' });
+    }
+    const nextSizeBytes = Buffer.byteLength(content, 'utf8');
+    const currentTotal = db
+      .filter((file) => file.id !== id && file.studentId === updated.studentId && file.taskNumber === updated.taskNumber)
+      .reduce((sum, file) => sum + getEntrySizeBytes(file), 0);
+    if (currentTotal + nextSizeBytes > MAX_TASK_BYTES) {
+      return res.status(413).json({ error: 'Превышен лимит 200 МБ для этого задания' });
+    }
+    fs.writeFileSync(filePath, content, 'utf8');
+    updated.sizeBytes = nextSizeBytes;
+    updated.size = formatSize(nextSizeBytes);
+    updated.date = new Date().toLocaleDateString('ru-RU');
   }
 
   db[idx] = updated;
@@ -2351,17 +3633,19 @@ if (fs.existsSync(distDir)) {
 
 app.use((err, _req, res, _next) => {
   if (err?.code === 'LIMIT_FILE_SIZE') {
-    return res.status(413).json({ error: 'Р¤Р°Р№Р» Р±РѕР»СЊС€Рµ 50 РњР‘' });
+    return res.status(413).json({ error: 'Файл больше 50 МБ' });
   }
   if (err?.type === 'entity.too.large') {
-    return res.status(413).json({ error: 'РЎР»РёС€РєРѕРј Р±РѕР»СЊС€РѕР№ Р·Р°РїСЂРѕСЃ. РЈРјРµРЅСЊС€РёС‚Рµ СЂР°Р·РјРµСЂ РґР°РЅРЅС‹С….' });
+    return res.status(413).json({ error: 'Слишком большой запрос. Уменьшите размер данных.' });
   }
   console.error(err);
-  res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
+  res.status(500).json({ error: 'Ошибка сервера' });
 });
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+
+
 
 
