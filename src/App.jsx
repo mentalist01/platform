@@ -5793,6 +5793,8 @@ const ProgressSection = ({
   studentsLoading,
   openTask,
   onOpenTaskHandled,
+  openMockExamId,
+  onOpenMockExamHandled,
   initialSection,
   sectionJumpToken,
   onSectionChange,
@@ -5843,6 +5845,7 @@ const ProgressSection = ({
   const mockAttemptRequestIdRef = useRef(0);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
+  const prevEffectiveStudentIdRef = useRef(effectiveStudentId);
 
   const visibleMockExams = useMemo(() => {
     if (role !== 'student') return mockExams || [];
@@ -6236,12 +6239,17 @@ const ProgressSection = ({
   }, [role, effectiveStudentId, visibleMockExams]);
 
   useEffect(() => {
-    setActiveTask(null);
-    setReviewTask(null);
-    setAutoLevel(null);
-    setAutoTargetQuestions(null);
-    setActiveLevel(null);
-    setActiveQuestionIndex(null);
+    const studentChanged = prevEffectiveStudentIdRef.current !== effectiveStudentId;
+    prevEffectiveStudentIdRef.current = effectiveStudentId;
+    const sectionChangedAwayFromProgress = section !== 'progress';
+    if (studentChanged || sectionChangedAwayFromProgress) {
+      setActiveTask(null);
+      setReviewTask(null);
+      setAutoLevel(null);
+      setAutoTargetQuestions(null);
+      setActiveLevel(null);
+      setActiveQuestionIndex(null);
+    }
     setOpenTaskCodeNumber(null);
     setTaskCodeCache({});
     setTaskCodeLoadingNumber(null);
@@ -6285,6 +6293,27 @@ const ProgressSection = ({
     }
     onOpenTaskHandled?.();
   }, [openTask, role, taskList, onOpenTaskHandled]);
+
+  useEffect(() => {
+    if (role !== 'student' || !openMockExamId) return;
+    setSection('mocks');
+    if (mockExamsLoading) return;
+
+    const targetId = String(openMockExamId);
+    const targetExam = (visibleMockExams || []).find((exam) => String(exam?.id) === targetId)
+      || (mockExams || []).find((exam) => String(exam?.id) === targetId);
+    if (targetExam) {
+      handleOpenMockExam(targetExam);
+    }
+    onOpenMockExamHandled?.();
+  }, [
+    role,
+    openMockExamId,
+    mockExamsLoading,
+    visibleMockExams,
+    mockExams,
+    onOpenMockExamHandled
+  ]);
 
   useEffect(() => {
     if (role !== 'student') return;
@@ -12222,6 +12251,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const initialProgressSection = ['progress', 'notes', 'mocks'].includes(storedLocation?.progressSection)
     ? storedLocation.progressSection
     : 'progress';
+  const initialMockExamId = normalizeMockExamId(storedLocation?.mockExamId);
   const initialNotesLocation = storedLocation?.notesLocation && typeof storedLocation.notesLocation === 'object'
     ? storedLocation.notesLocation
     : null;
@@ -12230,6 +12260,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [progressSectionJumpToken, setProgressSectionJumpToken] = useState(0);
   const [pendingOpenTask, setPendingOpenTask] = useState(() => (user.role === 'student' ? restoredOpenTask : null));
+  const [pendingOpenMockExamId, setPendingOpenMockExamId] = useState(
+    () => (user.role === 'student' ? initialMockExamId : null)
+  );
   const [goalState, setGoalState] = useState(null);
   const [goalTestsDb, setGoalTestsDb] = useState(null);
   const [goalRefreshTick, setGoalRefreshTick] = useState(0);
@@ -12280,6 +12313,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     if (user.role !== 'teacher') return;
     updateUserLocation(user, { activeStudentId: activeStudentId || null });
   }, [activeStudentId, user]);
+
+  useEffect(() => {
+    if (user.role === 'student') return;
+    setPendingOpenMockExamId(null);
+  }, [user.role, user.id]);
 
   const nav = user.role === 'admin'
     ? [
@@ -12715,15 +12753,26 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       questionIndex: null
     };
     setPendingOpenTask(nextTask);
+    setPendingOpenMockExamId(null);
     setView(pythonTask ? 'python' : 'progress');
     setMenuOpen(false);
-    updateUserLocation(user, { view: pythonTask ? 'python' : 'progress', openTask: nextTask });
+    if (pythonTask) {
+      updateUserLocation(user, { view: 'python', openTask: nextTask, mockExamId: null });
+    } else {
+      updateUserLocation(user, {
+        view: 'progress',
+        openTask: nextTask,
+        progressSection: 'progress',
+        mockExamId: null
+      });
+    }
   };
 
   const handleOpenMockGoal = (mockExamId = null) => {
     if (user.role !== 'student') return;
     const normalizedMockExamId = normalizeMockExamId(mockExamId);
     setPendingOpenTask(null);
+    setPendingOpenMockExamId(normalizedMockExamId || null);
     setView('progress');
     setMenuOpen(false);
     updateUserLocation(user, {
@@ -12733,6 +12782,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       mockExamId: normalizedMockExamId || null
     });
     setProgressSectionJumpToken((prev) => prev + 1);
+  };
+
+  const handleOpenMockGoalHandled = () => {
+    setPendingOpenMockExamId(null);
+    if (user.role !== 'student') return;
+    updateUserLocation(user, { mockExamId: null });
   };
 
   const formatDaysText = (days) => {
@@ -13407,6 +13462,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               onSectionChange={handleProgressSectionChange}
               onTaskStateChange={handleTaskStateChange}
               onStreakSaved={handleStreakSaved}
+              openMockExamId={pendingOpenMockExamId}
+              onOpenMockExamHandled={handleOpenMockGoalHandled}
               onMockAttemptSaved={() => {
                 if (user.role === 'student') setGoalRefreshTick((prev) => prev + 1);
               }}
