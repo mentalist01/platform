@@ -6,7 +6,7 @@ import 'prismjs/themes/prism-tomorrow.css';
 import Editor from '@monaco-editor/react';
 import { 
   BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle,
-  Menu, X, ChevronRight, Folder, FolderPlus, Upload, 
+  X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Image as ImageIcon
 } from 'lucide-react';  
@@ -1283,10 +1283,10 @@ const STUDENT_TOUR_STEPS = [
   {
     id: 'nav',
     title: 'Навигация',
-    text: 'Слева меню. Через него переключаются разделы ученика.',
+    text: 'На телефоне разделы переключаются внизу, на компьютере — в меню слева.',
     emotion: 'peeking',
     target: '[data-tour="nav"]',
-    menu: 'open'
+    menu: 'close'
   },
   {
     id: 'schedule',
@@ -1345,7 +1345,7 @@ const LogoMark = ({ className = '' }) => (
 );
 
 const Button = ({ children, onClick, variant = 'primary', className = '', ...props }) => {
-  const baseStyle = "px-4 py-2 rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-[1px] disabled:opacity-50 disabled:cursor-not-allowed";
+  const baseStyle = "px-4 py-2.5 sm:py-2 rounded-xl font-semibold text-sm sm:text-[15px] leading-tight transition-all duration-200 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-[1px] disabled:opacity-50 disabled:cursor-not-allowed";
   const variants = {
     primary: "bg-purple-600 text-white hover:bg-purple-700 shadow-md shadow-purple-200 hover:-translate-y-[1px]",
     secondary: "bg-white/80 text-gray-700 border border-slate-200 hover:bg-white",
@@ -1359,7 +1359,7 @@ const Button = ({ children, onClick, variant = 'primary', className = '', ...pro
 const Card = ({ children, className = '', onClick, ...props }) => (
   <div
     onClick={onClick}
-    className={`surface-card rounded-3xl p-5 transition-all duration-300 ${onClick ? 'cursor-pointer hover:border-purple-200 hover:shadow-lift hover:-translate-y-1 active:translate-y-0' : ''} ${className}`}
+    className={`surface-card rounded-3xl p-4 sm:p-5 transition-all duration-300 ${onClick ? 'cursor-pointer hover:border-purple-200 hover:shadow-lift hover:-translate-y-1 active:translate-y-0' : ''} ${className}`}
     {...props}
   >
     {children}
@@ -3009,7 +3009,15 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
   const [runnerLoading, setRunnerLoading] = useState(false);
   const [runnerError, setRunnerError] = useState('');
   const [testResults, setTestResults] = useState([]);
-  const [showTheory, setShowTheory] = useState(true);
+  const isMobileViewport = typeof window !== 'undefined'
+    ? window.matchMedia('(max-width: 767px)').matches
+    : false;
+  const [showTheory, setShowTheory] = useState(() => (
+    typeof window === 'undefined'
+      ? true
+      : !window.matchMedia('(max-width: 767px)').matches
+  ));
+  const [expandedTestIndex, setExpandedTestIndex] = useState(null);
   const currentQuestionIdRef = useRef(null);
   const runnerWorkerRef = useRef(null);
   const runnerPendingRef = useRef(new Map());
@@ -3090,6 +3098,7 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
     setCode(nextCode);
     setTestResults([]);
     setRunnerError('');
+    setExpandedTestIndex(null);
   }, [questions, currentIndex, solvedCodeById, studentId, task?.number]);
 
   useEffect(() => {
@@ -3372,25 +3381,26 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
     formatOnType: true,
     formatOnPaste: true
   };
+  const codeEditorHeight = isMobileViewport ? '170px' : '260px';
 
   const modal = (
-    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="surface-card modal-card rounded-3xl w-full max-w-5xl max-h-[90vh] p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
-        <div className="flex flex-col gap-4 mb-4">
+    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-end sm:items-center justify-center p-2 sm:p-4 backdrop-blur-sm">
+      <div className="surface-card modal-card rounded-2xl md:rounded-3xl w-full max-w-5xl max-h-[95svh] md:max-h-[90vh] p-3.5 sm:p-4 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
+        <div className="flex flex-col gap-3 md:gap-4 mb-3 md:mb-4">
           <div className="flex justify-between items-start">
             <div>
               <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Тема</div>
-              <div className="text-lg font-bold text-gray-900">{task.title}</div>
+              <div className="text-base md:text-lg font-bold text-gray-900 leading-tight">{task.title}</div>
             </div>
-            <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
+            <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={18}/></button>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2 overflow-x-auto pb-1 pr-1">
             {questions.map((q, idx) => {
               const qId = String(q?.id ?? idx);
               const solved = solvedIds.has(qId);
               const isCurrent = idx === currentIndex;
-              let btnClass = "w-8 h-8 rounded-lg text-sm font-bold flex items-center justify-center transition-all border-2 ";
+              let btnClass = "shrink-0 w-9 h-9 rounded-lg text-sm font-bold flex items-center justify-center transition-all border-2 ";
 
               if (isCurrent && solved) {
                 btnClass += "border-green-400 ring-2 ring-green-100 bg-green-100 text-green-700";
@@ -3414,20 +3424,28 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
               );
             })}
           </div>
+          <div className="flex items-center justify-between text-[11px] md:text-xs text-slate-500">
+            <span>Задание {currentIndex + 1} из {questions.length}</span>
+            {isSolved ? (
+              <span className="font-semibold text-emerald-600">Решено</span>
+            ) : (
+              <span className="font-medium text-slate-400">Не решено</span>
+            )}
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto pr-1">
+        <div className="flex-1 overflow-y-auto pr-0 md:pr-1">
           {theory?.content && (
-            <div className="mb-6 rounded-2xl border border-purple-100 bg-purple-50/60 p-4">
-              <div className="flex items-center justify-between">
+            <div className="mb-4 md:mb-6 rounded-2xl border border-purple-100 bg-purple-50/60 p-3 md:p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Теория</div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3 text-[11px] sm:text-xs">
                   {theoryFullUrl && (
                     <a
                       href={theoryFullUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-purple-600 hover:text-purple-700"
+                      className="text-purple-600 hover:text-purple-700"
                     >
                       Открыть полностью
                     </a>
@@ -3435,7 +3453,7 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
                   <button
                     type="button"
                     onClick={() => setShowTheory((prev) => !prev)}
-                    className="text-xs text-purple-600 hover:text-purple-700"
+                    className="text-purple-600 hover:text-purple-700"
                   >
                     {showTheory ? 'Свернуть' : 'Показать'}
                   </button>
@@ -3448,7 +3466,7 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
                       <iframe
                         title={`theory-${task.number}`}
                         src={theory.content}
-                        className="w-full h-[360px]"
+                        className="w-full h-[240px] md:h-[360px]"
                       />
                     </div>
                   ) : (
@@ -3457,7 +3475,7 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
                     </div>
                   )
                 ) : (
-                  <div className="mt-3 whitespace-pre-wrap text-sm text-gray-700">
+                  <div className="mt-3 whitespace-pre-wrap text-sm text-gray-700 leading-relaxed max-h-[34svh] overflow-y-auto pr-1 md:max-h-none md:overflow-visible md:pr-0">
                     {theory.content}
                   </div>
                 )
@@ -3465,18 +3483,17 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
             </div>
           )}
           {screenshots.length > 0 && (
-            <div className="space-y-3 mb-6">
+            <div className="space-y-2.5 md:space-y-3 mb-5 md:mb-6">
               {screenshots.map((img) => (
                 <div
                   key={img.id || img.url}
-                  className="border rounded-2xl overflow-hidden bg-gray-900/5"
-                  style={{ maxHeight: '65vh' }}
+                  className="border rounded-2xl overflow-hidden bg-gray-900/5 max-h-[42vh] sm:max-h-[55vh] md:max-h-[65vh]"
                 >
                   <img
                     src={img.url}
                     alt={img.name || 'Скриншот'}
                     className="w-full object-contain cursor-zoom-in"
-                    style={{ maxHeight: '65vh' }}
+                    style={{ maxHeight: isMobileViewport ? '42vh' : '65vh' }}
                     onClick={() => setExpandedImage(img)}
                   />
                 </div>
@@ -3485,7 +3502,7 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
           )}
 
           {extraFiles.length > 0 && (
-            <div className="mb-6">
+            <div className="mb-5 md:mb-6">
               <p className="text-xs font-bold text-gray-400 uppercase mb-2">Доп. файлы</p>
               <div className="space-y-2">
                 {extraFiles.map((file) => (
@@ -3508,10 +3525,10 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
             <div className="mb-2 text-xs font-semibold text-green-600 uppercase tracking-wide">Решено ранее</div>
           )}
           {currentQuestion?.question && (
-            <p className="text-lg font-medium text-gray-900 mb-6 whitespace-pre-wrap">{currentQuestion.question}</p>
+            <p className="text-[15px] md:text-lg font-medium leading-relaxed text-gray-900 mb-5 md:mb-6 whitespace-pre-wrap">{currentQuestion.question}</p>
           )}
 
-          <div className="space-y-3 mb-6">
+          <div className="space-y-3 mb-5 md:mb-6">
             <div className="flex items-center justify-between">
               <label className="block text-xs font-bold text-gray-400 uppercase">Код</label>
               <button
@@ -3524,7 +3541,7 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
             </div>
             <div className="rounded-2xl overflow-hidden border border-gray-800">
               <Editor
-                height="260px"
+                height={codeEditorHeight}
                 language="python"
                 theme="vs-dark"
                 value={code}
@@ -3542,10 +3559,10 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
             <div className="mb-4 text-sm text-red-500">{runnerError}</div>
           )}
 
-          <div className="space-y-3 mb-6">
-            <div className="flex items-center justify-between">
+          <div className="space-y-3 mb-5 md:mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div className="text-xs font-bold text-gray-400 uppercase">Тесты</div>
-              <Button onClick={handleRunTests} disabled={runnerLoading || !code.trim()}>
+              <Button onClick={handleRunTests} disabled={runnerLoading || !code.trim()} className="w-full sm:w-auto">
                 {runnerLoading ? 'Запуск...' : 'Запустить тесты'}
               </Button>
             </div>
@@ -3556,33 +3573,47 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
                 {testsToShow.map((item, idx) => {
                   const result = testResults[idx];
                   const passed = result?.passed ?? (solvedAllTests ? true : undefined);
+                  const showDetails = !isMobileViewport || Boolean(result) || expandedTestIndex === idx;
                   return (
                     <div
                       key={`${idx}-${item.input}`}
-                      className={`rounded-2xl border p-3 text-sm ${
+                      className={`rounded-2xl border p-2.5 md:p-3 text-xs md:text-sm ${
                         passed === undefined
                           ? 'border-gray-200 bg-gray-50'
                           : (passed ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50')
                       }`}
                     >
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
                         <span className="font-semibold">Тест {idx + 1}</span>
-                        <span className={`text-xs font-bold ${
-                          passed === undefined ? 'text-gray-400' : (passed ? 'text-emerald-700' : 'text-red-600')
-                        }`}>
-                          {passed === undefined ? '—' : (passed ? 'OK' : 'Ошибка')}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[11px] md:text-xs font-bold ${
+                            passed === undefined ? 'text-gray-400' : (passed ? 'text-emerald-700' : 'text-red-600')
+                          }`}>
+                            {passed === undefined ? '—' : (passed ? 'OK' : 'Ошибка')}
+                          </span>
+                          {isMobileViewport && !result && (
+                            <button
+                              type="button"
+                              onClick={() => setExpandedTestIndex((prev) => (prev === idx ? null : idx))}
+                              className="text-[11px] font-semibold text-purple-600"
+                            >
+                              {showDetails ? 'Скрыть' : 'Детали'}
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="mt-2 text-xs text-gray-600">
-                        <div><span className="font-semibold">Вход:</span> {item.input || '—'}</div>
-                        <div><span className="font-semibold">Ожидалось:</span> {item.output || '—'}</div>
-                        {result && (
-                          <>
-                            <div><span className="font-semibold">Вывод:</span> {normalizeOutput(result.output) || '—'}</div>
-                            {result.error && <div className="text-red-600 mt-1">{result.error}</div>}
-                          </>
-                        )}
-                      </div>
+                      {showDetails && (
+                        <div className="mt-1.5 text-[11px] md:text-xs text-gray-600">
+                          <div><span className="font-semibold">Вход:</span> {item.input || '—'}</div>
+                          <div><span className="font-semibold">Ожидалось:</span> {item.output || '—'}</div>
+                          {result && (
+                            <>
+                              <div><span className="font-semibold">Вывод:</span> {normalizeOutput(result.output) || '—'}</div>
+                              {result.error && <div className="text-red-600 mt-1">{result.error}</div>}
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -3591,14 +3622,15 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
           </div>
         </div>
 
-        <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
-          <div className="text-sm text-gray-500">
+        <div className="pt-3 md:pt-4 border-t border-gray-100 bg-white/95 pb-[calc(env(safe-area-inset-bottom)+0.25rem)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+          <div className="text-xs sm:text-sm text-gray-500">
             Прогресс темы: <span className="font-semibold text-purple-700">{currentMastery}%</span>
+            <span className="text-gray-400"> • {currentIndex + 1}/{questions.length}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={onClose}>Закрыть</Button>
-            <Button onClick={handleNext} disabled={currentIndex >= questions.length - 1}>
-              Дальше
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Button variant="secondary" onClick={onClose} className="w-full sm:w-auto">Закрыть</Button>
+            <Button onClick={handleNext} className="w-full sm:w-auto">
+              {currentIndex >= questions.length - 1 ? 'Готово' : 'Дальше'}
             </Button>
           </div>
         </div>
@@ -4902,22 +4934,29 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     const questionCodeUpdatedAtLabel = questionCodeEntry.updatedAt
       ? new Date(questionCodeEntry.updatedAt).toLocaleString('ru-RU')
       : '';
+    const isMobileViewport = typeof window !== 'undefined'
+      ? window.matchMedia('(max-width: 767px)').matches
+      : false;
+    const questionCodeEditorHeight = isMobileViewport ? '180px' : '240px';
 
     const modal = (
       <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
-        <div className="surface-card modal-card rounded-3xl w-full max-w-5xl max-h-[90vh] p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
+        <div className="surface-card modal-card rounded-2xl md:rounded-3xl w-full max-w-5xl max-h-[90vh] p-3.5 sm:p-4 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
           {/* Header & Navigation */}
-          <div className="flex flex-col gap-4 mb-4">
+          <div className="flex flex-col gap-3 md:gap-4 mb-3 md:mb-4">
             <div className="flex justify-between items-start">
-               <span className={`px-3 py-1 rounded-lg text-xs font-bold uppercase ${LEVELS[level.toUpperCase()].color}`}>
+               <span className={`px-2.5 py-1 rounded-lg text-[11px] md:text-xs font-bold uppercase ${LEVELS[level.toUpperCase()].color}`}>
                 {LEVELS[level.toUpperCase()].label}
               </span>
-              <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
+              <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={18}/></button>
             </div>
             {targetStatus.length > 0 && (
-              <div className="rounded-2xl border border-purple-100 bg-purple-50 px-4 py-3 text-xs text-purple-700">
-                <div className="font-semibold">Цель — решить эти задания:</div>
-                <div className="flex flex-wrap gap-2 mt-2">
+              <div className="rounded-2xl border border-purple-100 bg-purple-50 px-3 py-2.5 md:px-4 md:py-3 text-xs text-purple-700">
+                <div className="font-semibold">Цель: решить отмеченные задания</div>
+                <div className="mt-1 text-[11px] md:hidden">
+                  Выполнено {targetSolvedCount}/{targetStatus.length}
+                </div>
+                <div className="hidden md:flex flex-wrap gap-2 mt-2">
                   {targetStatus.map((item) => (
                     <span
                       key={item.num}
@@ -4931,20 +4970,20 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
                     </span>
                   ))}
                 </div>
-                <div className="mt-2 text-[11px] text-purple-600">
+                <div className="hidden md:block mt-2 text-[11px] text-purple-600">
                   Выполнено {targetSolvedCount}/{targetStatus.length}
                 </div>
               </div>
             )}
             
             {/* Question Navigation Bar */}
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2 overflow-x-auto pb-1 pr-1">
             {questions.map((q, idx) => {
               const qId = String(q?.id ?? idx);
               const solved = solvedIds.has(qId);
               const status = results[idx]; // true, false or undefined
               const isCurrent = idx === currentIndex;
-              let btnClass = "w-8 h-8 rounded-lg text-sm font-bold flex items-center justify-center transition-all border-2 ";
+              let btnClass = "shrink-0 w-9 h-9 rounded-lg text-sm font-bold flex items-center justify-center transition-all border-2 ";
 
               if (isCurrent && (solved || status === true)) {
                 btnClass += "border-green-400 ring-2 ring-green-100 bg-green-100 text-green-700";
@@ -4974,20 +5013,19 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
           </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto pr-1">
+          <div className="flex-1 overflow-y-auto pr-0 md:pr-1">
             {screenshots.length > 0 && (
-              <div className="space-y-3 mb-6">
+              <div className="space-y-2.5 md:space-y-3 mb-5 md:mb-6">
                 {screenshots.map((img) => (
                   <div
                     key={img.id || img.url}
-                    className="border rounded-2xl overflow-hidden bg-gray-900/5"
-                    style={{ maxHeight: '65vh' }}
+                    className="border rounded-2xl overflow-hidden bg-gray-900/5 max-h-[42vh] sm:max-h-[55vh] md:max-h-[65vh]"
                   >
                     <img
                       src={img.url}
                       alt={img.name || 'Скриншот'}
                       className="w-full object-contain cursor-zoom-in"
-                      style={{ maxHeight: '65vh' }}
+                      style={{ maxHeight: isMobileViewport ? '42vh' : '65vh' }}
                       onClick={() => setExpandedImage(img)}
                     />
                   </div>
@@ -4996,7 +5034,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
             )}
 
             {extraFiles.length > 0 && (
-              <div className="mb-6">
+              <div className="mb-5 md:mb-6">
                 <p className="text-xs font-bold text-gray-400 uppercase mb-2">Доп. файлы</p>
                 <div className="space-y-2">
                   {extraFiles.map((file) => (
@@ -5019,10 +5057,10 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
               <div className="mb-2 text-xs font-semibold text-green-600 uppercase tracking-wide">Решено ранее</div>
             )}
             {currentQuestion.question && (
-              <p className="text-lg font-medium text-gray-900 mb-6">{currentQuestion.question}</p>
+              <p className="text-[15px] md:text-lg font-medium leading-relaxed text-gray-900 mb-5 md:mb-6 whitespace-pre-wrap">{currentQuestion.question}</p>
             )}
 
-            <div className="space-y-3 mb-6">
+            <div className="space-y-3 mb-5 md:mb-6">
               <label className="block text-xs font-bold text-gray-400 uppercase">
                 {isSolved ? 'Правильный ответ' : 'Ответ'}
               </label>
@@ -5143,7 +5181,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
                       </div>
                     </div>
                   ) : answerCount === 20 ? (
-                    <div className="grid grid-cols-[32px_1fr_1fr] gap-2">
+                    <div className="grid grid-cols-[26px_1fr_1fr] md:grid-cols-[32px_1fr_1fr] gap-1.5 md:gap-2">
                       {Array.from({ length: 10 }).map((_, rowIdx) => {
                         const leftIdx = rowIdx;
                         const rightIdx = rowIdx + 10;
@@ -5167,7 +5205,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
                                 });
                               }}
                               placeholder="Ответ 1"
-                              className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                              className="w-full px-2.5 md:px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
                               disabled={computedChecked}
                             />
                             <input
@@ -5185,7 +5223,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
                                 });
                               }}
                               placeholder="Ответ 2"
-                              className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                              className="w-full px-2.5 md:px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
                               disabled={computedChecked}
                             />
                           </React.Fragment>
@@ -5238,7 +5276,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
             )}
             </div>
 
-            <div className="rounded-2xl border border-gray-200 bg-white p-3 mb-6 space-y-3">
+            <div className="rounded-2xl border border-gray-200 bg-white p-3 mb-5 md:mb-6 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-xs font-bold text-gray-500 uppercase">
                   Код решения для задания {currentIndex + 1}
@@ -5263,21 +5301,23 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
                   <div className="text-sm text-gray-500">Загрузка кода...</div>
                 ) : (
                   <>
-                    <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div className="text-xs text-gray-500">
                         {questionCodeUpdatedAtLabel ? `Сохранено: ${questionCodeUpdatedAtLabel}` : 'Код ещё не сохранён'}
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
                         <Button
                           variant="secondary"
                           onClick={() => runQuestionCodeForQuestion(currentId)}
                           disabled={questionRunState.loading}
+                          className="w-full sm:w-auto"
                         >
                           {questionRunState.loading ? 'Запуск...' : 'Запустить'}
                         </Button>
                         <Button
                           onClick={() => saveQuestionCode(currentId)}
                           disabled={questionCodeSaving || !studentId}
+                          className="w-full sm:w-auto"
                         >
                           {questionCodeSaving ? 'Сохранение...' : 'Сохранить код'}
                         </Button>
@@ -5285,7 +5325,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
                     </div>
                     <div className="rounded-xl overflow-hidden border border-gray-800">
                       <Editor
-                        height="240px"
+                        height={questionCodeEditorHeight}
                         language="python"
                         theme="vs-dark"
                         value={questionCodeEntry.code}
@@ -5342,32 +5382,34 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
             </div>
           </div>
 
-          <Button 
-            onClick={() => {
-              if (!computedChecked) {
-                handleCheck();
-                return;
-              }
-              if (!computedCorrect) {
-                setResults((prev) => {
-                  const next = { ...prev };
-                  delete next[currentIndex];
-                  return next;
-                });
-                return;
-              }
-              handleNext();
-            }} 
-            disabled={!computedChecked && !isAnswerReady} 
-            className="w-full"
-            variant={computedChecked ? (computedCorrect ? 'success' : 'danger') : 'primary'}
-          >
-            {!computedChecked ? 'Проверить' : (
-              currentIndex < questions.length - 1 
-                ? (computedCorrect ? 'Верно! Следующий вопрос' : 'Попробовать снова')
-                : 'Закрыть'
-            )}
-          </Button>
+          <div className="pt-3 md:pt-4 border-t border-gray-100 bg-white/95 pb-[calc(env(safe-area-inset-bottom)+0.25rem)]">
+            <Button 
+              onClick={() => {
+                if (!computedChecked) {
+                  handleCheck();
+                  return;
+                }
+                if (!computedCorrect) {
+                  setResults((prev) => {
+                    const next = { ...prev };
+                    delete next[currentIndex];
+                    return next;
+                  });
+                  return;
+                }
+                handleNext();
+              }} 
+              disabled={!computedChecked && !isAnswerReady} 
+              className="w-full"
+              variant={computedChecked ? (computedCorrect ? 'success' : 'danger') : 'primary'}
+            >
+              {!computedChecked ? 'Проверить' : (
+                currentIndex < questions.length - 1 
+                  ? (computedCorrect ? 'Верно! Следующий вопрос' : 'Попробовать снова')
+                  : 'Закрыть'
+              )}
+            </Button>
+          </div>
         </div>
         {expandedImage && (
           <div
@@ -5946,6 +5988,11 @@ const ProgressSection = ({
     { id: 'notes', label: 'Заметки учителя', icon: FileText },
     { id: 'mocks', label: 'Пробники', icon: BookOpen }
   ];
+  const sectionShortLabels = {
+    progress: 'Тесты',
+    notes: 'Заметки',
+    mocks: 'Пробники'
+  };
   const getBallLabel = (value) => {
     if (!Number.isFinite(value)) return 'баллов';
     if (value % 1 !== 0) return 'балла';
@@ -5993,8 +6040,8 @@ const ProgressSection = ({
   const renderStudentPicker = () => {
     if (role !== 'teacher') return null;
     return (
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-gray-500">Ученик:</span>
+      <div className="inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-purple-100/40">
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
         <select
           value={activeStudentId || ''}
           onChange={(e) => {
@@ -6002,7 +6049,7 @@ const ProgressSection = ({
             onSelectStudent?.(value || null);
           }}
           disabled={studentsLoading || studentsList.length === 0}
-          className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+          className="w-full min-w-0 sm:min-w-[180px] rounded-xl border border-purple-100 bg-white px-3 py-1.5 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
         >
           <option value="" disabled>Выберите ученика</option>
           {studentsList.map((student) => (
@@ -6224,31 +6271,33 @@ const ProgressSection = ({
   }
 
   return (
-    <div className="space-y-6 animate-fadeIn" data-tour="progress">
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-5 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
+    <div className="space-y-4 md:space-y-6 animate-fadeIn" data-tour="progress">
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-4 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
         <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
         <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
-        <div className="relative z-10 flex flex-col gap-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-3">
+        <div className="relative z-10 flex flex-col gap-3 md:gap-5">
+          <div className="flex flex-col gap-3 md:gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-2.5 md:space-y-3">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Успеваемость</h2>
-                <p className="text-sm text-slate-600">Тестирования, заметки и пробники</p>
+                <h2 className="text-xl md:text-2xl font-bold text-gray-900">Успеваемость</h2>
+                <p className="hidden md:block text-sm text-slate-600">Тестирования, заметки и пробники</p>
               </div>
-              <div className="flex flex-wrap gap-2 text-xs font-semibold">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white/90 px-2.5 py-1 text-purple-700">
-                  <BarChart2 size={14} />
-                  {`Общий прогресс: ${totalMasteryLabel}%`}
+              <div className="flex flex-wrap gap-1.5 md:gap-2 text-[11px] md:text-xs font-semibold">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white/90 px-2 py-1 md:px-2.5 text-purple-700">
+                  <BarChart2 size={13} />
+                  <span className="sm:hidden">{`Прогресс: ${totalMasteryLabel}%`}</span>
+                  <span className="hidden sm:inline">{`Общий прогресс: ${totalMasteryLabel}%`}</span>
                 </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-white/90 px-2.5 py-1 text-emerald-700">
-                  <CheckCircle size={14} />
-                  {`Уверенно: ${masteredTasksCount}/${taskList.length}`}
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-white/90 px-2 py-1 md:px-2.5 text-emerald-700">
+                  <CheckCircle size={13} />
+                  <span className="sm:hidden">{`Увер.: ${masteredTasksCount}/${taskList.length}`}</span>
+                  <span className="hidden sm:inline">{`Уверенно: ${masteredTasksCount}/${taskList.length}`}</span>
                 </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-white/90 px-2.5 py-1 text-amber-700">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-white/90 px-2 py-1 md:px-2.5 text-amber-700">
                   <RefreshCcw size={12} />
-                  {`Подтянуть: ${needsAttentionTasksCount}`}
+                  <span>{`Подтянуть: ${needsAttentionTasksCount}`}</span>
                 </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-slate-600">
+                <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-slate-600">
                   {`Раздел: ${activeSectionLabel}`}
                 </span>
               </div>
@@ -6258,19 +6307,19 @@ const ProgressSection = ({
             </div>
           </div>
 
-          <div className="relative overflow-hidden rounded-2xl border border-purple-200/80 bg-white/80 p-4 shadow-[0_10px_24px_rgba(99,102,241,0.12)]">
+          <div className="relative overflow-hidden rounded-2xl border border-purple-200/80 bg-white/80 p-3 md:p-4 shadow-[0_10px_24px_rgba(99,102,241,0.12)]">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="rounded-full bg-purple-600 px-3 py-1 text-xs font-bold uppercase tracking-widest text-white">
+                <div className="rounded-full bg-purple-600 px-2.5 py-1 text-[10px] md:text-xs font-bold uppercase tracking-[0.14em] md:tracking-widest text-white">
                   {getProgressHeadline(totalMasteryRounded)}
                 </div>
-                <span className="text-sm text-gray-500">Общий прогресс ЕГЭ</span>
+                <span className="hidden md:inline text-sm text-gray-500">Общий прогресс ЕГЭ</span>
               </div>
-              <div className="text-3xl font-extrabold text-purple-700 drop-shadow-sm">
+              <div className="text-2xl md:text-3xl font-extrabold text-purple-700 drop-shadow-sm">
                 {totalMasteryLabel} {getBallLabel(totalMasteryRounded)}
               </div>
             </div>
-            <div className="relative mt-3 h-8 w-full overflow-hidden rounded-full border border-purple-100 bg-white/90">
+            <div className="relative mt-2.5 md:mt-3 h-6 md:h-8 w-full overflow-hidden rounded-full border border-purple-100 bg-white/90">
               <div
                 className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.45)] transition-[width] duration-700 ease-out"
                 style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
@@ -6280,14 +6329,15 @@ const ProgressSection = ({
                 className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-sheen"
               />
             </div>
-            <div className="mt-2 text-xs text-gray-500">
-              Решай задания регулярно, чтобы повышать итоговый балл.
+            <div className="mt-2 text-[11px] md:text-xs text-gray-500">
+              <span className="md:hidden">Регулярность = рост итогового балла.</span>
+              <span className="hidden md:inline">Решай задания регулярно, чтобы повышать итоговый балл.</span>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white/85 p-2">
+      <div className="grid grid-cols-3 gap-1.5 md:flex md:flex-wrap md:gap-2 rounded-2xl border border-slate-200 bg-white/85 p-1.5 md:p-2">
         {sectionTabs.map((item) => {
           const Icon = item.icon;
           const active = section === item.id;
@@ -6295,14 +6345,15 @@ const ProgressSection = ({
             <button
               key={item.id}
               onClick={() => setSection(item.id)}
-              className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition-all ${
+              className={`inline-flex min-w-0 items-center justify-center gap-1.5 md:gap-2 rounded-xl border px-2 py-2 md:px-4 md:py-2 text-[11px] sm:text-xs md:text-sm font-semibold transition-all ${
                 active
                   ? 'border-purple-600 bg-purple-600 text-white shadow-md shadow-purple-200'
                   : 'border-transparent bg-white text-slate-600 hover:border-purple-200 hover:text-purple-700'
               }`}
             >
-              <Icon size={16} />
-              {item.label}
+              <Icon size={14} />
+              <span className="truncate sm:hidden">{sectionShortLabels[item.id] || item.label}</span>
+              <span className="hidden sm:inline truncate">{item.label}</span>
             </button>
           );
         })}
@@ -6325,7 +6376,7 @@ const ProgressSection = ({
 
       {section === 'progress' && (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 stagger-children">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 stagger-children">
             {taskList.map((task, idx) => {
               const val = progressMap[task.id] || 0;
               const clickable = role === 'student' || role === 'teacher';
@@ -6340,7 +6391,7 @@ const ProgressSection = ({
               return (
                 <div key={task.id} style={{ '--i': idx }} className="space-y-2">
                   <Card
-                    className={`group relative ${cardTone} ${clickable ? 'cursor-pointer' : ''}`}
+                    className={`group relative p-3.5 md:p-4 ${cardTone} ${clickable ? 'cursor-pointer' : ''}`}
                     onClick={
                       clickable
                         ? () => {
@@ -6355,10 +6406,10 @@ const ProgressSection = ({
                     }
                   >
                     <div className="mb-2 flex items-center justify-between gap-2">
-                      <span className="inline-flex items-center rounded-lg border border-purple-200 bg-white/90 px-2 py-1 text-xs font-bold text-purple-700">
+                      <span className="inline-flex items-center rounded-lg border border-purple-200 bg-white/90 px-2 py-1 text-[11px] md:text-xs font-bold text-purple-700">
                         №{getTaskDisplayNumber(task)}
                       </span>
-                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-2 py-1 text-[10px] md:text-xs font-semibold text-slate-600">
                         {statusLabel}
                       </span>
                     </div>
@@ -6378,7 +6429,7 @@ const ProgressSection = ({
                           autoFocus
                         />
                       ) : (
-                        <h3 className="font-bold text-gray-800 truncate">{task.title}</h3>
+                        <h3 className="font-bold text-[15px] md:text-base leading-snug text-gray-800">{task.title}</h3>
                       )}
                       {role === 'teacher' && editingTaskId !== task.number && (
                         <button
@@ -6403,18 +6454,24 @@ const ProgressSection = ({
                         </button>
                       )}
                     </div>
-                    <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-                      <span>Прогресс темы</span>
-                      <span className="text-base font-bold text-slate-700">{val}%</span>
+                    <div className="mt-2 flex items-center justify-between text-[11px] md:text-xs text-slate-500">
+                      <span>
+                        <span className="sm:hidden">Тема</span>
+                        <span className="hidden sm:inline">Прогресс темы</span>
+                      </span>
+                      <span className="text-sm md:text-base font-bold text-slate-700">{val}%</span>
                     </div>
                     <ProgressBar value={val} />
 
                     {role === 'student' && clickable && (
-                      <div className="absolute inset-0 bg-white/90 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-2xl cursor-pointer backdrop-blur-[2px]">
+                      <div className="absolute inset-0 hidden md:flex bg-white/90 opacity-0 group-hover:opacity-100 transition-opacity items-center justify-center rounded-2xl cursor-pointer backdrop-blur-[2px]">
                         <div className="flex items-center gap-2 text-purple-600 font-bold bg-white px-4 py-2 rounded-full shadow-lg border border-purple-100">
                           <PlayCircle size={20} /> Решать
                         </div>
                       </div>
+                    )}
+                    {role === 'student' && clickable && (
+                      <div className="mt-3 md:hidden text-xs font-semibold text-purple-600">Открыть тему</div>
                     )}
                     {role === 'teacher' && (
                       <div className="mt-3 text-xs font-semibold text-purple-600">Смотреть ответы</div>
@@ -6462,12 +6519,12 @@ const ProgressSection = ({
       )}
 
       {section === 'notes' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
+        <div className="space-y-3 md:space-y-4">
+          <div className="flex items-center justify-between gap-2">
             <h3 className="text-lg font-bold text-gray-800">Заметки учителя</h3>
-            <span className="text-xs text-gray-400">Комментируйте задания кратко</span>
+            <span className="hidden md:inline text-xs text-gray-400">Комментируйте задания кратко</span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 stagger-children">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2.5 md:gap-3 stagger-children">
             {taskList.map((task, idx) => {
               const num = task.number;
               const note = getMergedNote(num);
@@ -6476,7 +6533,7 @@ const ProgressSection = ({
                 <div
                   key={task.id ?? num}
                   style={{ '--i': idx }}
-                  className={`rounded-3xl border p-4 flex flex-col gap-3 transition-all duration-200 shadow-sm hover:shadow-md ${
+                  className={`rounded-2xl md:rounded-3xl border p-3 md:p-4 flex flex-col gap-2.5 md:gap-3 transition-all duration-200 shadow-sm hover:shadow-md ${
                     hasNote
                       ? 'border-emerald-300 bg-gradient-to-br from-emerald-50 via-white to-emerald-50'
                       : 'border-gray-200 bg-gradient-to-br from-white via-gray-50 to-gray-100'
@@ -6485,7 +6542,7 @@ const ProgressSection = ({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div
-                        className={`w-9 h-9 rounded-2xl flex items-center justify-center text-sm font-bold ${
+                        className={`w-8 h-8 md:w-9 md:h-9 rounded-xl md:rounded-2xl flex items-center justify-center text-sm font-bold ${
                           hasNote ? 'bg-emerald-600 text-white shadow-md shadow-emerald-200' : 'bg-white text-gray-500 border border-gray-200'
                         }`}
                       >
@@ -6537,23 +6594,23 @@ const ProgressSection = ({
       )}
 
       {section === 'mocks' && (
-        <div className="space-y-6">
-          <Card className="space-y-4">
+        <div className="space-y-4 md:space-y-6">
+          <Card className="space-y-3 md:space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="text-lg font-bold text-gray-800">Пробники для решения</h3>
-                <p className="text-xs text-gray-500">Примерно такое будет на экзамене.</p>
+                <p className="hidden md:block text-xs text-gray-500">Примерно такое будет на экзамене.</p>
               </div>
               {role === 'teacher' && (
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex w-full sm:w-auto flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2">
                   <input
                     type="text"
                     value={newMockTitle}
                     onChange={(e) => setNewMockTitle(e.target.value)}
                     placeholder="Название пробника"
-                    className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+                    className="w-full sm:w-auto px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
                   />
-                  <Button onClick={handleCreateMockExam}>
+                  <Button onClick={handleCreateMockExam} className="w-full sm:w-auto">
                     <Plus size={16}/> Создать
                   </Button>
                 </div>
@@ -6582,7 +6639,7 @@ const ProgressSection = ({
                         ? `Доступ: ${access.students.length} ученикам`
                         : 'Скрыт от учеников';
                     return (
-                      <div key={exam.id} className="bg-white rounded-xl border p-4 flex flex-col gap-3">
+                      <div key={exam.id} className="bg-white rounded-xl border p-3 md:p-4 flex flex-col gap-3">
                         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                         <div>
                           <p className="font-semibold text-gray-800">{exam.title}</p>
@@ -6593,11 +6650,11 @@ const ProgressSection = ({
                             <p className="text-xs text-gray-500">{accessLabel}</p>
                           )}
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex w-full md:w-auto flex-wrap items-center gap-2">
                           {role === 'teacher' && (
                             <>
-                              <Button variant="secondary" onClick={() => setMockEditorExam(exam)}>Редактировать</Button>
-                              <Button variant="secondary" onClick={() => openMockAccessEditor(exam)}>Доступ</Button>
+                              <Button variant="secondary" onClick={() => setMockEditorExam(exam)} className="w-full sm:w-auto">Редактировать</Button>
+                              <Button variant="secondary" onClick={() => openMockAccessEditor(exam)} className="w-full sm:w-auto">Доступ</Button>
                               <button
                                 onClick={() => handleDeleteMockExamDefinition(exam.id)}
                                 className="p-2 rounded-lg text-red-500 hover:bg-red-50"
@@ -6606,7 +6663,7 @@ const ProgressSection = ({
                               </button>
                             </>
                           )}
-                          <Button onClick={() => handleOpenMockExam(exam)}>
+                          <Button onClick={() => handleOpenMockExam(exam)} className="w-full sm:w-auto">
                             {role === 'teacher' ? 'Открыть' : 'Решать'}
                           </Button>
                         </div>
@@ -6696,7 +6753,7 @@ const ProgressSection = ({
               <div className="text-gray-500">Истории пробников пока нет.</div>
             ) : (
               studentData.mocks.map((mock) => (
-                <div key={mock.id} className="bg-white rounded-xl border p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div key={mock.id} className="bg-white rounded-xl border p-3 md:p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                   <div>
                     <p className="font-semibold text-gray-800">Пробник от {mock.date}</p>
                     <p className="text-sm text-gray-500">Баллы: <span className="font-bold text-purple-600">{mock.score}</span></p>
@@ -6782,6 +6839,8 @@ const PythonSection = ({
   const [theoryUrl, setTheoryUrl] = useState('');
   const [theorySaving, setTheorySaving] = useState(false);
   const [theoryError, setTheoryError] = useState('');
+  const [showTeacherTaskToolsMobile, setShowTeacherTaskToolsMobile] = useState(false);
+  const [showTeacherTheoryToolsMobile, setShowTeacherTheoryToolsMobile] = useState(false);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
 
@@ -6809,6 +6868,11 @@ const PythonSection = ({
     setActiveTask(null);
     setActiveQuestionIndex(null);
   }, [effectiveStudentId]);
+
+  useEffect(() => {
+    setShowTeacherTaskToolsMobile(false);
+    setShowTeacherTheoryToolsMobile(false);
+  }, [effectiveStudentId, role]);
 
   useEffect(() => {
     let cancelled = false;
@@ -7161,27 +7225,29 @@ const PythonSection = ({
   }
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-5 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
+    <div className="space-y-4 md:space-y-6 animate-fadeIn">
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-4 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
         <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
         <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
-        <div className="relative z-10 flex flex-col gap-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-3">
+        <div className="relative z-10 flex flex-col gap-3 md:gap-5">
+          <div className="flex flex-col gap-3 md:gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-2.5 md:space-y-3">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Изучение Python</h2>
-                <p className="text-sm text-slate-600">Тестирования по темам курса и общий прогресс</p>
+                <h2 className="text-xl md:text-2xl font-bold text-gray-900">Изучение Python</h2>
+                <p className="hidden md:block text-sm text-slate-600">Тестирования по темам курса и общий прогресс</p>
               </div>
-              <div className="flex flex-wrap gap-2 text-xs font-semibold">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white/90 px-2.5 py-1 text-purple-700">
-                  <BarChart2 size={14} />
-                  {`Общий прогресс: ${totalMasteryLabel}%`}
+              <div className="flex flex-wrap gap-1.5 md:gap-2 text-[11px] md:text-xs font-semibold">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white/90 px-2 py-1 md:px-2.5 text-purple-700">
+                  <BarChart2 size={13} />
+                  <span className="sm:hidden">{`Прогресс: ${totalMasteryLabel}%`}</span>
+                  <span className="hidden sm:inline">{`Общий прогресс: ${totalMasteryLabel}%`}</span>
                 </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-white/90 px-2.5 py-1 text-emerald-700">
-                  <CheckCircle size={14} />
-                  {`Уверенно: ${masteredTopicsCount}/${taskList.length}`}
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-white/90 px-2 py-1 md:px-2.5 text-emerald-700">
+                  <CheckCircle size={13} />
+                  <span className="sm:hidden">{`Увер.: ${masteredTopicsCount}/${taskList.length}`}</span>
+                  <span className="hidden sm:inline">{`Уверенно: ${masteredTopicsCount}/${taskList.length}`}</span>
                 </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-white/90 px-2.5 py-1 text-amber-700">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-white/90 px-2 py-1 md:px-2.5 text-amber-700">
                   <RefreshCcw size={12} />
                   {`Подтянуть: ${needsPracticeTopicsCount}`}
                 </span>
@@ -7192,19 +7258,19 @@ const PythonSection = ({
             </div>
           </div>
 
-          <div className="relative overflow-hidden rounded-2xl border border-purple-200/80 bg-white/80 p-4 shadow-[0_10px_24px_rgba(99,102,241,0.12)]">
+          <div className="relative overflow-hidden rounded-2xl border border-purple-200/80 bg-white/80 p-3 md:p-4 shadow-[0_10px_24px_rgba(99,102,241,0.12)]">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="rounded-full bg-purple-600 px-3 py-1 text-xs font-bold uppercase tracking-widest text-white">
+                <div className="rounded-full bg-purple-600 px-2.5 py-1 text-[10px] md:text-xs font-bold uppercase tracking-[0.14em] md:tracking-widest text-white">
                   Прогресс Python
                 </div>
-                <span className="text-sm text-gray-500">Общий прогресс изучения</span>
+                <span className="hidden md:inline text-sm text-gray-500">Общий прогресс изучения</span>
               </div>
-              <div className="text-3xl font-extrabold text-purple-700 drop-shadow-sm">
+              <div className="text-2xl md:text-3xl font-extrabold text-purple-700 drop-shadow-sm">
                 {totalMasteryLabel}%
               </div>
             </div>
-            <div className="relative mt-3 h-8 w-full overflow-hidden rounded-full border border-purple-100 bg-white/90">
+            <div className="relative mt-2.5 md:mt-3 h-6 md:h-8 w-full overflow-hidden rounded-full border border-purple-100 bg-white/90">
               <div
                 className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.45)] transition-[width] duration-700 ease-out"
                 style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
@@ -7214,8 +7280,9 @@ const PythonSection = ({
                 className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-sheen"
               />
             </div>
-            <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
-              <span>Проходите темы последовательно</span>
+            <div className="mt-2 flex items-center justify-between text-[11px] md:text-xs text-gray-500">
+              <span className="hidden sm:inline">Проходите темы последовательно</span>
+              <span className="sm:hidden">Идите по темам по порядку</span>
               <span>0% — старт • 100% — уверенно</span>
             </div>
           </div>
@@ -7237,7 +7304,7 @@ const PythonSection = ({
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 stagger-children">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 stagger-children">
         {taskList.map((task, idx) => {
           const val = progressMap[task.id] || 0;
           const clickable = role === 'student' || role === 'teacher';
@@ -7253,7 +7320,7 @@ const PythonSection = ({
             <Card
               key={task.id}
               style={{ '--i': idx }}
-              className={`group relative ${cardTone}`}
+              className={`group relative p-3.5 md:p-4 ${cardTone}`}
               onClick={clickable ? () => {
                 if (role === 'teacher') setReviewTask(task);
                 else {
@@ -7263,27 +7330,35 @@ const PythonSection = ({
               } : undefined}
             >
               <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="inline-flex items-center rounded-lg border border-purple-200 bg-white/90 px-2 py-1 text-xs font-bold text-purple-700">
+                <span className="inline-flex items-center rounded-lg border border-purple-200 bg-white/90 px-2 py-1 text-[11px] md:text-xs font-bold text-purple-700">
                   №{getTaskDisplayNumber(task)}
                 </span>
-                <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-2 py-1 text-[10px] md:text-xs font-semibold text-slate-600">
                   {statusLabel}
                 </span>
               </div>
               <div className="flex items-start justify-between gap-2">
-                <h3 className="font-bold text-gray-800 truncate">{task.title}</h3>
+                <h3 className="font-bold text-[15px] md:text-base leading-snug text-gray-800">{task.title}</h3>
               </div>
-              <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-                <span>Прогресс темы</span>
-                <span className="text-base font-bold text-slate-700">{val}%</span>
+              <div className="mt-2 flex items-center justify-between text-[11px] md:text-xs text-slate-500">
+                <span>
+                  <span className="sm:hidden">Тема</span>
+                  <span className="hidden sm:inline">Прогресс темы</span>
+                </span>
+                <span className="text-sm md:text-base font-bold text-slate-700">{val}%</span>
               </div>
               <ProgressBar value={val} />
 
               {clickable && (
-                <div className="absolute inset-0 bg-white/90 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-2xl cursor-pointer backdrop-blur-[2px]">
+                <div className="absolute inset-0 hidden md:flex bg-white/90 opacity-0 group-hover:opacity-100 transition-opacity items-center justify-center rounded-2xl cursor-pointer backdrop-blur-[2px]">
                   <div className="flex items-center gap-2 text-purple-600 font-bold bg-white px-4 py-2 rounded-full shadow-lg border border-purple-100">
                     <PlayCircle size={20} /> {role === 'teacher' ? 'Решения' : 'Решать'}
                   </div>
+                </div>
+              )}
+              {clickable && (
+                <div className="mt-3 md:hidden text-xs font-semibold text-purple-600">
+                  {role === 'teacher' ? 'Смотреть решения' : 'Открыть тему'}
                 </div>
               )}
             </Card>
@@ -7292,7 +7367,46 @@ const PythonSection = ({
       </div>
 
       {role === 'teacher' && (
-        <Card className="space-y-4 border-purple-200/60 bg-gradient-to-br from-white via-white to-purple-50/40">
+        <div className="md:hidden grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setShowTeacherTaskToolsMobile((prev) => {
+                const next = !prev;
+                if (next) setShowTeacherTheoryToolsMobile(false);
+                return next;
+              });
+            }}
+            className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
+              showTeacherTaskToolsMobile
+                ? 'border-purple-500 bg-purple-50 text-purple-700'
+                : 'border-slate-200 bg-white text-slate-600'
+            }`}
+          >
+            {showTeacherTaskToolsMobile ? 'Скрыть задачи' : 'Задачи Python'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowTeacherTheoryToolsMobile((prev) => {
+                const next = !prev;
+                if (next) setShowTeacherTaskToolsMobile(false);
+                return next;
+              });
+            }}
+            className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
+              showTeacherTheoryToolsMobile
+                ? 'border-purple-500 bg-purple-50 text-purple-700'
+                : 'border-slate-200 bg-white text-slate-600'
+            }`}
+          >
+            {showTeacherTheoryToolsMobile ? 'Скрыть теорию' : 'Теория'}
+          </button>
+        </div>
+      )}
+
+      {role === 'teacher' && (
+        <Card className={`space-y-4 border-purple-200/60 bg-gradient-to-br from-white via-white to-purple-50/40 ${showTeacherTaskToolsMobile ? 'block' : 'hidden'} md:block`}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-bold text-gray-800">
@@ -7303,7 +7417,7 @@ const PythonSection = ({
             <select
               value={manageTaskNumber || ''}
               onChange={(e) => setManageTaskNumber(Number(e.target.value))}
-              className="px-3 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none text-sm"
+              className="w-full sm:w-auto px-3 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none text-sm"
             >
               {taskList.map((task) => (
                 <option key={task.id} value={task.number}>
@@ -7340,9 +7454,9 @@ const PythonSection = ({
           </div>
 
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <span className="text-xs font-bold text-gray-400 uppercase">Тесты</span>
-              <div className="flex items-center gap-3 text-xs text-gray-500">
+              <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
                 <label className="cursor-pointer text-purple-600 hover:text-purple-700">
                   Загрузить из файла
                   <input
@@ -7402,13 +7516,13 @@ const PythonSection = ({
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             {questionError && <span className="text-xs text-red-500">{questionError}</span>}
-            <div className="flex items-center gap-2">
+            <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
               {editingQuestionId && (
-                <Button variant="secondary" onClick={cancelEditPythonTask} disabled={questionSaving}>
+                <Button variant="secondary" onClick={cancelEditPythonTask} disabled={questionSaving} className="w-full sm:w-auto">
                   Отменить
                 </Button>
               )}
-              <Button onClick={handleSavePythonTask} disabled={questionSaving}>
+              <Button onClick={handleSavePythonTask} disabled={questionSaving} className="w-full sm:w-auto">
                 {questionSaving ? 'Сохранение...' : (editingQuestionId ? 'Сохранить' : 'Добавить задачу')}
               </Button>
             </div>
@@ -7419,12 +7533,12 @@ const PythonSection = ({
               <div className="text-sm text-gray-500">Пока нет задач для выбранной темы.</div>
             ) : (
               manageQuestions.map((q, idx) => (
-                <div key={q.id || idx} className="p-3 rounded-xl border border-purple-100 bg-white/85 flex items-start justify-between gap-3">
+                <div key={q.id || idx} className="p-3 rounded-xl border border-purple-100 bg-white/85 flex items-start justify-between gap-2.5">
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-800 truncate">{q.title || q.question || `Задача ${idx + 1}`}</p>
+                    <p className="text-sm font-semibold text-gray-800">{q.title || q.question || `Задача ${idx + 1}`}</p>
                     <p className="text-xs text-gray-500 mt-1">Тестов: {Array.isArray(q.tests) ? q.tests.length : (q.answer ? 1 : 0)}</p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => startEditPythonTask(q)}
@@ -7450,7 +7564,7 @@ const PythonSection = ({
       )}
 
       {role === 'teacher' && (
-        <Card className="space-y-4 border-slate-200 bg-white/90">
+        <Card className={`space-y-4 border-slate-200 bg-white/90 ${showTeacherTheoryToolsMobile ? 'block' : 'hidden'} md:block`}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-bold text-gray-800">Теория темы</h3>
@@ -7494,7 +7608,7 @@ const PythonSection = ({
                 placeholder="Вставьте ссылку на документ или iframe Google Docs"
                 className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
               />
-              <p className="text-xs text-gray-400">
+              <p className="hidden md:block text-xs text-gray-400">
                 Используйте ссылку для встраивания из Google Docs (Файл → Опубликовать в интернете → Встроить).
               </p>
               <p className="text-[11px] text-gray-400">
@@ -7505,11 +7619,11 @@ const PythonSection = ({
 
           <div className="flex flex-wrap items-center justify-between gap-3">
             {theoryError && <span className="text-xs text-red-500">{theoryError}</span>}
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" onClick={handleClearPythonTheory} disabled={theorySaving}>
+            <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <Button variant="secondary" onClick={handleClearPythonTheory} disabled={theorySaving} className="w-full sm:w-auto">
                 Очистить
               </Button>
-              <Button onClick={handleSavePythonTheory} disabled={theorySaving}>
+              <Button onClick={handleSavePythonTheory} disabled={theorySaving} className="w-full sm:w-auto">
                 {theorySaving ? 'Сохранение...' : 'Сохранить теорию'}
               </Button>
             </div>
@@ -7576,6 +7690,7 @@ const ScheduleSection = ({
   const [mockAttemptsByExam, setMockAttemptsByExam] = useState({});
   const [editingId, setEditingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [showHistoryOnMobile, setShowHistoryOnMobile] = useState(false);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
@@ -7909,6 +8024,10 @@ const ScheduleSection = ({
   const latestIssuedLabel = nextHomeworkEntry?.issuedAt ? formatDate(nextHomeworkEntry.issuedAt) : '';
   const nextDeadlineLabel = formatDaysText(nextHomeworkEntry?.daysToComplete || nextLesson?.daysToComplete || 7);
 
+  useEffect(() => {
+    setShowHistoryOnMobile(false);
+  }, [effectiveStudentId, totalHomeworkCount]);
+
   const renderHomeworkEntryCard = (entry, section = 'next', key) => {
     if (!entry) return null;
     const dateText = formatDate(entry?.issuedAt);
@@ -7922,8 +8041,8 @@ const ScheduleSection = ({
     const sectionLabel = section === 'next' ? 'Следующий урок' : 'Предыдущая домашка';
 
     return (
-      <div key={key} className={`rounded-2xl border p-4 md:p-5 space-y-4 ${cardTone}`}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
+      <div key={key} className={`rounded-2xl border p-3.5 md:p-5 space-y-3 md:space-y-4 ${cardTone}`}>
+        <div className="flex flex-wrap items-start justify-between gap-2.5 md:gap-3">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${
@@ -7942,14 +8061,14 @@ const ScheduleSection = ({
                 {`Срок: ${daysText}`}
               </span>
             </div>
-            <div className="text-xs text-slate-500">
+            <div className="hidden md:block text-xs text-slate-500">
               {section === 'next'
                 ? 'Эту домашку нужно выполнить к ближайшему занятию.'
                 : 'Ранее выданная домашка для повторения и контроля прогресса.'}
             </div>
           </div>
           {role === 'teacher' && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => startEditHomework(entry)}
@@ -7986,7 +8105,7 @@ const ScheduleSection = ({
                         <button
                           type="button"
                           onClick={() => onOpenMockGoal(mockExamId)}
-                          className="px-3 py-1 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700"
+                          className="w-full sm:w-auto px-3 py-1 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700"
                         >
                           Перейти к пробнику
                         </button>
@@ -8041,7 +8160,7 @@ const ScheduleSection = ({
                       <button
                         type="button"
                         onClick={() => onOpenTask(taskNumber, levelId, targetNumbers)}
-                        className="px-3 py-1 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700"
+                        className="w-full sm:w-auto px-3 py-1 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700"
                       >
                         Перейти к заданию
                       </button>
@@ -8049,32 +8168,39 @@ const ScheduleSection = ({
                   </div>
                   {hasTargets && (
                     <div className="space-y-2">
-                      <div className="text-[11px] font-semibold text-purple-700">Цель — решить эти задания:</div>
-                      {targetNumbers.length > 0 ? (
-                        <div className="flex flex-wrap gap-2">
-                          {targetStatus.map((item) => (
-                            <span
-                              key={item.num}
-                              className={`px-2 py-1 rounded-lg border text-[11px] font-semibold ${
-                                item.solved
-                                  ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
-                                  : 'border-purple-200 bg-white text-purple-700'
-                              }`}
-                            >
-                              №{item.num}{item.solved ? ' ✓' : ''}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-[11px] text-purple-600">
-                          Все задания этого уровня
-                        </div>
-                      )}
-                      {targetNumbers.length > 0 && (
-                        <div className="text-[11px] text-purple-600">
-                          Выполнено {targetSolvedCount}/{targetStatus.length}
-                        </div>
-                      )}
+                      <div className="md:hidden text-[11px] font-semibold text-purple-700">
+                        {targetNumbers.length > 0
+                          ? `Цель: ${targetSolvedCount}/${targetStatus.length}`
+                          : 'Цель: весь уровень'}
+                      </div>
+                      <div className="hidden md:block space-y-2">
+                        <div className="text-[11px] font-semibold text-purple-700">Цель — решить эти задания:</div>
+                        {targetNumbers.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {targetStatus.map((item) => (
+                              <span
+                                key={item.num}
+                                className={`px-2 py-1 rounded-lg border text-[11px] font-semibold ${
+                                  item.solved
+                                    ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
+                                    : 'border-purple-200 bg-white text-purple-700'
+                                }`}
+                              >
+                                №{item.num}{item.solved ? ' ✓' : ''}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-purple-600">
+                            Все задания этого уровня
+                          </div>
+                        )}
+                        {targetNumbers.length > 0 && (
+                          <div className="text-[11px] text-purple-600">
+                            Выполнено {targetSolvedCount}/{targetStatus.length}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -8082,28 +8208,28 @@ const ScheduleSection = ({
             })}
           </div>
         )}
-        <div className="rounded-xl border border-purple-100/70 bg-white/85 p-4">
-          <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-purple-500">Домашка</p>
-          <p className="text-sm leading-relaxed text-gray-700 whitespace-pre-wrap">
+        <div className="rounded-xl border border-purple-100/70 bg-white/85 p-3.5 md:p-4">
+          <p className="mb-1.5 md:mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-purple-500">Домашка</p>
+          <p className="text-[13px] md:text-sm leading-relaxed text-gray-700 whitespace-pre-wrap">
             {entry?.homeWork ? entry.homeWork : 'Комментариев учителя нет.'}
           </p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 md:gap-3">
           {entry?.lessonLink ? (
             <a
               href={normalizeUrl(entry.lessonLink)}
               target="_blank"
               rel="noopener noreferrer"
-              className="group flex items-center justify-between gap-3 rounded-xl border border-purple-200 bg-purple-50/80 px-4 py-3 text-sm font-semibold text-purple-700 hover:border-purple-400 hover:bg-white"
+              className="group flex items-center justify-between gap-3 rounded-xl border border-purple-200 bg-purple-50/80 px-3.5 py-2.5 md:px-4 md:py-3 text-[13px] md:text-sm font-semibold text-purple-700 hover:border-purple-400 hover:bg-white"
             >
               <span className="inline-flex items-center gap-2">
-                <Calendar size={16} />
+                <Calendar size={15} />
                 Ссылка на занятие
               </span>
-              <ChevronRight size={16} className="text-purple-400 transition group-hover:translate-x-0.5 group-hover:text-purple-600" />
+              <ChevronRight size={15} className="text-purple-400 transition group-hover:translate-x-0.5 group-hover:text-purple-600" />
             </a>
           ) : (
-            <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-3 text-xs text-slate-400">
+            <div className="hidden md:flex items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-3 text-xs text-slate-400">
               <Calendar size={14} />
               Ссылка на занятие не указана
             </div>
@@ -8113,18 +8239,23 @@ const ScheduleSection = ({
               href={normalizeUrl(entry.boardLink)}
               target="_blank"
               rel="noopener noreferrer"
-              className="group flex items-center justify-between gap-3 rounded-xl border border-purple-200 bg-purple-50/80 px-4 py-3 text-sm font-semibold text-purple-700 hover:border-purple-400 hover:bg-white"
+              className="group flex items-center justify-between gap-3 rounded-xl border border-purple-200 bg-purple-50/80 px-3.5 py-2.5 md:px-4 md:py-3 text-[13px] md:text-sm font-semibold text-purple-700 hover:border-purple-400 hover:bg-white"
             >
               <span className="inline-flex items-center gap-2">
-                <BookOpen size={16} />
+                <BookOpen size={15} />
                 Онлайн-доска
               </span>
-              <ChevronRight size={16} className="text-purple-400 transition group-hover:translate-x-0.5 group-hover:text-purple-600" />
+              <ChevronRight size={15} className="text-purple-400 transition group-hover:translate-x-0.5 group-hover:text-purple-600" />
             </a>
           ) : (
-            <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-3 text-xs text-slate-400">
+            <div className="hidden md:flex items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-3 text-xs text-slate-400">
               <BookOpen size={14} />
               Ссылка на доску не указана
+            </div>
+          )}
+          {!entry?.lessonLink && !entry?.boardLink && (
+            <div className="md:hidden rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-3 py-2 text-[11px] text-slate-500">
+              Ссылки к занятию появятся здесь.
             </div>
           )}
         </div>
@@ -8303,27 +8434,27 @@ const ScheduleSection = ({
   }
 
   return (
-    <div className="space-y-6 animate-fadeIn" data-tour="schedule">
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/75 to-sky-50/70 p-5 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
+    <div className="space-y-4 md:space-y-6 animate-fadeIn" data-tour="schedule">
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/75 to-sky-50/70 p-4 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
         <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
         <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
-        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="space-y-3">
+        <div className="relative flex flex-col gap-3 md:gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="space-y-2.5 md:space-y-3">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">Моё расписание</h2>
-              <p className="text-sm text-slate-600">Домашка, цели и полезные ссылки к занятиям</p>
+              <h2 className="text-xl md:text-2xl font-bold text-gray-900">Моё расписание</h2>
+              <p className="hidden md:block text-sm text-slate-600">Домашка, цели и полезные ссылки к занятиям</p>
             </div>
-            <div className="flex flex-wrap gap-2 text-xs font-semibold">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white/85 px-2.5 py-1 text-purple-700">
+            <div className="flex flex-wrap gap-1.5 md:gap-2 text-[11px] md:text-xs font-semibold">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white/85 px-2 py-1 md:px-2.5 text-purple-700">
                 <Calendar size={14} />
-                {`Всего домашних: ${totalHomeworkCount}`}
+                {`Домашек: ${totalHomeworkCount}`}
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-white/85 px-2.5 py-1 text-sky-700">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-white/85 px-2 py-1 md:px-2.5 text-sky-700">
                 <RefreshCcw size={12} />
-                {`Срок текущей: ${nextDeadlineLabel}`}
+                {`Срок: ${nextDeadlineLabel}`}
               </span>
               {latestIssuedLabel && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/85 px-2.5 py-1 text-slate-600">
+                <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/85 px-2.5 py-1 text-slate-600">
                   {`Выдано: ${latestIssuedLabel}`}
                 </span>
               )}
@@ -8577,10 +8708,10 @@ const ScheduleSection = ({
         </Card>
       )}
 
-      <div className="space-y-5">
+      <div className="space-y-4 md:space-y-5">
         <div>
           <h3 className="text-lg font-bold text-gray-800">Домашние задания</h3>
-          <p className="text-xs text-slate-500">Текущая домашка и архив предыдущих заданий</p>
+          <p className="hidden md:block text-xs text-slate-500">Текущая домашка и архив предыдущих заданий</p>
         </div>
 
         {loading ? (
@@ -8597,11 +8728,11 @@ const ScheduleSection = ({
             </div>
           </Card>
         ) : (
-          <div className="space-y-6">
-            <Card className="space-y-3 border-purple-200/80 bg-gradient-to-br from-purple-50/70 via-white to-fuchsia-50/45 shadow-[0_14px_30px_rgba(147,51,234,0.14)]">
+          <div className="space-y-4 md:space-y-6">
+            <Card className="space-y-2.5 md:space-y-3 border-purple-200/80 bg-gradient-to-br from-purple-50/70 via-white to-fuchsia-50/45 shadow-[0_14px_30px_rgba(147,51,234,0.14)]">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h4 className="inline-flex items-center gap-2 text-sm font-semibold text-purple-700">
-                  <Calendar size={16} />
+                  <Calendar size={15} />
                   На следующий урок
                 </h4>
                 {nextHomeworkEntry?.issuedAt && (
@@ -8613,7 +8744,7 @@ const ScheduleSection = ({
               {renderHomeworkEntryCard(nextHomeworkEntry, 'next')}
             </Card>
 
-            <Card className="space-y-3 border-slate-200 bg-white/90">
+            <Card className="space-y-2.5 md:space-y-3 border-slate-200 bg-white/90">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h4 className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
                   <RefreshCcw size={14} />
@@ -8628,10 +8759,21 @@ const ScheduleSection = ({
                   Пока нет предыдущих домашних.
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {previousHomeworkEntries.map((entry, idx) =>
-                    renderHomeworkEntryCard(entry, 'history', entry.id || `${entry?.issuedAt || 'entry'}-${idx}`)
-                  )}
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowHistoryOnMobile((prev) => !prev)}
+                    className="md:hidden w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-[12px] font-semibold text-slate-600"
+                  >
+                    {showHistoryOnMobile
+                      ? 'Скрыть предыдущие домашки'
+                      : `Показать предыдущие (${previousHomeworkEntries.length})`}
+                  </button>
+                  <div className={`${showHistoryOnMobile ? 'space-y-3 block' : 'hidden'} md:block md:space-y-4`}>
+                    {previousHomeworkEntries.map((entry, idx) =>
+                      renderHomeworkEntryCard(entry, 'history', entry.id || `${entry?.issuedAt || 'entry'}-${idx}`)
+                    )}
+                  </div>
                 </div>
               )}
             </Card>
@@ -8691,6 +8833,8 @@ const NotesSection = ({
   const [pyDraftCode, setPyDraftCode] = useState('');
   const [pyDraftError, setPyDraftError] = useState('');
   const [pyDraftSaving, setPyDraftSaving] = useState(false);
+  const [showMobilePyTools, setShowMobilePyTools] = useState(false);
+  const [showMobileFolderTools, setShowMobileFolderTools] = useState(false);
   const restoringRef = useRef(false);
   const didRestoreRef = useRef(false);
   const skipNullSaveRef = useRef(true);
@@ -8940,6 +9084,8 @@ const NotesSection = ({
     setPyDraftCode('');
     setPyDraftError('');
     setPyDraftSaving(false);
+    setShowMobilePyTools(false);
+    setShowMobileFolderTools(false);
     if (restoringRef.current && (currentTask || currentCategory)) {
       restoringRef.current = false;
     }
@@ -8965,6 +9111,8 @@ const NotesSection = ({
       setPyDraftCode('');
       setPyDraftError('');
       setPyDraftSaving(false);
+      setShowMobilePyTools(false);
+      setShowMobileFolderTools(false);
       didRestoreRef.current = false;
       skipNullSaveRef.current = true;
       return;
@@ -8990,6 +9138,8 @@ const NotesSection = ({
     setPyDraftCode('');
     setPyDraftError('');
     setPyDraftSaving(false);
+    setShowMobilePyTools(false);
+    setShowMobileFolderTools(false);
     pendingFolderIdRef.current = null;
     restoringRef.current = false;
     didRestoreRef.current = false;
@@ -9793,7 +9943,7 @@ const NotesSection = ({
   const renderStudentPicker = () => {
     if (role !== 'teacher') return null;
     return (
-      <div className="inline-flex items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-purple-100/40">
+      <div className="inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-purple-100/40">
         <span className="text-[11px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
         <select
           value={activeStudentId || ''}
@@ -9802,7 +9952,7 @@ const NotesSection = ({
             onSelectStudent?.(value || null);
           }}
           disabled={studentsLoading || studentsList.length === 0}
-          className="min-w-[180px] rounded-xl border border-purple-100 bg-white px-3 py-1.5 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
+          className="w-full min-w-0 sm:min-w-[180px] rounded-xl border border-purple-100 bg-white px-3 py-1.5 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
         >
           <option value="" disabled>Выберите ученика</option>
           {studentsList.map((student) => (
@@ -9820,19 +9970,19 @@ const NotesSection = ({
   }, 0);
 
   const renderNotesIntro = (message) => (
-    <div className="animate-fadeIn">
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-5 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
+    <div className="animate-fadeIn space-y-4">
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-4 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
         <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
         <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
-        <div className="relative z-10 space-y-4">
+        <div className="relative z-10 space-y-3 md:space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">Конспекты</h2>
-              <p className="text-sm text-slate-600">Материалы по заданиям, папкам и категориям</p>
+              <h2 className="text-xl md:text-2xl font-bold text-gray-900">Конспекты</h2>
+              <p className="hidden md:block text-sm text-slate-600">Материалы по заданиям, папкам и категориям</p>
             </div>
             {renderStudentPicker()}
           </div>
-          <div className="rounded-2xl border border-dashed border-purple-200 bg-white/75 px-4 py-3 text-sm text-slate-600">
+          <div className="rounded-2xl border border-dashed border-purple-200 bg-white/75 px-3 py-2.5 md:px-4 md:py-3 text-[13px] md:text-sm text-slate-600">
             {message}
           </div>
         </div>
@@ -9851,30 +10001,31 @@ const NotesSection = ({
   }
 
   if (!currentTask) return (
-    <div className="animate-fadeIn space-y-5" data-tour="notes">
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-5 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
+    <div className="animate-fadeIn space-y-4 md:space-y-5" data-tour="notes">
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-4 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
         <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
         <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
-        <div className="relative z-10 flex flex-col gap-4">
+        <div className="relative z-10 flex flex-col gap-3 md:gap-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">Конспекты</h2>
-              <p className="text-sm text-slate-600">Выберите задание, чтобы открыть материалы</p>
+              <h2 className="text-xl md:text-2xl font-bold text-gray-900">Конспекты</h2>
+              <p className="hidden md:block text-sm text-slate-600">Выберите задание, чтобы открыть материалы</p>
             </div>
             {renderStudentPicker()}
           </div>
-          <div className="flex flex-wrap gap-2 text-xs font-semibold">
-            <span className="inline-flex items-center rounded-full border border-purple-200 bg-white/90 px-2.5 py-1 text-purple-700">
-              {`Всего файлов: ${files.length}`}
+          <div className="flex flex-wrap gap-1.5 md:gap-2 text-[11px] md:text-xs font-semibold">
+            <span className="inline-flex items-center rounded-full border border-purple-200 bg-white/90 px-2 py-1 md:px-2.5 text-purple-700">
+              {`Файлов: ${files.length}`}
             </span>
-            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-white/90 px-2.5 py-1 text-emerald-700">
-              {`Заполнено заданий: ${tasksWithFilesCount}/${taskOptions.length}`}
+            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-white/90 px-2 py-1 md:px-2.5 text-emerald-700">
+              <span className="sm:hidden">{`Заполнено: ${tasksWithFilesCount}/${taskOptions.length}`}</span>
+              <span className="hidden sm:inline">{`Заполнено заданий: ${tasksWithFilesCount}/${taskOptions.length}`}</span>
             </span>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5 sm:gap-4">
         {taskOptions.map((task) => {
           const taskFilesCount = taskCounts.get(task.number) || 0;
           const hasFiles = taskFilesCount > 0;
@@ -9882,18 +10033,18 @@ const NotesSection = ({
             <Card
               key={task.number}
               onClick={() => setCurrentTask(normalizeTaskNumber(task.number))}
-              className={`group space-y-3 p-4 sm:p-5 ${
+              className={`group space-y-2.5 md:space-y-3 p-3 sm:p-5 ${
                 hasFiles
                   ? 'border-purple-200/80 bg-gradient-to-br from-purple-50/65 via-white to-fuchsia-50/35'
                   : 'border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-slate-100/70'
               }`}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="inline-flex items-center rounded-lg border border-purple-200 bg-white/90 px-2 py-1 text-xs font-bold text-purple-700">
-                  Задание {getTaskDisplayNumber(task)}
+                <span className="inline-flex items-center rounded-lg border border-purple-200 bg-white/90 px-2 py-1 text-[11px] md:text-xs font-bold text-purple-700">
+                  №{getTaskDisplayNumber(task)}
                 </span>
                 <span
-                  className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                  className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] md:text-[11px] font-semibold ${
                     hasFiles
                       ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                       : 'border-slate-200 bg-slate-100 text-slate-500'
@@ -9903,13 +10054,16 @@ const NotesSection = ({
                 </span>
               </div>
               <div className="flex items-center gap-3">
-                <span className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border ${
+                <span className={`inline-flex h-9 w-9 md:h-11 md:w-11 items-center justify-center rounded-xl md:rounded-2xl border ${
                   hasFiles ? 'border-purple-200 bg-white text-purple-600' : 'border-slate-200 bg-white text-slate-400'
                 }`}>
-                  <Folder size={22} />
+                  <Folder size={19} />
                 </span>
-                <p className="text-xs text-slate-500">
+                <p className="hidden sm:block text-xs text-slate-500">
                   {hasFiles ? 'Открыть материалы задания' : 'Добавьте материалы для этой темы'}
+                </p>
+                <p className="sm:hidden text-[11px] text-slate-500">
+                  {hasFiles ? 'Открыть' : 'Пусто'}
                 </p>
               </div>
             </Card>
@@ -9920,11 +10074,11 @@ const NotesSection = ({
   );
 
   if (!currentCategory) return (
-    <div className="animate-fadeIn space-y-5" data-tour="notes">
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-5 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
+    <div className="animate-fadeIn space-y-4 md:space-y-5" data-tour="notes">
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-4 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
         <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
         <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
-        <div className="relative z-10 flex flex-col gap-4">
+        <div className="relative z-10 flex flex-col gap-3 md:gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <button
               onClick={() => setCurrentTask(null)}
@@ -9935,11 +10089,11 @@ const NotesSection = ({
             </button>
             {renderStudentPicker()}
           </div>
-          <div className="flex flex-wrap gap-2 text-xs font-semibold">
-            <span className="inline-flex items-center rounded-full border border-purple-200 bg-white/90 px-2.5 py-1 text-purple-700">
+          <div className="flex flex-wrap gap-1.5 md:gap-2 text-[11px] md:text-xs font-semibold">
+            <span className="inline-flex items-center rounded-full border border-purple-200 bg-white/90 px-2 py-1 md:px-2.5 text-purple-700">
               {`Задание ${formatTaskNumber(currentTask) || currentTask}`}
             </span>
-            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-white/90 px-2.5 py-1 text-emerald-700">
+            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-white/90 px-2 py-1 md:px-2.5 text-emerald-700">
               {`Файлов: ${taskCounts.get(normalizedCurrentTask) || 0}`}
             </span>
           </div>
@@ -9949,20 +10103,20 @@ const NotesSection = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
         <Card
           onClick={() => setCurrentCategory('class')}
-          className={`p-6 md:p-7 flex items-center gap-4 ${
+          className={`p-4 md:p-7 flex items-center gap-3 md:gap-4 ${
             categoryCounts.class > 0
               ? 'border-orange-200/80 bg-gradient-to-br from-orange-50/70 via-white to-amber-50/45'
               : 'border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-slate-100/70'
           }`}
         >
-          <div className={`inline-flex h-14 w-14 items-center justify-center rounded-2xl border ${
+          <div className={`inline-flex h-11 w-11 md:h-14 md:w-14 items-center justify-center rounded-xl md:rounded-2xl border ${
             categoryCounts.class > 0 ? 'border-orange-200 bg-white text-orange-500' : 'border-slate-200 bg-white text-slate-400'
           }`}>
-            <BookOpen size={28} />
+            <BookOpen size={24} />
           </div>
           <div>
-            <h3 className="font-bold text-lg text-gray-800">На уроке</h3>
-            <p className="text-gray-500 text-sm">Презентации и скрипты</p>
+            <h3 className="font-bold text-base md:text-lg text-gray-800">На уроке</h3>
+            <p className="hidden md:block text-gray-500 text-sm">Презентации и скрипты</p>
             <span className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
               categoryCounts.class > 0
                 ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
@@ -9974,20 +10128,20 @@ const NotesSection = ({
         </Card>
         <Card
           onClick={() => setCurrentCategory('home')}
-          className={`p-6 md:p-7 flex items-center gap-4 ${
+          className={`p-4 md:p-7 flex items-center gap-3 md:gap-4 ${
             categoryCounts.home > 0
               ? 'border-emerald-200/80 bg-gradient-to-br from-emerald-50/70 via-white to-lime-50/45'
               : 'border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-slate-100/70'
           }`}
         >
-          <div className={`inline-flex h-14 w-14 items-center justify-center rounded-2xl border ${
+          <div className={`inline-flex h-11 w-11 md:h-14 md:w-14 items-center justify-center rounded-xl md:rounded-2xl border ${
             categoryCounts.home > 0 ? 'border-emerald-200 bg-white text-emerald-500' : 'border-slate-200 bg-white text-slate-400'
           }`}>
-            <FileText size={28} />
+            <FileText size={24} />
           </div>
           <div>
-            <h3 className="font-bold text-lg text-gray-800">Домашка</h3>
-            <p className="text-gray-500 text-sm">Файлы заданий</p>
+            <h3 className="font-bold text-base md:text-lg text-gray-800">Домашка</h3>
+            <p className="hidden md:block text-gray-500 text-sm">Файлы заданий</p>
             <span className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
               categoryCounts.home > 0
                 ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
@@ -10017,15 +10171,22 @@ const NotesSection = ({
     wordWrap: 'on',
     automaticLayout: true
   };
+  const isMobileViewport = typeof window !== 'undefined'
+    ? window.matchMedia('(max-width: 767px)').matches
+    : false;
+  const pyDraftEditorHeight = isMobileViewport ? '180px' : '220px';
+  const pyFileEditorHeight = isMobileViewport ? '220px' : '340px';
+  const pdfPreviewHeight = isMobileViewport ? '48vh' : '60vh';
+  const imagePreviewMaxHeight = isMobileViewport ? '56vh' : '72vh';
   const currentTaskLabel = formatTaskNumber(currentTask) || currentTask;
   const currentCategoryLabel = currentCategory === 'class' ? 'На уроке' : 'Домашка';
 
   return (
-    <div className="animate-fadeIn space-y-5" data-tour="notes">
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-5 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
+    <div className="animate-fadeIn space-y-4 md:space-y-5" data-tour="notes">
+      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-4 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
         <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
         <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
-        <div className="relative z-10 space-y-4">
+        <div className="relative z-10 space-y-3 md:space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <button
               onClick={() => setCurrentCategory(null)}
@@ -10036,9 +10197,9 @@ const NotesSection = ({
             </button>
             {renderStudentPicker()}
           </div>
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-3 md:gap-4 md:flex-row md:items-center md:justify-between">
             <div className="space-y-2">
-              <div className="text-base md:text-lg font-semibold text-gray-700 flex flex-wrap items-center gap-2">
+              <div className="hidden md:flex text-base md:text-lg font-semibold text-gray-700 flex-wrap items-center gap-2">
                 <button
                   onClick={() => setCurrentCategory(null)}
                   className="hover:text-purple-600"
@@ -10059,25 +10220,29 @@ const NotesSection = ({
                   {currentFolderLabel}
                 </span>
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
-                <span className="inline-flex items-center rounded-full border border-purple-200 bg-white/90 px-2.5 py-1 text-purple-700">
-                  Использовано: {formatBytes(taskUsageBytes)} из {formatBytes(totalLimitBytes)}
+              <div className="md:hidden text-sm font-semibold text-gray-700">
+                {`Задание ${currentTaskLabel} · ${currentCategoryLabel}`}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 md:gap-2 text-[11px] md:text-xs font-semibold">
+                <span className="inline-flex items-center rounded-full border border-purple-200 bg-white/90 px-2 py-1 md:px-2.5 text-purple-700">
+                  <span className="md:hidden">{`Исп.: ${formatBytes(taskUsageBytes)}`}</span>
+                  <span className="hidden md:inline">{`Использовано: ${formatBytes(taskUsageBytes)} из ${formatBytes(totalLimitBytes)}`}</span>
                 </span>
-                <span className={`inline-flex items-center rounded-full border px-2.5 py-1 ${
+                <span className={`inline-flex items-center rounded-full border px-2 py-1 md:px-2.5 ${
                   remainingBytes <= 10 * 1024 * 1024
                     ? 'border-rose-200 bg-rose-50 text-rose-600'
                     : 'border-emerald-200 bg-emerald-50 text-emerald-700'
                 }`}>
                   Осталось: {formatBytes(remainingBytes)}
                 </span>
-                <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-slate-600">
+                <span className="hidden md:inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-slate-600">
                   {`Файлов в разделе: ${filtered.length}`}
                 </span>
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 w-full sm:w-auto">
               <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} multiple />
-              <Button onClick={() => fileRef.current.click()} disabled={isUploading} className="min-w-[128px]">
+              <Button onClick={() => fileRef.current.click()} disabled={isUploading} className="w-full sm:w-auto min-w-[128px]">
                 <Upload size={18} /> {isUploading ? 'Загрузка...' : 'Загрузить'}
               </Button>
             </div>
@@ -10085,7 +10250,44 @@ const NotesSection = ({
         </div>
       </div>
 
-      <Card className="space-y-4 border-purple-200/70 bg-gradient-to-br from-white via-white to-purple-50/45">
+      <div className="md:hidden grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            setShowMobileFolderTools((prev) => {
+              const next = !prev;
+              if (next) setShowMobilePyTools(false);
+              return next;
+            });
+          }}
+          className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
+            showMobileFolderTools
+              ? 'border-purple-500 bg-purple-50 text-purple-700'
+              : 'border-slate-200 bg-white text-slate-600'
+          }`}
+        >
+          {showMobileFolderTools ? 'Скрыть папки' : `Папки (${folders.length})`}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setShowMobilePyTools((prev) => {
+              const next = !prev;
+              if (next) setShowMobileFolderTools(false);
+              return next;
+            });
+          }}
+          className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
+            showMobilePyTools
+              ? 'border-purple-500 bg-purple-50 text-purple-700'
+              : 'border-slate-200 bg-white text-slate-600'
+          }`}
+        >
+          {showMobilePyTools ? 'Скрыть Python' : 'Python файл'}
+        </button>
+      </div>
+
+      <Card className={`space-y-4 border-purple-200/70 bg-gradient-to-br from-white via-white to-purple-50/45 ${showMobilePyTools ? 'block' : 'hidden'} md:block`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="font-bold text-gray-800">Python файл</h3>
@@ -10105,13 +10307,13 @@ const NotesSection = ({
                 placeholder="Название файла (без .py)"
                 className="flex-1 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
               />
-              <Button onClick={handleCreatePyFile} disabled={pyDraftSaving || !pyDraftName.trim()}>
+              <Button onClick={handleCreatePyFile} disabled={pyDraftSaving || !pyDraftName.trim()} className="w-full md:w-auto">
                 {pyDraftSaving ? 'Сохранение...' : 'Сохранить файл'}
               </Button>
             </div>
             <div className="rounded-2xl overflow-hidden border border-gray-800">
               <Editor
-                height="220px"
+                height={pyDraftEditorHeight}
                 language="python"
                 theme="vs-dark"
                 value={pyDraftCode}
@@ -10132,13 +10334,13 @@ const NotesSection = ({
         )}
       </Card>
 
-      <Card className="space-y-4 border-slate-200 bg-white/90">
+      <Card className={`space-y-4 border-slate-200 bg-white/90 ${showMobileFolderTools ? 'block' : 'hidden'} md:block`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="font-bold text-gray-800">Папки</h3>
             <p className="text-xs text-slate-500">Организуйте материалы внутри выбранного раздела</p>
           </div>
-          <Button variant="secondary" onClick={() => setIsCreatingFolder((v) => !v)}>
+          <Button variant="secondary" onClick={() => setIsCreatingFolder((v) => !v)} className="w-full sm:w-auto">
             <FolderPlus size={16} /> Новая папка
           </Button>
         </div>
@@ -10153,13 +10355,13 @@ const NotesSection = ({
               placeholder="Название папки"
               className="flex-1 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
             />
-            <Button onClick={handleCreateFolder} disabled={!newFolderName.trim()}>
+            <Button onClick={handleCreateFolder} disabled={!newFolderName.trim()} className="w-full md:w-auto">
               Создать
             </Button>
           </div>
         )}
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex gap-2 overflow-x-auto pb-1">
           <button
             onClick={() => setCurrentFolderId(null)}
             onDragOver={(e) => handleFolderDragOver(e, 'root')}
@@ -10225,22 +10427,23 @@ const NotesSection = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         data-tour="files"
-        className={`rounded-3xl border-2 border-dashed p-4 md:p-5 transition-all ${
+        className={`rounded-3xl border-2 border-dashed p-3.5 md:p-5 transition-all ${
           isDragging
             ? 'border-purple-400 bg-gradient-to-br from-purple-50 via-white to-fuchsia-50/40'
             : 'border-slate-200 bg-gradient-to-br from-white via-white to-slate-50/70'
         }`}
       >
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
-          <span>Перетащите файл сюда или вставьте изображение через Ctrl+V</span>
-          <span className="text-xs text-slate-400">
+        <div className="mb-3 md:mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
+          <span className="hidden md:inline">Перетащите файл сюда или вставьте изображение через Ctrl+V</span>
+          <span className="md:hidden">Загрузите файл или вставьте изображение</span>
+          <span className="text-[11px] md:text-xs text-slate-400">
             Папка: {currentFolderLabel} • Осталось {formatBytes(remainingBytes)}
           </span>
           {isUploading && <span className="text-xs font-bold text-purple-600">Загрузка...</span>}
         </div>
 
         {filtered.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-white/80 p-10 text-center text-sm text-slate-400">
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-white/80 p-6 md:p-10 text-center text-sm text-slate-400">
             {filesError || 'Пусто'}
           </div>
         ) : (
@@ -10248,7 +10451,7 @@ const NotesSection = ({
             {filtered.map(f => (
               <div key={f.id} className="space-y-2">
                 <div
-                className={`flex items-center justify-between rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm transition-all ${
+                className={`flex items-start justify-between rounded-2xl border border-slate-200 bg-white/90 p-3 md:p-4 shadow-sm transition-all ${
                   draggingFileId === f.id ? 'opacity-60' : 'hover:border-purple-200 hover:shadow-md'
                 }`}
                 draggable={renamingId !== f.id}
@@ -10293,28 +10496,31 @@ const NotesSection = ({
                             e.stopPropagation();
                             startRename(f);
                           }}
-                          className="font-medium text-gray-800 truncate text-left hover:text-purple-600"
+                          className="font-medium text-sm md:text-base text-gray-800 truncate text-left hover:text-purple-600"
                           title="Переименовать"
                         >
                           {f.name}
                         </button>
                       )}
-                      <p className="text-xs text-gray-500">{f.size} • {f.date}</p>
+                      <p className="text-xs text-gray-500">
+                        {f.size}
+                        <span className="hidden sm:inline">{` • ${f.date}`}</span>
+                      </p>
                     </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-1.5 md:gap-2">
                     {renamingId === f.id ? null : (
                       <>
                         {!isPyFile(f.name) && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleDownload(f); }}
-                            className="p-2 hover:bg-gray-100 rounded text-gray-500"
+                            className="p-1.5 md:p-2 hover:bg-gray-100 rounded text-gray-500"
                             title="Скачать файл"
                           >
-                            <Download size={18}/>
+                            <Download size={17}/>
                           </button>
                         )}
-                        <button onClick={(e) => { e.stopPropagation(); handleDelete(f); }} className="p-2 hover:bg-red-50 rounded text-red-500"><Trash2 size={18}/></button>
+                        <button onClick={(e) => { e.stopPropagation(); handleDelete(f); }} className="p-1.5 md:p-2 hover:bg-red-50 rounded text-red-500"><Trash2 size={17}/></button>
                       </>
                     )}
                   </div>
@@ -10331,7 +10537,7 @@ const NotesSection = ({
                             : 'Просмотр Python'}
                         </span>
                         {editingPyId === f.id ? (
-                          <div className="flex items-center gap-2">
+                          <div className="flex w-full sm:w-auto items-center gap-2">
                             <Button
                               variant="secondary"
                               onClick={(e) => {
@@ -10339,6 +10545,7 @@ const NotesSection = ({
                                 cancelEditingPyFile();
                               }}
                               disabled={pyEditSaving}
+                              className="w-full sm:w-auto"
                             >
                               Отмена
                             </Button>
@@ -10348,6 +10555,7 @@ const NotesSection = ({
                                 saveEditingPyFile(f);
                               }}
                               disabled={pyEditSaving}
+                              className="w-full sm:w-auto"
                             >
                               {pyEditSaving ? 'Сохранение...' : 'Сохранить'}
                             </Button>
@@ -10360,6 +10568,7 @@ const NotesSection = ({
                               startEditingPyFile(f);
                             }}
                             disabled={pyLoadingId === f.id || Boolean(pyError[f.id])}
+                            className="w-full sm:w-auto"
                           >
                             Редактировать
                           </Button>
@@ -10369,7 +10578,7 @@ const NotesSection = ({
                         <div className="space-y-2">
                           <div className="rounded-xl overflow-hidden border border-gray-800">
                             <Editor
-                              height="340px"
+                              height={pyFileEditorHeight}
                               language="python"
                               theme="vs-dark"
                               value={pyEditDraft}
@@ -10385,7 +10594,7 @@ const NotesSection = ({
                           </div>
                           <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
                             <div className="rounded-xl border p-2 bg-gray-50">
-                              <div className="flex items-center justify-between mb-2">
+                              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
                                 <span className="text-xs font-semibold text-gray-600">Ввод (stdin)</span>
                                 <Button
                                   onClick={(e) => {
@@ -10393,6 +10602,7 @@ const NotesSection = ({
                                     handleRunEditedPyFile();
                                   }}
                                   disabled={pyRunLoading || pyEditSaving}
+                                  className="w-full sm:w-auto"
                                 >
                                   {pyRunLoading ? 'Запуск...' : 'Запустить'}
                                 </Button>
@@ -10458,7 +10668,8 @@ const NotesSection = ({
                       <iframe
                         title={f.name}
                         src={getFileUrl(f)}
-                        className="w-full h-[60vh]"
+                        className="w-full"
+                        style={{ height: pdfPreviewHeight }}
                       />
                     </div>
                   </div>
@@ -10471,7 +10682,8 @@ const NotesSection = ({
                       <img
                         src={getFileUrl(f)}
                         alt={f.name || 'Изображение'}
-                        className="max-h-[72vh] w-auto max-w-full object-contain rounded-lg"
+                        className="w-auto max-w-full object-contain rounded-lg"
+                        style={{ maxHeight: imagePreviewMaxHeight }}
                         loading="lazy"
                       />
                     </div>
@@ -11710,6 +11922,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         { id: 'python', label: 'Изучение Python', icon: FileText },
         { id: 'notes', label: 'Конспекты', icon: BookOpen }
       ];
+  const mobileNavLabels = {
+    schedule: 'График',
+    progress: 'Тесты',
+    python: 'Python',
+    teacher: 'Управ.',
+    notes: 'Консп.',
+    admin: 'Админка',
+  };
   const handleStreakSaved = (nextStreak) => {
     const normalizedNext = normalizeStreak(nextStreak);
     const normalizedPrev = normalizeStreak(studentStreakRef.current);
@@ -12396,7 +12616,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   return (
     <div className="app-min-h app-shell flex font-sans text-slate-900">
       {user.role === 'teacher' && teacherNotifs.length > 0 && (
-        <div className="fixed top-4 right-4 z-[1200] space-y-3 max-w-[320px]">
+        <div className="fixed left-2 right-2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-[1200] space-y-3 sm:left-auto sm:right-4 sm:top-4 sm:w-full sm:max-w-[320px]">
           {teacherNotifs.map((note) => {
             const levelLabel = note.levelId === PYTHON_LEVEL_ID
               ? 'Python'
@@ -12484,11 +12704,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           />
         )}
       */}
-      <aside
-        className={`fixed md:sticky md:top-0 z-40 w-64 lg:w-72 app-h transition-transform sidebar-shell rounded-none overflow-hidden ${
-          menuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-        }`}
-      >
+      <aside className="hidden md:block md:sticky md:top-0 z-40 w-64 lg:w-72 app-h sidebar-shell rounded-none overflow-hidden">
         <div className="relative flex h-full flex-col">
           <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
             <div className="sidebar-aurora sidebar-aurora--top" />
@@ -12503,11 +12719,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               <div>
                 <div className="font-display text-xl font-bold text-slate-900">Иван на сотку</div>
                 <div className="text-sm font-semibold text-purple-700/80">Личный профиль</div>
-              </div>
-            </div>
-            <div className="flex md:hidden items-center">
-              <div className="rounded-2xl border border-white/70 bg-gradient-to-br from-white/90 to-purple-50/90 px-4 py-2.5 shadow-sm">
-                <span className="font-display text-lg font-bold tracking-tight text-purple-700">100</span>
               </div>
             </div>
           </div>
@@ -12575,20 +12786,22 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           </div>
         </div>
       </aside>
-
-      <div className="flex-1 flex flex-col app-h overflow-hidden">
-        <header className="md:hidden bg-white/80 backdrop-blur border-b border-slate-200/70 p-4 flex justify-between items-center">
+      <div className="relative flex-1 flex flex-col app-h overflow-hidden">
+        <header className="sticky top-0 z-20 md:hidden bg-white/85 backdrop-blur border-b border-slate-200/70 px-3.5 py-3 pt-[calc(env(safe-area-inset-top)+0.55rem)] flex justify-between items-center">
           <LogoMark className="text-lg" />
           <button
             type="button"
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="grid h-10 w-10 place-items-center rounded-xl border border-purple-200/70 bg-white text-purple-700 shadow-sm"
-            aria-label={menuOpen ? 'Закрыть меню' : 'Открыть меню'}
+            onClick={() => setMenuOpen(true)}
+            className="flex h-10 min-w-[40px] items-center gap-2 rounded-xl border border-purple-200/70 bg-white px-2 text-purple-700 shadow-sm"
+            aria-label="Открыть профиль"
           >
-            {menuOpen ? <X size={18} /> : <Menu size={18} />}
+            <span className="grid h-6 w-6 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 text-[11px] font-bold text-white">
+              {String(user?.name || '?').slice(0, 1).toUpperCase()}
+            </span>
+            <span className="text-xs font-semibold">Профиль</span>
           </button>
         </header>
-        <main className="flex-1 overflow-y-auto p-4 md:p-8" data-tour="main">
+        <main className="flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8" data-tour="main">
           <div className="main-content-shell animate-soft">
           {user.role === 'student' && (
             <div className="mb-3 flex justify-end">
@@ -12651,7 +12864,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
             </div>
           )}
           {user.role === 'student' && goalState?.entry && !goalState.completed && goalGoals.length > 0 && (
-            <div className="sticky top-0 z-30 mb-4">
+            <div className={goalCollapsed ? 'sticky top-0 z-30 mb-4' : 'mb-4'}>
               {goalCollapsed ? (
                 <div className="surface-panel goal-collapse rounded-2xl px-4 py-3 text-sm text-gray-700 shadow-soft flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -12894,6 +13107,71 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           )}
           </div>
         </main>
+        <div
+          className={`fixed inset-0 z-30 transition-opacity duration-200 md:hidden ${
+            menuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          }`}
+          aria-hidden={!menuOpen}
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-900/35 backdrop-blur-[1px]"
+            onClick={() => setMenuOpen(false)}
+            aria-label="Закрыть профиль"
+          />
+          <div className={`absolute inset-x-0 bottom-0 transition-transform duration-300 ease-out ${menuOpen ? 'translate-y-0' : 'translate-y-full'}`}>
+            <div className="surface-card rounded-t-3xl border border-purple-100/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 shadow-[0_-14px_30px_rgba(15,23,42,0.22)]">
+              <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200" />
+              <div className="rounded-2xl border border-white/70 bg-gradient-to-br from-white to-purple-50/70 p-4 shadow-[0_8px_20px_rgba(148,163,184,0.2)]">
+                <div className="flex items-center gap-3">
+                  <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white flex items-center justify-center font-bold shadow-md shadow-purple-300/40 ring-1 ring-white/70">
+                    {user.name[0]}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-base font-semibold text-slate-900 truncate">{user.name}</p>
+                    <div className="mt-1 inline-flex items-center rounded-md bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2.5 py-1 text-xs font-semibold text-purple-700">
+                      {user.role === 'admin' ? 'Администратор' : (user.role === 'teacher' ? 'Преподаватель' : 'Ученик')}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={onLogout}
+                className="mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/70 bg-white/90 px-4 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 hover:shadow-sm"
+              >
+                <LogOut size={16} /> Выйти
+              </button>
+            </div>
+          </div>
+        </div>
+        <nav className="fixed inset-x-0 bottom-0 z-20 px-2 pb-[calc(env(safe-area-inset-bottom)+0.45rem)] md:hidden" data-tour="nav">
+          <div className="surface-panel rounded-2xl border border-purple-100/70 bg-white/90 p-1.5 shadow-[0_12px_26px_rgba(15,23,42,0.16)]">
+            <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${Math.max(1, nav.length)}, minmax(0, 1fr))` }}>
+              {nav.map((n) => {
+                const isActive = view === n.id;
+                const Icon = n.icon;
+                return (
+                  <button
+                    key={`mobile-nav-${n.id}`}
+                    type="button"
+                    onClick={() => {
+                      setView(n.id);
+                      setMenuOpen(false);
+                    }}
+                    className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-[10px] font-semibold transition-colors ${
+                      isActive
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:bg-purple-50 hover:text-purple-700'
+                    }`}
+                  >
+                    <Icon size={16} />
+                    <span className="truncate leading-none">{mobileNavLabels[n.id] || n.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </nav>
       </div>
     </div>
   );
