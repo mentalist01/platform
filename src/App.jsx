@@ -1018,6 +1018,16 @@ const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getSolvedAnswers: async (studentId, taskNumber, levelId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', studentId);
+    if (taskNumber) params.append('taskNumber', String(taskNumber));
+    if (levelId) params.append('levelId', String(levelId));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/progress/solved-answers?${qs}` : '/api/progress/solved-answers');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getTaskCode: async (studentId, taskNumber) => {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);
@@ -4311,6 +4321,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
   const [userAnswers, setUserAnswers] = useState({}); // { [idx]: string | { a: string, b: string } }
   const [results, setResults] = useState({}); // { [idx]: boolean }
   const [solvedIds, setSolvedIds] = useState(new Set());
+  const [solvedAnswerById, setSolvedAnswerById] = useState({});
   const [expandedImage, setExpandedImage] = useState(null);
   const [questionCodeById, setQuestionCodeById] = useState({});
   const [questionCodeOpen, setQuestionCodeOpen] = useState(false);
@@ -4561,6 +4572,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     setUserAnswers({});
     setResults({});
     setSolvedIds(new Set());
+    setSolvedAnswerById({});
     setQuestionCodeById({});
     setQuestionCodeOpen(false);
     setQuestionCodeLoadingById({});
@@ -4573,8 +4585,17 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
 
     if (studentId) {
       try {
-        const solved = await api.getSolvedQuestions(studentId, task.number, lvlId);
-        setSolvedIds(new Set((solved || []).map((id) => String(id))));
+        const [solvedPayload, solvedAnswersPayload] = await Promise.all([
+          api.getSolvedQuestions(studentId, task.number, lvlId).catch(() => []),
+          api.getSolvedAnswers(studentId, task.number, lvlId).catch(() => ({})),
+        ]);
+        const solvedIdsList = Array.isArray(solvedPayload) ? solvedPayload : [];
+        setSolvedIds(new Set(solvedIdsList.map((id) => String(id))));
+        setSolvedAnswerById(
+          solvedAnswersPayload && typeof solvedAnswersPayload === 'object'
+            ? solvedAnswersPayload
+            : {}
+        );
       } catch (err) {
         console.error(err);
       }
@@ -4599,6 +4620,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     setQuestionCodeSavingById({});
     setQuestionCodeErrorById({});
     setQuestionRunStateById({});
+    setSolvedAnswerById({});
     disposeQuestionRunnerWorker();
   }, [task?.number]);
 
@@ -4621,6 +4643,31 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
       .trim()
       .toLowerCase()
       .replace(/\s+/g, ' ');
+  };
+
+  const parseStoredSolvedAnswers = (raw, count) => {
+    const safeCount = Number.isFinite(Number(count)) ? Math.max(1, Number(count)) : 1;
+    if (typeof raw !== 'string') {
+      return Array.from({ length: safeCount }, () => '');
+    }
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return Array.from({ length: safeCount }, () => '');
+    }
+    let values = null;
+    const looksJson = (trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'));
+    if (looksJson) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) values = parsed;
+        else if (parsed && typeof parsed === 'object') {
+          if (Array.isArray(parsed.answers)) values = parsed.answers;
+          else if (typeof parsed.answer !== 'undefined') values = [parsed.answer];
+        }
+      } catch {}
+    }
+    if (!Array.isArray(values)) values = [trimmed];
+    return Array.from({ length: safeCount }, (_, index) => String(values[index] ?? ''));
   };
 
   const handleCheck = async () => {
@@ -4677,6 +4724,15 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
           next.add(String(currentQuestion.id));
           return next;
         });
+        try {
+          const solvedAnswersPayload = await api.getSolvedAnswers(studentId, task.number, level);
+          if (solvedAnswersPayload && typeof solvedAnswersPayload === 'object') {
+            setSolvedAnswerById((prev) => ({
+              ...(prev || {}),
+              ...solvedAnswersPayload,
+            }));
+          }
+        } catch {}
         if (typeof onStreakSaved === 'function') {
           if (resp?.streak) {
             onStreakSaved(resp.streak);
@@ -4790,17 +4846,26 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     const expectedAnswers = getExpectedAnswers(currentQuestion, answerCount);
     const currentId = String(currentQuestion?.id ?? currentIndex);
     const isSolved = solvedIds.has(currentId);
+    const solvedStoredAnswers = parseStoredSolvedAnswers(solvedAnswerById?.[currentId], answerCount);
+    const solvedAnswerValues = Array.from({ length: answerCount }, (_, index) => {
+      const expected = String(expectedAnswers[index] ?? '');
+      if (expected.trim()) return expected;
+      return String(solvedStoredAnswers[index] ?? '');
+    });
     const storedAnswer = userAnswers[currentIndex];
     const answerValue = answerCount === 1
-      ? (isSolved ? String(expectedAnswers[0] ?? '') : String(storedAnswer ?? ''))
+      ? (isSolved ? String(solvedAnswerValues[0] ?? '') : String(storedAnswer ?? ''))
       : '';
     const answerValues = answerCount > 1
       ? (
         isSolved
-          ? expectedAnswers.map((val) => String(val ?? ''))
+          ? solvedAnswerValues.map((val) => String(val ?? ''))
           : Array.from({ length: answerCount }, (_, i) => String((Array.isArray(storedAnswer) ? storedAnswer[i] : '') ?? ''))
       )
       : [];
+    const answerLabels = Number(task?.number) === GAME_THEORY_TASK && answerCount === 4
+      ? ['19', '20.1', '20.2', '21']
+      : Array.from({ length: answerCount }, (_, idx) => String(idx + 1));
     const screenshots = (Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [])
       .map((img) => ({ ...img, url: withStudentId(img?.url, studentId) }));
     const extraFiles = (Array.isArray(currentQuestion?.files) ? currentQuestion.files : [])
@@ -4958,192 +5023,213 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
             )}
 
             <div className="space-y-3 mb-6">
-              <label className="block text-xs font-bold text-gray-400 uppercase">Ответ</label>
-              {answerCount > 1 ? (
-                Number(task?.number) === GAME_THEORY_TASK ? (
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-500 mb-1">19</label>
-                      <input
-                        type="text"
-                        value={answerValues[0] ?? ''}
-                        onChange={(e) => {
-                          if (computedChecked) return;
-                          const value = e.target.value;
-                          setUserAnswers((prev) => {
-                            const next = { ...prev };
-                            const current = Array.isArray(next[currentIndex])
-                              ? [...next[currentIndex]]
-                              : Array.from({ length: answerCount }, () => '');
-                            current[0] = value;
-                            next[currentIndex] = current;
-                            return next;
-                          });
-                        }}
-                        placeholder="Ответ 19"
-                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-                        disabled={computedChecked}
-                      />
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">20.1</label>
-                        <input
-                          type="text"
-                          value={answerValues[1] ?? ''}
-                          onChange={(e) => {
-                            if (computedChecked) return;
-                            const value = e.target.value;
-                            setUserAnswers((prev) => {
-                              const next = { ...prev };
-                              const current = Array.isArray(next[currentIndex])
-                                ? [...next[currentIndex]]
-                                : Array.from({ length: answerCount }, () => '');
-                              current[1] = value;
-                              next[currentIndex] = current;
-                              return next;
-                            });
-                          }}
-                          placeholder="Ответ 20.1"
-                          className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-                          disabled={computedChecked}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">20.2</label>
-                        <input
-                          type="text"
-                          value={answerValues[2] ?? ''}
-                          onChange={(e) => {
-                            if (computedChecked) return;
-                            const value = e.target.value;
-                            setUserAnswers((prev) => {
-                              const next = { ...prev };
-                              const current = Array.isArray(next[currentIndex])
-                                ? [...next[currentIndex]]
-                                : Array.from({ length: answerCount }, () => '');
-                              current[2] = value;
-                              next[currentIndex] = current;
-                              return next;
-                            });
-                          }}
-                          placeholder="Ответ 20.2"
-                          className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-                          disabled={computedChecked}
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-500 mb-1">21</label>
-                      <input
-                        type="text"
-                        value={answerValues[3] ?? ''}
-                        onChange={(e) => {
-                          if (computedChecked) return;
-                          const value = e.target.value;
-                          setUserAnswers((prev) => {
-                            const next = { ...prev };
-                            const current = Array.isArray(next[currentIndex])
-                              ? [...next[currentIndex]]
-                              : Array.from({ length: answerCount }, () => '');
-                            current[3] = value;
-                            next[currentIndex] = current;
-                            return next;
-                          });
-                        }}
-                        placeholder="Ответ 21"
-                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-                        disabled={computedChecked}
-                      />
-                    </div>
-                  </div>
-                ) : answerCount === 20 ? (
-                  <div className="grid grid-cols-[32px_1fr_1fr] gap-2">
-                    {Array.from({ length: 10 }).map((_, rowIdx) => {
-                      const leftIdx = rowIdx;
-                      const rightIdx = rowIdx + 10;
-                      return (
-                        <React.Fragment key={rowIdx}>
-                          <div className="flex items-center justify-center text-xs font-bold text-gray-500">
-                            {rowIdx + 1}
-                          </div>
-                          <input
-                            type="text"
-                            value={answerValues[leftIdx] ?? ''}
-                            onChange={(e) => {
-                              if (computedChecked) return;
-                              const value = e.target.value;
-                              setUserAnswers((prev) => {
-                                const next = { ...prev };
-                                const current = Array.isArray(next[currentIndex]) ? [...next[currentIndex]] : Array.from({ length: answerCount }, () => '');
-                                current[leftIdx] = value;
-                                next[currentIndex] = current;
-                                return next;
-                              });
-                            }}
-                            placeholder="Ответ 1"
-                            className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-                            disabled={computedChecked}
-                          />
-                          <input
-                            type="text"
-                            value={answerValues[rightIdx] ?? ''}
-                            onChange={(e) => {
-                              if (computedChecked) return;
-                              const value = e.target.value;
-                              setUserAnswers((prev) => {
-                                const next = { ...prev };
-                                const current = Array.isArray(next[currentIndex]) ? [...next[currentIndex]] : Array.from({ length: answerCount }, () => '');
-                                current[rightIdx] = value;
-                                next[currentIndex] = current;
-                                return next;
-                              });
-                            }}
-                            placeholder="Ответ 2"
-                            className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-                            disabled={computedChecked}
-                          />
-                        </React.Fragment>
-                      );
-                    })}
-                  </div>
-                ) : (
+              <label className="block text-xs font-bold text-gray-400 uppercase">
+                {isSolved ? 'Правильный ответ' : 'Ответ'}
+              </label>
+              {isSolved ? (
+                answerCount > 1 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {Array.from({ length: answerCount }).map((_, idx) => (
-                      <input
-                        key={idx}
-                        type="text"
-                        value={answerValues[idx] ?? ''}
-                        onChange={(e) => {
-                          if (computedChecked) return;
-                          const value = e.target.value;
-                          setUserAnswers((prev) => {
-                            const next = { ...prev };
-                            const current = Array.isArray(next[currentIndex]) ? [...next[currentIndex]] : Array.from({ length: answerCount }, () => '');
-                            current[idx] = value;
-                            next[currentIndex] = current;
-                            return next;
-                          });
-                        }}
-                        placeholder={`Ответ ${idx + 1}`}
-                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-                        disabled={computedChecked}
-                      />
+                      <div key={`solved-answer-${idx}`} className="space-y-1">
+                        <div className="text-xs font-semibold text-gray-500">Ответ {answerLabels[idx]}</div>
+                        <div className="w-full px-4 py-3 rounded-xl bg-green-50 border border-green-200 text-gray-800">
+                          {answerValues[idx] ? answerValues[idx] : '—'}
+                        </div>
+                      </div>
                     ))}
+                  </div>
+                ) : (
+                  <div className="w-full px-4 py-3 rounded-xl bg-green-50 border border-green-200 text-gray-800">
+                    {answerValue ? answerValue : '—'}
                   </div>
                 )
               ) : (
-                <input
-                  type="text"
-                  value={answerValue}
-                  onChange={(e) => {
-                    if (computedChecked) return;
-                    setUserAnswers({ ...userAnswers, [currentIndex]: e.target.value });
-                  }}
-                  placeholder="Введите ответ..."
-                  className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-                  disabled={computedChecked}
-                />
+                answerCount > 1 ? (
+                  Number(task?.number) === GAME_THEORY_TASK ? (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">19</label>
+                        <input
+                          type="text"
+                          value={answerValues[0] ?? ''}
+                          onChange={(e) => {
+                            if (computedChecked) return;
+                            const value = e.target.value;
+                            setUserAnswers((prev) => {
+                              const next = { ...prev };
+                              const current = Array.isArray(next[currentIndex])
+                                ? [...next[currentIndex]]
+                                : Array.from({ length: answerCount }, () => '');
+                              current[0] = value;
+                              next[currentIndex] = current;
+                              return next;
+                            });
+                          }}
+                          placeholder="Ответ 19"
+                          className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                          disabled={computedChecked}
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1">20.1</label>
+                          <input
+                            type="text"
+                            value={answerValues[1] ?? ''}
+                            onChange={(e) => {
+                              if (computedChecked) return;
+                              const value = e.target.value;
+                              setUserAnswers((prev) => {
+                                const next = { ...prev };
+                                const current = Array.isArray(next[currentIndex])
+                                  ? [...next[currentIndex]]
+                                  : Array.from({ length: answerCount }, () => '');
+                                current[1] = value;
+                                next[currentIndex] = current;
+                                return next;
+                              });
+                            }}
+                            placeholder="Ответ 20.1"
+                            className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                            disabled={computedChecked}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1">20.2</label>
+                          <input
+                            type="text"
+                            value={answerValues[2] ?? ''}
+                            onChange={(e) => {
+                              if (computedChecked) return;
+                              const value = e.target.value;
+                              setUserAnswers((prev) => {
+                                const next = { ...prev };
+                                const current = Array.isArray(next[currentIndex])
+                                  ? [...next[currentIndex]]
+                                  : Array.from({ length: answerCount }, () => '');
+                                current[2] = value;
+                                next[currentIndex] = current;
+                                return next;
+                              });
+                            }}
+                            placeholder="Ответ 20.2"
+                            className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                            disabled={computedChecked}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">21</label>
+                        <input
+                          type="text"
+                          value={answerValues[3] ?? ''}
+                          onChange={(e) => {
+                            if (computedChecked) return;
+                            const value = e.target.value;
+                            setUserAnswers((prev) => {
+                              const next = { ...prev };
+                              const current = Array.isArray(next[currentIndex])
+                                ? [...next[currentIndex]]
+                                : Array.from({ length: answerCount }, () => '');
+                              current[3] = value;
+                              next[currentIndex] = current;
+                              return next;
+                            });
+                          }}
+                          placeholder="Ответ 21"
+                          className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                          disabled={computedChecked}
+                        />
+                      </div>
+                    </div>
+                  ) : answerCount === 20 ? (
+                    <div className="grid grid-cols-[32px_1fr_1fr] gap-2">
+                      {Array.from({ length: 10 }).map((_, rowIdx) => {
+                        const leftIdx = rowIdx;
+                        const rightIdx = rowIdx + 10;
+                        return (
+                          <React.Fragment key={rowIdx}>
+                            <div className="flex items-center justify-center text-xs font-bold text-gray-500">
+                              {rowIdx + 1}
+                            </div>
+                            <input
+                              type="text"
+                              value={answerValues[leftIdx] ?? ''}
+                              onChange={(e) => {
+                                if (computedChecked) return;
+                                const value = e.target.value;
+                                setUserAnswers((prev) => {
+                                  const next = { ...prev };
+                                  const current = Array.isArray(next[currentIndex]) ? [...next[currentIndex]] : Array.from({ length: answerCount }, () => '');
+                                  current[leftIdx] = value;
+                                  next[currentIndex] = current;
+                                  return next;
+                                });
+                              }}
+                              placeholder="Ответ 1"
+                              className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                              disabled={computedChecked}
+                            />
+                            <input
+                              type="text"
+                              value={answerValues[rightIdx] ?? ''}
+                              onChange={(e) => {
+                                if (computedChecked) return;
+                                const value = e.target.value;
+                                setUserAnswers((prev) => {
+                                  const next = { ...prev };
+                                  const current = Array.isArray(next[currentIndex]) ? [...next[currentIndex]] : Array.from({ length: answerCount }, () => '');
+                                  current[rightIdx] = value;
+                                  next[currentIndex] = current;
+                                  return next;
+                                });
+                              }}
+                              placeholder="Ответ 2"
+                              className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                              disabled={computedChecked}
+                            />
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {Array.from({ length: answerCount }).map((_, idx) => (
+                        <input
+                          key={idx}
+                          type="text"
+                          value={answerValues[idx] ?? ''}
+                          onChange={(e) => {
+                            if (computedChecked) return;
+                            const value = e.target.value;
+                            setUserAnswers((prev) => {
+                              const next = { ...prev };
+                              const current = Array.isArray(next[currentIndex]) ? [...next[currentIndex]] : Array.from({ length: answerCount }, () => '');
+                              current[idx] = value;
+                              next[currentIndex] = current;
+                              return next;
+                            });
+                          }}
+                          placeholder={`Ответ ${idx + 1}`}
+                          className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                          disabled={computedChecked}
+                        />
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  <input
+                    type="text"
+                    value={answerValue}
+                    onChange={(e) => {
+                      if (computedChecked) return;
+                      setUserAnswers({ ...userAnswers, [currentIndex]: e.target.value });
+                    }}
+                    placeholder="Введите ответ..."
+                    className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                    disabled={computedChecked}
+                  />
+                )
               )}
             {computedChecked && (
               <div className={`text-sm ${computedCorrect ? 'text-green-600' : 'text-red-600'}`}>

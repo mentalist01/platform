@@ -2679,6 +2679,50 @@ app.get('/api/progress/solved', (req, res) => {
   res.json(Array.isArray(solved) ? solved : []);
 });
 
+app.get('/api/progress/solved-answers', (req, res) => {
+  const { studentId, taskNumber, levelId } = req.query;
+  if (!taskNumber || !levelId) {
+    return res.status(400).json({ error: 'Некорректные параметры' });
+  }
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const taskNum = Number(taskNumber);
+  if (!Number.isFinite(taskNum)) {
+    return res.status(400).json({ error: 'Некорректный номер задания' });
+  }
+  const testsDb = readTestsDb();
+  const taskKey = String(taskNum);
+  const levelKey = String(levelId);
+  const taskLevels = testsDb?.[taskKey];
+  if (!taskLevels || typeof taskLevels !== 'object') {
+    return res.status(400).json({ error: 'Задание не найдено' });
+  }
+  const questions = taskLevels?.[levelKey];
+  if (!Array.isArray(questions)) {
+    return res.status(400).json({ error: 'Уровень не найден' });
+  }
+
+  const data = getStudentData(student.id);
+  const levelEntry = data?.solvedByTask?.[taskKey]?.[levelKey] || {};
+  const solved = Array.isArray(levelEntry?.solved) ? levelEntry.solved : [];
+  const solvedSet = new Set(solved.map((id) => String(id ?? '').trim()).filter(Boolean));
+  const answerCount = getAnswerCountForTask(taskNum);
+  const answerById = {};
+
+  questions.forEach((question) => {
+    const qKey = String(question?.id ?? '').trim();
+    if (!qKey || !solvedSet.has(qKey)) return;
+    const expectedAnswers = getExpectedAnswersForQuestion(question, answerCount).map((value) => String(value ?? ''));
+    if (answerCount <= 1) {
+      answerById[qKey] = expectedAnswers[0] ?? '';
+      return;
+    }
+    answerById[qKey] = JSON.stringify({ answers: expectedAnswers });
+  });
+
+  return res.json(answerById);
+});
+
 app.get('/api/progress/task-code', (req, res) => {
   const { studentId, taskNumber } = req.query;
   if (!taskNumber) {
