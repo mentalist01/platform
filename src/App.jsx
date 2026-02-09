@@ -5812,6 +5812,9 @@ const ProgressSection = ({
   const [section, setSection] = useState(() => (
     ['progress', 'notes', 'mocks'].includes(initialSection) ? initialSection : 'progress'
   ));
+  const requestedSectionRef = useRef(
+    ['progress', 'notes', 'mocks'].includes(initialSection) ? initialSection : 'progress'
+  );
   const [studentData, setStudentData] = useState({ progress: {}, notes: '', notesByTask: {}, mocks: [] });
   const [dataError, setDataError] = useState('');
   const [testsDb, setTestsDb] = useState(null);
@@ -6262,9 +6265,15 @@ const ProgressSection = ({
   }, [section, effectiveStudentId]);
 
   useEffect(() => {
-    const nextSection = ['progress', 'notes', 'mocks'].includes(initialSection) ? initialSection : 'progress';
+    requestedSectionRef.current = ['progress', 'notes', 'mocks'].includes(initialSection)
+      ? initialSection
+      : 'progress';
+  }, [initialSection]);
+
+  useEffect(() => {
+    const nextSection = requestedSectionRef.current;
     setSection((prev) => (prev === nextSection ? prev : nextSection));
-  }, [initialSection, sectionJumpToken]);
+  }, [sectionJumpToken]);
 
   useEffect(() => {
     onSectionChange?.(section);
