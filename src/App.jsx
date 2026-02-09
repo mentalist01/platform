@@ -4151,22 +4151,18 @@ const ProgressReviewModal = ({ task, onClose, studentId, testDb }) => {
               {questions.map((q, idx) => {
                 const qId = String(q?.id ?? idx);
                 const solved = solvedIds.has(qId);
+                const isCurrent = idx === currentIndex;
                 let btnClass = "w-8 h-8 rounded-lg text-sm font-bold flex items-center justify-center transition-all border-2 ";
 
-                if (idx === currentIndex) {
-                  btnClass += "border-purple-600 ring-2 ring-purple-100 text-purple-600 bg-white";
+                if (isCurrent && solved) {
+                  btnClass += "border-green-400 ring-2 ring-green-100 bg-green-100 text-green-700";
+                } else if (isCurrent) {
+                  btnClass += "border-purple-600 ring-2 ring-purple-200 bg-purple-600 text-white shadow-sm";
+                } else if (solved) {
+                  btnClass += "border-green-200 bg-green-100 text-green-600";
                 } else {
-                  btnClass += "border-transparent bg-gray-100 text-gray-500 hover:bg-gray-200 ";
+                  btnClass += "border-transparent bg-gray-100 text-gray-500 hover:bg-gray-200";
                 }
-
-              if (solved) btnClass = btnClass.replace('bg-gray-100', 'bg-green-100').replace('text-gray-500', 'text-green-600').replace('border-transparent', 'border-green-200');
-              if (idx === currentIndex && solved) {
-                btnClass = btnClass
-                  .replace('border-purple-600', 'border-green-400')
-                  .replace('ring-purple-100', 'ring-green-100')
-                  .replace('text-purple-600', 'text-green-700')
-                  .replace('bg-white', 'bg-green-100');
-              }
 
               return (
                   <button
@@ -4890,24 +4886,21 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
               const qId = String(q?.id ?? idx);
               const solved = solvedIds.has(qId);
               const status = results[idx]; // true, false or undefined
+              const isCurrent = idx === currentIndex;
               let btnClass = "w-8 h-8 rounded-lg text-sm font-bold flex items-center justify-center transition-all border-2 ";
-              
-              if (idx === currentIndex) {
-                btnClass += "border-purple-600 ring-2 ring-purple-100 ";
-                if (status === undefined && !solved) btnClass += "text-purple-600 bg-white";
-              } else {
-                btnClass += "border-transparent bg-gray-100 text-gray-500 hover:bg-gray-200 ";
-              }
 
-              if (solved) btnClass = btnClass.replace('bg-gray-100', 'bg-green-100').replace('text-gray-500', 'text-green-600').replace('border-transparent', 'border-green-200');
-              if (!solved && status === true) btnClass = btnClass.replace('bg-gray-100', 'bg-green-100').replace('text-gray-500', 'text-green-600').replace('border-transparent', 'border-green-200');
-              if (!solved && status === false) btnClass = btnClass.replace('bg-gray-100', 'bg-red-100').replace('text-gray-500', 'text-red-600').replace('border-transparent', 'border-red-200');
-              if (idx === currentIndex && (solved || status === true)) {
-                btnClass = btnClass
-                  .replace('border-purple-600', 'border-green-400')
-                  .replace('ring-purple-100', 'ring-green-100')
-                  .replace('text-purple-600', 'text-green-700')
-                  .replace('bg-white', 'bg-green-100');
+              if (isCurrent && (solved || status === true)) {
+                btnClass += "border-green-400 ring-2 ring-green-100 bg-green-100 text-green-700";
+              } else if (isCurrent && status === false) {
+                btnClass += "border-red-400 ring-2 ring-red-100 bg-red-100 text-red-700";
+              } else if (isCurrent) {
+                btnClass += "border-purple-600 ring-2 ring-purple-200 bg-white text-purple-600";
+              } else if (solved || status === true) {
+                btnClass += "border-green-200 bg-green-100 text-green-600";
+              } else if (status === false) {
+                btnClass += "border-red-200 bg-red-100 text-red-600";
+              } else {
+                btnClass += "border-gray-300 bg-white text-gray-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700";
               }
 
               return (
