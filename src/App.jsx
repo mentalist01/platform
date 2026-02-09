@@ -3333,6 +3333,23 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
   };
 
   if (!task) return null;
+  const testsLoading = testDb === null || typeof testDb === 'undefined';
+
+  if (testsLoading) {
+    const loadingModal = (
+      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
+        <div className="surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
+          <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
+          <div className="mx-auto inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-sm font-semibold text-purple-700">
+            <RefreshCcw size={14} className="animate-spin" />
+            Загрузка заданий...
+          </div>
+          <p className="text-gray-500 mt-3 text-sm">Подождите немного, загружаем задания и тесты.</p>
+        </div>
+      </div>
+    );
+    return typeof document !== 'undefined' ? createPortal(loadingModal, document.body) : null;
+  }
 
   if (!Array.isArray(questions) || questions.length === 0) {
     const emptyModal = (
@@ -3780,6 +3797,23 @@ const PythonReviewModal = ({ task, onClose, studentId, testDb }) => {
   }, [studentId, task?.number, questions, currentIndex]);
 
   if (!task) return null;
+  const testsLoading = testDb === null || typeof testDb === 'undefined';
+
+  if (testsLoading) {
+    const loadingModal = (
+      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
+        <div className="surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
+          <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
+          <div className="mx-auto inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-sm font-semibold text-purple-700">
+            <RefreshCcw size={14} className="animate-spin" />
+            Загрузка заданий...
+          </div>
+          <p className="text-gray-500 mt-3 text-sm">Подождите немного, загружаем задания и тесты.</p>
+        </div>
+      </div>
+    );
+    return typeof document !== 'undefined' ? createPortal(loadingModal, document.body) : null;
+  }
 
   if (!Array.isArray(questions) || questions.length === 0) {
     const emptyModal = (
@@ -4362,8 +4396,10 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
   const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
   const [questionRunStateById, setQuestionRunStateById] = useState({});
   const autoStartRef = useRef(false);
+  const [autoStartFailed, setAutoStartFailed] = useState(false);
   const questionRunnerWorkerRef = useRef(null);
   const questionRunnerPendingRef = useRef(new Map());
+  const autoStartLevel = ['basic', 'advanced', 'expert'].includes(initialLevel) ? initialLevel : null;
 
   const currentMastery = progress[task.id] || 0;
   const activeQuestion = questions[currentIndex];
@@ -4637,15 +4673,28 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
 
   useEffect(() => {
     if (stage !== 'select_level') return;
-    if (!initialLevel || autoStartRef.current) return;
-    if (!['basic', 'advanced', 'expert'].includes(initialLevel)) return;
+    if (!autoStartLevel || autoStartRef.current || autoStartFailed) return;
     if (!testDb) return;
+    let cancelled = false;
     autoStartRef.current = true;
-    startTest(initialLevel, { silent: true, initialIndex: initialQuestionIndex });
-  }, [stage, initialLevel, initialQuestionIndex, testDb]);
+    (async () => {
+      try {
+        const started = await startTest(autoStartLevel, { silent: true, initialIndex: initialQuestionIndex });
+        if (!cancelled && !started) {
+          setAutoStartFailed(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setAutoStartFailed(true);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [stage, autoStartLevel, initialQuestionIndex, testDb, autoStartFailed]);
 
   useEffect(() => {
     autoStartRef.current = false;
+    setAutoStartFailed(false);
     setQuestionCodeOpen(false);
     setQuestionCodeById({});
     setQuestionCodeLoadingById({});
@@ -4823,6 +4872,27 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
   }, []);
 
   if (stage === 'select_level') {
+    if (autoStartLevel && !autoStartFailed) {
+      const waitingTests = testDb === null || typeof testDb === 'undefined';
+      const loadingModal = (
+        <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-start justify-center p-4 md:p-8 overflow-y-auto backdrop-blur-sm">
+          <div className="surface-card modal-card rounded-3xl max-w-2xl w-full p-8 shadow-2xl relative text-center">
+            <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
+            <div className="mx-auto inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-sm font-semibold text-purple-700">
+              <RefreshCcw size={14} className="animate-spin" />
+              {waitingTests ? 'Загрузка заданий...' : 'Открываем задания...'}
+            </div>
+            <p className="text-gray-500 mt-3 text-sm">
+              {waitingTests
+                ? 'Подождите немного, загружаем тесты для этого задания.'
+                : 'Подготавливаем выбранный уровень.'}
+            </p>
+          </div>
+        </div>
+      );
+      return typeof document !== 'undefined' ? createPortal(loadingModal, document.body) : null;
+    }
+
     const modal = (
       <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-start justify-center p-4 md:p-8 overflow-y-auto backdrop-blur-sm">
         <div className="surface-card modal-card rounded-3xl max-w-2xl w-full p-8 shadow-2xl relative">
@@ -6337,7 +6407,7 @@ const ProgressSection = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-1.5 md:flex md:flex-wrap md:gap-2 rounded-2xl border border-slate-200 bg-white/85 p-1.5 md:p-2">
+      <div className="grid w-full grid-cols-3 gap-1.5 rounded-2xl border border-slate-200 bg-white/85 p-1.5 md:inline-flex md:w-fit md:flex-wrap md:gap-2 md:p-2">
         {sectionTabs.map((item) => {
           const Icon = item.icon;
           const active = section === item.id;
@@ -7690,7 +7760,7 @@ const ScheduleSection = ({
   const [mockAttemptsByExam, setMockAttemptsByExam] = useState({});
   const [editingId, setEditingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
-  const [showHistoryOnMobile, setShowHistoryOnMobile] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
@@ -8025,7 +8095,7 @@ const ScheduleSection = ({
   const nextDeadlineLabel = formatDaysText(nextHomeworkEntry?.daysToComplete || nextLesson?.daysToComplete || 7);
 
   useEffect(() => {
-    setShowHistoryOnMobile(false);
+    setShowHistory(false);
   }, [effectiveStudentId, totalHomeworkCount]);
 
   const renderHomeworkEntryCard = (entry, section = 'next', key) => {
@@ -8150,11 +8220,14 @@ const ScheduleSection = ({
               });
               const targetSolvedCount = targetStatus.filter((item) => item.solved).length;
               const hasTargets = targetNumbers.length > 0 || goal.includeAll;
+              const goalHeading = isPythonGoal
+                ? `Python ${pythonTask?.title || (taskNumber ? `тема ${taskNumber}` : 'тема')}`
+                : `Задание ${taskDisplay} · ${levelLabel}`;
               return (
                 <div key={`${taskNumber}-${levelId}-${goalIndex}`} className="rounded-xl border border-purple-100 bg-purple-50 px-3 py-2 text-xs text-purple-700 space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span>
-                      {`Задание ${taskDisplay} · ${levelLabel}`}
+                      {goalHeading}
                     </span>
                     {onOpenTask && (
                       <button
@@ -8762,14 +8835,14 @@ const ScheduleSection = ({
                 <div className="space-y-3">
                   <button
                     type="button"
-                    onClick={() => setShowHistoryOnMobile((prev) => !prev)}
-                    className="md:hidden w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-[12px] font-semibold text-slate-600"
+                    onClick={() => setShowHistory((prev) => !prev)}
+                    className="w-full md:w-auto rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-[12px] md:text-sm font-semibold text-slate-600"
                   >
-                    {showHistoryOnMobile
+                    {showHistory
                       ? 'Скрыть предыдущие домашки'
                       : `Показать предыдущие (${previousHomeworkEntries.length})`}
                   </button>
-                  <div className={`${showHistoryOnMobile ? 'space-y-3 block' : 'hidden'} md:block md:space-y-4`}>
+                  <div className={`${showHistory ? 'space-y-3 md:space-y-4 block' : 'hidden'}`}>
                     {previousHomeworkEntries.map((entry, idx) =>
                       renderHomeworkEntryCard(entry, 'history', entry.id || `${entry?.issuedAt || 'entry'}-${idx}`)
                     )}
@@ -10934,10 +11007,14 @@ const NewHomeworkModal = ({ entry, open, onClose, onOpenSchedule, onOpenTask, te
       const levelLabel = isPythonGoal
         ? 'Python'
         : (LEVELS[goal?.levelId?.toUpperCase()]?.label || goal?.levelId || '');
-      const labelBase = taskTitle
-        ? `${taskDisplay ? `${taskDisplay}. ` : ''}${taskTitle}`
-        : (taskDisplay ? `Задание ${taskDisplay}` : 'Задание');
-      const label = levelLabel ? `${labelBase} · ${levelLabel}` : labelBase;
+      const label = isPythonGoal
+        ? `Python ${taskTitle || (taskDisplay ? `тема ${taskDisplay}` : 'тема')}`
+        : (() => {
+            const labelBase = taskTitle
+              ? `${taskDisplay ? `${taskDisplay}. ` : ''}${taskTitle}`
+              : (taskDisplay ? `Задание ${taskDisplay}` : 'Задание');
+            return levelLabel ? `${labelBase} · ${levelLabel}` : labelBase;
+          })();
       const targetQuestions = Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [];
       const effectiveLevelId = isPythonGoal ? PYTHON_LEVEL_ID : goal?.levelId;
       const totalCount = goal?.includeAll
@@ -12947,20 +13024,26 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                         );
                       }
                       const hasTargets = goal.targetNumbers?.length > 0 || goal.includeAll;
-                      const pythonTask = isPythonTaskNumber(goal.taskNumber)
+                      const isPythonGoal = isPythonTaskNumber(goal.taskNumber);
+                      const pythonTask = isPythonGoal
                         ? getPythonTaskInfo(goal.taskNumber)
                         : null;
                       const taskDisplay = pythonTask?.displayNumber || formatTaskNumber(goal.taskNumber) || goal.taskNumber;
+                      const goalHeading = isPythonGoal
+                        ? `Python ${goal.taskTitle || pythonTask?.title || (goal.taskNumber ? `тема ${goal.taskNumber}` : 'тема')}`
+                        : `Задание ${taskDisplay} · ${goal.levelLabel}`;
                       return (
                         <div key={`${goal.taskNumber}-${goal.levelId}-${index}`} className="rounded-2xl border border-purple-100 bg-white/80 px-4 py-3 space-y-2">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div>
                               <div className="text-xs text-gray-500">
-                                {`Задание ${taskDisplay} · ${goal.levelLabel}`}
+                                {goalHeading}
                               </div>
-                              <div className="text-xs text-gray-500">
-                                {`Тема: ${goal.taskTitle}`}
-                              </div>
+                              {!isPythonGoal && (
+                                <div className="text-xs text-gray-500">
+                                  {`Тема: ${goal.taskTitle}`}
+                                </div>
+                              )}
                             </div>
                             <button
                               type="button"
