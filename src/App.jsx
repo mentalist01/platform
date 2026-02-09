@@ -599,6 +599,55 @@ const ensurePyodideReady = (() => {
 
 const PYODIDE_RUN_TIMEOUT_MS = 8000;
 const ALLOW_MAIN_THREAD_PYTHON_FALLBACK = false;
+const PYODIDE_STREAM_FLUSH_MS = 35;
+const PYODIDE_STREAM_CHUNK_CHARS = 2048;
+
+const mergeRuntimeErrorText = (base, next) => {
+  const baseText = typeof base === 'string' ? base : String(base ?? '');
+  const nextText = typeof next === 'string' ? next : String(next ?? '');
+  if (!nextText) return baseText;
+  if (!baseText) return nextText;
+  return `${baseText}${baseText.endsWith('\n') ? '' : '\n'}${nextText}`;
+};
+
+const PY_IDLE_STDIN_HEADER = '[Ввод]';
+const PY_IDLE_STDOUT_HEADER = '[Вывод]';
+const PY_IDLE_STDERR_HEADER = '[Ошибки]';
+
+const normalizeIdleConsoleText = (value) => String(value ?? '').replace(/\r\n/g, '\n');
+
+const buildIdleConsoleText = (inputValue, outputValue, errorValue) => {
+  const input = normalizeIdleConsoleText(inputValue);
+  const output = normalizeIdleConsoleText(outputValue);
+  const error = normalizeIdleConsoleText(errorValue);
+  return [
+    `${PY_IDLE_STDIN_HEADER} Введите данные для input():`,
+    input,
+    '',
+    PY_IDLE_STDOUT_HEADER,
+    output || 'Вывод пуст',
+    '',
+    PY_IDLE_STDERR_HEADER,
+    error || 'Ошибок нет',
+  ].join('\n');
+};
+
+const parseIdleConsoleInput = (consoleText, fallback = '') => {
+  const text = normalizeIdleConsoleText(consoleText);
+  const stdoutIndex = text.indexOf(PY_IDLE_STDOUT_HEADER);
+  if (stdoutIndex < 0) return text;
+  const stdinIndex = text.indexOf(PY_IDLE_STDIN_HEADER);
+  let start = 0;
+  if (stdinIndex >= 0) {
+    const afterHeaderIndex = text.indexOf('\n', stdinIndex);
+    start = afterHeaderIndex >= 0 ? afterHeaderIndex + 1 : text.length;
+  }
+  if (stdoutIndex < start) return typeof fallback === 'string' ? fallback : '';
+  return text
+    .slice(start, stdoutIndex)
+    .replace(/^\n+/, '')
+    .replace(/\n+$/, '');
+};
 
 const createPyodideWorker = () => {
   const workerSource = `
@@ -623,32 +672,108 @@ const createPyodideWorker = () => {
       return pyodidePromise;
     };
 
-    const runPython = async (source, inputValue) => {
+    const toText = (value) => (value == null ? '' : String(value));
+
+    const createChunkEmitter = (id, type) => {
+      let buffer = '';
+      let timer = null;
+      const flush = () => {
+        if (!buffer) return;
+        const chunk = buffer;
+        buffer = '';
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        self.postMessage({ id, type, chunk });
+      };
+      const push = (value) => {
+        const text = toText(value);
+        if (!text) return;
+        buffer += text;
+        if (buffer.length >= ${PYODIDE_STREAM_CHUNK_CHARS}) {
+          flush();
+          return;
+        }
+        if (!timer) {
+          timer = setTimeout(flush, ${PYODIDE_STREAM_FLUSH_MS});
+        }
+      };
+      const close = () => {
+        flush();
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+      };
+      return { push, close };
+    };
+
+    const runPython = async (id, source, inputValue) => {
       const pyodide = await ensurePyodide();
-      const safeInput = inputValue == null ? '' : String(inputValue);
-      const safeSource = source == null ? '' : String(source);
+      const safeInput = toText(inputValue);
+      const safeSource = toText(source);
+      const stdoutEmitter = createChunkEmitter(id, 'stdout');
+      const stderrEmitter = createChunkEmitter(id, 'stderr');
+      let output = '';
+      let error = '';
+      let stdoutNeedsLineBreak = false;
+      let stderrNeedsLineBreak = false;
+
+      const appendStdout = (value) => {
+        let safe = toText(value);
+        if (!safe) return;
+        if (stdoutNeedsLineBreak && !safe.startsWith('\\n') && !safe.startsWith('\\r')) {
+          safe = '\\n' + safe;
+        }
+        stdoutNeedsLineBreak = !safe.endsWith('\\n') && !safe.endsWith('\\r');
+        output += safe;
+        stdoutEmitter.push(safe);
+      };
+
+      const appendStderr = (value) => {
+        let safe = toText(value);
+        if (!safe) return;
+        if (stderrNeedsLineBreak && !safe.startsWith('\\n') && !safe.startsWith('\\r')) {
+          safe = '\\n' + safe;
+        }
+        stderrNeedsLineBreak = !safe.endsWith('\\n') && !safe.endsWith('\\r');
+        error += safe;
+        stderrEmitter.push(safe);
+      };
+
+      if (typeof pyodide.setStdout === 'function') {
+        pyodide.setStdout({
+          batched: (text) => {
+            appendStdout(text);
+          }
+        });
+      }
+      if (typeof pyodide.setStderr === 'function') {
+        pyodide.setStderr({
+          batched: (text) => {
+            appendStderr(text);
+          }
+        });
+      }
+
       const wrapped = [
         'import sys, io, traceback',
         '_input = ' + JSON.stringify(safeInput),
-        '_stdout = io.StringIO()',
-        '_stderr = io.StringIO()',
         'sys.stdin = io.StringIO(_input)',
-        'sys.stdout = _stdout',
-        'sys.stderr = _stderr',
         '_globals = {}',
         'try:',
         '    exec(' + JSON.stringify(safeSource) + ', _globals, _globals)',
         'except Exception:',
         '    traceback.print_exc()',
-        '__output = _stdout.getvalue()',
-        '__error = _stderr.getvalue()',
       ].join('\\n');
-      await pyodide.runPythonAsync(wrapped);
-      const output = pyodide.globals.get('__output') || '';
-      const error = pyodide.globals.get('__error') || '';
-      pyodide.globals.delete('__output');
-      pyodide.globals.delete('__error');
-      return { output: String(output), error: String(error) };
+      try {
+        await pyodide.runPythonAsync(wrapped);
+      } finally {
+        stdoutEmitter.close();
+        stderrEmitter.close();
+      }
+      return { output, error };
     };
 
     self.onmessage = async (event) => {
@@ -656,11 +781,11 @@ const createPyodideWorker = () => {
       const id = data.id;
       if (!id) return;
       try {
-        const result = await runPython(data.source, data.input);
-        self.postMessage({ id, output: result.output, error: result.error });
+        const result = await runPython(id, data.source, data.input);
+        self.postMessage({ id, type: 'result', output: result.output, error: result.error });
       } catch (err) {
         const message = err && err.message ? err.message : String(err);
-        self.postMessage({ id, output: '', error: message });
+        self.postMessage({ id, type: 'result', output: '', error: message });
       }
     };
   `;
@@ -975,6 +1100,19 @@ const api = {
     if (limit) params.append('limit', String(limit));
     const qs = params.toString();
     const res = await apiFetch(qs ? `/api/teacher-solved-events?${qs}` : '/api/teacher-solved-events');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  markTeacherSolvedEventsRead: async (teacherId, eventIds = []) => {
+    const ids = Array.isArray(eventIds)
+      ? eventIds.map((id) => (typeof id === 'string' ? id.trim() : '')).filter(Boolean)
+      : [];
+    if (!teacherId || ids.length === 0) return { ok: true };
+    const res = await apiFetch('/api/teacher-solved-events/read', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teacherId: String(teacherId), eventIds: ids }),
+    });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
@@ -3122,7 +3260,12 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
   const resolvePendingRuns = (message) => {
     runnerPendingRef.current.forEach((entry) => {
       clearTimeout(entry.timer);
-      entry.resolve({ output: '', error: message });
+      const output = typeof entry.output === 'string' ? entry.output : '';
+      const error = mergeRuntimeErrorText(entry.error, message);
+      if (typeof entry.onProgress === 'function') {
+        entry.onProgress({ output, error, done: true });
+      }
+      entry.resolve({ output, error });
     });
     runnerPendingRef.current.clear();
   };
@@ -3144,10 +3287,35 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
         const data = event.data || {};
         const pending = runnerPendingRef.current.get(data.id);
         if (!pending) return;
+        const messageType = typeof data.type === 'string' ? data.type : 'result';
+        if (messageType === 'stdout' || messageType === 'stderr') {
+          const chunk = typeof data.chunk === 'string' ? data.chunk : String(data.chunk ?? '');
+          if (!chunk) return;
+          if (messageType === 'stdout') {
+            pending.output = `${pending.output || ''}${chunk}`;
+          } else {
+            pending.error = `${pending.error || ''}${chunk}`;
+          }
+          if (typeof pending.onProgress === 'function') {
+            pending.onProgress({
+              output: pending.output || '',
+              error: pending.error || '',
+              done: false,
+            });
+          }
+          return;
+        }
         clearTimeout(pending.timer);
         runnerPendingRef.current.delete(data.id);
-        const output = typeof data.output === 'string' ? data.output : String(data.output ?? '');
-        const error = typeof data.error === 'string' ? data.error : (data.error ? String(data.error) : '');
+        const output = typeof data.output === 'string'
+          ? data.output
+          : (data.output ? String(data.output) : (pending.output || ''));
+        const error = typeof data.error === 'string'
+          ? data.error
+          : (data.error ? String(data.error) : (pending.error || ''));
+        if (typeof pending.onProgress === 'function') {
+          pending.onProgress({ output, error, done: true });
+        }
         pending.resolve({ output, error });
       };
       worker.onerror = () => disposeRunnerWorker('Ошибка выполнения Python.');
@@ -3187,20 +3355,31 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
     return { output: String(output), error: String(error) };
   };
 
-  const runPythonCode = async (source, inputValue) => {
+  const runPythonCode = async (source, inputValue, onProgress = null) => {
     const worker = ensureRunnerWorker();
     if (worker) {
       const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       return new Promise((resolve) => {
         const timer = setTimeout(() => {
+          const pending = runnerPendingRef.current.get(id);
+          if (!pending) return;
           runnerPendingRef.current.delete(id);
-          resolve({
-            output: '',
-            error: `Превышено время выполнения (${Math.round(PYODIDE_RUN_TIMEOUT_MS / 1000)} сек).`
-          });
+          const timeoutMessage = `Превышено время выполнения (${Math.round(PYODIDE_RUN_TIMEOUT_MS / 1000)} сек).`;
+          const output = pending.output || '';
+          const error = mergeRuntimeErrorText(pending.error, timeoutMessage);
+          if (typeof pending.onProgress === 'function') {
+            pending.onProgress({ output, error, done: true });
+          }
+          resolve({ output, error });
           disposeRunnerWorker('Превышено время выполнения.');
         }, PYODIDE_RUN_TIMEOUT_MS);
-        runnerPendingRef.current.set(id, { resolve, timer });
+        runnerPendingRef.current.set(id, {
+          resolve,
+          timer,
+          output: '',
+          error: '',
+          onProgress: typeof onProgress === 'function' ? onProgress : null,
+        });
         worker.postMessage({ id, source, input: inputValue });
       });
     }
@@ -4457,7 +4636,12 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
   const resolveQuestionRunnerPending = (message) => {
     questionRunnerPendingRef.current.forEach((entry) => {
       clearTimeout(entry.timer);
-      entry.resolve({ output: '', error: message });
+      const output = typeof entry.output === 'string' ? entry.output : '';
+      const error = mergeRuntimeErrorText(entry.error, message);
+      if (typeof entry.onProgress === 'function') {
+        entry.onProgress({ output, error, done: true });
+      }
+      entry.resolve({ output, error });
     });
     questionRunnerPendingRef.current.clear();
   };
@@ -4479,10 +4663,35 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
         const data = event.data || {};
         const pending = questionRunnerPendingRef.current.get(data.id);
         if (!pending) return;
+        const messageType = typeof data.type === 'string' ? data.type : 'result';
+        if (messageType === 'stdout' || messageType === 'stderr') {
+          const chunk = typeof data.chunk === 'string' ? data.chunk : String(data.chunk ?? '');
+          if (!chunk) return;
+          if (messageType === 'stdout') {
+            pending.output = `${pending.output || ''}${chunk}`;
+          } else {
+            pending.error = `${pending.error || ''}${chunk}`;
+          }
+          if (typeof pending.onProgress === 'function') {
+            pending.onProgress({
+              output: pending.output || '',
+              error: pending.error || '',
+              done: false,
+            });
+          }
+          return;
+        }
         clearTimeout(pending.timer);
         questionRunnerPendingRef.current.delete(data.id);
-        const output = typeof data.output === 'string' ? data.output : String(data.output ?? '');
-        const error = typeof data.error === 'string' ? data.error : (data.error ? String(data.error) : '');
+        const output = typeof data.output === 'string'
+          ? data.output
+          : (data.output ? String(data.output) : (pending.output || ''));
+        const error = typeof data.error === 'string'
+          ? data.error
+          : (data.error ? String(data.error) : (pending.error || ''));
+        if (typeof pending.onProgress === 'function') {
+          pending.onProgress({ output, error, done: true });
+        }
         pending.resolve({ output, error });
       };
       worker.onerror = () => disposeQuestionRunnerWorker('Ошибка выполнения Python.');
@@ -4520,20 +4729,31 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     return { output: String(output), error: String(error) };
   };
 
-  const runQuestionCode = async (source, inputValue) => {
+  const runQuestionCode = async (source, inputValue, onProgress = null) => {
     const worker = ensureQuestionRunnerWorker();
     if (worker) {
       const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       return new Promise((resolve) => {
         const timer = setTimeout(() => {
+          const pending = questionRunnerPendingRef.current.get(id);
+          if (!pending) return;
           questionRunnerPendingRef.current.delete(id);
-          resolve({
-            output: '',
-            error: `Превышено время выполнения (${Math.round(PYODIDE_RUN_TIMEOUT_MS / 1000)} сек).`,
-          });
+          const timeoutMessage = `Превышено время выполнения (${Math.round(PYODIDE_RUN_TIMEOUT_MS / 1000)} сек).`;
+          const output = pending.output || '';
+          const error = mergeRuntimeErrorText(pending.error, timeoutMessage);
+          if (typeof pending.onProgress === 'function') {
+            pending.onProgress({ output, error, done: true });
+          }
+          resolve({ output, error });
           disposeQuestionRunnerWorker('Превышено время выполнения.');
         }, PYODIDE_RUN_TIMEOUT_MS);
-        questionRunnerPendingRef.current.set(id, { resolve, timer });
+        questionRunnerPendingRef.current.set(id, {
+          resolve,
+          timer,
+          output: '',
+          error: '',
+          onProgress: typeof onProgress === 'function' ? onProgress : null,
+        });
         worker.postMessage({ id, source, input: inputValue });
       });
     }
@@ -4599,7 +4819,16 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     const entry = getQuestionCodeEntry(key);
     setQuestionRunStateById((prev) => ({ ...(prev || {}), [key]: { loading: true, output: '', error: '' } }));
     try {
-      const result = await runQuestionCode(entry.code || '', entry.input || '');
+      const result = await runQuestionCode(entry.code || '', entry.input || '', (progress) => {
+        setQuestionRunStateById((prev) => ({
+          ...(prev || {}),
+          [key]: {
+            loading: !progress?.done,
+            output: progress?.output || '',
+            error: progress?.error || '',
+          },
+        }));
+      });
       setQuestionRunStateById((prev) => ({
         ...(prev || {}),
         [key]: { loading: false, output: result?.output || '', error: result?.error || '' },
@@ -5001,6 +5230,11 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     const questionCodeSaving = Boolean(questionCodeSavingById?.[currentId]);
     const questionCodeError = questionCodeErrorById?.[currentId] || '';
     const questionRunState = questionRunStateById?.[currentId] || { loading: false, output: '', error: '' };
+    const questionIdleConsoleText = buildIdleConsoleText(
+      questionCodeEntry.input,
+      questionRunState.output,
+      questionRunState.error
+    );
     const questionCodeUpdatedAtLabel = questionCodeEntry.updatedAt
       ? new Date(questionCodeEntry.updatedAt).toLocaleString('ru-RU')
       : '';
@@ -5414,36 +5648,22 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
                         loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
                       />
                     </div>
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
-                      <div className="rounded-xl border p-2 bg-gray-50">
-                        <div className="text-xs font-semibold text-gray-600 mb-2">Ввод (stdin)</div>
-                        <textarea
-                          value={questionCodeEntry.input}
-                          onChange={(e) => {
-                            setQuestionCodeEntry(currentId, { input: e.target.value });
-                            clearQuestionCodeError(currentId);
-                          }}
-                          placeholder="Введите данные для input()"
-                          className="w-full min-h-[110px] text-xs px-3 py-2 rounded-lg border border-gray-200 bg-white outline-none focus:border-purple-500 resize-y"
-                        />
+                    <div className="rounded-xl border p-2 bg-gray-50 space-y-2">
+                      <div className="text-xs font-semibold text-gray-600">
+                        Консоль (IDLE): редактируйте секцию `{PY_IDLE_STDIN_HEADER}`
                       </div>
-                      <div className="rounded-xl border p-2 bg-gray-50">
-                        <div className="text-xs font-semibold text-gray-600 mb-2">Вывод</div>
-                        {questionRunState.output ? (
-                          <pre className="text-xs bg-white border rounded-lg p-2 overflow-auto max-h-[130px] whitespace-pre-wrap break-words text-gray-800">{questionRunState.output}</pre>
-                        ) : (
-                          <div className="text-xs text-gray-400 bg-white border rounded-lg p-2 min-h-[44px]">
-                            stdout пуст
-                          </div>
-                        )}
-                        {questionRunState.error ? (
-                          <pre className="text-xs bg-red-50 border border-red-200 rounded-lg p-2 overflow-auto max-h-[130px] whitespace-pre-wrap break-words text-red-700 mt-2">{questionRunState.error}</pre>
-                        ) : (
-                          <div className="text-xs text-gray-400 bg-white border rounded-lg p-2 min-h-[44px] mt-2">
-                            stderr пуст
-                          </div>
-                        )}
-                      </div>
+                      <textarea
+                        value={questionIdleConsoleText}
+                        onChange={(e) => {
+                          setQuestionCodeEntry(currentId, {
+                            input: parseIdleConsoleInput(e.target.value, questionCodeEntry.input),
+                          });
+                          clearQuestionCodeError(currentId);
+                        }}
+                        readOnly={questionRunState.loading}
+                        spellCheck={false}
+                        className="w-full min-h-[220px] text-xs font-mono leading-5 px-3 py-2 rounded-lg border border-gray-200 bg-white outline-none focus:border-purple-500 resize-y"
+                      />
                     </div>
                     {questionCodeError && <div className="text-xs text-red-500">{questionCodeError}</div>}
                   </>
@@ -5678,7 +5898,12 @@ const ProgressSection = ({
   const resolveTaskRunnerPending = (message) => {
     taskRunnerPendingRef.current.forEach((entry) => {
       clearTimeout(entry.timer);
-      entry.resolve({ output: '', error: message });
+      const output = typeof entry.output === 'string' ? entry.output : '';
+      const error = mergeRuntimeErrorText(entry.error, message);
+      if (typeof entry.onProgress === 'function') {
+        entry.onProgress({ output, error, done: true });
+      }
+      entry.resolve({ output, error });
     });
     taskRunnerPendingRef.current.clear();
   };
@@ -5700,10 +5925,35 @@ const ProgressSection = ({
         const data = event.data || {};
         const pending = taskRunnerPendingRef.current.get(data.id);
         if (!pending) return;
+        const messageType = typeof data.type === 'string' ? data.type : 'result';
+        if (messageType === 'stdout' || messageType === 'stderr') {
+          const chunk = typeof data.chunk === 'string' ? data.chunk : String(data.chunk ?? '');
+          if (!chunk) return;
+          if (messageType === 'stdout') {
+            pending.output = `${pending.output || ''}${chunk}`;
+          } else {
+            pending.error = `${pending.error || ''}${chunk}`;
+          }
+          if (typeof pending.onProgress === 'function') {
+            pending.onProgress({
+              output: pending.output || '',
+              error: pending.error || '',
+              done: false,
+            });
+          }
+          return;
+        }
         clearTimeout(pending.timer);
         taskRunnerPendingRef.current.delete(data.id);
-        const output = typeof data.output === 'string' ? data.output : String(data.output ?? '');
-        const error = typeof data.error === 'string' ? data.error : (data.error ? String(data.error) : '');
+        const output = typeof data.output === 'string'
+          ? data.output
+          : (data.output ? String(data.output) : (pending.output || ''));
+        const error = typeof data.error === 'string'
+          ? data.error
+          : (data.error ? String(data.error) : (pending.error || ''));
+        if (typeof pending.onProgress === 'function') {
+          pending.onProgress({ output, error, done: true });
+        }
         pending.resolve({ output, error });
       };
       worker.onerror = () => disposeTaskRunnerWorker('Ошибка выполнения Python.');
@@ -5741,20 +5991,31 @@ const ProgressSection = ({
     return { output: String(output), error: String(error) };
   };
 
-  const runTaskCode = async (source, inputValue) => {
+  const runTaskCode = async (source, inputValue, onProgress = null) => {
     const worker = ensureTaskRunnerWorker();
     if (worker) {
       const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       return new Promise((resolve) => {
         const timer = setTimeout(() => {
+          const pending = taskRunnerPendingRef.current.get(id);
+          if (!pending) return;
           taskRunnerPendingRef.current.delete(id);
-          resolve({
-            output: '',
-            error: `Превышено время выполнения (${Math.round(PYODIDE_RUN_TIMEOUT_MS / 1000)} сек).`
-          });
+          const timeoutMessage = `Превышено время выполнения (${Math.round(PYODIDE_RUN_TIMEOUT_MS / 1000)} сек).`;
+          const output = pending.output || '';
+          const error = mergeRuntimeErrorText(pending.error, timeoutMessage);
+          if (typeof pending.onProgress === 'function') {
+            pending.onProgress({ output, error, done: true });
+          }
+          resolve({ output, error });
           disposeTaskRunnerWorker('Превышено время выполнения.');
         }, PYODIDE_RUN_TIMEOUT_MS);
-        taskRunnerPendingRef.current.set(id, { resolve, timer });
+        taskRunnerPendingRef.current.set(id, {
+          resolve,
+          timer,
+          output: '',
+          error: '',
+          onProgress: typeof onProgress === 'function' ? onProgress : null,
+        });
         worker.postMessage({ id, source, input: inputValue });
       });
     }
@@ -5829,7 +6090,16 @@ const ProgressSection = ({
     const entry = getTaskCodeEntry(taskNumber);
     setTaskRunStateByTask((prev) => ({ ...(prev || {}), [key]: { loading: true, output: '', error: '' } }));
     try {
-      const result = await runTaskCode(entry.code || '', entry.input || '');
+      const result = await runTaskCode(entry.code || '', entry.input || '', (progress) => {
+        setTaskRunStateByTask((prev) => ({
+          ...(prev || {}),
+          [key]: {
+            loading: !progress?.done,
+            output: progress?.output || '',
+            error: progress?.error || '',
+          }
+        }));
+      });
       setTaskRunStateByTask((prev) => ({
         ...(prev || {}),
         [key]: { loading: false, output: result?.output || '', error: result?.error || '' }
@@ -9667,7 +9937,12 @@ const NotesSection = ({
   const resolvePyRunnerPending = (message) => {
     pyRunnerPendingRef.current.forEach((entry) => {
       clearTimeout(entry.timer);
-      entry.resolve({ output: '', error: message });
+      const output = typeof entry.output === 'string' ? entry.output : '';
+      const error = mergeRuntimeErrorText(entry.error, message);
+      if (typeof entry.onProgress === 'function') {
+        entry.onProgress({ output, error, done: true });
+      }
+      entry.resolve({ output, error });
     });
     pyRunnerPendingRef.current.clear();
   };
@@ -9689,10 +9964,35 @@ const NotesSection = ({
         const data = event.data || {};
         const pending = pyRunnerPendingRef.current.get(data.id);
         if (!pending) return;
+        const messageType = typeof data.type === 'string' ? data.type : 'result';
+        if (messageType === 'stdout' || messageType === 'stderr') {
+          const chunk = typeof data.chunk === 'string' ? data.chunk : String(data.chunk ?? '');
+          if (!chunk) return;
+          if (messageType === 'stdout') {
+            pending.output = `${pending.output || ''}${chunk}`;
+          } else {
+            pending.error = `${pending.error || ''}${chunk}`;
+          }
+          if (typeof pending.onProgress === 'function') {
+            pending.onProgress({
+              output: pending.output || '',
+              error: pending.error || '',
+              done: false,
+            });
+          }
+          return;
+        }
         clearTimeout(pending.timer);
         pyRunnerPendingRef.current.delete(data.id);
-        const output = typeof data.output === 'string' ? data.output : String(data.output ?? '');
-        const error = typeof data.error === 'string' ? data.error : (data.error ? String(data.error) : '');
+        const output = typeof data.output === 'string'
+          ? data.output
+          : (data.output ? String(data.output) : (pending.output || ''));
+        const error = typeof data.error === 'string'
+          ? data.error
+          : (data.error ? String(data.error) : (pending.error || ''));
+        if (typeof pending.onProgress === 'function') {
+          pending.onProgress({ output, error, done: true });
+        }
         pending.resolve({ output, error });
       };
       worker.onerror = () => disposePyRunnerWorker('Ошибка выполнения Python.');
@@ -9732,20 +10032,31 @@ const NotesSection = ({
     return { output: String(output), error: String(error) };
   };
 
-  const runPyCode = async (source, inputValue) => {
+  const runPyCode = async (source, inputValue, onProgress = null) => {
     const worker = ensurePyRunnerWorker();
     if (worker) {
       const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       return new Promise((resolve) => {
         const timer = setTimeout(() => {
+          const pending = pyRunnerPendingRef.current.get(id);
+          if (!pending) return;
           pyRunnerPendingRef.current.delete(id);
-          resolve({
-            output: '',
-            error: `Превышено время выполнения (${Math.round(PYODIDE_RUN_TIMEOUT_MS / 1000)} сек).`
-          });
+          const timeoutMessage = `Превышено время выполнения (${Math.round(PYODIDE_RUN_TIMEOUT_MS / 1000)} сек).`;
+          const output = pending.output || '';
+          const error = mergeRuntimeErrorText(pending.error, timeoutMessage);
+          if (typeof pending.onProgress === 'function') {
+            pending.onProgress({ output, error, done: true });
+          }
+          resolve({ output, error });
           disposePyRunnerWorker('Превышено время выполнения.');
         }, PYODIDE_RUN_TIMEOUT_MS);
-        pyRunnerPendingRef.current.set(id, { resolve, timer });
+        pyRunnerPendingRef.current.set(id, {
+          resolve,
+          timer,
+          output: '',
+          error: '',
+          onProgress: typeof onProgress === 'function' ? onProgress : null,
+        });
         worker.postMessage({ id, source, input: inputValue });
       });
     }
@@ -9766,7 +10077,11 @@ const NotesSection = ({
     setPyRunError('');
     setPyRunOutput('');
     try {
-      const result = await runPyCode(pyEditDraft, pyRunInput);
+      const result = await runPyCode(pyEditDraft, pyRunInput, (progress) => {
+        if (editingPyIdRef.current !== targetId) return;
+        setPyRunOutput(progress?.output || '');
+        setPyRunError(progress?.error || '');
+      });
       if (editingPyIdRef.current !== targetId) return;
       setPyRunOutput(result.output || '');
       setPyRunError(result.error || '');
@@ -10249,6 +10564,7 @@ const NotesSection = ({
     : false;
   const pyDraftEditorHeight = isMobileViewport ? '180px' : '220px';
   const pyFileEditorHeight = isMobileViewport ? '220px' : '340px';
+  const pyIdleConsoleText = buildIdleConsoleText(pyRunInput, pyRunOutput, pyRunError);
   const pdfPreviewHeight = isMobileViewport ? '48vh' : '60vh';
   const imagePreviewMaxHeight = isMobileViewport ? '56vh' : '72vh';
   const currentTaskLabel = formatTaskNumber(currentTask) || currentTask;
@@ -10665,45 +10981,31 @@ const NotesSection = ({
                               loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
                             />
                           </div>
-                          <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
-                            <div className="rounded-xl border p-2 bg-gray-50">
-                              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
-                                <span className="text-xs font-semibold text-gray-600">Ввод (stdin)</span>
-                                <Button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleRunEditedPyFile();
-                                  }}
-                                  disabled={pyRunLoading || pyEditSaving}
-                                  className="w-full sm:w-auto"
-                                >
-                                  {pyRunLoading ? 'Запуск...' : 'Запустить'}
-                                </Button>
-                              </div>
-                              <textarea
-                                value={pyRunInput}
-                                onChange={(e) => setPyRunInput(e.target.value)}
-                                placeholder="Введите данные для input()"
-                                className="w-full min-h-[120px] text-xs px-3 py-2 rounded-lg border border-gray-200 bg-white outline-none focus:border-purple-500 resize-y"
-                              />
+                          <div className="rounded-xl border p-2 bg-gray-50 space-y-2">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                              <span className="text-xs font-semibold text-gray-600">
+                                Консоль (IDLE): редактируйте секцию `{PY_IDLE_STDIN_HEADER}`
+                              </span>
+                              <Button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRunEditedPyFile();
+                                }}
+                                disabled={pyRunLoading || pyEditSaving}
+                                className="w-full sm:w-auto"
+                              >
+                                {pyRunLoading ? 'Запуск...' : 'Запустить'}
+                              </Button>
                             </div>
-                            <div className="rounded-xl border p-2 bg-gray-50">
-                              <div className="text-xs font-semibold text-gray-600 mb-2">Вывод</div>
-                              {pyRunOutput ? (
-                                <pre className="text-xs bg-white border rounded-lg p-2 overflow-auto max-h-[160px] whitespace-pre-wrap break-words text-gray-800">{pyRunOutput}</pre>
-                              ) : (
-                                <div className="text-xs text-gray-400 bg-white border rounded-lg p-2 min-h-[52px]">
-                                  stdout пуст
-                                </div>
-                              )}
-                              {pyRunError ? (
-                                <pre className="text-xs bg-red-50 border border-red-200 rounded-lg p-2 overflow-auto max-h-[160px] whitespace-pre-wrap break-words text-red-700 mt-2">{pyRunError}</pre>
-                              ) : (
-                                <div className="text-xs text-gray-400 bg-white border rounded-lg p-2 min-h-[52px] mt-2">
-                                  stderr пуст
-                                </div>
-                              )}
-                            </div>
+                            <textarea
+                              value={pyIdleConsoleText}
+                              onChange={(e) => {
+                                setPyRunInput(parseIdleConsoleInput(e.target.value, pyRunInput));
+                              }}
+                              readOnly={pyRunLoading}
+                              spellCheck={false}
+                              className="w-full min-h-[220px] text-xs font-mono leading-5 px-3 py-2 rounded-lg border border-gray-200 bg-white outline-none focus:border-purple-500 resize-y"
+                            />
                           </div>
                         </div>
                       ) : (
@@ -11947,8 +12249,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     typeof window !== 'undefined' ? window.innerWidth > 1000 : true
   );
   const [teacherNotifs, setTeacherNotifs] = useState([]);
-  const teacherReadIdsRef = useRef(new Set());
-  const teacherShownIdsRef = useRef(new Set());
   const [taskTitles, setTaskTitles] = useState({});
   const [students, setStudents] = useState([]);
   const [studentsLoading, setStudentsLoading] = useState(false);
@@ -12297,17 +12597,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   useEffect(() => {
     if (user.role !== 'teacher') {
       setTeacherNotifs([]);
-      teacherReadIdsRef.current = new Set();
-      teacherShownIdsRef.current = new Set();
       return;
     }
-    let stored = [];
-    try {
-      stored = JSON.parse(localStorage.getItem(`ege_teacher_read_events_${user.id}`) || '[]');
-    } catch {}
-    const validIds = Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : [];
-    teacherReadIdsRef.current = new Set(validIds);
-    teacherShownIdsRef.current = new Set(validIds);
     setTeacherNotifs([]);
   }, [user.role, user.id]);
 
@@ -12319,16 +12610,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       try {
         const events = await api.getTeacherSolvedEvents(user.id, null, 200);
         if (cancelled) return;
-        if (Array.isArray(events) && events.length > 0) {
-          const readIds = teacherReadIdsRef.current;
-          const shownIds = teacherShownIdsRef.current;
-          const fresh = events.filter((ev) => ev?.id && !readIds.has(ev.id) && !shownIds.has(ev.id));
-          if (fresh.length > 0) {
-            const sorted = [...fresh].sort((a, b) => new Date(b.solvedAt) - new Date(a.solvedAt));
-            sorted.forEach((ev) => shownIds.add(ev.id));
-            setTeacherNotifs((prev) => [...sorted, ...prev]);
-          }
-        }
+        const unique = [];
+        const seenIds = new Set();
+        (Array.isArray(events) ? events : []).forEach((event) => {
+          const eventId = typeof event?.id === 'string' ? event.id.trim() : '';
+          if (!eventId || seenIds.has(eventId)) return;
+          seenIds.add(eventId);
+          unique.push({ ...event, id: eventId });
+        });
+        const sorted = unique.sort((a, b) => new Date(b.solvedAt) - new Date(a.solvedAt));
+        setTeacherNotifs(sorted);
       } catch {
         // ignore
       }
@@ -12673,20 +12964,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     { total: 0, solved: 0 }
   );
 
-  const dismissTeacherNotif = (eventId) => {
+  const dismissTeacherNotif = async (eventId) => {
     if (!eventId) return;
     setTeacherNotifs((prev) => prev.filter((note) => note.id !== eventId));
-    const readIds = teacherReadIdsRef.current;
-    readIds.add(eventId);
-    if (readIds.size > 500) {
-      const trimmed = Array.from(readIds).slice(-500);
-      teacherReadIdsRef.current = new Set(trimmed);
-    }
     try {
-      localStorage.setItem(
-        `ege_teacher_read_events_${user.id}`,
-        JSON.stringify(Array.from(teacherReadIdsRef.current))
-      );
+      await api.markTeacherSolvedEventsRead(user.id, [eventId]);
     } catch {}
   };
 

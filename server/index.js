@@ -65,6 +65,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const GAME_THEORY_TASK = 19;
 const PYTHON_LEVEL_ID = 'python';
 const AUTH_COOKIE_NAME = 'ege_auth_token';
+const TEACHER_SOLVED_EVENTS_READ_LIMIT = 500;
 const PYTHON_RUN_TIMEOUT_MS = (() => {
   const parsed = Number(process.env.PYTHON_RUN_TIMEOUT_MS);
   if (Number.isFinite(parsed) && parsed >= 1000) return Math.floor(parsed);
@@ -861,6 +862,64 @@ const ensureTeacherAccess = (req, res, teacherId, options = {}) => {
   if (isTeacherRole(req.auth) && req.auth.id === id) return teacher;
   res.status(403).json({ error: 'Недостаточно прав' });
   return null;
+};
+
+const normalizeTeacherSolvedEventIds = (value) => {
+  const list = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  const normalized = [];
+  list.forEach((item) => {
+    const id = typeof item === 'string' ? item.trim() : '';
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    normalized.push(id);
+  });
+  if (normalized.length > TEACHER_SOLVED_EVENTS_READ_LIMIT) {
+    return normalized.slice(normalized.length - TEACHER_SOLVED_EVENTS_READ_LIMIT);
+  }
+  return normalized;
+};
+
+const getTeacherSolvedEventReadIdSet = (teacher) => (
+  new Set(normalizeTeacherSolvedEventIds(teacher?.readSolvedEventIds))
+);
+
+const markTeacherSolvedEventsRead = (teacherId, eventIds = []) => {
+  const id = String(teacherId || '').trim();
+  if (!id) return null;
+  const incoming = normalizeTeacherSolvedEventIds(eventIds);
+  if (incoming.length === 0) return null;
+
+  const teachers = readTeachersDb();
+  const idx = teachers.findIndex((entry) => entry.id === id);
+  if (idx === -1) return null;
+
+  const current = normalizeTeacherSolvedEventIds(teachers[idx]?.readSolvedEventIds);
+  const seen = new Set(current);
+  let changed = !Array.isArray(teachers[idx]?.readSolvedEventIds);
+
+  incoming.forEach((eventId) => {
+    if (seen.has(eventId)) return;
+    seen.add(eventId);
+    current.push(eventId);
+    changed = true;
+  });
+
+  let nextReadIds = current;
+  if (nextReadIds.length > TEACHER_SOLVED_EVENTS_READ_LIMIT) {
+    nextReadIds = nextReadIds.slice(nextReadIds.length - TEACHER_SOLVED_EVENTS_READ_LIMIT);
+    changed = true;
+  }
+
+  if (changed) {
+    teachers[idx] = { ...teachers[idx], readSolvedEventIds: nextReadIds };
+    writeTeachersDb(teachers);
+  }
+
+  return {
+    ...teachers[idx],
+    readSolvedEventIds: nextReadIds,
+  };
 };
 
 const forbid = (res) => res.status(403).json({ error: 'Недостаточно прав' });
@@ -1663,6 +1722,7 @@ const ensureDefaultTeacher = () => {
       name: TEACHER_NAME,
       codeHash: hashCode(plainCode),
       codeHint: getCodeHint(plainCode),
+      readSolvedEventIds: [],
       createdAt: new Date().toISOString(),
     };
     teachers.push(entry);
@@ -2102,7 +2162,7 @@ app.patch('/api/task-titles', (req, res) => {
 app.get('/api/teachers', (_req, res) => {
   if (!isAdminRole(_req.auth)) return forbid(res);
   const teachers = readTeachersDb();
-  const sanitized = teachers.map(({ codeHash, ...rest }) => rest);
+  const sanitized = teachers.map(({ codeHash, readSolvedEventIds, ...rest }) => rest);
   res.json(sanitized);
 });
 
@@ -2122,6 +2182,7 @@ app.post('/api/teachers', (req, res) => {
     name: teacherName,
     codeHash: hashCode(plainCode),
     codeHint: getCodeHint(plainCode),
+    readSolvedEventIds: [],
     createdAt: new Date().toISOString(),
   };
   teachers.unshift(entry);
@@ -2620,6 +2681,7 @@ app.get('/api/teacher-solved-events', (req, res) => {
   const teacher = ensureTeacherAccess(req, res, teacherId);
   if (!teacher) return;
   const testsDb = readTestsDb();
+  const readIds = getTeacherSolvedEventReadIdSet(teacher);
   const students = readStudentsDb().filter((s) => s.teacherId === teacher.id && !s.deletedAt);
   const sinceMs = since ? Date.parse(String(since)) : null;
   const sinceTime = Number.isFinite(sinceMs) ? sinceMs : 0;
@@ -2629,13 +2691,15 @@ app.get('/api/teacher-solved-events', (req, res) => {
     const data = getStudentData(student.id);
     const list = Array.isArray(data.solvedEvents) ? data.solvedEvents : [];
     list.forEach((ev) => {
+      const eventId = typeof ev?.id === 'string' ? ev.id.trim() : '';
+      if (!eventId || readIds.has(eventId)) return;
       const ts = Date.parse(ev?.solvedAt || '');
       if (!Number.isFinite(ts) || ts <= sinceTime) return;
       const questionNumber = Number.isFinite(ev?.questionNumber)
         ? ev.questionNumber
         : getQuestionNumberById(testsDb, ev?.taskNumber, ev?.levelId, ev?.questionId);
       events.push({
-        id: ev.id,
+        id: eventId,
         studentId: student.id,
         studentName: student.name,
         taskNumber: ev.taskNumber,
@@ -2652,6 +2716,32 @@ app.get('/api/teacher-solved-events', (req, res) => {
   events.sort((a, b) => new Date(a.solvedAt) - new Date(b.solvedAt));
   const limited = events.slice(-maxLimit);
   res.json(limited);
+});
+
+app.patch('/api/teacher-solved-events/read', (req, res) => {
+  const { teacherId, eventIds, eventId } = req.body || {};
+  if (isStudentRole(req.auth)) return forbid(res);
+  const teacher = ensureTeacherAccess(req, res, teacherId);
+  if (!teacher) return;
+
+  const payloadIds = [];
+  if (Array.isArray(eventIds)) payloadIds.push(...eventIds);
+  if (typeof eventId !== 'undefined') payloadIds.push(eventId);
+
+  const normalizedIds = normalizeTeacherSolvedEventIds(payloadIds);
+  if (normalizedIds.length === 0) {
+    return res.status(400).json({ error: 'Некорректные параметры' });
+  }
+
+  const updated = markTeacherSolvedEventsRead(teacher.id, normalizedIds);
+  if (!updated) {
+    return res.status(404).json({ error: 'Учитель не найден' });
+  }
+
+  return res.json({
+    ok: true,
+    readCount: Array.isArray(updated.readSolvedEventIds) ? updated.readSolvedEventIds.length : 0,
+  });
 });
 
 app.get('/api/progress/solved', (req, res) => {
