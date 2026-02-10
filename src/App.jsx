@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useMemo } from 'react';
+﻿import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-python';
@@ -8049,7 +8049,8 @@ const ScheduleSection = ({
   onOpenTask,
   onOpenMockGoal,
   solvedRefreshKey,
-  tasks
+  tasks,
+  nextHomeworkFlyRef
 }) => {
   const DEFAULT_HOMEWORK = '🟢\n🟢\n🟢';
   const DEFAULT_GOAL = { type: GOAL_TYPE_TASK, taskNumber: '', levelId: 'basic', targetInput: '', includeAll: false, mockExamId: '' };
@@ -9110,20 +9111,22 @@ const ScheduleSection = ({
           </Card>
         ) : (
           <div className="space-y-4 md:space-y-6">
-            <Card className="space-y-2.5 md:space-y-3 border-purple-200/80 bg-gradient-to-br from-purple-50/70 via-white to-fuchsia-50/45 shadow-[0_14px_30px_rgba(147,51,234,0.14)]">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h4 className="inline-flex items-center gap-2 text-sm font-semibold text-purple-700">
-                  <Calendar size={15} />
-                  На следующий урок
-                </h4>
-                {nextHomeworkEntry?.issuedAt && (
-                  <span className="rounded-full border border-purple-200 bg-purple-50 px-2.5 py-0.5 text-[11px] font-semibold text-purple-600">
-                    {formatDate(nextHomeworkEntry.issuedAt)}
-                  </span>
-                )}
-              </div>
-              {renderHomeworkEntryCard(nextHomeworkEntry, 'next')}
-            </Card>
+            <div ref={nextHomeworkFlyRef}>
+              <Card className="space-y-2.5 md:space-y-3 border-purple-200/80 bg-gradient-to-br from-purple-50/70 via-white to-fuchsia-50/45 shadow-[0_14px_30px_rgba(147,51,234,0.14)]">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="inline-flex items-center gap-2 text-sm font-semibold text-purple-700">
+                    <Calendar size={15} />
+                    На следующий урок
+                  </h4>
+                  {nextHomeworkEntry?.issuedAt && (
+                    <span className="rounded-full border border-purple-200 bg-purple-50 px-2.5 py-0.5 text-[11px] font-semibold text-purple-600">
+                      {formatDate(nextHomeworkEntry.issuedAt)}
+                    </span>
+                  )}
+                </div>
+                {renderHomeworkEntryCard(nextHomeworkEntry, 'next')}
+              </Card>
+            </div>
 
             <Card className="space-y-2.5 md:space-y-3 border-slate-200 bg-white/90">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -12287,6 +12290,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     isNewRecord: false
   });
   const studentStreakRef = useRef(studentStreak);
+  const scheduleHomeworkFlyRef = useRef(null);
+  const goalSummaryFlyRef = useRef(null);
+  const goalFlyFromRectRef = useRef(null);
+  const goalFlyActiveRef = useRef(false);
+  const goalFlyTargetTypeRef = useRef(null);
+  const [goalFlyUiActive, setGoalFlyUiActive] = useState(false);
+  const goalFlyCloneRef = useRef(null);
+  const goalFlyRevealTimerRef = useRef(null);
+  const goalFlyResetTimerRef = useRef(null);
   const [isDesktopWide, setIsDesktopWide] = useState(
     typeof window !== 'undefined' ? window.innerWidth > 1000 : true
   );
@@ -12354,6 +12366,113 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     notes: 'Консп.',
     admin: 'Админка',
   };
+  const clearGoalFlyAnimationStyles = useCallback((node = goalSummaryFlyRef.current) => {
+    if (!node) return;
+    node.style.transition = '';
+    node.style.transform = '';
+    node.style.transformOrigin = '';
+    node.style.opacity = '';
+    node.style.filter = '';
+    node.style.willChange = '';
+    node.style.pointerEvents = '';
+  }, []);
+  const stopGoalFlyAnimation = useCallback(() => {
+    if (goalFlyRevealTimerRef.current) {
+      clearTimeout(goalFlyRevealTimerRef.current);
+      goalFlyRevealTimerRef.current = null;
+    }
+    if (goalFlyResetTimerRef.current) {
+      clearTimeout(goalFlyResetTimerRef.current);
+      goalFlyResetTimerRef.current = null;
+    }
+    if (goalFlyCloneRef.current?.parentNode) {
+      goalFlyCloneRef.current.parentNode.removeChild(goalFlyCloneRef.current);
+    }
+    goalFlyCloneRef.current = null;
+    goalFlyActiveRef.current = false;
+    goalFlyFromRectRef.current = null;
+    goalFlyTargetTypeRef.current = null;
+    setGoalFlyUiActive(false);
+    clearGoalFlyAnimationStyles();
+  }, [clearGoalFlyAnimationStyles]);
+  const captureGoalFlySource = useCallback((nextView) => {
+    if (user.role !== 'student') return;
+    if (typeof window === 'undefined') return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const normalizedNextView = String(nextView || '').trim();
+    if (!normalizedNextView || normalizedNextView === view) return;
+
+    let sourceNode = null;
+    let targetType = null;
+    if (view === 'schedule' && normalizedNextView !== 'schedule') {
+      const wrapper = scheduleHomeworkFlyRef.current;
+      sourceNode = wrapper?.firstElementChild instanceof HTMLElement
+        ? wrapper.firstElementChild
+        : wrapper;
+      targetType = 'goal';
+    } else if (view !== 'schedule' && normalizedNextView === 'schedule') {
+      if (goalSummaryFlyRef.current?.firstElementChild instanceof HTMLElement) {
+        sourceNode = goalSummaryFlyRef.current.firstElementChild;
+      } else {
+        sourceNode = goalSummaryFlyRef.current;
+      }
+      targetType = 'schedule';
+    } else {
+      return;
+    }
+    if (!sourceNode) return;
+    const rect = sourceNode.getBoundingClientRect();
+    if (rect.width < 8 || rect.height < 8) return;
+    if (rect.bottom < 0 || rect.top > window.innerHeight) return;
+    goalFlyFromRectRef.current = {
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height
+    };
+    const sourceStyle = window.getComputedStyle(sourceNode);
+    const rawSourceRadius = String(sourceStyle.borderRadius || '').trim();
+    const safeSourceRadius = rawSourceRadius && rawSourceRadius !== '0px' ? rawSourceRadius : '16px';
+    const clone = sourceNode.cloneNode(true);
+    if (!(clone instanceof HTMLElement)) return;
+    clone.removeAttribute('id');
+    clone.querySelectorAll?.('[id]').forEach((node) => node.removeAttribute('id'));
+    clone.style.position = 'fixed';
+    clone.style.top = `${rect.top}px`;
+    clone.style.left = `${rect.left}px`;
+    clone.style.width = `${rect.width}px`;
+    clone.style.height = `${rect.height}px`;
+    clone.style.margin = '0';
+    clone.style.boxSizing = 'border-box';
+    clone.style.padding = sourceStyle.padding;
+    clone.style.border = sourceStyle.border;
+    clone.style.borderRadius = safeSourceRadius;
+    clone.style.background = sourceStyle.background;
+    clone.style.boxShadow = sourceStyle.boxShadow;
+    clone.style.backdropFilter = sourceStyle.backdropFilter;
+    clone.style.transform = 'translate(0px, 0px)';
+    clone.style.transformOrigin = 'top left';
+    clone.style.transition = 'none';
+    clone.style.pointerEvents = 'none';
+    clone.style.userSelect = 'none';
+    clone.style.overflow = 'hidden';
+    clone.style.willChange = 'transform, opacity';
+    clone.style.zIndex = '1200';
+    clone.style.opacity = '1';
+    clone.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(clone);
+    goalFlyCloneRef.current = clone;
+    goalFlyActiveRef.current = true;
+    goalFlyTargetTypeRef.current = targetType;
+    setGoalFlyUiActive(true);
+  }, [user.role, view]);
+  const navigateToView = useCallback((nextView) => {
+    const normalizedView = String(nextView || '').trim();
+    if (!normalizedView || normalizedView === view) return;
+    stopGoalFlyAnimation();
+    captureGoalFlySource(normalizedView);
+    setView(normalizedView);
+  }, [captureGoalFlySource, stopGoalFlyAnimation, view]);
   const handleStreakSaved = (nextStreak) => {
     const normalizedNext = normalizeStreak(nextStreak);
     const normalizedPrev = normalizeStreak(studentStreakRef.current);
@@ -12750,7 +12869,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     if (!Number.isFinite(normalizedTaskNumber)) return;
     const pythonTask = isPythonTaskNumber(normalizedTaskNumber);
     if (user.role !== 'student') {
-      setView(pythonTask ? 'python' : 'progress');
+      navigateToView(pythonTask ? 'python' : 'progress');
       setMenuOpen(false);
       return;
     }
@@ -12763,7 +12882,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     };
     setPendingOpenTask(nextTask);
     setPendingOpenMockExamId(null);
-    setView(pythonTask ? 'python' : 'progress');
+    navigateToView(pythonTask ? 'python' : 'progress');
     setMenuOpen(false);
     if (pythonTask) {
       updateUserLocation(user, { view: 'python', openTask: nextTask, mockExamId: null });
@@ -12782,7 +12901,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     const normalizedMockExamId = normalizeMockExamId(mockExamId);
     setPendingOpenTask(null);
     setPendingOpenMockExamId(normalizedMockExamId || null);
-    setView('progress');
+    navigateToView('progress');
     setMenuOpen(false);
     updateUserLocation(user, {
       view: 'progress',
@@ -13027,6 +13146,155 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     },
     { total: 0, solved: 0 }
   );
+  const shouldShowGoalBlock = user.role === 'student'
+    && view !== 'schedule'
+    && goalState?.entry
+    && !goalState.completed
+    && goalGoals.length > 0;
+
+  useLayoutEffect(() => {
+    if (!goalFlyActiveRef.current) return;
+    const sourceRect = goalFlyFromRectRef.current;
+    const cloneNode = goalFlyCloneRef.current;
+    const targetType = goalFlyTargetTypeRef.current;
+    if (!sourceRect || !cloneNode || !targetType) {
+      stopGoalFlyAnimation();
+      return;
+    }
+
+    const findTargetNode = () => {
+      if (targetType === 'goal') {
+        if (!shouldShowGoalBlock) return null;
+        const wrapper = goalSummaryFlyRef.current;
+        if (!wrapper) return null;
+        return wrapper.firstElementChild instanceof HTMLElement
+          ? wrapper.firstElementChild
+          : wrapper;
+      }
+      if (targetType === 'schedule') {
+        const wrapper = scheduleHomeworkFlyRef.current;
+        if (!wrapper) return null;
+        return wrapper.firstElementChild instanceof HTMLElement
+          ? wrapper.firstElementChild
+          : wrapper;
+      }
+      return null;
+    };
+
+    let frameId = 0;
+    const startTs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const maxWaitMs = 900;
+
+    const runAnimation = () => {
+      const targetNode = findTargetNode();
+      if (!targetNode) {
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        if ((now - startTs) > maxWaitMs) {
+          stopGoalFlyAnimation();
+          return;
+        }
+        frameId = requestAnimationFrame(runAnimation);
+        return;
+      }
+
+      const targetRect = targetNode.getBoundingClientRect();
+      if (targetRect.width < 8 || targetRect.height < 8) {
+        frameId = requestAnimationFrame(runAnimation);
+        return;
+      }
+
+      const sourceStyle = window.getComputedStyle(cloneNode);
+      const targetStyle = window.getComputedStyle(targetNode);
+      const sourceRadius = sourceStyle.borderRadius || '16px';
+      const targetRadius = targetStyle.borderRadius || sourceRadius;
+      const morphRadius = targetRadius && targetRadius !== '0px' ? targetRadius : sourceRadius;
+      const sourceShadow = sourceStyle.boxShadow || 'none';
+      const targetShadow = targetStyle.boxShadow || sourceShadow;
+      const deltaX = targetRect.left - sourceRect.left;
+      const deltaY = targetRect.top - sourceRect.top;
+      const scaleX = Math.max(0.2, Math.min(3, targetRect.width / sourceRect.width));
+      const scaleY = Math.max(0.2, Math.min(3, targetRect.height / sourceRect.height));
+      const distance = Math.hypot(deltaX, deltaY);
+      const totalDuration = Math.round(Math.max(280, Math.min(440, 240 + distance * 0.35)));
+      const revealDelay = Math.round(totalDuration * 0.5);
+
+      targetNode.style.willChange = 'opacity, filter';
+      targetNode.style.transition = 'none';
+      targetNode.style.opacity = '0';
+      targetNode.style.filter = 'blur(0.6px)';
+      targetNode.style.transform = 'translateY(1px)';
+      targetNode.style.pointerEvents = 'none';
+      targetNode.getBoundingClientRect();
+
+      if (typeof cloneNode.animate === 'function') {
+        cloneNode.animate(
+          [
+            {
+              transform: 'translate(0px, 0px) scale(1, 1)',
+              borderRadius: morphRadius,
+              boxShadow: sourceShadow,
+              opacity: 1,
+              offset: 0
+            },
+            {
+              transform: `translate(${deltaX}px, ${deltaY}px) scale(${scaleX}, ${scaleY})`,
+              borderRadius: morphRadius,
+              boxShadow: targetShadow,
+              opacity: 0.74,
+              offset: 0.82
+            },
+            {
+              transform: `translate(${deltaX}px, ${deltaY}px) scale(${scaleX}, ${scaleY})`,
+              borderRadius: morphRadius,
+              boxShadow: targetShadow,
+              opacity: 0,
+              offset: 1
+            },
+          ],
+          {
+            duration: totalDuration,
+            easing: 'cubic-bezier(0.22, 0.72, 0.2, 1)',
+            fill: 'forwards'
+          }
+        );
+      } else {
+        cloneNode.style.transition = `transform ${totalDuration}ms cubic-bezier(0.22, 0.72, 0.2, 1), opacity ${totalDuration}ms ease, box-shadow ${totalDuration}ms ease`;
+        cloneNode.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(${scaleX}, ${scaleY})`;
+        cloneNode.style.borderRadius = morphRadius;
+        cloneNode.style.boxShadow = targetShadow;
+        cloneNode.style.opacity = '0';
+      }
+      goalFlyRevealTimerRef.current = setTimeout(() => {
+        targetNode.style.transition = 'opacity 120ms ease, filter 120ms ease, transform 120ms ease';
+        targetNode.style.opacity = '1';
+        targetNode.style.filter = 'none';
+        targetNode.style.transform = 'translateY(0px)';
+        targetNode.style.pointerEvents = '';
+      }, revealDelay);
+
+      goalFlyResetTimerRef.current = setTimeout(() => {
+        stopGoalFlyAnimation();
+      }, totalDuration + 16);
+    };
+
+    frameId = requestAnimationFrame(runAnimation);
+
+    return () => {
+      if (goalFlyRevealTimerRef.current) {
+        clearTimeout(goalFlyRevealTimerRef.current);
+        goalFlyRevealTimerRef.current = null;
+      }
+      if (goalFlyResetTimerRef.current) {
+        clearTimeout(goalFlyResetTimerRef.current);
+        goalFlyResetTimerRef.current = null;
+      }
+      cancelAnimationFrame(frameId);
+    };
+  }, [shouldShowGoalBlock, stopGoalFlyAnimation, view]);
+
+  useEffect(() => () => {
+    stopGoalFlyAnimation();
+  }, [stopGoalFlyAnimation]);
 
   const dismissTeacherNotif = async (eventId) => {
     if (!eventId) return;
@@ -13101,7 +13369,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       <StudentTour
         user={user}
         view={view}
-        setView={setView}
+        setView={navigateToView}
         menuOpen={menuOpen}
         setMenuOpen={setMenuOpen}
         onFinish={() => checkHomeworkPopup()}
@@ -13151,7 +13419,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                 <button
                   key={n.id}
                   onClick={() => {
-                    setView(n.id);
+                    navigateToView(n.id);
                     setMenuOpen(false);
                   }}
                   aria-current={view === n.id ? 'page' : undefined}
@@ -13286,12 +13554,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               </div>
             </div>
           )}
-          {user.role === 'student' && goalState?.entry && !goalState.completed && goalGoals.length > 0 && (
-            <div className={goalCollapsed ? 'sticky top-0 z-30 mb-4' : 'mb-4'}>
+          {shouldShowGoalBlock && (
+            <div ref={goalSummaryFlyRef} className={goalCollapsed ? 'sticky top-0 z-30 mb-4' : 'mb-4'}>
               {goalCollapsed ? (
-                <div className="surface-panel goal-collapse rounded-2xl px-4 py-3 text-sm text-gray-700 shadow-soft flex flex-wrap items-center justify-between gap-3">
+                <div className={`surface-panel rounded-2xl px-4 py-3 text-sm text-gray-700 shadow-soft flex flex-wrap items-center justify-between gap-3 ${goalFlyUiActive ? '' : 'goal-collapse'}`}>
                   <div>
-                    <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Цель недели</div>
+                    <div className="text-xs font-bold uppercase tracking-widest text-purple-600">домашка</div>
                     <div className="mt-1 text-sm font-semibold text-gray-900">
                       {goalTotals.total > 0
                         ? `Выполнено ${goalTotals.solved}/${goalTotals.total}`
@@ -13325,10 +13593,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                   </div>
                 </div>
               ) : (
-                <div className="goal-expand rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-fuchsia-50 px-5 py-4 text-sm text-gray-700 shadow-soft">
+                <div className={`rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-fuchsia-50 px-5 py-4 text-sm text-gray-700 shadow-soft ${goalFlyUiActive ? '' : 'goal-expand'}`}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Цель недели</div>
+                      <div className="text-xs font-bold uppercase tracking-widest text-purple-600">домашка</div>
                       <div className="mt-1 text-base font-semibold text-gray-900">
                         {`За ${formatDaysText(goalState.entry?.daysToComplete || 7)} выполнить эти цели`}
                       </div>
@@ -13447,6 +13715,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               onOpenMockGoal={user.role === 'student' ? handleOpenMockGoal : null}
               solvedRefreshKey={goalRefreshTick}
               tasks={tasksWithTitles}
+              nextHomeworkFlyRef={scheduleHomeworkFlyRef}
             />
           )}
           {view === 'progress' && (
@@ -13586,7 +13855,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                     key={`mobile-nav-${n.id}`}
                     type="button"
                     onClick={() => {
-                      setView(n.id);
+                      navigateToView(n.id);
                       setMenuOpen(false);
                     }}
                     className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-[10px] font-semibold transition-colors ${
