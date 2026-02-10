@@ -3516,7 +3516,7 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
 
   if (testsLoading) {
     const loadingModal = (
-      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
         <div className="surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
           <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
           <div className="mx-auto inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-sm font-semibold text-purple-700">
@@ -3532,7 +3532,7 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
 
   if (!Array.isArray(questions) || questions.length === 0) {
     const emptyModal = (
-      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
         <div className="surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
           <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
           <h2 className="text-2xl font-bold text-gray-900">Заданий пока нет</h2>
@@ -3580,7 +3580,7 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
   const codeEditorHeight = isMobileViewport ? '170px' : '260px';
 
   const modal = (
-    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-end sm:items-center justify-center p-2 sm:p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-end sm:items-center justify-center p-2 sm:p-4">
       <div className="surface-card modal-card rounded-2xl md:rounded-3xl w-full max-w-5xl max-h-[95svh] md:max-h-[90vh] p-3.5 sm:p-4 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
         <div className="flex flex-col gap-3 md:gap-4 mb-3 md:mb-4">
           <div className="flex justify-between items-start">
@@ -3833,7 +3833,7 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
       </div>
       {expandedImage && (
         <div
-          className="fixed inset-0 z-[60] bg-black/80 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[60] bg-black/80 modal-backdrop flex items-center justify-center p-4"
           onClick={() => setExpandedImage(null)}
         >
           <div className="relative max-w-[95vw] max-h-[95vh]" onClick={(e) => e.stopPropagation()}>
@@ -5104,7 +5104,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     if (autoStartLevel && !autoStartFailed) {
       const waitingTests = testDb === null || typeof testDb === 'undefined';
       const loadingModal = (
-        <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-start justify-center p-4 md:p-8 overflow-y-auto backdrop-blur-sm">
+        <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-start justify-center p-4 md:p-8 overflow-y-auto">
           <div className="surface-card modal-card rounded-3xl max-w-2xl w-full p-8 shadow-2xl relative text-center">
             <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
             <div className="mx-auto inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-sm font-semibold text-purple-700">
@@ -5123,7 +5123,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     }
 
     const modal = (
-      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-start justify-center p-4 md:p-8 overflow-y-auto backdrop-blur-sm">
+      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-start justify-center p-4 md:p-8 overflow-y-auto">
         <div className="surface-card modal-card rounded-3xl max-w-2xl w-full p-8 shadow-2xl relative">
           <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
           
@@ -5244,7 +5244,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     const questionCodeEditorHeight = isMobileViewport ? '180px' : '240px';
 
     const modal = (
-      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
         <div className="surface-card modal-card rounded-2xl md:rounded-3xl w-full max-w-5xl max-h-[90vh] p-3.5 sm:p-4 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
           {/* Header & Navigation */}
           <div className="flex flex-col gap-3 md:gap-4 mb-3 md:mb-4">
@@ -5703,7 +5703,7 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
         </div>
         {expandedImage && (
           <div
-            className="fixed inset-0 z-[60] bg-black/80 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm"
+            className="fixed inset-0 z-[60] bg-black/80 modal-backdrop flex items-center justify-center p-4"
             onClick={() => setExpandedImage(null)}
           >
             <div className="relative max-w-[95vw] max-h-[95vh]" onClick={(e) => e.stopPropagation()}>
