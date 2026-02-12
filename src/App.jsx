@@ -466,6 +466,7 @@ const markStudentSeenTour = (studentId) => {
 };
 
 const LAST_LOCATION_KEY = 'ege_last_location_v1';
+const PACE_FORECAST_SESSION_KEY_PREFIX = 'ege_pace_forecast_dismissed_v1';
 
 const buildUserLocationKey = (user) => {
   if (!user) return '';
@@ -508,6 +509,30 @@ const updateUserLocation = (user, patch) => {
   const safePrev = prev && typeof prev === 'object' ? prev : {};
   store[key] = { ...safePrev, ...patch };
   saveLastLocationStore(store);
+};
+
+const getPaceForecastSessionKey = (userId) => {
+  const normalizedId = String(userId ?? '').trim();
+  if (!normalizedId) return '';
+  return `${PACE_FORECAST_SESSION_KEY_PREFIX}:${normalizedId}`;
+};
+
+const isPaceForecastDismissedInSession = (userId) => {
+  const key = getPaceForecastSessionKey(userId);
+  if (!key || typeof sessionStorage === 'undefined') return false;
+  try {
+    return sessionStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+};
+
+const markPaceForecastDismissedInSession = (userId) => {
+  const key = getPaceForecastSessionKey(userId);
+  if (!key || typeof sessionStorage === 'undefined') return;
+  try {
+    sessionStorage.setItem(key, '1');
+  } catch {}
 };
 
 const normalizeStoredOpenTask = (entry) => {
@@ -14503,10 +14528,23 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     setPaceForecastPopupOpen(false);
   }, [user.role, user.id]);
 
+  const closePaceForecastPopup = useCallback(() => {
+    setPaceForecastPopupOpen(false);
+    paceForecastShownRef.current = true;
+    if (user.role === 'student') {
+      markPaceForecastDismissedInSession(user.id);
+    }
+  }, [user.role, user.id]);
+
   useEffect(() => {
     if (user.role !== 'student') return;
     if (!goalTestsLoaded || !studentDataLoaded) return;
     if (paceForecastShownRef.current) return;
+    if (isPaceForecastDismissedInSession(user.id)) {
+      paceForecastShownRef.current = true;
+      setPaceForecastPopupOpen(false);
+      return;
+    }
     paceForecastShownRef.current = true;
     setPaceForecastPopupOpen(true);
   }, [goalTestsLoaded, studentDataLoaded, user.role, user.id]);
@@ -14726,6 +14764,32 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} дня`;
     return `${value} дней`;
   };
+  const formatMonthsText = (months) => {
+    const value = Number(months) || 0;
+    const mod10 = value % 10;
+    const mod100 = value % 100;
+    if (mod10 === 1 && mod100 !== 11) return `${value} месяц`;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} месяца`;
+    return `${value} месяцев`;
+  };
+  const formatMonthsAndDaysText = (days) => {
+    const totalDays = Math.max(0, Math.ceil(Number(days) || 0));
+    const months = Math.floor(totalDays / 30);
+    const restDays = totalDays % 30;
+    if (months <= 0) return formatDaysText(restDays);
+    if (restDays <= 0) return formatMonthsText(months);
+    return `${formatMonthsText(months)} ${formatDaysText(restDays)}`;
+  };
+  const hasForecastDuration = (
+    testingForecast.total > 0
+    && testingForecast.remaining > 0
+    && Number.isFinite(testingForecast.averagePerDay)
+    && testingForecast.averagePerDay > 0
+    && Number.isFinite(testingForecast.daysToFinish)
+  );
+  const testingForecastDurationText = hasForecastDuration
+    ? formatMonthsAndDaysText(testingForecast.daysToFinish)
+    : '';
   const testingForecastText = (() => {
     if (testingForecast.total <= 0) {
       return 'Пока нет данных о заданиях в разделе тестирования.';
@@ -14733,10 +14797,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     if (testingForecast.remaining <= 0) {
       return 'Все задания в тестированиях уже решены.';
     }
-    if (!Number.isFinite(testingForecast.averagePerDay) || testingForecast.averagePerDay <= 0 || testingForecast.daysToFinish === null) {
+    if (!hasForecastDuration) {
       return 'Пока недостаточно решений, чтобы оценить срок завершения.';
     }
-    return `При таком темпе закроешь раздел тестирований примерно через ${formatDaysText(testingForecast.daysToFinish)}.`;
+    return '';
   })();
 
   const refreshGoalState = async () => {
@@ -15213,7 +15277,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       {user.role === 'student' && paceForecastPopupOpen && (
         <div
           className="fixed inset-0 z-[1250] flex items-center justify-center bg-black/35 backdrop-blur-sm"
-          onClick={() => setPaceForecastPopupOpen(false)}
+          onClick={closePaceForecastPopup}
         >
           <div
             className="w-[min(520px,calc(100%-1.5rem))] rounded-3xl bg-white px-5 py-5 shadow-2xl"
@@ -15222,11 +15286,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-600">прогноз</div>
-                <div className="mt-1 text-lg font-bold text-slate-900">Когда закроешь тестирования</div>
+                <div className="mt-1 text-lg font-bold text-slate-900">Когда изучим все задания при нашем темпе</div>
               </div>
               <button
                 type="button"
-                onClick={() => setPaceForecastPopupOpen(false)}
+                onClick={closePaceForecastPopup}
                 className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-500 hover:bg-slate-50"
                 aria-label="Закрыть"
               >
@@ -15249,8 +15313,24 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               </div>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-purple-100 bg-purple-50 px-4 py-3 text-sm text-purple-800">
-              {testingForecastText}
+            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-900">
+              {hasForecastDuration ? (
+                <div className="space-y-2">
+                  <div className="text-sm font-semibold text-rose-700">
+                    При таком темпе подготовимся к ЕГЭ полностью примерно через
+                  </div>
+                  <div className="rounded-xl border border-rose-300 bg-white px-3 py-3 text-center">
+                    <div className="text-3xl font-extrabold leading-none text-rose-700 sm:text-4xl">
+                      {testingForecastDurationText}
+                    </div>
+                    <div className="mt-1 text-[11px] font-semibold text-rose-500">
+                      {`≈ ${formatDaysText(testingForecast.daysToFinish)}`}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm font-semibold text-rose-700">{testingForecastText}</div>
+              )}
             </div>
 
             <div className="mt-3 text-xs text-slate-500">
@@ -15260,7 +15340,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
 
             <button
               type="button"
-              onClick={() => setPaceForecastPopupOpen(false)}
+              onClick={closePaceForecastPopup}
               className="mt-4 w-full rounded-xl border border-purple-200 bg-white px-3 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-50"
             >
               Понятно
