@@ -13485,7 +13485,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           </div>
         </div>
       </aside>
-      <div className="relative flex-1 flex flex-col app-h overflow-hidden">
+      <div className="main-shell relative flex-1 flex flex-col app-h overflow-hidden">
         <header className="sticky top-0 z-20 md:hidden bg-white/85 backdrop-blur border-b border-slate-200/70 px-3.5 py-3 pt-[calc(env(safe-area-inset-top)+0.55rem)] flex justify-between items-center">
           <LogoMark className="text-lg" />
           <button
