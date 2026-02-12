@@ -8,7 +8,8 @@ import {
   BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle,
   X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Check, Plus, Flame, Snowflake,
-  Settings, Save, Calendar, RefreshCcw, Pencil, Image as ImageIcon
+  Settings, Save, Calendar, RefreshCcw, Pencil, Image as ImageIcon,
+  Bell, BellOff
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
 import mascotDisapproval from './assets/mascot/disapproval.png';
@@ -896,6 +897,39 @@ const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getPushPublicKey: async () => {
+    const res = await apiFetch('/api/push/public-key');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getPushSubscriptionStatus: async () => {
+    const res = await apiFetch('/api/push/subscription');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  savePushSubscription: async (subscription) => {
+    const payload = subscription && typeof subscription === 'object'
+      ? { subscription }
+      : {};
+    const res = await apiFetch('/api/push/subscription', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  deletePushSubscription: async (endpoint = '') => {
+    const normalizedEndpoint = String(endpoint || '').trim();
+    const body = normalizedEndpoint ? { endpoint: normalizedEndpoint } : {};
+    const res = await apiFetch('/api/push/subscription', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getStudents: async (teacherId, options = {}) => {
     const params = new URLSearchParams();
     if (teacherId) params.append('teacherId', teacherId);
@@ -1356,6 +1390,76 @@ const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   }
+};
+
+const PUSH_SW_URL = '/sw-push.js';
+let pushRegistrationPromise = null;
+
+const isPushFeatureSupported = () => (
+  typeof window !== 'undefined'
+  && typeof navigator !== 'undefined'
+  && 'serviceWorker' in navigator
+  && 'PushManager' in window
+  && 'Notification' in window
+);
+
+const getPushPermission = () => {
+  if (typeof Notification === 'undefined') return 'default';
+  return Notification.permission || 'default';
+};
+
+const urlBase64ToUint8Array = (base64String) => {
+  const padded = `${base64String}${'='.repeat((4 - base64String.length % 4) % 4)}`;
+  const base64 = padded.replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const output = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i += 1) {
+    output[i] = rawData.charCodeAt(i);
+  }
+  return output;
+};
+
+const getPushServiceWorkerRegistration = async () => {
+  if (!isPushFeatureSupported()) {
+    throw new Error('Push уведомления не поддерживаются в этом браузере.');
+  }
+  if (!pushRegistrationPromise) {
+    pushRegistrationPromise = navigator.serviceWorker.register(PUSH_SW_URL, { scope: '/' })
+      .then(async (registration) => {
+        await navigator.serviceWorker.ready;
+        return registration;
+      })
+      .catch((error) => {
+        pushRegistrationPromise = null;
+        throw error;
+      });
+  }
+  return pushRegistrationPromise;
+};
+
+const getBrowserPushSubscription = async () => {
+  if (!isPushFeatureSupported()) return null;
+  try {
+    const registration = await getPushServiceWorkerRegistration();
+    return registration.pushManager.getSubscription();
+  } catch {
+    return null;
+  }
+};
+
+const normalizePushErrorMessage = (error, fallback = 'Не удалось настроить push-уведомления.') => {
+  const message = String(error?.message || '').trim();
+  if (!message) return fallback;
+  if (/permission|denied|разреш/i.test(message)) {
+    return 'Разрешите уведомления в браузере для этого сайта.';
+  }
+  if (/service worker/i.test(message)) {
+    return 'Не удалось инициализировать service worker для push.';
+  }
+  if (/push/i.test(message) && /настро/i.test(message)) {
+    return message;
+  }
+  return message;
 };
 
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
@@ -12624,6 +12728,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const [teachers, setTeachers] = useState([]);
   const [teachersLoading, setTeachersLoading] = useState(false);
   const [teachersError, setTeachersError] = useState('');
+  const [pushSupported, setPushSupported] = useState(isPushFeatureSupported());
+  const [pushPermission, setPushPermission] = useState(getPushPermission());
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [pushSyncing, setPushSyncing] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState('');
+  const [pushReady, setPushReady] = useState(false);
   const studentsWithNicknames = useMemo(
     () => students,
     [students]
@@ -12676,6 +12787,190 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     notes: 'Консп.',
     admin: 'Админка',
   };
+  const syncPushSubscriptionState = useCallback(async ({ silent = true } = {}) => {
+    if (user.role !== 'student') return;
+    const supported = isPushFeatureSupported();
+    setPushSupported(supported);
+    setPushPermission(getPushPermission());
+    if (!supported) {
+      setPushSubscribed(false);
+      setPushReady(true);
+      if (!silent) {
+        setPushError('Этот браузер не поддерживает push-уведомления.');
+      }
+      return;
+    }
+
+    setPushSyncing(true);
+    if (!silent) setPushError('');
+    try {
+      const [serverStatus, browserSubscription] = await Promise.all([
+        api.getPushSubscriptionStatus().catch(() => ({ subscribed: false, count: 0 })),
+        getBrowserPushSubscription(),
+      ]);
+
+      let subscribed = Boolean(serverStatus?.subscribed);
+      if (browserSubscription) {
+        subscribed = true;
+        if (!serverStatus?.subscribed) {
+          await api.savePushSubscription(browserSubscription.toJSON());
+        }
+      }
+
+      setPushSubscribed(subscribed);
+    } catch (error) {
+      if (!silent) {
+        setPushError(normalizePushErrorMessage(error, 'Не удалось проверить статус push-уведомлений.'));
+      }
+    } finally {
+      setPushPermission(getPushPermission());
+      setPushSyncing(false);
+      setPushReady(true);
+    }
+  }, [user.role]);
+  const handleEnablePush = useCallback(async () => {
+    if (user.role !== 'student') return;
+    const supported = isPushFeatureSupported();
+    setPushSupported(supported);
+    if (!supported) {
+      setPushError('Этот браузер не поддерживает push-уведомления.');
+      return;
+    }
+
+    setPushBusy(true);
+    setPushError('');
+    try {
+      const permissionBefore = getPushPermission();
+      setPushPermission(permissionBefore);
+      if (permissionBefore === 'denied') {
+        throw new Error('Разрешение на уведомления отключено в браузере.');
+      }
+
+      let permission = permissionBefore;
+      if (permission !== 'granted') {
+        permission = await Notification.requestPermission();
+        setPushPermission(permission);
+      }
+      if (permission !== 'granted') {
+        throw new Error('Разрешение на уведомления не выдано.');
+      }
+
+      const keyPayload = await api.getPushPublicKey();
+      const publicKey = String(keyPayload?.publicKey || '').trim();
+      if (!publicKey) {
+        throw new Error('Push не настроен на сервере.');
+      }
+
+      const registration = await getPushServiceWorkerRegistration();
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        });
+      }
+      await api.savePushSubscription(subscription.toJSON());
+      setPushSubscribed(true);
+      setPushReady(true);
+    } catch (error) {
+      setPushError(normalizePushErrorMessage(error));
+    } finally {
+      setPushBusy(false);
+      setPushPermission(getPushPermission());
+    }
+  }, [user.role]);
+  const handleDisablePush = useCallback(async () => {
+    if (user.role !== 'student') return;
+    setPushBusy(true);
+    setPushError('');
+    try {
+      const browserSubscription = await getBrowserPushSubscription();
+      const endpoint = browserSubscription?.endpoint
+        ? String(browserSubscription.endpoint)
+        : '';
+      await api.deletePushSubscription(endpoint);
+      if (browserSubscription) {
+        try {
+          await browserSubscription.unsubscribe();
+        } catch {}
+      }
+      setPushSubscribed(false);
+      setPushReady(true);
+    } catch (error) {
+      setPushError(normalizePushErrorMessage(error, 'Не удалось отключить push-уведомления.'));
+    } finally {
+      setPushBusy(false);
+      setPushPermission(getPushPermission());
+    }
+  }, [user.role]);
+  const handleTogglePush = useCallback(() => {
+    if (pushBusy || pushSyncing) return;
+    if (pushSubscribed) {
+      handleDisablePush();
+      return;
+    }
+    handleEnablePush();
+  }, [handleDisablePush, handleEnablePush, pushBusy, pushSubscribed, pushSyncing]);
+  const pushStatusText = (() => {
+    if (pushSyncing) return 'Проверяем статус push...';
+    if (!pushSupported) return 'Push не поддерживается в этом браузере.';
+    if (pushPermission === 'denied') return 'Уведомления заблокированы в настройках браузера.';
+    if (pushSubscribed) return 'Push о новой домашке включены.';
+    return 'Включите push, чтобы получать уведомления о новой домашке.';
+  })();
+  const pushButtonLabel = pushBusy
+    ? 'Сохраняем...'
+    : (pushSubscribed ? 'Отключить push' : 'Включить push');
+  const PushButtonIcon = pushSubscribed ? BellOff : Bell;
+  const renderPushControl = ({ mobile = false } = {}) => {
+    if (user.role !== 'student') return null;
+    return (
+      <div className={mobile ? 'mt-3' : 'mt-3'}>
+        <div className={`rounded-xl border px-3 py-2.5 ${
+          pushSupported
+            ? 'border-purple-200/80 bg-white/85'
+            : 'border-slate-200 bg-slate-50'
+        }`}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.17em] text-purple-600">Push</p>
+              <p className="mt-1 text-[11px] text-slate-600">{pushStatusText}</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleTogglePush}
+              disabled={!pushSupported || pushBusy || pushSyncing || !pushReady}
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                pushSubscribed
+                  ? 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100'
+                  : 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
+              } disabled:cursor-not-allowed disabled:opacity-60`}
+            >
+              <PushButtonIcon size={13} />
+              {pushButtonLabel}
+            </button>
+          </div>
+          {pushError && (
+            <p className="mt-2 text-[11px] text-rose-600">{pushError}</p>
+          )}
+        </div>
+      </div>
+    );
+  };
+  useEffect(() => {
+    if (user.role !== 'student') {
+      setPushSupported(isPushFeatureSupported());
+      setPushPermission(getPushPermission());
+      setPushSubscribed(false);
+      setPushSyncing(false);
+      setPushBusy(false);
+      setPushError('');
+      setPushReady(false);
+      return;
+    }
+    setPushPermission(getPushPermission());
+    syncPushSubscriptionState({ silent: true });
+  }, [syncPushSubscriptionState, user.role, user.id]);
   const clearGoalFlyAnimationStyles = useCallback((node = goalSummaryFlyRef.current) => {
     if (!node) return;
     node.style.transition = '';
@@ -13832,6 +14127,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                 </div>
               </div>
             </div>
+            {renderPushControl()}
             <button
               onClick={onLogout}
               className="sidebar-logout mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/75 bg-white/85 px-4 py-2.5 text-sm font-semibold text-rose-600 transition hover:-translate-y-[1px] hover:border-rose-300 hover:bg-rose-50 hover:shadow-sm"
@@ -14199,6 +14495,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                   </div>
                 </div>
               </div>
+              {renderPushControl({ mobile: true })}
               <button
                 onClick={onLogout}
                 className="mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/70 bg-white/90 px-4 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 hover:shadow-sm"

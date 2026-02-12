@@ -5,6 +5,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
+import webpush from 'web-push';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -24,6 +25,7 @@ const mockExamsFile = path.join(dataDir, 'mock-exams.json');
 const taskTitlesFile = path.join(dataDir, 'task-titles.json');
 const authFile = path.join(dataDir, 'auth.json');
 const usageFile = path.join(dataDir, 'usage.json');
+const pushFile = path.join(dataDir, 'push.json');
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
 const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
 const JSON_BODY_LIMIT = '20mb';
@@ -65,6 +67,43 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const GAME_THEORY_TASK = 19;
 const PYTHON_LEVEL_ID = 'python';
 const AUTH_COOKIE_NAME = 'ege_auth_token';
+const PUSH_VAPID_SUBJECT = (() => {
+  const raw = typeof process.env.PUSH_VAPID_SUBJECT === 'string'
+    ? process.env.PUSH_VAPID_SUBJECT.trim()
+    : '';
+  if (raw) return raw;
+  return 'mailto:no-reply@ege-platform.local';
+})();
+const PUSH_SWEEP_INTERVAL_MS = (() => {
+  const raw = Number(process.env.PUSH_SWEEP_INTERVAL_MS);
+  if (Number.isFinite(raw) && raw >= 5 * 60 * 1000) return Math.floor(raw);
+  return 30 * 60 * 1000;
+})();
+const PUSH_SWEEP_START_DELAY_MS = (() => {
+  const raw = Number(process.env.PUSH_SWEEP_START_DELAY_MS);
+  if (Number.isFinite(raw) && raw >= 1000) return Math.floor(raw);
+  return 45 * 1000;
+})();
+const PUSH_REMINDER_WINDOW_START_HOUR = (() => {
+  const raw = Number(process.env.PUSH_REMINDER_WINDOW_START_HOUR);
+  if (Number.isFinite(raw) && raw >= 0 && raw <= 23) return Math.floor(raw);
+  return 9;
+})();
+const PUSH_REMINDER_WINDOW_END_HOUR = (() => {
+  const raw = Number(process.env.PUSH_REMINDER_WINDOW_END_HOUR);
+  if (Number.isFinite(raw) && raw >= 0 && raw <= 23) return Math.floor(raw);
+  return 21;
+})();
+const PUSH_TTL_SECONDS = (() => {
+  const raw = Number(process.env.PUSH_TTL_SECONDS);
+  if (Number.isFinite(raw) && raw >= 60) return Math.floor(raw);
+  return 60 * 60;
+})();
+const PUSH_REMINDER_MIN_INTERVAL_MS = (() => {
+  const raw = Number(process.env.PUSH_REMINDER_MIN_INTERVAL_MS);
+  if (Number.isFinite(raw) && raw >= 2 * DAY_MS) return Math.floor(raw);
+  return 2 * DAY_MS;
+})();
 const TEACHER_SOLVED_EVENTS_READ_LIMIT = 500;
 const PYTHON_RUN_TIMEOUT_MS = (() => {
   const parsed = Number(process.env.PYTHON_RUN_TIMEOUT_MS);
@@ -149,6 +188,9 @@ let pythonRunnerResolved = false;
 let pythonRunnerResolvePromise = null;
 let pythonRunActiveCount = 0;
 const pythonRunQueue = [];
+let pushRuntimeEnabled = false;
+let pushRuntimeConfigError = '';
+let pushSweepInFlight = false;
 
 const normalizeDayKey = (value) => {
   if (typeof value !== 'string') return null;
@@ -377,6 +419,159 @@ const writeUsageDb = (data) => {
   fs.writeFileSync(usageFile, JSON.stringify(data, null, 2), 'utf8');
 };
 
+const normalizePushSubscription = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const endpoint = typeof value.endpoint === 'string' ? value.endpoint.trim() : '';
+  const keys = value.keys && typeof value.keys === 'object' && !Array.isArray(value.keys) ? value.keys : {};
+  const p256dh = typeof keys.p256dh === 'string' ? keys.p256dh.trim() : '';
+  const auth = typeof keys.auth === 'string' ? keys.auth.trim() : '';
+  if (!endpoint || !p256dh || !auth) return null;
+  const expirationRaw = value.expirationTime;
+  const expirationTime = Number.isFinite(Number(expirationRaw)) ? Number(expirationRaw) : null;
+  return {
+    endpoint,
+    expirationTime,
+    keys: {
+      p256dh,
+      auth,
+    },
+  };
+};
+
+const normalizePushStoredSubscription = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const subscription = normalizePushSubscription(value.subscription || value);
+  if (!subscription) return null;
+  const nowIso = new Date().toISOString();
+  const createdAt = typeof value.createdAt === 'string' && value.createdAt.trim()
+    ? value.createdAt.trim()
+    : nowIso;
+  const updatedAt = typeof value.updatedAt === 'string' && value.updatedAt.trim()
+    ? value.updatedAt.trim()
+    : createdAt;
+  const userAgent = typeof value.userAgent === 'string'
+    ? value.userAgent.slice(0, 500)
+    : '';
+  return {
+    endpoint: subscription.endpoint,
+    subscription,
+    createdAt,
+    updatedAt,
+    userAgent,
+  };
+};
+
+const normalizePushSubscriptionsByStudent = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result = {};
+  Object.entries(value).forEach(([studentId, list]) => {
+    const id = String(studentId || '').trim();
+    if (!id || !Array.isArray(list)) return;
+    const unique = [];
+    const seen = new Set();
+    list.forEach((item) => {
+      const normalized = normalizePushStoredSubscription(item);
+      if (!normalized || seen.has(normalized.endpoint)) return;
+      seen.add(normalized.endpoint);
+      unique.push(normalized);
+    });
+    if (unique.length > 0) {
+      result[id] = unique;
+    }
+  });
+  return result;
+};
+
+const normalizePushReminderEntry = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const homeworkId = typeof value.homeworkId === 'string' ? value.homeworkId.trim() : '';
+  const lastSentAt = typeof value.lastSentAt === 'string' ? value.lastSentAt.trim() : '';
+  const issuedAt = typeof value.issuedAt === 'string' ? value.issuedAt.trim() : '';
+  const pendingCountRaw = Number(value.pendingCount);
+  const pendingCount = Number.isFinite(pendingCountRaw) && pendingCountRaw >= 0
+    ? Math.floor(pendingCountRaw)
+    : 0;
+  if (!homeworkId || !lastSentAt) return null;
+  return {
+    homeworkId,
+    lastSentAt,
+    issuedAt,
+    pendingCount,
+  };
+};
+
+const normalizePushRemindersByStudent = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result = {};
+  Object.entries(value).forEach(([studentId, entry]) => {
+    const id = String(studentId || '').trim();
+    if (!id) return;
+    const normalized = normalizePushReminderEntry(entry);
+    if (!normalized) return;
+    result[id] = normalized;
+  });
+  return result;
+};
+
+const normalizePushVapidKeys = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const publicKey = typeof value.publicKey === 'string' ? value.publicKey.trim() : '';
+  const privateKey = typeof value.privateKey === 'string' ? value.privateKey.trim() : '';
+  if (!publicKey || !privateKey) return null;
+  return { publicKey, privateKey };
+};
+
+const getDefaultPushDb = () => ({
+  vapidKeys: null,
+  subscriptionsByStudent: {},
+  remindersByStudent: {},
+});
+
+const readPushDb = () => {
+  const fallback = getDefaultPushDb();
+  try {
+    const raw = fs.readFileSync(pushFile, 'utf8');
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return fallback;
+    }
+    return {
+      vapidKeys: normalizePushVapidKeys(data.vapidKeys),
+      subscriptionsByStudent: normalizePushSubscriptionsByStudent(data.subscriptionsByStudent),
+      remindersByStudent: normalizePushRemindersByStudent(data.remindersByStudent),
+    };
+  } catch {
+    return fallback;
+  }
+};
+
+const writePushDb = (data) => {
+  const normalized = {
+    vapidKeys: normalizePushVapidKeys(data?.vapidKeys),
+    subscriptionsByStudent: normalizePushSubscriptionsByStudent(data?.subscriptionsByStudent),
+    remindersByStudent: normalizePushRemindersByStudent(data?.remindersByStudent),
+  };
+  fs.writeFileSync(pushFile, JSON.stringify(normalized, null, 2), 'utf8');
+};
+
+const purgePushDataForStudents = (studentIds = []) => {
+  const ids = Array.isArray(studentIds) ? studentIds.map((id) => String(id || '').trim()).filter(Boolean) : [];
+  if (ids.length === 0) return;
+  const pushDb = readPushDb();
+  let changed = false;
+  ids.forEach((studentId) => {
+    if (pushDb.subscriptionsByStudent?.[studentId]) {
+      delete pushDb.subscriptionsByStudent[studentId];
+      changed = true;
+    }
+    if (pushDb.remindersByStudent?.[studentId]) {
+      delete pushDb.remindersByStudent[studentId];
+      changed = true;
+    }
+  });
+  if (changed) writePushDb(pushDb);
+};
+
 const isStudentDeleted = (student) => Boolean(student?.deletedAt);
 const isActiveStudent = (student) => Boolean(student && !student.deletedAt);
 
@@ -424,6 +619,8 @@ const hardDeleteStudentData = (studentIds = []) => {
     }
   });
   if (usageChanged) writeUsageDb(usageDb);
+
+  purgePushDataForStudents(ids);
 };
 
 const purgeExpiredDeletedStudents = (students = []) => {
@@ -1317,6 +1514,449 @@ const normalizeGoalsFromLegacy = (entry, testsDb = null) => {
   return [{ type: GOAL_TYPE_TASK, taskNumber: taskNum, levelId, includeAll, targetQuestions: targets }];
 };
 
+const ensurePushRuntimeConfigured = () => {
+  try {
+    const pushDb = readPushDb();
+    let vapidKeys = normalizePushVapidKeys(pushDb.vapidKeys);
+    if (!vapidKeys) {
+      vapidKeys = webpush.generateVAPIDKeys();
+      pushDb.vapidKeys = vapidKeys;
+      writePushDb(pushDb);
+    }
+    webpush.setVapidDetails(PUSH_VAPID_SUBJECT, vapidKeys.publicKey, vapidKeys.privateKey);
+    pushRuntimeEnabled = true;
+    pushRuntimeConfigError = '';
+    return {
+      enabled: true,
+      publicKey: vapidKeys.publicKey,
+    };
+  } catch (error) {
+    pushRuntimeEnabled = false;
+    pushRuntimeConfigError = error?.message || 'Push runtime error';
+    console.error('[push] failed to configure runtime:', error);
+    return {
+      enabled: false,
+      error: pushRuntimeConfigError,
+    };
+  }
+};
+
+const isPushReminderWindowOpen = (date = new Date()) => {
+  const hour = date.getHours();
+  if (!Number.isFinite(hour)) return true;
+  const start = PUSH_REMINDER_WINDOW_START_HOUR;
+  const end = PUSH_REMINDER_WINDOW_END_HOUR;
+  if (start === end) return true;
+  if (start < end) {
+    return hour >= start && hour < end;
+  }
+  return hour >= start || hour < end;
+};
+
+const getNormalizedHomeworkGoals = (entry, testsDb = null) => {
+  const normalized = normalizeGoals(entry?.goals, testsDb);
+  if (normalized.length > 0) return normalized;
+  return normalizeGoalsFromLegacy(entry, testsDb);
+};
+
+const getHomeworkSortTime = (entry) => {
+  const issuedAtMs = Date.parse(entry?.issuedAt || '');
+  if (Number.isFinite(issuedAtMs)) return issuedAtMs;
+  return 0;
+};
+
+const getLatestHomeworkEntryForPush = (studentData, testsDb = null) => {
+  const homeworks = Array.isArray(studentData?.homeworks) ? studentData.homeworks : [];
+  const sortedHomeworks = homeworks
+    .filter((entry) => entry && typeof entry === 'object')
+    .map((entry) => {
+      const goals = getNormalizedHomeworkGoals(entry, testsDb);
+      return { ...entry, goals };
+    })
+    .filter((entry) => Array.isArray(entry.goals) && entry.goals.length > 0)
+    .sort((a, b) => getHomeworkSortTime(b) - getHomeworkSortTime(a));
+
+  if (sortedHomeworks.length > 0) return sortedHomeworks[0];
+
+  const nextLesson = studentData?.nextLesson && typeof studentData.nextLesson === 'object'
+    ? studentData.nextLesson
+    : null;
+  if (!nextLesson) return null;
+
+  const hasContent = Boolean(
+    (typeof nextLesson.homeWork === 'string' && nextLesson.homeWork.trim())
+    || (typeof nextLesson.lessonLink === 'string' && nextLesson.lessonLink.trim())
+    || (typeof nextLesson.boardLink === 'string' && nextLesson.boardLink.trim())
+    || nextLesson.taskNumber
+    || (Array.isArray(nextLesson.goals) && nextLesson.goals.length > 0)
+  );
+  if (!hasContent) return null;
+
+  const goals = getNormalizedHomeworkGoals(nextLesson, testsDb);
+  if (goals.length === 0) return null;
+
+  return {
+    id: 'legacy',
+    issuedAt: typeof nextLesson.issuedAt === 'string' ? nextLesson.issuedAt : '',
+    daysToComplete: Number(nextLesson.daysToComplete) || 7,
+    homeWork: typeof nextLesson.homeWork === 'string' ? nextLesson.homeWork : '',
+    goals,
+  };
+};
+
+const collectGoalTargetNumbers = (goal, questionCount) => {
+  if (!Number.isFinite(questionCount) || questionCount <= 0) return [];
+  if (Boolean(goal?.includeAll)) {
+    return Array.from({ length: questionCount }, (_, index) => index + 1);
+  }
+  const rawTargets = Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [];
+  const unique = Array.from(new Set(
+    rawTargets
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value > 0)
+      .map((value) => Math.trunc(value))
+  ));
+  return unique.filter((value) => value <= questionCount).sort((a, b) => a - b);
+};
+
+const getTaskGoalProgressSnapshot = (goal, studentData, testsDb) => {
+  const taskNumber = Number(goal?.taskNumber);
+  if (!Number.isFinite(taskNumber)) return { pendingCount: 0, totalCount: 0 };
+  const levelId = isPythonTaskNumber(taskNumber) ? PYTHON_LEVEL_ID : String(goal?.levelId || '').trim();
+  if (!levelId) return { pendingCount: 0, totalCount: 0 };
+  const questions = testsDb?.[String(taskNumber)]?.[levelId];
+  if (!Array.isArray(questions) || questions.length === 0) return { pendingCount: 0, totalCount: 0 };
+  const targetNumbers = collectGoalTargetNumbers(goal, questions.length);
+  if (targetNumbers.length === 0) return { pendingCount: 0, totalCount: 0 };
+  const solved = studentData?.solvedByTask?.[String(taskNumber)]?.[levelId]?.solved;
+  const solvedSet = new Set(
+    (Array.isArray(solved) ? solved : [])
+      .map((value) => String(value ?? '').trim())
+      .filter(Boolean)
+  );
+  let solvedCount = 0;
+  targetNumbers.forEach((targetNumber) => {
+    const question = questions[targetNumber - 1];
+    const questionId = String(question?.id ?? '').trim();
+    if (!questionId) return;
+    if (solvedSet.has(questionId)) solvedCount += 1;
+  });
+  const totalCount = targetNumbers.length;
+  return {
+    totalCount,
+    pendingCount: Math.max(totalCount - solvedCount, 0),
+  };
+};
+
+const getMockGoalProgressSnapshot = (goal, studentData, mockExamById = {}) => {
+  const mockExamId = String(goal?.mockExamId || '').trim();
+  if (!mockExamId) return { pendingCount: 0, totalCount: 0 };
+  const exam = mockExamById[mockExamId];
+  const tasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
+  const taskKeys = Object.keys(tasks).map((taskKey) => String(taskKey || '').trim()).filter(Boolean);
+  if (taskKeys.length === 0) return { pendingCount: 0, totalCount: 0 };
+  const solvedMap = studentData?.mockAttempts?.[mockExamId]?.solved;
+  const solved = solvedMap && typeof solvedMap === 'object' ? solvedMap : {};
+  let solvedCount = 0;
+  taskKeys.forEach((taskKey) => {
+    if (Boolean(solved[String(taskKey)])) solvedCount += 1;
+  });
+  const totalCount = taskKeys.length;
+  return {
+    totalCount,
+    pendingCount: Math.max(totalCount - solvedCount, 0),
+  };
+};
+
+const evaluateLatestHomeworkProgressForStudent = (student, testsDb, mockExamById = {}) => {
+  if (!student?.id) return null;
+  const studentData = getStudentData(student.id);
+  const latestHomework = getLatestHomeworkEntryForPush(studentData, testsDb);
+  if (!latestHomework) return null;
+  const goals = Array.isArray(latestHomework.goals)
+    ? latestHomework.goals
+    : getNormalizedHomeworkGoals(latestHomework, testsDb);
+  if (!Array.isArray(goals) || goals.length === 0) return null;
+
+  let totalCount = 0;
+  let pendingCount = 0;
+  goals.forEach((goal) => {
+    const goalType = normalizeGoalType(goal);
+    const snapshot = goalType === GOAL_TYPE_MOCK
+      ? getMockGoalProgressSnapshot(goal, studentData, mockExamById)
+      : getTaskGoalProgressSnapshot(goal, studentData, testsDb);
+    totalCount += Number(snapshot.totalCount) || 0;
+    pendingCount += Number(snapshot.pendingCount) || 0;
+  });
+  if (totalCount <= 0) return null;
+
+  const fallbackId = String(latestHomework?.issuedAt || '').trim();
+  const homeworkId = String(latestHomework?.id || fallbackId || 'legacy').trim() || 'legacy';
+  return {
+    studentId: student.id,
+    studentName: student.name || 'Ученик',
+    homeworkId,
+    issuedAt: typeof latestHomework?.issuedAt === 'string' ? latestHomework.issuedAt : '',
+    daysToComplete: Number(latestHomework?.daysToComplete) || 7,
+    pendingCount,
+    totalCount,
+  };
+};
+
+const formatHomeworkPendingLabel = (count) => {
+  const value = Number(count) || 0;
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${value} задание`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} задания`;
+  return `${value} заданий`;
+};
+
+const getHomeworkPreviewText = (entry) => {
+  const raw = typeof entry?.homeWork === 'string' ? entry.homeWork : '';
+  if (!raw.trim()) return '';
+  const firstLine = raw
+    .split('\n')
+    .map((line) => String(line || '').trim())
+    .find((line) => line);
+  if (!firstLine) return '';
+  const compact = firstLine.replace(/\s+/g, ' ').trim();
+  if (!compact) return '';
+  if (compact.length <= 90) return compact;
+  return `${compact.slice(0, 87)}...`;
+};
+
+const buildHomeworkPushPayload = (summary) => ({
+  title: 'Домашка не закончена',
+  body: `Осталось ${formatHomeworkPendingLabel(summary.pendingCount)}. Проверь раздел "Моё расписание".`,
+  icon: '/favicon.ico',
+  badge: '/favicon.ico',
+  tag: `homework-${summary.homeworkId}`,
+  renotify: false,
+  data: {
+    type: 'homework-reminder',
+    url: '/?view=schedule',
+    homeworkId: summary.homeworkId,
+    pendingCount: summary.pendingCount,
+    issuedAt: summary.issuedAt || null,
+    studentId: summary.studentId,
+  },
+});
+
+const buildNewHomeworkPushPayload = (student, entry, summary = null) => {
+  const pendingCount = Number(summary?.pendingCount);
+  const homeworkId = String(
+    summary?.homeworkId
+    || entry?.id
+    || entry?.issuedAt
+    || 'latest'
+  ).trim() || 'latest';
+  const preview = getHomeworkPreviewText(entry);
+  const baseBody = Number.isFinite(pendingCount) && pendingCount > 0
+    ? `Новая домашка: ${formatHomeworkPendingLabel(pendingCount)} к следующему занятию.`
+    : 'Вам выдали новую домашку. Откройте раздел "Моё расписание".';
+  const body = preview ? `${baseBody} ${preview}` : baseBody;
+  return {
+    title: 'Новая домашка',
+    body,
+    icon: '/favicon.ico',
+    badge: '/favicon.ico',
+    tag: `new-homework-${homeworkId}`,
+    renotify: true,
+    data: {
+      type: 'new-homework',
+      url: '/?view=schedule',
+      homeworkId,
+      issuedAt: summary?.issuedAt || entry?.issuedAt || null,
+      studentId: student?.id || null,
+    },
+  };
+};
+
+const isPushSubscriptionGoneError = (error) => {
+  const code = Number(error?.statusCode || error?.status);
+  return code === 404 || code === 410;
+};
+
+const sendPushNotificationToSubscriptions = async (subscriptions = [], payload, studentId) => {
+  const list = Array.isArray(subscriptions) ? subscriptions : [];
+  if (list.length === 0) {
+    return { successCount: 0, staleEndpoints: [] };
+  }
+  const results = await Promise.all(list.map(async (entry) => {
+    try {
+      await webpush.sendNotification(
+        entry.subscription,
+        JSON.stringify(payload),
+        { TTL: PUSH_TTL_SECONDS }
+      );
+      return { ok: true, endpoint: entry.endpoint };
+    } catch (error) {
+      if (isPushSubscriptionGoneError(error)) {
+        return { ok: false, endpoint: entry.endpoint, stale: true };
+      }
+      console.error(`[push] failed to send notification to student ${studentId}:`, error);
+      return { ok: false, endpoint: entry.endpoint, stale: false };
+    }
+  }));
+  const successCount = results.filter((item) => item.ok).length;
+  const staleEndpoints = results
+    .filter((item) => !item.ok && item.stale && item.endpoint)
+    .map((item) => item.endpoint);
+  return { successCount, staleEndpoints };
+};
+
+const notifyStudentAboutNewHomework = async (student, entry) => {
+  if (!student?.id || !entry) return;
+  if (!pushRuntimeEnabled) {
+    const runtime = ensurePushRuntimeConfigured();
+    if (!runtime.enabled) return;
+  }
+  try {
+    const pushDb = readPushDb();
+    const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
+    const remindersByStudent = normalizePushRemindersByStudent(pushDb.remindersByStudent);
+    const subscriptions = Array.isArray(subscriptionsByStudent[student.id])
+      ? subscriptionsByStudent[student.id]
+      : [];
+    if (subscriptions.length === 0) return;
+
+    const testsDb = readTestsDb();
+    const mockExamById = readMockExamsDb().reduce((acc, exam) => {
+      const examId = String(exam?.id || '').trim();
+      if (examId) acc[examId] = exam;
+      return acc;
+    }, {});
+    const summary = evaluateLatestHomeworkProgressForStudent(student, testsDb, mockExamById);
+    const payload = buildNewHomeworkPushPayload(student, entry, summary);
+    const result = await sendPushNotificationToSubscriptions(subscriptions, payload, student.id);
+
+    let changed = false;
+    if (result.staleEndpoints.length > 0) {
+      const staleSet = new Set(result.staleEndpoints);
+      subscriptionsByStudent[student.id] = subscriptions.filter((item) => !staleSet.has(item.endpoint));
+      changed = true;
+    }
+
+    if (result.successCount > 0) {
+      if (summary && summary.pendingCount > 0) {
+        remindersByStudent[student.id] = {
+          homeworkId: summary.homeworkId,
+          pendingCount: summary.pendingCount,
+          issuedAt: summary.issuedAt || '',
+          lastSentAt: new Date().toISOString(),
+        };
+      } else if (remindersByStudent[student.id]) {
+        delete remindersByStudent[student.id];
+      }
+      changed = true;
+    }
+
+    if (changed) {
+      writePushDb({
+        ...pushDb,
+        subscriptionsByStudent,
+        remindersByStudent,
+      });
+    }
+  } catch (error) {
+    console.error(`[push] failed to send "new homework" notification to student ${student.id}:`, error);
+  }
+};
+
+const runPushReminderSweep = async () => {
+  if (pushSweepInFlight) return;
+  if (!pushRuntimeEnabled) {
+    const runtime = ensurePushRuntimeConfigured();
+    if (!runtime.enabled) return;
+  }
+  if (!isPushReminderWindowOpen()) return;
+
+  pushSweepInFlight = true;
+  try {
+    const pushDb = readPushDb();
+    const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
+    const remindersByStudent = normalizePushRemindersByStudent(pushDb.remindersByStudent);
+    const studentIds = Object.keys(subscriptionsByStudent).filter((studentId) => (
+      Array.isArray(subscriptionsByStudent[studentId]) && subscriptionsByStudent[studentId].length > 0
+    ));
+    if (studentIds.length === 0) {
+      if (Object.keys(remindersByStudent).length > 0) {
+        writePushDb({ ...pushDb, subscriptionsByStudent, remindersByStudent: {} });
+      }
+      return;
+    }
+
+    const testsDb = readTestsDb();
+    const mockExamById = readMockExamsDb().reduce((acc, exam) => {
+      const examId = String(exam?.id || '').trim();
+      if (examId) acc[examId] = exam;
+      return acc;
+    }, {});
+
+    let changed = false;
+    for (const studentId of studentIds) {
+      const student = findStudentById(studentId);
+      if (!student) {
+        delete subscriptionsByStudent[studentId];
+        delete remindersByStudent[studentId];
+        changed = true;
+        continue;
+      }
+
+      const summary = evaluateLatestHomeworkProgressForStudent(student, testsDb, mockExamById);
+      if (!summary || summary.pendingCount <= 0) {
+        if (remindersByStudent[studentId]) {
+          delete remindersByStudent[studentId];
+          changed = true;
+        }
+        continue;
+      }
+
+      const previousReminder = remindersByStudent[studentId];
+      const sameHomework = previousReminder?.homeworkId === summary.homeworkId;
+      const lastSentMs = Date.parse(previousReminder?.lastSentAt || '');
+      const delayPassed = !Number.isFinite(lastSentMs) || (Date.now() - lastSentMs >= PUSH_REMINDER_MIN_INTERVAL_MS);
+      if (sameHomework && !delayPassed) continue;
+
+      const payload = buildHomeworkPushPayload(summary);
+      const subscriptions = subscriptionsByStudent[studentId] || [];
+      const result = await sendPushNotificationToSubscriptions(subscriptions, payload, studentId);
+
+      if (result.staleEndpoints.length > 0) {
+        const staleSet = new Set(result.staleEndpoints);
+        subscriptionsByStudent[studentId] = subscriptions.filter((entry) => !staleSet.has(entry.endpoint));
+        changed = true;
+      }
+
+      if (result.successCount > 0) {
+        remindersByStudent[studentId] = {
+          homeworkId: summary.homeworkId,
+          pendingCount: summary.pendingCount,
+          issuedAt: summary.issuedAt || '',
+          lastSentAt: new Date().toISOString(),
+        };
+        changed = true;
+      } else if (!subscriptionsByStudent[studentId] || subscriptionsByStudent[studentId].length === 0) {
+        delete remindersByStudent[studentId];
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      writePushDb({
+        ...pushDb,
+        subscriptionsByStudent,
+        remindersByStudent,
+      });
+    }
+  } catch (error) {
+    console.error('[push] reminder sweep failed:', error);
+  } finally {
+    pushSweepInFlight = false;
+  }
+};
+
 const getQuestionNumberById = (testsDb, taskNum, levelId, questionId) => {
   if (!testsDb || !taskNum || !levelId || !questionId) return null;
   const task = testsDb[String(taskNum)] || testsDb[taskNum];
@@ -2007,6 +2647,128 @@ app.use('/api', (req, res, next) => {
   req.authToken = session.token;
   setAuthSessionCookie(res, session);
   return next();
+});
+
+app.get('/api/push/public-key', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = findStudentById(req.auth.id);
+  if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+  const runtime = ensurePushRuntimeConfigured();
+  if (!runtime.enabled || !runtime.publicKey) {
+    return res.status(503).json({ error: runtime.error || 'Push не настроен на сервере' });
+  }
+  return res.json({ publicKey: runtime.publicKey });
+});
+
+app.get('/api/push/subscription', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = findStudentById(req.auth.id);
+  if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+  const pushDb = readPushDb();
+  const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
+  const list = Array.isArray(subscriptionsByStudent[student.id]) ? subscriptionsByStudent[student.id] : [];
+  return res.json({
+    subscribed: list.length > 0,
+    count: list.length,
+  });
+});
+
+app.post('/api/push/subscription', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = findStudentById(req.auth.id);
+  if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+  const runtime = ensurePushRuntimeConfigured();
+  if (!runtime.enabled) {
+    return res.status(503).json({ error: runtime.error || 'Push не настроен на сервере' });
+  }
+  const subscription = normalizePushSubscription(req.body?.subscription || req.body);
+  if (!subscription) {
+    return res.status(400).json({ error: 'Некорректная push-подписка' });
+  }
+  const userAgent = typeof req.headers['user-agent'] === 'string'
+    ? req.headers['user-agent'].slice(0, 500)
+    : '';
+
+  const pushDb = readPushDb();
+  const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
+  let changed = false;
+  Object.keys(subscriptionsByStudent).forEach((studentId) => {
+    if (studentId === student.id) return;
+    const filtered = (subscriptionsByStudent[studentId] || []).filter((entry) => entry.endpoint !== subscription.endpoint);
+    if (filtered.length !== (subscriptionsByStudent[studentId] || []).length) {
+      changed = true;
+      if (filtered.length > 0) subscriptionsByStudent[studentId] = filtered;
+      else delete subscriptionsByStudent[studentId];
+    }
+  });
+
+  const nowIso = new Date().toISOString();
+  const current = Array.isArray(subscriptionsByStudent[student.id]) ? [...subscriptionsByStudent[student.id]] : [];
+  const idx = current.findIndex((entry) => entry.endpoint === subscription.endpoint);
+  if (idx >= 0) {
+    const prev = current[idx];
+    current[idx] = {
+      ...prev,
+      endpoint: subscription.endpoint,
+      subscription,
+      updatedAt: nowIso,
+      userAgent,
+    };
+  } else {
+    current.unshift({
+      endpoint: subscription.endpoint,
+      subscription,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      userAgent,
+    });
+  }
+  subscriptionsByStudent[student.id] = current;
+  writePushDb({
+    ...pushDb,
+    subscriptionsByStudent,
+  });
+
+  return res.json({
+    ok: true,
+    subscribed: true,
+    count: current.length,
+    changed: changed || idx === -1,
+  });
+});
+
+app.delete('/api/push/subscription', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = findStudentById(req.auth.id);
+  if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+
+  const endpoint = String(req.body?.endpoint || req.query?.endpoint || '').trim();
+  const pushDb = readPushDb();
+  const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
+  const remindersByStudent = normalizePushRemindersByStudent(pushDb.remindersByStudent);
+  const current = Array.isArray(subscriptionsByStudent[student.id]) ? [...subscriptionsByStudent[student.id]] : [];
+  const next = endpoint
+    ? current.filter((entry) => entry.endpoint !== endpoint)
+    : [];
+
+  if (next.length > 0) {
+    subscriptionsByStudent[student.id] = next;
+  } else {
+    delete subscriptionsByStudent[student.id];
+    delete remindersByStudent[student.id];
+  }
+
+  writePushDb({
+    ...pushDb,
+    subscriptionsByStudent,
+    remindersByStudent,
+  });
+
+  return res.json({
+    ok: true,
+    subscribed: next.length > 0,
+    count: next.length,
+  });
 });
 
 app.get('/api/students', (req, res) => {
@@ -3270,6 +4032,9 @@ app.patch('/api/student-next-lesson', (req, res) => {
     goals: newEntry.goals,
   };
   const updated = setStudentData(student.id, { ...data, nextLesson, homeworks: updatedHomeworks });
+  notifyStudentAboutNewHomework(student, newEntry).catch((error) => {
+    console.error(`[push] post-save "new homework" notify failed for student ${student.id}:`, error);
+  });
   res.json({ homeworks: updated.homeworks || [], latest: nextLesson });
 });
 
@@ -3775,6 +4540,25 @@ app.use((err, _req, res, _next) => {
   console.error(err);
   res.status(500).json({ error: 'Ошибка сервера' });
 });
+
+const pushRuntimeBoot = ensurePushRuntimeConfigured();
+if (!pushRuntimeBoot.enabled) {
+  console.warn(`[push] runtime disabled: ${pushRuntimeBoot.error || 'configuration error'}`);
+}
+
+const startPushReminderSweep = () => {
+  const runSweep = () => {
+    runPushReminderSweep().catch((error) => {
+      console.error('[push] reminder sweep crashed:', error);
+    });
+  };
+  runSweep();
+  const interval = setInterval(runSweep, PUSH_SWEEP_INTERVAL_MS);
+  if (typeof interval.unref === 'function') interval.unref();
+};
+
+const pushSweepStartTimer = setTimeout(startPushReminderSweep, PUSH_SWEEP_START_DELAY_MS);
+if (typeof pushSweepStartTimer.unref === 'function') pushSweepStartTimer.unref();
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
