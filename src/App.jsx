@@ -8403,21 +8403,174 @@ const ScheduleSection = ({
   const latestIssuedLabel = nextHomeworkEntry?.issuedAt ? formatDate(nextHomeworkEntry.issuedAt) : '';
   const nextDeadlineLabel = formatDaysText(nextHomeworkEntry?.daysToComplete || nextLesson?.daysToComplete || 7);
 
+  const buildGoalView = (goal, goalIndex = 0) => {
+    const goalType = normalizeGoalType(goal);
+    if (goalType === GOAL_TYPE_MOCK) {
+      const mockExamId = normalizeMockExamId(goal?.mockExamId);
+      if (!mockExamId) return null;
+      const mockExam = mockExamById[mockExamId] || null;
+      const mockProgress = getMockGoalProgress(mockExam, mockAttemptsByExam?.[mockExamId]);
+      const totalCount = Number(mockProgress.totalCount) || 0;
+      const solvedCount = Number(mockProgress.solvedCount) || 0;
+      const progressPercent = totalCount > 0
+        ? Math.max(0, Math.min(100, Math.round((solvedCount / totalCount) * 100)))
+        : 0;
+      return {
+        viewKey: `mock-${mockExamId}-${goalIndex}`,
+        type: GOAL_TYPE_MOCK,
+        mockExamId,
+        heading: `Пробник · ${mockExam?.title || 'Пробник недоступен'}`,
+        totalCount,
+        solvedCount,
+        progressPercent,
+      };
+    }
+    const taskNumber = Number(goal?.taskNumber);
+    if (!Number.isFinite(taskNumber)) return null;
+    const isPythonGoal = isPythonTaskNumber(taskNumber);
+    const pythonTask = isPythonGoal ? getPythonTaskInfo(taskNumber) : null;
+    const taskDisplay = isPythonGoal
+      ? (pythonTask?.displayNumber || taskNumber)
+      : (formatTaskNumber(taskNumber) || taskNumber);
+    const levelId = isPythonGoal ? PYTHON_LEVEL_ID : goal?.levelId;
+    const levelLabel = isPythonGoal
+      ? 'Python'
+      : (LEVELS[levelId?.toUpperCase()]?.label || levelId);
+    const questionsList = taskNumber && levelId
+      ? (testsDb?.[String(taskNumber)]?.[levelId] || [])
+      : [];
+    const totalCount = questionsList.length;
+    const targetNumbers = goal?.includeAll
+      ? (totalCount > 0 ? Array.from({ length: totalCount }, (_, i) => i + 1) : [])
+      : Array.from(new Set(
+          (Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [])
+            .map((val) => Number(val))
+            .filter((val) => Number.isFinite(val) && val > 0)
+        )).sort((a, b) => a - b);
+    const targetsKey = taskNumber && levelId ? `${taskNumber}|${levelId}` : null;
+    const solvedSet = targetsKey ? solvedByKey?.[targetsKey] : null;
+    const targetStatus = targetNumbers.map((num) => {
+      const question = questionsList[num - 1];
+      const qId = question?.id;
+      const solved = qId ? solvedSet?.has(String(qId)) : false;
+      return { num, solved };
+    });
+    const solvedCount = targetStatus.filter((item) => item.solved).length;
+    const progressPercent = targetStatus.length > 0
+      ? Math.max(0, Math.min(100, Math.round((solvedCount / targetStatus.length) * 100)))
+      : 0;
+    const heading = isPythonGoal
+      ? `Python ${pythonTask?.title || (taskNumber ? `тема ${taskNumber}` : 'тема')}`
+      : `Задание ${taskDisplay} · ${levelLabel}`;
+    return {
+      viewKey: `task-${taskNumber}-${levelId}-${goalIndex}`,
+      type: GOAL_TYPE_TASK,
+      heading,
+      taskNumber,
+      levelId,
+      includeAll: Boolean(goal?.includeAll),
+      targetNumbers,
+      targetStatus,
+      totalCount: targetStatus.length,
+      solvedCount,
+      progressPercent,
+    };
+  };
+
+  const summarizeGoalViews = (goalViews) => {
+    const list = Array.isArray(goalViews) ? goalViews : [];
+    const totalCount = list.reduce(
+      (sum, item) => sum + (Number(item?.totalCount) > 0 ? Number(item.totalCount) : 0),
+      0
+    );
+    const solvedCount = list.reduce((sum, item) => {
+      const itemTotal = Number(item?.totalCount) || 0;
+      const itemSolved = Number(item?.solvedCount) || 0;
+      if (itemTotal <= 0) return sum;
+      return sum + Math.min(itemSolved, itemTotal);
+    }, 0);
+    const remainingCount = Math.max(totalCount - solvedCount, 0);
+    const progressPercent = totalCount > 0
+      ? Math.max(0, Math.min(100, Math.round((solvedCount / totalCount) * 100)))
+      : 0;
+    const pendingGoals = list.filter((item) => {
+      const itemTotal = Number(item?.totalCount) || 0;
+      const itemSolved = Number(item?.solvedCount) || 0;
+      if (itemTotal <= 0) return true;
+      return itemSolved < itemTotal;
+    });
+    const completedGoals = list.filter((item) => {
+      const itemTotal = Number(item?.totalCount) || 0;
+      const itemSolved = Number(item?.solvedCount) || 0;
+      return itemTotal > 0 && itemSolved >= itemTotal;
+    });
+    return {
+      totalCount,
+      solvedCount,
+      remainingCount,
+      progressPercent,
+      pendingGoals,
+      completedGoals,
+      goalCount: list.length,
+    };
+  };
+
+  const nextHomeworkGoalViews = nextHomeworkEntry
+    ? normalizeEntryGoals(nextHomeworkEntry)
+      .map((goal, goalIndex) => buildGoalView(goal, goalIndex))
+      .filter(Boolean)
+    : [];
+  const nextHomeworkSummary = summarizeGoalViews(nextHomeworkGoalViews);
+  const nextHomeworkPendingGoal = nextHomeworkSummary.pendingGoals[0] || null;
+
   useEffect(() => {
     setShowHistory(false);
   }, [effectiveStudentId, totalHomeworkCount]);
 
   const renderHomeworkEntryCard = (entry, section = 'next', key) => {
     if (!entry) return null;
+    const isNextSection = section === 'next';
     const dateText = formatDate(entry?.issuedAt);
     const daysText = formatDaysText(entry?.daysToComplete || 7);
     const isEditing = editingId && entry?.id === editingId;
     const entryGoals = normalizeEntryGoals(entry);
-    const sectionTone = section === 'next'
+    const goalViews = entryGoals
+      .map((goal, goalIndex) => buildGoalView(goal, goalIndex))
+      .filter(Boolean);
+    const goalsSummary = summarizeGoalViews(goalViews);
+    const firstPendingGoal = goalsSummary.pendingGoals[0] || null;
+    const canOpenFirstPending = Boolean(
+      firstPendingGoal
+      && (
+        (firstPendingGoal.type === GOAL_TYPE_MOCK && onOpenMockGoal)
+        || (firstPendingGoal.type === GOAL_TYPE_TASK && onOpenTask)
+      )
+    );
+    const sectionTone = isNextSection
       ? 'border-purple-300/80 bg-gradient-to-br from-white via-purple-50/85 to-fuchsia-50/65 shadow-[0_12px_30px_rgba(147,51,234,0.12)]'
       : 'border-slate-200/90 bg-white';
     const cardTone = isEditing ? 'border-purple-400 bg-purple-50/70 ring-2 ring-purple-200/70' : sectionTone;
-    const sectionLabel = section === 'next' ? 'Следующий урок' : 'Предыдущая домашка';
+    const sectionLabel = isNextSection ? 'Следующий урок' : 'Предыдущая домашка';
+    const summaryStatus = goalsSummary.goalCount === 0
+      ? { label: 'Цели не заданы', tone: 'border-slate-200 bg-white text-slate-600' }
+      : goalsSummary.totalCount > 0 && goalsSummary.remainingCount === 0
+        ? { label: 'Все выполнено', tone: 'border-emerald-200 bg-emerald-50 text-emerald-700' }
+        : goalsSummary.solvedCount > 0
+          ? { label: 'В процессе', tone: 'border-amber-200 bg-amber-50 text-amber-700' }
+          : { label: 'Нужно начать', tone: 'border-purple-200 bg-purple-50 text-purple-700' };
+    const checklistLines = String(entry?.homeWork || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const openGoal = (goalView) => {
+      if (!goalView) return;
+      if (goalView.type === GOAL_TYPE_MOCK) {
+        onOpenMockGoal?.(goalView.mockExamId);
+        return;
+      }
+      onOpenTask?.(goalView.taskNumber, goalView.levelId, goalView.targetNumbers);
+    };
 
     return (
       <div key={key} className={`rounded-2xl border p-3.5 md:p-5 space-y-3 md:space-y-4 ${cardTone}`}>
@@ -8425,7 +8578,7 @@ const ScheduleSection = ({
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                section === 'next'
+                isNextSection
                   ? 'bg-purple-600 text-white shadow-sm shadow-purple-300/50'
                   : 'bg-slate-100 text-slate-600'
               }`}>
@@ -8439,9 +8592,12 @@ const ScheduleSection = ({
                 <RefreshCcw size={12} />
                 {`Срок: ${daysText}`}
               </span>
+              <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${summaryStatus.tone}`}>
+                {summaryStatus.label}
+              </span>
             </div>
             <div className="hidden md:block text-xs text-slate-500">
-              {section === 'next'
+              {isNextSection
                 ? 'Эту домашку нужно выполнить к ближайшему занятию.'
                 : 'Ранее выданная домашка для повторения и контроля прогресса.'}
             </div>
@@ -8468,121 +8624,235 @@ const ScheduleSection = ({
             </div>
           )}
         </div>
-        {entryGoals.length > 0 && (
-          <div className="space-y-2">
-            {entryGoals.map((goal, goalIndex) => {
-              if (goal.type === GOAL_TYPE_MOCK) {
-                const mockExamId = normalizeMockExamId(goal.mockExamId);
-                const mockExam = mockExamById[mockExamId] || null;
-                const mockProgress = getMockGoalProgress(mockExam, mockAttemptsByExam?.[mockExamId]);
-                const mockTitle = mockExam?.title || 'Пробник недоступен';
+        {goalViews.length > 0 ? (
+          <div className={`rounded-2xl border p-3 md:p-4 space-y-3 ${
+            isNextSection
+              ? 'border-purple-200/80 bg-white/90'
+              : 'border-slate-200/90 bg-slate-50/70'
+          }`}>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-purple-500">
+                  Прогресс по целям
+                </div>
+                <div className="mt-1 text-sm font-semibold text-gray-900">
+                  {goalsSummary.totalCount > 0
+                    ? `Выполнено ${goalsSummary.solvedCount} из ${goalsSummary.totalCount}`
+                    : `Целей задано: ${goalsSummary.goalCount}`}
+                </div>
+              </div>
+              <div className="rounded-xl border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-700">
+                {goalsSummary.totalCount > 0 ? `${goalsSummary.progressPercent}%` : 'без тестов'}
+              </div>
+            </div>
+            {goalsSummary.totalCount > 0 && (
+              <div className="h-2 overflow-hidden rounded-full bg-purple-100/80">
+                <div
+                  className={`h-full rounded-full ${
+                    goalsSummary.remainingCount === 0
+                      ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                      : 'bg-gradient-to-r from-violet-500 to-fuchsia-500'
+                  }`}
+                  style={{ width: `${goalsSummary.progressPercent}%` }}
+                />
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wider text-slate-400">Решено</div>
+                <div className="mt-1 text-sm font-semibold text-slate-800">{goalsSummary.solvedCount}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wider text-slate-400">Осталось</div>
+                <div className="mt-1 text-sm font-semibold text-slate-800">{goalsSummary.remainingCount}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wider text-slate-400">Закрыто целей</div>
+                <div className="mt-1 text-sm font-semibold text-slate-800">{goalsSummary.completedGoals.length}/{goalsSummary.goalCount}</div>
+              </div>
+            </div>
+            {isNextSection && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                <div className="rounded-xl border border-purple-100 bg-purple-50/70 px-3 py-2.5">
+                  <div className="text-[11px] font-semibold text-purple-700">Что сделать к следующему занятию</div>
+                  {goalsSummary.pendingGoals.length > 0 ? (
+                    <div className="mt-2 space-y-1.5">
+                      {goalsSummary.pendingGoals.slice(0, 3).map((goalView) => (
+                        <div key={`pending-${goalView.viewKey}`} className="flex items-start gap-2 text-xs text-purple-800">
+                          <ChevronRight size={13} className="mt-[1px] text-purple-500" />
+                          <span>{goalView.heading}</span>
+                        </div>
+                      ))}
+                      {goalsSummary.pendingGoals.length > 3 && (
+                        <div className="text-[11px] text-purple-600">
+                          {`И ещё ${goalsSummary.pendingGoals.length - 3} целей`}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-xs text-emerald-700">Все цели закрыты. Отличная работа.</div>
+                  )}
+                </div>
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2.5">
+                  <div className="text-[11px] font-semibold text-emerald-700">Уже сделано</div>
+                  {goalsSummary.completedGoals.length > 0 ? (
+                    <div className="mt-2 space-y-1.5">
+                      {goalsSummary.completedGoals.slice(0, 3).map((goalView) => (
+                        <div key={`done-${goalView.viewKey}`} className="flex items-start gap-2 text-xs text-emerald-800">
+                          <CheckCircle size={13} className="mt-[1px]" />
+                          <span>{goalView.heading}</span>
+                        </div>
+                      ))}
+                      {goalsSummary.completedGoals.length > 3 && (
+                        <div className="text-[11px] text-emerald-700">
+                          {`И ещё ${goalsSummary.completedGoals.length - 3} выполнено`}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-xs text-slate-500">Пока нет выполненных целей.</div>
+                  )}
+                </div>
+              </div>
+            )}
+            {isNextSection && canOpenFirstPending && (
+              <button
+                type="button"
+                onClick={() => openGoal(firstPendingGoal)}
+                className="w-full sm:w-auto px-3.5 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 text-white text-xs font-semibold hover:from-violet-700 hover:to-purple-700 shadow-sm shadow-purple-300/50"
+              >
+                {firstPendingGoal.type === GOAL_TYPE_MOCK ? 'Начать пробник' : 'Начать следующую цель'}
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-3.5 py-2.5 text-xs text-slate-500">
+            Цели не заданы. Ориентируйтесь на комментарий преподавателя ниже.
+          </div>
+        )}
+
+        {goalViews.length > 0 && (
+          <div className="space-y-2.5">
+            {goalViews.map((goalView) => {
+              if (goalView.type === GOAL_TYPE_MOCK) {
+                const remainingCount = goalView.totalCount > 0
+                  ? Math.max(goalView.totalCount - goalView.solvedCount, 0)
+                  : 0;
                 return (
-                  <div key={`mock-${mockExamId}-${goalIndex}`} className="rounded-xl border border-purple-100 bg-purple-50 px-3 py-2 text-xs text-purple-700 space-y-2">
+                  <div key={goalView.viewKey} className="rounded-xl border border-purple-100/80 bg-white/90 px-3 py-2.5 space-y-2.5">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-semibold text-purple-700">{goalView.heading}</div>
+                        <div className="text-[11px] text-slate-500">
+                          {goalView.totalCount > 0
+                            ? `Выполнено ${goalView.solvedCount}/${goalView.totalCount}`
+                            : 'В пробнике пока нет заданий.'}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-purple-200 bg-purple-50 px-2 py-1 text-[11px] font-semibold text-purple-700">
+                        {goalView.totalCount > 0 ? `${goalView.solvedCount}/${goalView.totalCount}` : '—'}
+                      </div>
+                    </div>
+                    {goalView.totalCount > 0 && (
+                      <div className="h-2 overflow-hidden rounded-full bg-purple-100/80">
+                        <div
+                          className={`h-full rounded-full ${
+                            remainingCount === 0
+                              ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                              : 'bg-gradient-to-r from-violet-500 to-fuchsia-500'
+                          }`}
+                          style={{ width: `${goalView.progressPercent}%` }}
+                        />
+                      </div>
+                    )}
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span>{`Пробник · ${mockTitle}`}</span>
+                      <div className="text-[11px] text-slate-500">
+                        {goalView.totalCount > 0
+                          ? `Осталось: ${remainingCount}`
+                          : 'Добавьте задания в пробник.'}
+                      </div>
                       {onOpenMockGoal && (
                         <button
                           type="button"
-                          onClick={() => onOpenMockGoal(mockExamId)}
-                          className="w-full sm:w-auto px-3 py-1 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700"
+                          onClick={() => onOpenMockGoal(goalView.mockExamId)}
+                          className="w-full sm:w-auto px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700"
                         >
                           Перейти к пробнику
                         </button>
                       )}
                     </div>
-                    <div className="text-[11px] text-purple-600">
-                      {mockProgress.totalCount > 0
-                        ? `Выполнено ${mockProgress.solvedCount}/${mockProgress.totalCount}`
-                        : 'В пробнике пока нет заданий.'}
-                    </div>
                   </div>
                 );
               }
-              const taskNumber = Number(goal.taskNumber);
-              const isPythonGoal = isPythonTaskNumber(taskNumber);
-              const pythonTask = isPythonGoal ? getPythonTaskInfo(taskNumber) : null;
-              const taskDisplay = isPythonGoal
-                ? (pythonTask?.displayNumber || taskNumber)
-                : (formatTaskNumber(taskNumber) || taskNumber);
-              const levelId = isPythonGoal ? PYTHON_LEVEL_ID : goal.levelId;
-              const levelLabel = isPythonGoal
-                ? 'Python'
-                : (LEVELS[levelId?.toUpperCase()]?.label || levelId);
-              const questionsList = taskNumber && levelId
-                ? (testsDb?.[String(taskNumber)]?.[levelId] || [])
-                : [];
-              const totalCount = questionsList.length;
-              const targetNumbers = goal.includeAll
-                ? (totalCount > 0 ? Array.from({ length: totalCount }, (_, i) => i + 1) : [])
-                : Array.from(new Set(
-                    (Array.isArray(goal.targetQuestions) ? goal.targetQuestions : [])
-                      .map((val) => Number(val))
-                      .filter((val) => Number.isFinite(val) && val > 0)
-                  )).sort((a, b) => a - b);
-              const targetsKey = taskNumber && levelId ? `${taskNumber}|${levelId}` : null;
-              const solvedSet = targetsKey ? solvedByKey?.[targetsKey] : null;
-              const targetStatus = targetNumbers.map((num) => {
-                const question = questionsList[num - 1];
-                const qId = question?.id;
-                const solved = qId ? solvedSet?.has(String(qId)) : false;
-                return { num, solved };
-              });
-              const targetSolvedCount = targetStatus.filter((item) => item.solved).length;
-              const hasTargets = targetNumbers.length > 0 || goal.includeAll;
-              const goalHeading = isPythonGoal
-                ? `Python ${pythonTask?.title || (taskNumber ? `тема ${taskNumber}` : 'тема')}`
-                : `Задание ${taskDisplay} · ${levelLabel}`;
+
+              const remainingCount = goalView.totalCount > 0
+                ? Math.max(goalView.totalCount - goalView.solvedCount, 0)
+                : 0;
+              const visibleTargetStatus = goalView.targetStatus.slice(0, 12);
+              const hiddenTargetCount = Math.max(goalView.targetStatus.length - visibleTargetStatus.length, 0);
+
               return (
-                <div key={`${taskNumber}-${levelId}-${goalIndex}`} className="rounded-xl border border-purple-100 bg-purple-50 px-3 py-2 text-xs text-purple-700 space-y-2">
+                <div key={goalView.viewKey} className="rounded-xl border border-purple-100/80 bg-white/90 px-3 py-2.5 space-y-2.5">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-semibold text-purple-700">{goalView.heading}</div>
+                      <div className="text-[11px] text-slate-500">
+                        {goalView.targetNumbers.length > 0
+                          ? `Выполнено ${goalView.solvedCount}/${goalView.totalCount}`
+                          : (goalView.includeAll ? 'Все задания уровня' : 'Цель без выбранных вопросов')}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-purple-200 bg-purple-50 px-2 py-1 text-[11px] font-semibold text-purple-700">
+                      {goalView.totalCount > 0 ? `${goalView.solvedCount}/${goalView.totalCount}` : '—'}
+                    </div>
+                  </div>
+                  {goalView.totalCount > 0 && (
+                    <div className="h-2 overflow-hidden rounded-full bg-purple-100/80">
+                      <div
+                        className={`h-full rounded-full ${
+                          remainingCount === 0
+                            ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                            : 'bg-gradient-to-r from-violet-500 to-fuchsia-500'
+                        }`}
+                        style={{ width: `${goalView.progressPercent}%` }}
+                      />
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span>
-                      {goalHeading}
-                    </span>
+                    <div className="text-[11px] text-slate-500">
+                      {goalView.totalCount > 0
+                        ? `Осталось: ${remainingCount}`
+                        : 'Откройте задание, чтобы начать.'}
+                    </div>
                     {onOpenTask && (
                       <button
                         type="button"
-                        onClick={() => onOpenTask(taskNumber, levelId, targetNumbers)}
-                        className="w-full sm:w-auto px-3 py-1 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700"
+                        onClick={() => onOpenTask(goalView.taskNumber, goalView.levelId, goalView.targetNumbers)}
+                        className="w-full sm:w-auto px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700"
                       >
                         Перейти к заданию
                       </button>
                     )}
                   </div>
-                  {hasTargets && (
-                    <div className="space-y-2">
-                      <div className="md:hidden text-[11px] font-semibold text-purple-700">
-                        {targetNumbers.length > 0
-                          ? `Цель: ${targetSolvedCount}/${targetStatus.length}`
-                          : 'Цель: весь уровень'}
-                      </div>
-                      <div className="hidden md:block space-y-2">
-                        <div className="text-[11px] font-semibold text-purple-700">Цель — решить эти задания:</div>
-                        {targetNumbers.length > 0 ? (
-                          <div className="flex flex-wrap gap-2">
-                            {targetStatus.map((item) => (
-                              <span
-                                key={item.num}
-                                className={`px-2 py-1 rounded-lg border text-[11px] font-semibold ${
-                                  item.solved
-                                    ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
-                                    : 'border-purple-200 bg-white text-purple-700'
-                                }`}
-                              >
-                                №{item.num}{item.solved ? ' ✓' : ''}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="text-[11px] text-purple-600">
-                            Все задания этого уровня
-                          </div>
-                        )}
-                        {targetNumbers.length > 0 && (
-                          <div className="text-[11px] text-purple-600">
-                            Выполнено {targetSolvedCount}/{targetStatus.length}
-                          </div>
-                        )}
-                      </div>
+                  {goalView.targetNumbers.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {visibleTargetStatus.map((item) => (
+                        <span
+                          key={`${goalView.viewKey}-${item.num}`}
+                          className={`px-2 py-1 rounded-md border text-[11px] font-semibold ${
+                            item.solved
+                              ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
+                              : 'border-purple-200 bg-purple-50 text-purple-700'
+                          }`}
+                        >
+                          №{item.num}{item.solved ? ' ✓' : ''}
+                        </span>
+                      ))}
+                      {hiddenTargetCount > 0 && (
+                        <span className="px-2 py-1 rounded-md border border-slate-200 bg-slate-100 text-[11px] font-semibold text-slate-600">
+                          +{hiddenTargetCount}
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -8590,12 +8860,32 @@ const ScheduleSection = ({
             })}
           </div>
         )}
-        <div className="rounded-xl border border-purple-100/70 bg-white/85 p-3.5 md:p-4">
-          <p className="mb-1.5 md:mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-purple-500">Домашка</p>
-          <p className="text-[13px] md:text-sm leading-relaxed text-gray-700 whitespace-pre-wrap">
-            {entry?.homeWork ? entry.homeWork : 'Комментариев учителя нет.'}
-          </p>
+
+        <div className="rounded-xl border border-purple-100/70 bg-white/90 p-3.5 md:p-4">
+          <div className="mb-1.5 md:mb-2 flex items-center justify-between gap-2">
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-purple-500">Домашка</p>
+            {checklistLines.length > 0 && (
+              <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700">
+                {`Пунктов: ${checklistLines.length}`}
+              </span>
+            )}
+          </div>
+          {checklistLines.length > 0 ? (
+            <div className="space-y-1.5">
+              {checklistLines.map((line, index) => (
+                <div key={`${line}-${index}`} className="flex items-start gap-2 text-[13px] md:text-sm text-gray-700 leading-relaxed">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-purple-400" />
+                  <span className="whitespace-pre-wrap">{line}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[13px] md:text-sm leading-relaxed text-slate-500">
+              Комментариев учителя нет.
+            </p>
+          )}
         </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 md:gap-3">
           {entry?.lessonLink ? (
             <a
@@ -8606,7 +8896,7 @@ const ScheduleSection = ({
             >
               <span className="inline-flex items-center gap-2">
                 <Calendar size={15} />
-                Ссылка на занятие
+                Открыть ссылку на занятие
               </span>
               <ChevronRight size={15} className="text-purple-400 transition group-hover:translate-x-0.5 group-hover:text-purple-600" />
             </a>
@@ -8625,7 +8915,7 @@ const ScheduleSection = ({
             >
               <span className="inline-flex items-center gap-2">
                 <BookOpen size={15} />
-                Онлайн-доска
+                Открыть онлайн-доску
               </span>
               <ChevronRight size={15} className="text-purple-400 transition group-hover:translate-x-0.5 group-hover:text-purple-600" />
             </a>
@@ -8835,12 +9125,28 @@ const ScheduleSection = ({
                 <RefreshCcw size={12} />
                 {`Срок: ${nextDeadlineLabel}`}
               </span>
+              {nextHomeworkGoalViews.length > 0 && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-white/85 px-2 py-1 md:px-2.5 text-emerald-700">
+                  <CheckCircle size={13} />
+                  {nextHomeworkSummary.totalCount > 0
+                    ? `Выполнено: ${nextHomeworkSummary.solvedCount}/${nextHomeworkSummary.totalCount}`
+                    : `Целей: ${nextHomeworkSummary.goalCount}`}
+                </span>
+              )}
               {latestIssuedLabel && (
                 <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/85 px-2.5 py-1 text-slate-600">
                   {`Выдано: ${latestIssuedLabel}`}
                 </span>
               )}
             </div>
+            {nextHomeworkPendingGoal && (
+              <div className="inline-flex max-w-full items-center gap-2 rounded-xl border border-purple-200/80 bg-white/90 px-3 py-2 text-xs text-slate-700">
+                <span className="shrink-0 rounded-full bg-purple-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                  Следующий шаг
+                </span>
+                <span className="truncate">{nextHomeworkPendingGoal.heading}</span>
+              </div>
+            )}
           </div>
           {renderStudentPicker()}
         </div>
