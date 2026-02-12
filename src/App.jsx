@@ -4662,7 +4662,21 @@ const ProgressReviewModal = ({ task, onClose, studentId, testDb }) => {
   return typeof document !== 'undefined' ? createPortal(modal, document.body) : null;
 };
 
-const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, testDb, initialLevel, targetQuestions, onLevelSelect, initialQuestionIndex, onQuestionChange, onStreakSaved }) => {
+const StudentTestModal = ({
+  task,
+  onClose,
+  onComplete,
+  progress,
+  studentId,
+  testDb,
+  initialLevel,
+  targetQuestions,
+  onLevelSelect,
+  initialQuestionIndex,
+  onQuestionChange,
+  onStreakSaved,
+  forceInitialLevelLaunch = false
+}) => {
   const [stage, setStage] = useState('select_level'); // select_level | testing
   const [level, setLevel] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -5010,20 +5024,29 @@ const StudentTestModal = ({ task, onClose, onComplete, progress, studentId, test
     if (!testDb) return;
     let cancelled = false;
     autoStartRef.current = true;
+    const forceLaunch = Boolean(forceInitialLevelLaunch && autoStartLevel);
     (async () => {
       try {
-        const started = await startTest(autoStartLevel, { silent: true, initialIndex: initialQuestionIndex });
+        const started = await startTest(autoStartLevel, { silent: !forceLaunch, initialIndex: initialQuestionIndex });
         if (!cancelled && !started) {
+          if (forceLaunch) {
+            onClose?.();
+            return;
+          }
           setAutoStartFailed(true);
         }
       } catch {
         if (!cancelled) {
+          if (forceLaunch) {
+            onClose?.();
+            return;
+          }
           setAutoStartFailed(true);
         }
       }
     })();
     return () => { cancelled = true; };
-  }, [stage, autoStartLevel, initialQuestionIndex, testDb, autoStartFailed]);
+  }, [stage, autoStartLevel, initialQuestionIndex, testDb, autoStartFailed, forceInitialLevelLaunch, onClose]);
 
   useEffect(() => {
     autoStartRef.current = false;
@@ -5913,6 +5936,10 @@ const ProgressSection = ({
   const [autoTargetQuestions, setAutoTargetQuestions] = useState(null);
   const [activeLevel, setActiveLevel] = useState(null);
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(null);
+  const [mobileLevelPickerTaskId, setMobileLevelPickerTaskId] = useState(null);
+  const [mobileLevelPopupView, setMobileLevelPopupView] = useState(null);
+  const [mobileLevelPopupClosing, setMobileLevelPopupClosing] = useState(false);
+  const [forceInitialLevelLaunch, setForceInitialLevelLaunch] = useState(false);
   const [section, setSection] = useState(() => (
     ['progress', 'notes', 'mocks'].includes(initialSection) ? initialSection : 'progress'
   ));
@@ -5947,6 +5974,8 @@ const ProgressSection = ({
   const [taskCodeSavingNumber, setTaskCodeSavingNumber] = useState(null);
   const [taskCodeErrorByTask, setTaskCodeErrorByTask] = useState({});
   const [taskRunStateByTask, setTaskRunStateByTask] = useState({});
+  const mobilePathCanvasRef = useRef(null);
+  const [mobilePathCanvasWidth, setMobilePathCanvasWidth] = useState(0);
   const taskRunnerWorkerRef = useRef(null);
   const taskRunnerPendingRef = useRef(new Map());
   const mockAttemptRequestIdRef = useRef(0);
@@ -6356,7 +6385,9 @@ const ProgressSection = ({
       setAutoTargetQuestions(null);
       setActiveLevel(null);
       setActiveQuestionIndex(null);
+      setForceInitialLevelLaunch(false);
     }
+    setMobileLevelPickerTaskId(null);
     setOpenTaskCodeNumber(null);
     setTaskCodeCache({});
     setTaskCodeLoadingNumber(null);
@@ -6396,6 +6427,7 @@ const ProgressSection = ({
     }
     setSection('progress');
     setActiveLevel(null);
+    setForceInitialLevelLaunch(false);
     setActiveTask(target);
     setAutoLevel(openTask.levelId || null);
     setAutoTargetQuestions(Array.isArray(openTask.targetQuestions) ? openTask.targetQuestions : null);
@@ -6429,6 +6461,10 @@ const ProgressSection = ({
   ]);
 
   useEffect(() => {
+    if (activeTask) setMobileLevelPickerTaskId(null);
+  }, [activeTask]);
+
+  useEffect(() => {
     if (role !== 'student') return;
     if (!activeTask) {
       if (openTask) return;
@@ -6443,6 +6479,33 @@ const ProgressSection = ({
       questionIndex: Number.isFinite(activeQuestionIndex) ? activeQuestionIndex : null
     });
   }, [activeTask, activeLevel, autoLevel, autoTargetQuestions, activeQuestionIndex, role, onTaskStateChange, openTask]);
+
+  useLayoutEffect(() => {
+    if (role !== 'student' || section !== 'progress') return undefined;
+    const element = mobilePathCanvasRef.current;
+    if (!element) return undefined;
+    const updateWidth = () => {
+      const rect = element.getBoundingClientRect();
+      const width = Math.round(rect.width);
+      if (!Number.isFinite(width) || width <= 0) return;
+      setMobilePathCanvasWidth((prev) => (Math.abs(prev - width) > 1 ? width : prev));
+    };
+    updateWidth();
+
+    let observer = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => updateWidth());
+      observer.observe(element);
+      return () => observer.disconnect();
+    }
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', updateWidth);
+      return () => window.removeEventListener('resize', updateWidth);
+    }
+
+    return undefined;
+  }, [role, section, taskList.length]);
 
   const progressMap = role === 'teacher'
     ? (studentData.progress || {})
@@ -6474,6 +6537,310 @@ const ProgressSection = ({
     progress: 'Тесты',
     notes: 'Заметки',
     mocks: 'Пробники'
+  };
+  const mobilePathLayout = useMemo(() => {
+    const ringSize = 124;
+    const strokeWidth = 10;
+    const radius = (ringSize - strokeWidth) / 2;
+    const circumference = 2 * Math.PI * radius;
+    const labelGap = 7;
+    const labelHeight = 42;
+    const topPadding = 10;
+    const bottomPadding = 24;
+    const nodeWidth = 156;
+    const labelBoxWidth = 154;
+    const pathWidth = Math.max(296, Math.round(mobilePathCanvasWidth || 336));
+    const xPattern = [24, 74, 36, 70, 27, 78, 44, 66, 30, 76, 41, 69];
+    const stepPattern = [136, 148, 142, 156, 138, 150, 144, 152, 140, 154];
+    const connectorPresets = [
+      { sway: 22, lift: 16, pullA: 0.03, pullB: 0.01 },
+      { sway: -20, lift: 18, pullA: 0.02, pullB: 0.02 },
+      { sway: 19, lift: 17, pullA: 0.03, pullB: 0.01 },
+      { sway: -21, lift: 19, pullA: 0.02, pullB: 0.02 },
+      { sway: 18, lift: 16, pullA: 0.03, pullB: 0.01 },
+      { sway: -19, lift: 18, pullA: 0.02, pullB: 0.02 },
+      { sway: 20, lift: 17, pullA: 0.03, pullB: 0.01 },
+      { sway: -22, lift: 19, pullA: 0.02, pullB: 0.02 },
+      { sway: 17, lift: 16, pullA: 0.03, pullB: 0.01 },
+      { sway: -20, lift: 18, pullA: 0.02, pullB: 0.02 },
+      { sway: 19, lift: 17, pullA: 0.03, pullB: 0.01 },
+      { sway: -21, lift: 19, pullA: 0.02, pullB: 0.02 },
+      { sway: 18, lift: 16, pullA: 0.03, pullB: 0.01 },
+      { sway: -19, lift: 18, pullA: 0.02, pullB: 0.02 },
+      { sway: 20, lift: 17, pullA: 0.03, pullB: 0.01 },
+      { sway: -22, lift: 19, pullA: 0.02, pullB: 0.02 },
+      { sway: 17, lift: 16, pullA: 0.03, pullB: 0.01 },
+      { sway: -20, lift: 18, pullA: 0.02, pullB: 0.02 },
+      { sway: 19, lift: 17, pullA: 0.03, pullB: 0.01 },
+      { sway: -21, lift: 19, pullA: 0.02, pullB: 0.02 },
+    ];
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const manualNodeShiftPxByNumber = {
+      7: -28,
+      19: -22,
+      20: -22,
+      21: -22
+    };
+    const manualNodeShiftPxByDisplayNumber = {
+      '19-21': -22
+    };
+    const pointInRect = (x, y, rect) => (
+      x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+    );
+    const segmentHitsRect = (x1, y1, x2, y2, rect) => {
+      if (pointInRect(x1, y1, rect) || pointInRect(x2, y2, rect)) return true;
+      const steps = 30;
+      for (let i = 1; i < steps; i += 1) {
+        const t = i / steps;
+        const x = x1 + ((x2 - x1) * t);
+        const y = y1 + ((y2 - y1) * t);
+        if (pointInRect(x, y, rect)) return true;
+      }
+      return false;
+    };
+    const nodeHalfWidth = nodeWidth / 2;
+    const centerMin = nodeHalfWidth + 4;
+    const centerMax = Math.max(centerMin, pathWidth - nodeHalfWidth - 4);
+    let currentTop = topPadding;
+    const nodes = taskList.map((task, idx) => {
+      const rawVal = Number(progressMap[task.id] || 0);
+      const val = Number.isFinite(rawVal) ? Math.max(0, Math.min(100, rawVal)) : 0;
+      const ringColor = val >= 85
+        ? '#10b981'
+        : (val >= 60 ? '#8b5cf6' : (val >= 40 ? '#f59e0b' : '#9ca3af'));
+      const numericSeed = Number(task?.number);
+      const seed = Number.isFinite(numericSeed) ? numericSeed : (idx + 1);
+      const jitter = ((seed * 23) % 11) - 5;
+      const xBase = clamp(xPattern[idx % xPattern.length] + jitter, 22, 78);
+      const numericShiftPx = Number.isFinite(numericSeed)
+        ? (manualNodeShiftPxByNumber[numericSeed] || 0)
+        : 0;
+      const displayShiftPxRaw = manualNodeShiftPxByDisplayNumber[String(task?.displayNumber || '')];
+      const manualShiftPx = Number.isFinite(displayShiftPxRaw) ? displayShiftPxRaw : numericShiftPx;
+      const centerX = clamp(((xBase / 100) * pathWidth) + manualShiftPx, centerMin, centerMax);
+      const top = currentTop;
+      const centerY = top + (ringSize / 2);
+      currentTop += stepPattern[idx % stepPattern.length];
+      const compactTitle = String(task.title || '').replace(/\s+/g, ' ').trim();
+      const title = compactTitle.length > 52 ? `${compactTitle.slice(0, 52)}...` : compactTitle;
+      const labelTop = top + ringSize + labelGap;
+      const labelLeft = centerX - (labelBoxWidth / 2);
+      const labelRight = centerX + (labelBoxWidth / 2);
+      const labelBottom = labelTop + labelHeight;
+      return {
+        task,
+        idx,
+        val,
+        ringColor,
+        centerX,
+        centerY,
+        top,
+        labelTop,
+        labelLeft,
+        labelRight,
+        labelBottom,
+        title
+      };
+    });
+    const curves = nodes.slice(0, -1).map((node, idx) => {
+      const next = nodes[idx + 1];
+      const preset = connectorPresets[idx % connectorPresets.length];
+      const deltaX = next.centerX - node.centerX;
+      const deltaY = next.centerY - node.centerY;
+      const distance = Math.max(0.001, Math.hypot(deltaX, deltaY));
+      const unitX = deltaX / distance;
+      const unitY = deltaY / distance;
+      const anchorOffset = (ringSize / 2) + (strokeWidth / 2) + 2;
+      const startX = node.centerX + (unitX * anchorOffset);
+      const startY = node.centerY + (unitY * anchorOffset);
+      const endX = next.centerX - (unitX * anchorOffset);
+      const endY = next.centerY - (unitY * anchorOffset);
+
+      const currentLabelRect = {
+        left: node.labelLeft - 4,
+        right: node.labelRight + 4,
+        top: node.labelTop - 4,
+        bottom: node.labelBottom + 4
+      };
+      const nextLabelRect = {
+        left: next.labelLeft - 4,
+        right: next.labelRight + 4,
+        top: next.labelTop - 4,
+        bottom: next.labelBottom + 4
+      };
+      const shouldBypassLabels = segmentHitsRect(startX, startY, endX, endY, currentLabelRect)
+        || segmentHitsRect(startX, startY, endX, endY, nextLabelRect);
+      if (!shouldBypassLabels) {
+        return {
+          id: `${node.task.id}-${next.task.id}`,
+          d: `M ${startX.toFixed(2)} ${startY.toFixed(2)} L ${endX.toFixed(2)} ${endY.toFixed(2)}`
+        };
+      }
+
+      const safeY = Math.min(node.labelTop, next.labelTop) - 16;
+      const straightMidY = (startY + endY) / 2;
+      const requiredLift = Math.max(0, straightMidY - safeY + 4);
+      const tangentOut = clamp(distance * (0.23 + preset.pullA * 0.45), 18, 34);
+      const tangentIn = clamp(distance * (0.23 + preset.pullB * 0.45), 18, 34);
+      const baseC1X = startX + (unitX * tangentOut);
+      const baseC1Y = startY + (unitY * tangentOut);
+      const baseC2X = endX - (unitX * tangentIn);
+      const baseC2Y = endY - (unitY * tangentIn);
+      const nearVertical = Math.abs(deltaX) < 72 && Math.abs(deltaY) > 36;
+      const swayFactor = nearVertical
+        ? Math.max(0.28, Math.min(0.9, (72 - Math.abs(deltaX)) / 72))
+        : 0.18;
+      const lateral = preset.sway * swayFactor * 0.34;
+      const lift = clamp((preset.lift * 0.58) + requiredLift, 8, 30);
+      let c1x = clamp(baseC1X + lateral, 8, pathWidth - 8);
+      let c2x = clamp(baseC2X - (lateral * 0.78), 8, pathWidth - 8);
+      let c1y = baseC1Y - lift;
+      let c2y = baseC2Y - (lift * 0.92);
+      const yOvershoot = Math.max(c1y - safeY, c2y - safeY, 0);
+      if (yOvershoot > 0) {
+        c1y -= yOvershoot;
+        c2y -= yOvershoot;
+      }
+      const minCurveY = Math.min(startY, endY) - 58;
+      c1y = Math.max(minCurveY, c1y);
+      c2y = Math.max(minCurveY + 6, c2y);
+      const minControlGap = Math.max(8, Math.abs(deltaX) * 0.06);
+      if (deltaX >= 0 && c2x < c1x + minControlGap) {
+        const mid = (c1x + c2x) / 2;
+        c1x = clamp(mid - (minControlGap / 2), 8, pathWidth - 8);
+        c2x = clamp(mid + (minControlGap / 2), 8, pathWidth - 8);
+      } else if (deltaX < 0 && c2x > c1x - minControlGap) {
+        const mid = (c1x + c2x) / 2;
+        c1x = clamp(mid + (minControlGap / 2), 8, pathWidth - 8);
+        c2x = clamp(mid - (minControlGap / 2), 8, pathWidth - 8);
+      }
+      return {
+        id: `${node.task.id}-${next.task.id}`,
+        d: `M ${startX.toFixed(2)} ${startY.toFixed(2)} C ${c1x.toFixed(2)} ${c1y.toFixed(2)}, ${c2x.toFixed(2)} ${c2y.toFixed(2)}, ${endX.toFixed(2)} ${endY.toFixed(2)}`
+      };
+    });
+    const lastNode = nodes[nodes.length - 1];
+    const height = lastNode
+      ? Math.round(lastNode.top + ringSize + labelGap + labelHeight + bottomPadding)
+      : 200;
+    return {
+      nodes,
+      curves,
+      width: pathWidth,
+      height,
+      nodeWidth,
+      ringSize,
+      strokeWidth,
+      radius,
+      circumference
+    };
+  }, [taskList, progressMap, mobilePathCanvasWidth]);
+  const mobileLevelPopupLayout = useMemo(() => {
+    if (!mobileLevelPickerTaskId) return null;
+    const selectedNode = mobilePathLayout.nodes.find((node) => String(node.task.id) === String(mobileLevelPickerTaskId));
+    if (!selectedNode) return null;
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const popupMinWidth = 248;
+    const popupMaxWidth = 314;
+    const variantSeed = Number(selectedNode.task?.number);
+    const variantOffset = Number.isFinite(variantSeed)
+      ? (((variantSeed * 17) % 41) - 20)
+      : 0;
+    const preferredWidth = 282 + variantOffset;
+    const popupWidth = clamp(
+      preferredWidth,
+      popupMinWidth,
+      Math.min(popupMaxWidth, Math.max(popupMinWidth, mobilePathLayout.width - 38))
+    );
+    const popupHeight = 214;
+    const left = clamp(
+      selectedNode.centerX - (popupWidth / 2),
+      8,
+      Math.max(8, mobilePathLayout.width - popupWidth - 8)
+    );
+    const aboveTop = selectedNode.top - popupHeight - 8;
+    const belowTop = selectedNode.top + mobilePathLayout.ringSize + 8;
+    let top = aboveTop;
+    let placeBelow = false;
+    if (typeof window !== 'undefined' && mobilePathCanvasRef.current) {
+      const rect = mobilePathCanvasRef.current.getBoundingClientRect();
+      const safeTop = 64;
+      const safeBottom = 92;
+      const screenMinTop = safeTop;
+      const screenMaxTop = Math.max(screenMinTop, window.innerHeight - safeBottom - popupHeight);
+
+      const aboveScreenTopRaw = rect.top + aboveTop;
+      const belowScreenTopRaw = rect.top + belowTop;
+      const aboveScreenTop = clamp(aboveScreenTopRaw, screenMinTop, screenMaxTop);
+      const belowScreenTop = clamp(belowScreenTopRaw, screenMinTop, screenMaxTop);
+      const aboveShift = Math.abs(aboveScreenTop - aboveScreenTopRaw);
+      const belowShift = Math.abs(belowScreenTop - belowScreenTopRaw);
+
+      if (belowShift + 4 < aboveShift) {
+        placeBelow = true;
+      } else if (aboveShift + 4 < belowShift) {
+        placeBelow = false;
+      } else {
+        const nodeScreenTop = rect.top + selectedNode.top;
+        const nodeScreenBottom = nodeScreenTop + mobilePathLayout.ringSize;
+        const availableAbove = nodeScreenTop - screenMinTop - 8;
+        const availableBelow = (window.innerHeight - safeBottom) - nodeScreenBottom - 8;
+        placeBelow = availableBelow > availableAbove;
+      }
+
+      const chosenScreenTop = placeBelow ? belowScreenTop : aboveScreenTop;
+      top = chosenScreenTop - rect.top;
+    } else {
+      const minTop = 6;
+      const maxTop = Math.max(minTop, mobilePathLayout.height - popupHeight - 6);
+      const aboveClamped = clamp(aboveTop, minTop, maxTop);
+      const belowClamped = clamp(belowTop, minTop, maxTop);
+      const aboveShift = Math.abs(aboveClamped - aboveTop);
+      const belowShift = Math.abs(belowClamped - belowTop);
+      placeBelow = belowShift < aboveShift;
+      top = placeBelow ? belowClamped : aboveClamped;
+    }
+
+    const nodeCenterY = selectedNode.top + (mobilePathLayout.ringSize / 2);
+    const popupCenterY = top + (popupHeight / 2);
+    placeBelow = popupCenterY >= nodeCenterY;
+
+    const arrowLeft = clamp(selectedNode.centerX - left - 7, 14, popupWidth - 22);
+    return {
+      node: selectedNode,
+      width: popupWidth,
+      height: popupHeight,
+      left,
+      top,
+      placeBelow,
+      arrowLeft
+    };
+  }, [mobileLevelPickerTaskId, mobilePathLayout]);
+
+  useEffect(() => {
+    if (mobileLevelPopupLayout) {
+      setMobileLevelPopupView(mobileLevelPopupLayout);
+      setMobileLevelPopupClosing(false);
+      return undefined;
+    }
+    if (!mobileLevelPopupView) return undefined;
+    setMobileLevelPopupClosing(true);
+    const timer = setTimeout(() => {
+      setMobileLevelPopupView(null);
+      setMobileLevelPopupClosing(false);
+    }, 220);
+    return () => clearTimeout(timer);
+  }, [mobileLevelPopupLayout, mobileLevelPopupView]);
+
+  const openTaskFromMobilePath = (task, levelId) => {
+    if (!task) return;
+    setMobileLevelPickerTaskId(null);
+    setActiveLevel(null);
+    setActiveQuestionIndex(null);
+    setAutoTargetQuestions(null);
+    setAutoLevel(['basic', 'advanced', 'expert'].includes(levelId) ? levelId : null);
+    setForceInitialLevelLaunch(true);
+    setActiveTask(task);
   };
   const getBallLabel = (value) => {
     if (!Number.isFinite(value)) return 'баллов';
@@ -6858,7 +7225,247 @@ const ProgressSection = ({
 
       {section === 'progress' && (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 stagger-children">
+          {role === 'student' && (
+            <div className="md:hidden">
+              <div className="rounded-3xl border border-purple-200/80 bg-white/85 p-3 shadow-[0_10px_24px_rgba(99,102,241,0.12)]">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-bold text-slate-900">Путь по темам</h3>
+                  <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-1 text-[10px] font-semibold text-purple-700">
+                    {`Средний: ${totalMasteryLabel}%`}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-500">Открывай круги по очереди и поднимай прогресс.</div>
+                <div className="mt-3">
+                  <div
+                    ref={mobilePathCanvasRef}
+                    className="relative overflow-visible rounded-2xl border border-purple-100/80 bg-gradient-to-b from-white/95 via-purple-50/55 to-sky-50/45 px-1.5 py-2"
+                    style={{ height: `${mobilePathLayout.height}px` }}
+                    onClick={() => setMobileLevelPickerTaskId(null)}
+                  >
+                    <div className="pointer-events-none absolute inset-0 z-0" aria-hidden="true">
+                      <svg
+                        className="h-full w-full"
+                        viewBox={`0 0 ${mobilePathLayout.width} ${mobilePathLayout.height}`}
+                        preserveAspectRatio="none"
+                      >
+                        {mobilePathLayout.curves.map((curve, curveIdx) => (
+                          <path
+                            key={`mobile-curve-${curve.id}`}
+                            d={curve.d}
+                            fill="none"
+                            stroke="rgba(168,85,247,0.44)"
+                            strokeWidth="1.7"
+                            strokeLinecap="round"
+                            strokeDasharray={curveIdx % 2 === 0 ? '7.5 6.4' : '6.8 6'}
+                          />
+                        ))}
+                      </svg>
+                    </div>
+                    {mobileLevelPopupView && (
+                      <div
+                        key={`mobile-level-popover-${mobileLevelPopupView.node.task.id}`}
+                        className={`mobile-level-popover absolute z-20 rounded-2xl px-2.5 py-2 backdrop-blur ${
+                          mobileLevelPopupView.placeBelow ? 'mobile-level-popover--below' : 'mobile-level-popover--above'
+                        } ${mobileLevelPopupClosing ? 'mobile-level-popover--closing' : ''}`}
+                        style={{
+                          width: `${mobileLevelPopupView.width}px`,
+                          left: `${mobileLevelPopupView.left}px`,
+                          top: `${mobileLevelPopupView.top}px`
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="mobile-level-popover__inner">
+                          <div className="mobile-level-popover__title text-[11px] font-bold uppercase tracking-[0.08em] text-purple-700">
+                            Выбери уровень
+                          </div>
+                          <div className="mt-2 space-y-1.5">
+                            {Object.values(LEVELS).map((lvl, lvlIdx) => {
+                            const tone = lvl.id === 'basic'
+                              ? {
+                                  accent: '#f59e0b',
+                                  variant: 'mobile-level-option--basic',
+                                  title: 'text-amber-700',
+                                  badge: 'mobile-level-option-badge--basic',
+                                  desc: 'text-slate-600'
+                                }
+                              : (lvl.id === 'advanced'
+                                  ? {
+                                      accent: '#8b5cf6',
+                                      variant: 'mobile-level-option--advanced',
+                                      title: 'text-purple-700',
+                                      badge: 'mobile-level-option-badge--advanced',
+                                      desc: 'text-slate-600'
+                                    }
+                                  : {
+                                      accent: '#10b981',
+                                      variant: 'mobile-level-option--expert',
+                                      title: 'text-emerald-700',
+                                      badge: 'mobile-level-option-badge--expert',
+                                      desc: 'text-slate-600'
+                                    });
+                            const description = lvl.id === 'basic'
+                              ? 'Прототипы с реальных ЕГЭ и Демоверсий.'
+                              : (lvl.id === 'advanced'
+                                  ? 'Усложненные условия.'
+                                  : 'Статград и сложнее.');
+                            const levelAngle = `${Math.max(0, Math.min(100, Number(lvl.maxScore) || 0)) * 3.6}deg`;
+                            return (
+                              <button
+                                key={`mobile-level-${lvl.id}`}
+                                type="button"
+                                className={`mobile-level-option w-full rounded-2xl border px-2.5 py-2.5 text-left transition-transform active:scale-[0.99] ${tone.variant}`}
+                                style={{
+                                  '--i': lvlIdx,
+                                  '--level-accent': tone.accent,
+                                  '--level-angle': levelAngle
+                                }}
+                                onClick={() => openTaskFromMobilePath(mobileLevelPopupView.node.task, lvl.id)}
+                              >
+                                <div className="flex items-start gap-2.5">
+                                  <span className="mobile-level-option-ring" aria-hidden="true">
+                                    <span className="mobile-level-option-ring__inner">{`${lvl.maxScore}%`}</span>
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className={`text-[12px] font-bold ${tone.title}`}>
+                                        {lvl.id === 'basic' ? 'Базовый' : (lvl.id === 'advanced' ? 'Продвинутый' : 'Эксперт')}
+                                      </div>
+                                      <span className={`mobile-level-option-badge ${tone.badge}`}>
+                                        {`до ${lvl.maxScore}%`}
+                                      </span>
+                                    </div>
+                                    <div className={`mt-1 text-[11px] leading-tight ${tone.desc}`}>
+                                      {description}
+                                    </div>
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                            })}
+                          </div>
+                        </div>
+                        <div
+                          className={`mobile-level-arrow pointer-events-none absolute ${
+                            mobileLevelPopupView.placeBelow ? 'mobile-level-arrow--up' : 'mobile-level-arrow--down'
+                          }`}
+                          style={{ left: `${mobileLevelPopupView.arrowLeft}px` }}
+                        />
+                      </div>
+                    )}
+                    {mobilePathLayout.nodes.map((node) => {
+                      const dashOffset = mobilePathLayout.circumference - (node.val / 100) * mobilePathLayout.circumference;
+                      const isSelected = String(mobileLevelPickerTaskId) === String(node.task.id);
+                      const isMastered = node.val >= 85;
+                      const isStable = node.val >= 60 && node.val < 85;
+                      const isWarmingUp = node.val >= 40 && node.val < 60;
+                      const ringGlow = isMastered
+                        ? 'rgba(16,185,129,0.34)'
+                        : (isStable ? 'rgba(139,92,246,0.34)' : (isWarmingUp ? 'rgba(245,158,11,0.34)' : 'rgba(148,163,184,0.26)'));
+                      const progressAngle = Math.max(0, Math.min(360, Number(node.val || 0) * 3.6));
+                      const statusLabel = isMastered
+                        ? 'Сильная'
+                        : (isStable ? 'В темпе' : (isWarmingUp ? 'Практика' : 'Фокус'));
+                      const statusTone = isMastered
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : (isStable
+                            ? 'border-purple-200 bg-purple-50 text-purple-700'
+                            : (isWarmingUp
+                                ? 'border-amber-200 bg-amber-50 text-amber-700'
+                                : 'border-slate-200 bg-slate-50 text-slate-600'));
+                      return (
+                        <button
+                          key={`mobile-path-${node.task.id}`}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMobileLevelPickerTaskId((prev) => (
+                              String(prev) === String(node.task.id) ? null : node.task.id
+                            ));
+                          }}
+                          className={`mobile-path-node group absolute z-10 rounded-2xl bg-transparent px-1 transition-transform ${
+                            isSelected ? 'mobile-path-node--selected scale-[1.03]' : ''
+                          }`}
+                          style={{
+                            left: `${node.centerX}px`,
+                            top: `${node.top}px`,
+                            width: `${mobilePathLayout.nodeWidth}px`,
+                            transform: isSelected ? 'translateX(-50%) scale(1.03)' : 'translateX(-50%)',
+                            '--ring-accent': node.ringColor,
+                            '--ring-glow': ringGlow,
+                            '--progress-angle': `${progressAngle}deg`,
+                            '--ring-size': `${mobilePathLayout.ringSize}px`,
+                            '--ring-stroke': `${mobilePathLayout.strokeWidth}px`,
+                            '--node-delay': `${Math.max(0, node.idx % 8) * 60}ms`
+                          }}
+                          aria-label={`Открыть тему ${node.task.title}`}
+                          aria-expanded={isSelected}
+                        >
+                          <div
+                            className={`mobile-topic-ring-shell relative mx-auto ${
+                              isSelected ? 'mobile-topic-ring-shell--selected' : ''
+                            } ${isMastered ? 'mobile-topic-ring-shell--mastered' : ''}`}
+                            style={{ height: `${mobilePathLayout.ringSize}px`, width: `${mobilePathLayout.ringSize}px` }}
+                          >
+                            <div className="mobile-topic-glow absolute inset-[-8px] rounded-full" />
+                            <div className="mobile-topic-orbit" />
+                            <div className="mobile-topic-conic" />
+                            <svg
+                              className="relative z-[4] h-full w-full -rotate-90"
+                              viewBox={`0 0 ${mobilePathLayout.ringSize} ${mobilePathLayout.ringSize}`}
+                              aria-hidden="true"
+                            >
+                              <circle
+                                cx={mobilePathLayout.ringSize / 2}
+                                cy={mobilePathLayout.ringSize / 2}
+                                r={mobilePathLayout.radius}
+                                fill="none"
+                                stroke="#d7dee8"
+                                strokeWidth={mobilePathLayout.strokeWidth}
+                              />
+                              <circle
+                                cx={mobilePathLayout.ringSize / 2}
+                                cy={mobilePathLayout.ringSize / 2}
+                                r={mobilePathLayout.radius}
+                                fill="none"
+                                stroke={node.ringColor}
+                                strokeWidth={mobilePathLayout.strokeWidth}
+                                strokeLinecap="round"
+                                strokeDasharray={mobilePathLayout.circumference}
+                                strokeDashoffset={dashOffset}
+                                style={{ transition: 'stroke-dashoffset 420ms ease, stroke 220ms ease' }}
+                              />
+                            </svg>
+                            {node.val > 2 && <span className="mobile-topic-marker" />}
+                            <div className="absolute inset-[12px] z-[5] rounded-full border border-white/90 bg-gradient-to-br from-white to-purple-50 shadow-[0_12px_22px_rgba(15,23,42,0.18)]" />
+                            <div className="absolute inset-0 z-[6] flex flex-col items-center justify-center px-2">
+                              <div className="text-[22px] font-black leading-none text-slate-900">№{getTaskDisplayNumber(node.task)}</div>
+                              <div className="mt-1 text-[14px] font-bold leading-tight text-slate-600">{`${node.val}%`}</div>
+                            </div>
+                            <div className="mobile-topic-shine" />
+                            {isMastered && <span className="mobile-topic-sparkle" />}
+                          </div>
+                          <div className="mt-1.5 flex justify-center px-1">
+                            <div className={`max-w-[148px] rounded-xl border border-white/80 bg-white/88 px-2.5 py-1 shadow-[0_7px_14px_rgba(148,163,184,0.22)] ${isSelected ? 'ring-2 ring-purple-200/80' : ''}`}>
+                              <div className="text-center text-[12.5px] font-semibold leading-[1.05rem] text-slate-700 [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden">
+                                {node.title}
+                              </div>
+                              <div className="mt-1.5 flex justify-center">
+                                <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-none ${statusTone}`}>
+                                  {statusLabel}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className={`${role === 'student' ? 'hidden md:grid' : 'grid'} grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 stagger-children`}>
             {taskList.map((task, idx) => {
               const val = progressMap[task.id] || 0;
               const clickable = role === 'student' || role === 'teacher';
@@ -6879,6 +7486,7 @@ const ProgressSection = ({
                         ? () => {
                             if (role === 'teacher') setReviewTask(task);
                             else {
+                              setForceInitialLevelLaunch(false);
                               setActiveLevel(null);
                               setActiveQuestionIndex(null);
                               setActiveTask(task);
@@ -6973,6 +7581,7 @@ const ProgressSection = ({
             setAutoTargetQuestions(null);
             setActiveLevel(null);
             setActiveQuestionIndex(null);
+            setForceInitialLevelLaunch(false);
           }}
           progress={progressMap}
           studentId={studentId}
@@ -6983,6 +7592,7 @@ const ProgressSection = ({
           onLevelSelect={setActiveLevel}
           onQuestionChange={setActiveQuestionIndex}
           onStreakSaved={onStreakSaved}
+          forceInitialLevelLaunch={forceInitialLevelLaunch}
           onComplete={(taskId, score, options) => {
             onUpdateProgress(taskId, score, options);
             // setActiveTask(null); // Убрали закрытие, чтобы можно было решать дальше
