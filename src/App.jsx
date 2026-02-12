@@ -12587,6 +12587,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const [goalTestsDb, setGoalTestsDb] = useState(null);
   const [goalRefreshTick, setGoalRefreshTick] = useState(0);
   const [goalCollapsed, setGoalCollapsed] = useState(false);
+  const [goalPanelAnimClass, setGoalPanelAnimClass] = useState('');
   const [homeworkPopupEntry, setHomeworkPopupEntry] = useState(null);
   const [homeworkPopupOpen, setHomeworkPopupOpen] = useState(false);
   const [solvedByTask, setSolvedByTask] = useState({});
@@ -12603,11 +12604,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const goalFlyFromRectRef = useRef(null);
   const goalFlyActiveRef = useRef(false);
   const goalFlyTargetTypeRef = useRef(null);
-  const [goalFlyUiActive, setGoalFlyUiActive] = useState(false);
   const goalFlyCloneRef = useRef(null);
   const goalFlyRevealTimerRef = useRef(null);
   const goalFlyResetTimerRef = useRef(null);
   const goalFlyTargetNodeRef = useRef(null);
+  const prevGoalCollapsedRef = useRef(goalCollapsed);
   const [isDesktopWide, setIsDesktopWide] = useState(
     typeof window !== 'undefined' ? window.innerWidth > 1000 : true
   );
@@ -12705,7 +12706,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     goalFlyActiveRef.current = false;
     goalFlyFromRectRef.current = null;
     goalFlyTargetTypeRef.current = null;
-    setGoalFlyUiActive(false);
     clearGoalFlyAnimationStyles();
   }, [clearGoalFlyAnimationStyles]);
   const captureGoalFlySource = useCallback((nextView) => {
@@ -12778,7 +12778,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     goalFlyTargetNodeRef.current = null;
     goalFlyActiveRef.current = true;
     goalFlyTargetTypeRef.current = targetType;
-    setGoalFlyUiActive(true);
   }, [user.role, view]);
   const navigateToView = useCallback((nextView) => {
     const normalizedView = String(nextView || '').trim();
@@ -13053,6 +13052,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       localStorage.setItem('ege_goal_collapsed_v1', goalCollapsed ? '1' : '0');
     } catch {}
   }, [goalCollapsed, user.role]);
+
+  useEffect(() => {
+    const prev = prevGoalCollapsedRef.current;
+    if (prev === goalCollapsed) return;
+    const animClass = goalCollapsed ? 'goal-collapse' : 'goal-expand';
+    setGoalPanelAnimClass(animClass);
+    prevGoalCollapsedRef.current = goalCollapsed;
+    const clearDelay = goalCollapsed ? 240 : 300;
+    const timerId = setTimeout(() => setGoalPanelAnimClass(''), clearDelay);
+    return () => clearTimeout(timerId);
+  }, [goalCollapsed]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -13531,25 +13541,29 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       const scaleY = Math.max(0.2, Math.min(3, targetRect.height / sourceRect.height));
       const distance = Math.hypot(deltaX, deltaY);
       const axisDistance = Math.abs(deltaY) + (Math.abs(deltaX) * 0.55);
-      const totalDuration = Math.round(Math.max(360, Math.min(620, 330 + axisDistance * 0.42)));
-      const revealDelay = Math.round(totalDuration * 0.58);
-      const revealDuration = Math.round(Math.max(220, Math.min(360, totalDuration * 0.5)));
+      const totalDuration = Math.round(Math.max(460, Math.min(820, 420 + axisDistance * 0.5)));
+      const revealDelay = Math.round(totalDuration * 0.44);
+      const revealDuration = Math.round(Math.max(320, Math.min(520, totalDuration * 0.68)));
       const directionFactor = deltaY < 0 ? -1 : 1;
-      const introOffsetY = deltaY < 0 ? 10 : -10;
-      const arcStrength = Math.max(12, Math.min(34, distance * 0.1));
+      const introOffsetY = deltaY < 0 ? 12 : -12;
+      const arcStrength = Math.max(16, Math.min(44, distance * 0.14));
       const arcOffsetY = directionFactor * arcStrength;
-      const midX = deltaX * 0.54;
-      const midY = deltaY * 0.52 + arcOffsetY;
-      const midScaleX = 1 + (scaleX - 1) * 0.58;
-      const midScaleY = 1 + (scaleY - 1) * 0.58;
-      const flyEasing = 'cubic-bezier(0.18, 0.76, 0.2, 1)';
-      const revealEasing = 'cubic-bezier(0.2, 0.85, 0.2, 1)';
+      const midX = deltaX * 0.42;
+      const midY = deltaY * 0.42 + arcOffsetY;
+      const nearX = deltaX * 0.86;
+      const nearY = deltaY * 0.86 + directionFactor * (arcStrength * 0.25);
+      const midScaleX = 1 + (scaleX - 1) * 0.44;
+      const midScaleY = 1 + (scaleY - 1) * 0.44;
+      const nearScaleX = 1 + (scaleX - 1) * 0.88;
+      const nearScaleY = 1 + (scaleY - 1) * 0.88;
+      const flyEasing = 'cubic-bezier(0.14, 0.82, 0.18, 1)';
+      const revealEasing = 'cubic-bezier(0.16, 1, 0.3, 1)';
 
       targetNode.style.willChange = 'opacity, filter, transform';
       targetNode.style.transition = 'none';
-      targetNode.style.opacity = '0.08';
-      targetNode.style.filter = 'blur(2px)';
-      targetNode.style.transform = `translateY(${introOffsetY}px) scale(0.985)`;
+      targetNode.style.opacity = '0.02';
+      targetNode.style.filter = 'blur(3px)';
+      targetNode.style.transform = `translateY(${introOffsetY}px) scale(0.97)`;
       targetNode.style.pointerEvents = 'none';
       targetNode.getBoundingClientRect();
 
@@ -13567,15 +13581,22 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               transform: `translate(${midX}px, ${midY}px) scale(${midScaleX}, ${midScaleY})`,
               borderRadius: morphRadius,
               boxShadow: targetShadow,
-              opacity: 0.9,
-              offset: 0.46
+              opacity: 0.94,
+              offset: 0.34
+            },
+            {
+              transform: `translate(${nearX}px, ${nearY}px) scale(${nearScaleX}, ${nearScaleY})`,
+              borderRadius: morphRadius,
+              boxShadow: targetShadow,
+              opacity: 0.72,
+              offset: 0.72
             },
             {
               transform: `translate(${deltaX}px, ${deltaY}px) scale(${scaleX}, ${scaleY})`,
               borderRadius: morphRadius,
               boxShadow: targetShadow,
-              opacity: 0.32,
-              offset: 0.9
+              opacity: 0.15,
+              offset: 0.96
             },
             {
               transform: `translate(${deltaX}px, ${deltaY}px) scale(${scaleX}, ${scaleY})`,
@@ -13606,7 +13627,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         targetNode.style.pointerEvents = '';
       }, revealDelay);
 
-      const resetDelay = Math.max(totalDuration + 36, revealDelay + revealDuration + 24);
+      const resetDelay = Math.max(totalDuration + 90, revealDelay + revealDuration + 48);
       goalFlyResetTimerRef.current = setTimeout(() => {
         stopGoalFlyAnimation();
       }, resetDelay);
@@ -13900,7 +13921,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           {shouldShowGoalBlock && (
             <div ref={goalSummaryFlyRef} className={goalCollapsed ? 'sticky top-0 z-30 mb-4' : 'mb-4'}>
               {goalCollapsed ? (
-                <div className={`surface-panel rounded-2xl px-4 py-3 text-sm text-gray-700 shadow-soft flex flex-wrap items-center justify-between gap-3 ${goalFlyUiActive ? '' : 'goal-collapse'}`}>
+                <div className={`surface-panel rounded-2xl px-4 py-3 text-sm text-gray-700 shadow-soft flex flex-wrap items-center justify-between gap-3 ${goalPanelAnimClass === 'goal-collapse' ? 'goal-collapse' : ''}`}>
                   <div>
                     <div className="text-xs font-bold uppercase tracking-widest text-purple-600">домашка</div>
                     <div className="mt-1 text-sm font-semibold text-gray-900">
@@ -13936,7 +13957,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                   </div>
                 </div>
               ) : (
-                <div className={`rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-fuchsia-50 px-5 py-4 text-sm text-gray-700 shadow-soft ${goalFlyUiActive ? '' : 'goal-expand'}`}>
+                <div className={`rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-fuchsia-50 px-5 py-4 text-sm text-gray-700 shadow-soft ${goalPanelAnimClass === 'goal-expand' ? 'goal-expand' : ''}`}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <div className="text-xs font-bold uppercase tracking-widest text-purple-600">домашка</div>
