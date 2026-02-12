@@ -13400,69 +13400,77 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
             <div className="sidebar-aurora sidebar-aurora--top" />
             <div className="sidebar-aurora sidebar-aurora--bottom" />
+            <div className="sidebar-grid" />
           </div>
-          <div className="px-6 py-7 border-b border-white/70 bg-white/60 backdrop-blur-xl">
+          <div className="sidebar-top px-6 py-7 border-b border-white/65 bg-white/55 backdrop-blur-xl">
             <div className="hidden md:flex items-center gap-4">
-              <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-purple-600 to-fuchsia-500 text-white shadow-lg shadow-purple-300/40 ring-1 ring-white/70 font-display text-lg font-bold tracking-tight">
+              <div className="sidebar-brand-mark relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-purple-600 to-fuchsia-500 text-white shadow-lg shadow-purple-300/40 ring-1 ring-white/70 font-display text-lg font-bold tracking-tight">
                 100
-                <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-white/90" />
+                <span className="sidebar-brand-dot absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-white/90" />
               </div>
-              <div>
-                <div className="font-display text-xl font-bold text-slate-900">Иван на сотку</div>
-                <div className="text-sm font-semibold text-purple-700/80">Личный профиль</div>
+              <div className="min-w-0">
+                <div className="sidebar-brand-title font-display text-xl font-bold text-slate-900">Иван на сотку</div>
+                <div className="sidebar-brand-subtitle text-xs font-semibold uppercase tracking-[0.17em] text-purple-700/80">Личный профиль</div>
               </div>
             </div>
           </div>
           <nav className="flex-1 px-4 pb-7 pr-2 pt-5 overflow-y-auto sidebar-nav" data-tour="nav">
-            <div className="space-y-2.5 stagger-children">
-              {nav.map((n) => (
-                <button
-                  key={n.id}
-                  onClick={() => {
-                    navigateToView(n.id);
-                    setMenuOpen(false);
-                  }}
-                  aria-current={view === n.id ? 'page' : undefined}
-                  className={`group relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-xl border border-transparent px-3 py-3 text-left transition-all duration-200 ease-out before:content-[''] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-1 before:rounded-r-full before:bg-gradient-to-b before:from-violet-500 before:to-fuchsia-500 before:opacity-0 before:scale-y-75 before:origin-center before:transition-all before:duration-200 before:ease-out ${
-                    view === n.id
-                      ? "bg-white text-slate-900 border-purple-200/80 shadow-[0_14px_28px_rgba(124,58,237,0.14)] before:opacity-100 before:scale-y-100"
-                      : 'text-slate-700 hover:-translate-y-[1px] hover:bg-white/90 hover:border-purple-200/70 hover:text-slate-900 hover:shadow-[0_8px_20px_rgba(148,163,184,0.2)]'
-                  }`}
-                >
-                  <span className="flex min-w-0 flex-1 items-center gap-2">
-                    <span
-                      className={`grid h-9 w-9 place-items-center rounded-xl border transition-all duration-200 ${
-                        view === n.id
-                          ? 'bg-gradient-to-br from-violet-100 to-fuchsia-100 text-purple-700 border-purple-200/80 shadow-sm shadow-purple-200/60'
-                          : 'bg-white/85 text-purple-600 border-purple-100/80 group-hover:bg-white group-hover:border-purple-200/70'
-                      }`}
-                    >
-                      <n.icon size={18} />
+            <div className="mb-3 px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500/85">
+              Навигация
+            </div>
+            <div className="space-y-2.5 sidebar-nav-stack">
+              {nav.map((n, idx) => {
+                const isActive = view === n.id;
+                return (
+                  <button
+                    key={n.id}
+                    onClick={() => {
+                      navigateToView(n.id);
+                      setMenuOpen(false);
+                    }}
+                    aria-current={isActive ? 'page' : undefined}
+                    style={{ '--item-index': idx }}
+                    className={`sidebar-nav-item group relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-2xl border px-3.5 py-3 text-left transition-all duration-200 ease-out ${
+                      isActive
+                        ? 'is-active border-purple-200/80 bg-white text-slate-900 shadow-[0_16px_30px_rgba(124,58,237,0.16)]'
+                        : 'border-transparent text-slate-700 hover:-translate-y-[1px] hover:border-purple-200/80 hover:bg-white/92 hover:text-slate-900 hover:shadow-[0_10px_24px_rgba(148,163,184,0.24)]'
+                    }`}
+                  >
+                    <span className="flex min-w-0 flex-1 items-center gap-3">
+                      <span
+                        className={`sidebar-nav-icon grid h-10 w-10 place-items-center rounded-xl border transition-all duration-200 ${
+                          isActive
+                            ? 'is-active bg-gradient-to-br from-violet-100 to-fuchsia-100 text-purple-700 border-purple-200/90 shadow-sm shadow-purple-200/60'
+                            : 'bg-white/85 text-purple-600 border-purple-100/80 group-hover:bg-white group-hover:border-purple-200/70'
+                        }`}
+                      >
+                        <n.icon size={18} />
+                      </span>
+                      <span className="sidebar-nav-label whitespace-nowrap text-[13px] font-semibold leading-tight md:text-sm">{n.label}</span>
                     </span>
-                    <span className="whitespace-nowrap text-[13px] font-semibold leading-tight md:text-sm">{n.label}</span>
-                  </span>
-                  <span
-                      className={`ml-auto flex h-7 w-7 items-center justify-center rounded-lg border transition-all duration-200 ${
-                        view === n.id
-                          ? 'translate-x-0.5 border-purple-200/80 bg-purple-100/85 text-purple-700 opacity-100 shadow-sm shadow-purple-200/40'
-                          : 'border-purple-100/70 bg-white/70 text-purple-400 opacity-60 group-hover:translate-x-0.5 group-hover:opacity-100 group-hover:text-purple-600 group-hover:border-purple-200/60'
+                    <span
+                      className={`sidebar-nav-arrow ml-auto flex h-8 w-8 items-center justify-center rounded-xl border transition-all duration-200 ${
+                        isActive
+                          ? 'is-active translate-x-0.5 border-purple-200/80 bg-purple-100/90 text-purple-700 opacity-100 shadow-sm shadow-purple-200/50'
+                          : 'border-purple-100/70 bg-white/75 text-purple-400 opacity-60 group-hover:translate-x-0.5 group-hover:opacity-100 group-hover:text-purple-600 group-hover:border-purple-200/70'
                       }`}
                     >
                       <ChevronRight size={14} />
                     </span>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
             </div>
           </nav>
-          <div className="p-5 border-t border-white/70 bg-white/60 backdrop-blur-xl shrink-0">
-            <div className="rounded-2xl border border-white/70 bg-gradient-to-br from-white to-purple-50/70 p-4 shadow-[0_8px_20px_rgba(148,163,184,0.2)]">
+          <div className="sidebar-footer p-5 border-t border-white/70 bg-white/55 backdrop-blur-xl shrink-0">
+            <div className="sidebar-profile-card rounded-2xl border border-white/70 bg-gradient-to-br from-white to-purple-50/75 p-4 shadow-[0_10px_24px_rgba(148,163,184,0.24)]">
               <div className="flex items-center gap-3">
                 <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white flex items-center justify-center font-bold shadow-md shadow-purple-300/40 ring-1 ring-white/70">
                   {user.name[0]}
                 </div>
                 <div className="min-w-0">
                   <p className="text-base font-semibold text-slate-900 truncate">{user.name}</p>
-                  <div className="mt-1 inline-flex items-center rounded-md bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2.5 py-1 text-xs font-semibold text-purple-700">
+                  <div className="mt-1 inline-flex items-center rounded-lg border border-purple-100 bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2.5 py-1 text-[11px] font-semibold text-purple-700">
                     {user.role === 'admin' ? 'Администратор' : (user.role === 'teacher' ? 'Преподаватель' : 'Ученик')}
                   </div>
                 </div>
@@ -13470,7 +13478,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
             </div>
             <button
               onClick={onLogout}
-              className="mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/70 bg-white/80 px-4 py-2.5 text-sm font-semibold text-rose-600 transition hover:-translate-y-[1px] hover:bg-rose-50 hover:shadow-sm"
+              className="sidebar-logout mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/75 bg-white/85 px-4 py-2.5 text-sm font-semibold text-rose-600 transition hover:-translate-y-[1px] hover:border-rose-300 hover:bg-rose-50 hover:shadow-sm"
             >
               <LogOut size={16} /> Выйти
             </button>
