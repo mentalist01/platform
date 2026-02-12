@@ -12607,6 +12607,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const goalFlyCloneRef = useRef(null);
   const goalFlyRevealTimerRef = useRef(null);
   const goalFlyResetTimerRef = useRef(null);
+  const goalFlyTargetNodeRef = useRef(null);
   const [isDesktopWide, setIsDesktopWide] = useState(
     typeof window !== 'undefined' ? window.innerWidth > 1000 : true
   );
@@ -12696,7 +12697,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     if (goalFlyCloneRef.current?.parentNode) {
       goalFlyCloneRef.current.parentNode.removeChild(goalFlyCloneRef.current);
     }
+    if (goalFlyTargetNodeRef.current) {
+      clearGoalFlyAnimationStyles(goalFlyTargetNodeRef.current);
+    }
     goalFlyCloneRef.current = null;
+    goalFlyTargetNodeRef.current = null;
     goalFlyActiveRef.current = false;
     goalFlyFromRectRef.current = null;
     goalFlyTargetTypeRef.current = null;
@@ -12770,6 +12775,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     clone.setAttribute('aria-hidden', 'true');
     document.body.appendChild(clone);
     goalFlyCloneRef.current = clone;
+    goalFlyTargetNodeRef.current = null;
     goalFlyActiveRef.current = true;
     goalFlyTargetTypeRef.current = targetType;
     setGoalFlyUiActive(true);
@@ -13510,6 +13516,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         frameId = requestAnimationFrame(runAnimation);
         return;
       }
+      goalFlyTargetNodeRef.current = targetNode;
 
       const sourceStyle = window.getComputedStyle(cloneNode);
       const targetStyle = window.getComputedStyle(targetNode);
@@ -13523,14 +13530,26 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       const scaleX = Math.max(0.2, Math.min(3, targetRect.width / sourceRect.width));
       const scaleY = Math.max(0.2, Math.min(3, targetRect.height / sourceRect.height));
       const distance = Math.hypot(deltaX, deltaY);
-      const totalDuration = Math.round(Math.max(280, Math.min(440, 240 + distance * 0.35)));
-      const revealDelay = Math.round(totalDuration * 0.5);
+      const axisDistance = Math.abs(deltaY) + (Math.abs(deltaX) * 0.55);
+      const totalDuration = Math.round(Math.max(360, Math.min(620, 330 + axisDistance * 0.42)));
+      const revealDelay = Math.round(totalDuration * 0.58);
+      const revealDuration = Math.round(Math.max(220, Math.min(360, totalDuration * 0.5)));
+      const directionFactor = deltaY < 0 ? -1 : 1;
+      const introOffsetY = deltaY < 0 ? 10 : -10;
+      const arcStrength = Math.max(12, Math.min(34, distance * 0.1));
+      const arcOffsetY = directionFactor * arcStrength;
+      const midX = deltaX * 0.54;
+      const midY = deltaY * 0.52 + arcOffsetY;
+      const midScaleX = 1 + (scaleX - 1) * 0.58;
+      const midScaleY = 1 + (scaleY - 1) * 0.58;
+      const flyEasing = 'cubic-bezier(0.18, 0.76, 0.2, 1)';
+      const revealEasing = 'cubic-bezier(0.2, 0.85, 0.2, 1)';
 
-      targetNode.style.willChange = 'opacity, filter';
+      targetNode.style.willChange = 'opacity, filter, transform';
       targetNode.style.transition = 'none';
-      targetNode.style.opacity = '0';
-      targetNode.style.filter = 'blur(0.6px)';
-      targetNode.style.transform = 'translateY(1px)';
+      targetNode.style.opacity = '0.08';
+      targetNode.style.filter = 'blur(2px)';
+      targetNode.style.transform = `translateY(${introOffsetY}px) scale(0.985)`;
       targetNode.style.pointerEvents = 'none';
       targetNode.getBoundingClientRect();
 
@@ -13541,15 +13560,22 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               transform: 'translate(0px, 0px) scale(1, 1)',
               borderRadius: morphRadius,
               boxShadow: sourceShadow,
-              opacity: 1,
+              opacity: 0.98,
               offset: 0
+            },
+            {
+              transform: `translate(${midX}px, ${midY}px) scale(${midScaleX}, ${midScaleY})`,
+              borderRadius: morphRadius,
+              boxShadow: targetShadow,
+              opacity: 0.9,
+              offset: 0.46
             },
             {
               transform: `translate(${deltaX}px, ${deltaY}px) scale(${scaleX}, ${scaleY})`,
               borderRadius: morphRadius,
               boxShadow: targetShadow,
-              opacity: 0.74,
-              offset: 0.82
+              opacity: 0.32,
+              offset: 0.9
             },
             {
               transform: `translate(${deltaX}px, ${deltaY}px) scale(${scaleX}, ${scaleY})`,
@@ -13561,28 +13587,29 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           ],
           {
             duration: totalDuration,
-            easing: 'cubic-bezier(0.22, 0.72, 0.2, 1)',
+            easing: flyEasing,
             fill: 'forwards'
           }
         );
       } else {
-        cloneNode.style.transition = `transform ${totalDuration}ms cubic-bezier(0.22, 0.72, 0.2, 1), opacity ${totalDuration}ms ease, box-shadow ${totalDuration}ms ease`;
+        cloneNode.style.transition = `transform ${totalDuration}ms ${flyEasing}, opacity ${totalDuration}ms ease, box-shadow ${totalDuration}ms ease`;
         cloneNode.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(${scaleX}, ${scaleY})`;
         cloneNode.style.borderRadius = morphRadius;
         cloneNode.style.boxShadow = targetShadow;
         cloneNode.style.opacity = '0';
       }
       goalFlyRevealTimerRef.current = setTimeout(() => {
-        targetNode.style.transition = 'opacity 120ms ease, filter 120ms ease, transform 120ms ease';
+        targetNode.style.transition = `opacity ${revealDuration}ms ${revealEasing}, filter ${revealDuration}ms ease, transform ${revealDuration}ms ${revealEasing}`;
         targetNode.style.opacity = '1';
         targetNode.style.filter = 'none';
-        targetNode.style.transform = 'translateY(0px)';
+        targetNode.style.transform = 'translateY(0px) scale(1)';
         targetNode.style.pointerEvents = '';
       }, revealDelay);
 
+      const resetDelay = Math.max(totalDuration + 36, revealDelay + revealDuration + 24);
       goalFlyResetTimerRef.current = setTimeout(() => {
         stopGoalFlyAnimation();
-      }, totalDuration + 16);
+      }, resetDelay);
     };
 
     frameId = requestAnimationFrame(runAnimation);
