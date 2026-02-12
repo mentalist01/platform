@@ -240,6 +240,19 @@ const formatStreakDate = (dayKey) => {
   return dt.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
 };
 
+const getSolvedEventDayKey = (event) => {
+  if (!event || typeof event !== 'object') return null;
+  const localDay = normalizeDayKey(event.localDay);
+  if (localDay) return localDay;
+  const solvedAtRaw = typeof event.solvedAt === 'string' ? event.solvedAt.trim() : '';
+  if (!solvedAtRaw) return null;
+  const isoPrefix = solvedAtRaw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoPrefix) return normalizeDayKey(isoPrefix[1]);
+  const parsed = new Date(solvedAtRaw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return getLocalDayKey(parsed);
+};
+
 const parseTestsFromText = (content) => {
   const normalized = String(content ?? '').replace(/\r\n/g, '\n');
   const blocks = normalized.split(/\n-{3,}\n/);
@@ -5951,6 +5964,8 @@ const ProgressSection = ({
   const [testsDb, setTestsDb] = useState(null);
   const [testsDbError, setTestsDbError] = useState('');
   const [notesSavingId, setNotesSavingId] = useState(null);
+  const [notesMobileFilter, setNotesMobileFilter] = useState('all');
+  const [notesMobileQuery, setNotesMobileQuery] = useState('');
   const [mockForm, setMockForm] = useState({ date: '', score: '', comment: '' });
   const [mockExams, setMockExams] = useState([]);
   const [mockExamsError, setMockExamsError] = useState('');
@@ -6929,6 +6944,36 @@ const ProgressSection = ({
     return typeof fallback === 'string' ? fallback : '';
   };
 
+  useEffect(() => {
+    setNotesMobileFilter('all');
+    setNotesMobileQuery('');
+  }, [effectiveStudentId]);
+
+  const notesCards = taskList.map((task, idx) => {
+    const num = task.number;
+    const note = getMergedNote(num);
+    const hasNote = Boolean(note && note.trim());
+    const searchable = `${getTaskDisplayNumber(task)} ${task.title || ''}`.toLowerCase();
+    return {
+      task,
+      idx,
+      num,
+      note,
+      hasNote,
+      searchable
+    };
+  });
+  const notesFilledCount = notesCards.filter((item) => item.hasNote).length;
+  const notesEmptyCount = Math.max(0, notesCards.length - notesFilledCount);
+  const notesQueryNormalized = notesMobileQuery.trim().toLowerCase();
+  const filteredNotesCards = notesCards.filter((item) => {
+    const passFilter = notesMobileFilter === 'filled'
+      ? item.hasNote
+      : (notesMobileFilter === 'empty' ? !item.hasNote : true);
+    const passQuery = !notesQueryNormalized || item.searchable.includes(notesQueryNormalized);
+    return passFilter && passQuery;
+  });
+
   const saveTaskNote = async (taskNumber, note) => {
     if (!effectiveStudentId || role !== 'teacher') return;
     const nextNotes = { ...(studentData.notesByTask || {}) };
@@ -7616,12 +7661,56 @@ const ProgressSection = ({
             <h3 className="text-lg font-bold text-gray-800">Заметки учителя</h3>
             <span className="hidden md:inline text-xs text-gray-400">Комментируйте задания кратко</span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2.5 md:gap-3 stagger-children">
-            {taskList.map((task, idx) => {
-              const num = task.number;
-              const note = getMergedNote(num);
-              const hasNote = Boolean(note && note.trim());
-              return (
+          <div className="md:hidden rounded-2xl border border-purple-100/80 bg-white/90 p-3 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold">
+              <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-1 text-purple-700">
+                {`Всего: ${notesCards.length}`}
+              </span>
+              <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700">
+                {`С заметкой: ${notesFilledCount}`}
+              </span>
+              <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-slate-600">
+                {`Пусто: ${notesEmptyCount}`}
+              </span>
+            </div>
+            <div className="mt-2.5">
+              <input
+                type="text"
+                value={notesMobileQuery}
+                onChange={(e) => setNotesMobileQuery(e.target.value.slice(0, 80))}
+                placeholder="Поиск по номеру или теме"
+                className="w-full rounded-xl border border-purple-100 bg-white px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-400"
+              />
+            </div>
+            <div className="mt-2.5 grid grid-cols-3 gap-1.5 rounded-xl border border-slate-200 bg-slate-50/80 p-1">
+              {[
+                { id: 'all', label: 'Все' },
+                { id: 'filled', label: 'С заметкой' },
+                { id: 'empty', label: 'Пустые' }
+              ].map((filterItem) => (
+                <button
+                  key={filterItem.id}
+                  type="button"
+                  onClick={() => setNotesMobileFilter(filterItem.id)}
+                  className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold transition ${
+                    notesMobileFilter === filterItem.id
+                      ? 'bg-purple-600 text-white shadow-sm shadow-purple-200'
+                      : 'bg-white text-slate-600 border border-transparent'
+                  }`}
+                >
+                  {filterItem.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {filteredNotesCards.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white/75 px-4 py-6 text-center text-sm text-slate-500">
+              По этим параметрам заметок не найдено.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2.5 md:gap-3 stagger-children">
+              {filteredNotesCards.map(({ task, idx, num, note, hasNote }) => (
                 <div
                   key={task.id ?? num}
                   style={{ '--i': idx }}
@@ -7631,57 +7720,79 @@ const ProgressSection = ({
                       : 'border-gray-200 bg-gradient-to-br from-white via-gray-50 to-gray-100'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex items-start gap-2.5">
                       <div
-                        className={`w-8 h-8 md:w-9 md:h-9 rounded-xl md:rounded-2xl flex items-center justify-center text-sm font-bold ${
+                        className={`w-9 h-9 md:w-9 md:h-9 shrink-0 rounded-xl md:rounded-2xl flex items-center justify-center text-sm font-bold ${
                           hasNote ? 'bg-emerald-600 text-white shadow-md shadow-emerald-200' : 'bg-white text-gray-500 border border-gray-200'
                         }`}
                       >
                         {getTaskDisplayNumber(task)}
                       </div>
-                      <span className={`text-xs font-semibold ${hasNote ? 'text-emerald-700' : 'text-gray-400'}`}>
-                        {hasNote ? 'Есть заметка' : 'Пусто'}
-                      </span>
+                      <div className="min-w-0">
+                        <span className={`text-xs font-semibold ${hasNote ? 'text-emerald-700' : 'text-gray-400'}`}>
+                          {hasNote ? 'Есть заметка' : 'Пусто'}
+                        </span>
+                        <div className="mt-0.5 text-[11px] leading-tight text-slate-500 [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden">
+                          {task.title}
+                        </div>
+                      </div>
                     </div>
-                    {notesSavingId === num && (
-                      <span className="text-[10px] text-gray-400">Сохранение…</span>
-                    )}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {role === 'teacher' && hasNote && notesSavingId !== num && (
+                        <button
+                          type="button"
+                          onClick={() => saveTaskNote(num, '')}
+                          className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-semibold text-rose-600"
+                        >
+                          Очистить
+                        </button>
+                      )}
+                      {notesSavingId === num && (
+                        <span className="text-[10px] text-gray-400">Сохранение…</span>
+                      )}
+                    </div>
                   </div>
                   {role === 'teacher' ? (
-                    <textarea
-                      value={note}
-                      onChange={(e) => {
-                        const value = e.target.value.slice(0, 80);
-                        const keys = getNotesTaskKeys(num);
-                        if (!keys.length) return;
-                        setStudentData((prev) => ({
-                          ...prev,
-                          notesByTask: (() => {
-                            const nextNotes = { ...(prev.notesByTask || {}) };
-                            keys.forEach((key) => { if (key !== keys[0]) delete nextNotes[key]; });
-                            nextNotes[keys[0]] = value;
-                            return nextNotes;
-                          })()
-                        }));
-                      }}
-                      onBlur={(e) => saveTaskNote(num, e.target.value.trim())}
-                      placeholder="Комментарий..."
-                      className={`w-full min-h-[70px] text-xs px-3 py-2 rounded-2xl border outline-none resize-none transition-colors ${
-                        hasNote
-                          ? 'bg-white/80 border-emerald-200 focus:border-emerald-500'
-                          : 'bg-white border-gray-200 focus:border-purple-500'
-                      }`}
-                    />
+                    <>
+                      <textarea
+                        value={note}
+                        onChange={(e) => {
+                          const value = e.target.value.slice(0, 80);
+                          const keys = getNotesTaskKeys(num);
+                          if (!keys.length) return;
+                          setStudentData((prev) => ({
+                            ...prev,
+                            notesByTask: (() => {
+                              const nextNotes = { ...(prev.notesByTask || {}) };
+                              keys.forEach((key) => { if (key !== keys[0]) delete nextNotes[key]; });
+                              nextNotes[keys[0]] = value;
+                              return nextNotes;
+                            })()
+                          }));
+                        }}
+                        onBlur={(e) => saveTaskNote(num, e.target.value.trim())}
+                        placeholder="Комментарий..."
+                        className={`w-full min-h-[92px] md:min-h-[70px] text-[13px] md:text-xs px-3 py-2.5 rounded-2xl border outline-none resize-none transition-colors ${
+                          hasNote
+                            ? 'bg-white/80 border-emerald-200 focus:border-emerald-500'
+                            : 'bg-white border-gray-200 focus:border-purple-500'
+                        }`}
+                      />
+                      <div className="flex items-center justify-between text-[10px] text-slate-400">
+                        <span>Автосохранение при выходе из поля</span>
+                        <span>{`${note.length}/80`}</span>
+                      </div>
+                    </>
                   ) : (
-                    <div className={`text-xs min-h-[70px] whitespace-pre-wrap ${hasNote ? 'text-gray-700' : 'text-gray-400'}`}>
+                    <div className={`text-[13px] md:text-xs min-h-[70px] whitespace-pre-wrap ${hasNote ? 'text-gray-700' : 'text-gray-400'}`}>
                       {hasNote ? note : 'Нет заметки'}
                     </div>
                   )}
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -13654,7 +13765,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const [goalPanelAnimClass, setGoalPanelAnimClass] = useState('');
   const [homeworkPopupEntry, setHomeworkPopupEntry] = useState(null);
   const [homeworkPopupOpen, setHomeworkPopupOpen] = useState(false);
+  const [paceForecastPopupOpen, setPaceForecastPopupOpen] = useState(false);
   const [solvedByTask, setSolvedByTask] = useState({});
+  const [studentSolvedEvents, setStudentSolvedEvents] = useState([]);
+  const [goalTestsLoaded, setGoalTestsLoaded] = useState(false);
+  const [studentDataLoaded, setStudentDataLoaded] = useState(false);
   const [studentStreak, setStudentStreak] = useState(getDefaultStreak());
   const [streakPopup, setStreakPopup] = useState({
     open: false,
@@ -13672,6 +13787,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const goalFlyRevealTimerRef = useRef(null);
   const goalFlyResetTimerRef = useRef(null);
   const goalFlyTargetNodeRef = useRef(null);
+  const paceForecastShownRef = useRef(false);
   const prevGoalCollapsedRef = useRef(goalCollapsed);
   const [isDesktopWide, setIsDesktopWide] = useState(
     typeof window !== 'undefined' ? window.innerWidth > 1000 : true
@@ -14110,6 +14226,84 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     }
     return list;
   })();
+  const solvedPerDayStats = useMemo(() => {
+    const list = Array.isArray(studentSolvedEvents) ? studentSolvedEvents : [];
+    if (list.length <= 0) {
+      return { average: 0, solvedCount: 0, periodDays: 0 };
+    }
+
+    const seenIds = new Set();
+    let solvedCount = 0;
+    let firstDayNum = Infinity;
+    let lastDayNum = -Infinity;
+
+    list.forEach((event) => {
+      const eventId = typeof event?.id === 'string' ? event.id.trim() : '';
+      if (eventId) {
+        if (seenIds.has(eventId)) return;
+        seenIds.add(eventId);
+      }
+      const dayKey = getSolvedEventDayKey(event);
+      const dayNum = dayKeyToNumber(dayKey);
+      if (!Number.isFinite(dayNum)) return;
+      solvedCount += 1;
+      if (dayNum < firstDayNum) firstDayNum = dayNum;
+      if (dayNum > lastDayNum) lastDayNum = dayNum;
+    });
+
+    if (!Number.isFinite(firstDayNum) || solvedCount <= 0) {
+      return { average: 0, solvedCount: 0, periodDays: 0 };
+    }
+
+    const endDayNum = Number.isFinite(todayNum) ? Math.max(todayNum, lastDayNum) : lastDayNum;
+    const periodDays = Math.max(endDayNum - firstDayNum + 1, 1);
+    return {
+      average: solvedCount / periodDays,
+      solvedCount,
+      periodDays
+    };
+  }, [studentSolvedEvents, todayNum]);
+  const averageSolvedPerDayLabel = (() => {
+    const value = solvedPerDayStats.average;
+    if (!Number.isFinite(value) || value <= 0) return '0';
+    if (value < 1) {
+      return value.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    return value.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  })();
+  const testingForecast = useMemo(() => {
+    const testsDb = goalTestsDb && typeof goalTestsDb === 'object' ? goalTestsDb : {};
+    let total = 0;
+    let solved = 0;
+    for (const [taskKey, taskLevels] of Object.entries(testsDb)) {
+      const taskNum = Number(taskKey);
+      if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) continue;
+      if (!taskLevels || typeof taskLevels !== 'object') continue;
+      const taskSolvedEntry = solvedByTask?.[String(taskNum)] && typeof solvedByTask[String(taskNum)] === 'object'
+        ? solvedByTask[String(taskNum)]
+        : {};
+      ['basic', 'advanced', 'expert'].forEach((levelId) => {
+        const questions = Array.isArray(taskLevels[levelId]) ? taskLevels[levelId] : [];
+        const levelTotal = questions.length;
+        if (levelTotal <= 0) return;
+        total += levelTotal;
+        const solvedList = Array.isArray(taskSolvedEntry?.[levelId]?.solved)
+          ? taskSolvedEntry[levelId].solved
+          : [];
+        const solvedCount = new Set(solvedList.map((id) => String(id))).size;
+        solved += Math.min(solvedCount, levelTotal);
+      });
+    }
+    const remaining = Math.max(total - solved, 0);
+    const averagePerDay = Number(solvedPerDayStats.average) || 0;
+    let daysToFinish = null;
+    if (remaining <= 0) {
+      daysToFinish = 0;
+    } else if (Number.isFinite(averagePerDay) && averagePerDay > 0) {
+      daysToFinish = Math.ceil(remaining / averagePerDay);
+    }
+    return { total, solved, remaining, daysToFinish, averagePerDay };
+  }, [goalTestsDb, solvedByTask, solvedPerDayStats.average]);
 
   const loadStudents = async (teacherId) => {
     setStudentsLoading(true);
@@ -14251,16 +14445,22 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   useEffect(() => {
     if (user.role !== 'student') {
       setGoalTestsDb(null);
+      setGoalTestsLoaded(false);
       return;
     }
     let cancelled = false;
+    setGoalTestsLoaded(false);
     api.getTests()
       .then((data) => {
         if (cancelled) return;
         setGoalTestsDb(data && typeof data === 'object' ? data : {});
+        setGoalTestsLoaded(true);
       })
       .catch(() => {
-        if (!cancelled) setGoalTestsDb({});
+        if (!cancelled) {
+          setGoalTestsDb({});
+          setGoalTestsLoaded(true);
+        }
       });
     return () => { cancelled = true; };
   }, [user.role]);
@@ -14268,27 +14468,48 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   useEffect(() => {
     if (user.role !== 'student') {
       setSolvedByTask({});
+      setStudentSolvedEvents([]);
+      setStudentDataLoaded(false);
       setStudentStreak(getDefaultStreak());
       return;
     }
     let cancelled = false;
+    setStudentDataLoaded(false);
     api.getStudentData(user.id)
       .then((data) => {
         if (cancelled) return;
         const solved = data?.solvedByTask && typeof data.solvedByTask === 'object'
           ? data.solvedByTask
           : {};
+        const solvedEvents = Array.isArray(data?.solvedEvents) ? data.solvedEvents : [];
         setSolvedByTask(solved);
+        setStudentSolvedEvents(solvedEvents);
         setStudentStreak(normalizeStreak(data?.streak));
+        setStudentDataLoaded(true);
       })
       .catch(() => {
         if (!cancelled) {
           setSolvedByTask({});
+          setStudentSolvedEvents([]);
           setStudentStreak(getDefaultStreak());
+          setStudentDataLoaded(true);
         }
       });
     return () => { cancelled = true; };
   }, [user.role, user.id, goalRefreshTick]);
+
+  useEffect(() => {
+    paceForecastShownRef.current = false;
+    setPaceForecastPopupOpen(false);
+  }, [user.role, user.id]);
+
+  useEffect(() => {
+    if (user.role !== 'student') return;
+    if (!goalTestsLoaded || !studentDataLoaded) return;
+    if (paceForecastShownRef.current) return;
+    paceForecastShownRef.current = true;
+    setPaceForecastPopupOpen(true);
+  }, [goalTestsLoaded, studentDataLoaded, user.role, user.id]);
 
   useEffect(() => {
     if (user.role !== 'student') {
@@ -14505,6 +14726,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} дня`;
     return `${value} дней`;
   };
+  const testingForecastText = (() => {
+    if (testingForecast.total <= 0) {
+      return 'Пока нет данных о заданиях в разделе тестирования.';
+    }
+    if (testingForecast.remaining <= 0) {
+      return 'Все задания в тестированиях уже решены.';
+    }
+    if (!Number.isFinite(testingForecast.averagePerDay) || testingForecast.averagePerDay <= 0 || testingForecast.daysToFinish === null) {
+      return 'Пока недостаточно решений, чтобы оценить срок завершения.';
+    }
+    return `При таком темпе закроешь раздел тестирований примерно через ${formatDaysText(testingForecast.daysToFinish)}.`;
+  })();
 
   const refreshGoalState = async () => {
     if (user.role !== 'student') return;
@@ -14977,6 +15210,64 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
             </div>
           </div>
       )}
+      {user.role === 'student' && paceForecastPopupOpen && (
+        <div
+          className="fixed inset-0 z-[1250] flex items-center justify-center bg-black/35 backdrop-blur-sm"
+          onClick={() => setPaceForecastPopupOpen(false)}
+        >
+          <div
+            className="w-[min(520px,calc(100%-1.5rem))] rounded-3xl bg-white px-5 py-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-600">прогноз</div>
+                <div className="mt-1 text-lg font-bold text-slate-900">Когда закроешь тестирования</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPaceForecastPopupOpen(false)}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-500 hover:bg-slate-50"
+                aria-label="Закрыть"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Всего</div>
+                <div className="mt-1 text-base font-bold text-slate-900">{testingForecast.total}</div>
+              </div>
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">Решено</div>
+                <div className="mt-1 text-base font-bold text-emerald-700">{testingForecast.solved}</div>
+              </div>
+              <div className="rounded-xl border border-purple-200 bg-purple-50 px-2 py-2">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-purple-600">Осталось</div>
+                <div className="mt-1 text-base font-bold text-purple-700">{testingForecast.remaining}</div>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-purple-100 bg-purple-50 px-4 py-3 text-sm text-purple-800">
+              {testingForecastText}
+            </div>
+
+            <div className="mt-3 text-xs text-slate-500">
+              {`Текущий темп: ${averageSolvedPerDayLabel} задания/день.`}
+              {solvedPerDayStats.periodDays > 0 ? ` Период расчёта: ${formatDaysText(solvedPerDayStats.periodDays)}.` : ''}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setPaceForecastPopupOpen(false)}
+              className="mt-4 w-full rounded-xl border border-purple-200 bg-white px-3 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-50"
+            >
+              Понятно
+            </button>
+          </div>
+        </div>
+      )}
       <StudentTour
         user={user}
         view={view}
@@ -15116,60 +15407,71 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           <div className="main-content-shell animate-soft">
           {user.role === 'student' && (
             <div className="mb-3 flex justify-end">
-              <div className="relative group">
+              <div className="flex items-center gap-2">
                 <div
-                  className={`flex items-center gap-2 rounded-full border border-purple-200 bg-white px-3.5 py-2 text-sm font-semibold text-purple-600 shadow-sm cursor-default streak-badge ${displayStreakCurrent > 0 ? 'streak-badge--active' : ''}`}
-                  aria-label={`Серия: ${displayStreakCurrent}`}
+                  className="flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-3.5 py-2 text-sm font-semibold text-emerald-600 shadow-sm cursor-default"
+                  aria-label={`Среднее в день: ${averageSolvedPerDayLabel}`}
+                  title={`В среднем ${averageSolvedPerDayLabel} задания/день за ${solvedPerDayStats.periodDays || 0} дн.`}
                 >
-                  <Flame
-                    size={18}
-                    className={`${displayStreakCurrent > 0 ? 'text-purple-500 streak-flame' : 'text-gray-300'}`}
-                    fill={displayStreakCurrent > 0 ? 'currentColor' : 'none'}
-                    stroke={displayStreakCurrent > 0 ? 'currentColor' : 'currentColor'}
-                  />
-                  <span className="text-gray-900">{displayStreakCurrent}</span>
+                  <CheckCircle size={16} />
+                  <span className="text-gray-900">{averageSolvedPerDayLabel}</span>
+                  <span className="text-[11px] font-semibold text-gray-500">/день</span>
                 </div>
-                <div className="pointer-events-none absolute right-0 z-50 mt-3 w-72 origin-top-right translate-y-1 rounded-3xl surface-panel p-4 text-gray-700 shadow-xl opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 streak-popover">
-                  <div className="absolute right-6 -top-1 h-3 w-3 rotate-45 border-l border-t border-purple-200 bg-white" />
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-100 text-purple-600">
-                      <Flame size={22} />
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold text-purple-700">Серия</div>
-                      <div className="text-xs text-gray-500">Решайте каждый день, чтобы поддерживать серию.</div>
-                    </div>
+                <div className="relative group">
+                  <div
+                    className={`flex items-center gap-2 rounded-full border border-purple-200 bg-white px-3.5 py-2 text-sm font-semibold text-purple-600 shadow-sm cursor-default streak-badge ${displayStreakCurrent > 0 ? 'streak-badge--active' : ''}`}
+                    aria-label={`Серия: ${displayStreakCurrent}`}
+                  >
+                    <Flame
+                      size={18}
+                      className={`${displayStreakCurrent > 0 ? 'text-purple-500 streak-flame' : 'text-gray-300'}`}
+                      fill={displayStreakCurrent > 0 ? 'currentColor' : 'none'}
+                      stroke={displayStreakCurrent > 0 ? 'currentColor' : 'currentColor'}
+                    />
+                    <span className="text-gray-900">{displayStreakCurrent}</span>
                   </div>
-                  <div className="mt-3 flex items-end gap-2">
-                    <div className="text-3xl font-bold text-gray-900">{displayStreakCurrent}</div>
-                    <div className="text-xs text-gray-500">дней подряд</div>
-                  </div>
-                  <div className="mt-1 text-xs text-gray-500">{streakStatusText}</div>
-                  <div className="mt-3 grid grid-cols-7 gap-2 text-[10px] text-gray-400">
-                    {streakWeek.map((day) => (
-                      <div key={day.dayKey || day.label} className="flex flex-col items-center gap-1">
-                        <span className="uppercase">{day.label}</span>
-                        <div
-                          className={`flex h-7 w-7 items-center justify-center rounded-full border ${
-                            day.isInStreak
-                              ? 'border-purple-400 bg-purple-500 text-white'
-                              : 'border-gray-200 bg-gray-100 text-gray-400'
-                          }`}
-                        >
-                          {day.isInStreak && (
-                            day.isFreeze ? <Snowflake size={14} /> : <Check size={16} />
-                          )}
-                        </div>
+                  <div className="pointer-events-none absolute right-0 z-50 mt-3 w-72 origin-top-right translate-y-1 rounded-3xl surface-panel p-4 text-gray-700 shadow-xl opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 streak-popover">
+                    <div className="absolute right-6 -top-1 h-3 w-3 rotate-45 border-l border-t border-purple-200 bg-white" />
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-100 text-purple-600">
+                        <Flame size={22} />
                       </div>
-                    ))}
+                      <div>
+                        <div className="text-sm font-semibold text-purple-700">Серия</div>
+                        <div className="text-xs text-gray-500">Решайте каждый день, чтобы поддерживать серию.</div>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-end gap-2">
+                      <div className="text-3xl font-bold text-gray-900">{displayStreakCurrent}</div>
+                      <div className="text-xs text-gray-500">дней подряд</div>
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500">{streakStatusText}</div>
+                    <div className="mt-3 grid grid-cols-7 gap-2 text-[10px] text-gray-400">
+                      {streakWeek.map((day) => (
+                        <div key={day.dayKey || day.label} className="flex flex-col items-center gap-1">
+                          <span className="uppercase">{day.label}</span>
+                          <div
+                            className={`flex h-7 w-7 items-center justify-center rounded-full border ${
+                              day.isInStreak
+                                ? 'border-purple-400 bg-purple-500 text-white'
+                                : 'border-gray-200 bg-gray-100 text-gray-400'
+                            }`}
+                          >
+                            {day.isInStreak && (
+                              day.isFreeze ? <Snowflake size={14} /> : <Check size={16} />
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex items-center justify-between text-[11px] text-gray-500">
+                      <span>{`Рекорд: ${streak.best}`}</span>
+                      <span>{`Заморозка: ${freezeAvailable ? 'доступна' : 'использована'}`}</span>
+                    </div>
+                    {lastActiveLabel && (
+                      <div className="mt-1 text-[11px] text-gray-400">{`Последняя активность: ${lastActiveLabel}`}</div>
+                    )}
                   </div>
-                  <div className="mt-3 flex items-center justify-between text-[11px] text-gray-500">
-                    <span>{`Рекорд: ${streak.best}`}</span>
-                    <span>{`Заморозка: ${freezeAvailable ? 'доступна' : 'использована'}`}</span>
-                  </div>
-                  {lastActiveLabel && (
-                    <div className="mt-1 text-[11px] text-gray-400">{`Последняя активность: ${lastActiveLabel}`}</div>
-                  )}
                 </div>
               </div>
             </div>
