@@ -11101,6 +11101,8 @@ const NotesSection = ({
                         className="w-auto max-w-full object-contain rounded-lg"
                         style={{ maxHeight: imagePreviewMaxHeight }}
                         loading="lazy"
+                        draggable={false}
+                        onDragStart={(event) => event.preventDefault()}
                       />
                     </div>
                   </div>
