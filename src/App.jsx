@@ -14539,6 +14539,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   useEffect(() => {
     if (user.role !== 'student') return;
     if (!goalTestsLoaded || !studentDataLoaded) return;
+    if ((Number(solvedPerDayStats.solvedCount) || 0) <= 0) return;
     if (paceForecastShownRef.current) return;
     if (isPaceForecastDismissedInSession(user.id)) {
       paceForecastShownRef.current = true;
@@ -14547,7 +14548,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     }
     paceForecastShownRef.current = true;
     setPaceForecastPopupOpen(true);
-  }, [goalTestsLoaded, studentDataLoaded, user.role, user.id]);
+  }, [goalTestsLoaded, studentDataLoaded, solvedPerDayStats.solvedCount, user.role, user.id]);
 
   useEffect(() => {
     if (user.role !== 'student') {
