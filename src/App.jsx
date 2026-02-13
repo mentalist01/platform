@@ -484,6 +484,8 @@ const markStudentSeenTour = (studentId) => {
 
 const LAST_LOCATION_KEY = 'ege_last_location_v1';
 const PACE_FORECAST_SESSION_KEY_PREFIX = 'ege_pace_forecast_dismissed_v1';
+const PACE_FORECAST_LAST_SHOWN_KEY_PREFIX = 'ege_pace_forecast_last_shown_v1';
+const PACE_FORECAST_REMINDER_INTERVAL_MS = 48 * 60 * 60 * 1000;
 
 const buildUserLocationKey = (user) => {
   if (!user) return '';
@@ -550,6 +552,39 @@ const markPaceForecastDismissedInSession = (userId) => {
   try {
     sessionStorage.setItem(key, '1');
   } catch {}
+};
+
+const getPaceForecastLastShownKey = (userId) => {
+  const normalizedId = String(userId ?? '').trim();
+  if (!normalizedId) return '';
+  return `${PACE_FORECAST_LAST_SHOWN_KEY_PREFIX}:${normalizedId}`;
+};
+
+const readPaceForecastLastShownAt = (userId) => {
+  const key = getPaceForecastLastShownKey(userId);
+  if (!key || typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(key);
+    const ts = Number(raw);
+    if (!Number.isFinite(ts) || ts <= 0) return null;
+    return ts;
+  } catch {
+    return null;
+  }
+};
+
+const markPaceForecastShownNow = (userId) => {
+  const key = getPaceForecastLastShownKey(userId);
+  if (!key || typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(key, String(Date.now()));
+  } catch {}
+};
+
+const isPaceForecastReminderDue = (userId) => {
+  const lastShownAt = readPaceForecastLastShownAt(userId);
+  if (!Number.isFinite(lastShownAt)) return true;
+  return (Date.now() - lastShownAt) >= PACE_FORECAST_REMINDER_INTERVAL_MS;
 };
 
 const normalizeStoredOpenTask = (entry) => {
@@ -14544,6 +14579,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     paceForecastShownRef.current = true;
     if (user.role === 'student') {
       markPaceForecastDismissedInSession(user.id);
+      markPaceForecastShownNow(user.id);
     }
   }, [user.role, user.id]);
   const handleOpenProgressFromForecast = useCallback(() => {
@@ -14563,12 +14599,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     if (!goalTestsLoaded || !studentDataLoaded) return;
     if ((Number(solvedPerDayStats.solvedCount) || 0) <= 0) return;
     if (paceForecastShownRef.current) return;
-    if (isPaceForecastDismissedInSession(user.id)) {
+    const reminderDue = isPaceForecastReminderDue(user.id);
+    if (!reminderDue && isPaceForecastDismissedInSession(user.id)) {
       paceForecastShownRef.current = true;
       setPaceForecastPopupOpen(false);
       return;
     }
     paceForecastShownRef.current = true;
+    markPaceForecastShownNow(user.id);
     setPaceForecastPopupOpen(true);
   }, [goalTestsLoaded, studentDataLoaded, solvedPerDayStats.solvedCount, user.role, user.id]);
 
