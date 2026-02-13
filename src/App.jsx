@@ -8,7 +8,7 @@ import {
   BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle, AlertCircle, AlertTriangle,
   X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Check, Plus, Flame, Snowflake,
-  Settings, Save, Calendar, RefreshCcw, Pencil, Image as ImageIcon,
+  Settings, Save, Calendar, RefreshCcw, Pencil, Image as ImageIcon, Trophy,
   Bell, BellOff
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
@@ -1093,6 +1093,26 @@ const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
+  getStudentsLeaderboard: async (teacherId) => {
+    const params = new URLSearchParams();
+    if (teacherId) params.append('teacherId', String(teacherId));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/students/leaderboard?${qs}` : '/api/students/leaderboard');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  setLeaderboardAlias: async (payload) => {
+    const bodyPayload = typeof payload === 'string'
+      ? { alias: payload }
+      : (payload && typeof payload === 'object' ? payload : {});
+    const res = await apiFetch('/api/students/leaderboard-alias', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bodyPayload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   createStudent: async (name, teacherId) => {
     const res = await apiFetch('/api/students', {
       method: 'POST',
@@ -1811,6 +1831,8 @@ const TeacherPanel = ({
   const [editingStudentId, setEditingStudentId] = useState(null);
   const [editStudentName, setEditStudentName] = useState('');
   const [editStudentNickname, setEditStudentNickname] = useState('');
+  const [editStudentLeaderboardAlias, setEditStudentLeaderboardAlias] = useState('');
+  const [editStudentLeaderboardAliasInitial, setEditStudentLeaderboardAliasInitial] = useState('');
   const [editStudentError, setEditStudentError] = useState('');
   const [editStudentSaving, setEditStudentSaving] = useState(false);
   const [editingQuestionId, setEditingQuestionId] = useState(null);
@@ -2263,6 +2285,9 @@ const TeacherPanel = ({
     setEditingStudentId(student.id);
     setEditStudentName(student.name || '');
     setEditStudentNickname(student.nickname || '');
+    const alias = typeof student.leaderboardAlias === 'string' ? student.leaderboardAlias : '';
+    setEditStudentLeaderboardAlias(alias);
+    setEditStudentLeaderboardAliasInitial(alias);
     setEditStudentError('');
   };
 
@@ -2270,12 +2295,17 @@ const TeacherPanel = ({
     setEditingStudentId(null);
     setEditStudentName('');
     setEditStudentNickname('');
+    setEditStudentLeaderboardAlias('');
+    setEditStudentLeaderboardAliasInitial('');
     setEditStudentError('');
   };
 
   const saveEditStudent = async (student) => {
     if (!student?.id) return;
     const nextName = editStudentName.trim();
+    const nextAlias = String(editStudentLeaderboardAlias || '').trim();
+    const initialAlias = String(editStudentLeaderboardAliasInitial || '').trim();
+    const aliasChanged = nextAlias !== initialAlias;
     setEditStudentError('');
     if (!nextName) {
       setEditStudentError('Введите имя ученика');
@@ -2289,10 +2319,15 @@ const TeacherPanel = ({
       setEditStudentError('Недопустимые символы');
       return;
     }
+    if (aliasChanged && nextAlias && !/^[А-Яа-яЁё]{2,6}$/.test(nextAlias)) {
+      setEditStudentError('Псевдоним: 2-6 символов, только русские буквы.');
+      return;
+    }
 
     setEditStudentSaving(true);
     try {
       const payload = { name: nextName, nickname: editStudentNickname };
+      if (aliasChanged) payload.leaderboardAlias = nextAlias;
       const res = await api.updateStudent(student.id, payload);
       onStudentUpdated?.({ ...student, ...res });
       cancelEditStudent();
@@ -2429,6 +2464,23 @@ const TeacherPanel = ({
                         placeholder="Прозвище (только для вас)"
                         className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
                       />
+                      <input
+                        type="text"
+                        value={editStudentLeaderboardAlias}
+                        onChange={(e) => {
+                          const next = String(e.target.value || '')
+                            .replace(/[^А-Яа-яЁё]/g, '')
+                            .slice(0, 6);
+                          setEditStudentLeaderboardAlias(next);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveEditStudent(student);
+                          if (e.key === 'Escape') cancelEditStudent();
+                        }}
+                        placeholder="Псевдоним в рейтинге (пусто = аноним)"
+                        className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+                      />
+                      <p className="text-[11px] text-gray-500">2-6 русских букв, плохие слова блокируются.</p>
                       {editStudentError && <p className="text-xs text-red-500">{editStudentError}</p>}
                     </div>
                   ) : (
@@ -2437,6 +2489,9 @@ const TeacherPanel = ({
                       {student.nickname && (
                         <p className="text-xs text-purple-600 truncate">Прозвище: {student.nickname}</p>
                       )}
+                      <p className="text-xs text-gray-500 truncate">
+                        Рейтинг: <span className="font-medium text-gray-700">{student.leaderboardAlias || 'аноним'}</span>
+                      </p>
                       <p className="text-xs text-gray-500">
                         Код: <span className="font-mono">{student.codeHint ? `****${student.codeHint}` : 'скрыт'}</span>
                       </p>
@@ -13901,12 +13956,407 @@ const MockExamModal = ({ exam, studentId, initialAttempt, onClose, onAttemptSave
   return typeof document !== 'undefined' ? createPortal(modal, document.body) : null;
 };
 
+const StudentLeaderboardSection = ({ role, userId, userName }) => {
+  const [leaderboard, setLeaderboard] = useState({ items: [], week: null, currentStudent: null });
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [aliasInput, setAliasInput] = useState('');
+  const [aliasSaving, setAliasSaving] = useState(false);
+  const [aliasError, setAliasError] = useState('');
+  const [aliasSuccess, setAliasSuccess] = useState('');
+  const [aliasMode, setAliasMode] = useState('choose');
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const loadLeaderboard = useCallback(async ({ silent = false } = {}) => {
+    if (silent) setRefreshing(true);
+    else setLoading(true);
+    setError('');
+    try {
+      const data = await api.getStudentsLeaderboard();
+      if (!mountedRef.current) return;
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const week = data?.week && typeof data.week === 'object' ? data.week : null;
+      const currentStudent = data?.currentStudent && typeof data.currentStudent === 'object'
+        ? data.currentStudent
+        : null;
+      setLeaderboard({ items, week, currentStudent });
+      if (role === 'student') {
+        if (currentStudent?.hasAlias && typeof currentStudent.publicName === 'string') {
+          setAliasInput(currentStudent.publicName);
+          setAliasMode('choose');
+        } else {
+          setAliasInput('');
+          setAliasMode('choose');
+        }
+      }
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setError(err?.message || 'Не удалось загрузить рейтинг.');
+      setLeaderboard({ items: [], week: null, currentStudent: null });
+    } finally {
+      if (!mountedRef.current) return;
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [role]);
+
+  useEffect(() => {
+    loadLeaderboard();
+  }, [loadLeaderboard]);
+
+  const rows = useMemo(() => {
+    const list = Array.isArray(leaderboard.items) ? leaderboard.items : [];
+    return list.map((entry, index) => {
+      const studentId = String(entry?.studentId || `student-${index}`);
+      const xpTotal = normalizeXpTotal(entry?.xpTotal);
+      const weeklyXp = normalizeXpTotal(entry?.weeklyXp);
+      const resolvedLevelRaw = Number(entry?.level);
+      const level = Number.isFinite(resolvedLevelRaw) && resolvedLevelRaw > 0
+        ? Math.floor(resolvedLevelRaw)
+        : (Math.floor(xpTotal / XP_PER_LEVEL) + 1);
+      const displayNameRaw = typeof entry?.publicName === 'string' ? entry.publicName.trim() : '';
+      const displayName = displayNameRaw || `Аноним ${index + 1}`;
+      const isCurrent = role === 'student' && (
+        Boolean(entry?.isCurrent) || (String(userId || '') === studentId)
+      );
+      return {
+        studentId,
+        displayName,
+        xpTotal,
+        xpTotalLabel: xpTotal.toLocaleString('ru-RU'),
+        weeklyXp,
+        weeklyXpLabel: weeklyXp.toLocaleString('ru-RU'),
+        level,
+        isCurrent,
+      };
+    });
+  }, [leaderboard.items, role, userId]);
+
+  const byLevel = useMemo(() => {
+    return [...rows].sort((a, b) => {
+      if (b.level !== a.level) return b.level - a.level;
+      if (b.xpTotal !== a.xpTotal) return b.xpTotal - a.xpTotal;
+      if (b.weeklyXp !== a.weeklyXp) return b.weeklyXp - a.weeklyXp;
+      return a.displayName.localeCompare(b.displayName, 'ru');
+    });
+  }, [rows]);
+
+  const byWeeklyXp = useMemo(() => {
+    return [...rows].sort((a, b) => {
+      if (b.weeklyXp !== a.weeklyXp) return b.weeklyXp - a.weeklyXp;
+      if (b.level !== a.level) return b.level - a.level;
+      if (b.xpTotal !== a.xpTotal) return b.xpTotal - a.xpTotal;
+      return a.displayName.localeCompare(b.displayName, 'ru');
+    });
+  }, [rows]);
+
+  const weekRangeLabel = useMemo(() => {
+    const week = leaderboard?.week && typeof leaderboard.week === 'object'
+      ? leaderboard.week
+      : null;
+    const start = formatStreakDate(week?.startDay);
+    const end = formatStreakDate(week?.endDay);
+    if (start && end) return `${start} - ${end}`;
+    return 'последние 7 дней';
+  }, [leaderboard.week]);
+
+  const currentLevelPlace = role === 'student'
+    ? (byLevel.findIndex((row) => row.isCurrent) + 1)
+    : 0;
+  const currentWeekPlace = role === 'student'
+    ? (byWeeklyXp.findIndex((row) => row.isCurrent) + 1)
+    : 0;
+  const currentStudentMeta = role === 'student' && leaderboard?.currentStudent
+    ? leaderboard.currentStudent
+    : null;
+  const currentStudentMainName = (() => {
+    const fromLeaderboard = typeof currentStudentMeta?.mainName === 'string'
+      ? currentStudentMeta.mainName.trim()
+      : '';
+    if (fromLeaderboard) return fromLeaderboard;
+    const fromProfile = typeof userName === 'string' ? userName.trim() : '';
+    return fromProfile;
+  })();
+  const needsAliasPrompt = role === 'student' && currentStudentMeta && !currentStudentMeta.hasAlias;
+
+  const handleSaveAlias = async () => {
+    const normalized = String(aliasInput || '').trim();
+    if (!/^[А-Яа-яЁё]{2,6}$/.test(normalized)) {
+      setAliasError('Псевдоним: 2-6 символов, только русские буквы.');
+      setAliasSuccess('');
+      return;
+    }
+    setAliasSaving(true);
+    setAliasError('');
+    setAliasSuccess('');
+    try {
+      await api.setLeaderboardAlias(normalized);
+      if (!mountedRef.current) return;
+      setAliasSuccess('Псевдоним сохранён.');
+      await loadLeaderboard({ silent: true });
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setAliasError(err?.message || 'Не удалось сохранить псевдоним.');
+    } finally {
+      if (!mountedRef.current) return;
+      setAliasSaving(false);
+    }
+  };
+
+  const handleUseMainName = async () => {
+    if (!currentStudentMainName) {
+      setAliasError('Не удалось определить основное имя.');
+      setAliasSuccess('');
+      return;
+    }
+    setAliasSaving(true);
+    setAliasError('');
+    setAliasSuccess('');
+    try {
+      await api.setLeaderboardAlias({ useMainName: true, alias: currentStudentMainName });
+      if (!mountedRef.current) return;
+      setAliasSuccess('Основное имя добавлено в рейтинг.');
+      await loadLeaderboard({ silent: true });
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setAliasError(err?.message || 'Не удалось добавить основное имя.');
+    } finally {
+      if (!mountedRef.current) return;
+      setAliasSaving(false);
+    }
+  };
+
+  const renderBoard = (items, type) => (
+    <div className="rounded-3xl border border-purple-200/70 bg-white/90 p-4 shadow-soft">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-bold uppercase tracking-[0.18em] text-purple-600">
+            {type === 'level' ? 'Рейтинг по уровню' : 'Рейтинг по XP за неделю'}
+          </div>
+          <div className="mt-1 text-xs text-gray-500">
+            {type === 'level'
+              ? 'Сортировка: уровень, общий XP'
+              : `Период: ${weekRangeLabel}`}
+          </div>
+        </div>
+        <div className="rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-[11px] font-semibold text-purple-700">
+          {`${items.length} учен.`}
+        </div>
+      </div>
+      <div className="mt-3 space-y-2">
+        {items.map((row, index) => (
+          <div
+            key={`${type}-${row.studentId}`}
+            className={`flex items-center gap-3 rounded-2xl border px-3 py-2.5 ${
+              row.isCurrent
+                ? 'border-purple-300 bg-purple-50/80'
+                : 'border-purple-100 bg-white'
+            }`}
+          >
+            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
+              index === 0
+                ? 'bg-amber-100 text-amber-700'
+                : index === 1
+                  ? 'bg-slate-100 text-slate-700'
+                  : index === 2
+                    ? 'bg-orange-100 text-orange-700'
+                    : 'bg-purple-100 text-purple-700'
+            }`}>
+              {index + 1}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold text-slate-900">{row.displayName}</div>
+              <div className="text-[11px] text-slate-500">{`Уровень ${row.level} - ${row.xpTotalLabel} XP`}</div>
+            </div>
+            <div className="text-right">
+              {type === 'level' ? (
+                <>
+                  <div className="text-sm font-bold text-slate-900">{`Ур. ${row.level}`}</div>
+                  <div className="text-[11px] font-semibold text-purple-600">{`${row.xpTotalLabel} XP`}</div>
+                </>
+              ) : (
+                <>
+                  <div className="text-sm font-bold text-slate-900">{`${row.weeklyXpLabel} XP`}</div>
+                  <div className="text-[11px] font-semibold text-purple-600">за 7 дней</div>
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  if (loading) {
+    return (
+      <section className="rounded-3xl border border-purple-200/70 bg-white/90 p-6 text-sm text-gray-600 shadow-soft">
+        Загрузка рейтинга...
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="rounded-3xl border border-rose-200 bg-rose-50/70 p-6 text-sm text-rose-700 shadow-soft">
+        <div>{error}</div>
+        <button
+          type="button"
+          onClick={() => loadLeaderboard()}
+          className="mt-3 inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+        >
+          <RefreshCcw size={14} />
+          Повторить
+        </button>
+      </section>
+    );
+  }
+
+  if (rows.length === 0) {
+    return (
+      <section className="rounded-3xl border border-purple-200/70 bg-white/90 p-6 text-sm text-gray-600 shadow-soft">
+        Учеников для рейтинга пока нет.
+      </section>
+    );
+  }
+
+  return (
+    <section className="space-y-4">
+      <div className="surface-panel rounded-3xl border border-purple-200/70 px-4 py-4 text-sm text-gray-700 shadow-soft">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-[0.18em] text-purple-600">Рейтинг учеников</div>
+            <div className="mt-1 text-base font-semibold text-gray-900">
+              {role === 'student' ? 'Ваше место в группе' : 'Общий рейтинг по группе'}
+            </div>
+            <div className="mt-2 inline-flex items-center rounded-full border border-purple-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-purple-700">
+              {`Период XP: ${weekRangeLabel}`}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => loadLeaderboard({ silent: true })}
+            disabled={refreshing}
+            className="inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-white px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-50 disabled:opacity-60"
+          >
+            <RefreshCcw size={14} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'Обновляем...' : 'Обновить'}
+          </button>
+        </div>
+        {role === 'student' && (
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className="rounded-2xl border border-purple-200 bg-white px-3 py-2.5">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-purple-500">Место по уровню</div>
+              <div className="mt-1 text-xl font-extrabold text-slate-900">
+                {currentLevelPlace > 0 ? `#${currentLevelPlace}` : '—'}
+              </div>
+              <div className="text-[11px] text-slate-500">Сортировка: уровень, общий XP</div>
+            </div>
+            <div className="rounded-2xl border border-purple-200 bg-white px-3 py-2.5">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-purple-500">Место за неделю</div>
+              <div className="mt-1 text-xl font-extrabold text-slate-900">
+                {currentWeekPlace > 0 ? `#${currentWeekPlace}` : '—'}
+              </div>
+              <div className="text-[11px] text-slate-500">Сортировка: XP за последние 7 дней</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {needsAliasPrompt && (
+        <div className="rounded-3xl border border-amber-200 bg-amber-50/70 p-4 shadow-soft">
+          <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Имя в рейтинге</div>
+          <div className="mt-1 text-sm font-semibold text-slate-900">
+            Сейчас вы отображаетесь как «{currentStudentMeta?.publicName || 'Аноним'}».
+          </div>
+          <div className="mt-1 text-xs text-slate-600">
+            Вы можете выбрать, как показываться в рейтинге: под основным именем или под псевдонимом.
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleUseMainName}
+              disabled={aliasSaving || !currentStudentMainName}
+              className="inline-flex items-center justify-center rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60"
+            >
+              {aliasSaving ? 'Сохраняем...' : `Использовать имя: ${currentStudentMainName || 'моё имя'}`}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAliasMode('custom');
+                setAliasInput('');
+                setAliasError('');
+                setAliasSuccess('');
+              }}
+              disabled={aliasSaving}
+              className="inline-flex items-center justify-center rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60"
+            >
+              Создать псевдоним
+            </button>
+          </div>
+          {aliasMode === 'custom' && (
+            <>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  type="text"
+                  value={aliasInput}
+                  onChange={(e) => {
+                    const nextValue = String(e.target.value || '')
+                      .replace(/[^А-Яа-яЁё]/g, '')
+                      .slice(0, 6);
+                    setAliasInput(nextValue);
+                    setAliasError('');
+                    setAliasSuccess('');
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSaveAlias();
+                    }
+                  }}
+                  placeholder="Например: Вектор"
+                  maxLength={6}
+                  className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-500"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveAlias}
+                  disabled={aliasSaving}
+                  className="inline-flex shrink-0 items-center justify-center rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60"
+                >
+                  {aliasSaving ? 'Сохраняем...' : 'Сохранить псевдоним'}
+                </button>
+              </div>
+              <div className="mt-1 text-[11px] text-slate-500">Только русские буквы, 2-6 символов.</div>
+            </>
+          )}
+          {aliasError && <div className="mt-2 text-xs text-rose-600">{aliasError}</div>}
+          {aliasSuccess && <div className="mt-2 text-xs text-emerald-700">{aliasSuccess}</div>}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        {renderBoard(byLevel, 'level')}
+        {renderBoard(byWeeklyXp, 'week')}
+      </div>
+    </section>
+  );
+};
+
 const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const allowedViews = user.role === 'admin'
     ? ['admin']
     : user.role === 'teacher'
-      ? ['schedule', 'progress', 'python', 'teacher', 'notes']
-      : ['schedule', 'progress', 'python', 'notes'];
+      ? ['schedule', 'progress', 'rating', 'python', 'teacher', 'notes']
+      : ['schedule', 'progress', 'rating', 'python', 'notes'];
   const defaultView = user.role === 'teacher' ? 'teacher' : (user.role === 'admin' ? 'admin' : 'progress');
   const storedLocation = readUserLocation(user);
   const storedView = storedLocation?.view;
@@ -14050,6 +14500,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       ? [
         { id: 'schedule', label: 'Моё расписание', icon: Calendar },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
+        { id: 'rating', label: 'Рейтинг', icon: Trophy },
         { id: 'python', label: 'Изучение Python', icon: FileText },
         { id: 'teacher', label: 'Управление тестами', icon: Settings },
         { id: 'notes', label: 'Конспекты', icon: Folder }
@@ -14057,12 +14508,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       : [
         { id: 'schedule', label: 'Моё расписание', icon: Calendar },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
+        { id: 'rating', label: 'Рейтинг', icon: Trophy },
         { id: 'python', label: 'Изучение Python', icon: FileText },
         { id: 'notes', label: 'Конспекты', icon: BookOpen }
       ];
   const mobileNavLabels = {
     schedule: 'График',
     progress: 'Тесты',
+    rating: 'Рейтинг',
     python: 'Python',
     teacher: 'Управ.',
     notes: 'Консп.',
@@ -15519,16 +15972,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   }, [user.role, user.id]);
 
   const goalGoals = Array.isArray(goalState?.goals) ? goalState.goals : [];
-  const goalTotals = goalGoals.reduce(
-    (acc, goal) => {
-      const total = Number(goal?.totalCount) || (Array.isArray(goal?.targetStatus) ? goal.targetStatus.length : 0);
-      const solved = Number(goal?.solvedCount) || (Array.isArray(goal?.targetStatus)
-        ? goal.targetStatus.filter((item) => item.solved).length
-        : 0);
-      return { total: acc.total + total, solved: acc.solved + solved };
-    },
-    { total: 0, solved: 0 }
-  );
+  const goalCompletedCount = goalGoals.filter((goal) => goal.completed).length;
+  const firstGoal = goalGoals[0] || null;
   const shouldShowGoalBlock = user.role === 'student'
     && view !== 'schedule'
     && goalState?.entry
@@ -16177,10 +16622,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         <main className="flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8" data-tour="main">
           <div className="main-content-shell animate-soft">
           {user.role === 'student' && (
-            <div className="mb-3 rounded-2xl border border-slate-200/80 bg-gradient-to-r from-white to-slate-50/85 px-2.5 py-2 shadow-sm sm:px-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="mb-3 rounded-2xl border border-slate-200/80 bg-gradient-to-r from-white to-slate-50/85 px-2.5 py-1.5 shadow-sm sm:px-3 sm:py-2">
+              <div className="flex items-center gap-1.5 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-2">
                 <div
-                  className="level-progress-card min-w-[255px] px-2.5 py-2 text-sm font-semibold"
+                  className="level-progress-card min-w-0 flex-1 px-2 py-1.5 text-sm font-semibold md:min-w-[255px] md:flex-none md:px-2.5 md:py-2"
                   aria-label={`Уровень ${currentLevel}. Опыт: ${totalXpLabel}`}
                   title={`Всего опыта: ${totalXpLabel} XP`}
                 >
@@ -16211,25 +16656,25 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                     </div>
                   </div>
                 </div>
-                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                <div className="flex shrink-0 items-center gap-1.5 md:ml-auto md:gap-2">
                   <div
-                    className={`flex items-center gap-2 rounded-full border bg-white px-3.5 py-2 text-sm font-semibold shadow-sm cursor-default ${paceBadgeState.className}`}
+                    className={`flex items-center justify-center gap-1 rounded-full border bg-white px-2.5 py-1.5 text-[13px] font-semibold shadow-sm cursor-default md:gap-2 md:px-3.5 md:py-2 md:text-sm ${paceBadgeState.className}`}
                     aria-label={`Среднее в день: ${averageSolvedPerDayLabel}`}
                     title={paceBadgeState.title}
                   >
-                    {paceBadgeState.level === 'ok' && <CheckCircle size={16} />}
-                    {paceBadgeState.level === 'warn' && <AlertTriangle size={16} />}
-                    {paceBadgeState.level === 'danger' && <AlertCircle size={16} />}
-                    <span className="text-gray-900">{averageSolvedPerDayLabel}</span>
-                    <span className="text-[11px] font-semibold text-gray-500">/день</span>
+                    {paceBadgeState.level === 'ok' && <CheckCircle size={14} />}
+                    {paceBadgeState.level === 'warn' && <AlertTriangle size={14} />}
+                    {paceBadgeState.level === 'danger' && <AlertCircle size={14} />}
+                    <span className="text-gray-900 whitespace-nowrap">{averageSolvedPerDayLabel}</span>
+                    <span className="hidden whitespace-nowrap text-[11px] font-semibold text-gray-500 sm:inline">/день</span>
                   </div>
-                  <div className="relative group">
+                  <div className="relative group shrink-0">
                     <div
-                      className={`flex items-center gap-2 rounded-full border border-purple-200 bg-white px-3.5 py-2 text-sm font-semibold text-purple-600 shadow-sm cursor-default streak-badge ${displayStreakCurrent > 0 ? 'streak-badge--active' : ''}`}
+                      className={`flex h-full items-center justify-center gap-1.5 rounded-full border border-purple-200 bg-white px-2.5 py-1.5 text-[13px] font-semibold text-purple-600 shadow-sm cursor-default streak-badge md:gap-2 md:px-3.5 md:py-2 md:text-sm ${displayStreakCurrent > 0 ? 'streak-badge--active' : ''}`}
                       aria-label={`Серия: ${displayStreakCurrent}`}
                     >
                       <Flame
-                        size={18}
+                        size={16}
                         className={`${displayStreakCurrent > 0 ? 'text-purple-500 streak-flame' : 'text-gray-300'}`}
                         fill={displayStreakCurrent > 0 ? 'currentColor' : 'none'}
                         stroke={displayStreakCurrent > 0 ? 'currentColor' : 'currentColor'}
@@ -16286,86 +16731,89 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           {shouldShowGoalBlock && (
             <div ref={goalSummaryFlyRef} className={goalCollapsed ? 'sticky top-0 z-30 mb-4' : 'mb-4'}>
               {goalCollapsed ? (
-                <div className={`surface-panel rounded-2xl px-4 py-3 text-sm text-gray-700 shadow-soft flex flex-wrap items-center justify-between gap-3 ${goalPanelAnimClass === 'goal-collapse' ? 'goal-collapse' : ''}`}>
-                  <div>
-                    <div className="text-xs font-bold uppercase tracking-widest text-purple-600">домашка</div>
-                    <div className="mt-1 text-sm font-semibold text-gray-900">
-                      {goalTotals.total > 0
-                        ? `Выполнено ${goalTotals.solved}/${goalTotals.total}`
-                        : `Целей: ${goalGoals.length}`}
+                <div className={`surface-panel rounded-2xl border border-purple-200/80 bg-gradient-to-r from-violet-50 via-white to-fuchsia-50 px-3 py-2 text-sm text-gray-700 shadow-soft flex items-center justify-between gap-1.5 sm:gap-2 sm:px-4 sm:py-2.5 ${goalPanelAnimClass === 'goal-collapse' ? 'goal-collapse' : ''}`}>
+                  <div className="min-w-0 flex-1 flex items-center gap-1.5 sm:gap-2">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-purple-600 shrink-0">домашка</div>
+                    <div className="min-w-0 truncate text-[13px] font-semibold text-gray-900 sm:text-sm">
+                      <span className="sm:hidden">{`${formatDaysText(goalState.entry?.daysToComplete || 7)} · ${goalCompletedCount}/${goalGoals.length}`}</span>
+                      <span className="hidden sm:inline">{`За ${formatDaysText(goalState.entry?.daysToComplete || 7)} выполнить ${goalCompletedCount}/${goalGoals.length} целей`}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const firstGoal = goalGoals[0];
-                        if (firstGoal) {
+                  <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                    {firstGoal && (
+                      <button
+                        type="button"
+                        onClick={() => {
                           if (firstGoal.type === GOAL_TYPE_MOCK) {
                             handleOpenMockGoal(firstGoal.mockExamId);
                           } else {
                             handleOpenTask(firstGoal.taskNumber, firstGoal.levelId, firstGoal.targetNumbers);
                           }
-                        }
-                      }}
-                      className="px-3 py-2 rounded-xl bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 shadow-sm"
-                    >
-                      Перейти
-                    </button>
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-purple-600 text-white text-[11px] font-semibold hover:bg-purple-700 shadow-sm sm:px-3 sm:py-1.5 sm:text-xs"
+                      >
+                        К цели
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setGoalCollapsed(false)}
-                      className="px-3 py-2 rounded-xl border border-purple-200 text-xs font-semibold text-purple-700 hover:bg-purple-50"
+                      className="px-2.5 py-1 rounded-lg border border-purple-200 text-[11px] font-semibold text-purple-700 hover:bg-purple-50 sm:px-3 sm:py-1.5 sm:text-xs"
                     >
                       Развернуть
                     </button>
                   </div>
                 </div>
               ) : (
-                <div className={`rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-fuchsia-50 px-5 py-4 text-sm text-gray-700 shadow-soft ${goalPanelAnimClass === 'goal-expand' ? 'goal-expand' : ''}`}>
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="text-xs font-bold uppercase tracking-widest text-purple-600">домашка</div>
+                <div className={`rounded-[24px] border border-purple-200/90 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50/80 px-4 py-3.5 text-sm text-gray-700 shadow-soft sm:px-5 ${goalPanelAnimClass === 'goal-expand' ? 'goal-expand' : ''}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-purple-600">домашка</div>
                       <div className="mt-1 text-base font-semibold text-gray-900">
                         {`За ${formatDaysText(goalState.entry?.daysToComplete || 7)} выполнить эти цели`}
                       </div>
+                      <div className="mt-1 text-xs text-purple-700/90">
+                        {`Выполнено ${goalCompletedCount}/${goalGoals.length}`}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setGoalCollapsed(true)}
-                        className="px-3 py-2 rounded-xl border border-purple-200 text-xs font-semibold text-purple-700 hover:bg-purple-50"
-                      >
-                        Свернуть
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setGoalCollapsed(true)}
+                      className="px-3 py-1.5 rounded-lg border border-purple-200 text-xs font-semibold text-purple-700 hover:bg-purple-50"
+                    >
+                      Свернуть
+                    </button>
                   </div>
-                  <div className="mt-3 grid gap-3">
+
+                  <div className="mt-3 space-y-2.5">
                     {goalGoals.map((goal, index) => {
                       if (goal.type === GOAL_TYPE_MOCK) {
+                        const totalCount = Number(goal.totalCount) || 0;
+                        const solvedCount = Number(goal.solvedCount) || 0;
                         return (
-                          <div key={`mock-${goal.mockExamId}-${index}`} className="rounded-2xl border border-purple-100 bg-white/80 px-4 py-3 space-y-2">
+                          <div key={`mock-${goal.mockExamId}-${index}`} className="rounded-2xl border border-purple-200/80 bg-white/95 px-3.5 py-3 shadow-sm">
                             <div className="flex flex-wrap items-start justify-between gap-2">
-                              <div>
-                                <div className="text-xs text-gray-500">Пробник</div>
-                                <div className="text-xs text-gray-500">{goal.mockExamTitle || 'Пробник'}</div>
+                              <div className="min-w-0">
+                                <div className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-purple-600">
+                                  Пробник
+                                </div>
+                                <div className="mt-1 text-sm font-semibold text-gray-900 truncate">{goal.mockExamTitle || 'Пробник'}</div>
+                                <div className="mt-1 text-[11px] text-gray-600">
+                                  {totalCount > 0 ? `Выполнено ${solvedCount}/${totalCount}` : 'В пробнике пока нет заданий'}
+                                </div>
                               </div>
                               <button
                                 type="button"
                                 onClick={() => handleOpenMockGoal(goal.mockExamId)}
-                                className="px-3 py-2 rounded-xl bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 shadow-sm"
+                                className="px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 shadow-sm"
                               >
                                 Перейти
                               </button>
                             </div>
-                            <div className="text-[11px] text-purple-600">
-                              {goal.totalCount > 0
-                                ? `Выполнено ${goal.solvedCount}/${goal.totalCount}`
-                                : 'В пробнике пока нет заданий.'}
-                            </div>
                           </div>
                         );
                       }
+
                       const hasTargets = goal.targetNumbers?.length > 0 || goal.includeAll;
                       const isPythonGoal = isPythonTaskNumber(goal.taskNumber);
                       const pythonTask = isPythonGoal
@@ -16375,51 +16823,69 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                       const goalHeading = isPythonGoal
                         ? `Python ${goal.taskTitle || pythonTask?.title || (goal.taskNumber ? `тема ${goal.taskNumber}` : 'тема')}`
                         : `Задание ${taskDisplay} · ${goal.levelLabel}`;
+                      const targetTotal = Array.isArray(goal.targetStatus) ? goal.targetStatus.length : 0;
+                      const targetSolved = Array.isArray(goal.targetStatus)
+                        ? goal.targetStatus.filter((item) => item.solved).length
+                        : 0;
+
                       return (
-                        <div key={`${goal.taskNumber}-${goal.levelId}-${index}`} className="rounded-2xl border border-purple-100 bg-white/80 px-4 py-3 space-y-2">
+                        <div key={`${goal.taskNumber}-${goal.levelId}-${index}`} className="rounded-2xl border border-purple-200/80 bg-white/95 px-3.5 py-3 shadow-sm">
                           <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div>
-                              <div className="text-xs text-gray-500">
-                                {goalHeading}
-                              </div>
+                            <div className="min-w-0 space-y-0.5">
+                              {isPythonGoal ? (
+                                <div className="text-sm font-semibold text-gray-900">{goalHeading}</div>
+                              ) : (
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="text-sm font-semibold text-gray-900">{`Задание ${taskDisplay}`}</span>
+                                  {goal.levelLabel && (
+                                    <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700">
+                                      {goal.levelLabel}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                               {!isPythonGoal && (
-                                <div className="text-xs text-gray-500">
-                                  {`Тема: ${goal.taskTitle}`}
+                                <div className="text-xs text-gray-500 truncate">
+                                  {`Тема: ${goal.taskTitle || '—'}`}
                                 </div>
                               )}
                             </div>
                             <button
                               type="button"
                               onClick={() => handleOpenTask(goal.taskNumber, goal.levelId, goal.targetNumbers)}
-                              className="px-3 py-2 rounded-xl bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 shadow-sm"
+                              className="shrink-0 px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 shadow-sm"
                             >
                               Перейти
                             </button>
                           </div>
+
                           {hasTargets && (
-                            <div className="space-y-2">
-                              <div className="text-[11px] font-semibold text-purple-700">Цель — решить эти задания:</div>
+                            <div className="mt-2 rounded-xl border border-purple-100/90 bg-purple-50/60 px-2.5 py-2">
+                              <div className="text-[10px] font-semibold uppercase tracking-wide text-purple-700">Цель</div>
                               {goal.targetNumbers?.length > 0 ? (
-                                <div className="flex flex-wrap gap-2">
-                                  {goal.targetStatus.map((item) => (
-                                    <span
-                                      key={item.num}
-                                      className={`px-2.5 py-1 rounded-lg border text-xs font-semibold ${
-                                        item.solved
-                                          ? 'border-emerald-300 bg-emerald-100 text-emerald-700'
-                                          : 'border-purple-200 bg-white text-purple-700'
-                                      }`}
-                                    >
-                                      №{item.num}{item.solved ? ' ✓' : ''}
-                                    </span>
-                                  ))}
-                                </div>
+                                <>
+                                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                    {goal.targetStatus.map((item) => (
+                                      <span
+                                        key={item.num}
+                                        className={`px-2.5 py-0.5 rounded-full border text-[11px] font-semibold ${
+                                          item.solved
+                                            ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                            : 'border-slate-200 bg-white text-slate-700'
+                                        }`}
+                                      >
+                                        №{item.num}{item.solved ? ' ✓' : ''}
+                                      </span>
+                                    ))}
+                                  </div>
+                                  <div className="mt-2 flex items-center justify-between text-[11px] text-gray-600">
+                                    <span>Выполнено</span>
+                                    <span className="font-semibold text-gray-800">{`${targetSolved}/${targetTotal}`}</span>
+                                  </div>
+                                </>
                               ) : (
-                                <div className="text-[11px] text-purple-600">Все задания этого уровня</div>
-                              )}
-                              {goal.targetNumbers?.length > 0 && (
-                                <div className="text-[11px] text-purple-600">
-                                  Выполнено {goal.targetStatus.filter((item) => item.solved).length}/{goal.targetStatus.length}
+                                <div className="mt-1 text-[11px] text-purple-700">
+                                  Все задания этого уровня
                                 </div>
                               )}
                             </div>
@@ -16475,6 +16941,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               onMockAttemptSaved={() => {
                 if (user.role === 'student') setGoalRefreshTick((prev) => prev + 1);
               }}
+            />
+          )}
+          {view === 'rating' && (
+            <StudentLeaderboardSection
+              role={user.role}
+              userId={user.id}
+              userName={user.name}
             />
           )}
           {view === 'python' && (

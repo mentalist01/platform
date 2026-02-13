@@ -93,6 +93,43 @@ const TASK_XP_REWARDS = {
   26: 800,
   27: 500,
 };
+const XP_PER_LEVEL = 1000;
+const LEADERBOARD_WEEK_DAYS = 7;
+const LEADERBOARD_ALIAS_MIN_LENGTH = 2;
+const LEADERBOARD_ALIAS_MAX_LENGTH = 60;
+const LEADERBOARD_PSEUDONYM_MIN_LENGTH = 2;
+const LEADERBOARD_PSEUDONYM_MAX_LENGTH = 6;
+const LEADERBOARD_PSEUDONYM_REGEX = /^[А-Яа-яЁё]+$/;
+const LEADERBOARD_BLOCKED_WORD_PATTERNS = [
+  /хуй/,
+  /хуе/,
+  /хер/,
+  /пизд/,
+  /бля/,
+  /бляд/,
+  /ебан/,
+  /ебат/,
+  /ебал/,
+  /ебл/,
+  /уеб/,
+  /жоп/,
+  /долбо/,
+  /дроч/,
+  /говн/,
+  /мраз/,
+  /сран/,
+  /залуп/,
+  /шмар/,
+  /мудак/,
+  /мудил/,
+  /г[ао]ндон/,
+  /пидор/,
+  /пидр/,
+  /сука/,
+  /сучк/,
+  /шлюх/,
+  /чмо/,
+];
 const AUTH_COOKIE_NAME = 'ege_auth_token';
 const PUSH_VAPID_SUBJECT = (() => {
   const raw = typeof process.env.PUSH_VAPID_SUBJECT === 'string'
@@ -1237,6 +1274,32 @@ const normalizeXpTotal = (value) => {
   return Math.floor(num);
 };
 
+const normalizeLeaderboardAlias = (value) => {
+  if (typeof value !== 'string') return '';
+  const normalized = value.trim().replace(/\s+/g, ' ');
+  if (!normalized) return '';
+  if (normalized.length < LEADERBOARD_ALIAS_MIN_LENGTH) return '';
+  if (normalized.length > LEADERBOARD_ALIAS_MAX_LENGTH) return '';
+  if (!/^[A-Za-zА-Яа-яЁё0-9_.\-\s]+$/.test(normalized)) return '';
+  return normalized;
+};
+
+const normalizeLeaderboardPseudonym = (value) => {
+  if (typeof value !== 'string') return '';
+  const normalized = value.trim();
+  if (!normalized) return '';
+  if (normalized.length < LEADERBOARD_PSEUDONYM_MIN_LENGTH) return '';
+  if (normalized.length > LEADERBOARD_PSEUDONYM_MAX_LENGTH) return '';
+  if (!LEADERBOARD_PSEUDONYM_REGEX.test(normalized)) return '';
+  return normalized;
+};
+
+const containsBlockedLeaderboardWord = (value) => {
+  const normalized = String(value || '').toLowerCase().replace(/ё/g, 'е');
+  if (!normalized) return false;
+  return LEADERBOARD_BLOCKED_WORD_PATTERNS.some((pattern) => pattern.test(normalized));
+};
+
 const deriveXpFromSolvedByTask = (solvedByTask) => {
   if (!solvedByTask || typeof solvedByTask !== 'object') return 0;
   let totalXp = 0;
@@ -1255,6 +1318,58 @@ const deriveXpFromSolvedByTask = (solvedByTask) => {
     });
   });
   return totalXp;
+};
+
+const getSolvedEventDayKey = (event) => {
+  if (!event || typeof event !== 'object') return null;
+  const localDay = normalizeDayKey(event.localDay);
+  if (localDay) return localDay;
+  const solvedAtRaw = typeof event.solvedAt === 'string' ? event.solvedAt.trim() : '';
+  if (!solvedAtRaw) return null;
+  const isoPrefix = solvedAtRaw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoPrefix) return normalizeDayKey(isoPrefix[1]);
+  const parsed = new Date(solvedAtRaw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return normalizeDayKey(parsed.toISOString().slice(0, 10));
+};
+
+const isTestingSolvedEvent = (event) => {
+  if (!event || typeof event !== 'object') return false;
+  const taskNum = Number(event.taskNumber);
+  if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) return false;
+  const levelId = String(event.levelId || '').trim();
+  return levelId !== PYTHON_LEVEL_ID;
+};
+
+const getRecentXpFromSolvedEvents = (events, endDayNum, days = LEADERBOARD_WEEK_DAYS) => {
+  if (!Array.isArray(events) || events.length <= 0) return 0;
+  const parsedDays = Number(days);
+  const periodDays = Number.isFinite(parsedDays) && parsedDays > 0
+    ? Math.floor(parsedDays)
+    : LEADERBOARD_WEEK_DAYS;
+  const fallbackEnd = dayKeyToNumber(new Date().toISOString().slice(0, 10));
+  const safeEndDayNum = Number.isFinite(endDayNum) ? Math.floor(endDayNum) : fallbackEnd;
+  if (!Number.isFinite(safeEndDayNum)) return 0;
+  const startDayNum = safeEndDayNum - Math.max(periodDays - 1, 0);
+  const seenIds = new Set();
+  let xpTotal = 0;
+
+  events.forEach((event) => {
+    const eventId = typeof event?.id === 'string' ? event.id.trim() : '';
+    if (eventId) {
+      if (seenIds.has(eventId)) return;
+      seenIds.add(eventId);
+    }
+    if (!isTestingSolvedEvent(event)) return;
+    const dayKey = getSolvedEventDayKey(event);
+    const dayNum = dayKeyToNumber(dayKey);
+    if (!Number.isFinite(dayNum) || dayNum < startDayNum || dayNum > safeEndDayNum) return;
+    const reward = getTaskXpReward(event.taskNumber);
+    if (reward <= 0) return;
+    xpTotal += reward;
+  });
+
+  return xpTotal;
 };
 
 const normalizeAnswerValue = (value) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -1445,8 +1560,8 @@ const normalizeNotesByTaskMap = (value) => {
 const getStudentData = (studentId) => {
   const db = readProgressDb();
   const raw = db[studentId];
-  if (!raw) return { progress: {}, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], streak: getDefaultStreak(), nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [], mockAttempts: {}, xpTotal: 0 };
-  if (raw.progress || raw.notes || raw.notesByTask || raw.mocks || raw.schedule || raw.solvedByTask || raw.streak || raw.mockAttempts || Object.prototype.hasOwnProperty.call(raw, 'xpTotal')) {
+  if (!raw) return { progress: {}, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], streak: getDefaultStreak(), nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [], mockAttempts: {}, xpTotal: 0, leaderboardAlias: '' };
+  if (raw.progress || raw.notes || raw.notesByTask || raw.mocks || raw.schedule || raw.solvedByTask || raw.streak || raw.mockAttempts || Object.prototype.hasOwnProperty.call(raw, 'xpTotal') || Object.prototype.hasOwnProperty.call(raw, 'leaderboardAlias')) {
     const solvedByTask = raw.solvedByTask && typeof raw.solvedByTask === 'object' ? raw.solvedByTask : {};
     const hasStoredXp = Object.prototype.hasOwnProperty.call(raw, 'xpTotal');
     return {
@@ -1462,9 +1577,10 @@ const getStudentData = (studentId) => {
       homeworks: Array.isArray(raw.homeworks) ? raw.homeworks : [],
       mockAttempts: raw.mockAttempts && typeof raw.mockAttempts === 'object' ? raw.mockAttempts : {},
       xpTotal: hasStoredXp ? normalizeXpTotal(raw.xpTotal) : deriveXpFromSolvedByTask(solvedByTask),
+      leaderboardAlias: normalizeLeaderboardAlias(raw.leaderboardAlias),
     };
   }
-  return { progress: raw, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], streak: getDefaultStreak(), nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [], mockAttempts: {}, xpTotal: 0 };
+  return { progress: raw, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], streak: getDefaultStreak(), nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [], mockAttempts: {}, xpTotal: 0, leaderboardAlias: '' };
 };
 
 const setStudentData = (studentId, data) => {
@@ -1482,6 +1598,7 @@ const setStudentData = (studentId, data) => {
     homeworks: Array.isArray(data.homeworks) ? data.homeworks : [],
     mockAttempts: data.mockAttempts && typeof data.mockAttempts === 'object' ? data.mockAttempts : {},
     xpTotal: normalizeXpTotal(data.xpTotal),
+    leaderboardAlias: normalizeLeaderboardAlias(data.leaderboardAlias),
   };
   db[studentId] = payload;
   writeProgressDb(db);
@@ -2861,8 +2978,118 @@ app.get('/api/students', (req, res) => {
   } else if (!includeDeletedFlag) {
     students = students.filter(isActiveStudent);
   }
-  const sanitized = students.map(({ codeHash, code, ...rest }) => rest);
+  const sanitized = students.map(({ codeHash, code, ...rest }) => {
+    const data = getStudentData(rest.id);
+    return {
+      ...rest,
+      leaderboardAlias: normalizeLeaderboardAlias(data?.leaderboardAlias),
+    };
+  });
   res.json(sanitized);
+});
+
+app.get('/api/students/leaderboard', (req, res) => {
+  const { teacherId } = req.query;
+  const requestedTeacherId = typeof teacherId === 'string' ? teacherId.trim() : '';
+  let students = readStudentsDb().filter(isActiveStudent);
+
+  if (isStudentRole(req.auth)) {
+    const currentStudent = ensureStudentAccess(req, res, req.auth?.id);
+    if (!currentStudent) return;
+    students = students.filter((entry) => entry.teacherId === currentStudent.teacherId);
+  } else if (isTeacherRole(req.auth)) {
+    if (requestedTeacherId && requestedTeacherId !== req.auth.id) return forbid(res);
+    students = students.filter((entry) => entry.teacherId === req.auth.id);
+  } else if (requestedTeacherId) {
+    const teacher = findTeacherById(requestedTeacherId);
+    if (!teacher) return res.status(404).json({ error: 'Учитель не найден' });
+    students = students.filter((entry) => entry.teacherId === teacher.id);
+  }
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const fallbackEndDayNum = Math.floor(Date.now() / DAY_MS);
+  const parsedTodayNum = dayKeyToNumber(todayKey);
+  const endDayNum = Number.isFinite(parsedTodayNum) ? parsedTodayNum : fallbackEndDayNum;
+  const startDayNum = endDayNum - (LEADERBOARD_WEEK_DAYS - 1);
+  const startDay = numberToDayKey(startDayNum) || todayKey;
+  const endDay = numberToDayKey(endDayNum) || todayKey;
+  const currentStudentId = isStudentRole(req.auth) ? String(req.auth.id || '') : '';
+  const studentsSortedForAnon = [...students].sort((a, b) => {
+    const aTs = Date.parse(a?.createdAt || '');
+    const bTs = Date.parse(b?.createdAt || '');
+    if (Number.isFinite(aTs) && Number.isFinite(bTs) && aTs !== bTs) return aTs - bTs;
+    return String(a?.id || '').localeCompare(String(b?.id || ''), 'ru');
+  });
+  const anonNameById = new Map(
+    studentsSortedForAnon.map((student, index) => [student.id, `Аноним ${index + 1}`])
+  );
+
+  const items = students.map((student) => {
+    const data = getStudentData(student.id);
+    const xpTotal = normalizeXpTotal(data?.xpTotal);
+    const weeklyXp = getRecentXpFromSolvedEvents(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS);
+    const level = Math.floor(xpTotal / XP_PER_LEVEL) + 1;
+    const alias = normalizeLeaderboardAlias(data?.leaderboardAlias);
+    return {
+      studentId: student.id,
+      publicName: alias || anonNameById.get(student.id) || 'Аноним',
+      level,
+      xpTotal,
+      weeklyXp,
+      hasAlias: Boolean(alias),
+      isCurrent: Boolean(currentStudentId && student.id === currentStudentId),
+    };
+  });
+  items.sort((a, b) => String(a.publicName || '').localeCompare(String(b.publicName || ''), 'ru'));
+  const currentStudent = currentStudentId
+    ? (items.find((item) => item.studentId === currentStudentId) || null)
+    : null;
+  const currentStudentEntry = currentStudentId
+    ? (students.find((item) => item.id === currentStudentId) || null)
+    : null;
+
+  return res.json({
+    week: {
+      startDay,
+      endDay,
+      days: LEADERBOARD_WEEK_DAYS,
+    },
+    items,
+    currentStudent: currentStudent
+      ? {
+          studentId: currentStudent.studentId,
+          publicName: currentStudent.publicName,
+          hasAlias: currentStudent.hasAlias,
+          mainName: normalizeStudentName(currentStudentEntry?.name || ''),
+        }
+      : null,
+  });
+});
+
+app.patch('/api/students/leaderboard-alias', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.auth.id);
+  if (!student) return;
+  const useMainName = Boolean(req.body?.useMainName);
+  const alias = useMainName
+    ? normalizeLeaderboardAlias(normalizeStudentName(student.name))
+    : normalizeLeaderboardPseudonym(req.body?.alias);
+  if (!alias) {
+    return res.status(400).json({
+      error: useMainName
+        ? `Имя для рейтинга должно быть от ${LEADERBOARD_ALIAS_MIN_LENGTH} до ${LEADERBOARD_ALIAS_MAX_LENGTH} символов.`
+        : `Псевдоним должен быть от ${LEADERBOARD_PSEUDONYM_MIN_LENGTH} до ${LEADERBOARD_PSEUDONYM_MAX_LENGTH} символов и содержать только русские буквы.`,
+    });
+  }
+  if (!useMainName && containsBlockedLeaderboardWord(alias)) {
+    return res.status(400).json({
+      error: 'Псевдоним содержит недопустимые слова. Выберите другой.',
+    });
+  }
+
+  const data = getStudentData(student.id);
+  const updated = setStudentData(student.id, { ...data, leaderboardAlias: alias });
+  return res.json({ ok: true, alias: normalizeLeaderboardAlias(updated?.leaderboardAlias) });
 });
 
 app.post('/api/students', (req, res) => {
@@ -2903,6 +3130,7 @@ app.post('/api/students', (req, res) => {
     id: entry.id,
     name: entry.name,
     nickname: entry.nickname || '',
+    leaderboardAlias: '',
     teacherId: entry.teacherId,
     code: plainCode,
     codeHint: entry.codeHint,
@@ -2960,6 +3188,7 @@ app.post('/api/students/:id/restore', (req, res) => {
     id: restored.id,
     name: restored.name,
     nickname: restored.nickname || '',
+    leaderboardAlias: normalizeLeaderboardAlias(getStudentData(restored.id)?.leaderboardAlias),
     teacherId: restored.teacherId,
     codeHint: restored.codeHint,
     createdAt: restored.createdAt,
@@ -3088,11 +3317,12 @@ app.post('/api/teachers/:id/reset-code', (req, res) => {
 app.patch('/api/students/:id', (req, res) => {
   if (isStudentRole(req.auth)) return forbid(res);
   const { id } = req.params;
-  const { name, nickname } = req.body || {};
+  const { name, nickname, leaderboardAlias } = req.body || {};
   const hasName = Object.prototype.hasOwnProperty.call(req.body || {}, 'name');
   const hasNickname = Object.prototype.hasOwnProperty.call(req.body || {}, 'nickname');
+  const hasLeaderboardAlias = Object.prototype.hasOwnProperty.call(req.body || {}, 'leaderboardAlias');
 
-  if (!hasName && !hasNickname) {
+  if (!hasName && !hasNickname && !hasLeaderboardAlias) {
     return res.status(400).json({ error: 'Некорректные параметры' });
   }
 
@@ -3111,6 +3341,25 @@ app.patch('/api/students/:id', (req, res) => {
     if (/[\/\\]/.test(studentNickname)) return res.status(400).json({ error: 'Недопустимые символы' });
   }
 
+  let studentLeaderboardAlias = null;
+  if (hasLeaderboardAlias) {
+    const rawAlias = typeof leaderboardAlias === 'string' ? leaderboardAlias.trim() : '';
+    if (!rawAlias) {
+      studentLeaderboardAlias = '';
+    } else {
+      const normalizedPseudonym = normalizeLeaderboardPseudonym(rawAlias);
+      if (!normalizedPseudonym) {
+        return res.status(400).json({
+          error: `Псевдоним должен быть от ${LEADERBOARD_PSEUDONYM_MIN_LENGTH} до ${LEADERBOARD_PSEUDONYM_MAX_LENGTH} символов и содержать только русские буквы.`,
+        });
+      }
+      if (containsBlockedLeaderboardWord(normalizedPseudonym)) {
+        return res.status(400).json({ error: 'Псевдоним содержит недопустимые слова. Выберите другой.' });
+      }
+      studentLeaderboardAlias = normalizedPseudonym;
+    }
+  }
+
   const students = readStudentsDb();
   const idx = students.findIndex((s) => s.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Ученик не найден' });
@@ -3122,10 +3371,16 @@ app.patch('/api/students/:id', (req, res) => {
 
   students[idx] = updated;
   writeStudentsDb(students);
+  if (hasLeaderboardAlias) {
+    const data = getStudentData(updated.id);
+    setStudentData(updated.id, { ...data, leaderboardAlias: studentLeaderboardAlias });
+  }
+  const storedAlias = normalizeLeaderboardAlias(getStudentData(updated.id)?.leaderboardAlias);
   res.json({
     id: updated.id,
     name: updated.name,
     nickname: updated.nickname || '',
+    leaderboardAlias: storedAlias,
     codeHint: updated.codeHint,
     teacherId: updated.teacherId,
     createdAt: updated.createdAt
