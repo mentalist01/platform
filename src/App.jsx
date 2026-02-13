@@ -5,7 +5,7 @@ import 'prismjs/components/prism-python';
 import 'prismjs/themes/prism-tomorrow.css';
 import Editor from '@monaco-editor/react';
 import { 
-  BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle,
+  BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle, AlertCircle, AlertTriangle,
   X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Image as ImageIcon,
@@ -14903,6 +14903,38 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     };
   }, [testingForecast.averagePerDay, testingForecast.remaining]);
   const shouldShowEgeDeadlineHint = testingForecast.total > 0 && testingForecast.remaining > 0;
+  const paceBadgeState = useMemo(() => {
+    if (!shouldShowEgeDeadlineHint) {
+      return {
+        level: 'ok',
+        className: 'border-emerald-200 text-emerald-600',
+        title: `В среднем ${averageSolvedPerDayLabel} задания/день за ${solvedPerDayStats.periodDays || 0} дн.`
+      };
+    }
+    if (egeDeadlineStats.isOnTrack) {
+      return {
+        level: 'ok',
+        className: 'border-emerald-200 text-emerald-600',
+        title: `Вы успеваете к дедлайну. Запас: +${egeDeadlineStats.bufferPerDayLabel} задания/день.`
+      };
+    }
+    const extra = Number(egeDeadlineStats.extraPerDay) || 0;
+    const required = Number(egeDeadlineStats.requiredPerDay) || 0;
+    const lagRatio = required > 0 ? (extra / required) : 0;
+    const isDanger = extra >= 1 || lagRatio >= 0.35;
+    if (isDanger) {
+      return {
+        level: 'danger',
+        className: 'border-rose-200 text-rose-600',
+        title: `Сильное отставание: нужно добавить +${egeDeadlineStats.extraPerDayLabel} задания/день.`
+      };
+    }
+    return {
+      level: 'warn',
+      className: 'border-amber-200 text-amber-600',
+      title: `Небольшое отставание: нужно добавить +${egeDeadlineStats.extraPerDayLabel} задания/день.`
+    };
+  }, [averageSolvedPerDayLabel, egeDeadlineStats, shouldShowEgeDeadlineHint, solvedPerDayStats.periodDays]);
 
   const refreshGoalState = async () => {
     if (user.role !== 'student') return;
@@ -15675,11 +15707,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
             <div className="mb-3 flex justify-end">
               <div className="flex items-center gap-2">
                 <div
-                  className="flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-3.5 py-2 text-sm font-semibold text-emerald-600 shadow-sm cursor-default"
+                  className={`flex items-center gap-2 rounded-full border bg-white px-3.5 py-2 text-sm font-semibold shadow-sm cursor-default ${paceBadgeState.className}`}
                   aria-label={`Среднее в день: ${averageSolvedPerDayLabel}`}
-                  title={`В среднем ${averageSolvedPerDayLabel} задания/день за ${solvedPerDayStats.periodDays || 0} дн.`}
+                  title={paceBadgeState.title}
                 >
-                  <CheckCircle size={16} />
+                  {paceBadgeState.level === 'ok' && <CheckCircle size={16} />}
+                  {paceBadgeState.level === 'warn' && <AlertTriangle size={16} />}
+                  {paceBadgeState.level === 'danger' && <AlertCircle size={16} />}
                   <span className="text-gray-900">{averageSolvedPerDayLabel}</span>
                   <span className="text-[11px] font-semibold text-gray-500">/день</span>
                 </div>
