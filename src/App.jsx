@@ -14535,6 +14535,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       markPaceForecastDismissedInSession(user.id);
     }
   }, [user.role, user.id]);
+  const handleOpenProgressFromForecast = useCallback(() => {
+    closePaceForecastPopup();
+    navigateToView('progress');
+    setMenuOpen(false);
+    if (user.role === 'student') {
+      updateUserLocation(user, {
+        view: 'progress',
+        progressSection: 'progress'
+      });
+    }
+  }, [closePaceForecastPopup, navigateToView, user]);
 
   useEffect(() => {
     if (user.role !== 'student') return;
@@ -14788,9 +14799,20 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     && testingForecast.averagePerDay > 0
     && Number.isFinite(testingForecast.daysToFinish)
   );
+  const testingCompletionPercent = testingForecast.total > 0
+    ? Math.max(0, Math.min(100, Math.round((testingForecast.solved / testingForecast.total) * 100)))
+    : 0;
   const testingForecastDurationText = hasForecastDuration
     ? formatMonthsAndDaysText(testingForecast.daysToFinish)
     : '';
+  const testingForecastFinishDateLabel = (() => {
+    if (!hasForecastDuration) return '';
+    const targetDate = new Date();
+    const days = Math.max(0, Math.ceil(Number(testingForecast.daysToFinish) || 0));
+    targetDate.setHours(12, 0, 0, 0);
+    targetDate.setDate(targetDate.getDate() + days);
+    return targetDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  })();
   const testingForecastText = (() => {
     if (testingForecast.total <= 0) {
       return 'Пока нет данных о заданиях в разделе тестирования.';
@@ -15277,17 +15299,20 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       )}
       {user.role === 'student' && paceForecastPopupOpen && (
         <div
-          className="fixed inset-0 z-[1250] flex items-center justify-center bg-black/35 backdrop-blur-sm"
+          className="fixed inset-0 z-[1250] flex items-center justify-center overflow-y-auto bg-black/40 px-2 pt-[max(env(safe-area-inset-top),0.75rem)] pb-[max(env(safe-area-inset-bottom),0.75rem)] backdrop-blur-[2px] sm:px-4 sm:py-4"
           onClick={closePaceForecastPopup}
         >
           <div
-            className="w-[min(520px,calc(100%-1.5rem))] rounded-3xl bg-white px-5 py-5 shadow-2xl"
+            className="w-full max-w-[560px] max-h-[calc(100dvh-1.5rem)] overflow-y-auto overscroll-contain rounded-[28px] border border-slate-200/80 bg-gradient-to-br from-white via-white to-rose-50/40 px-4 py-4 shadow-2xl sm:max-h-[88vh] sm:px-6 sm:py-5"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-600">прогноз</div>
-                <div className="mt-1 text-lg font-bold text-slate-900">Когда изучим все задания при нашем темпе</div>
+                <div className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">
+                  Прогноз подготовки
+                </div>
+                <div className="mt-2 text-base font-bold text-slate-900 sm:text-xl">Когда прорешаем все задания</div>
+                <div className="mt-1 text-xs text-slate-500">Расчёт по текущему темпу решений</div>
               </div>
               <button
                 type="button"
@@ -15299,33 +15324,51 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               </button>
             </div>
 
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Всего</div>
-                <div className="mt-1 text-base font-bold text-slate-900">{testingForecast.total}</div>
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-white/90 px-3 py-3">
+              <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:text-[11px]">
+                <span>Прогресс</span>
+                <span>{`${testingCompletionPercent}%`}</span>
               </div>
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">Решено</div>
-                <div className="mt-1 text-base font-bold text-emerald-700">{testingForecast.solved}</div>
+              <div className="mt-2 h-2 rounded-full bg-slate-100 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-purple-500 to-fuchsia-500 transition-all duration-500"
+                  style={{ width: `${testingCompletionPercent}%` }}
+                />
               </div>
-              <div className="rounded-xl border border-purple-200 bg-purple-50 px-2 py-2">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-purple-600">Осталось</div>
-                <div className="mt-1 text-base font-bold text-purple-700">{testingForecast.remaining}</div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-3 gap-1.5 text-center sm:gap-2">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2.5">
+                <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-500 sm:text-[10px]">Всего</div>
+                <div className="mt-1 text-[15px] font-bold text-slate-900 sm:text-base">{testingForecast.total}</div>
+              </div>
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2.5">
+                <div className="text-[9px] font-semibold uppercase tracking-wide text-emerald-600 sm:text-[10px]">Решено</div>
+                <div className="mt-1 text-[15px] font-bold text-emerald-700 sm:text-base">{testingForecast.solved}</div>
+              </div>
+              <div className="rounded-xl border border-purple-200 bg-purple-50 px-2 py-2.5">
+                <div className="text-[9px] font-semibold uppercase tracking-wide text-purple-600 sm:text-[10px]">Осталось</div>
+                <div className="mt-1 text-[15px] font-bold text-purple-700 sm:text-base">{testingForecast.remaining}</div>
               </div>
             </div>
 
             <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-900">
               {hasForecastDuration ? (
                 <div className="space-y-2">
-                  <div className="text-sm font-semibold text-rose-700">
+                  <div className="text-[13px] font-semibold text-rose-700 sm:text-sm">
                     При таком темпе подготовимся к ЕГЭ полностью примерно через
                   </div>
                   <div className="rounded-xl border border-rose-300 bg-white px-3 py-3 text-center">
-                    <div className="text-3xl font-extrabold leading-none text-rose-700 sm:text-4xl">
+                    <div className="text-[30px] font-extrabold leading-none text-rose-700 sm:text-4xl">
                       {testingForecastDurationText}
                     </div>
-                    <div className="mt-1 text-[11px] font-semibold text-rose-500">
-                      {`≈ ${formatDaysText(testingForecast.daysToFinish)}`}
+                    <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[11px] font-semibold text-rose-500">
+                      <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1">
+                        {`до ${testingForecastFinishDateLabel}`}
+                      </span>
+                      <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1">
+                        {`≈ ${formatDaysText(testingForecast.daysToFinish)}`}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -15334,18 +15377,27 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               )}
             </div>
 
-            <div className="mt-3 text-xs text-slate-500">
+            <div className="mt-3 text-[11px] text-slate-500 sm:text-xs">
               {`Текущий темп: ${averageSolvedPerDayLabel} задания/день.`}
               {solvedPerDayStats.periodDays > 0 ? ` Период расчёта: ${formatDaysText(solvedPerDayStats.periodDays)}.` : ''}
             </div>
 
-            <button
-              type="button"
-              onClick={closePaceForecastPopup}
-              className="mt-4 w-full rounded-xl border border-purple-200 bg-white px-3 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-50"
-            >
-              Понятно
-            </button>
+            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={handleOpenProgressFromForecast}
+                className="rounded-xl bg-purple-600 px-3 py-3 text-sm font-semibold text-white shadow-sm hover:bg-purple-700"
+              >
+                Перейти к тестам
+              </button>
+              <button
+                type="button"
+                onClick={closePaceForecastPopup}
+                className="rounded-xl border border-purple-200 bg-white px-3 py-3 text-sm font-semibold text-purple-700 hover:bg-purple-50"
+              >
+                Закрыть
+              </button>
+            </div>
           </div>
         </div>
       )}
