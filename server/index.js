@@ -61,6 +61,7 @@ const LEVEL_WEIGHTS = {
   advanced: 20,
   expert: 10,
 };
+const LEGACY_PROGRESS_LEVEL_SEQUENCE = ['basic', 'advanced', 'expert'];
 const SOFT_DELETE_DAYS = 30;
 const SOFT_DELETE_TTL_MS = SOFT_DELETE_DAYS * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -1334,6 +1335,71 @@ const deriveXpFromSolvedByTask = (solvedByTask) => {
   return totalXp;
 };
 
+const deriveXpFromSolvedEvents = (events) => {
+  if (!Array.isArray(events) || events.length <= 0) return 0;
+  const seenIds = new Set();
+  let totalXp = 0;
+  events.forEach((event) => {
+    const eventId = typeof event?.id === 'string' ? event.id.trim() : '';
+    if (eventId) {
+      if (seenIds.has(eventId)) return;
+      seenIds.add(eventId);
+    }
+    if (!event || typeof event !== 'object') return;
+    const taskNum = Number(event.taskNumber);
+    if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) return;
+    const levelId = String(event.levelId || '').trim();
+    if (levelId === PYTHON_LEVEL_ID) return;
+    const reward = getTaskLevelXpReward(taskNum, levelId);
+    if (reward <= 0) return;
+    totalXp += reward;
+  });
+  return totalXp;
+};
+
+const getLegacyProgressLevelCompletionRatio = (taskProgress, levelId) => {
+  const safeTaskProgress = Math.max(0, Math.min(100, Number(taskProgress) || 0));
+  const levelWeight = Number(LEVEL_WEIGHTS[levelId]);
+  if (!Number.isFinite(levelWeight) || levelWeight <= 0) return 0;
+  let levelStart = 0;
+  for (const key of LEGACY_PROGRESS_LEVEL_SEQUENCE) {
+    if (key === levelId) break;
+    const weight = Number(LEVEL_WEIGHTS[key]);
+    if (Number.isFinite(weight) && weight > 0) {
+      levelStart += weight;
+    }
+  }
+  return Math.max(0, Math.min(1, (safeTaskProgress - levelStart) / levelWeight));
+};
+
+const deriveXpFromLegacyProgress = (progress, testsDb = null) => {
+  if (!progress || typeof progress !== 'object' || Array.isArray(progress)) return 0;
+  const safeTestsDb = testsDb || readTestsDb();
+  let totalXp = 0;
+
+  Object.entries(progress).forEach(([taskKey, progressValue]) => {
+    const normalizedTask = normalizeClassicTaskForXp(taskKey);
+    if (!Number.isFinite(normalizedTask)) return;
+    const taskProgress = Math.max(0, Math.min(100, Number(progressValue) || 0));
+    if (taskProgress <= 0) return;
+    const taskLevels = safeTestsDb?.[String(normalizedTask)];
+    if (!taskLevels || typeof taskLevels !== 'object') return;
+
+    LEGACY_PROGRESS_LEVEL_SEQUENCE.forEach((levelId) => {
+      const questions = Array.isArray(taskLevels[levelId]) ? taskLevels[levelId] : [];
+      const questionCount = questions.length;
+      if (questionCount <= 0) return;
+      const completionRatio = getLegacyProgressLevelCompletionRatio(taskProgress, levelId);
+      if (completionRatio <= 0) return;
+      const reward = getTaskLevelXpReward(normalizedTask, levelId);
+      if (reward <= 0) return;
+      totalXp += completionRatio * questionCount * reward;
+    });
+  });
+
+  return normalizeXpTotal(totalXp);
+};
+
 const getSolvedEventDayKey = (event) => {
   if (!event || typeof event !== 'object') return null;
   const localDay = normalizeDayKey(event.localDay);
@@ -1576,25 +1642,33 @@ const getStudentData = (studentId) => {
   const raw = db[studentId];
   if (!raw) return { progress: {}, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], streak: getDefaultStreak(), nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [], mockAttempts: {}, xpTotal: 0, leaderboardAlias: '' };
   if (raw.progress || raw.notes || raw.notesByTask || raw.mocks || raw.schedule || raw.solvedByTask || raw.streak || raw.mockAttempts || Object.prototype.hasOwnProperty.call(raw, 'xpTotal') || Object.prototype.hasOwnProperty.call(raw, 'leaderboardAlias')) {
+    const progress = raw.progress && typeof raw.progress === 'object' && !Array.isArray(raw.progress) ? raw.progress : {};
     const solvedByTask = raw.solvedByTask && typeof raw.solvedByTask === 'object' ? raw.solvedByTask : {};
+    const solvedEvents = Array.isArray(raw.solvedEvents) ? raw.solvedEvents : [];
     const hasStoredXp = Object.prototype.hasOwnProperty.call(raw, 'xpTotal');
+    const derivedSolvedXp = deriveXpFromSolvedByTask(solvedByTask);
+    const derivedEventsXp = deriveXpFromSolvedEvents(solvedEvents);
+    const derivedLegacyProgressXp = deriveXpFromLegacyProgress(progress);
+    const derivedXp = Math.max(derivedSolvedXp, derivedEventsXp, derivedLegacyProgressXp);
     return {
-      progress: raw.progress || {},
+      progress,
       notes: raw.notes || '',
       notesByTask: normalizeNotesByTaskMap(raw.notesByTask),
       mocks: Array.isArray(raw.mocks) ? raw.mocks : [],
       schedule: Array.isArray(raw.schedule) ? raw.schedule : [],
       solvedByTask,
-      solvedEvents: Array.isArray(raw.solvedEvents) ? raw.solvedEvents : [],
+      solvedEvents,
       streak: normalizeStreak(raw.streak),
       nextLesson: raw.nextLesson && typeof raw.nextLesson === 'object' ? raw.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
       homeworks: Array.isArray(raw.homeworks) ? raw.homeworks : [],
       mockAttempts: raw.mockAttempts && typeof raw.mockAttempts === 'object' ? raw.mockAttempts : {},
-      xpTotal: hasStoredXp ? normalizeXpTotal(raw.xpTotal) : deriveXpFromSolvedByTask(solvedByTask),
+      xpTotal: hasStoredXp ? normalizeXpTotal(raw.xpTotal) : derivedXp,
       leaderboardAlias: normalizeLeaderboardAlias(raw.leaderboardAlias),
     };
   }
-  return { progress: raw, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], streak: getDefaultStreak(), nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [], mockAttempts: {}, xpTotal: 0, leaderboardAlias: '' };
+  const legacyProgress = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const legacyXp = deriveXpFromLegacyProgress(legacyProgress);
+  return { progress: legacyProgress, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], streak: getDefaultStreak(), nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [], mockAttempts: {}, xpTotal: legacyXp, leaderboardAlias: '' };
 };
 
 const setStudentData = (studentId, data) => {
