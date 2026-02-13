@@ -15409,6 +15409,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       markPaceForecastShownNow(user.id);
     }
   }, [user.role, user.id]);
+  const openPaceForecastPopup = useCallback(() => {
+    if (user.role !== 'student') return;
+    paceForecastShownRef.current = true;
+    markPaceForecastShownNow(user.id);
+    setPaceForecastPopupOpen(true);
+  }, [user.role, user.id]);
   const handleOpenProgressFromForecast = useCallback(() => {
     closePaceForecastPopup();
     navigateToView('progress');
@@ -16657,17 +16663,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5 md:ml-auto md:gap-2">
-                  <div
-                    className={`flex items-center justify-center gap-1 rounded-full border bg-white px-2.5 py-1.5 text-[13px] font-semibold shadow-sm cursor-default md:gap-2 md:px-3.5 md:py-2 md:text-sm ${paceBadgeState.className}`}
+                  <button
+                    type="button"
+                    onClick={openPaceForecastPopup}
+                    className={`flex items-center justify-center gap-1 rounded-full border bg-white px-2.5 py-1.5 text-[13px] font-semibold shadow-sm transition hover:bg-slate-50 active:scale-[0.99] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 md:gap-2 md:px-3.5 md:py-2 md:text-sm ${paceBadgeState.className}`}
                     aria-label={`Среднее в день: ${averageSolvedPerDayLabel}`}
-                    title={paceBadgeState.title}
+                    title={`${paceBadgeState.title} Нажмите, чтобы открыть прогноз.`}
                   >
                     {paceBadgeState.level === 'ok' && <CheckCircle size={14} />}
                     {paceBadgeState.level === 'warn' && <AlertTriangle size={14} />}
                     {paceBadgeState.level === 'danger' && <AlertCircle size={14} />}
                     <span className="text-gray-900 whitespace-nowrap">{averageSolvedPerDayLabel}</span>
                     <span className="hidden whitespace-nowrap text-[11px] font-semibold text-gray-500 sm:inline">/день</span>
-                  </div>
+                  </button>
                   <div className="relative group shrink-0">
                     <div
                       className={`flex h-full items-center justify-center gap-1.5 rounded-full border border-purple-200 bg-white px-2.5 py-1.5 text-[13px] font-semibold text-purple-600 shadow-sm cursor-default streak-badge md:gap-2 md:px-3.5 md:py-2 md:text-sm ${displayStreakCurrent > 0 ? 'streak-badge--active' : ''}`}
