@@ -3960,7 +3960,7 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
           </div>
         </div>
 
-        <div className="pt-3 md:pt-4 border-t border-gray-100 bg-white/95 pb-[calc(env(safe-area-inset-bottom)+0.25rem)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+        <div className="mt-1 rounded-2xl border border-purple-200/80 bg-gradient-to-r from-violet-100/95 via-fuchsia-100/90 to-purple-100/95 px-3 py-3 md:py-3.5 pb-[calc(env(safe-area-inset-bottom)+0.25rem)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
           <div className="text-xs sm:text-sm text-gray-500">
             Прогресс темы: <span className="font-semibold text-purple-700">{currentMastery}%</span>
             <span className="text-gray-400"> • {currentIndex + 1}/{questions.length}</span>
