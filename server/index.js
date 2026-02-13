@@ -1268,6 +1268,20 @@ const getTaskXpReward = (taskNumber) => {
   return Math.floor(reward);
 };
 
+const getLevelXpMultiplier = (levelId) => {
+  const key = String(levelId || '').trim().toLowerCase();
+  if (key === 'advanced') return 1.5;
+  if (key === 'expert') return 2;
+  return 1;
+};
+
+const getTaskLevelXpReward = (taskNumber, levelId) => {
+  const baseReward = getTaskXpReward(taskNumber);
+  if (baseReward <= 0) return 0;
+  const multiplier = getLevelXpMultiplier(levelId);
+  return Math.max(0, Math.round(baseReward * multiplier));
+};
+
 const normalizeXpTotal = (value) => {
   const num = Number(value);
   if (!Number.isFinite(num) || num <= 0) return 0;
@@ -1305,8 +1319,6 @@ const deriveXpFromSolvedByTask = (solvedByTask) => {
   let totalXp = 0;
   Object.entries(solvedByTask).forEach(([taskKey, taskEntry]) => {
     if (!taskEntry || typeof taskEntry !== 'object' || Array.isArray(taskEntry)) return;
-    const reward = getTaskXpReward(taskKey);
-    if (reward <= 0) return;
     Object.entries(taskEntry).forEach(([levelKey, levelEntry]) => {
       if (String(levelKey).startsWith('_')) return;
       if (!levelEntry || typeof levelEntry !== 'object' || Array.isArray(levelEntry)) return;
@@ -1314,6 +1326,8 @@ const deriveXpFromSolvedByTask = (solvedByTask) => {
       if (solvedList.length <= 0) return;
       const solvedCount = new Set(solvedList.map((id) => String(id))).size;
       if (solvedCount <= 0) return;
+      const reward = getTaskLevelXpReward(taskKey, levelKey);
+      if (reward <= 0) return;
       totalXp += solvedCount * reward;
     });
   });
@@ -1364,7 +1378,7 @@ const getRecentXpFromSolvedEvents = (events, endDayNum, days = LEADERBOARD_WEEK_
     const dayKey = getSolvedEventDayKey(event);
     const dayNum = dayKeyToNumber(dayKey);
     if (!Number.isFinite(dayNum) || dayNum < startDayNum || dayNum > safeEndDayNum) return;
-    const reward = getTaskXpReward(event.taskNumber);
+    const reward = getTaskLevelXpReward(event.taskNumber, event.levelId);
     if (reward <= 0) return;
     xpTotal += reward;
   });
@@ -2980,9 +2994,13 @@ app.get('/api/students', (req, res) => {
   }
   const sanitized = students.map(({ codeHash, code, ...rest }) => {
     const data = getStudentData(rest.id);
+    const xpTotal = normalizeXpTotal(data?.xpTotal);
+    const level = Math.floor(xpTotal / XP_PER_LEVEL) + 1;
     return {
       ...rest,
       leaderboardAlias: normalizeLeaderboardAlias(data?.leaderboardAlias),
+      xpTotal,
+      level,
     };
   });
   res.json(sanitized);
@@ -3126,11 +3144,15 @@ app.post('/api/students', (req, res) => {
   };
   students.unshift(entry);
   writeStudentsDb(students);
+  const createdStudentData = getStudentData(entry.id);
+  const createdXpTotal = normalizeXpTotal(createdStudentData?.xpTotal);
   res.json({
     id: entry.id,
     name: entry.name,
     nickname: entry.nickname || '',
     leaderboardAlias: '',
+    xpTotal: createdXpTotal,
+    level: Math.floor(createdXpTotal / XP_PER_LEVEL) + 1,
     teacherId: entry.teacherId,
     code: plainCode,
     codeHint: entry.codeHint,
@@ -3184,11 +3206,15 @@ app.post('/api/students/:id/restore', (req, res) => {
   const restored = { ...existing, deletedAt: null };
   students[idx] = restored;
   writeStudentsDb(students);
+  const restoredData = getStudentData(restored.id);
+  const restoredXpTotal = normalizeXpTotal(restoredData?.xpTotal);
   res.json({
     id: restored.id,
     name: restored.name,
     nickname: restored.nickname || '',
-    leaderboardAlias: normalizeLeaderboardAlias(getStudentData(restored.id)?.leaderboardAlias),
+    leaderboardAlias: normalizeLeaderboardAlias(restoredData?.leaderboardAlias),
+    xpTotal: restoredXpTotal,
+    level: Math.floor(restoredXpTotal / XP_PER_LEVEL) + 1,
     teacherId: restored.teacherId,
     codeHint: restored.codeHint,
     createdAt: restored.createdAt,
@@ -3375,12 +3401,16 @@ app.patch('/api/students/:id', (req, res) => {
     const data = getStudentData(updated.id);
     setStudentData(updated.id, { ...data, leaderboardAlias: studentLeaderboardAlias });
   }
-  const storedAlias = normalizeLeaderboardAlias(getStudentData(updated.id)?.leaderboardAlias);
+  const updatedData = getStudentData(updated.id);
+  const storedAlias = normalizeLeaderboardAlias(updatedData?.leaderboardAlias);
+  const updatedXpTotal = normalizeXpTotal(updatedData?.xpTotal);
   res.json({
     id: updated.id,
     name: updated.name,
     nickname: updated.nickname || '',
     leaderboardAlias: storedAlias,
+    xpTotal: updatedXpTotal,
+    level: Math.floor(updatedXpTotal / XP_PER_LEVEL) + 1,
     codeHint: updated.codeHint,
     teacherId: updated.teacherId,
     createdAt: updated.createdAt
@@ -3691,7 +3721,7 @@ app.post('/api/progress/solve', async (req, res) => {
     });
   }
   if (solvedAdded) {
-    xpGained = getTaskXpReward(taskNum);
+    xpGained = getTaskLevelXpReward(taskNum, levelKey);
     if (xpGained > 0) {
       xpTotal += xpGained;
     }

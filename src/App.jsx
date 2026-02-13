@@ -148,6 +148,20 @@ const getTaskXpReward = (taskNumber) => {
   return Math.floor(reward);
 };
 
+const getLevelXpMultiplier = (levelId) => {
+  const key = String(levelId || '').trim().toLowerCase();
+  if (key === 'advanced') return 1.5;
+  if (key === 'expert') return 2;
+  return 1;
+};
+
+const getTaskLevelXpReward = (taskNumber, levelId) => {
+  const baseReward = getTaskXpReward(taskNumber);
+  if (baseReward <= 0) return 0;
+  const multiplier = getLevelXpMultiplier(levelId);
+  return Math.max(0, Math.round(baseReward * multiplier));
+};
+
 const normalizeXpTotal = (value) => {
   const num = Number(value);
   if (!Number.isFinite(num) || num <= 0) return 0;
@@ -301,8 +315,6 @@ const deriveXpFromSolvedByTask = (solvedByTask) => {
   let totalXp = 0;
   Object.entries(solvedByTask).forEach(([taskKey, taskEntry]) => {
     if (!taskEntry || typeof taskEntry !== 'object' || Array.isArray(taskEntry)) return;
-    const reward = getTaskXpReward(taskKey);
-    if (reward <= 0) return;
     Object.entries(taskEntry).forEach(([levelKey, levelEntry]) => {
       if (String(levelKey).startsWith('_')) return;
       if (!levelEntry || typeof levelEntry !== 'object' || Array.isArray(levelEntry)) return;
@@ -310,6 +322,8 @@ const deriveXpFromSolvedByTask = (solvedByTask) => {
       if (solvedList.length <= 0) return;
       const solvedCount = new Set(solvedList.map((id) => String(id))).size;
       if (solvedCount <= 0) return;
+      const reward = getTaskLevelXpReward(taskKey, levelKey);
+      if (reward <= 0) return;
       totalXp += solvedCount * reward;
     });
   });
@@ -2431,126 +2445,142 @@ const TeacherPanel = ({
           ) : studentsList.length === 0 ? (
             <div className="text-sm text-gray-400">Пока нет учеников. Создайте первого.</div>
           ) : (
-            studentsList.map((student) => (
-              <div
-                key={student.id}
-                onClick={() => onSelectStudent?.(student.id)}
-                className={`p-3 rounded-xl border flex items-start justify-between gap-3 cursor-pointer transition-all ${
-                  activeStudentId === student.id ? 'border-purple-300 bg-purple-50' : 'border-gray-200 bg-white hover:border-purple-200'
-                }`}
-              >
-                <div className="min-w-0 flex-1">
-                  {editingStudentId === student.id ? (
-                    <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="text"
-                        value={editStudentName}
-                        onChange={(e) => setEditStudentName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') saveEditStudent(student);
-                          if (e.key === 'Escape') cancelEditStudent();
-                        }}
-                        placeholder="Имя ученика"
-                        className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
-                      />
-                      <input
-                        type="text"
-                        value={editStudentNickname}
-                        onChange={(e) => setEditStudentNickname(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') saveEditStudent(student);
-                          if (e.key === 'Escape') cancelEditStudent();
-                        }}
-                        placeholder="Прозвище (только для вас)"
-                        className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
-                      />
-                      <input
-                        type="text"
-                        value={editStudentLeaderboardAlias}
-                        onChange={(e) => {
-                          const next = String(e.target.value || '')
-                            .replace(/[^А-Яа-яЁё]/g, '')
-                            .slice(0, 6);
-                          setEditStudentLeaderboardAlias(next);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') saveEditStudent(student);
-                          if (e.key === 'Escape') cancelEditStudent();
-                        }}
-                        placeholder="Псевдоним в рейтинге (пусто = аноним)"
-                        className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
-                      />
-                      <p className="text-[11px] text-gray-500">2-6 русских букв, плохие слова блокируются.</p>
-                      {editStudentError && <p className="text-xs text-red-500">{editStudentError}</p>}
-                    </div>
-                  ) : (
-                    <>
-                      <p className="font-medium text-gray-800 truncate">{student.name}</p>
-                      {student.nickname && (
-                        <p className="text-xs text-purple-600 truncate">Прозвище: {student.nickname}</p>
-                      )}
-                      <p className="text-xs text-gray-500 truncate">
-                        Рейтинг: <span className="font-medium text-gray-700">{student.leaderboardAlias || 'аноним'}</span>
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        Код: <span className="font-mono">{student.codeHint ? `****${student.codeHint}` : 'скрыт'}</span>
-                      </p>
-                    </>
-                  )}
+            studentsList.map((student) => {
+              const studentXpTotal = normalizeXpTotal(student?.xpTotal);
+              const rawStudentLevel = Number(student?.level);
+              const studentLevel = Number.isFinite(rawStudentLevel) && rawStudentLevel > 0
+                ? Math.floor(rawStudentLevel)
+                : (Math.floor(studentXpTotal / XP_PER_LEVEL) + 1);
+              const studentXpLabel = studentXpTotal.toLocaleString('ru-RU');
+              return (
+                <div
+                  key={student.id}
+                  onClick={() => onSelectStudent?.(student.id)}
+                  className={`p-3 rounded-xl border flex items-start justify-between gap-3 cursor-pointer transition-all ${
+                    activeStudentId === student.id ? 'border-purple-300 bg-purple-50' : 'border-gray-200 bg-white hover:border-purple-200'
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    {editingStudentId === student.id ? (
+                      <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="text"
+                          value={editStudentName}
+                          onChange={(e) => setEditStudentName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveEditStudent(student);
+                            if (e.key === 'Escape') cancelEditStudent();
+                          }}
+                          placeholder="Имя ученика"
+                          className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+                        />
+                        <input
+                          type="text"
+                          value={editStudentNickname}
+                          onChange={(e) => setEditStudentNickname(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveEditStudent(student);
+                            if (e.key === 'Escape') cancelEditStudent();
+                          }}
+                          placeholder="Прозвище (только для вас)"
+                          className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+                        />
+                        <input
+                          type="text"
+                          value={editStudentLeaderboardAlias}
+                          onChange={(e) => {
+                            const next = String(e.target.value || '')
+                              .replace(/[^А-Яа-яЁё]/g, '')
+                              .slice(0, 6);
+                            setEditStudentLeaderboardAlias(next);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveEditStudent(student);
+                            if (e.key === 'Escape') cancelEditStudent();
+                          }}
+                          placeholder="Псевдоним в рейтинге (пусто = аноним)"
+                          className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+                        />
+                        <p className="text-[11px] text-gray-500">2-6 русских букв, плохие слова блокируются.</p>
+                        {editStudentError && <p className="text-xs text-red-500">{editStudentError}</p>}
+                      </div>
+                    ) : (
+                      <>
+                        <p className="font-medium text-gray-800 truncate">{student.name}</p>
+                        {student.nickname && (
+                          <p className="text-xs text-purple-600 truncate">Прозвище: {student.nickname}</p>
+                        )}
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700">
+                            {`Ур. ${studentLevel}`}
+                          </span>
+                          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                            {`${studentXpLabel} XP`}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 truncate">
+                          Рейтинг: <span className="font-medium text-gray-700">{student.leaderboardAlias || 'аноним'}</span>
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Код: <span className="font-mono">{student.codeHint ? `****${student.codeHint}` : 'скрыт'}</span>
+                        </p>
+                      </>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {editingStudentId === student.id ? (
+                      <>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); saveEditStudent(student); }}
+                          className="px-3 py-1 rounded-lg bg-purple-600 text-white text-xs hover:bg-purple-700 disabled:opacity-60"
+                          disabled={editStudentSaving}
+                          type="button"
+                        >
+                          {editStudentSaving ? '...' : 'Сохранить'}
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); cancelEditStudent(); }}
+                          className="px-3 py-1 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
+                          type="button"
+                        >
+                          Отмена
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {activeStudentId === student.id && (
+                          <span className="text-xs font-semibold text-purple-600">Активный</span>
+                        )}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); startEditStudent(student); }}
+                          className="px-3 py-1 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
+                          type="button"
+                        >
+                          Изменить
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleResetStudentCode(student); }}
+                          className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 disabled:opacity-50"
+                          title="Сбросить код"
+                          disabled={resettingStudentId === student.id}
+                          type="button"
+                        >
+                          <RefreshCcw size={16} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteStudent(student); }}
+                          className="p-2 rounded-lg text-red-500 hover:bg-red-50"
+                          title="Удалить ученика"
+                          type="button"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {editingStudentId === student.id ? (
-                    <>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); saveEditStudent(student); }}
-                        className="px-3 py-1 rounded-lg bg-purple-600 text-white text-xs hover:bg-purple-700 disabled:opacity-60"
-                        disabled={editStudentSaving}
-                        type="button"
-                      >
-                        {editStudentSaving ? '...' : 'Сохранить'}
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); cancelEditStudent(); }}
-                        className="px-3 py-1 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
-                        type="button"
-                      >
-                        Отмена
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      {activeStudentId === student.id && (
-                        <span className="text-xs font-semibold text-purple-600">Активный</span>
-                      )}
-                      <button
-                        onClick={(e) => { e.stopPropagation(); startEditStudent(student); }}
-                        className="px-3 py-1 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
-                        type="button"
-                      >
-                        Изменить
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleResetStudentCode(student); }}
-                        className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 disabled:opacity-50"
-                        title="Сбросить код"
-                        disabled={resettingStudentId === student.id}
-                        type="button"
-                      >
-                        <RefreshCcw size={16} />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteStudent(student); }}
-                        className="p-2 rounded-lg text-red-500 hover:bg-red-50"
-                        title="Удалить ученика"
-                        type="button"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -4931,6 +4961,10 @@ const StudentTestModal = ({
   const autoStartLevel = ['basic', 'advanced', 'expert'].includes(initialLevel) ? initialLevel : null;
 
   const currentMastery = progress[task.id] || 0;
+  const selectedLevelXpReward = getTaskLevelXpReward(task?.number, level);
+  const selectedLevelXpRewardLabel = selectedLevelXpReward > 0
+    ? `+${selectedLevelXpReward.toLocaleString('ru-RU')} XP`
+    : '';
   const activeQuestion = questions[currentIndex];
   const activeQuestionId = activeQuestion ? String(activeQuestion?.id ?? currentIndex) : '';
 
@@ -5503,6 +5537,10 @@ const StudentTestModal = ({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {Object.values(LEVELS).map((lvl) => {
               const isCompleted = currentMastery >= lvl.maxScore;
+              const levelXpReward = getTaskLevelXpReward(task?.number, lvl.id);
+              const levelXpRewardLabel = levelXpReward > 0
+                ? `+${levelXpReward.toLocaleString('ru-RU')} XP`
+                : '';
 
               return (
                 <div 
@@ -5524,8 +5562,13 @@ const StudentTestModal = ({
                       {lvl.id === 'expert' && "Статград и сложнее."}
                     </p>
                   </div>
-                  <div className="mt-4 pt-4 border-t border-gray-100">
+                  <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between gap-2">
                     <span className="text-sm font-bold text-gray-700">до {lvl.maxScore}%</span>
+                    {levelXpReward > 0 && (
+                      <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-700">
+                        {levelXpRewardLabel}
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -5617,9 +5660,16 @@ const StudentTestModal = ({
           {/* Header & Navigation */}
           <div className="flex flex-col gap-3 md:gap-4 mb-3 md:mb-4">
             <div className="flex justify-between items-start">
-               <span className={`px-2.5 py-1 rounded-lg text-[11px] md:text-xs font-bold uppercase ${LEVELS[level.toUpperCase()].color}`}>
-                {LEVELS[level.toUpperCase()].label}
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`px-2.5 py-1 rounded-lg text-[11px] md:text-xs font-bold uppercase ${LEVELS[level.toUpperCase()].color}`}>
+                  {LEVELS[level.toUpperCase()].label}
+                </span>
+                {selectedLevelXpReward > 0 && (
+                  <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] md:text-[11px] font-bold text-purple-700">
+                    {selectedLevelXpRewardLabel}
+                  </span>
+                )}
+              </div>
               <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={18}/></button>
             </div>
             {targetStatus.length > 0 && (
@@ -6040,7 +6090,7 @@ const StudentTestModal = ({
             </div>
           </div>
 
-          <div className="pt-3 md:pt-4 border-t border-gray-100 bg-white/95 pb-[calc(env(safe-area-inset-bottom)+0.25rem)]">
+          <div className="pt-3 md:pt-4 bg-transparent pb-[calc(env(safe-area-inset-bottom)+0.25rem)]">
             <Button 
               onClick={(event) => {
                 if (!computedChecked) {
