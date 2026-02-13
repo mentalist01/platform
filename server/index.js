@@ -66,6 +66,33 @@ const SOFT_DELETE_TTL_MS = SOFT_DELETE_DAYS * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const GAME_THEORY_TASK = 19;
 const PYTHON_LEVEL_ID = 'python';
+const TASK_XP_REWARDS = {
+  1: 20,
+  2: 50,
+  3: 40,
+  4: 30,
+  5: 100,
+  6: 100,
+  7: 80,
+  8: 350,
+  9: 550,
+  10: 10,
+  11: 500,
+  12: 120,
+  13: 300,
+  14: 300,
+  15: 450,
+  16: 150,
+  17: 450,
+  18: 250,
+  19: 500,
+  22: 300,
+  23: 150,
+  24: 700,
+  25: 500,
+  26: 800,
+  27: 500,
+};
 const AUTH_COOKIE_NAME = 'ege_auth_token';
 const PUSH_VAPID_SUBJECT = (() => {
   const raw = typeof process.env.PUSH_VAPID_SUBJECT === 'string'
@@ -1187,6 +1214,49 @@ const computeTaskProgress = (taskEntry = {}) => {
   return Math.round(levelProgressValues.reduce((sum, val) => sum + val, 0));
 };
 
+const normalizeClassicTaskForXp = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  const taskNum = Math.trunc(num);
+  if (taskNum < 1 || taskNum > 27) return null;
+  if (taskNum === 20 || taskNum === 21) return GAME_THEORY_TASK;
+  return taskNum;
+};
+
+const getTaskXpReward = (taskNumber) => {
+  const normalizedTask = normalizeClassicTaskForXp(taskNumber);
+  if (!Number.isFinite(normalizedTask)) return 0;
+  const reward = Number(TASK_XP_REWARDS[normalizedTask]);
+  if (!Number.isFinite(reward) || reward <= 0) return 0;
+  return Math.floor(reward);
+};
+
+const normalizeXpTotal = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return 0;
+  return Math.floor(num);
+};
+
+const deriveXpFromSolvedByTask = (solvedByTask) => {
+  if (!solvedByTask || typeof solvedByTask !== 'object') return 0;
+  let totalXp = 0;
+  Object.entries(solvedByTask).forEach(([taskKey, taskEntry]) => {
+    if (!taskEntry || typeof taskEntry !== 'object' || Array.isArray(taskEntry)) return;
+    const reward = getTaskXpReward(taskKey);
+    if (reward <= 0) return;
+    Object.entries(taskEntry).forEach(([levelKey, levelEntry]) => {
+      if (String(levelKey).startsWith('_')) return;
+      if (!levelEntry || typeof levelEntry !== 'object' || Array.isArray(levelEntry)) return;
+      const solvedList = Array.isArray(levelEntry.solved) ? levelEntry.solved : [];
+      if (solvedList.length <= 0) return;
+      const solvedCount = new Set(solvedList.map((id) => String(id))).size;
+      if (solvedCount <= 0) return;
+      totalXp += solvedCount * reward;
+    });
+  });
+  return totalXp;
+};
+
 const normalizeAnswerValue = (value) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 
 const getAnswerCountForTask = (taskNumber) => {
@@ -1375,23 +1445,26 @@ const normalizeNotesByTaskMap = (value) => {
 const getStudentData = (studentId) => {
   const db = readProgressDb();
   const raw = db[studentId];
-  if (!raw) return { progress: {}, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], streak: getDefaultStreak(), nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [], mockAttempts: {} };
-  if (raw.progress || raw.notes || raw.notesByTask || raw.mocks || raw.schedule || raw.solvedByTask || raw.streak || raw.mockAttempts) {
+  if (!raw) return { progress: {}, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], streak: getDefaultStreak(), nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [], mockAttempts: {}, xpTotal: 0 };
+  if (raw.progress || raw.notes || raw.notesByTask || raw.mocks || raw.schedule || raw.solvedByTask || raw.streak || raw.mockAttempts || Object.prototype.hasOwnProperty.call(raw, 'xpTotal')) {
+    const solvedByTask = raw.solvedByTask && typeof raw.solvedByTask === 'object' ? raw.solvedByTask : {};
+    const hasStoredXp = Object.prototype.hasOwnProperty.call(raw, 'xpTotal');
     return {
       progress: raw.progress || {},
       notes: raw.notes || '',
       notesByTask: normalizeNotesByTaskMap(raw.notesByTask),
       mocks: Array.isArray(raw.mocks) ? raw.mocks : [],
       schedule: Array.isArray(raw.schedule) ? raw.schedule : [],
-      solvedByTask: raw.solvedByTask && typeof raw.solvedByTask === 'object' ? raw.solvedByTask : {},
+      solvedByTask,
       solvedEvents: Array.isArray(raw.solvedEvents) ? raw.solvedEvents : [],
       streak: normalizeStreak(raw.streak),
       nextLesson: raw.nextLesson && typeof raw.nextLesson === 'object' ? raw.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
       homeworks: Array.isArray(raw.homeworks) ? raw.homeworks : [],
       mockAttempts: raw.mockAttempts && typeof raw.mockAttempts === 'object' ? raw.mockAttempts : {},
+      xpTotal: hasStoredXp ? normalizeXpTotal(raw.xpTotal) : deriveXpFromSolvedByTask(solvedByTask),
     };
   }
-  return { progress: raw, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], streak: getDefaultStreak(), nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [], mockAttempts: {} };
+  return { progress: raw, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], streak: getDefaultStreak(), nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [], mockAttempts: {}, xpTotal: 0 };
 };
 
 const setStudentData = (studentId, data) => {
@@ -1408,6 +1481,7 @@ const setStudentData = (studentId, data) => {
     nextLesson: data.nextLesson && typeof data.nextLesson === 'object' ? data.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
     homeworks: Array.isArray(data.homeworks) ? data.homeworks : [],
     mockAttempts: data.mockAttempts && typeof data.mockAttempts === 'object' ? data.mockAttempts : {},
+    xpTotal: normalizeXpTotal(data.xpTotal),
   };
   db[studentId] = payload;
   writeProgressDb(db);
@@ -3336,6 +3410,7 @@ app.post('/api/progress/solve', async (req, res) => {
   const solvedByTask = { ...(data.solvedByTask || {}) };
   const solvedEvents = Array.isArray(data.solvedEvents) ? [...data.solvedEvents] : [];
   const streak = normalizeStreak(data.streak);
+  let xpTotal = normalizeXpTotal(data.xpTotal);
   const taskEntry = { ...(solvedByTask[taskKey] || {}) };
   const levelEntry = { ...(taskEntry[levelKey] || {}) };
 
@@ -3344,6 +3419,7 @@ app.post('/api/progress/solve', async (req, res) => {
     ? { ...levelEntry.solvedCode }
     : {};
   let solvedAdded = false;
+  let xpGained = 0;
   if (!solvedList.includes(qKey)) {
     solvedList.push(qKey);
     solvedAdded = true;
@@ -3358,6 +3434,12 @@ app.post('/api/progress/solve', async (req, res) => {
       solvedAt: new Date().toISOString(),
       localDay: resolvedDayKey,
     });
+  }
+  if (solvedAdded) {
+    xpGained = getTaskXpReward(taskNum);
+    if (xpGained > 0) {
+      xpTotal += xpGained;
+    }
   }
   if (typeof code === 'string' && code.trim()) {
     const safeCode = code.slice(0, 20000);
@@ -3429,8 +3511,8 @@ app.post('/api/progress/solve', async (req, res) => {
     }
   }
 
-  const updated = setStudentData(student.id, { ...data, solvedByTask, solvedEvents, progress, streak });
-  res.json({ taskProgress, progress: updated.progress, streak: updated.streak });
+  const updated = setStudentData(student.id, { ...data, solvedByTask, solvedEvents, progress, streak, xpTotal });
+  res.json({ taskProgress, progress: updated.progress, streak: updated.streak, xpTotal: updated.xpTotal, xpGained });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Ошибка сервера' });

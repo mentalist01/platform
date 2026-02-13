@@ -36,6 +36,35 @@ const GAME_THEORY_TASK = 19;
 const PYTHON_LEVEL_ID = 'python';
 const GOAL_TYPE_TASK = 'task';
 const GOAL_TYPE_MOCK = 'mock';
+const XP_PER_LEVEL = 1000;
+const LEVEL_UP_PARTICLE_COUNT = 24;
+const TASK_XP_REWARDS = {
+  1: 20,
+  2: 50,
+  3: 40,
+  4: 30,
+  5: 100,
+  6: 100,
+  7: 80,
+  8: 350,
+  9: 550,
+  10: 10,
+  11: 500,
+  12: 120,
+  13: 300,
+  14: 300,
+  15: 450,
+  16: 150,
+  17: 450,
+  18: 250,
+  19: 500,
+  22: 300,
+  23: 150,
+  24: 700,
+  25: 500,
+  26: 800,
+  27: 500,
+};
 const MOCK_TASK_NUMBERS = Array.from({ length: 27 }, (_, i) => i + 1);
 const PRIMARY_TO_SECONDARY = {
   1: 7,
@@ -109,6 +138,20 @@ const normalizeTaskNumber = (value) => {
   if (!Number.isFinite(num) || num <= 0) return NaN;
   if (num === 20 || num === 21) return GAME_THEORY_TASK;
   return num;
+};
+
+const getTaskXpReward = (taskNumber) => {
+  const normalizedTask = normalizeTaskNumber(taskNumber);
+  if (!Number.isFinite(normalizedTask) || normalizedTask < 1 || normalizedTask > 27) return 0;
+  const reward = Number(TASK_XP_REWARDS[normalizedTask]);
+  if (!Number.isFinite(reward) || reward <= 0) return 0;
+  return Math.floor(reward);
+};
+
+const normalizeXpTotal = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return 0;
+  return Math.floor(num);
 };
 
 const formatTaskNumber = (value) => {
@@ -251,6 +294,26 @@ const getSolvedEventDayKey = (event) => {
   const parsed = new Date(solvedAtRaw);
   if (Number.isNaN(parsed.getTime())) return null;
   return getLocalDayKey(parsed);
+};
+
+const deriveXpFromSolvedByTask = (solvedByTask) => {
+  if (!solvedByTask || typeof solvedByTask !== 'object') return 0;
+  let totalXp = 0;
+  Object.entries(solvedByTask).forEach(([taskKey, taskEntry]) => {
+    if (!taskEntry || typeof taskEntry !== 'object' || Array.isArray(taskEntry)) return;
+    const reward = getTaskXpReward(taskKey);
+    if (reward <= 0) return;
+    Object.entries(taskEntry).forEach(([levelKey, levelEntry]) => {
+      if (String(levelKey).startsWith('_')) return;
+      if (!levelEntry || typeof levelEntry !== 'object' || Array.isArray(levelEntry)) return;
+      const solvedList = Array.isArray(levelEntry.solved) ? levelEntry.solved : [];
+      if (solvedList.length <= 0) return;
+      const solvedCount = new Set(solvedList.map((id) => String(id))).size;
+      if (solvedCount <= 0) return;
+      totalXp += solvedCount * reward;
+    });
+  });
+  return totalXp;
 };
 
 const isTestingSolvedEvent = (event) => {
@@ -3331,7 +3394,7 @@ const AdminPanel = ({
 /**
  * STUDENT TEST MODAL
  */
-const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testDb, initialQuestionIndex, onQuestionChange, onStreakSaved }) => {
+const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testDb, initialQuestionIndex, onQuestionChange, onStreakSaved, onXpGain }) => {
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [solvedIds, setSolvedIds] = useState(new Set());
@@ -3586,7 +3649,7 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
     return runPythonInMainThread(source, inputValue);
   };
 
-  const handleRunTests = async () => {
+  const handleRunTests = async (sourceRect = null) => {
     const currentQuestion = questions[currentIndex];
     if (!currentQuestion) return;
     setRunnerLoading(true);
@@ -3670,6 +3733,15 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
                   })
                   .catch(() => {});
               }
+            }
+            if (typeof onXpGain === 'function' && Number.isFinite(Number(resp?.xpTotal))) {
+              onXpGain({
+                xpTotal: normalizeXpTotal(resp.xpTotal),
+                xpGained: normalizeXpTotal(resp?.xpGained),
+                sourceRect: sourceRect && Number.isFinite(sourceRect.left) && Number.isFinite(sourceRect.top)
+                  ? sourceRect
+                  : null,
+              });
             }
             if (typeof resp?.taskProgress === 'number') {
               onComplete(task.id, resp.taskProgress, { skipServer: true });
@@ -3952,7 +4024,21 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
           <div className="space-y-3 mb-5 md:mb-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div className="text-xs font-bold text-gray-400 uppercase">Тесты</div>
-              <Button onClick={handleRunTests} disabled={runnerLoading || !code.trim()} className="w-full sm:w-auto">
+              <Button
+                onClick={(event) => {
+                  const rect = event?.currentTarget?.getBoundingClientRect?.();
+                  handleRunTests(rect && Number.isFinite(rect.left) && Number.isFinite(rect.top)
+                    ? {
+                        left: rect.left,
+                        top: rect.top,
+                        width: rect.width,
+                        height: rect.height,
+                      }
+                    : null);
+                }}
+                disabled={runnerLoading || !code.trim()}
+                className="w-full sm:w-auto"
+              >
                 {runnerLoading ? 'Запуск...' : 'Запустить тесты'}
               </Button>
             </div>
@@ -4765,6 +4851,7 @@ const StudentTestModal = ({
   initialQuestionIndex,
   onQuestionChange,
   onStreakSaved,
+  onXpGain,
   forceInitialLevelLaunch = false
 }) => {
   const [stage, setStage] = useState('select_level'); // select_level | testing
@@ -5197,7 +5284,7 @@ const StudentTestModal = ({
     return Array.from({ length: safeCount }, (_, index) => String(values[index] ?? ''));
   };
 
-  const handleCheck = async () => {
+  const handleCheck = async (sourceRect = null) => {
     const currentQuestion = questions[currentIndex];
     const currentId = String(currentQuestion?.id ?? currentIndex);
     const answerCount = getAnswerCountForTask(task?.number);
@@ -5270,6 +5357,15 @@ const StudentTestModal = ({
               })
               .catch(() => {});
           }
+        }
+        if (typeof onXpGain === 'function' && Number.isFinite(Number(resp?.xpTotal))) {
+          onXpGain({
+            xpTotal: normalizeXpTotal(resp.xpTotal),
+            xpGained: normalizeXpTotal(resp?.xpGained),
+            sourceRect: sourceRect && Number.isFinite(sourceRect.left) && Number.isFinite(sourceRect.top)
+              ? sourceRect
+              : null,
+          });
         }
         if (typeof resp?.taskProgress === 'number') {
           onComplete(task.id, resp.taskProgress, { skipServer: true });
@@ -5891,9 +5987,17 @@ const StudentTestModal = ({
 
           <div className="pt-3 md:pt-4 border-t border-gray-100 bg-white/95 pb-[calc(env(safe-area-inset-bottom)+0.25rem)]">
             <Button 
-              onClick={() => {
+              onClick={(event) => {
                 if (!computedChecked) {
-                  handleCheck();
+                  const rect = event?.currentTarget?.getBoundingClientRect?.();
+                  handleCheck(rect && Number.isFinite(rect.left) && Number.isFinite(rect.top)
+                    ? {
+                        left: rect.left,
+                        top: rect.top,
+                        width: rect.width,
+                        height: rect.height,
+                      }
+                    : null);
                   return;
                 }
                 if (!computedCorrect) {
@@ -6017,7 +6121,8 @@ const ProgressSection = ({
   onSectionChange,
   onTaskStateChange,
   onStreakSaved,
-  onMockAttemptSaved
+  onMockAttemptSaved,
+  onXpGain
 }) => {
   const taskList = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const [activeTask, setActiveTask] = useState(null);
@@ -7714,6 +7819,7 @@ const ProgressSection = ({
           onLevelSelect={setActiveLevel}
           onQuestionChange={setActiveQuestionIndex}
           onStreakSaved={onStreakSaved}
+          onXpGain={onXpGain}
           forceInitialLevelLaunch={forceInitialLevelLaunch}
           onComplete={(taskId, score, options) => {
             onUpdateProgress(taskId, score, options);
@@ -8095,7 +8201,8 @@ const PythonSection = ({
   openTask,
   onOpenTaskHandled,
   onTaskStateChange,
-  onStreakSaved
+  onStreakSaved,
+  onXpGain
 }) => {
   const taskList = PYTHON_TASKS;
   const [activeTask, setActiveTask] = useState(null);
@@ -9274,6 +9381,7 @@ const PythonSection = ({
           initialQuestionIndex={activeQuestionIndex}
           onQuestionChange={setActiveQuestionIndex}
           onStreakSaved={onStreakSaved}
+          onXpGain={onXpGain}
           onComplete={(taskId, score, options) => {
             onUpdateProgress(taskId, score, options);
           }}
@@ -13848,13 +13956,33 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const [goalTestsLoaded, setGoalTestsLoaded] = useState(false);
   const [studentDataLoaded, setStudentDataLoaded] = useState(false);
   const [studentStreak, setStudentStreak] = useState(getDefaultStreak());
+  const [studentXpTotal, setStudentXpTotal] = useState(0);
+  const [xpDisplayTotal, setXpDisplayTotal] = useState(0);
+  const [xpDockVisible, setXpDockVisible] = useState(false);
+  const [xpAnimationActive, setXpAnimationActive] = useState(false);
+  const [xpFlightStars, setXpFlightStars] = useState([]);
   const [streakPopup, setStreakPopup] = useState({
     open: false,
     current: 0,
     best: 0,
     isNewRecord: false
   });
+  const [levelUpPopup, setLevelUpPopup] = useState({
+    open: false,
+    from: 1,
+    to: 1,
+    totalXp: 0
+  });
   const studentStreakRef = useRef(studentStreak);
+  const xpDisplayTotalRef = useRef(0);
+  const xpCounterFrameRef = useRef(null);
+  const xpDockHideTimerRef = useRef(null);
+  const xpAnimTokenRef = useRef(0);
+  const xpAnimationRunningRef = useRef(false);
+  const xpInlineBarRef = useRef(null);
+  const xpDockBarRef = useRef(null);
+  const prevLevelRef = useRef(null);
+  const levelUpTimerRef = useRef(null);
   const scheduleHomeworkFlyRef = useRef(null);
   const goalSummaryFlyRef = useRef(null);
   const goalFlyFromRectRef = useRef(null);
@@ -14124,6 +14252,174 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     setPushPermission(getPushPermission());
     syncPushSubscriptionState({ silent: true });
   }, [syncPushSubscriptionState, user.role, user.id]);
+
+  const stopXpGainAnimation = useCallback(({ keepDock = false } = {}) => {
+    xpAnimTokenRef.current += 1;
+    if (xpCounterFrameRef.current) {
+      cancelAnimationFrame(xpCounterFrameRef.current);
+      xpCounterFrameRef.current = null;
+    }
+    if (xpDockHideTimerRef.current) {
+      clearTimeout(xpDockHideTimerRef.current);
+      xpDockHideTimerRef.current = null;
+    }
+    xpAnimationRunningRef.current = false;
+    setXpAnimationActive(false);
+    setXpFlightStars([]);
+    if (!keepDock) {
+      setXpDockVisible(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    xpDisplayTotalRef.current = normalizeXpTotal(xpDisplayTotal);
+  }, [xpDisplayTotal]);
+
+  const createXpFlightStars = useCallback((sourceRect, targetRect, gainedXp, flightDurationMs) => {
+    const viewportW = typeof window !== 'undefined' ? window.innerWidth : 1280;
+    const viewportH = typeof window !== 'undefined' ? window.innerHeight : 720;
+    const sourceCenterX = Number.isFinite(sourceRect?.left)
+      ? sourceRect.left + ((Number.isFinite(sourceRect?.width) ? sourceRect.width : 0) / 2)
+      : (viewportW * 0.5);
+    const sourceCenterY = Number.isFinite(sourceRect?.top)
+      ? sourceRect.top + ((Number.isFinite(sourceRect?.height) ? sourceRect.height : 0) * 0.42)
+      : (viewportH * 0.62);
+    const targetPaddingX = Math.max(6, Math.min(14, targetRect.width * 0.08));
+    const targetInnerLeft = targetRect.left + targetPaddingX;
+    const targetInnerWidth = Math.max(10, targetRect.width - (targetPaddingX * 2));
+    const targetCenterY = targetRect.top + (targetRect.height * 0.5);
+    const count = Math.max(10, Math.min(34, Math.round(gainedXp / 35)));
+    const stars = [];
+    let maxLandingMs = 0;
+    for (let i = 0; i < count; i += 1) {
+      const progress = count > 1 ? (i / (count - 1)) : 0;
+      const startJitterX = (Math.random() - 0.5) * Math.max(36, (Number(sourceRect?.width) || 110) * 0.85);
+      const startJitterY = (Math.random() - 0.5) * Math.max(24, (Number(sourceRect?.height) || 56) * 0.7);
+      const laneProgress = Math.max(
+        0.06,
+        Math.min(0.94, (progress * 0.55) + (Math.random() * 0.45))
+      );
+      const endX = targetInnerLeft + (targetInnerWidth * laneProgress);
+      const endY = targetCenterY + ((Math.random() - 0.5) * Math.min(2.8, targetRect.height * 0.3));
+      const startX = sourceCenterX + startJitterX;
+      const startY = sourceCenterY + startJitterY;
+      const horizontalCurve = (Math.random() - 0.5) * Math.max(56, Math.min(viewportW * 0.12, 132));
+      const verticalLift = 96 + (Math.random() * 106);
+      const midX = startX + ((endX - startX) * 0.44) + horizontalCurve;
+      const midY = Math.min(startY, endY) - verticalLift;
+      const delayMs = Math.round(progress * (flightDurationMs * 0.58) + (Math.random() * 120));
+      const durationMs = Math.round((flightDurationMs * (0.62 + (Math.random() * 0.34))));
+      const landingMs = delayMs + Math.round(durationMs * 0.88);
+      if (landingMs > maxLandingMs) maxLandingMs = landingMs;
+      stars.push({
+        id: `xp-star-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
+        sizePx: Math.round(18 + (Math.random() * 14)),
+        delayMs,
+        durationMs,
+        startX,
+        startY,
+        midX,
+        midY,
+        endX,
+        endY,
+        rotateDeg: Math.round((Math.random() * 180) - 90),
+        hue: Math.round((Math.random() * 18) - 9),
+      });
+    }
+    return { stars, maxLandingMs };
+  }, []);
+
+  const handleXpGain = useCallback((payload = {}) => {
+    if (user.role !== 'student') return;
+    const targetTotal = normalizeXpTotal(payload?.xpTotal);
+    const payloadGained = normalizeXpTotal(payload?.xpGained);
+    const currentDisplay = normalizeXpTotal(xpDisplayTotalRef.current);
+    const computedGained = Math.max(payloadGained, targetTotal - currentDisplay, 0);
+
+    setStudentXpTotal(targetTotal);
+
+    if (!Number.isFinite(targetTotal) || targetTotal <= 0) {
+      stopXpGainAnimation();
+      setXpDisplayTotal(0);
+      return;
+    }
+
+    const prefersReducedMotion = typeof window !== 'undefined'
+      && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (computedGained <= 0 || prefersReducedMotion) {
+      stopXpGainAnimation();
+      setXpDisplayTotal(targetTotal);
+      return;
+    }
+
+    stopXpGainAnimation({ keepDock: true });
+    const token = Date.now() + Math.floor(Math.random() * 1000);
+    xpAnimTokenRef.current = token;
+    xpAnimationRunningRef.current = true;
+    setXpDockVisible(true);
+    setXpAnimationActive(true);
+    setXpFlightStars([]);
+
+    const sourceRect = (
+      payload?.sourceRect
+      && Number.isFinite(payload.sourceRect.left)
+      && Number.isFinite(payload.sourceRect.top)
+      && Number.isFinite(payload.sourceRect.width)
+      && Number.isFinite(payload.sourceRect.height)
+    )
+      ? payload.sourceRect
+      : null;
+    const baseDurationMs = Math.max(1200, Math.min(2700, Math.round(1100 + (computedGained * 1.25))));
+    const startTotal = currentDisplay;
+
+    const runAnimation = () => {
+      if (xpAnimTokenRef.current !== token) return;
+      const targetRect = xpDockBarRef.current?.getBoundingClientRect() || xpInlineBarRef.current?.getBoundingClientRect();
+      if (!targetRect || targetRect.width < 24 || targetRect.height < 8) {
+        stopXpGainAnimation();
+        setXpDisplayTotal(targetTotal);
+        return;
+      }
+
+      const { stars, maxLandingMs } = createXpFlightStars(sourceRect, targetRect, computedGained, baseDurationMs);
+      if (xpAnimTokenRef.current !== token) return;
+      setXpFlightStars(stars);
+
+      const counterDurationMs = Math.max(900, Math.min(3600, maxLandingMs + 140));
+      const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const tick = (nowRaw) => {
+        if (xpAnimTokenRef.current !== token) return;
+        const now = Number.isFinite(nowRaw) ? nowRaw : Date.now();
+        const elapsed = Math.max(0, now - startTime);
+        const linearProgress = Math.max(0, Math.min(1, elapsed / counterDurationMs));
+        const easedProgress = 1 - Math.pow(1 - linearProgress, 3);
+        const nextValue = Math.round(startTotal + ((targetTotal - startTotal) * easedProgress));
+        setXpDisplayTotal(nextValue);
+        if (linearProgress < 1) {
+          xpCounterFrameRef.current = requestAnimationFrame(tick);
+          return;
+        }
+        xpCounterFrameRef.current = null;
+        setXpDisplayTotal(targetTotal);
+      };
+      xpCounterFrameRef.current = requestAnimationFrame(tick);
+
+      xpDockHideTimerRef.current = setTimeout(() => {
+        if (xpAnimTokenRef.current !== token) return;
+        setXpAnimationActive(false);
+        setXpFlightStars([]);
+        setXpDockVisible(false);
+        xpAnimationRunningRef.current = false;
+      }, counterDurationMs + 820);
+    };
+
+    requestAnimationFrame(() => requestAnimationFrame(runAnimation));
+  }, [createXpFlightStars, stopXpGainAnimation, user.role]);
+
+  useEffect(() => () => {
+    stopXpGainAnimation();
+  }, [stopXpGainAnimation]);
+
   const clearGoalFlyAnimationStyles = useCallback((node = goalSummaryFlyRef.current) => {
     if (!node) return;
     node.style.transition = '';
@@ -14262,6 +14558,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const weekStart = getWeekStartKey(todayKey);
   const freezeUsedThisWeek = weekStart && streak.freezeUsedWeekStart === weekStart;
   const freezeAvailable = !freezeUsedThisWeek;
+  const totalXp = normalizeXpTotal(xpDisplayTotal);
+  const currentLevel = Math.floor(totalXp / XP_PER_LEVEL) + 1;
+  const xpIntoLevel = totalXp % XP_PER_LEVEL;
+  const levelProgressPercent = Math.max(0, Math.min(100, Math.round((xpIntoLevel / XP_PER_LEVEL) * 100)));
+  const xpIntoLevelLabel = xpIntoLevel.toLocaleString('ru-RU');
+  const xpPerLevelLabel = XP_PER_LEVEL.toLocaleString('ru-RU');
+  const totalXpLabel = totalXp.toLocaleString('ru-RU');
   const displayStreakCurrent = (() => {
     if (!lastActiveKey) return 0;
     if (!Number.isFinite(diffDays) || diffDays <= 1) return streak.current;
@@ -14342,6 +14645,25 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     };
   }, [studentSolvedEvents, todayNum]);
   const averageSolvedPerDayLabel = formatPerDayRateLabel(solvedPerDayStats.average);
+  const levelUpParticles = useMemo(() => (
+    Array.from({ length: LEVEL_UP_PARTICLE_COUNT }, (_, index) => {
+      const horizontalSeed = ((index * 53) % 240) - 120;
+      const driftSeed = ((index * 37) % 80) - 40;
+      const size = 5 + ((index * 7) % 7);
+      const delay = ((index * 11) % 18) * 0.045;
+      const duration = 1.45 + ((index * 13) % 11) * 0.12;
+      const rotate = ((index * 29) % 120) - 60;
+      return {
+        key: `lvl-particle-${index}`,
+        left: `calc(50% + ${horizontalSeed}px)`,
+        driftX: `${driftSeed}px`,
+        size: `${size}px`,
+        delay: `${delay}s`,
+        duration: `${duration}s`,
+        rotate: `${rotate}deg`,
+      };
+    })
+  ), []);
   const testingForecast = useMemo(() => {
     const testsDb = goalTestsDb && typeof goalTestsDb === 'object' ? goalTestsDb : {};
     let total = 0;
@@ -14538,10 +14860,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
 
   useEffect(() => {
     if (user.role !== 'student') {
+      stopXpGainAnimation();
       setSolvedByTask({});
       setStudentSolvedEvents([]);
       setStudentDataLoaded(false);
       setStudentStreak(getDefaultStreak());
+      setStudentXpTotal(0);
+      setXpDisplayTotal(0);
+      prevLevelRef.current = null;
+      if (levelUpTimerRef.current) {
+        clearTimeout(levelUpTimerRef.current);
+        levelUpTimerRef.current = null;
+      }
+      setLevelUpPopup({ open: false, from: 1, to: 1, totalXp: 0 });
       return;
     }
     let cancelled = false;
@@ -14556,23 +14887,66 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         setSolvedByTask(solved);
         setStudentSolvedEvents(solvedEvents);
         setStudentStreak(normalizeStreak(data?.streak));
+        const resolvedXp = Number.isFinite(Number(data?.xpTotal))
+          ? normalizeXpTotal(data.xpTotal)
+          : deriveXpFromSolvedByTask(solved);
+        setStudentXpTotal(resolvedXp);
+        if (!xpAnimationRunningRef.current) {
+          setXpDisplayTotal(resolvedXp);
+        }
         setStudentDataLoaded(true);
       })
       .catch(() => {
         if (!cancelled) {
+          stopXpGainAnimation();
           setSolvedByTask({});
           setStudentSolvedEvents([]);
           setStudentStreak(getDefaultStreak());
+          setStudentXpTotal(0);
+          setXpDisplayTotal(0);
           setStudentDataLoaded(true);
         }
       });
     return () => { cancelled = true; };
-  }, [user.role, user.id, goalRefreshTick]);
+  }, [goalRefreshTick, stopXpGainAnimation, user.id, user.role]);
 
   useEffect(() => {
     paceForecastShownRef.current = false;
     setPaceForecastPopupOpen(false);
   }, [user.role, user.id]);
+
+  useEffect(() => {
+    if (user.role !== 'student') return;
+    if (!studentDataLoaded) return;
+    if (!Number.isFinite(currentLevel) || currentLevel < 1) return;
+
+    const previousLevel = prevLevelRef.current;
+    if (!Number.isFinite(previousLevel)) {
+      prevLevelRef.current = currentLevel;
+      return;
+    }
+    if (currentLevel > previousLevel) {
+      setLevelUpPopup({
+        open: true,
+        from: previousLevel,
+        to: currentLevel,
+        totalXp
+      });
+      if (levelUpTimerRef.current) clearTimeout(levelUpTimerRef.current);
+      levelUpTimerRef.current = setTimeout(() => {
+        setLevelUpPopup((prev) => ({ ...prev, open: false }));
+        levelUpTimerRef.current = null;
+      }, 4500);
+    }
+    prevLevelRef.current = currentLevel;
+  }, [user.role, studentDataLoaded, currentLevel, totalXp]);
+
+  useEffect(() => () => {
+    if (levelUpTimerRef.current) {
+      clearTimeout(levelUpTimerRef.current);
+      levelUpTimerRef.current = null;
+    }
+  }, []);
 
   const closePaceForecastPopup = useCallback(() => {
     setPaceForecastPopupOpen(false);
@@ -15376,6 +15750,49 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           })}
         </div>
       )}
+      {user.role === 'student' && xpDockVisible && (
+        <div className="xp-flight-dock-shell">
+          <div className={`xp-flight-dock ${xpAnimationActive ? 'xp-flight-dock--active' : ''}`}>
+            <div className="xp-flight-dock-level">{currentLevel}</div>
+            <div className="min-w-0 flex-1">
+              <div className="xp-flight-dock-meta">
+                <span>{`${xpIntoLevelLabel}/${xpPerLevelLabel} XP`}</span>
+                <span>{`${totalXpLabel} XP`}</span>
+              </div>
+              <div ref={xpDockBarRef} className="xp-flight-dock-track">
+                <div
+                  className="xp-flight-dock-fill"
+                  style={{ width: `${levelProgressPercent}%` }}
+                />
+                <div className="xp-flight-dock-shine" />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {user.role === 'student' && xpFlightStars.length > 0 && (
+        <div className="xp-flight-overlay" aria-hidden="true">
+          {xpFlightStars.map((star) => (
+            <span
+              key={star.id}
+              className="xp-flight-star"
+              style={{
+                '--xp-size': `${star.sizePx}px`,
+                '--xp-delay': `${star.delayMs}ms`,
+                '--xp-duration': `${star.durationMs}ms`,
+                '--xp-start-x': `${star.startX}px`,
+                '--xp-start-y': `${star.startY}px`,
+                '--xp-mid-x': `${star.midX}px`,
+                '--xp-mid-y': `${star.midY}px`,
+                '--xp-end-x': `${star.endX}px`,
+                '--xp-end-y': `${star.endY}px`,
+                '--xp-rotate': `${star.rotateDeg}deg`,
+                '--xp-hue': `${star.hue}deg`,
+              }}
+            />
+          ))}
+        </div>
+      )}
       {streakPopup.open && (
           <div
             className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/30 backdrop-blur-sm streak-overlay"
@@ -15406,6 +15823,62 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               </button>
             </div>
           </div>
+      )}
+      {levelUpPopup.open && (
+        <div
+          className="fixed inset-0 z-[1350] flex items-center justify-center bg-slate-950/45 backdrop-blur-[3px] levelup-overlay"
+          onClick={() => setLevelUpPopup((prev) => ({ ...prev, open: false }))}
+        >
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div className="levelup-rings">
+              <span className="levelup-ring levelup-ring--a" />
+              <span className="levelup-ring levelup-ring--b" />
+              <span className="levelup-ring levelup-ring--c" />
+            </div>
+            <div className="levelup-rays">
+              <span className="levelup-ray levelup-ray--a" />
+              <span className="levelup-ray levelup-ray--b" />
+              <span className="levelup-ray levelup-ray--c" />
+            </div>
+            {levelUpParticles.map((particle) => (
+              <span
+                key={particle.key}
+                className="levelup-particle"
+                style={{
+                  left: particle.left,
+                  width: particle.size,
+                  height: particle.size,
+                  '--levelup-drift-x': particle.driftX,
+                  '--levelup-rotate': particle.rotate,
+                  '--levelup-delay': particle.delay,
+                  '--levelup-duration': particle.duration,
+                }}
+              />
+            ))}
+          </div>
+          <div
+            className="levelup-card relative w-[min(92vw,420px)] rounded-[30px] border border-violet-200/70 bg-gradient-to-br from-white via-violet-50 to-fuchsia-100/85 px-6 py-6 text-center shadow-[0_28px_80px_rgba(67,17,128,0.35)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mx-auto mb-3 levelup-badge">
+              <div className="levelup-badge-core">{levelUpPopup.to}</div>
+              <div className="levelup-badge-glow" />
+            </div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-fuchsia-700">Level Up</div>
+            <div className="mt-1 text-3xl font-extrabold text-slate-900">{`Уровень ${levelUpPopup.to}`}</div>
+            <div className="mt-2 text-xs font-semibold text-slate-500">{`Было ${levelUpPopup.from} • стало ${levelUpPopup.to}`}</div>
+            <div className="mt-3 inline-flex items-center rounded-full border border-violet-200 bg-white/85 px-3 py-1 text-xs font-semibold text-violet-700">
+              {`${(Number(levelUpPopup.totalXp) || totalXp).toLocaleString('ru-RU')} XP`}
+            </div>
+            <button
+              type="button"
+              onClick={() => setLevelUpPopup((prev) => ({ ...prev, open: false }))}
+              className="mt-5 w-full rounded-xl border border-violet-200 bg-white px-4 py-2.5 text-sm font-semibold text-violet-700 transition hover:bg-violet-50"
+            >
+              Круто!
+            </button>
+          </div>
+        </div>
       )}
       {user.role === 'student' && paceForecastPopupOpen && (
         <div
@@ -15704,73 +16177,107 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         <main className="flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8" data-tour="main">
           <div className="main-content-shell animate-soft">
           {user.role === 'student' && (
-            <div className="mb-3 flex justify-end">
-              <div className="flex items-center gap-2">
+            <div className="mb-3 rounded-2xl border border-slate-200/80 bg-gradient-to-r from-white to-slate-50/85 px-2.5 py-2 shadow-sm sm:px-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div
-                  className={`flex items-center gap-2 rounded-full border bg-white px-3.5 py-2 text-sm font-semibold shadow-sm cursor-default ${paceBadgeState.className}`}
-                  aria-label={`Среднее в день: ${averageSolvedPerDayLabel}`}
-                  title={paceBadgeState.title}
+                  className="level-progress-card min-w-[255px] px-2.5 py-2 text-sm font-semibold"
+                  aria-label={`Уровень ${currentLevel}. Опыт: ${totalXpLabel}`}
+                  title={`Всего опыта: ${totalXpLabel} XP`}
                 >
-                  {paceBadgeState.level === 'ok' && <CheckCircle size={16} />}
-                  {paceBadgeState.level === 'warn' && <AlertTriangle size={16} />}
-                  {paceBadgeState.level === 'danger' && <AlertCircle size={16} />}
-                  <span className="text-gray-900">{averageSolvedPerDayLabel}</span>
-                  <span className="text-[11px] font-semibold text-gray-500">/день</span>
-                </div>
-                <div className="relative group">
-                  <div
-                    className={`flex items-center gap-2 rounded-full border border-purple-200 bg-white px-3.5 py-2 text-sm font-semibold text-purple-600 shadow-sm cursor-default streak-badge ${displayStreakCurrent > 0 ? 'streak-badge--active' : ''}`}
-                    aria-label={`Серия: ${displayStreakCurrent}`}
-                  >
-                    <Flame
-                      size={18}
-                      className={`${displayStreakCurrent > 0 ? 'text-purple-500 streak-flame' : 'text-gray-300'}`}
-                      fill={displayStreakCurrent > 0 ? 'currentColor' : 'none'}
-                      stroke={displayStreakCurrent > 0 ? 'currentColor' : 'currentColor'}
-                    />
-                    <span className="text-gray-900">{displayStreakCurrent}</span>
+                  <div className="level-progress-main">
+                    <div className="level-progress-badge">
+                      {currentLevel}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="level-progress-head">
+                        <span className="level-progress-title">{`Уровень ${currentLevel}`}</span>
+                        <span className="level-progress-total">{`${totalXpLabel} XP`}</span>
+                      </div>
+                      <div
+                        ref={xpInlineBarRef}
+                        className={`level-progress-track ${xpAnimationActive ? 'xp-inline-bar--active' : ''}`}
+                      >
+                        <div
+                          className="level-progress-fill transition-all duration-300"
+                          style={{ width: `${levelProgressPercent}%` }}
+                        />
+                        <div className="level-progress-track-grid" />
+                        <div className="level-progress-glass" />
+                      </div>
+                      <div className="level-progress-foot">
+                        <span>{`${xpIntoLevelLabel}/${xpPerLevelLabel} XP`}</span>
+                        <span>{`${levelProgressPercent}%`}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="pointer-events-none absolute right-0 z-50 mt-3 w-72 origin-top-right translate-y-1 rounded-3xl surface-panel p-4 text-gray-700 shadow-xl opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 streak-popover">
-                    <div className="absolute right-6 -top-1 h-3 w-3 rotate-45 border-l border-t border-purple-200 bg-white" />
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-100 text-purple-600">
-                        <Flame size={22} />
-                      </div>
-                      <div>
-                        <div className="text-sm font-semibold text-purple-700">Серия</div>
-                        <div className="text-xs text-gray-500">Решайте каждый день, чтобы поддерживать серию.</div>
-                      </div>
+                </div>
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                  <div
+                    className={`flex items-center gap-2 rounded-full border bg-white px-3.5 py-2 text-sm font-semibold shadow-sm cursor-default ${paceBadgeState.className}`}
+                    aria-label={`Среднее в день: ${averageSolvedPerDayLabel}`}
+                    title={paceBadgeState.title}
+                  >
+                    {paceBadgeState.level === 'ok' && <CheckCircle size={16} />}
+                    {paceBadgeState.level === 'warn' && <AlertTriangle size={16} />}
+                    {paceBadgeState.level === 'danger' && <AlertCircle size={16} />}
+                    <span className="text-gray-900">{averageSolvedPerDayLabel}</span>
+                    <span className="text-[11px] font-semibold text-gray-500">/день</span>
+                  </div>
+                  <div className="relative group">
+                    <div
+                      className={`flex items-center gap-2 rounded-full border border-purple-200 bg-white px-3.5 py-2 text-sm font-semibold text-purple-600 shadow-sm cursor-default streak-badge ${displayStreakCurrent > 0 ? 'streak-badge--active' : ''}`}
+                      aria-label={`Серия: ${displayStreakCurrent}`}
+                    >
+                      <Flame
+                        size={18}
+                        className={`${displayStreakCurrent > 0 ? 'text-purple-500 streak-flame' : 'text-gray-300'}`}
+                        fill={displayStreakCurrent > 0 ? 'currentColor' : 'none'}
+                        stroke={displayStreakCurrent > 0 ? 'currentColor' : 'currentColor'}
+                      />
+                      <span className="text-gray-900">{displayStreakCurrent}</span>
                     </div>
-                    <div className="mt-3 flex items-end gap-2">
-                      <div className="text-3xl font-bold text-gray-900">{displayStreakCurrent}</div>
-                      <div className="text-xs text-gray-500">дней подряд</div>
-                    </div>
-                    <div className="mt-1 text-xs text-gray-500">{streakStatusText}</div>
-                    <div className="mt-3 grid grid-cols-7 gap-2 text-[10px] text-gray-400">
-                      {streakWeek.map((day) => (
-                        <div key={day.dayKey || day.label} className="flex flex-col items-center gap-1">
-                          <span className="uppercase">{day.label}</span>
-                          <div
-                            className={`flex h-7 w-7 items-center justify-center rounded-full border ${
-                              day.isInStreak
-                                ? 'border-purple-400 bg-purple-500 text-white'
-                                : 'border-gray-200 bg-gray-100 text-gray-400'
-                            }`}
-                          >
-                            {day.isInStreak && (
-                              day.isFreeze ? <Snowflake size={14} /> : <Check size={16} />
-                            )}
-                          </div>
+                    <div className="pointer-events-none absolute right-0 z-50 mt-3 w-72 origin-top-right translate-y-1 rounded-3xl surface-panel p-4 text-gray-700 shadow-xl opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 streak-popover">
+                      <div className="absolute right-6 -top-1 h-3 w-3 rotate-45 border-l border-t border-purple-200 bg-white" />
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-100 text-purple-600">
+                          <Flame size={22} />
                         </div>
-                      ))}
+                        <div>
+                          <div className="text-sm font-semibold text-purple-700">Серия</div>
+                          <div className="text-xs text-gray-500">Решайте каждый день, чтобы поддерживать серию.</div>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex items-end gap-2">
+                        <div className="text-3xl font-bold text-gray-900">{displayStreakCurrent}</div>
+                        <div className="text-xs text-gray-500">дней подряд</div>
+                      </div>
+                      <div className="mt-1 text-xs text-gray-500">{streakStatusText}</div>
+                      <div className="mt-3 grid grid-cols-7 gap-2 text-[10px] text-gray-400">
+                        {streakWeek.map((day) => (
+                          <div key={day.dayKey || day.label} className="flex flex-col items-center gap-1">
+                            <span className="uppercase">{day.label}</span>
+                            <div
+                              className={`flex h-7 w-7 items-center justify-center rounded-full border ${
+                                day.isInStreak
+                                  ? 'border-purple-400 bg-purple-500 text-white'
+                                  : 'border-gray-200 bg-gray-100 text-gray-400'
+                              }`}
+                            >
+                              {day.isInStreak && (
+                                day.isFreeze ? <Snowflake size={14} /> : <Check size={16} />
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 flex items-center justify-between text-[11px] text-gray-500">
+                        <span>{`Рекорд: ${streak.best}`}</span>
+                        <span>{`Заморозка: ${freezeAvailable ? 'доступна' : 'использована'}`}</span>
+                      </div>
+                      {lastActiveLabel && (
+                        <div className="mt-1 text-[11px] text-gray-400">{`Последняя активность: ${lastActiveLabel}`}</div>
+                      )}
                     </div>
-                    <div className="mt-3 flex items-center justify-between text-[11px] text-gray-500">
-                      <span>{`Рекорд: ${streak.best}`}</span>
-                      <span>{`Заморозка: ${freezeAvailable ? 'доступна' : 'использована'}`}</span>
-                    </div>
-                    {lastActiveLabel && (
-                      <div className="mt-1 text-[11px] text-gray-400">{`Последняя активность: ${lastActiveLabel}`}</div>
-                    )}
                   </div>
                 </div>
               </div>
@@ -15962,6 +16469,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               onSectionChange={handleProgressSectionChange}
               onTaskStateChange={handleTaskStateChange}
               onStreakSaved={handleStreakSaved}
+              onXpGain={handleXpGain}
               openMockExamId={pendingOpenMockExamId}
               onOpenMockExamHandled={handleOpenMockGoalHandled}
               onMockAttemptSaved={() => {
@@ -15986,6 +16494,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               onOpenTaskHandled={() => setPendingOpenTask(null)}
               onTaskStateChange={handleTaskStateChange}
               onStreakSaved={handleStreakSaved}
+              onXpGain={handleXpGain}
             />
           )}
           {view === 'notes' && (
