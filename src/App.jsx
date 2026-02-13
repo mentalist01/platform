@@ -261,6 +261,15 @@ const isTestingSolvedEvent = (event) => {
   return levelId !== PYTHON_LEVEL_ID;
 };
 
+const formatPerDayRateLabel = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return '0';
+  if (num < 1) {
+    return num.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  return num.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+};
+
 const parseTestsFromText = (content) => {
   const normalized = String(content ?? '').replace(/\r\n/g, '\n');
   const blocks = normalized.split(/\n-{3,}\n/);
@@ -14297,14 +14306,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       periodDays
     };
   }, [studentSolvedEvents, todayNum]);
-  const averageSolvedPerDayLabel = (() => {
-    const value = solvedPerDayStats.average;
-    if (!Number.isFinite(value) || value <= 0) return '0';
-    if (value < 1) {
-      return value.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    }
-    return value.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-  })();
+  const averageSolvedPerDayLabel = formatPerDayRateLabel(solvedPerDayStats.average);
   const testingForecast = useMemo(() => {
     const testsDb = goalTestsDb && typeof goalTestsDb === 'object' ? goalTestsDb : {};
     let total = 0;
@@ -14834,6 +14836,35 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     }
     return '';
   })();
+  const egeDeadlineStats = useMemo(() => {
+    const now = new Date();
+    const todayNoon = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
+    let deadline = new Date(todayNoon.getFullYear(), 5, 18, 12, 0, 0, 0); // 18 June
+    if (todayNoon.getTime() > deadline.getTime()) {
+      deadline = new Date(todayNoon.getFullYear() + 1, 5, 18, 12, 0, 0, 0);
+    }
+    const rawDays = Math.floor((deadline.getTime() - todayNoon.getTime()) / (24 * 60 * 60 * 1000));
+    const daysAvailable = Math.max(rawDays + 1, 1); // include today
+    const remaining = Math.max(0, Number(testingForecast.remaining) || 0);
+    const currentPerDay = Math.max(0, Number(testingForecast.averagePerDay) || 0);
+    const requiredPerDay = daysAvailable > 0 ? (remaining / daysAvailable) : remaining;
+    const extraPerDay = Math.max(requiredPerDay - currentPerDay, 0);
+    const bufferPerDay = Math.max(currentPerDay - requiredPerDay, 0);
+    const isOnTrack = extraPerDay <= 0.01;
+    return {
+      deadlineLabel: deadline.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }),
+      daysAvailable,
+      currentPerDay,
+      requiredPerDay,
+      extraPerDay,
+      bufferPerDay,
+      isOnTrack,
+      requiredPerDayLabel: formatPerDayRateLabel(requiredPerDay),
+      extraPerDayLabel: formatPerDayRateLabel(extraPerDay),
+      bufferPerDayLabel: formatPerDayRateLabel(bufferPerDay),
+    };
+  }, [testingForecast.averagePerDay, testingForecast.remaining]);
+  const shouldShowEgeDeadlineHint = testingForecast.total > 0 && testingForecast.remaining > 0;
 
   const refreshGoalState = async () => {
     if (user.role !== 'student') return;
@@ -15390,6 +15421,61 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               {`Текущий темп: ${averageSolvedPerDayLabel} задания/день.`}
               {solvedPerDayStats.periodDays > 0 ? ` Период расчёта: ${formatDaysText(solvedPerDayStats.periodDays)}.` : ''}
             </div>
+            {shouldShowEgeDeadlineHint && (
+              <div className={`mt-3 rounded-xl border px-3 py-2.5 ${
+                egeDeadlineStats.isOnTrack
+                  ? 'border-emerald-200 bg-emerald-50/80'
+                  : 'border-amber-200 bg-amber-50/80'
+              }`}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className={`text-[11px] font-semibold ${
+                    egeDeadlineStats.isOnTrack ? 'text-emerald-700' : 'text-amber-700'
+                  }`}>
+                    {`Цель: успеть до ${egeDeadlineStats.deadlineLabel}`}
+                  </div>
+                  <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                    egeDeadlineStats.isOnTrack
+                      ? 'border-emerald-300 bg-emerald-100 text-emerald-700'
+                      : 'border-amber-300 bg-amber-100 text-amber-700'
+                  }`}>
+                    {egeDeadlineStats.isOnTrack ? 'Успеваешь' : 'Нужно ускориться'}
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-center">
+                  <div className={`rounded-lg border px-2 py-1.5 ${
+                    egeDeadlineStats.isOnTrack
+                      ? 'border-emerald-200 bg-white/80'
+                      : 'border-amber-200 bg-white/80'
+                  }`}>
+                    <div className={`text-[10px] uppercase tracking-wide ${
+                      egeDeadlineStats.isOnTrack ? 'text-emerald-600' : 'text-amber-600'
+                    }`}>Нужно в день</div>
+                    <div className={`mt-0.5 text-sm font-extrabold ${
+                      egeDeadlineStats.isOnTrack ? 'text-emerald-800' : 'text-amber-800'
+                    }`}>{`${egeDeadlineStats.requiredPerDayLabel}`}</div>
+                  </div>
+                  <div className={`rounded-lg border px-2 py-1.5 ${
+                    egeDeadlineStats.isOnTrack
+                      ? 'border-emerald-200 bg-white/80'
+                      : 'border-amber-200 bg-white/80'
+                  }`}>
+                    <div className={`text-[10px] uppercase tracking-wide ${
+                      egeDeadlineStats.isOnTrack ? 'text-emerald-600' : 'text-amber-600'
+                    }`}>Осталось дней</div>
+                    <div className={`mt-0.5 text-sm font-extrabold ${
+                      egeDeadlineStats.isOnTrack ? 'text-emerald-800' : 'text-amber-800'
+                    }`}>{egeDeadlineStats.daysAvailable}</div>
+                  </div>
+                </div>
+                <div className={`mt-2 text-sm font-extrabold ${
+                  egeDeadlineStats.isOnTrack ? 'text-emerald-900' : 'text-amber-900'
+                }`}>
+                  {egeDeadlineStats.isOnTrack
+                    ? `Запас по темпу: +${egeDeadlineStats.bufferPerDayLabel} задания/день.`
+                    : `Нужно добавить: +${egeDeadlineStats.extraPerDayLabel} задания/день.`}
+                </div>
+              </div>
+            )}
 
             <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
               <button
