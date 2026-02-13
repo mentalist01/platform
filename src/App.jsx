@@ -253,6 +253,14 @@ const getSolvedEventDayKey = (event) => {
   return getLocalDayKey(parsed);
 };
 
+const isTestingSolvedEvent = (event) => {
+  if (!event || typeof event !== 'object') return false;
+  const taskNum = Number(event.taskNumber);
+  if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) return false;
+  const levelId = String(event.levelId || '').trim();
+  return levelId !== PYTHON_LEVEL_ID;
+};
+
 const parseTestsFromText = (content) => {
   const normalized = String(content ?? '').replace(/\r\n/g, '\n');
   const blocks = normalized.split(/\n-{3,}\n/);
@@ -14268,6 +14276,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         if (seenIds.has(eventId)) return;
         seenIds.add(eventId);
       }
+      if (!isTestingSolvedEvent(event)) return;
       const dayKey = getSolvedEventDayKey(event);
       const dayNum = dayKeyToNumber(dayKey);
       if (!Number.isFinite(dayNum)) return;
