@@ -16,6 +16,15 @@ import mascotDisapproval from './assets/mascot/disapproval.png';
 import mascotGreetings from './assets/mascot/greetings.png';
 import mascotPeeking from './assets/mascot/peeking.png';
 import mascotPondering from './assets/mascot/pondering.png';
+import leagueBronze from './assets/leagues/bronze.png';
+import leagueSilver from './assets/leagues/silver.png';
+import leagueGold from './assets/leagues/gold.png';
+import leagueRuby from './assets/leagues/ruby.png';
+import leagueDiamond from './assets/leagues/diamond.png';
+import leagueAbsolute from './assets/leagues/absolute.png';
+
+const optionalLeagueIcons = import.meta.glob('./assets/leagues/blank.png', { eager: true, import: 'default' });
+const leagueBlank = optionalLeagueIcons['./assets/leagues/blank.png'] || null;
 
 /**
  * CONSTANTS & CONFIG
@@ -37,6 +46,15 @@ const PYTHON_LEVEL_ID = 'python';
 const GOAL_TYPE_TASK = 'task';
 const GOAL_TYPE_MOCK = 'mock';
 const XP_PER_LEVEL = 1000;
+const LEAGUE_TIERS = [
+  { id: 'absolute', label: 'Абсолют', minXp: 30000, icon: leagueAbsolute },
+  { id: 'ruby', label: 'Рубиновая лига', minXp: 25000, icon: leagueRuby },
+  { id: 'diamond', label: 'Алмазная лига', minXp: 20000, icon: leagueDiamond },
+  { id: 'gold', label: 'Золотая лига', minXp: 15000, icon: leagueGold },
+  { id: 'silver', label: 'Серебряная лига', minXp: 10000, icon: leagueSilver },
+  { id: 'bronze', label: 'Бронзовая лига', minXp: 5000, icon: leagueBronze },
+];
+const BLANK_LEAGUE = { id: 'blank', label: 'Без лиги', minXp: 0, icon: leagueBlank };
 const LEVEL_UP_PARTICLE_COUNT = 24;
 const TASK_XP_REWARDS = {
   1: 20,
@@ -166,6 +184,129 @@ const normalizeXpTotal = (value) => {
   const num = Number(value);
   if (!Number.isFinite(num) || num <= 0) return 0;
   return Math.floor(num);
+};
+
+const getLeagueByXp = (value) => {
+  const xpTotal = normalizeXpTotal(value);
+  const foundLeague = LEAGUE_TIERS.find((league) => xpTotal >= league.minXp);
+  return foundLeague || BLANK_LEAGUE;
+};
+
+const TOP_PLACE_NUMBER_DECOR = [
+  {
+    textClass: 'text-[1.5rem] tracking-[-0.01em]',
+    color: '#fff7d1',
+    outline: '#3f2307',
+    glowPrimary: 'rgba(250, 204, 21, 0.92)',
+    glowSecondary: 'rgba(245, 158, 11, 0.82)',
+  },
+  {
+    textClass: 'text-xl tracking-[-0.005em]',
+    color: '#f8fafc',
+    outline: '#1f2937',
+    glowPrimary: 'rgba(148, 163, 184, 0.9)',
+    glowSecondary: 'rgba(100, 116, 139, 0.78)',
+  },
+  {
+    textClass: 'text-lg',
+    color: '#ffe6cc',
+    outline: '#4a2b13',
+    glowPrimary: 'rgba(194, 120, 65, 0.88)',
+    glowSecondary: 'rgba(146, 92, 53, 0.76)',
+  }
+];
+
+const getTopPlaceNumberStyle = (decor) => {
+  const outline = decor?.outline || '#111827';
+  const glowPrimary = decor?.glowPrimary || 'rgba(168, 85, 247, 0.72)';
+  const glowSecondary = decor?.glowSecondary || 'rgba(126, 34, 206, 0.6)';
+  return {
+    color: decor?.color || '#ffffff',
+    textShadow: [
+      `-1px -1px 0 ${outline}`,
+      `1px -1px 0 ${outline}`,
+      `-1px 1px 0 ${outline}`,
+      `1px 1px 0 ${outline}`,
+      `0 -1px 0 ${outline}`,
+      `0 1px 0 ${outline}`,
+      `-1px 0 0 ${outline}`,
+      `1px 0 0 ${outline}`,
+      '0 0 4px rgba(255,255,255,0.95)',
+      `0 0 9px ${glowPrimary}`,
+      `0 0 14px ${glowSecondary}`,
+      '0 1px 2px rgba(15,23,42,0.8)',
+    ].join(', ')
+  };
+};
+
+const LEAGUE_AURA_DECOR = {
+  absolute: {
+    core: 'rgba(255, 74, 74, 0.66)',
+    middle: 'rgba(251, 146, 60, 0.5)',
+    edge: 'rgba(255, 225, 120, 0.28)',
+    opacity: 0.84,
+    scale: 1.14,
+    boxShadow: '0 0 8px rgba(255, 92, 92, 0.34), 0 0 14px rgba(251, 146, 60, 0.28), 0 0 20px rgba(250, 204, 21, 0.2)',
+  },
+  ruby: {
+    core: 'rgba(239, 68, 68, 0.74)',
+    middle: 'rgba(220, 38, 38, 0.58)',
+    edge: 'rgba(248, 113, 113, 0.32)',
+    opacity: 1,
+    scale: 1.22,
+  },
+  diamond: {
+    core: 'rgba(56, 189, 248, 0.7)',
+    middle: 'rgba(14, 165, 233, 0.54)',
+    edge: 'rgba(125, 211, 252, 0.3)',
+    opacity: 0.98,
+    scale: 1.2,
+  },
+  gold: {
+    core: 'rgba(251, 191, 36, 0.72)',
+    middle: 'rgba(245, 158, 11, 0.56)',
+    edge: 'rgba(253, 224, 71, 0.28)',
+    opacity: 0.96,
+    scale: 1.18,
+  },
+  silver: {
+    core: 'rgba(226, 232, 240, 0.72)',
+    middle: 'rgba(148, 163, 184, 0.56)',
+    edge: 'rgba(226, 232, 240, 0.3)',
+    opacity: 0.95,
+    scale: 1.16,
+  },
+  bronze: {
+    core: 'rgba(217, 119, 6, 0.68)',
+    middle: 'rgba(180, 83, 9, 0.52)',
+    edge: 'rgba(251, 191, 36, 0.25)',
+    opacity: 0.88,
+    scale: 1.12,
+  },
+  blank: {
+    core: 'rgba(148, 163, 184, 0.22)',
+    middle: 'rgba(148, 163, 184, 0.12)',
+    edge: 'rgba(226, 232, 240, 0.06)',
+    opacity: 0.5,
+    scale: 0.94,
+  }
+};
+
+const getLeagueAuraStyle = (leagueId) => {
+  const decor = LEAGUE_AURA_DECOR[leagueId] || LEAGUE_AURA_DECOR.blank;
+  return {
+    background: `radial-gradient(circle, ${decor.core} 0%, ${decor.middle} 56%, ${decor.edge} 78%, rgba(255,255,255,0) 100%)`,
+    opacity: decor.opacity,
+    transform: `scale(${decor.scale})`,
+    boxShadow: decor.boxShadow || 'none',
+  };
+};
+
+const ABSOLUTE_AURA_CROWN_STYLE = {
+  background: 'radial-gradient(circle, rgba(255,255,255,0.5) 0%, rgba(254,215,170,0.34) 24%, rgba(253,186,116,0.22) 42%, rgba(251,113,133,0.14) 62%, rgba(255,255,255,0) 82%)',
+  opacity: 0.48,
+  transform: 'scale(1.2)',
+  boxShadow: '0 0 8px rgba(255, 120, 80, 0.3), 0 0 12px rgba(251, 191, 36, 0.2)',
 };
 
 const formatTaskNumber = (value) => {
@@ -14016,6 +14157,7 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
   const [aliasError, setAliasError] = useState('');
   const [aliasSuccess, setAliasSuccess] = useState('');
   const [aliasMode, setAliasMode] = useState('choose');
+  const [isLeagueRangesOpen, setIsLeagueRangesOpen] = useState(false);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -14068,6 +14210,7 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
       const studentId = String(entry?.studentId || `student-${index}`);
       const xpTotal = normalizeXpTotal(entry?.xpTotal);
       const weeklyXp = normalizeXpTotal(entry?.weeklyXp);
+      const league = getLeagueByXp(xpTotal);
       const resolvedLevelRaw = Number(entry?.level);
       const level = Number.isFinite(resolvedLevelRaw) && resolvedLevelRaw > 0
         ? Math.floor(resolvedLevelRaw)
@@ -14085,6 +14228,7 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
         weeklyXp,
         weeklyXpLabel: weeklyXp.toLocaleString('ru-RU'),
         level,
+        league,
         isCurrent,
       };
     });
@@ -14118,12 +14262,33 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
     return 'последние 7 дней';
   }, [leaderboard.week]);
 
-  const currentLevelPlace = role === 'student'
-    ? (byLevel.findIndex((row) => row.isCurrent) + 1)
-    : 0;
-  const currentWeekPlace = role === 'student'
-    ? (byWeeklyXp.findIndex((row) => row.isCurrent) + 1)
-    : 0;
+  const leagueRangeRows = useMemo(() => {
+    const orderedLeagues = [BLANK_LEAGUE, ...[...LEAGUE_TIERS].sort((a, b) => a.minXp - b.minXp)];
+    return orderedLeagues.map((league, index) => {
+      const nextLeague = orderedLeagues[index + 1];
+      const minXp = normalizeXpTotal(league.minXp);
+      const maxXp = nextLeague ? Math.max(minXp, normalizeXpTotal(nextLeague.minXp) - 1) : null;
+      const minLabel = minXp.toLocaleString('ru-RU');
+      const maxLabel = maxXp !== null ? maxXp.toLocaleString('ru-RU') : null;
+      return {
+        ...league,
+        rangeLabel: maxLabel ? `${minLabel} - ${maxLabel} XP` : `${minLabel}+ XP`,
+      };
+    });
+  }, []);
+
+  const currentStudentRow = role === 'student'
+    ? (rows.find((row) => row.isCurrent) || null)
+    : null;
+  const currentRatingPosition = role === 'student'
+    ? (() => {
+      const index = byLevel.findIndex((row) => row.isCurrent);
+      return index >= 0 ? index + 1 : null;
+    })()
+    : null;
+  const currentLeague = currentStudentRow?.league || BLANK_LEAGUE;
+  const currentLeagueAuraStyle = getLeagueAuraStyle(currentLeague.id);
+  const isCurrentLeagueAbsolute = currentLeague.id === 'absolute';
   const currentStudentMeta = role === 'student' && leaderboard?.currentStudent
     ? leaderboard.currentStudent
     : null;
@@ -14202,29 +14367,76 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
         </div>
       </div>
       <div className="mt-3 space-y-2">
-        {items.map((row, index) => (
-          <div
-            key={`${type}-${row.studentId}`}
-            className={`flex items-center gap-3 rounded-2xl border px-3 py-2.5 ${
-              row.isCurrent
-                ? 'border-purple-300 bg-purple-50/80'
-                : 'border-purple-100 bg-white'
-            }`}
-          >
-            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
-              index === 0
-                ? 'bg-amber-100 text-amber-700'
-                : index === 1
-                  ? 'bg-slate-100 text-slate-700'
-                  : index === 2
-                    ? 'bg-orange-100 text-orange-700'
-                    : 'bg-purple-100 text-purple-700'
-            }`}>
-              {index + 1}
+        {items.map((row, index) => {
+          const topPlaceDecor = TOP_PLACE_NUMBER_DECOR[index];
+          const leagueAuraStyle = getLeagueAuraStyle(row.league.id);
+          const isAbsoluteLeague = row.league.id === 'absolute';
+          return (
+            <div
+              key={`${type}-${row.studentId}`}
+              className={`flex items-center gap-3 rounded-2xl border px-3 py-2.5 ${
+                row.isCurrent
+                  ? 'border-purple-300 bg-purple-50/80'
+                  : 'border-purple-100 bg-white'
+              }`}
+            >
+            <div
+              className={`relative flex h-10 w-10 shrink-0 items-center justify-center overflow-visible rounded-full border ${
+                row.league.id === 'blank'
+                  ? 'border-slate-200 bg-slate-50'
+                  : 'border-purple-200 bg-white'
+              }`}
+              title={row.league.label}
+            >
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none absolute z-0 rounded-full ${
+                  isAbsoluteLeague ? 'inset-[-10px] blur-[9px]' : 'inset-[-9px] blur-[8px]'
+                }`}
+                style={leagueAuraStyle}
+              />
+              {isAbsoluteLeague && (
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-[-12px] z-0 rounded-full blur-[10px]"
+                  style={ABSOLUTE_AURA_CROWN_STYLE}
+                />
+              )}
+              {row.league.icon ? (
+                <img
+                  src={row.league.icon}
+                  alt={row.league.label}
+                  className={`relative z-[1] object-contain ${
+                    row.league.id === 'blank'
+                      ? 'h-[2.35rem] w-[2.35rem]'
+                      : 'h-14 w-14 scale-[1.45]'
+                  }`}
+                  loading="lazy"
+                />
+              ) : (
+                <span className="relative z-[1] h-5 w-5 rounded-full bg-slate-200" />
+              )}
+              {index < 3 ? (
+                <span
+                  className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center select-none font-black leading-none ${topPlaceDecor?.textClass || 'text-lg'}`}
+                  style={getTopPlaceNumberStyle(topPlaceDecor)}
+                >
+                  {index + 1}
+                </span>
+              ) : (
+                <span
+                  className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center select-none text-xs font-extrabold leading-none text-slate-500/70"
+                  style={{
+                    textShadow: '0 1px 1px rgba(255,255,255,0.7)',
+                  }}
+                >
+                  {index + 1}
+                </span>
+              )}
             </div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold text-slate-900">{row.displayName}</div>
-              <div className="text-[11px] text-slate-500">{`Уровень ${row.level} - ${row.xpTotalLabel} XP`}</div>
+              <div className="text-[11px] text-slate-500">{`${row.league.label} - Уровень ${row.level} - ${row.xpTotalLabel} XP`}</div>
             </div>
             <div className="text-right">
               {type === 'level' ? (
@@ -14239,8 +14451,9 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
                 </>
               )}
             </div>
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -14284,7 +14497,9 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
           <div>
             <div className="text-xs font-bold uppercase tracking-[0.18em] text-purple-600">Рейтинг учеников</div>
             <div className="mt-1 text-base font-semibold text-gray-900">
-              {role === 'student' ? 'Ваше место в группе' : 'Общий рейтинг по группе'}
+              {role === 'student'
+                ? `Твоя позиция в рейтинге: ${currentRatingPosition || '—'}`
+                : 'Общий рейтинг по группе'}
             </div>
             <div className="mt-2 inline-flex items-center rounded-full border border-purple-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-purple-700">
               {`Период XP: ${weekRangeLabel}`}
@@ -14301,21 +14516,133 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
           </button>
         </div>
         {role === 'student' && (
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="mt-3 space-y-2">
             <div className="rounded-2xl border border-purple-200 bg-white px-3 py-2.5">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-purple-500">Место по уровню</div>
-              <div className="mt-1 text-xl font-extrabold text-slate-900">
-                {currentLevelPlace > 0 ? `#${currentLevelPlace}` : '—'}
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-purple-500">Ваша лига</div>
+                <button
+                  type="button"
+                  onClick={() => setIsLeagueRangesOpen((prev) => !prev)}
+                  className="inline-flex items-center rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-[11px] font-semibold text-purple-700 hover:bg-purple-100"
+                  aria-expanded={isLeagueRangesOpen}
+                >
+                  {isLeagueRangesOpen ? 'Скрыть лиги' : 'Все лиги'}
+                </button>
               </div>
-              <div className="text-[11px] text-slate-500">Сортировка: уровень, общий XP</div>
-            </div>
-            <div className="rounded-2xl border border-purple-200 bg-white px-3 py-2.5">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-purple-500">Место за неделю</div>
-              <div className="mt-1 text-xl font-extrabold text-slate-900">
-                {currentWeekPlace > 0 ? `#${currentWeekPlace}` : '—'}
+              <div className="mt-2 flex items-center gap-3">
+                <div
+                  className={`relative flex h-11 w-11 shrink-0 items-center justify-center overflow-visible rounded-full border ${
+                    currentLeague.id === 'blank'
+                      ? 'border-slate-200 bg-slate-50'
+                      : 'border-purple-200 bg-white'
+                  }`}
+                  title={currentLeague.label}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`pointer-events-none absolute z-0 rounded-full ${
+                      isCurrentLeagueAbsolute ? 'inset-[-10px] blur-[9px]' : 'inset-[-8px] blur-[7px]'
+                    }`}
+                    style={currentLeagueAuraStyle}
+                  />
+                  {isCurrentLeagueAbsolute && (
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-[-12px] z-0 rounded-full blur-[10px]"
+                      style={ABSOLUTE_AURA_CROWN_STYLE}
+                    />
+                  )}
+                  {currentLeague.icon ? (
+                    <img
+                      src={currentLeague.icon}
+                      alt={currentLeague.label}
+                      className={`relative z-[1] object-contain ${
+                        currentLeague.id === 'blank'
+                          ? 'h-[2.35rem] w-[2.35rem]'
+                          : 'h-14 w-14 scale-[1.45]'
+                      }`}
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span className="relative z-[1] h-5 w-5 rounded-full bg-slate-200" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-base font-bold text-slate-900">{currentLeague.label}</div>
+                  <div className="text-[11px] text-slate-500">
+                    {`${currentStudentRow?.xpTotalLabel || '0'} XP${currentStudentRow ? ` - Уровень ${currentStudentRow.level}` : ''}`}
+                  </div>
+                </div>
               </div>
-              <div className="text-[11px] text-slate-500">Сортировка: XP за последние 7 дней</div>
             </div>
+
+            {isLeagueRangesOpen && (
+              <div className="rounded-2xl border border-purple-200 bg-white px-3 py-2.5">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-purple-500">Лиги и диапазоны XP</div>
+                <div className="mt-1 text-[11px] text-slate-500">Сколько опыта нужно для каждой лиги</div>
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {leagueRangeRows.map((leagueItem) => {
+                    const isCurrentLeagueItem = leagueItem.id === currentLeague.id;
+                    const leagueItemAuraStyle = getLeagueAuraStyle(leagueItem.id);
+                    const isAbsoluteLeagueItem = leagueItem.id === 'absolute';
+                    return (
+                      <div
+                        key={`league-range-${leagueItem.id}`}
+                        className={`flex items-center gap-2 rounded-xl border px-2.5 py-2 ${
+                          isCurrentLeagueItem
+                            ? 'border-purple-300 bg-purple-50/80'
+                            : 'border-purple-100 bg-white'
+                        }`}
+                      >
+                        <div
+                          className={`relative flex h-9 w-9 shrink-0 items-center justify-center overflow-visible rounded-full border ${
+                            leagueItem.id === 'blank'
+                              ? 'border-slate-200 bg-slate-50'
+                              : 'border-purple-200 bg-white'
+                          }`}
+                          title={leagueItem.label}
+                        >
+                          <span
+                            aria-hidden="true"
+                            className={`pointer-events-none absolute z-0 rounded-full ${
+                              isAbsoluteLeagueItem ? 'inset-[-9px] blur-[8px]' : 'inset-[-7px] blur-[6px]'
+                            }`}
+                            style={leagueItemAuraStyle}
+                          />
+                          {isAbsoluteLeagueItem && (
+                            <span
+                              aria-hidden="true"
+                              className="pointer-events-none absolute inset-[-10px] z-0 rounded-full blur-[8px]"
+                              style={ABSOLUTE_AURA_CROWN_STYLE}
+                            />
+                          )}
+                          {leagueItem.icon ? (
+                            <img
+                              src={leagueItem.icon}
+                              alt={leagueItem.label}
+                              className={`relative z-[1] object-contain ${
+                                leagueItem.id === 'blank'
+                                  ? 'h-8 w-8'
+                                  : 'h-11 w-11 scale-[1.18]'
+                              }`}
+                              loading="lazy"
+                            />
+                          ) : (
+                            <span className="relative z-[1] h-4 w-4 rounded-full bg-slate-200" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className={`truncate text-xs font-bold ${isCurrentLeagueItem ? 'text-purple-700' : 'text-slate-900'}`}>
+                            {leagueItem.label}
+                          </div>
+                          <div className="text-[11px] text-slate-500">{leagueItem.rangeLabel}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
