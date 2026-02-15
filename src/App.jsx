@@ -363,6 +363,7 @@ const getMockGoalProgress = (exam, attempt) => {
 };
 
 const normalizeOutput = (value) => String(value ?? '').replace(/\r\n/g, '\n').trimEnd();
+const normalizeOutputForComparison = (value) => normalizeOutput(value).replace(/\s+/g, ' ').trim();
 
 const getLocalDayKey = (date = new Date()) => {
   const year = date.getFullYear();
@@ -3642,6 +3643,7 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
   const currentQuestionIdRef = useRef(null);
   const runnerWorkerRef = useRef(null);
   const runnerPendingRef = useRef(new Map());
+  const runnerWarmupStartedRef = useRef(false);
 
   const currentMastery = progress[task.id] || 0;
   const getQuestionIndexKey = () => {
@@ -3875,6 +3877,12 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
     return runPythonInMainThread(source, inputValue);
   };
 
+  useEffect(() => {
+    if (runnerWarmupStartedRef.current) return;
+    runnerWarmupStartedRef.current = true;
+    runPythonCode('pass', '').catch(() => {});
+  }, []);
+
   const handleRunTests = async (sourceRect = null) => {
     const currentQuestion = questions[currentIndex];
     if (!currentQuestion) return;
@@ -3900,10 +3908,11 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
       const resultsList = [];
       for (const test of sanitizedTests) {
         const res = await runPythonCode(code, test.input);
-        const normalizedOut = normalizeOutput(res.output);
-        const normalizedExpected = normalizeOutput(test.output);
+        const normalizedOut = normalizeOutputForComparison(res.output);
+        const normalizedExpected = normalizeOutputForComparison(test.output);
+        const hasRuntimeError = String(res.error ?? '').trim().length > 0;
         const passed = hasExpectedOutputs
-          ? (!res.error && normalizedOut === normalizedExpected)
+          ? (!hasRuntimeError && normalizedOut === normalizedExpected)
           : undefined;
         resultsList.push({
           input: test.input,
@@ -4306,11 +4315,20 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
                       </div>
                       {showDetails && (
                         <div className="mt-1.5 text-[11px] md:text-xs text-gray-600">
-                          <div><span className="font-semibold">Вход:</span> {item.input || '—'}</div>
-                          <div><span className="font-semibold">Ожидалось:</span> {item.output || '—'}</div>
+                          <div>
+                            <span className="font-semibold">Вход:</span>
+                            <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-[11px] md:text-xs">{item.input || '—'}</pre>
+                          </div>
+                          <div>
+                            <span className="font-semibold">Ожидалось:</span>
+                            <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-[11px] md:text-xs">{item.output || '—'}</pre>
+                          </div>
                           {result && (
                             <>
-                              <div><span className="font-semibold">Вывод:</span> {normalizeOutput(result.output) || '—'}</div>
+                              <div>
+                                <span className="font-semibold">Вывод:</span>
+                                <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-[11px] md:text-xs">{normalizeOutput(result.output) || '—'}</pre>
+                              </div>
                               {result.error && <div className="text-red-600 mt-1">{result.error}</div>}
                             </>
                           )}

@@ -2261,7 +2261,10 @@ const sanitizeStudentQuestion = (question) => {
   return safe;
 };
 
-const normalizeOutputValue = (value) => String(value ?? '').replace(/\r\n/g, '\n').trimEnd();
+const normalizeOutputValue = (value) => String(value ?? '')
+  .replace(/\r\n/g, '\n')
+  .replace(/\s+/g, ' ')
+  .trim();
 
 const getPythonChildEnv = () => {
   const env = {
@@ -5014,6 +5017,15 @@ if (typeof pushSweepStartTimer.unref === 'function') pushSweepStartTimer.unref()
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  resolvePythonRunner()
+    .then((runner) => {
+      if (!runner) {
+        console.warn('[python] runner not found, server-side Python checks are disabled.');
+      }
+    })
+    .catch((error) => {
+      console.warn('[python] runner warmup failed:', error?.message || error);
+    });
 });
 
 
