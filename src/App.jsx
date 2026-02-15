@@ -14217,12 +14217,19 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
         : (Math.floor(xpTotal / XP_PER_LEVEL) + 1);
       const displayNameRaw = typeof entry?.publicName === 'string' ? entry.publicName.trim() : '';
       const displayName = displayNameRaw || `Аноним ${index + 1}`;
+      const hasAlias = Boolean(entry?.hasAlias);
+      const mainName = typeof entry?.mainName === 'string' ? entry.mainName.trim() : '';
+      const nickname = typeof entry?.nickname === 'string' ? entry.nickname.trim() : '';
       const isCurrent = role === 'student' && (
         Boolean(entry?.isCurrent) || (String(userId || '') === studentId)
       );
       return {
         studentId,
         displayName,
+        hasAlias,
+        mainName,
+        nickname,
+        showTeacherIdentity: role === 'teacher',
         xpTotal,
         xpTotalLabel: xpTotal.toLocaleString('ru-RU'),
         weeklyXp,
@@ -14436,6 +14443,9 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
             </div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold text-slate-900">{row.displayName}</div>
+              {row.showTeacherIdentity && (
+                <div className="truncate text-[11px] text-slate-500">{`Имя: ${row.mainName || '—'} • Прозвище: ${row.nickname || '—'}`}</div>
+              )}
               <div className="text-[11px] text-slate-500">{`${row.league.label} - Уровень ${row.level} - ${row.xpTotalLabel} XP`}</div>
             </div>
             <div className="text-right">

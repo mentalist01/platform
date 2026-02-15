@@ -3083,6 +3083,7 @@ app.get('/api/students', (req, res) => {
 app.get('/api/students/leaderboard', (req, res) => {
   const { teacherId } = req.query;
   const requestedTeacherId = typeof teacherId === 'string' ? teacherId.trim() : '';
+  const includeTeacherIdentity = isTeacherRole(req.auth);
   let students = readStudentsDb().filter(isActiveStudent);
 
   if (isStudentRole(req.auth)) {
@@ -3122,6 +3123,8 @@ app.get('/api/students/leaderboard', (req, res) => {
     const weeklyXp = getRecentXpFromSolvedEvents(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS);
     const level = Math.floor(xpTotal / XP_PER_LEVEL) + 1;
     const alias = normalizeLeaderboardAlias(data?.leaderboardAlias);
+    const mainName = includeTeacherIdentity ? normalizeStudentName(student.name) : '';
+    const nickname = includeTeacherIdentity ? normalizeStudentNickname(student.nickname) : '';
     return {
       studentId: student.id,
       publicName: alias || anonNameById.get(student.id) || 'Аноним',
@@ -3129,6 +3132,8 @@ app.get('/api/students/leaderboard', (req, res) => {
       xpTotal,
       weeklyXp,
       hasAlias: Boolean(alias),
+      mainName,
+      nickname,
       isCurrent: Boolean(currentStudentId && student.id === currentStudentId),
     };
   });
