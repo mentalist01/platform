@@ -3638,7 +3638,11 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
   const isMobileViewport = typeof window !== 'undefined'
     ? window.matchMedia('(max-width: 767px)').matches
     : false;
-  const [showTheory, setShowTheory] = useState(false);
+  const [showTheory, setShowTheory] = useState(() => (
+    typeof window === 'undefined'
+      ? true
+      : !window.matchMedia('(max-width: 767px)').matches
+  ));
   const [expandedTestIndex, setExpandedTestIndex] = useState(null);
   const currentQuestionIdRef = useRef(null);
   const runnerWorkerRef = useRef(null);
@@ -4328,20 +4332,17 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
                             <span className="font-semibold">Ожидалось:</span>
                             <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-[11px] md:text-xs">{item.output || '—'}</pre>
                           </div>
-                          <div>
-                            <span className="font-semibold">Вывод:</span>
-                            <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-[11px] md:text-xs">
-                              {result
-                                ? (normalizeOutput(result.output) || '—')
-                                : (solvedAllTests ? (normalizeOutput(item.output) || '—') : '—')}
-                            </pre>
-                          </div>
-                          {!result && solvedAllTests && (
-                            <div className="mt-1 text-gray-500">Тесты не запускались в этой сессии, показан эталонный вывод.</div>
-                          )}
-                          {result?.error && <div className="text-red-600 mt-1">{result.error}</div>}
-                          {!result?.error && result?.passed === false && result?.failReason === 'mismatch' && (
-                            <div className="text-red-600 mt-1">Вывод отличается от ожидаемого из-за скрытых символов/форматирования.</div>
+                          {result && (
+                            <>
+                              <div>
+                                <span className="font-semibold">Вывод:</span>
+                                <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-[11px] md:text-xs">{normalizeOutput(result.output) || '—'}</pre>
+                              </div>
+                              {result.error && <div className="text-red-600 mt-1">{result.error}</div>}
+                              {!result.error && result.passed === false && result.failReason === 'mismatch' && (
+                                <div className="text-red-600 mt-1">Вывод отличается от ожидаемого из-за скрытых символов/форматирования.</div>
+                              )}
+                            </>
                           )}
                         </div>
                       )}
@@ -4400,7 +4401,7 @@ const PythonReviewModal = ({ task, onClose, studentId, testDb }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [solvedIds, setSolvedIds] = useState(new Set());
   const [solvedCodeById, setSolvedCodeById] = useState({});
-  const [showTheory, setShowTheory] = useState(false);
+  const [showTheory, setShowTheory] = useState(true);
   const [questionCodeById, setQuestionCodeById] = useState({});
   const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
   const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
