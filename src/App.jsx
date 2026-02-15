@@ -362,8 +362,12 @@ const getMockGoalProgress = (exam, attempt) => {
   };
 };
 
-const normalizeOutput = (value) => String(value ?? '').replace(/\r\n/g, '\n').trimEnd();
+const stripInvisibleChars = (value) => String(value ?? '').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '');
+const stripControlChars = (value) => String(value ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+const stripAnsiCodes = (value) => String(value ?? '').replace(/\u001b\[[0-9;]*m/g, '');
+const normalizeOutput = (value) => stripInvisibleChars(String(value ?? '').replace(/\r\n/g, '\n')).trimEnd();
 const normalizeOutputForComparison = (value) => normalizeOutput(value).replace(/\s+/g, ' ').trim();
+const normalizeRuntimeErrorForCheck = (value) => stripAnsiCodes(stripControlChars(stripInvisibleChars(String(value ?? '')))).trim();
 
 const getLocalDayKey = (date = new Date()) => {
   const year = date.getFullYear();
@@ -3910,16 +3914,21 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
         const res = await runPythonCode(code, test.input);
         const normalizedOut = normalizeOutputForComparison(res.output);
         const normalizedExpected = normalizeOutputForComparison(test.output);
-        const hasRuntimeError = String(res.error ?? '').trim().length > 0;
+        const runtimeErrorText = normalizeRuntimeErrorForCheck(res.error);
+        const hasRuntimeError = runtimeErrorText.length > 0;
+        const failReason = hasRuntimeError
+          ? 'runtime'
+          : (normalizedOut === normalizedExpected ? '' : 'mismatch');
         const passed = hasExpectedOutputs
-          ? (!hasRuntimeError && normalizedOut === normalizedExpected)
+          ? failReason === ''
           : undefined;
         resultsList.push({
           input: test.input,
           expected: test.output,
           output: res.output,
-          error: res.error,
-          passed
+          error: runtimeErrorText,
+          passed,
+          failReason,
         });
       }
       setTestResults(resultsList);
@@ -4330,6 +4339,9 @@ const PythonTestModal = ({ task, onClose, onComplete, progress, studentId, testD
                                 <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-[11px] md:text-xs">{normalizeOutput(result.output) || '—'}</pre>
                               </div>
                               {result.error && <div className="text-red-600 mt-1">{result.error}</div>}
+                              {!result.error && result.passed === false && result.failReason === 'mismatch' && (
+                                <div className="text-red-600 mt-1">Вывод отличается от ожидаемого из-за скрытых символов/форматирования.</div>
+                              )}
                             </>
                           )}
                         </div>

@@ -2262,6 +2262,7 @@ const sanitizeStudentQuestion = (question) => {
 };
 
 const normalizeOutputValue = (value) => String(value ?? '')
+  .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
   .replace(/\r\n/g, '\n')
   .replace(/\s+/g, ' ')
   .trim();
