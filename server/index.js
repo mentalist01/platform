@@ -2449,9 +2449,15 @@ const sanitizePythonQuestionForStudent = (question) => {
   const safe = sanitizeStudentQuestion(question);
   if (!safe || typeof safe !== 'object') return safe;
   const tests = Array.isArray(question?.tests) ? question.tests : [];
-  safe.tests = tests.map((test) => ({
-    input: String(test?.input ?? ''),
-  }));
+  safe.tests = tests.map((test) => {
+    const safeTest = {
+      input: String(test?.input ?? ''),
+    };
+    if (Object.prototype.hasOwnProperty.call(test || {}, 'output')) {
+      safeTest.output = String(test?.output ?? '');
+    }
+    return safeTest;
+  });
   return safe;
 };
 
