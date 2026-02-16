@@ -22,6 +22,7 @@ import leagueGold from './assets/leagues/gold.png';
 import leagueRuby from './assets/leagues/ruby.png';
 import leagueDiamond from './assets/leagues/diamond.png';
 import leagueAbsolute from './assets/leagues/absolute.png';
+import leagueCelestial from './assets/leagues/celestial.png';
 
 const optionalLeagueIcons = import.meta.glob('./assets/leagues/blank.png', { eager: true, import: 'default' });
 const leagueBlank = optionalLeagueIcons['./assets/leagues/blank.png'] || null;
@@ -47,7 +48,8 @@ const GOAL_TYPE_TASK = 'task';
 const GOAL_TYPE_MOCK = 'mock';
 const XP_PER_LEVEL = 1000;
 const LEAGUE_TIERS = [
-  { id: 'absolute', label: 'Абсолют', minXp: 30000, icon: leagueAbsolute },
+  { id: 'celestial', label: 'Целестиал', minXp: 80000, icon: leagueCelestial },
+  { id: 'absolute', label: 'Абсолют', minXp: 40000, icon: leagueAbsolute },
   { id: 'ruby', label: 'Рубиновая лига', minXp: 25000, icon: leagueRuby },
   { id: 'diamond', label: 'Алмазная лига', minXp: 20000, icon: leagueDiamond },
   { id: 'gold', label: 'Золотая лига', minXp: 15000, icon: leagueGold },
@@ -55,6 +57,13 @@ const LEAGUE_TIERS = [
   { id: 'bronze', label: 'Бронзовая лига', minXp: 5000, icon: leagueBronze },
 ];
 const BLANK_LEAGUE = { id: 'blank', label: 'Без лиги', minXp: 0, icon: leagueBlank };
+const ABSOLUTE_LEAGUE_ID = 'absolute';
+const ABSOLUTE_LEAGUE_MIN_XP = LEAGUE_TIERS.find((league) => league.id === ABSOLUTE_LEAGUE_ID)?.minXp ?? Number.POSITIVE_INFINITY;
+const isLeagueAboveAbsolute = (leagueId) => {
+  const tier = LEAGUE_TIERS.find((league) => league.id === leagueId);
+  return Boolean(tier) && tier.minXp > ABSOLUTE_LEAGUE_MIN_XP;
+};
+const isAbsoluteOrAboveLeague = (leagueId) => leagueId === ABSOLUTE_LEAGUE_ID || isLeagueAboveAbsolute(leagueId);
 const LEVEL_UP_PARTICLE_COUNT = 24;
 const TASK_XP_REWARDS = {
   1: 20,
@@ -240,6 +249,14 @@ const getTopPlaceNumberStyle = (decor) => {
 };
 
 const LEAGUE_AURA_DECOR = {
+  celestial: {
+    core: 'rgba(191, 219, 254, 0.8)',
+    middle: 'rgba(59, 130, 246, 0.58)',
+    edge: 'rgba(196, 181, 253, 0.36)',
+    opacity: 1,
+    scale: 1.25,
+    boxShadow: '0 0 9px rgba(147, 197, 253, 0.44), 0 0 15px rgba(59, 130, 246, 0.34), 0 0 24px rgba(167, 139, 250, 0.26)',
+  },
   absolute: {
     core: 'rgba(255, 74, 74, 0.66)',
     middle: 'rgba(251, 146, 60, 0.5)',
@@ -14325,7 +14342,7 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
     : null;
   const currentLeague = currentStudentRow?.league || BLANK_LEAGUE;
   const currentLeagueAuraStyle = getLeagueAuraStyle(currentLeague.id);
-  const isCurrentLeagueAbsolute = currentLeague.id === 'absolute';
+  const isCurrentLeagueAbsolute = isAbsoluteOrAboveLeague(currentLeague.id);
   const currentStudentMeta = role === 'student' && leaderboard?.currentStudent
     ? leaderboard.currentStudent
     : null;
@@ -14407,7 +14424,7 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
         {items.map((row, index) => {
           const topPlaceDecor = TOP_PLACE_NUMBER_DECOR[index];
           const leagueAuraStyle = getLeagueAuraStyle(row.league.id);
-          const isAbsoluteLeague = row.league.id === 'absolute';
+          const isAbsoluteLeague = isAbsoluteOrAboveLeague(row.league.id);
           return (
             <div
               key={`${type}-${row.studentId}`}
@@ -14446,7 +14463,9 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
                   className={`relative z-[1] object-contain ${
                     row.league.id === 'blank'
                       ? 'h-[2.35rem] w-[2.35rem]'
-                      : 'h-14 w-14 scale-[1.45]'
+                      : isLeagueAboveAbsolute(row.league.id)
+                        ? 'h-14 w-14 scale-[1.56]'
+                        : 'h-14 w-14 scale-[1.45]'
                   }`}
                   loading="lazy"
                 />
@@ -14599,7 +14618,9 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
                       className={`relative z-[1] object-contain ${
                         currentLeague.id === 'blank'
                           ? 'h-[2.35rem] w-[2.35rem]'
-                          : 'h-14 w-14 scale-[1.45]'
+                          : isLeagueAboveAbsolute(currentLeague.id)
+                            ? 'h-14 w-14 scale-[1.56]'
+                            : 'h-14 w-14 scale-[1.45]'
                       }`}
                       loading="lazy"
                     />
@@ -14624,7 +14645,7 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
                   {leagueRangeRows.map((leagueItem) => {
                     const isCurrentLeagueItem = leagueItem.id === currentLeague.id;
                     const leagueItemAuraStyle = getLeagueAuraStyle(leagueItem.id);
-                    const isAbsoluteLeagueItem = leagueItem.id === 'absolute';
+                    const isAbsoluteLeagueItem = isAbsoluteOrAboveLeague(leagueItem.id);
                     return (
                       <div
                         key={`league-range-${leagueItem.id}`}
@@ -14663,7 +14684,9 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
                               className={`relative z-[1] object-contain ${
                                 leagueItem.id === 'blank'
                                   ? 'h-8 w-8'
-                                  : 'h-11 w-11 scale-[1.18]'
+                                  : isLeagueAboveAbsolute(leagueItem.id)
+                                    ? 'h-11 w-11 scale-[1.28]'
+                                    : 'h-11 w-11 scale-[1.18]'
                               }`}
                               loading="lazy"
                             />
