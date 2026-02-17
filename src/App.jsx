@@ -964,6 +964,7 @@ const PYODIDE_RUN_TIMEOUT_MS = 8000;
 const ALLOW_MAIN_THREAD_PYTHON_FALLBACK = false;
 const PYODIDE_STREAM_FLUSH_MS = 35;
 const PYODIDE_STREAM_CHUNK_CHARS = 2048;
+const COLLAB_RUN_OUTPUT_LIMIT = 20000;
 
 const mergeRuntimeErrorText = (base, next) => {
   const baseText = typeof base === 'string' ? base : String(base ?? '');
@@ -14466,6 +14467,15 @@ const CollabSection = ({
   const [saveError, setSaveError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState('');
   const [saveNameError, setSaveNameError] = useState(false);
+  const [runInput, setRunInput] = useState('');
+  const [runOutput, setRunOutput] = useState('');
+  const [runError, setRunError] = useState('');
+  const [runStatus, setRunStatus] = useState('idle');
+  const [runAuthor, setRunAuthor] = useState('');
+  const [runTimestamp, setRunTimestamp] = useState(null);
+  const [lastRunInput, setLastRunInput] = useState('');
+  const [runLoading, setRunLoading] = useState(false);
+  const [editorFontSize, setEditorFontSize] = useState(14);
 
   const isMobileViewport = typeof window !== 'undefined'
     ? window.matchMedia('(max-width: 767px)').matches
@@ -14482,13 +14492,18 @@ const CollabSection = ({
     () => pickCollabColor(isTeacher ? `teacher-${teacherId}` : `student-${userId}`),
     [isTeacher, teacherId, userId]
   );
+  const fontSizeStorageKey = useMemo(() => `collab-font-size-${userId || role || 'anon'}`, [userId, role]);
+  const collabDocRef = useRef(null);
+  const runMapRef = useRef(null);
+  const runWorkerRef = useRef(null);
+  const runPendingRef = useRef(new Map());
   const selectedStudent = useMemo(
     () => (students || []).find((student) => student.id === activeStudentId),
     [students, activeStudentId]
   );
   const editorOptions = useMemo(() => ({
     minimap: { enabled: false },
-    fontSize: 14,
+    fontSize: editorFontSize,
     tabSize: 4,
     insertSpaces: true,
     wordWrap: 'on',
@@ -14497,13 +14512,34 @@ const CollabSection = ({
     smoothScrolling: true,
     cursorSmoothCaretAnimation: 'on',
     readOnly: !roomId,
-  }), [roomId]);
+  }), [roomId, editorFontSize]);
   const editorHeight = isMobileViewport ? '50vh' : '65vh';
+  const clampFontSize = (value) => Math.min(24, Math.max(12, Math.round(value)));
 
   const handleEditorMount = useCallback((editor) => {
     editorRef.current = editor;
     setEditorReady(true);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = window.localStorage.getItem(fontSizeStorageKey);
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) {
+      setEditorFontSize(clampFontSize(parsed));
+    } else {
+      setEditorFontSize(14);
+    }
+  }, [fontSizeStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(fontSizeStorageKey, String(editorFontSize));
+  }, [editorFontSize, fontSizeStorageKey]);
+
+  useEffect(() => {
+    editorRef.current?.updateOptions?.({ fontSize: editorFontSize });
+  }, [editorFontSize]);
 
   useEffect(() => {
     if (!effectiveStudentId || !saveTaskNumber || !saveCategory) {
@@ -14609,26 +14645,308 @@ const CollabSection = ({
     }
   };
 
+  const normalizeRunText = (value) => {
+    const text = typeof value === 'string' ? value : String(value ?? '');
+    if (text.length <= COLLAB_RUN_OUTPUT_LIMIT) return text;
+    return `${text.slice(0, COLLAB_RUN_OUTPUT_LIMIT)}\n...`;
+  };
+
+  const updateRunStateFromMap = (runMap) => {
+    if (!runMap) {
+      setRunOutput('');
+      setRunError('');
+      setRunStatus('idle');
+      setRunAuthor('');
+      setRunTimestamp(null);
+      setLastRunInput('');
+      return;
+    }
+    const output = typeof runMap.get('output') === 'string' ? runMap.get('output') : String(runMap.get('output') ?? '');
+    const error = typeof runMap.get('error') === 'string' ? runMap.get('error') : String(runMap.get('error') ?? '');
+    const status = typeof runMap.get('status') === 'string' ? runMap.get('status') : 'idle';
+    const author = typeof runMap.get('author') === 'string' ? runMap.get('author') : '';
+    const input = typeof runMap.get('input') === 'string' ? runMap.get('input') : String(runMap.get('input') ?? '');
+    const tsRaw = runMap.get('ts');
+    const ts = Number.isFinite(Number(tsRaw)) ? Number(tsRaw) : null;
+    setRunOutput(output);
+    setRunError(error);
+    setRunStatus(status || 'idle');
+    setRunAuthor(author);
+    setRunTimestamp(ts);
+    setLastRunInput(input);
+  };
+
+  const publishRunState = (payload) => {
+    const runMap = runMapRef.current;
+    const doc = collabDocRef.current;
+    if (!runMap || !doc) {
+      if (Object.prototype.hasOwnProperty.call(payload, 'output')) {
+        setRunOutput(payload.output || '');
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'error')) {
+        setRunError(payload.error || '');
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'status')) {
+        setRunStatus(payload.status || 'idle');
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'author')) {
+        setRunAuthor(payload.author || '');
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'ts')) {
+        const tsValue = Number.isFinite(Number(payload.ts)) ? Number(payload.ts) : null;
+        setRunTimestamp(tsValue);
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'input')) {
+        setLastRunInput(payload.input || '');
+      }
+      return;
+    }
+    doc.transact(() => {
+      if (Object.prototype.hasOwnProperty.call(payload, 'status')) {
+        runMap.set('status', payload.status || 'idle');
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'output')) {
+        runMap.set('output', payload.output || '');
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'error')) {
+        runMap.set('error', payload.error || '');
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'author')) {
+        runMap.set('author', payload.author || '');
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'ts')) {
+        runMap.set('ts', Number.isFinite(Number(payload.ts)) ? Number(payload.ts) : null);
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'input')) {
+        runMap.set('input', payload.input || '');
+      }
+    });
+  };
+
+  const resolveRunPending = (message) => {
+    runPendingRef.current.forEach((entry) => {
+      clearTimeout(entry.timer);
+      const output = typeof entry.output === 'string' ? entry.output : '';
+      const error = mergeRuntimeErrorText(entry.error, message);
+      if (typeof entry.onProgress === 'function') {
+        entry.onProgress({ output, error, done: true });
+      }
+      entry.resolve({ output, error });
+    });
+    runPendingRef.current.clear();
+  };
+
+  const disposeRunWorker = (message = '') => {
+    if (runWorkerRef.current) {
+      runWorkerRef.current.terminate();
+      runWorkerRef.current = null;
+    }
+    if (message) resolveRunPending(message);
+  };
+
+  const ensureRunWorker = () => {
+    if (typeof Worker === 'undefined') return null;
+    if (runWorkerRef.current) return runWorkerRef.current;
+    try {
+      const worker = createPyodideWorker();
+      worker.onmessage = (event) => {
+        const data = event.data || {};
+        const pending = runPendingRef.current.get(data.id);
+        if (!pending) return;
+        const messageType = typeof data.type === 'string' ? data.type : 'result';
+        if (messageType === 'stdout' || messageType === 'stderr') {
+          const chunk = typeof data.chunk === 'string' ? data.chunk : String(data.chunk ?? '');
+          if (!chunk) return;
+          if (messageType === 'stdout') {
+            pending.output = `${pending.output || ''}${chunk}`;
+          } else {
+            pending.error = `${pending.error || ''}${chunk}`;
+          }
+          if (typeof pending.onProgress === 'function') {
+            pending.onProgress({
+              output: pending.output || '',
+              error: pending.error || '',
+              done: false,
+            });
+          }
+          return;
+        }
+        clearTimeout(pending.timer);
+        runPendingRef.current.delete(data.id);
+        const output = typeof data.output === 'string'
+          ? data.output
+          : (data.output ? String(data.output) : (pending.output || ''));
+        const error = typeof data.error === 'string'
+          ? data.error
+          : (data.error ? String(data.error) : (pending.error || ''));
+        if (typeof pending.onProgress === 'function') {
+          pending.onProgress({ output, error, done: true });
+        }
+        pending.resolve({ output, error });
+      };
+      worker.onerror = () => disposeRunWorker('Ошибка выполнения Python.');
+      worker.onmessageerror = () => disposeRunWorker('Ошибка выполнения Python.');
+      runWorkerRef.current = worker;
+      return worker;
+    } catch {
+      return null;
+    }
+  };
+
+  useEffect(() => () => disposeRunWorker('Python runner stopped.'), []);
+
+  const runPythonInMainThread = async (source, inputValue) => {
+    const pyodide = await ensurePyodideReady();
+    const wrapped = [
+      'import sys, io, traceback',
+      `_input = ${JSON.stringify(String(inputValue ?? ''))}`,
+      '_stdout = io.StringIO()',
+      '_stderr = io.StringIO()',
+      'sys.stdin = io.StringIO(_input)',
+      'sys.stdout = _stdout',
+      'sys.stderr = _stderr',
+      '_globals = {}',
+      'try:',
+      `    exec(${JSON.stringify(String(source ?? ''))}, _globals, _globals)`,
+      'except Exception:',
+      '    traceback.print_exc()',
+      '__output = _stdout.getvalue()',
+      '__error = _stderr.getvalue()',
+    ].join('\n');
+    await pyodide.runPythonAsync(wrapped);
+    const output = pyodide.globals.get('__output') || '';
+    const error = pyodide.globals.get('__error') || '';
+    pyodide.globals.delete('__output');
+    pyodide.globals.delete('__error');
+    return { output: String(output), error: String(error) };
+  };
+
+  const runPythonCode = async (source, inputValue, onProgress = null) => {
+    const worker = ensureRunWorker();
+    if (worker) {
+      const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          const pending = runPendingRef.current.get(id);
+          if (!pending) return;
+          runPendingRef.current.delete(id);
+          const timeoutMessage = `Превышено время выполнения (${Math.round(PYODIDE_RUN_TIMEOUT_MS / 1000)} сек).`;
+          const output = pending.output || '';
+          const error = mergeRuntimeErrorText(pending.error, timeoutMessage);
+          if (typeof pending.onProgress === 'function') {
+            pending.onProgress({ output, error, done: true });
+          }
+          resolve({ output, error });
+          disposeRunWorker('Превышено время выполнения.');
+        }, PYODIDE_RUN_TIMEOUT_MS);
+        runPendingRef.current.set(id, {
+          resolve,
+          timer,
+          output: '',
+          error: '',
+          onProgress: typeof onProgress === 'function' ? onProgress : null,
+        });
+        worker.postMessage({ id, source, input: inputValue });
+      });
+    }
+    if (!ALLOW_MAIN_THREAD_PYTHON_FALLBACK) {
+      return {
+        output: '',
+        error: 'Не удалось запустить Python в изолированном режиме. Перезагрузите страницу.'
+      };
+    }
+    return runPythonInMainThread(source, inputValue);
+  };
+
+  const handleRunCode = async () => {
+    if (!roomId || !editorRef.current) return;
+    const code = editorRef.current?.getValue?.() ?? '';
+    if (!code.trim()) {
+      setRunOutput('');
+      setRunError('Код пустой.');
+      return;
+    }
+    if (runLoading) return;
+    setRunLoading(true);
+    setRunError('');
+    const startedAt = Date.now();
+    publishRunState({
+      status: 'running',
+      output: '',
+      error: '',
+      author: localName,
+      ts: startedAt,
+      input: runInput,
+    });
+    try {
+      const result = await runPythonCode(code, runInput, (progress) => {
+        setRunOutput(progress?.output || '');
+        setRunError(progress?.error || '');
+      });
+      publishRunState({
+        status: 'done',
+        output: normalizeRunText(result.output || ''),
+        error: normalizeRunText(result.error || ''),
+        author: localName,
+        ts: Date.now(),
+        input: runInput,
+      });
+    } catch (err) {
+      publishRunState({
+        status: 'done',
+        output: '',
+        error: normalizeRunText(err?.message || 'Ошибка выполнения Python.'),
+        author: localName,
+        ts: Date.now(),
+        input: runInput,
+      });
+    } finally {
+      setRunLoading(false);
+    }
+  };
+
+  const handleClearRun = () => {
+    publishRunState({
+      status: 'idle',
+      output: '',
+      error: '',
+      author: '',
+      ts: null,
+      input: '',
+    });
+  };
+
   useEffect(() => {
     if (!roomId || !editorReady || !wsUrl) {
       setStatus('disconnected');
       setPeerCount(0);
+      collabDocRef.current = null;
+      runMapRef.current = null;
+      updateRunStateFromMap(null);
       return;
     }
 
     setStatus('connecting');
     const doc = new Y.Doc();
+    collabDocRef.current = doc;
     const provider = new WebsocketProvider(wsUrl, roomId, doc);
     const model = editorRef.current?.getModel?.();
     if (!model) {
       provider.destroy();
       doc.destroy();
+      collabDocRef.current = null;
       return;
     }
 
     const ytext = doc.getText('monaco');
     const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]), provider.awareness);
     provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
+
+    const runMap = doc.getMap('collabRun');
+    runMapRef.current = runMap;
+    const handleRunMapChange = () => updateRunStateFromMap(runMap);
+    runMap.observe(handleRunMapChange);
+    handleRunMapChange();
 
     const handleStatus = (event) => {
       if (event?.status) setStatus(event.status);
@@ -14645,9 +14963,13 @@ const CollabSection = ({
     return () => {
       provider.awareness.off('change', handleAwareness);
       provider.off('status', handleStatus);
+      runMap.unobserve(handleRunMapChange);
       binding.destroy();
       provider.destroy();
       doc.destroy();
+      runMapRef.current = null;
+      collabDocRef.current = null;
+      updateRunStateFromMap(null);
     };
   }, [roomId, editorReady, wsUrl, localName, localColor]);
 
@@ -14811,7 +15133,7 @@ const CollabSection = ({
             <Pencil className="text-purple-600" />
             Совместный код
           </h2>
-          <p className="text-gray-500">Живой документ без сохранения. Изменения и курсоры видны сразу.</p>
+          <p className="text-gray-500">Живой документ: изменения видны сразу и сохраняются для ученика.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {renderStudentPicker()}
@@ -14856,8 +15178,29 @@ const CollabSection = ({
                 : 'Не выбрана'}
             </div>
           </div>
-          <div className="text-xs text-gray-500">
-            Ничего не сохраняется. Скопируйте код, когда закончили.
+          <div className="flex items-center gap-2 md:justify-end">
+            <span className="text-[11px] font-semibold text-gray-400">Aa</span>
+            <div className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-1.5 py-0.5">
+              <button
+                type="button"
+                onClick={() => setEditorFontSize((prev) => clampFontSize(prev - 1))}
+                className="h-6 w-6 rounded-md text-[11px] font-semibold text-gray-600 hover:bg-gray-100"
+                aria-label="Уменьшить шрифт"
+                title="Уменьшить шрифт"
+              >
+                A-
+              </button>
+              <span className="min-w-[40px] text-center text-[11px] font-semibold text-gray-600">{editorFontSize}px</span>
+              <button
+                type="button"
+                onClick={() => setEditorFontSize((prev) => clampFontSize(prev + 1))}
+                className="h-6 w-6 rounded-md text-[11px] font-semibold text-gray-600 hover:bg-gray-100"
+                aria-label="Увеличить шрифт"
+                title="Увеличить шрифт"
+              >
+                A+
+              </button>
+            </div>
           </div>
         </div>
 
@@ -14876,6 +15219,74 @@ const CollabSection = ({
             options={editorOptions}
             loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
           />
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <div className="space-y-2">
+            <div className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Ввод (stdin)</div>
+            <textarea
+              value={runInput}
+              onChange={(e) => setRunInput(e.target.value)}
+              rows={isMobileViewport ? 4 : 6}
+              placeholder="Если нужен ввод, вставьте его сюда."
+              className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700 outline-none focus:border-purple-500"
+            />
+          </div>
+
+          <div className="lg:col-span-2 space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Результат</div>
+                {(runAuthor || runTimestamp) && (
+                  <div className="text-[11px] text-gray-500">
+                    {runAuthor ? `Запустил: ${runAuthor}` : 'Запуск'}
+                    {runTimestamp ? ` • ${new Date(runTimestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={handleRunCode}
+                  disabled={runLoading || !roomId}
+                  className="flex items-center gap-2"
+                >
+                  <PlayCircle size={16} />
+                  {runLoading ? 'Запуск...' : 'Запустить'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={handleClearRun}
+                  disabled={!runOutput && !runError && runStatus === 'idle' && !lastRunInput}
+                >
+                  Очистить
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-gray-900 bg-slate-950 text-slate-100 p-3 text-xs font-mono min-h-[160px]">
+              {runStatus === 'running' && (
+                <div className="mb-2 text-[11px] text-amber-300">Выполняется...</div>
+              )}
+              {lastRunInput && (
+                <div className="mb-3">
+                  <div className="text-[10px] uppercase tracking-widest text-slate-400">Ввод</div>
+                  <pre className="mt-1 whitespace-pre-wrap break-words text-slate-200">{lastRunInput}</pre>
+                </div>
+              )}
+              {(runOutput || runError) ? (
+                <>
+                  {runOutput && (
+                    <pre className="whitespace-pre-wrap break-words">{runOutput}</pre>
+                  )}
+                  {runError && (
+                    <pre className="mt-2 whitespace-pre-wrap break-words text-rose-300">{runError}</pre>
+                  )}
+                </>
+              ) : (
+                <div className="text-slate-400">Здесь появится вывод программы.</div>
+              )}
+            </div>
+          </div>
         </div>
       </Card>
       {typeof document !== 'undefined' ? createPortal(saveModal, document.body) : null}

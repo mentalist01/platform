@@ -338,13 +338,23 @@ fs.mkdirSync(dataDir, { recursive: true });
 fs.mkdirSync(collabDir, { recursive: true });
 const rawCollabPersistence = LeveldbPersistence ? new LeveldbPersistence(collabDir) : null;
 const collabPersistence = rawCollabPersistence ? {
-  bindState: (docName, ydoc) => {
-    if (!docName?.startsWith('board-')) return Promise.resolve();
-    return rawCollabPersistence.bindState(docName, ydoc);
+  bindState: async (docName, ydoc) => {
+    if (!docName?.startsWith('board-') && !docName?.startsWith('collab-')) return Promise.resolve();
+    try {
+      return await rawCollabPersistence.bindState(docName, ydoc);
+    } catch (error) {
+      console.warn('[collab] bindState failed:', error?.message || error);
+      return Promise.resolve();
+    }
   },
-  writeState: (docName, ydoc) => {
-    if (!docName?.startsWith('board-')) return Promise.resolve();
-    return rawCollabPersistence.writeState(docName, ydoc);
+  writeState: async (docName, ydoc) => {
+    if (!docName?.startsWith('board-') && !docName?.startsWith('collab-')) return Promise.resolve();
+    try {
+      return await rawCollabPersistence.writeState(docName, ydoc);
+    } catch (error) {
+      console.warn('[collab] writeState failed:', error?.message || error);
+      return Promise.resolve();
+    }
   },
 } : null;
 
