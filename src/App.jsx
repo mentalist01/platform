@@ -12,7 +12,7 @@ import {
   X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy,
-  Bell, BellOff
+  Bell, BellOff, MousePointer2
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
 import mascotDisapproval from './assets/mascot/disapproval.png';
@@ -73,6 +73,7 @@ const BOARD_IMAGE_MAX_SIZE = 2800;
 const BOARD_IMAGE_SCALE_STEP = 0.12;
 const BOARD_EXPORT_PADDING = 24;
 const BOARD_EXPORT_MAX_SIZE = 6000;
+const BOARD_SELECTION_HIT_RADIUS = 6;
 const BOARD_MIN_ZOOM = 0.25;
 const BOARD_MAX_ZOOM = 2.5;
 const BOARD_POINT_MIN_DISTANCE = 1.5;
@@ -14464,6 +14465,7 @@ const CollabSection = ({
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState('');
+  const [saveNameError, setSaveNameError] = useState(false);
 
   const isMobileViewport = typeof window !== 'undefined'
     ? window.matchMedia('(max-width: 767px)').matches
@@ -14923,6 +14925,8 @@ const BoardSection = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
   const [selectedImageId, setSelectedImageId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [selectionBox, setSelectionBox] = useState(null);
   const [summonNotice, setSummonNotice] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
@@ -14959,6 +14963,12 @@ const BoardSection = ({
   const summonNoticeTimeoutRef = useRef(null);
   const eraserStateRef = useRef({ active: false });
   const settingsRef = useRef(null);
+  const selectionRef = useRef(null);
+  const selectedIdsRef = useRef([]);
+  const selectingRef = useRef({ active: false, start: null, current: null });
+  const selectionDragRef = useRef({ active: false, startX: 0, startY: 0, items: null, baseSelection: null });
+  const selectionMoveRafRef = useRef(null);
+  const pendingSelectionMoveRef = useRef({ dx: 0, dy: 0 });
   const boardSizeRef = useRef(boardSize);
   const offsetRef = useRef(offset);
   const zoomRef = useRef(zoom);
@@ -14997,10 +15007,39 @@ const BoardSection = ({
   }, [tool, selectedImageId]);
 
   useEffect(() => {
+    if (tool !== 'select') {
+      setSelectionBox(null);
+      setSelectedIds([]);
+      selectingRef.current.active = false;
+      selectionDragRef.current.active = false;
+    }
+  }, [tool]);
+
+  useEffect(() => {
     if (!selectedImageId) return;
     const exists = boardItems.some((item) => item?.id === selectedImageId && item.type === 'image');
     if (!exists) setSelectedImageId(null);
   }, [boardItems, selectedImageId]);
+
+  useEffect(() => {
+    selectionRef.current = selectionBox;
+  }, [selectionBox]);
+
+  useEffect(() => {
+    selectedIdsRef.current = selectedIds;
+    if (selectedIds.length === 0 && !selectingRef.current.active) {
+      setSelectionBox(null);
+    }
+  }, [selectedIds]);
+
+  useEffect(() => {
+    if (selectedIdsRef.current.length === 0) return;
+    const existingIds = new Set(boardItems.map((item) => item?.id).filter(Boolean));
+    const filtered = selectedIdsRef.current.filter((id) => existingIds.has(id));
+    if (filtered.length !== selectedIdsRef.current.length) {
+      setSelectedIds(filtered);
+    }
+  }, [boardItems]);
 
   useEffect(() => {
     if (!effectiveStudentId || !saveTaskNumber || !saveCategory) {
@@ -15491,6 +15530,197 @@ const BoardSection = ({
     }
   };
 
+  const getItemBounds = (item) => {
+    if (!item) return null;
+    if (item.type === 'stroke') {
+      const points = Array.isArray(item.points) ? item.points : [];
+      if (points.length === 0) return null;
+      let minX = Number.POSITIVE_INFINITY;
+      let minY = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let maxY = Number.NEGATIVE_INFINITY;
+      points.forEach((pt) => {
+        if (!pt) return;
+        minX = Math.min(minX, pt.x || 0);
+        minY = Math.min(minY, pt.y || 0);
+        maxX = Math.max(maxX, pt.x || 0);
+        maxY = Math.max(maxY, pt.y || 0);
+      });
+      if (!Number.isFinite(minX)) return null;
+      return { minX, minY, maxX, maxY };
+    }
+    if (item.type === 'line') {
+      const start = item.start || { x: 0, y: 0 };
+      const end = item.end || { x: 0, y: 0 };
+      const minX = Math.min(start.x || 0, end.x || 0);
+      const minY = Math.min(start.y || 0, end.y || 0);
+      const maxX = Math.max(start.x || 0, end.x || 0);
+      const maxY = Math.max(start.y || 0, end.y || 0);
+      return { minX, minY, maxX, maxY };
+    }
+    if (item.type === 'image') {
+      const x = item.x || 0;
+      const y = item.y || 0;
+      const w = item.width || 0;
+      const h = item.height || 0;
+      return { minX: x, minY: y, maxX: x + w, maxY: y + h };
+    }
+    return null;
+  };
+
+  const normalizeRect = (start, current) => {
+    const x1 = start?.x ?? 0;
+    const y1 = start?.y ?? 0;
+    const x2 = current?.x ?? x1;
+    const y2 = current?.y ?? y1;
+    const minX = Math.min(x1, x2);
+    const minY = Math.min(y1, y2);
+    const maxX = Math.max(x1, x2);
+    const maxY = Math.max(y1, y2);
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  };
+
+  const rectIntersects = (rect, bounds) => {
+    if (!rect || !bounds) return false;
+    const rectMaxX = rect.x + rect.width;
+    const rectMaxY = rect.y + rect.height;
+    return !(
+      bounds.maxX < rect.x ||
+      bounds.minX > rectMaxX ||
+      bounds.maxY < rect.y ||
+      bounds.minY > rectMaxY
+    );
+  };
+
+  const isPointInRect = (point, rect) => {
+    if (!rect) return false;
+    const x = point.x || 0;
+    const y = point.y || 0;
+    return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
+  };
+
+  const getItemsInRect = (rect) => {
+    if (!rect) return [];
+    return boardItems
+      .filter((item) => rectIntersects(rect, getItemBounds(item)))
+      .map((item) => item.id)
+      .filter(Boolean);
+  };
+
+  const getItemsAtPoint = (point) => {
+    return boardItems
+      .filter((item) => {
+        if (!item) return false;
+        if (item.type === 'image') {
+          const x = item.x || 0;
+          const y = item.y || 0;
+          const w = item.width || 0;
+          const h = item.height || 0;
+          return point.x >= x && point.x <= x + w && point.y >= y && point.y <= y + h;
+        }
+        if (item.type === 'stroke') return hitTestStroke(item, point, BOARD_SELECTION_HIT_RADIUS);
+        if (item.type === 'line') return hitTestLine(item, point, BOARD_SELECTION_HIT_RADIUS);
+        return false;
+      })
+      .map((item) => item.id)
+      .filter(Boolean);
+  };
+
+  const getSelectionBoundsFromIds = (ids) => {
+    if (!ids?.length) return null;
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    boardItems.forEach((item) => {
+      if (!item || !ids.includes(item.id)) return;
+      const bounds = getItemBounds(item);
+      if (!bounds) return;
+      minX = Math.min(minX, bounds.minX);
+      minY = Math.min(minY, bounds.minY);
+      maxX = Math.max(maxX, bounds.maxX);
+      maxY = Math.max(maxY, bounds.maxY);
+    });
+    if (!Number.isFinite(minX)) return null;
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  };
+
+  const buildSelectionSnapshot = (ids) => {
+    if (!ids?.length) return [];
+    return boardItems
+      .filter((item) => item && ids.includes(item.id))
+      .map((item) => {
+        if (item.type === 'stroke') {
+          return {
+            id: item.id,
+            type: 'stroke',
+            points: (item.points || []).map((pt) => ({ x: pt?.x || 0, y: pt?.y || 0 })),
+          };
+        }
+        if (item.type === 'line') {
+          return {
+            id: item.id,
+            type: 'line',
+            start: { x: item.start?.x || 0, y: item.start?.y || 0 },
+            end: { x: item.end?.x || 0, y: item.end?.y || 0 },
+          };
+        }
+        if (item.type === 'image') {
+          return {
+            id: item.id,
+            type: 'image',
+            x: item.x || 0,
+            y: item.y || 0,
+          };
+        }
+        return null;
+      })
+      .filter(Boolean);
+  };
+
+  const applySelectionMove = (dx, dy) => {
+    const yItems = yItemsRef.current;
+    const docInstance = docRef.current;
+    const snapshot = selectionDragRef.current.items;
+    if (!yItems || !docInstance || !snapshot?.length) return;
+    docInstance.transact(() => {
+      snapshot.forEach((item) => {
+        for (let i = yItems.length - 1; i >= 0; i -= 1) {
+          const raw = yItems.get(i);
+          const current = raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
+          if (current?.id !== item.id) continue;
+          let next = current;
+          if (current.type === 'stroke') {
+            const points = (item.points || []).map((pt) => ({ x: (pt.x || 0) + dx, y: (pt.y || 0) + dy }));
+            next = { ...current, points };
+          } else if (current.type === 'line') {
+            next = {
+              ...current,
+              start: { x: (item.start?.x || 0) + dx, y: (item.start?.y || 0) + dy },
+              end: { x: (item.end?.x || 0) + dx, y: (item.end?.y || 0) + dy },
+            };
+          } else if (current.type === 'image') {
+            next = { ...current, x: (item.x || 0) + dx, y: (item.y || 0) + dy };
+          }
+          yItems.delete(i, 1);
+          yItems.insert(i, [next]);
+          break;
+        }
+      });
+    }, localOriginRef.current);
+  };
+
+  const scheduleSelectionMove = (dx, dy) => {
+    pendingSelectionMoveRef.current = { dx, dy };
+    if (selectionMoveRafRef.current) return;
+    selectionMoveRafRef.current = requestAnimationFrame(() => {
+      selectionMoveRafRef.current = null;
+      const pending = pendingSelectionMoveRef.current;
+      if (!pending) return;
+      applySelectionMove(pending.dx, pending.dy);
+    });
+  };
+
   const drawStroke = (ctx, stroke, width, height) => {
     const points = Array.isArray(stroke?.points) ? stroke.points : [];
     if (points.length < 2) {
@@ -15619,6 +15849,16 @@ const BoardSection = ({
         drawLine(ctx, { start: state.start, end: state.end, color, width: lineWidth }, overlay.width, overlay.height);
       }
     }
+    if (tool === 'select' && selectionBox) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(99, 102, 241, 0.9)';
+      ctx.fillStyle = 'rgba(99, 102, 241, 0.08)';
+      ctx.lineWidth = 1.5 / (zoomRef.current || 1);
+      ctx.setLineDash([6 / (zoomRef.current || 1), 4 / (zoomRef.current || 1)]);
+      ctx.strokeRect(selectionBox.x, selectionBox.y, selectionBox.width, selectionBox.height);
+      ctx.fillRect(selectionBox.x, selectionBox.y, selectionBox.width, selectionBox.height);
+      ctx.restore();
+    }
     if (tool === 'move' && selectedImage) {
       ctx.save();
       ctx.strokeStyle = 'rgba(99, 102, 241, 0.9)';
@@ -15636,7 +15876,7 @@ const BoardSection = ({
 
   useEffect(() => {
     renderOverlay();
-  }, [remotePreviews, boardSize, tool, color, penWidth, lineWidth, selectedImage]);
+  }, [remotePreviews, boardSize, tool, color, penWidth, lineWidth, selectedImage, selectionBox]);
 
   useEffect(() => {
     renderBoard();
@@ -15888,6 +16128,10 @@ const BoardSection = ({
   }, []);
 
   useEffect(() => () => {
+    if (selectionMoveRafRef.current) cancelAnimationFrame(selectionMoveRafRef.current);
+  }, []);
+
+  useEffect(() => () => {
     if (summonTimeoutRef.current) clearTimeout(summonTimeoutRef.current);
   }, []);
 
@@ -15906,6 +16150,47 @@ const BoardSection = ({
         originX: offsetRef.current.x,
         originY: offsetRef.current.y,
       };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (tool === 'select') {
+      const point = getCanvasPoint(event);
+      lastPointerRef.current = point;
+      const currentSelection = selectionBox;
+      const currentSelectedIds = selectedIdsRef.current || [];
+      if (currentSelection && currentSelectedIds.length > 0 && isPointInRect(point, currentSelection)) {
+        const snapshot = buildSelectionSnapshot(currentSelectedIds);
+        selectionDragRef.current = {
+          active: true,
+          startX: point.x,
+          startY: point.y,
+          items: snapshot,
+          baseSelection: { ...currentSelection },
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        return;
+      }
+      const hitIds = getItemsAtPoint(point);
+      if (hitIds.length > 0) {
+        const targetId = hitIds[hitIds.length - 1];
+        const nextIds = [targetId];
+        const bounds = getSelectionBoundsFromIds(nextIds);
+        setSelectedIds(nextIds);
+        setSelectionBox(bounds);
+        const snapshot = buildSelectionSnapshot(nextIds);
+        selectionDragRef.current = {
+          active: true,
+          startX: point.x,
+          startY: point.y,
+          items: snapshot,
+          baseSelection: bounds ? { ...bounds } : null,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        return;
+      }
+      selectingRef.current = { active: true, start: point, current: point };
+      setSelectedIds([]);
+      setSelectionBox({ x: point.x, y: point.y, width: 0, height: 0 });
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
@@ -15968,6 +16253,26 @@ const BoardSection = ({
       scheduleImageMove(dragImageRef.current.id, nextX, nextY);
       return;
     }
+    if (selectionDragRef.current.active) {
+      const dx = point.x - selectionDragRef.current.startX;
+      const dy = point.y - selectionDragRef.current.startY;
+      const baseSelection = selectionDragRef.current.baseSelection;
+      if (baseSelection) {
+        setSelectionBox({
+          x: baseSelection.x + dx,
+          y: baseSelection.y + dy,
+          width: baseSelection.width,
+          height: baseSelection.height,
+        });
+      }
+      scheduleSelectionMove(dx, dy);
+      return;
+    }
+    if (selectingRef.current.active) {
+      selectingRef.current.current = point;
+      setSelectionBox(normalizeRect(selectingRef.current.start, point));
+      return;
+    }
     if (panStateRef.current.active) {
       const dx = event.clientX - panStateRef.current.startX;
       const dy = event.clientY - panStateRef.current.startY;
@@ -15996,6 +16301,44 @@ const BoardSection = ({
   const handlePointerUp = () => {
     if (panStateRef.current.active) {
       panStateRef.current.active = false;
+      return;
+    }
+    if (selectionDragRef.current.active) {
+      if (selectionMoveRafRef.current) {
+        cancelAnimationFrame(selectionMoveRafRef.current);
+        selectionMoveRafRef.current = null;
+      }
+      const pending = pendingSelectionMoveRef.current;
+      if (pending && selectionDragRef.current.items) {
+        applySelectionMove(pending.dx, pending.dy);
+      }
+      pendingSelectionMoveRef.current = { dx: 0, dy: 0 };
+      selectionDragRef.current.active = false;
+      selectionDragRef.current.items = null;
+      selectionDragRef.current.baseSelection = null;
+      undoManagerRef.current?.stopCapturing();
+      return;
+    }
+    if (selectingRef.current.active) {
+      const start = selectingRef.current.start;
+      const current = selectingRef.current.current || start;
+      selectingRef.current.active = false;
+      const rect = normalizeRect(start, current);
+      const isClick = rect.width < 4 && rect.height < 4;
+      let nextIds = [];
+      if (isClick) {
+        const hitIds = getItemsAtPoint(current);
+        if (hitIds.length > 0) nextIds = [hitIds[hitIds.length - 1]];
+      } else {
+        nextIds = getItemsInRect(rect);
+      }
+      if (nextIds.length > 0) {
+        setSelectedIds(nextIds);
+        setSelectionBox(getSelectionBoundsFromIds(nextIds));
+      } else {
+        setSelectedIds([]);
+        setSelectionBox(null);
+      }
       return;
     }
     if (dragImageRef.current.active) {
@@ -16057,6 +16400,15 @@ const BoardSection = ({
     const undoManager = undoManagerRef.current;
     if (!undoManager?.redoStack?.length) return;
     undoManager.redo();
+  };
+
+  const handleClearBoard = () => {
+    if (!yItemsRef.current || !docRef.current) return;
+    if (!confirm('Очистить доску? Это удалит все элементы.')) return;
+    docRef.current.transact(() => {
+      yItemsRef.current.delete(0, yItemsRef.current.length);
+    }, localOriginRef.current);
+    undoManagerRef.current?.stopCapturing();
   };
 
   const handleWheel = (event) => {
@@ -16187,6 +16539,7 @@ const BoardSection = ({
 
   const canUndo = undoState.canUndo;
   const canRedo = undoState.canRedo;
+  const canClear = boardItems.length > 0;
   const statusLabel = status === 'connected'
     ? 'Подключено'
     : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено');
@@ -16453,6 +16806,18 @@ const BoardSection = ({
 
           <button
             type="button"
+            onClick={() => setTool('select')}
+            className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
+              tool === 'select' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+            aria-label="Выделение"
+            title="Выделение"
+          >
+            <MousePointer2 size={14} />
+          </button>
+
+          <button
+            type="button"
             onClick={() => setTool('move')}
             className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
               tool === 'move' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
@@ -16495,6 +16860,16 @@ const BoardSection = ({
               title="Вернуть"
             >
               <RefreshCcw size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={handleClearBoard}
+              disabled={!canClear}
+              className="inline-flex items-center justify-center rounded-lg px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+              aria-label="Очистить доску"
+              title="Очистить доску"
+            >
+              <Trash2 size={14} />
             </button>
           </div>
 
