@@ -3,9 +3,14 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import { createServer } from 'http';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import webpush from 'web-push';
+import { WebSocketServer } from 'ws';
+import yWsUtils from 'y-websocket/bin/utils';
+
+const { setupWSConnection } = yWsUtils;
 
 const app = express();
 app.set('trust proxy', 1);
@@ -5016,7 +5021,26 @@ const startPushReminderSweep = () => {
 const pushSweepStartTimer = setTimeout(startPushReminderSweep, PUSH_SWEEP_START_DELAY_MS);
 if (typeof pushSweepStartTimer.unref === 'function') pushSweepStartTimer.unref();
 
-app.listen(PORT, () => {
+const server = createServer(app);
+const wss = new WebSocketServer({ noServer: true });
+
+server.on('upgrade', (request, socket, head) => {
+  const url = typeof request?.url === 'string' ? request.url : '';
+  if (!url.startsWith('/collab')) {
+    socket.destroy();
+    return;
+  }
+
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit('connection', ws, request);
+  });
+});
+
+wss.on('connection', (ws, request) => {
+  setupWSConnection(ws, request);
+});
+
+server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   resolvePythonRunner()
     .then((runner) => {

@@ -4,11 +4,14 @@ import Prism from 'prismjs';
 import 'prismjs/components/prism-python';
 import 'prismjs/themes/prism-tomorrow.css';
 import Editor from '@monaco-editor/react';
+import * as Y from 'yjs';
+import { WebsocketProvider } from 'y-websocket';
+import { MonacoBinding } from 'y-monaco';
 import { 
   BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle, AlertCircle, AlertTriangle,
   X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Check, Plus, Flame, Snowflake,
-  Settings, Save, Calendar, RefreshCcw, Pencil, Image as ImageIcon, Trophy,
+  Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Image as ImageIcon, Trophy,
   Bell, BellOff
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
@@ -57,6 +60,25 @@ const LEAGUE_TIERS = [
   { id: 'bronze', label: 'Бронзовая лига', minXp: 5000, icon: leagueBronze },
 ];
 const BLANK_LEAGUE = { id: 'blank', label: 'Без лиги', minXp: 0, icon: leagueBlank };
+const COLLAB_COLORS = ['#7c3aed', '#2563eb', '#0ea5e9', '#10b981', '#f97316', '#ef4444'];
+const BOARD_COLORS = ['#0f172a', '#7c3aed', '#2563eb', '#0ea5e9', '#10b981', '#f97316', '#ef4444'];
+const BOARD_STROKE_WIDTH = 2.6;
+const BOARD_LINE_WIDTH = 2.6;
+const BOARD_MIN_ZOOM = 0.25;
+const BOARD_MAX_ZOOM = 2.5;
+const BOARD_POINT_MIN_DISTANCE = 1.5;
+const BOARD_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const BOARD_DEFAULT_IMAGE_MAX_WIDTH = 640;
+const pickCollabColor = (seed) => {
+  const text = String(seed || 'collab');
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(i);
+    hash |= 0;
+  }
+  const index = Math.abs(hash) % COLLAB_COLORS.length;
+  return COLLAB_COLORS[index];
+};
 const ABSOLUTE_LEAGUE_ID = 'absolute';
 const ABSOLUTE_LEAGUE_MIN_XP = LEAGUE_TIERS.find((league) => league.id === ABSOLUTE_LEAGUE_ID)?.minXp ?? Number.POSITIVE_INFINITY;
 const isLeagueAboveAbsolute = (leagueId) => {
@@ -14194,6 +14216,1442 @@ const MockExamModal = ({ exam, studentId, initialAttempt, onClose, onAttemptSave
   return typeof document !== 'undefined' ? createPortal(modal, document.body) : null;
 };
 
+const CollabSection = ({
+  role,
+  userId,
+  userName,
+  teacherId,
+  tasks,
+  students,
+  activeStudentId,
+  onSelectStudent,
+  studentsLoading,
+}) => {
+  const isTeacher = role === 'teacher';
+  const [status, setStatus] = useState('disconnected');
+  const [peerCount, setPeerCount] = useState(0);
+  const [editorReady, setEditorReady] = useState(false);
+  const editorRef = useRef(null);
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
+  const [saveTaskNumber, setSaveTaskNumber] = useState(() => String(taskOptions[0]?.number || ''));
+  const [saveCategory, setSaveCategory] = useState('class');
+  const [saveFolderId, setSaveFolderId] = useState('');
+  const [saveFileName, setSaveFileName] = useState(() => {
+    const stamp = new Date().toISOString().slice(0, 10);
+    return `collab-${stamp}.py`;
+  });
+  const [folders, setFolders] = useState([]);
+  const [foldersLoading, setFoldersLoading] = useState(false);
+  const [foldersError, setFoldersError] = useState('');
+  const [newFolderName, setNewFolderName] = useState('');
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [saveSuccess, setSaveSuccess] = useState('');
+
+  const isMobileViewport = typeof window !== 'undefined'
+    ? window.matchMedia('(max-width: 767px)').matches
+    : false;
+  const effectiveStudentId = isTeacher ? activeStudentId : userId;
+  const roomId = effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null;
+  const wsUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${protocol}://${window.location.host}/collab`;
+  }, []);
+  const localName = userName || (isTeacher ? 'Учитель' : 'Ученик');
+  const localColor = useMemo(
+    () => pickCollabColor(isTeacher ? `teacher-${teacherId}` : `student-${userId}`),
+    [isTeacher, teacherId, userId]
+  );
+  const selectedStudent = useMemo(
+    () => (students || []).find((student) => student.id === activeStudentId),
+    [students, activeStudentId]
+  );
+  const editorOptions = useMemo(() => ({
+    minimap: { enabled: false },
+    fontSize: 14,
+    tabSize: 4,
+    insertSpaces: true,
+    wordWrap: 'on',
+    automaticLayout: true,
+    scrollBeyondLastLine: false,
+    smoothScrolling: true,
+    cursorSmoothCaretAnimation: 'on',
+    readOnly: !roomId,
+  }), [roomId]);
+  const editorHeight = isMobileViewport ? '50vh' : '65vh';
+
+  const handleEditorMount = useCallback((editor) => {
+    editorRef.current = editor;
+    setEditorReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!effectiveStudentId || !saveTaskNumber || !saveCategory) {
+      setFolders([]);
+      setFoldersError('');
+      setFoldersLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setFoldersLoading(true);
+    api.getFolders(Number(saveTaskNumber), saveCategory, effectiveStudentId)
+      .then((data) => {
+        if (cancelled) return;
+        setFolders(Array.isArray(data) ? data : []);
+        setFoldersError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setFolders([]);
+        setFoldersError(err?.message || 'Не удалось загрузить папки.');
+      })
+      .finally(() => {
+        if (!cancelled) setFoldersLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [effectiveStudentId, saveTaskNumber, saveCategory]);
+
+  useEffect(() => {
+    setSaveFolderId('');
+    setSaveError('');
+    setSaveSuccess('');
+  }, [saveTaskNumber, saveCategory, effectiveStudentId]);
+
+  const normalizeFileName = (value) => {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return '';
+    return trimmed.replace(/[\\\/]+/g, '').replace(/\0/g, '');
+  };
+
+  const handleCreateFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) {
+      setFoldersError('Введите название папки.');
+      return;
+    }
+    if (!effectiveStudentId || !saveTaskNumber || !saveCategory) return;
+    if (creatingFolder) return;
+    setCreatingFolder(true);
+    try {
+      const created = await api.createFolder(Number(saveTaskNumber), saveCategory, name, effectiveStudentId);
+      setFolders((prev) => [created, ...prev]);
+      setSaveFolderId(created.id);
+      setNewFolderName('');
+      setFoldersError('');
+    } catch (err) {
+      setFoldersError(err?.message || err);
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
+  const handleSaveToNotes = async () => {
+    setSaveError('');
+    setSaveSuccess('');
+    if (!effectiveStudentId) {
+      setSaveError('Сначала выберите ученика.');
+      return;
+    }
+    if (!saveTaskNumber || !saveCategory) {
+      setSaveError('Выберите задание и категорию.');
+      return;
+    }
+    const code = editorRef.current?.getValue?.() ?? '';
+    if (!code.trim()) {
+      setSaveError('Код пустой.');
+      return;
+    }
+    const baseName = normalizeFileName(saveFileName);
+    const fallbackName = `collab-${new Date().toLocaleDateString('ru-RU')}.py`;
+    let safeName = baseName || fallbackName;
+    if (!/\.[a-z0-9]+$/i.test(safeName)) {
+      safeName += '.py';
+    }
+    const file = new File([code], safeName, { type: 'text/plain' });
+    setSaveBusy(true);
+    try {
+      await api.uploadFile(file, Number(saveTaskNumber), saveCategory, saveFolderId || null, effectiveStudentId);
+      setSaveSuccess('Сохранено в конспекты.');
+    } catch (err) {
+      setSaveError(err?.message || err);
+    } finally {
+      setSaveBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!roomId || !editorReady || !wsUrl) {
+      setStatus('disconnected');
+      setPeerCount(0);
+      return;
+    }
+
+    setStatus('connecting');
+    const doc = new Y.Doc();
+    const provider = new WebsocketProvider(wsUrl, roomId, doc);
+    const model = editorRef.current?.getModel?.();
+    if (!model) {
+      provider.destroy();
+      doc.destroy();
+      return;
+    }
+
+    const ytext = doc.getText('monaco');
+    const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]), provider.awareness);
+    provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
+
+    const handleStatus = (event) => {
+      if (event?.status) setStatus(event.status);
+    };
+    const handleAwareness = () => {
+      const total = provider.awareness.getStates().size;
+      setPeerCount(Math.max(0, total - 1));
+    };
+
+    provider.on('status', handleStatus);
+    provider.awareness.on('change', handleAwareness);
+    handleAwareness();
+
+    return () => {
+      provider.awareness.off('change', handleAwareness);
+      provider.off('status', handleStatus);
+      binding.destroy();
+      provider.destroy();
+      doc.destroy();
+    };
+  }, [roomId, editorReady, wsUrl, localName, localColor]);
+
+  const statusLabel = status === 'connected'
+    ? 'Подключено'
+    : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено');
+  const statusClass = status === 'connected'
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+    : 'border-amber-200 bg-amber-50 text-amber-700';
+
+  const renderStudentPicker = () => {
+    if (!isTeacher) return null;
+    return (
+      <div className="inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-purple-100/40">
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
+        <select
+          value={activeStudentId || ''}
+          onChange={(e) => {
+            const value = e.target.value;
+            onSelectStudent?.(value || null);
+          }}
+          disabled={studentsLoading || (students || []).length === 0}
+          className="w-full min-w-0 sm:min-w-[180px] rounded-xl border border-purple-100 bg-white px-3 py-1.5 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
+        >
+          <option value="" disabled>Выберите ученика</option>
+          {(students || []).map((student) => (
+            <option key={student.id} value={student.id}>
+              {getStudentLabel(student)}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  };
+
+  const saveModal = saveModalOpen ? (
+    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
+      <div className="surface-card modal-card rounded-3xl w-full max-w-3xl p-4 sm:p-5 md:p-6 shadow-2xl relative">
+        <button
+          onClick={() => setSaveModalOpen(false)}
+          className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"
+          aria-label="Закрыть"
+        >
+          <X size={18} />
+        </button>
+        <div className="pr-8">
+          <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сохранение</div>
+          <h3 className="mt-1 text-xl font-bold text-gray-900">Сохранить в конспекты</h3>
+          <p className="mt-1 text-xs text-gray-500">Файл появится в разделе «Конспекты» выбранного ученика.</p>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Задание</label>
+            <select
+              value={saveTaskNumber}
+              onChange={(e) => setSaveTaskNumber(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
+            >
+              {taskOptions.map((task) => (
+                <option key={task.id} value={task.number}>
+                  {`Задание ${getTaskDisplayNumber(task)}: ${task.title}`}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Категория</label>
+            <select
+              value={saveCategory}
+              onChange={(e) => setSaveCategory(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
+            >
+              <option value="class">На уроке</option>
+              <option value="home">Домашка</option>
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Папка</label>
+            <select
+              value={saveFolderId}
+              onChange={(e) => setSaveFolderId(e.target.value)}
+              disabled={!effectiveStudentId || foldersLoading}
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
+            >
+              <option value="">Без папки</option>
+              {folders.map((folder) => (
+                <option key={folder.id} value={folder.id}>{folder.name}</option>
+              ))}
+            </select>
+            {foldersLoading && <div className="text-[11px] text-gray-400">Загрузка папок...</div>}
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Имя файла</label>
+            <input
+              type="text"
+              value={saveFileName}
+              onChange={(e) => setSaveFileName(e.target.value)}
+              placeholder="collab.py"
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
+            />
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <input
+            type="text"
+            value={newFolderName}
+            onChange={(e) => setNewFolderName(e.target.value)}
+            placeholder="Новая папка"
+            className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
+          />
+          <Button
+            variant="secondary"
+            onClick={handleCreateFolder}
+            disabled={creatingFolder || !newFolderName.trim() || !effectiveStudentId}
+            className="flex items-center justify-center gap-2"
+          >
+            <FolderPlus size={16} />
+            {creatingFolder ? 'Создаём...' : 'Создать папку'}
+          </Button>
+        </div>
+
+        {foldersError && <div className="mt-2 text-xs text-rose-600">{foldersError}</div>}
+        {saveError && <div className="mt-2 text-xs text-rose-600">{saveError}</div>}
+        {saveSuccess && <div className="mt-2 text-xs text-emerald-700">{saveSuccess}</div>}
+
+        <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2">
+          <Button variant="secondary" onClick={() => setSaveModalOpen(false)}>Отмена</Button>
+          <Button
+            onClick={handleSaveToNotes}
+            disabled={saveBusy || !effectiveStudentId || !saveTaskNumber || !saveCategory}
+            className="flex items-center justify-center gap-2"
+          >
+            <Save size={16} />
+            {saveBusy ? 'Сохраняем...' : 'Сохранить'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  return (
+    <div className="animate-fadeIn pb-10">
+      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <Pencil className="text-purple-600" />
+            Совместный код
+          </h2>
+          <p className="text-gray-500">Живой документ без сохранения. Изменения и курсоры видны сразу.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {renderStudentPicker()}
+          <Button
+            variant="secondary"
+            onClick={() => setSaveModalOpen(true)}
+            className="flex items-center gap-2"
+          >
+            <Save size={16} />
+            Сохранить в конспекты
+          </Button>
+          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusClass}`}>
+            {statusLabel}
+          </span>
+          {roomId && (
+            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+              Онлайн: {peerCount}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {isTeacher && !activeStudentId && (
+        <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 flex items-start gap-2">
+          <AlertTriangle size={18} className="mt-0.5" />
+          <div>
+            <div className="font-semibold">Сначала выберите ученика</div>
+            <div className="text-xs text-amber-700/80">Комната создаётся отдельно для каждого ученика.</div>
+          </div>
+        </div>
+      )}
+
+      <Card className="p-4 md:p-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сессия</div>
+            <div className="text-sm font-semibold text-gray-800">
+              {roomId
+                ? (isTeacher
+                  ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
+                  : 'Учитель + ученик')
+                : 'Не выбрана'}
+            </div>
+          </div>
+          <div className="text-xs text-gray-500">
+            Ничего не сохраняется. Скопируйте код, когда закончили.
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl overflow-hidden border border-gray-800 relative">
+          {!roomId && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
+              Выберите ученика, чтобы открыть совместный документ.
+            </div>
+          )}
+          <Editor
+            height={editorHeight}
+            language="python"
+            theme="vs-dark"
+            defaultValue=""
+            onMount={handleEditorMount}
+            options={editorOptions}
+            loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+          />
+        </div>
+      </Card>
+      {typeof document !== 'undefined' ? createPortal(saveModal, document.body) : null}
+    </div>
+  );
+};
+
+const BoardSection = ({
+  role,
+  userId,
+  userName,
+  teacherId,
+  students,
+  activeStudentId,
+  onSelectStudent,
+  studentsLoading,
+}) => {
+  const isTeacher = role === 'teacher';
+  const effectiveStudentId = isTeacher ? activeStudentId : userId;
+  const roomId = effectiveStudentId && teacherId ? `board-${teacherId}-${effectiveStudentId}` : null;
+  const wsUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${protocol}://${window.location.host}/collab`;
+  }, []);
+  const localName = userName || (isTeacher ? 'Учитель' : 'Ученик');
+  const localColor = useMemo(
+    () => pickCollabColor(isTeacher ? `teacher-${teacherId}` : `student-${userId}`),
+    [isTeacher, teacherId, userId]
+  );
+
+  const [status, setStatus] = useState('disconnected');
+  const [peerCount, setPeerCount] = useState(0);
+  const [boardItems, setBoardItems] = useState([]);
+  const [remotePreviews, setRemotePreviews] = useState([]);
+  const [tool, setTool] = useState('pen');
+  const [color, setColor] = useState(BOARD_COLORS[1] || '#7c3aed');
+  const [boardSize, setBoardSize] = useState({ width: 900, height: 520 });
+  const [pasteError, setPasteError] = useState('');
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [isSpaceDown, setIsSpaceDown] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const canvasRef = useRef(null);
+  const overlayRef = useRef(null);
+  const containerRef = useRef(null);
+  const boardRootRef = useRef(null);
+  const yItemsRef = useRef(null);
+  const providerRef = useRef(null);
+  const awarenessRef = useRef(null);
+  const previewRafRef = useRef(null);
+  const imageDragRafRef = useRef(null);
+  const pendingImageMoveRef = useRef(null);
+  const renderRef = useRef(null);
+  const boardSizeRef = useRef(boardSize);
+  const offsetRef = useRef(offset);
+  const zoomRef = useRef(zoom);
+  const imageCacheRef = useRef(new Map());
+  const lastPointerRef = useRef({ x: 0, y: 0 });
+  const drawStateRef = useRef({ drawing: false, points: [], start: null, end: null });
+  const panStateRef = useRef({ active: false, startX: 0, startY: 0, originX: 0, originY: 0 });
+  const dragImageRef = useRef({ active: false, id: null, offsetX: 0, offsetY: 0 });
+  const minimapRef = useRef(null);
+
+  const selectedStudent = useMemo(
+    () => (students || []).find((student) => student.id === activeStudentId),
+    [students, activeStudentId]
+  );
+
+  useEffect(() => {
+    boardSizeRef.current = boardSize;
+  }, [boardSize]);
+
+  useEffect(() => {
+    const centerX = offset.x + (boardSize.width / (zoom || 1)) / 2;
+    const centerY = offset.y + (boardSize.height / (zoom || 1)) / 2;
+    lastPointerRef.current = { x: centerX, y: centerY };
+  }, [boardSize.width, boardSize.height, zoom, offset]);
+
+  useEffect(() => {
+    offsetRef.current = offset;
+  }, [offset]);
+
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.code === 'Space') setIsSpaceDown(true);
+    };
+    const handleKeyUp = (event) => {
+      if (event.code === 'Space') setIsSpaceDown(false);
+    };
+    if (typeof window === 'undefined') return undefined;
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const active = typeof document !== 'undefined' && document.fullscreenElement === boardRootRef.current;
+      setIsFullscreen(active);
+    };
+    if (typeof document === 'undefined') return undefined;
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+  const getCanvasPoint = (event) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0.5, y: 0.5 };
+    const rect = canvas.getBoundingClientRect();
+    const screenX = event.clientX - rect.left;
+    const screenY = event.clientY - rect.top;
+    const currentZoom = zoomRef.current || 1;
+    const worldX = offsetRef.current.x + screenX / currentZoom;
+    const worldY = offsetRef.current.y + screenY / currentZoom;
+    return {
+      x: worldX,
+      y: worldY,
+    };
+  };
+
+  const zoomAt = (nextZoom, centerX, centerY) => {
+    const clamped = clamp(nextZoom, BOARD_MIN_ZOOM, BOARD_MAX_ZOOM);
+    const currentZoom = zoomRef.current || 1;
+    if (clamped === currentZoom) return;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const screenX = rect ? (centerX - rect.left) : boardSizeRef.current.width / 2;
+    const screenY = rect ? (centerY - rect.top) : boardSizeRef.current.height / 2;
+    const worldX = offsetRef.current.x + screenX / currentZoom;
+    const worldY = offsetRef.current.y + screenY / currentZoom;
+    setZoom(clamped);
+    setOffset({
+      x: worldX - screenX / clamped,
+      y: worldY - screenY / clamped,
+    });
+  };
+
+  const zoomBy = (factor) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const centerX = rect ? rect.left + rect.width / 2 : boardSizeRef.current.width / 2;
+    const centerY = rect ? rect.top + rect.height / 2 : boardSizeRef.current.height / 2;
+    zoomAt((zoomRef.current || 1) * factor, centerX, centerY);
+  };
+
+  const toggleFullscreen = async () => {
+    if (typeof document === 'undefined') return;
+    const root = boardRootRef.current;
+    try {
+      if (!document.fullscreenElement && root?.requestFullscreen) {
+        await root.requestFullscreen();
+      } else if (document.fullscreenElement && document.exitFullscreen) {
+        await document.exitFullscreen();
+      }
+    } catch {}
+  };
+
+  const findImageAtPoint = (point) => {
+    for (let i = boardItems.length - 1; i >= 0; i -= 1) {
+      const item = boardItems[i];
+      if (!item || item.type !== 'image') continue;
+      const x = item.x || 0;
+      const y = item.y || 0;
+      const w = item.width || 0;
+      const h = item.height || 0;
+      if (point.x >= x && point.x <= x + w && point.y >= y && point.y <= y + h) {
+        return { item, index: i };
+      }
+    }
+    return null;
+  };
+
+  const updateImagePosition = (id, x, y) => {
+    const yItems = yItemsRef.current;
+    if (!yItems) return;
+    for (let i = yItems.length - 1; i >= 0; i -= 1) {
+      const raw = yItems.get(i);
+      const item = raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
+      if (item?.id === id) {
+        const next = { ...item, x, y };
+        yItems.delete(i, 1);
+        yItems.insert(i, [next]);
+        break;
+      }
+    }
+  };
+
+  const scheduleImageMove = (id, x, y) => {
+    pendingImageMoveRef.current = { id, x, y };
+    if (imageDragRafRef.current) return;
+    imageDragRafRef.current = requestAnimationFrame(() => {
+      imageDragRafRef.current = null;
+      const next = pendingImageMoveRef.current;
+      if (next) updateImagePosition(next.id, next.x, next.y);
+    });
+  };
+
+  const drawStroke = (ctx, stroke, width, height) => {
+    const points = Array.isArray(stroke?.points) ? stroke.points : [];
+    if (points.length < 2) {
+      if (points.length === 1) {
+        const p = points[0];
+        ctx.fillStyle = stroke.color || '#0f172a';
+        ctx.beginPath();
+        ctx.arc(p.x || 0, p.y || 0, (stroke.width || BOARD_STROKE_WIDTH) / 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      return;
+    }
+    const lineWidth = stroke.width || BOARD_STROKE_WIDTH;
+    ctx.strokeStyle = stroke.color || '#0f172a';
+    ctx.lineWidth = lineWidth;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    points.forEach((point, index) => {
+      const px = point?.x || 0;
+      const py = point?.y || 0;
+      if (index === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+  };
+
+  const drawLine = (ctx, line, width, height) => {
+    if (!line?.start || !line?.end) return;
+    const lineWidth = line.width || BOARD_LINE_WIDTH;
+    ctx.strokeStyle = line.color || '#0f172a';
+    ctx.lineWidth = lineWidth;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(line.start.x || 0, line.start.y || 0);
+    ctx.lineTo(line.end.x || 0, line.end.y || 0);
+    ctx.stroke();
+  };
+
+  const getCachedImage = (dataUrl) => {
+    if (!dataUrl) return null;
+    const cached = imageCacheRef.current.get(dataUrl);
+    if (cached) return cached;
+    const img = new Image();
+    const entry = { img, loaded: false };
+    imageCacheRef.current.set(dataUrl, entry);
+    img.onload = () => {
+      entry.loaded = true;
+      if (typeof renderRef.current === 'function') renderRef.current();
+    };
+    img.src = dataUrl;
+    return entry;
+  };
+
+  const renderBoard = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const width = canvas.width;
+    const height = canvas.height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    ctx.setTransform(zoomRef.current || 1, 0, 0, zoomRef.current || 1, -(offsetRef.current.x || 0) * (zoomRef.current || 1), -(offsetRef.current.y || 0) * (zoomRef.current || 1));
+    boardItems.forEach((item) => {
+      if (!item) return;
+      if (item.type === 'stroke') drawStroke(ctx, item, width, height);
+      if (item.type === 'line') drawLine(ctx, item, width, height);
+      if (item.type === 'image') {
+        const cacheEntry = getCachedImage(item.dataUrl);
+        if (!cacheEntry?.img || !cacheEntry.loaded) return;
+        const img = cacheEntry.img;
+        const w = Math.max(1, item.width || 0);
+        const h = Math.max(1, item.height || 0);
+        const x = item.x || 0;
+        const y = item.y || 0;
+        ctx.drawImage(img, x, y, w, h);
+      }
+    });
+  }, [boardItems]);
+
+  useEffect(() => {
+    renderRef.current = renderBoard;
+  }, [renderBoard]);
+
+  useEffect(() => {
+    renderBoard();
+  }, [renderBoard, boardSize]);
+
+  const renderOverlay = () => {
+    const overlay = overlayRef.current;
+    if (!overlay) return;
+    const ctx = overlay.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    ctx.setTransform(zoomRef.current || 1, 0, 0, zoomRef.current || 1, -(offsetRef.current.x || 0) * (zoomRef.current || 1), -(offsetRef.current.y || 0) * (zoomRef.current || 1));
+    if (remotePreviews.length > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.65;
+      remotePreviews.forEach((preview) => {
+        if (preview?.type === 'stroke') {
+          drawStroke(ctx, preview, overlay.width, overlay.height);
+        } else if (preview?.type === 'line') {
+          drawLine(ctx, preview, overlay.width, overlay.height);
+        }
+      });
+      ctx.restore();
+    }
+    const state = drawStateRef.current;
+    if (!state.drawing) return;
+    if (tool === 'pen') {
+      drawStroke(ctx, { points: state.points, color, width: BOARD_STROKE_WIDTH }, overlay.width, overlay.height);
+    }
+    if (tool === 'line' && state.start && state.end) {
+      drawLine(ctx, { start: state.start, end: state.end, color, width: BOARD_LINE_WIDTH }, overlay.width, overlay.height);
+    }
+  };
+
+  useEffect(() => {
+    renderOverlay();
+  }, [remotePreviews, boardSize, tool, color]);
+
+  useEffect(() => {
+    renderBoard();
+    renderOverlay();
+  }, [zoom, offset, renderBoard, remotePreviews, tool, color]);
+
+  useEffect(() => {
+    const handleBlur = () => {
+      setIsSpaceDown(false);
+      panStateRef.current.active = false;
+    };
+    if (typeof window === 'undefined') return undefined;
+    window.addEventListener('blur', handleBlur);
+    return () => window.removeEventListener('blur', handleBlur);
+  }, []);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return undefined;
+    const updateSize = () => {
+      const rect = container.getBoundingClientRect();
+      const width = Math.max(1, Math.floor(rect.width));
+      const height = Math.max(1, Math.floor(rect.height));
+      setBoardSize({ width, height });
+    };
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const overlay = overlayRef.current;
+    if (!canvas || !overlay) return;
+    canvas.width = boardSize.width;
+    canvas.height = boardSize.height;
+    overlay.width = boardSize.width;
+    overlay.height = boardSize.height;
+    renderBoard();
+    renderOverlay();
+  }, [boardSize, renderBoard]);
+
+  useEffect(() => {
+    if (!roomId || !wsUrl) {
+      setStatus('disconnected');
+      setPeerCount(0);
+      setBoardItems([]);
+      yItemsRef.current = null;
+      providerRef.current = null;
+      awarenessRef.current = null;
+      setRemotePreviews([]);
+      return;
+    }
+
+    setStatus('connecting');
+    const doc = new Y.Doc();
+    const provider = new WebsocketProvider(wsUrl, roomId, doc);
+    providerRef.current = provider;
+    awarenessRef.current = provider.awareness;
+    const yItems = doc.getArray('items');
+    yItemsRef.current = yItems;
+
+    const updateItems = () => {
+      const next = yItems.toArray().map((item) => (
+        item && typeof item.toJSON === 'function' ? item.toJSON() : item
+      ));
+      setBoardItems(next);
+    };
+
+    const handleStatus = (event) => {
+      if (event?.status) setStatus(event.status);
+    };
+    const handleAwareness = () => {
+      const total = provider.awareness.getStates().size;
+      setPeerCount(Math.max(0, total - 1));
+      const previews = [];
+      provider.awareness.getStates().forEach((state, clientId) => {
+        if (clientId === provider.awareness.clientID) return;
+        const drawing = state?.drawing;
+        if (drawing && (drawing.type === 'stroke' || drawing.type === 'line')) {
+          previews.push(drawing);
+        }
+      });
+      setRemotePreviews(previews);
+    };
+
+    provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
+    provider.awareness.setLocalStateField('drawing', null);
+    provider.on('status', handleStatus);
+    provider.awareness.on('change', handleAwareness);
+    yItems.observe(updateItems);
+    updateItems();
+    handleAwareness();
+
+    return () => {
+      yItems.unobserve(updateItems);
+      provider.awareness.off('change', handleAwareness);
+      provider.off('status', handleStatus);
+      provider.awareness.setLocalStateField('drawing', null);
+      provider.destroy();
+      doc.destroy();
+      providerRef.current = null;
+      awarenessRef.current = null;
+    };
+  }, [roomId, wsUrl, localName, localColor]);
+
+  useEffect(() => {
+    const handlePaste = (event) => {
+      if (!roomId || !yItemsRef.current) return;
+      const clipboardItems = event.clipboardData?.items || [];
+      const imageItem = Array.from(clipboardItems).find((item) => item.type?.startsWith('image/'));
+      if (!imageItem) return;
+      const file = imageItem.getAsFile();
+      if (!file) return;
+      if (file.size > BOARD_MAX_IMAGE_BYTES) {
+        setPasteError('Слишком большой файл. Максимум 10 МБ.');
+        return;
+      }
+      event.preventDefault();
+      setPasteError('');
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result || '');
+        const img = new Image();
+        img.onload = () => {
+          const maxWidth = Math.min(img.width, BOARD_DEFAULT_IMAGE_MAX_WIDTH);
+          const scale = img.width ? maxWidth / img.width : 1;
+          const widthPx = img.width * scale;
+          const heightPx = img.height * scale;
+          const pointer = lastPointerRef.current || { x: 0, y: 0 };
+          const x = pointer.x - widthPx / 2;
+          const y = pointer.y - heightPx / 2;
+          const entry = {
+            id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random()}`,
+            type: 'image',
+            dataUrl,
+            x,
+            y,
+            width: widthPx,
+            height: heightPx,
+            authorId: userId,
+          };
+          yItemsRef.current?.push([entry]);
+        };
+        img.src = dataUrl;
+      };
+      reader.readAsDataURL(file);
+    };
+
+    if (typeof window === 'undefined') return undefined;
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [roomId, userId]);
+
+  const schedulePreviewUpdate = () => {
+    if (!awarenessRef.current) return;
+    if (previewRafRef.current) return;
+    previewRafRef.current = requestAnimationFrame(() => {
+      previewRafRef.current = null;
+      const state = drawStateRef.current;
+      if (!state.drawing) {
+        awarenessRef.current?.setLocalStateField('drawing', null);
+        return;
+      }
+      if (tool === 'pen') {
+        awarenessRef.current?.setLocalStateField('drawing', {
+          type: 'stroke',
+          color,
+          width: BOARD_STROKE_WIDTH,
+          points: state.points,
+        });
+      } else if (tool === 'line') {
+        awarenessRef.current?.setLocalStateField('drawing', {
+          type: 'line',
+          color,
+          width: BOARD_LINE_WIDTH,
+          start: state.start,
+          end: state.end,
+        });
+      }
+    });
+  };
+
+  useEffect(() => () => {
+    if (previewRafRef.current) cancelAnimationFrame(previewRafRef.current);
+  }, []);
+
+  useEffect(() => () => {
+    if (imageDragRafRef.current) cancelAnimationFrame(imageDragRafRef.current);
+  }, []);
+
+  const handlePointerDown = (event) => {
+    if (!roomId) return;
+    if (event.pointerType === 'touch') event.preventDefault();
+    if (tool === 'move') {
+      const point = getCanvasPoint(event);
+      lastPointerRef.current = point;
+      const hit = findImageAtPoint(point);
+      if (hit?.item?.id) {
+        dragImageRef.current = {
+          active: true,
+          id: hit.item.id,
+          offsetX: point.x - (hit.item.x || 0),
+          offsetY: point.y - (hit.item.y || 0),
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        return;
+      }
+      panStateRef.current = {
+        active: true,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: offsetRef.current.x,
+        originY: offsetRef.current.y,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (isSpaceDown || event.button === 1 || event.button === 2) {
+      panStateRef.current = {
+        active: true,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: offsetRef.current.x,
+        originY: offsetRef.current.y,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+    const point = getCanvasPoint(event);
+    lastPointerRef.current = point;
+    if (tool === 'pen') {
+      drawStateRef.current = { drawing: true, points: [point], start: null, end: null };
+    } else if (tool === 'line') {
+      drawStateRef.current = { drawing: true, points: [], start: point, end: point };
+    }
+    renderOverlay();
+    schedulePreviewUpdate();
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handlePointerMove = (event) => {
+    const point = getCanvasPoint(event);
+    lastPointerRef.current = point;
+    if (dragImageRef.current.active) {
+      const nextX = point.x - dragImageRef.current.offsetX;
+      const nextY = point.y - dragImageRef.current.offsetY;
+      scheduleImageMove(dragImageRef.current.id, nextX, nextY);
+      return;
+    }
+    if (panStateRef.current.active) {
+      const dx = event.clientX - panStateRef.current.startX;
+      const dy = event.clientY - panStateRef.current.startY;
+      const currentZoom = zoomRef.current || 1;
+      setOffset({
+        x: panStateRef.current.originX - dx / currentZoom,
+        y: panStateRef.current.originY - dy / currentZoom,
+      });
+      return;
+    }
+    const state = drawStateRef.current;
+    if (!state.drawing) return;
+    if (tool === 'pen') {
+      const last = state.points[state.points.length - 1];
+      const dx = point.x - (last?.x || 0);
+      const dy = point.y - (last?.y || 0);
+      if ((dx * dx + dy * dy) < BOARD_POINT_MIN_DISTANCE * BOARD_POINT_MIN_DISTANCE) return;
+      state.points.push(point);
+    } else if (tool === 'line') {
+      state.end = point;
+    }
+    renderOverlay();
+    schedulePreviewUpdate();
+  };
+
+  const handlePointerUp = () => {
+    if (panStateRef.current.active) {
+      panStateRef.current.active = false;
+      return;
+    }
+    if (dragImageRef.current.active) {
+      dragImageRef.current.active = false;
+      return;
+    }
+    const state = drawStateRef.current;
+    if (!state.drawing) return;
+    state.drawing = false;
+    renderOverlay();
+    if (awarenessRef.current) awarenessRef.current.setLocalStateField('drawing', null);
+    if (!yItemsRef.current) return;
+    const base = {
+      id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random()}`,
+      color,
+      authorId: userId,
+    };
+    if (tool === 'pen' && state.points.length > 1) {
+      yItemsRef.current.push([{
+        ...base,
+        type: 'stroke',
+        width: BOARD_STROKE_WIDTH,
+        points: state.points,
+      }]);
+    }
+    if (tool === 'line' && state.start && state.end) {
+      yItemsRef.current.push([{
+        ...base,
+        type: 'line',
+        width: BOARD_LINE_WIDTH,
+        start: state.start,
+        end: state.end,
+      }]);
+    }
+    drawStateRef.current = { drawing: false, points: [], start: null, end: null };
+  };
+
+  const handleUndo = () => {
+    if (!yItemsRef.current) return;
+    const yItems = yItemsRef.current;
+    for (let i = yItems.length - 1; i >= 0; i -= 1) {
+      const raw = yItems.get(i);
+      const item = raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
+      if (item?.authorId === userId) {
+        yItems.delete(i, 1);
+        break;
+      }
+    }
+  };
+
+  const handleWheel = (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    const factor = event.deltaY < 0 ? 1.12 : 0.9;
+    zoomAt((zoomRef.current || 1) * factor, event.clientX, event.clientY);
+  };
+
+  const resetView = () => {
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
+  };
+
+  const renderMinimap = useCallback(() => {
+    const canvas = minimapRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const width = canvas.width;
+    const height = canvas.height;
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(0, 0, width, height);
+
+    const bounds = {
+      minX: Number.POSITIVE_INFINITY,
+      minY: Number.POSITIVE_INFINITY,
+      maxX: Number.NEGATIVE_INFINITY,
+      maxY: Number.NEGATIVE_INFINITY,
+    };
+
+    const includePoint = (x, y) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      bounds.minX = Math.min(bounds.minX, x);
+      bounds.minY = Math.min(bounds.minY, y);
+      bounds.maxX = Math.max(bounds.maxX, x);
+      bounds.maxY = Math.max(bounds.maxY, y);
+    };
+
+    boardItems.forEach((item) => {
+      if (!item) return;
+      if (item.type === 'stroke') {
+        (item.points || []).forEach((pt) => includePoint(pt?.x, pt?.y));
+      } else if (item.type === 'line') {
+        includePoint(item.start?.x, item.start?.y);
+        includePoint(item.end?.x, item.end?.y);
+      } else if (item.type === 'image') {
+        includePoint(item.x, item.y);
+        includePoint((item.x || 0) + (item.width || 0), (item.y || 0) + (item.height || 0));
+      }
+    });
+
+    const viewWidth = boardSize.width / (zoomRef.current || 1);
+    const viewHeight = boardSize.height / (zoomRef.current || 1);
+    includePoint(offsetRef.current.x, offsetRef.current.y);
+    includePoint(offsetRef.current.x + viewWidth, offsetRef.current.y + viewHeight);
+
+    if (!Number.isFinite(bounds.minX)) {
+      bounds.minX = 0;
+      bounds.minY = 0;
+      bounds.maxX = viewWidth;
+      bounds.maxY = viewHeight;
+    }
+
+    const pad = 8;
+    const mapWidth = Math.max(1, bounds.maxX - bounds.minX);
+    const mapHeight = Math.max(1, bounds.maxY - bounds.minY);
+    const scale = Math.min((width - pad * 2) / mapWidth, (height - pad * 2) / mapHeight);
+
+    const toMiniX = (x) => pad + (x - bounds.minX) * scale;
+    const toMiniY = (y) => pad + (y - bounds.minY) * scale;
+
+    ctx.save();
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(pad, pad, mapWidth * scale, mapHeight * scale);
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
+    ctx.lineWidth = 1;
+    boardItems.forEach((item) => {
+      if (!item) return;
+      if (item.type === 'stroke') {
+        const pts = item.points || [];
+        if (pts.length < 2) return;
+        ctx.beginPath();
+        pts.forEach((pt, index) => {
+          const x = toMiniX(pt?.x || 0);
+          const y = toMiniY(pt?.y || 0);
+          if (index === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+      } else if (item.type === 'line') {
+        ctx.beginPath();
+        ctx.moveTo(toMiniX(item.start?.x || 0), toMiniY(item.start?.y || 0));
+        ctx.lineTo(toMiniX(item.end?.x || 0), toMiniY(item.end?.y || 0));
+        ctx.stroke();
+      } else if (item.type === 'image') {
+        const x = toMiniX(item.x || 0);
+        const y = toMiniY(item.y || 0);
+        const w = (item.width || 0) * scale;
+        const h = (item.height || 0) * scale;
+        ctx.fillStyle = 'rgba(99, 102, 241, 0.18)';
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = 'rgba(99, 102, 241, 0.5)';
+        ctx.strokeRect(x, y, w, h);
+      }
+    });
+    ctx.restore();
+
+    ctx.save();
+    const viewX = toMiniX(offsetRef.current.x);
+    const viewY = toMiniY(offsetRef.current.y);
+    const viewW = viewWidth * scale;
+    const viewH = viewHeight * scale;
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(viewX, viewY, viewW, viewH);
+    ctx.restore();
+  }, [boardItems, boardSize.width, boardSize.height]);
+
+  useEffect(() => {
+    renderMinimap();
+  }, [renderMinimap, zoom, offset]);
+
+  const canUndo = boardItems.some((item) => item?.authorId === userId);
+  const statusLabel = status === 'connected'
+    ? 'Подключено'
+    : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено');
+  const statusClass = status === 'connected'
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+    : 'border-amber-200 bg-amber-50 text-amber-700';
+  const boardCanvasHeight = isFullscreen ? 'calc(100vh - 240px)' : '62vh';
+
+  const renderStudentPicker = () => {
+    if (!isTeacher) return null;
+    return (
+      <div className="inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-purple-100/40">
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
+        <select
+          value={activeStudentId || ''}
+          onChange={(e) => {
+            const value = e.target.value;
+            onSelectStudent?.(value || null);
+          }}
+          disabled={studentsLoading || (students || []).length === 0}
+          className="w-full min-w-0 sm:min-w-[180px] rounded-xl border border-purple-100 bg-white px-3 py-1.5 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
+        >
+          <option value="" disabled>Выберите ученика</option>
+          {(students || []).map((student) => (
+            <option key={student.id} value={student.id}>
+              {getStudentLabel(student)}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  };
+
+  return (
+    <div ref={boardRootRef} className="animate-fadeIn pb-10">
+      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <Brush className="text-purple-600" />
+            Онлайн-доска
+          </h2>
+          <p className="text-gray-500">Карандаш, линии, цвета и вставка изображений через Ctrl+V.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {renderStudentPicker()}
+          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusClass}`}>
+            {statusLabel}
+          </span>
+          {roomId && (
+            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+              Онлайн: {peerCount}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {isTeacher && !activeStudentId && (
+        <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 flex items-start gap-2">
+          <AlertTriangle size={18} className="mt-0.5" />
+          <div>
+            <div className="font-semibold">Сначала выберите ученика</div>
+            <div className="text-xs text-amber-700/80">Комната создаётся отдельно для каждого ученика.</div>
+          </div>
+        </div>
+      )}
+
+      <Card className="p-4 md:p-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сессия</div>
+            <div className="text-sm font-semibold text-gray-800">
+              {roomId
+                ? (isTeacher
+                  ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
+                  : 'Учитель + ученик')
+                : 'Не выбрана'}
+            </div>
+          </div>
+          <div className="text-xs text-gray-500">
+            Вставка картинки: Ctrl+V. Лимит 10 МБ. Панорамирование: удерживайте Space и тяните.
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setTool('pen')}
+            className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+              tool === 'pen' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <Pencil size={14} />
+            Карандаш
+          </button>
+          <button
+            type="button"
+            onClick={() => setTool('line')}
+            className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+              tool === 'line' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <Minus size={14} />
+            Линия
+          </button>
+          <button
+            type="button"
+            onClick={() => setTool('move')}
+            className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+              tool === 'move' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <Hand size={14} />
+            Перемещение
+          </button>
+          <button
+            type="button"
+            onClick={handleUndo}
+            disabled={!canUndo}
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >
+            <Undo2 size={14} />
+            Отменить
+          </button>
+          <div className="h-6 w-px bg-gray-200 mx-1" />
+          <button
+            type="button"
+            onClick={() => zoomBy(1 / 1.12)}
+            className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            aria-label="Отдалить"
+          >
+            <Minus size={14} />
+          </button>
+          <div className="text-xs font-semibold text-gray-600 min-w-[60px] text-center">
+            {`${Math.round((zoom || 1) * 100)}%`}
+          </div>
+          <button
+            type="button"
+            onClick={() => zoomBy(1.12)}
+            className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            aria-label="Приблизить"
+          >
+            <Plus size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={resetView}
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+          >
+            Сброс
+          </button>
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+          >
+            {isFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
+            {isFullscreen ? 'Обычный' : 'Полный экран'}
+          </button>
+          <div className="flex items-center gap-1.5">
+            {BOARD_COLORS.map((swatch) => (
+              <button
+                key={swatch}
+                type="button"
+                onClick={() => setColor(swatch)}
+                className={`h-7 w-7 rounded-full border-2 transition ${
+                  color === swatch ? 'border-gray-900 scale-110' : 'border-white/80'
+                }`}
+                style={{ backgroundColor: swatch }}
+                aria-label={`Цвет ${swatch}`}
+              />
+            ))}
+          </div>
+        </div>
+
+        {pasteError && (
+          <div className="mt-2 text-xs text-rose-600">{pasteError}</div>
+        )}
+
+        <div
+          ref={containerRef}
+          className="mt-4 relative w-full rounded-2xl border border-gray-200 bg-white overflow-hidden"
+          style={{ height: boardCanvasHeight }}
+        >
+          {!roomId && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
+              Выберите ученика, чтобы открыть доску.
+            </div>
+          )}
+          <canvas
+            ref={canvasRef}
+            className="absolute inset-0 w-full h-full"
+          />
+          <canvas
+            ref={overlayRef}
+            className="absolute inset-0 w-full h-full"
+            style={{
+              touchAction: 'none',
+              cursor: isSpaceDown
+                ? (panStateRef.current.active ? 'grabbing' : 'grab')
+                : (tool === 'pen' || tool === 'line' ? 'crosshair' : (tool === 'move' ? 'grab' : 'default'))
+            }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onWheel={handleWheel}
+            onContextMenu={(e) => e.preventDefault()}
+          />
+          <div className="absolute right-3 top-3 z-20 rounded-xl border border-gray-200 bg-white/90 p-2 shadow-sm">
+            <canvas
+              ref={minimapRef}
+              width={160}
+              height={120}
+              className="block"
+            />
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+};
+
 const StudentLeaderboardSection = ({ role, userId, userName }) => {
   const [leaderboard, setLeaderboard] = useState({ items: [], week: null, currentStudent: null });
   const [loading, setLoading] = useState(true);
@@ -14795,8 +16253,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const allowedViews = user.role === 'admin'
     ? ['admin']
     : user.role === 'teacher'
-      ? ['schedule', 'progress', 'rating', 'python', 'teacher', 'notes']
-      : ['schedule', 'progress', 'rating', 'python', 'notes'];
+      ? ['schedule', 'progress', 'rating', 'python', 'collab', 'board', 'teacher', 'notes']
+      : ['schedule', 'progress', 'rating', 'python', 'collab', 'board', 'notes'];
   const defaultView = user.role === 'teacher' ? 'teacher' : (user.role === 'admin' ? 'admin' : 'progress');
   const storedLocation = readUserLocation(user);
   const storedView = storedLocation?.view;
@@ -14942,6 +16400,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
         { id: 'rating', label: 'Рейтинг', icon: Trophy },
         { id: 'python', label: 'Изучение Python', icon: FileText },
+        { id: 'collab', label: 'Совместный код', icon: Pencil },
+        { id: 'board', label: 'Доска', icon: Brush },
         { id: 'teacher', label: 'Управление тестами', icon: Settings },
         { id: 'notes', label: 'Конспекты', icon: Folder }
       ]
@@ -14950,6 +16410,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
         { id: 'rating', label: 'Рейтинг', icon: Trophy },
         { id: 'python', label: 'Изучение Python', icon: FileText },
+        { id: 'collab', label: 'Совместный код', icon: Pencil },
+        { id: 'board', label: 'Доска', icon: Brush },
         { id: 'notes', label: 'Конспекты', icon: BookOpen }
       ];
   const mobileNavLabels = {
@@ -14957,6 +16419,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     progress: 'Тесты',
     rating: 'Рейтинг',
     python: 'Python',
+    collab: 'Код',
+    board: 'Доска',
     teacher: 'Управ.',
     notes: 'Консп.',
     admin: 'Админка',
@@ -16422,6 +17886,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const firstGoal = goalGoals[0] || null;
   const shouldShowGoalBlock = user.role === 'student'
     && view !== 'schedule'
+    && view !== 'collab'
+    && view !== 'board'
     && goalState?.entry
     && !goalState.completed
     && goalGoals.length > 0;
@@ -17067,7 +18533,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         </header>
         <main className="flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8" data-tour="main">
           <div className="main-content-shell animate-soft">
-          {user.role === 'student' && (
+          {user.role === 'student' && view !== 'collab' && view !== 'board' && (
             <div className="mb-3 rounded-2xl border border-slate-200/80 bg-gradient-to-r from-white to-slate-50/85 px-2.5 py-1.5 shadow-sm sm:px-3 sm:py-2">
               <div className="flex items-center gap-1.5 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-2">
                 <div
@@ -17416,6 +18882,31 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               onTaskStateChange={handleTaskStateChange}
               onStreakSaved={handleStreakSaved}
               onXpGain={handleXpGain}
+            />
+          )}
+          {view === 'collab' && (
+            <CollabSection
+              role={user.role}
+              userId={user.id}
+              userName={user.name}
+              teacherId={user.role === 'teacher' ? user.id : user.teacherId}
+              tasks={tasksWithTitles}
+              students={studentsWithNicknames}
+              activeStudentId={activeStudentId}
+              onSelectStudent={setActiveStudentId}
+              studentsLoading={studentsLoading}
+            />
+          )}
+          {view === 'board' && (
+            <BoardSection
+              role={user.role}
+              userId={user.id}
+              userName={user.name}
+              teacherId={user.role === 'teacher' ? user.id : user.teacherId}
+              students={studentsWithNicknames}
+              activeStudentId={activeStudentId}
+              onSelectStudent={setActiveStudentId}
+              studentsLoading={studentsLoading}
             />
           )}
           {view === 'notes' && (

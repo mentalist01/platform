@@ -8,12 +8,20 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:5175',
       '/uploads': 'http://localhost:5175',
+      '/collab': {
+        target: 'http://localhost:5175',
+        ws: true,
+      },
     },
   },
   preview: {
     proxy: {
       '/api': 'http://localhost:5175',
       '/uploads': 'http://localhost:5175',
+      '/collab': {
+        target: 'http://localhost:5175',
+        ws: true,
+      },
     },
   },
 })
