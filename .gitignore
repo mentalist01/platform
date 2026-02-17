@@ -23,6 +23,7 @@ server/data/usage.json
 server/data/task-titles.json
 server/data/mock-exams.json
 server/data/push.json
+server/data/collab/
 
 # Local artifacts
 .git2/

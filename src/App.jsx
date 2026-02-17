@@ -11,7 +11,7 @@ import {
   BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle, AlertCircle, AlertTriangle,
   X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Check, Plus, Flame, Snowflake,
-  Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Image as ImageIcon, Trophy,
+  Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy,
   Bell, BellOff
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
@@ -64,6 +64,15 @@ const COLLAB_COLORS = ['#7c3aed', '#2563eb', '#0ea5e9', '#10b981', '#f97316', '#
 const BOARD_COLORS = ['#0f172a', '#7c3aed', '#2563eb', '#0ea5e9', '#10b981', '#f97316', '#ef4444'];
 const BOARD_STROKE_WIDTH = 2.6;
 const BOARD_LINE_WIDTH = 2.6;
+const BOARD_MIN_WIDTH = 1;
+const BOARD_MAX_WIDTH = 12;
+const BOARD_WIDTH_STEP = 0.5;
+const BOARD_ERASER_RADIUS = 8;
+const BOARD_IMAGE_MIN_SIZE = 40;
+const BOARD_IMAGE_MAX_SIZE = 2800;
+const BOARD_IMAGE_SCALE_STEP = 0.12;
+const BOARD_EXPORT_PADDING = 24;
+const BOARD_EXPORT_MAX_SIZE = 6000;
 const BOARD_MIN_ZOOM = 0.25;
 const BOARD_MAX_ZOOM = 2.5;
 const BOARD_POINT_MIN_DISTANCE = 1.5;
@@ -13075,22 +13084,231 @@ const NotesSection = ({
                   <div className={`overflow-hidden transition-all duration-300 ease-out ${
                     expandedImageIds[f.id] ? 'max-h-[80vh] opacity-100' : 'max-h-0 opacity-0'
                   }`}>
-                    <div className="bg-white border rounded-xl p-2 flex items-center justify-center">
-                      <img
-                        src={getFileUrl(f)}
-                        alt={f.name || 'Изображение'}
-                        className="w-auto max-w-full object-contain rounded-lg"
-                        style={{ maxHeight: imagePreviewMaxHeight }}
-                        loading="lazy"
-                        draggable={false}
-                        onDragStart={(event) => event.preventDefault()}
-                      />
-                    </div>
+                    <ImageViewer
+                      src={getFileUrl(f)}
+                      alt={f.name || 'Изображение'}
+                      maxHeight={imagePreviewMaxHeight}
+                    />
                   </div>
                 )}
               </div>
             ))}
           </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const ImageViewer = ({ src, alt, maxHeight = '72vh', allowFullscreen = true }) => {
+  const containerRef = useRef(null);
+  const imgRef = useRef(null);
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const zoomRef = useRef(1);
+  const offsetRef = useRef({ x: 0, y: 0 });
+  const panRef = useRef({ active: false, startX: 0, startY: 0, originX: 0, originY: 0 });
+
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  useEffect(() => {
+    offsetRef.current = offset;
+  }, [offset]);
+
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  const MIN_ZOOM = 0.2;
+  const MAX_ZOOM = 6;
+
+  const fitToView = useCallback(() => {
+    const container = containerRef.current;
+    const img = imgRef.current;
+    if (!container || !img || !img.naturalWidth || !img.naturalHeight) return;
+    const rect = container.getBoundingClientRect();
+    const scale = Math.min(rect.width / img.naturalWidth, rect.height / img.naturalHeight, 1);
+    const displayWidth = img.naturalWidth * scale;
+    const displayHeight = img.naturalHeight * scale;
+    const nextOffset = {
+      x: (rect.width - displayWidth) / 2,
+      y: (rect.height - displayHeight) / 2,
+    };
+    setZoom(scale);
+    setOffset(nextOffset);
+  }, []);
+
+  useEffect(() => {
+    fitToView();
+  }, [src, fitToView]);
+
+  const zoomAt = (nextZoom, clientX, clientY) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const clamped = clamp(nextZoom, MIN_ZOOM, MAX_ZOOM);
+    const currentZoom = zoomRef.current || 1;
+    const screenX = clientX - rect.left;
+    const screenY = clientY - rect.top;
+    const worldX = (screenX - offsetRef.current.x) / currentZoom;
+    const worldY = (screenY - offsetRef.current.y) / currentZoom;
+    setZoom(clamped);
+    setOffset({
+      x: screenX - worldX * clamped,
+      y: screenY - worldY * clamped,
+    });
+  };
+
+  const zoomBy = (factor) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    zoomAt((zoomRef.current || 1) * factor, rect.left + rect.width / 2, rect.top + rect.height / 2);
+  };
+
+  const handleWheel = useCallback((event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const factor = event.deltaY < 0 ? 1.12 : 0.9;
+    zoomAt((zoomRef.current || 1) * factor, event.clientX, event.clientY);
+  }, []);
+
+  const handlePointerDown = (event) => {
+    event.preventDefault();
+    setIsPanning(true);
+    panRef.current = {
+      active: true,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: offsetRef.current.x,
+      originY: offsetRef.current.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handlePointerMove = (event) => {
+    if (!panRef.current.active) return;
+    const dx = event.clientX - panRef.current.startX;
+    const dy = event.clientY - panRef.current.startY;
+    setOffset({
+      x: panRef.current.originX + dx,
+      y: panRef.current.originY + dy,
+    });
+  };
+
+  const handlePointerUp = (event) => {
+    if (!panRef.current.active) return;
+    panRef.current.active = false;
+    setIsPanning(false);
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (typeof document === 'undefined') return;
+      setIsFullscreen(document.fullscreenElement === containerRef.current);
+    };
+    if (typeof document === 'undefined') return undefined;
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const timer = setTimeout(() => {
+      fitToView();
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [isFullscreen, fitToView]);
+
+  const toggleFullscreen = async () => {
+    if (!allowFullscreen || typeof document === 'undefined') return;
+    const root = containerRef.current;
+    try {
+      if (!document.fullscreenElement && root?.requestFullscreen) {
+        await root.requestFullscreen();
+      } else if (document.fullscreenElement && document.exitFullscreen) {
+        await document.exitFullscreen();
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return undefined;
+    const onWheel = (event) => handleWheel(event);
+    container.addEventListener('wheel', onWheel, { passive: false });
+    return () => container.removeEventListener('wheel', onWheel);
+  }, [handleWheel]);
+
+  return (
+    <div
+      className="relative w-full rounded-xl border border-gray-200 bg-white overflow-hidden"
+      style={{ height: isFullscreen ? '100vh' : maxHeight }}
+    >
+      <div
+        ref={containerRef}
+        className="absolute inset-0"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        style={{ touchAction: 'none', cursor: isPanning ? 'grabbing' : 'grab' }}
+      >
+        <img
+          ref={imgRef}
+          src={src}
+          alt={alt || 'Изображение'}
+          className="absolute left-0 top-0 select-none"
+          style={{
+            transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+            transformOrigin: 'top left',
+          }}
+          loading="lazy"
+          draggable={false}
+          onDragStart={(event) => event.preventDefault()}
+          onLoad={fitToView}
+        />
+      </div>
+      <div className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-lg border border-gray-200 bg-white/90 px-2 py-1 text-xs font-semibold text-gray-600 shadow-sm">
+        <button
+          type="button"
+          onClick={() => zoomBy(1 / 1.12)}
+          className="inline-flex items-center justify-center rounded-md px-1.5 py-1 hover:bg-gray-100"
+          aria-label="Отдалить"
+        >
+          <Minus size={14} />
+        </button>
+        <span className="min-w-[46px] text-center">{`${Math.round((zoom || 1) * 100)}%`}</span>
+        <button
+          type="button"
+          onClick={() => zoomBy(1.12)}
+          className="inline-flex items-center justify-center rounded-md px-1.5 py-1 hover:bg-gray-100"
+          aria-label="Приблизить"
+        >
+          <Plus size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={fitToView}
+          className="inline-flex items-center justify-center rounded-md px-1.5 py-1 hover:bg-gray-100"
+          aria-label="По размеру"
+          title="По размеру"
+        >
+          <RefreshCcw size={14} />
+        </button>
+        {allowFullscreen && (
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="inline-flex items-center justify-center rounded-md px-1.5 py-1 hover:bg-gray-100"
+            aria-label={isFullscreen ? 'Обычный экран' : 'Полный экран'}
+            title={isFullscreen ? 'Обычный экран' : 'Полный экран'}
+          >
+            {isFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
+          </button>
         )}
       </div>
     </div>
@@ -14237,10 +14455,7 @@ const CollabSection = ({
   const [saveTaskNumber, setSaveTaskNumber] = useState(() => String(taskOptions[0]?.number || ''));
   const [saveCategory, setSaveCategory] = useState('class');
   const [saveFolderId, setSaveFolderId] = useState('');
-  const [saveFileName, setSaveFileName] = useState(() => {
-    const stamp = new Date().toISOString().slice(0, 10);
-    return `collab-${stamp}.py`;
-  });
+  const [saveFileName, setSaveFileName] = useState('');
   const [folders, setFolders] = useState([]);
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [foldersError, setFoldersError] = useState('');
@@ -14318,6 +14533,7 @@ const CollabSection = ({
     setSaveFolderId('');
     setSaveError('');
     setSaveSuccess('');
+    setSaveNameError(false);
   }, [saveTaskNumber, saveCategory, effectiveStudentId]);
 
   const normalizeFileName = (value) => {
@@ -14351,6 +14567,7 @@ const CollabSection = ({
   const handleSaveToNotes = async () => {
     setSaveError('');
     setSaveSuccess('');
+    setSaveNameError(false);
     if (!effectiveStudentId) {
       setSaveError('Сначала выберите ученика.');
       return;
@@ -14365,8 +14582,16 @@ const CollabSection = ({
       return;
     }
     const baseName = normalizeFileName(saveFileName);
-    const fallbackName = `collab-${new Date().toLocaleDateString('ru-RU')}.py`;
-    let safeName = baseName || fallbackName;
+    if (!baseName) {
+      setSaveError('Введите название файла.');
+      setSaveNameError(true);
+      return;
+    }
+    let safeName = baseName;
+    const prefix = 'конспект-';
+    if (!safeName.toLowerCase().startsWith(prefix)) {
+      safeName = `${prefix}${safeName}`;
+    }
     if (!/\.[a-z0-9]+$/i.test(safeName)) {
       safeName += '.py';
     }
@@ -14521,9 +14746,19 @@ const CollabSection = ({
             <input
               type="text"
               value={saveFileName}
-              onChange={(e) => setSaveFileName(e.target.value)}
-              placeholder="collab.py"
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
+              onChange={(e) => {
+                setSaveFileName(e.target.value);
+                if (saveNameError && e.target.value.trim()) {
+                  setSaveNameError(false);
+                  setSaveError('');
+                }
+              }}
+              placeholder="конспект-..."
+              className={`w-full rounded-xl px-3 py-2 text-sm outline-none ${
+                saveNameError
+                  ? 'border border-red-300 bg-red-50 text-red-700 focus:border-red-500'
+                  : 'border border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
+              }`}
             />
           </div>
         </div>
@@ -14651,6 +14886,7 @@ const BoardSection = ({
   userId,
   userName,
   teacherId,
+  tasks,
   students,
   activeStudentId,
   onSelectStudent,
@@ -14659,6 +14895,7 @@ const BoardSection = ({
   const isTeacher = role === 'teacher';
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
   const roomId = effectiveStudentId && teacherId ? `board-${teacherId}-${effectiveStudentId}` : null;
+  const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const wsUrl = useMemo(() => {
     if (typeof window === 'undefined') return '';
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
@@ -14675,25 +14912,53 @@ const BoardSection = ({
   const [boardItems, setBoardItems] = useState([]);
   const [remotePreviews, setRemotePreviews] = useState([]);
   const [tool, setTool] = useState('pen');
-  const [color, setColor] = useState(BOARD_COLORS[1] || '#7c3aed');
+  const [color, setColor] = useState(BOARD_COLORS[0] || '#0f172a');
+  const [penWidth, setPenWidth] = useState(BOARD_STROKE_WIDTH);
+  const [lineWidth, setLineWidth] = useState(BOARD_LINE_WIDTH);
   const [boardSize, setBoardSize] = useState({ width: 900, height: 520 });
   const [pasteError, setPasteError] = useState('');
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [isSpaceDown, setIsSpaceDown] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
+  const [selectedImageId, setSelectedImageId] = useState(null);
+  const [summonNotice, setSummonNotice] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saveTaskNumber, setSaveTaskNumber] = useState(() => String(taskOptions[0]?.number || ''));
+  const [saveCategory, setSaveCategory] = useState('class');
+  const [saveFolderId, setSaveFolderId] = useState('');
+  const [saveFileName, setSaveFileName] = useState('');
+  const [folders, setFolders] = useState([]);
+  const [foldersLoading, setFoldersLoading] = useState(false);
+  const [foldersError, setFoldersError] = useState('');
+  const [newFolderName, setNewFolderName] = useState('');
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [saveSuccess, setSaveSuccess] = useState('');
+  const [saveNameError, setSaveNameError] = useState(false);
 
   const canvasRef = useRef(null);
   const overlayRef = useRef(null);
   const containerRef = useRef(null);
   const boardRootRef = useRef(null);
+  const docRef = useRef(null);
   const yItemsRef = useRef(null);
   const providerRef = useRef(null);
   const awarenessRef = useRef(null);
+  const undoManagerRef = useRef(null);
+  const localOriginRef = useRef(Symbol('board-origin'));
   const previewRafRef = useRef(null);
   const imageDragRafRef = useRef(null);
   const pendingImageMoveRef = useRef(null);
   const renderRef = useRef(null);
+  const lastSummonIdRef = useRef(null);
+  const summonTimeoutRef = useRef(null);
+  const summonNoticeTimeoutRef = useRef(null);
+  const eraserStateRef = useRef({ active: false });
+  const settingsRef = useRef(null);
   const boardSizeRef = useRef(boardSize);
   const offsetRef = useRef(offset);
   const zoomRef = useRef(zoom);
@@ -14728,8 +14993,85 @@ const BoardSection = ({
   }, [zoom]);
 
   useEffect(() => {
+    if (tool !== 'move' && selectedImageId) setSelectedImageId(null);
+  }, [tool, selectedImageId]);
+
+  useEffect(() => {
+    if (!selectedImageId) return;
+    const exists = boardItems.some((item) => item?.id === selectedImageId && item.type === 'image');
+    if (!exists) setSelectedImageId(null);
+  }, [boardItems, selectedImageId]);
+
+  useEffect(() => {
+    if (!effectiveStudentId || !saveTaskNumber || !saveCategory) {
+      setFolders([]);
+      setFoldersError('');
+      setFoldersLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setFoldersLoading(true);
+    api.getFolders(Number(saveTaskNumber), saveCategory, effectiveStudentId)
+      .then((data) => {
+        if (cancelled) return;
+        setFolders(Array.isArray(data) ? data : []);
+        setFoldersError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setFolders([]);
+        setFoldersError(err?.message || 'Не удалось загрузить папки.');
+      })
+      .finally(() => {
+        if (!cancelled) setFoldersLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [effectiveStudentId, saveTaskNumber, saveCategory]);
+
+  useEffect(() => {
+    setSaveFolderId('');
+    setSaveError('');
+    setSaveSuccess('');
+    setSaveNameError(false);
+  }, [saveTaskNumber, saveCategory, effectiveStudentId]);
+
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (settingsRef.current && !settingsRef.current.contains(event.target)) {
+        setIsSettingsOpen(false);
+      }
+    };
+    if (typeof document === 'undefined') return undefined;
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  useEffect(() => {
+    const isEditableTarget = (target) => {
+      const element = target;
+      if (!element || typeof element !== 'object') return false;
+      if (element.isContentEditable) return true;
+      const tagName = element.tagName;
+      return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
+    };
     const handleKeyDown = (event) => {
       if (event.code === 'Space') setIsSpaceDown(true);
+      const hasModifier = event.ctrlKey || event.metaKey;
+      if (!hasModifier) return;
+      const key = String(event.key || '').toLowerCase();
+      const code = event.code;
+      const isUndoKey = code === 'KeyZ' || key === 'z' || key === 'я';
+      const isRedoKey = code === 'KeyY' || key === 'y' || key === 'н' || (isUndoKey && event.shiftKey);
+      if (!isUndoKey && !isRedoKey) return;
+      if (isEditableTarget(event.target)) return;
+      event.preventDefault();
+      const undoManager = undoManagerRef.current;
+      if (!undoManager) return;
+      if (isRedoKey) {
+        if (undoManager.redoStack?.length) undoManager.redo();
+      } else if (undoManager.undoStack?.length) {
+        undoManager.undo();
+      }
     };
     const handleKeyUp = (event) => {
       if (event.code === 'Space') setIsSpaceDown(false);
@@ -14805,6 +15147,193 @@ const BoardSection = ({
     } catch {}
   };
 
+  const handleSummonStudent = () => {
+    if (!awarenessRef.current || !roomId) return;
+    const summonPayload = {
+      id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random()}`,
+      ts: Date.now(),
+      zoom: zoomRef.current || 1,
+      offset: { ...offsetRef.current },
+    };
+    if (summonTimeoutRef.current) clearTimeout(summonTimeoutRef.current);
+    awarenessRef.current.setLocalStateField('summon', summonPayload);
+    summonTimeoutRef.current = setTimeout(() => {
+      awarenessRef.current?.setLocalStateField('summon', null);
+    }, 4000);
+  };
+
+  const normalizeFileName = (value) => {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return '';
+    return trimmed.replace(/[\\\/]+/g, '').replace(/\0/g, '');
+  };
+
+  const handleCreateFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) {
+      setFoldersError('Введите название папки.');
+      return;
+    }
+    if (!effectiveStudentId || !saveTaskNumber || !saveCategory) return;
+    if (creatingFolder) return;
+    setCreatingFolder(true);
+    try {
+      const created = await api.createFolder(Number(saveTaskNumber), saveCategory, name, effectiveStudentId);
+      setFolders((prev) => [created, ...prev]);
+      setSaveFolderId(created.id);
+      setNewFolderName('');
+      setFoldersError('');
+    } catch (err) {
+      setFoldersError(err?.message || err);
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
+  const getBoardBounds = (items) => {
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+
+    const includePoint = (x, y) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    };
+
+    items.forEach((item) => {
+      if (!item) return;
+      if (item.type === 'stroke') {
+        (item.points || []).forEach((pt) => includePoint(pt?.x, pt?.y));
+      } else if (item.type === 'line') {
+        includePoint(item.start?.x, item.start?.y);
+        includePoint(item.end?.x, item.end?.y);
+      } else if (item.type === 'image') {
+        includePoint(item.x, item.y);
+        includePoint((item.x || 0) + (item.width || 0), (item.y || 0) + (item.height || 0));
+      }
+    });
+
+    if (!Number.isFinite(minX)) return null;
+    return { minX, minY, maxX, maxY };
+  };
+
+  const renderBoardToBlob = async () => {
+    if (typeof document === 'undefined') {
+      throw new Error('Нельзя сохранить доску в этом окружении.');
+    }
+    const bounds = getBoardBounds(boardItems);
+    if (!bounds) throw new Error('Доска пустая.');
+    const padding = BOARD_EXPORT_PADDING;
+    const width = Math.max(1, bounds.maxX - bounds.minX + padding * 2);
+    const height = Math.max(1, bounds.maxY - bounds.minY + padding * 2);
+    const maxDim = Math.max(width, height);
+    const scale = maxDim > BOARD_EXPORT_MAX_SIZE ? BOARD_EXPORT_MAX_SIZE / maxDim : 1;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.ceil(width * scale));
+    canvas.height = Math.max(1, Math.ceil(height * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Не удалось подготовить холст.');
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(
+      scale,
+      0,
+      0,
+      scale,
+      (padding - bounds.minX) * scale,
+      (padding - bounds.minY) * scale
+    );
+
+    const imageItems = boardItems.filter((item) => item?.type === 'image' && item.dataUrl);
+    const imageMap = new Map();
+    await Promise.all(imageItems.map(async (item) => {
+      if (!item?.dataUrl || imageMap.has(item.dataUrl)) return;
+      const img = await new Promise((resolve) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => resolve(null);
+        image.src = item.dataUrl;
+      });
+      if (img) imageMap.set(item.dataUrl, img);
+    }));
+
+    boardItems.forEach((item) => {
+      if (!item) return;
+      if (item.type === 'stroke') drawStroke(ctx, item, canvas.width, canvas.height);
+      if (item.type === 'line') drawLine(ctx, item, canvas.width, canvas.height);
+      if (item.type === 'image') {
+        const img = imageMap.get(item.dataUrl);
+        if (!img) return;
+        const w = Math.max(1, item.width || 0);
+        const h = Math.max(1, item.height || 0);
+        const x = item.x || 0;
+        const y = item.y || 0;
+        ctx.drawImage(img, x, y, w, h);
+      }
+    });
+
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (!blob) reject(new Error('Не удалось сформировать изображение.'));
+        else resolve(blob);
+      }, 'image/png');
+    });
+  };
+
+  const handleSaveBoardToNotes = async () => {
+    setSaveError('');
+    setSaveSuccess('');
+    setSaveNameError(false);
+    if (!effectiveStudentId) {
+      setSaveError('Сначала выберите ученика.');
+      return;
+    }
+    if (!saveTaskNumber || !saveCategory) {
+      setSaveError('Выберите задание и категорию.');
+      return;
+    }
+    if (!boardItems.length) {
+      setSaveError('Доска пустая.');
+      return;
+    }
+    setSaveBusy(true);
+    try {
+      const blob = await renderBoardToBlob();
+      if (blob.size > 50 * 1024 * 1024) {
+        throw new Error('Файл слишком большой (максимум 50 МБ). Уменьшите размер доски.');
+      }
+      const baseName = normalizeFileName(saveFileName);
+      if (!baseName) {
+        setSaveError('Введите название файла.');
+        setSaveNameError(true);
+        setSaveBusy(false);
+        return;
+      }
+      let safeName = baseName;
+      const prefix = 'конспект-';
+      if (!safeName.toLowerCase().startsWith(prefix)) {
+        safeName = `${prefix}${safeName}`;
+      }
+      if (!/\.[a-z0-9]+$/i.test(safeName)) {
+        safeName += '.png';
+      }
+      const file = new File([blob], safeName, { type: 'image/png' });
+      await api.uploadFile(file, Number(saveTaskNumber), saveCategory, saveFolderId || null, effectiveStudentId);
+      setSaveSuccess('Сохранено в конспекты.');
+    } catch (err) {
+      setSaveError(err?.message || err);
+    } finally {
+      setSaveBusy(false);
+    }
+  };
+
   const findImageAtPoint = (point) => {
     for (let i = boardItems.length - 1; i >= 0; i -= 1) {
       const item = boardItems[i];
@@ -14822,17 +15351,20 @@ const BoardSection = ({
 
   const updateImagePosition = (id, x, y) => {
     const yItems = yItemsRef.current;
-    if (!yItems) return;
-    for (let i = yItems.length - 1; i >= 0; i -= 1) {
-      const raw = yItems.get(i);
-      const item = raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
-      if (item?.id === id) {
-        const next = { ...item, x, y };
-        yItems.delete(i, 1);
-        yItems.insert(i, [next]);
-        break;
+    const docInstance = docRef.current;
+    if (!yItems || !docInstance) return;
+    docInstance.transact(() => {
+      for (let i = yItems.length - 1; i >= 0; i -= 1) {
+        const raw = yItems.get(i);
+        const item = raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
+        if (item?.id === id) {
+          const next = { ...item, x, y };
+          yItems.delete(i, 1);
+          yItems.insert(i, [next]);
+          break;
+        }
       }
-    }
+    }, localOriginRef.current);
   };
 
   const scheduleImageMove = (id, x, y) => {
@@ -14843,6 +15375,120 @@ const BoardSection = ({
       const next = pendingImageMoveRef.current;
       if (next) updateImagePosition(next.id, next.x, next.y);
     });
+  };
+
+  const resizeImageByFactor = (id, factor) => {
+    const item = boardItems.find((entry) => entry?.id === id && entry.type === 'image');
+    if (!item) return;
+    const currentWidth = Math.max(1, Number(item.width) || 1);
+    const currentHeight = Math.max(1, Number(item.height) || 1);
+    const minFactor = Math.max(BOARD_IMAGE_MIN_SIZE / currentWidth, BOARD_IMAGE_MIN_SIZE / currentHeight);
+    const maxFactor = Math.min(BOARD_IMAGE_MAX_SIZE / currentWidth, BOARD_IMAGE_MAX_SIZE / currentHeight);
+    let nextFactor = factor;
+    if (factor >= 1) {
+      nextFactor = Math.min(factor, maxFactor);
+      if (nextFactor < 1) nextFactor = 1;
+    } else {
+      nextFactor = Math.max(factor, minFactor);
+      if (nextFactor > 1) nextFactor = 1;
+    }
+    if (!Number.isFinite(nextFactor) || nextFactor === 1) return;
+    const nextWidth = currentWidth * nextFactor;
+    const nextHeight = currentHeight * nextFactor;
+    const centerX = (item.x || 0) + currentWidth / 2;
+    const centerY = (item.y || 0) + currentHeight / 2;
+    const nextX = centerX - nextWidth / 2;
+    const nextY = centerY - nextHeight / 2;
+    const yItems = yItemsRef.current;
+    const docInstance = docRef.current;
+    if (!yItems || !docInstance) return;
+    docInstance.transact(() => {
+      for (let i = yItems.length - 1; i >= 0; i -= 1) {
+        const raw = yItems.get(i);
+        const entry = raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
+        if (entry?.id === id) {
+          const next = {
+            ...entry,
+            width: nextWidth,
+            height: nextHeight,
+            x: nextX,
+            y: nextY,
+          };
+          yItems.delete(i, 1);
+          yItems.insert(i, [next]);
+          break;
+        }
+      }
+    }, localOriginRef.current);
+    undoManagerRef.current?.stopCapturing();
+  };
+
+  const distanceToSegmentSquared = (point, a, b) => {
+    const ax = a.x || 0;
+    const ay = a.y || 0;
+    const bx = b.x || 0;
+    const by = b.y || 0;
+    const px = point.x || 0;
+    const py = point.y || 0;
+    const dx = bx - ax;
+    const dy = by - ay;
+    if (dx === 0 && dy === 0) {
+      const dxp = px - ax;
+      const dyp = py - ay;
+      return dxp * dxp + dyp * dyp;
+    }
+    const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
+    const clamped = Math.max(0, Math.min(1, t));
+    const closestX = ax + clamped * dx;
+    const closestY = ay + clamped * dy;
+    const diffX = px - closestX;
+    const diffY = py - closestY;
+    return diffX * diffX + diffY * diffY;
+  };
+
+  const hitTestStroke = (stroke, point, radius) => {
+    const points = Array.isArray(stroke?.points) ? stroke.points : [];
+    if (points.length === 0) return false;
+    const width = Number(stroke.width) || BOARD_STROKE_WIDTH;
+    const threshold = radius + width / 2;
+    const thresholdSq = threshold * threshold;
+    if (points.length === 1) {
+      const dx = (point.x || 0) - (points[0].x || 0);
+      const dy = (point.y || 0) - (points[0].y || 0);
+      return (dx * dx + dy * dy) <= thresholdSq;
+    }
+    for (let i = 1; i < points.length; i += 1) {
+      const a = points[i - 1];
+      const b = points[i];
+      if (distanceToSegmentSquared(point, a, b) <= thresholdSq) return true;
+    }
+    return false;
+  };
+
+  const hitTestLine = (line, point, radius) => {
+    if (!line?.start || !line?.end) return false;
+    const width = Number(line.width) || BOARD_LINE_WIDTH;
+    const threshold = radius + width / 2;
+    return distanceToSegmentSquared(point, line.start, line.end) <= threshold * threshold;
+  };
+
+  const eraseAtPoint = (point) => {
+    const yItems = yItemsRef.current;
+    const docInstance = docRef.current;
+    if (!yItems || !docInstance) return;
+    for (let i = yItems.length - 1; i >= 0; i -= 1) {
+      const raw = yItems.get(i);
+      const item = raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
+      if (!item) continue;
+      let hit = false;
+      if (item.type === 'stroke') hit = hitTestStroke(item, point, BOARD_ERASER_RADIUS);
+      else if (item.type === 'line') hit = hitTestLine(item, point, BOARD_ERASER_RADIUS);
+      if (!hit) continue;
+      docInstance.transact(() => {
+        yItems.delete(i, 1);
+      }, localOriginRef.current);
+      return;
+    }
   };
 
   const drawStroke = (ctx, stroke, width, height) => {
@@ -14936,6 +15582,14 @@ const BoardSection = ({
     renderBoard();
   }, [renderBoard, boardSize]);
 
+  const selectedImage = useMemo(
+    () => boardItems.find((item) => item?.id === selectedImageId && item.type === 'image') || null,
+    [boardItems, selectedImageId]
+  );
+  const selectedImageLabel = selectedImage
+    ? `${Math.round(selectedImage.width || 0)}×${Math.round(selectedImage.height || 0)}`
+    : '';
+
   const renderOverlay = () => {
     const overlay = overlayRef.current;
     if (!overlay) return;
@@ -14957,23 +15611,37 @@ const BoardSection = ({
       ctx.restore();
     }
     const state = drawStateRef.current;
-    if (!state.drawing) return;
-    if (tool === 'pen') {
-      drawStroke(ctx, { points: state.points, color, width: BOARD_STROKE_WIDTH }, overlay.width, overlay.height);
+    if (state.drawing) {
+      if (tool === 'pen') {
+        drawStroke(ctx, { points: state.points, color, width: penWidth }, overlay.width, overlay.height);
+      }
+      if (tool === 'line' && state.start && state.end) {
+        drawLine(ctx, { start: state.start, end: state.end, color, width: lineWidth }, overlay.width, overlay.height);
+      }
     }
-    if (tool === 'line' && state.start && state.end) {
-      drawLine(ctx, { start: state.start, end: state.end, color, width: BOARD_LINE_WIDTH }, overlay.width, overlay.height);
+    if (tool === 'move' && selectedImage) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(99, 102, 241, 0.9)';
+      ctx.lineWidth = 1.5 / (zoomRef.current || 1);
+      ctx.setLineDash([6 / (zoomRef.current || 1), 4 / (zoomRef.current || 1)]);
+      ctx.strokeRect(
+        selectedImage.x || 0,
+        selectedImage.y || 0,
+        selectedImage.width || 0,
+        selectedImage.height || 0
+      );
+      ctx.restore();
     }
   };
 
   useEffect(() => {
     renderOverlay();
-  }, [remotePreviews, boardSize, tool, color]);
+  }, [remotePreviews, boardSize, tool, color, penWidth, lineWidth, selectedImage]);
 
   useEffect(() => {
     renderBoard();
     renderOverlay();
-  }, [zoom, offset, renderBoard, remotePreviews, tool, color]);
+  }, [zoom, offset, renderBoard, remotePreviews, tool, color, penWidth, lineWidth, selectedImage]);
 
   useEffect(() => {
     const handleBlur = () => {
@@ -15017,20 +15685,36 @@ const BoardSection = ({
       setStatus('disconnected');
       setPeerCount(0);
       setBoardItems([]);
+      setUndoState({ canUndo: false, canRedo: false });
+      docRef.current = null;
       yItemsRef.current = null;
       providerRef.current = null;
       awarenessRef.current = null;
+      undoManagerRef.current = null;
       setRemotePreviews([]);
       return;
     }
 
     setStatus('connecting');
     const doc = new Y.Doc();
+    lastSummonIdRef.current = null;
+    docRef.current = doc;
     const provider = new WebsocketProvider(wsUrl, roomId, doc);
     providerRef.current = provider;
     awarenessRef.current = provider.awareness;
     const yItems = doc.getArray('items');
     yItemsRef.current = yItems;
+    const undoManager = new Y.UndoManager(yItems, {
+      trackedOrigins: new Set([localOriginRef.current]),
+    });
+    undoManagerRef.current = undoManager;
+
+    const updateUndoState = () => {
+      setUndoState({
+        canUndo: undoManager.undoStack?.length > 0,
+        canRedo: undoManager.redoStack?.length > 0,
+      });
+    };
 
     const updateItems = () => {
       const next = yItems.toArray().map((item) => (
@@ -15043,38 +15727,73 @@ const BoardSection = ({
       if (event?.status) setStatus(event.status);
     };
     const handleAwareness = () => {
-      const total = provider.awareness.getStates().size;
+      const states = provider.awareness.getStates();
+      const total = states.size;
       setPeerCount(Math.max(0, total - 1));
       const previews = [];
-      provider.awareness.getStates().forEach((state, clientId) => {
+      let incomingSummon = null;
+      states.forEach((state, clientId) => {
         if (clientId === provider.awareness.clientID) return;
         const drawing = state?.drawing;
         if (drawing && (drawing.type === 'stroke' || drawing.type === 'line')) {
           previews.push(drawing);
         }
+        const summon = state?.summon;
+        if (summon?.ts && (!incomingSummon || summon.ts > (incomingSummon.ts || 0))) {
+          incomingSummon = summon;
+        }
       });
       setRemotePreviews(previews);
+      if (!isTeacher && incomingSummon?.id && incomingSummon.id !== lastSummonIdRef.current) {
+        lastSummonIdRef.current = incomingSummon.id;
+        const nextZoom = clamp(Number(incomingSummon.zoom) || 1, BOARD_MIN_ZOOM, BOARD_MAX_ZOOM);
+        const nextOffset = {
+          x: Number(incomingSummon?.offset?.x) || 0,
+          y: Number(incomingSummon?.offset?.y) || 0,
+        };
+        setZoom(nextZoom);
+        setOffset(nextOffset);
+        setSummonNotice(true);
+        if (summonNoticeTimeoutRef.current) clearTimeout(summonNoticeTimeoutRef.current);
+        summonNoticeTimeoutRef.current = setTimeout(() => {
+          setSummonNotice(false);
+        }, 3500);
+      }
     };
 
     provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
     provider.awareness.setLocalStateField('drawing', null);
+    provider.awareness.setLocalStateField('summon', null);
     provider.on('status', handleStatus);
     provider.awareness.on('change', handleAwareness);
     yItems.observe(updateItems);
+    undoManager.on('stack-item-added', updateUndoState);
+    undoManager.on('stack-item-popped', updateUndoState);
+    undoManager.on('stack-item-updated', updateUndoState);
+    undoManager.on('stack-item-removed', updateUndoState);
     updateItems();
     handleAwareness();
+    updateUndoState();
 
     return () => {
       yItems.unobserve(updateItems);
+      undoManager.off('stack-item-added', updateUndoState);
+      undoManager.off('stack-item-popped', updateUndoState);
+      undoManager.off('stack-item-updated', updateUndoState);
+      undoManager.off('stack-item-removed', updateUndoState);
       provider.awareness.off('change', handleAwareness);
       provider.off('status', handleStatus);
       provider.awareness.setLocalStateField('drawing', null);
+      provider.awareness.setLocalStateField('summon', null);
+      undoManagerRef.current = null;
+      setUndoState({ canUndo: false, canRedo: false });
       provider.destroy();
       doc.destroy();
       providerRef.current = null;
       awarenessRef.current = null;
+      docRef.current = null;
     };
-  }, [roomId, wsUrl, localName, localColor]);
+  }, [roomId, wsUrl, localName, localColor, isTeacher]);
 
   useEffect(() => {
     const handlePaste = (event) => {
@@ -15114,7 +15833,12 @@ const BoardSection = ({
             height: heightPx,
             authorId: userId,
           };
-          yItemsRef.current?.push([entry]);
+          const docInstance = docRef.current;
+          if (docInstance && yItemsRef.current) {
+            docInstance.transact(() => {
+              yItemsRef.current?.push([entry]);
+            }, localOriginRef.current);
+          }
         };
         img.src = dataUrl;
       };
@@ -15140,14 +15864,14 @@ const BoardSection = ({
         awarenessRef.current?.setLocalStateField('drawing', {
           type: 'stroke',
           color,
-          width: BOARD_STROKE_WIDTH,
+          width: penWidth,
           points: state.points,
         });
       } else if (tool === 'line') {
         awarenessRef.current?.setLocalStateField('drawing', {
           type: 'line',
           color,
-          width: BOARD_LINE_WIDTH,
+          width: lineWidth,
           start: state.start,
           end: state.end,
         });
@@ -15163,23 +15887,18 @@ const BoardSection = ({
     if (imageDragRafRef.current) cancelAnimationFrame(imageDragRafRef.current);
   }, []);
 
+  useEffect(() => () => {
+    if (summonTimeoutRef.current) clearTimeout(summonTimeoutRef.current);
+  }, []);
+
+  useEffect(() => () => {
+    if (summonNoticeTimeoutRef.current) clearTimeout(summonNoticeTimeoutRef.current);
+  }, []);
+
   const handlePointerDown = (event) => {
     if (!roomId) return;
     if (event.pointerType === 'touch') event.preventDefault();
-    if (tool === 'move') {
-      const point = getCanvasPoint(event);
-      lastPointerRef.current = point;
-      const hit = findImageAtPoint(point);
-      if (hit?.item?.id) {
-        dragImageRef.current = {
-          active: true,
-          id: hit.item.id,
-          offsetX: point.x - (hit.item.x || 0),
-          offsetY: point.y - (hit.item.y || 0),
-        };
-        event.currentTarget.setPointerCapture(event.pointerId);
-        return;
-      }
+    if (isSpaceDown || event.button === 1 || event.button === 2) {
       panStateRef.current = {
         active: true,
         startX: event.clientX,
@@ -15190,7 +15909,30 @@ const BoardSection = ({
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
-    if (isSpaceDown || event.button === 1 || event.button === 2) {
+    if (tool === 'eraser') {
+      const point = getCanvasPoint(event);
+      lastPointerRef.current = point;
+      eraserStateRef.current.active = true;
+      eraseAtPoint(point);
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (tool === 'move') {
+      const point = getCanvasPoint(event);
+      lastPointerRef.current = point;
+      const hit = findImageAtPoint(point);
+      if (hit?.item?.id) {
+        setSelectedImageId(hit.item.id);
+        dragImageRef.current = {
+          active: true,
+          id: hit.item.id,
+          offsetX: point.x - (hit.item.x || 0),
+          offsetY: point.y - (hit.item.y || 0),
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        return;
+      }
+      setSelectedImageId(null);
       panStateRef.current = {
         active: true,
         startX: event.clientX,
@@ -15216,6 +15958,10 @@ const BoardSection = ({
   const handlePointerMove = (event) => {
     const point = getCanvasPoint(event);
     lastPointerRef.current = point;
+    if (eraserStateRef.current.active) {
+      eraseAtPoint(point);
+      return;
+    }
     if (dragImageRef.current.active) {
       const nextX = point.x - dragImageRef.current.offsetX;
       const nextY = point.y - dragImageRef.current.offsetY;
@@ -15254,6 +16000,12 @@ const BoardSection = ({
     }
     if (dragImageRef.current.active) {
       dragImageRef.current.active = false;
+      undoManagerRef.current?.stopCapturing();
+      return;
+    }
+    if (eraserStateRef.current.active) {
+      eraserStateRef.current.active = false;
+      undoManagerRef.current?.stopCapturing();
       return;
     }
     const state = drawStateRef.current;
@@ -15261,7 +16013,8 @@ const BoardSection = ({
     state.drawing = false;
     renderOverlay();
     if (awarenessRef.current) awarenessRef.current.setLocalStateField('drawing', null);
-    if (!yItemsRef.current) return;
+    const docInstance = docRef.current;
+    if (!yItemsRef.current || !docInstance) return;
     const base = {
       id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
         ? crypto.randomUUID()
@@ -15270,41 +16023,45 @@ const BoardSection = ({
       authorId: userId,
     };
     if (tool === 'pen' && state.points.length > 1) {
-      yItemsRef.current.push([{
-        ...base,
-        type: 'stroke',
-        width: BOARD_STROKE_WIDTH,
-        points: state.points,
-      }]);
+      docInstance.transact(() => {
+        yItemsRef.current?.push([{
+          ...base,
+          type: 'stroke',
+          width: penWidth,
+          points: state.points,
+        }]);
+      }, localOriginRef.current);
     }
     if (tool === 'line' && state.start && state.end) {
-      yItemsRef.current.push([{
-        ...base,
-        type: 'line',
-        width: BOARD_LINE_WIDTH,
-        start: state.start,
-        end: state.end,
-      }]);
+      docInstance.transact(() => {
+        yItemsRef.current?.push([{
+          ...base,
+          type: 'line',
+          width: lineWidth,
+          start: state.start,
+          end: state.end,
+        }]);
+      }, localOriginRef.current);
     }
+    undoManagerRef.current?.stopCapturing();
     drawStateRef.current = { drawing: false, points: [], start: null, end: null };
   };
 
   const handleUndo = () => {
-    if (!yItemsRef.current) return;
-    const yItems = yItemsRef.current;
-    for (let i = yItems.length - 1; i >= 0; i -= 1) {
-      const raw = yItems.get(i);
-      const item = raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
-      if (item?.authorId === userId) {
-        yItems.delete(i, 1);
-        break;
-      }
-    }
+    const undoManager = undoManagerRef.current;
+    if (!undoManager?.undoStack?.length) return;
+    undoManager.undo();
+  };
+
+  const handleRedo = () => {
+    const undoManager = undoManagerRef.current;
+    if (!undoManager?.redoStack?.length) return;
+    undoManager.redo();
   };
 
   const handleWheel = (event) => {
-    if (!event.ctrlKey && !event.metaKey) return;
     event.preventDefault();
+    event.stopPropagation();
     const factor = event.deltaY < 0 ? 1.12 : 0.9;
     zoomAt((zoomRef.current || 1) * factor, event.clientX, event.clientY);
   };
@@ -15428,7 +16185,8 @@ const BoardSection = ({
     renderMinimap();
   }, [renderMinimap, zoom, offset]);
 
-  const canUndo = boardItems.some((item) => item?.authorId === userId);
+  const canUndo = undoState.canUndo;
+  const canRedo = undoState.canRedo;
   const statusLabel = status === 'connected'
     ? 'Подключено'
     : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено');
@@ -15436,6 +16194,19 @@ const BoardSection = ({
     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
     : 'border-amber-200 bg-amber-50 text-amber-700';
   const boardCanvasHeight = isFullscreen ? 'calc(100vh - 240px)' : '62vh';
+  const activeWidth = tool === 'line' ? lineWidth : penWidth;
+  const widthTargetLabel = tool === 'line' ? 'Линия' : 'Карандаш';
+  const showWidthControls = tool === 'pen' || tool === 'line';
+  const zoomLabel = `${Math.round((zoom || 1) * 100)}%`;
+  const formattedWidth = Number.isFinite(activeWidth)
+    ? (activeWidth % 1 === 0 ? activeWidth.toFixed(0) : activeWidth.toFixed(1))
+    : '';
+  const handleWidthChange = (event) => {
+    const fallbackWidth = tool === 'line' ? BOARD_LINE_WIDTH : BOARD_STROKE_WIDTH;
+    const nextValue = clamp(Number(event.target.value) || fallbackWidth, BOARD_MIN_WIDTH, BOARD_MAX_WIDTH);
+    if (tool === 'line') setLineWidth(nextValue);
+    else setPenWidth(nextValue);
+  };
 
   const renderStudentPicker = () => {
     if (!isTeacher) return null;
@@ -15462,18 +16233,161 @@ const BoardSection = ({
     );
   };
 
+  const saveModal = saveModalOpen ? (
+    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
+      <div className="surface-card modal-card rounded-3xl w-full max-w-3xl p-4 sm:p-5 md:p-6 shadow-2xl relative">
+        <button
+          onClick={() => setSaveModalOpen(false)}
+          className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"
+          aria-label="Закрыть"
+        >
+          <X size={18} />
+        </button>
+        <div className="pr-8">
+          <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сохранение</div>
+          <h3 className="mt-1 text-xl font-bold text-gray-900">Сохранить доску в конспекты</h3>
+          <p className="mt-1 text-xs text-gray-500">
+            Сохраняется PNG снимок всей доски и появится в разделе «Конспекты» выбранного ученика.
+          </p>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Задание</label>
+            <select
+              value={saveTaskNumber}
+              onChange={(e) => setSaveTaskNumber(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
+            >
+              {taskOptions.map((task) => (
+                <option key={task.id} value={task.number}>
+                  {`Задание ${getTaskDisplayNumber(task)}: ${task.title}`}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Категория</label>
+            <select
+              value={saveCategory}
+              onChange={(e) => setSaveCategory(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
+            >
+              <option value="class">На уроке</option>
+              <option value="home">Домашка</option>
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Папка</label>
+            <select
+              value={saveFolderId}
+              onChange={(e) => setSaveFolderId(e.target.value)}
+              disabled={!effectiveStudentId || foldersLoading}
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
+            >
+              <option value="">Без папки</option>
+              {folders.map((folder) => (
+                <option key={folder.id} value={folder.id}>{folder.name}</option>
+              ))}
+            </select>
+            {foldersLoading && <div className="text-[11px] text-gray-400">Загрузка папок...</div>}
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Имя файла</label>
+            <input
+              type="text"
+              value={saveFileName}
+              onChange={(e) => {
+                setSaveFileName(e.target.value);
+                if (saveNameError && e.target.value.trim()) {
+                  setSaveNameError(false);
+                  setSaveError('');
+                }
+              }}
+              placeholder="конспект-..."
+              className={`w-full rounded-xl px-3 py-2 text-sm outline-none ${
+                saveNameError
+                  ? 'border border-red-300 bg-red-50 text-red-700 focus:border-red-500'
+                  : 'border border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
+              }`}
+            />
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <input
+            type="text"
+            value={newFolderName}
+            onChange={(e) => setNewFolderName(e.target.value)}
+            placeholder="Новая папка"
+            className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
+          />
+          <Button
+            variant="secondary"
+            onClick={handleCreateFolder}
+            disabled={creatingFolder || !newFolderName.trim() || !effectiveStudentId}
+            className="flex items-center justify-center gap-2"
+          >
+            <FolderPlus size={16} />
+            {creatingFolder ? 'Создаём...' : 'Создать папку'}
+          </Button>
+        </div>
+
+        {foldersError && <div className="mt-2 text-xs text-rose-600">{foldersError}</div>}
+        {saveError && <div className="mt-2 text-xs text-rose-600">{saveError}</div>}
+        {saveSuccess && <div className="mt-2 text-xs text-emerald-700">{saveSuccess}</div>}
+
+        <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2">
+          <Button variant="secondary" onClick={() => setSaveModalOpen(false)}>Отмена</Button>
+          <Button
+            onClick={handleSaveBoardToNotes}
+            disabled={saveBusy || !effectiveStudentId || !saveTaskNumber || !saveCategory}
+            className="flex items-center justify-center gap-2"
+          >
+            <Save size={16} />
+            {saveBusy ? 'Сохраняем...' : 'Сохранить'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div ref={boardRootRef} className="animate-fadeIn pb-10">
       <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Brush className="text-purple-600" />
+          <h2 className={`text-2xl font-bold flex items-center gap-2 ${isFullscreen ? 'text-white' : 'text-gray-900'}`}>
+            <Brush className={isFullscreen ? 'text-purple-300' : 'text-purple-600'} />
             Онлайн-доска
           </h2>
-          <p className="text-gray-500">Карандаш, линии, цвета и вставка изображений через Ctrl+V.</p>
+          <p className={isFullscreen ? 'text-slate-300' : 'text-gray-500'}>
+            Карандаш, линии, цвета и вставка изображений через Ctrl+V.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {renderStudentPicker()}
+          <Button
+            variant="secondary"
+            onClick={() => setSaveModalOpen(true)}
+            className="flex items-center gap-2"
+            disabled={!roomId}
+          >
+            <Save size={16} />
+            Сохранить в конспекты
+          </Button>
+          {isTeacher && (
+            <button
+              type="button"
+              onClick={handleSummonStudent}
+              disabled={!roomId}
+              className="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-white px-3 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-50 disabled:opacity-60"
+            >
+              Призвать ко мне
+            </button>
+          )}
           <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusClass}`}>
             {statusLabel}
           </span>
@@ -15516,91 +16430,195 @@ const BoardSection = ({
           <button
             type="button"
             onClick={() => setTool('pen')}
-            className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+            className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
               tool === 'pen' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
+            aria-label="Карандаш"
+            title="Карандаш"
           >
             <Pencil size={14} />
-            Карандаш
           </button>
+
           <button
             type="button"
             onClick={() => setTool('line')}
-            className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+            className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
               tool === 'line' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
+            aria-label="Линия"
+            title="Линия"
           >
             <Minus size={14} />
-            Линия
           </button>
+
           <button
             type="button"
             onClick={() => setTool('move')}
-            className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+            className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
               tool === 'move' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
+            aria-label="Перемещение"
+            title="Перемещение"
           >
             <Hand size={14} />
-            Перемещение
           </button>
+
           <button
             type="button"
-            onClick={handleUndo}
-            disabled={!canUndo}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            onClick={() => setTool('eraser')}
+            className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
+              tool === 'eraser' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+            aria-label="Ластик"
+            title="Ластик"
           >
-            <Undo2 size={14} />
-            Отменить
+            <Eraser size={14} />
           </button>
-          <div className="h-6 w-px bg-gray-200 mx-1" />
+
+          <div className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white p-1">
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={!canUndo}
+              className="inline-flex items-center justify-center rounded-lg px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              aria-label="Отменить"
+              title="Отменить"
+            >
+              <Undo2 size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={handleRedo}
+              disabled={!canRedo}
+              className="inline-flex items-center justify-center rounded-lg px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              aria-label="Вернуть"
+              title="Вернуть"
+            >
+              <RefreshCcw size={14} />
+            </button>
+          </div>
+
+          <div ref={settingsRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen((prev) => !prev)}
+              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            >
+              <Settings size={14} />
+              Цвет и размер
+              <span
+                className="ml-1 inline-flex h-2.5 w-2.5 rounded-full border border-white/80"
+                style={{ backgroundColor: color }}
+              />
+            </button>
+            {isSettingsOpen && (
+              <div className="absolute right-0 z-30 mt-2 w-72 rounded-2xl border border-gray-200 bg-white p-3 shadow-lg">
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wide text-gray-500">{`Толщина (${widthTargetLabel})`}</div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={BOARD_MIN_WIDTH}
+                        max={BOARD_MAX_WIDTH}
+                        step={BOARD_WIDTH_STEP}
+                        value={activeWidth}
+                        onChange={handleWidthChange}
+                        disabled={!showWidthControls}
+                        className={`w-full accent-purple-600 ${showWidthControls ? '' : 'opacity-40'}`}
+                      />
+                      <span className="w-8 text-right text-xs font-semibold text-gray-600">{formattedWidth}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wide text-gray-500">Цвет</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      {BOARD_COLORS.map((swatch) => (
+                        <button
+                          key={swatch}
+                          type="button"
+                          onClick={() => setColor(swatch)}
+                          className={`h-7 w-7 rounded-full border-2 transition ${
+                            color === swatch ? 'border-gray-900 scale-110' : 'border-white/80'
+                          }`}
+                          style={{ backgroundColor: swatch }}
+                          aria-label={`Цвет ${swatch}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  {tool === 'move' && selectedImage && (
+                    <div className="border-t border-gray-100 pt-3">
+                      <div className="text-[11px] uppercase tracking-wide text-gray-500">Изображение</div>
+                      <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
+                        <span>{selectedImageLabel}</span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => resizeImageByFactor(selectedImage.id, 1 - BOARD_IMAGE_SCALE_STEP)}
+                            className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                          >
+                            -
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => resizeImageByFactor(selectedImage.id, 1 + BOARD_IMAGE_SCALE_STEP)}
+                            className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={() => zoomBy(1 / 1.12)}
-            className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
             aria-label="Отдалить"
+            title="Отдалить"
           >
             <Minus size={14} />
           </button>
-          <div className="text-xs font-semibold text-gray-600 min-w-[60px] text-center">
-            {`${Math.round((zoom || 1) * 100)}%`}
+
+          <div className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 min-w-[64px]">
+            {zoomLabel}
           </div>
+
           <button
             type="button"
             onClick={() => zoomBy(1.12)}
-            className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
             aria-label="Приблизить"
+            title="Приблизить"
           >
             <Plus size={14} />
           </button>
+
           <button
             type="button"
             onClick={resetView}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            aria-label="Сброс масштаба"
+            title="Сброс масштаба"
           >
             Сброс
           </button>
+
           <button
             type="button"
             onClick={toggleFullscreen}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            className="ml-auto inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            aria-label={isFullscreen ? 'Обычный экран' : 'Полный экран'}
+            title={isFullscreen ? 'Обычный экран' : 'Полный экран'}
           >
             {isFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
-            {isFullscreen ? 'Обычный' : 'Полный экран'}
           </button>
-          <div className="flex items-center gap-1.5">
-            {BOARD_COLORS.map((swatch) => (
-              <button
-                key={swatch}
-                type="button"
-                onClick={() => setColor(swatch)}
-                className={`h-7 w-7 rounded-full border-2 transition ${
-                  color === swatch ? 'border-gray-900 scale-110' : 'border-white/80'
-                }`}
-                style={{ backgroundColor: swatch }}
-                aria-label={`Цвет ${swatch}`}
-              />
-            ))}
-          </div>
         </div>
 
         {pasteError && (
@@ -15609,12 +16627,19 @@ const BoardSection = ({
 
         <div
           ref={containerRef}
-          className="mt-4 relative w-full rounded-2xl border border-gray-200 bg-white overflow-hidden"
+          className={`mt-4 relative w-full rounded-2xl border border-gray-200 bg-white overflow-hidden ${
+            summonNotice ? 'ring-2 ring-amber-400/70 ring-offset-2 ring-offset-white' : ''
+          }`}
           style={{ height: boardCanvasHeight }}
         >
           {!roomId && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
               Выберите ученика, чтобы открыть доску.
+            </div>
+          )}
+          {!isTeacher && summonNotice && (
+            <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border border-amber-200 bg-amber-50 px-4 py-1.5 text-xs font-semibold text-amber-700 shadow-sm">
+              Учитель переместил вас к себе
             </div>
           )}
           <canvas
@@ -15628,7 +16653,7 @@ const BoardSection = ({
               touchAction: 'none',
               cursor: isSpaceDown
                 ? (panStateRef.current.active ? 'grabbing' : 'grab')
-                : (tool === 'pen' || tool === 'line' ? 'crosshair' : (tool === 'move' ? 'grab' : 'default'))
+                : (tool === 'pen' || tool === 'line' || tool === 'eraser' ? 'crosshair' : (tool === 'move' ? 'grab' : 'default'))
             }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
@@ -15648,6 +16673,7 @@ const BoardSection = ({
           </div>
         </div>
       </Card>
+      {typeof document !== 'undefined' ? createPortal(saveModal, document.body) : null}
     </div>
   );
 };
@@ -18903,6 +19929,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
               userId={user.id}
               userName={user.name}
               teacherId={user.role === 'teacher' ? user.id : user.teacherId}
+              tasks={tasksWithTitles}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}

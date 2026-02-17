@@ -6,11 +6,19 @@ import crypto from 'crypto';
 import { createServer } from 'http';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import webpush from 'web-push';
 import { WebSocketServer } from 'ws';
 import yWsUtils from 'y-websocket/bin/utils';
 
 const { setupWSConnection } = yWsUtils;
+const require = createRequire(import.meta.url);
+let LeveldbPersistence = null;
+try {
+  ({ LeveldbPersistence } = require('y-leveldb'));
+} catch (error) {
+  console.warn('[collab] y-leveldb not available:', error?.message || error);
+}
 
 const app = express();
 app.set('trust proxy', 1);
@@ -20,6 +28,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const uploadsDir = path.join(__dirname, 'uploads');
 const dataDir = path.join(__dirname, 'data');
+const collabDir = path.join(dataDir, 'collab');
 const dataFile = path.join(dataDir, 'files.json');
 const foldersFile = path.join(dataDir, 'folders.json');
 const studentsFile = path.join(dataDir, 'students.json');
@@ -326,6 +335,18 @@ const normalizeStreak = (value) => {
 
 fs.mkdirSync(uploadsDir, { recursive: true });
 fs.mkdirSync(dataDir, { recursive: true });
+fs.mkdirSync(collabDir, { recursive: true });
+const rawCollabPersistence = LeveldbPersistence ? new LeveldbPersistence(collabDir) : null;
+const collabPersistence = rawCollabPersistence ? {
+  bindState: (docName, ydoc) => {
+    if (!docName?.startsWith('board-')) return Promise.resolve();
+    return rawCollabPersistence.bindState(docName, ydoc);
+  },
+  writeState: (docName, ydoc) => {
+    if (!docName?.startsWith('board-')) return Promise.resolve();
+    return rawCollabPersistence.writeState(docName, ydoc);
+  },
+} : null;
 
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
@@ -5037,7 +5058,7 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 wss.on('connection', (ws, request) => {
-  setupWSConnection(ws, request);
+  setupWSConnection(ws, request, { persistence: collabPersistence || undefined });
 });
 
 server.listen(PORT, () => {
