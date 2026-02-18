@@ -11,7 +11,7 @@ import {
   BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle, AlertCircle, AlertTriangle,
   X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Check, Plus, Flame, Snowflake,
-  Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy,
+  Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   Bell, BellOff, MousePointer2
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
@@ -965,6 +965,19 @@ const ALLOW_MAIN_THREAD_PYTHON_FALLBACK = false;
 const PYODIDE_STREAM_FLUSH_MS = 35;
 const PYODIDE_STREAM_CHUNK_CHARS = 2048;
 const COLLAB_RUN_OUTPUT_LIMIT = 20000;
+const COLLAB_RUN_TIMEOUT_MS = 60000;
+
+const getCollabWsUrl = () => {
+  if (typeof window === 'undefined') return '';
+  const envUrl = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_COLLAB_WS_URL : '';
+  if (envUrl) return envUrl;
+  const { protocol, hostname, port, host } = window.location;
+  const wsProtocol = protocol === 'https:' ? 'wss' : 'ws';
+  if ((import.meta?.env?.DEV || port === '5173') && port === '5173') {
+    return `${wsProtocol}://${hostname}:5175/collab`;
+  }
+  return `${wsProtocol}://${host}/collab`;
+};
 
 const mergeRuntimeErrorText = (base, next) => {
   const baseText = typeof base === 'string' ? base : String(base ?? '');
@@ -1039,37 +1052,22 @@ const createPyodideWorker = () => {
     const toText = (value) => (value == null ? '' : String(value));
 
     const createChunkEmitter = (id, type) => {
-      let buffer = '';
-      let timer = null;
-      const flush = () => {
-        if (!buffer) return;
-        const chunk = buffer;
-        buffer = '';
-        if (timer) {
-          clearTimeout(timer);
-          timer = null;
-        }
+      const pushChunk = (chunk) => {
+        if (!chunk) return;
         self.postMessage({ id, type, chunk });
       };
       const push = (value) => {
         const text = toText(value);
         if (!text) return;
-        buffer += text;
-        if (buffer.length >= ${PYODIDE_STREAM_CHUNK_CHARS}) {
-          flush();
+        if (text.length <= ${PYODIDE_STREAM_CHUNK_CHARS}) {
+          pushChunk(text);
           return;
         }
-        if (!timer) {
-          timer = setTimeout(flush, ${PYODIDE_STREAM_FLUSH_MS});
+        for (let i = 0; i < text.length; i += ${PYODIDE_STREAM_CHUNK_CHARS}) {
+          pushChunk(text.slice(i, i + ${PYODIDE_STREAM_CHUNK_CHARS}));
         }
       };
-      const close = () => {
-        flush();
-        if (timer) {
-          clearTimeout(timer);
-          timer = null;
-        }
-      };
+      const close = () => {};
       return { push, close };
     };
 
@@ -1122,7 +1120,17 @@ const createPyodideWorker = () => {
       }
 
       const wrapped = [
-        'import sys, io, traceback',
+        'import sys, io, traceback, builtins',
+        'try:',
+        '    sys.stdout.reconfigure(line_buffering=True)',
+        '    sys.stderr.reconfigure(line_buffering=True)',
+        'except Exception:',
+        '    pass',
+        '_orig_print = builtins.print',
+        'def _print(*args, **kwargs):',
+        '    kwargs.setdefault("flush", True)',
+        '    return _orig_print(*args, **kwargs)',
+        'builtins.print = _print',
         '_input = ' + JSON.stringify(safeInput),
         'sys.stdin = io.StringIO(_input)',
         '_globals = {}',
@@ -14483,11 +14491,7 @@ const CollabSection = ({
     : false;
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
   const roomId = effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null;
-  const wsUrl = useMemo(() => {
-    if (typeof window === 'undefined') return '';
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${protocol}://${window.location.host}/collab`;
-  }, []);
+  const wsUrl = useMemo(() => getCollabWsUrl(), []);
   const localName = userName || (isTeacher ? 'Учитель' : 'Ученик');
   const localColor = useMemo(
     () => pickCollabColor(isTeacher ? `teacher-${teacherId}` : `student-${userId}`),
@@ -14499,6 +14503,13 @@ const CollabSection = ({
   const runMapRef = useRef(null);
   const runWorkerRef = useRef(null);
   const runPendingRef = useRef(new Map());
+  const runSessionRef = useRef(0);
+  const runStreamTimerRef = useRef(null);
+  const runStreamPendingRef = useRef(null);
+  const runInputRef = useRef(runInput);
+  const runOutputRef = useRef(runOutput);
+  const runErrorRef = useRef(runError);
+  const runStatusRef = useRef(runStatus);
   const selectedStudent = useMemo(
     () => (students || []).find((student) => student.id === activeStudentId),
     [students, activeStudentId]
@@ -14567,6 +14578,29 @@ const CollabSection = ({
   useEffect(() => {
     editorRef.current?.updateOptions?.({ fontSize: editorFontSize });
   }, [editorFontSize]);
+
+  useEffect(() => {
+    runInputRef.current = runInput;
+  }, [runInput]);
+
+  useEffect(() => {
+    runOutputRef.current = runOutput;
+  }, [runOutput]);
+
+  useEffect(() => {
+    runErrorRef.current = runError;
+  }, [runError]);
+
+  useEffect(() => {
+    runStatusRef.current = runStatus;
+  }, [runStatus]);
+
+  useEffect(() => () => {
+    if (runStreamTimerRef.current) {
+      clearTimeout(runStreamTimerRef.current);
+      runStreamTimerRef.current = null;
+    }
+  }, []);
 
   const toggleCollabFullscreen = async () => {
     if (typeof document === 'undefined') return;
@@ -14761,6 +14795,26 @@ const CollabSection = ({
     });
   };
 
+  const scheduleRunStreamSync = (payload) => {
+    runStreamPendingRef.current = payload;
+    if (runStreamTimerRef.current) return;
+    runStreamTimerRef.current = setTimeout(() => {
+      const pending = runStreamPendingRef.current;
+      runStreamPendingRef.current = null;
+      runStreamTimerRef.current = null;
+      if (!pending) return;
+      if (pending.sessionId !== runSessionRef.current) return;
+      if (runStatusRef.current !== 'running') return;
+      publishRunState({
+        output: normalizeRunText(pending.output || ''),
+        error: normalizeRunText(pending.error || ''),
+        author: pending.author || '',
+        ts: pending.ts || Date.now(),
+        input: pending.input || '',
+      });
+    }, 120);
+  };
+
   const resolveRunPending = (message) => {
     runPendingRef.current.forEach((entry) => {
       clearTimeout(entry.timer);
@@ -14868,7 +14922,7 @@ const CollabSection = ({
           const pending = runPendingRef.current.get(id);
           if (!pending) return;
           runPendingRef.current.delete(id);
-          const timeoutMessage = `Превышено время выполнения (${Math.round(PYODIDE_RUN_TIMEOUT_MS / 1000)} сек).`;
+          const timeoutMessage = `Превышено время выполнения (${Math.round(COLLAB_RUN_TIMEOUT_MS / 1000)} сек).`;
           const output = pending.output || '';
           const error = mergeRuntimeErrorText(pending.error, timeoutMessage);
           if (typeof pending.onProgress === 'function') {
@@ -14876,7 +14930,7 @@ const CollabSection = ({
           }
           resolve({ output, error });
           disposeRunWorker('Превышено время выполнения.');
-        }, PYODIDE_RUN_TIMEOUT_MS);
+        }, COLLAB_RUN_TIMEOUT_MS);
         runPendingRef.current.set(id, {
           resolve,
           timer,
@@ -14905,43 +14959,122 @@ const CollabSection = ({
       return;
     }
     if (runLoading) return;
+    const sessionId = runSessionRef.current + 1;
+    runSessionRef.current = sessionId;
     setRunLoading(true);
+    setRunStatus('running');
     setRunError('');
     const startedAt = Date.now();
+    const inputSnapshot = runInputRef.current || '';
     publishRunState({
       status: 'running',
       output: '',
       error: '',
       author: localName,
       ts: startedAt,
-      input: runInput,
+      input: inputSnapshot,
     });
     try {
-      const result = await runPythonCode(code, runInput, (progress) => {
-        setRunOutput(progress?.output || '');
-        setRunError(progress?.error || '');
+      const result = await runPythonCode(code, inputSnapshot, (progress) => {
+        if (runSessionRef.current !== sessionId) return;
+        const nextOutput = progress?.output || '';
+        const nextError = progress?.error || '';
+        setRunOutput(nextOutput);
+        setRunError(nextError);
+        scheduleRunStreamSync({
+          sessionId,
+          output: nextOutput,
+          error: nextError,
+          author: localName,
+          ts: Date.now(),
+          input: inputSnapshot,
+        });
       });
+      if (runSessionRef.current !== sessionId) return;
+      if (runStreamTimerRef.current) {
+        clearTimeout(runStreamTimerRef.current);
+        runStreamTimerRef.current = null;
+      }
+      runStreamPendingRef.current = null;
       publishRunState({
         status: 'done',
         output: normalizeRunText(result.output || ''),
         error: normalizeRunText(result.error || ''),
         author: localName,
         ts: Date.now(),
-        input: runInput,
+        input: inputSnapshot,
       });
     } catch (err) {
+      if (runSessionRef.current !== sessionId) return;
+      if (runStreamTimerRef.current) {
+        clearTimeout(runStreamTimerRef.current);
+        runStreamTimerRef.current = null;
+      }
+      runStreamPendingRef.current = null;
       publishRunState({
         status: 'done',
         output: '',
         error: normalizeRunText(err?.message || 'Ошибка выполнения Python.'),
         author: localName,
         ts: Date.now(),
-        input: runInput,
+        input: inputSnapshot,
       });
     } finally {
+      if (runSessionRef.current !== sessionId) return;
       setRunLoading(false);
+      setRunStatus('done');
     }
   };
+
+  const handleStopRun = () => {
+    if (!runLoading) return;
+    runSessionRef.current += 1;
+    if (runStreamTimerRef.current) {
+      clearTimeout(runStreamTimerRef.current);
+      runStreamTimerRef.current = null;
+    }
+    runStreamPendingRef.current = null;
+    disposeRunWorker('Прервано пользователем.');
+    setRunLoading(false);
+    setRunStatus('stopped');
+    setRunError('Прервано пользователем (Ctrl+C).');
+    publishRunState({
+      status: 'stopped',
+      output: normalizeRunText(runOutputRef.current || ''),
+      error: normalizeRunText('Прервано пользователем (Ctrl+C).'),
+      author: localName,
+      ts: Date.now(),
+      input: runInputRef.current || '',
+    });
+  };
+
+  useEffect(() => {
+    const isEditableTarget = (target) => {
+      const element = target;
+      if (!element || typeof element !== 'object') return false;
+      if (element.isContentEditable) return true;
+      const tagName = element.tagName;
+      if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') return true;
+      if (element.classList?.contains('inputarea')) return true;
+      return false;
+    };
+    const handleKeyDown = (event) => {
+      if (!runLoading) return;
+      if (!event.ctrlKey && !event.metaKey) return;
+      const key = String(event.key || '').toLowerCase();
+      const code = event.code;
+      const isStopKey = code === 'KeyC' || key === 'c' || key === 'с' || key === 'я';
+      if (!isStopKey) return;
+      if (isEditableTarget(event.target)) return;
+      const selectionText = typeof window !== 'undefined' ? window.getSelection?.()?.toString?.() : '';
+      if (selectionText) return;
+      event.preventDefault();
+      handleStopRun();
+    };
+    if (typeof window === 'undefined') return undefined;
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [runLoading, runOutput, localName]);
 
   const handleClearRun = () => {
     publishRunState({
@@ -15308,6 +15441,20 @@ const CollabSection = ({
                   <PlayCircle size={16} />
                   {runLoading ? 'Запуск...' : 'Запустить'}
                 </Button>
+                <button
+                  type="button"
+                  onClick={handleStopRun}
+                  disabled={!runLoading}
+                  className={`inline-flex h-9 w-9 items-center justify-center rounded-full border transition ${
+                    runLoading
+                      ? 'border-rose-300 bg-rose-500 text-white hover:bg-rose-600 ring-2 ring-rose-400/70 shadow-[0_0_18px_rgba(244,63,94,0.75)] animate-pulse'
+                      : 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+                  }`}
+                  title="Остановить (Ctrl+C)"
+                  aria-label="Остановить"
+                >
+                  <Square size={14} />
+                </button>
                 <Button
                   variant="secondary"
                   onClick={handleClearRun}
@@ -15318,9 +15465,19 @@ const CollabSection = ({
               </div>
             </div>
 
-            <div className="rounded-2xl border border-gray-900 bg-slate-950 text-slate-100 p-3 text-xs font-mono min-h-[160px]">
+            <div className={`rounded-2xl border bg-slate-950 text-slate-100 p-3 text-xs font-mono min-h-[160px] ${
+              runStatus === 'running'
+                ? 'border-amber-300/70 shadow-[0_0_24px_rgba(251,191,36,0.25)]'
+                : 'border-gray-900'
+            }`}>
               {runStatus === 'running' && (
-                <div className="mb-2 text-[11px] text-amber-300">Выполняется...</div>
+                <div className="mb-2 flex items-center gap-2 text-[11px] text-amber-300">
+                  <span className="inline-flex h-2 w-2 rounded-full bg-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.9)] animate-pulse" />
+                  Выполняется...
+                </div>
+              )}
+              {runStatus === 'stopped' && (
+                <div className="mb-2 text-[11px] text-rose-300">Остановлено пользователем</div>
               )}
               {lastRunInput && (
                 <div className="mb-3">
@@ -15364,11 +15521,7 @@ const BoardSection = ({
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
   const roomId = effectiveStudentId && teacherId ? `board-${teacherId}-${effectiveStudentId}` : null;
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
-  const wsUrl = useMemo(() => {
-    if (typeof window === 'undefined') return '';
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${protocol}://${window.location.host}/collab`;
-  }, []);
+  const wsUrl = useMemo(() => getCollabWsUrl(), []);
   const localName = userName || (isTeacher ? 'Учитель' : 'Ученик');
   const localColor = useMemo(
     () => pickCollabColor(isTeacher ? `teacher-${teacherId}` : `student-${userId}`),
