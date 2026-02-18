@@ -15304,7 +15304,7 @@ const CollabSection = ({
             <Pencil className={collabLabelClass} />
             Совместный код
           </h2>
-          <p className={collabSubtitleClass}>Живой документ: изменения видны сразу и сохраняются для ученика.</p>
+          <p className={collabSubtitleClass}>Живой документ: изменения видны сразу.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {renderStudentPicker()}
