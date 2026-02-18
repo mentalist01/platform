@@ -17335,9 +17335,6 @@ const BoardSection = ({
             <Brush className={isFullscreen ? 'text-purple-300' : 'text-purple-600'} />
             Онлайн-доска
           </h2>
-          <p className={isFullscreen ? 'text-slate-300' : 'text-gray-500'}>
-            Карандаш, линии, цвета и вставка изображений через Ctrl+V.
-          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {renderStudentPicker()}
