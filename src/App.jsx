@@ -15532,6 +15532,7 @@ const BoardSection = ({
   const [peerCount, setPeerCount] = useState(0);
   const [boardItems, setBoardItems] = useState([]);
   const [remotePreviews, setRemotePreviews] = useState([]);
+  const [remoteCursors, setRemoteCursors] = useState([]);
   const [tool, setTool] = useState('pen');
   const [color, setColor] = useState(BOARD_COLORS[0] || '#0f172a');
   const [penWidth, setPenWidth] = useState(BOARD_STROKE_WIDTH);
@@ -15574,6 +15575,8 @@ const BoardSection = ({
   const undoManagerRef = useRef(null);
   const localOriginRef = useRef(Symbol('board-origin'));
   const previewRafRef = useRef(null);
+  const cursorRafRef = useRef(null);
+  const pendingCursorRef = useRef(null);
   const imageDragRafRef = useRef(null);
   const pendingImageMoveRef = useRef(null);
   const renderRef = useRef(null);
@@ -15602,6 +15605,30 @@ const BoardSection = ({
     () => (students || []).find((student) => student.id === activeStudentId),
     [students, activeStudentId]
   );
+
+  const scheduleCursorUpdate = useCallback((point) => {
+    if (!awarenessRef.current || !roomId) return;
+    pendingCursorRef.current = point || null;
+    if (cursorRafRef.current) return;
+    cursorRafRef.current = requestAnimationFrame(() => {
+      cursorRafRef.current = null;
+      if (!awarenessRef.current || !roomId) return;
+      const nextPoint = pendingCursorRef.current;
+      pendingCursorRef.current = null;
+      if (
+        nextPoint
+        && Number.isFinite(Number(nextPoint.x))
+        && Number.isFinite(Number(nextPoint.y))
+      ) {
+        awarenessRef.current.setLocalStateField('cursor', {
+          x: Number(nextPoint.x),
+          y: Number(nextPoint.y),
+        });
+        return;
+      }
+      awarenessRef.current.setLocalStateField('cursor', null);
+    });
+  }, [roomId]);
 
   useEffect(() => {
     boardSizeRef.current = boardSize;
@@ -16506,11 +16533,12 @@ const BoardSection = ({
     const handleBlur = () => {
       setIsSpaceDown(false);
       panStateRef.current.active = false;
+      scheduleCursorUpdate(null);
     };
     if (typeof window === 'undefined') return undefined;
     window.addEventListener('blur', handleBlur);
     return () => window.removeEventListener('blur', handleBlur);
-  }, []);
+  }, [scheduleCursorUpdate]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -16551,6 +16579,7 @@ const BoardSection = ({
       awarenessRef.current = null;
       undoManagerRef.current = null;
       setRemotePreviews([]);
+      setRemoteCursors([]);
       return;
     }
 
@@ -16590,6 +16619,7 @@ const BoardSection = ({
       const total = states.size;
       setPeerCount(Math.max(0, total - 1));
       const previews = [];
+      const cursors = [];
       let incomingSummon = null;
       states.forEach((state, clientId) => {
         if (clientId === provider.awareness.clientID) return;
@@ -16597,12 +16627,34 @@ const BoardSection = ({
         if (drawing && (drawing.type === 'stroke' || drawing.type === 'line')) {
           previews.push(drawing);
         }
+        const cursor = state?.cursor;
+        if (
+          cursor
+          && Number.isFinite(Number(cursor?.x))
+          && Number.isFinite(Number(cursor?.y))
+        ) {
+          const remoteUser = state?.user;
+          const remoteName = typeof remoteUser?.name === 'string' && remoteUser.name.trim()
+            ? remoteUser.name.trim()
+            : 'Участник';
+          const remoteColor = typeof remoteUser?.color === 'string' && remoteUser.color
+            ? remoteUser.color
+            : '#6366f1';
+          cursors.push({
+            id: String(clientId),
+            x: Number(cursor.x),
+            y: Number(cursor.y),
+            name: remoteName,
+            color: remoteColor,
+          });
+        }
         const summon = state?.summon;
         if (summon?.ts && (!incomingSummon || summon.ts > (incomingSummon.ts || 0))) {
           incomingSummon = summon;
         }
       });
       setRemotePreviews(previews);
+      setRemoteCursors(cursors);
       if (!isTeacher && incomingSummon?.id && incomingSummon.id !== lastSummonIdRef.current) {
         lastSummonIdRef.current = incomingSummon.id;
         const nextZoom = clamp(Number(incomingSummon.zoom) || 1, BOARD_MIN_ZOOM, BOARD_MAX_ZOOM);
@@ -16622,6 +16674,7 @@ const BoardSection = ({
 
     provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
     provider.awareness.setLocalStateField('drawing', null);
+    provider.awareness.setLocalStateField('cursor', null);
     provider.awareness.setLocalStateField('summon', null);
     provider.on('status', handleStatus);
     provider.awareness.on('change', handleAwareness);
@@ -16643,9 +16696,11 @@ const BoardSection = ({
       provider.awareness.off('change', handleAwareness);
       provider.off('status', handleStatus);
       provider.awareness.setLocalStateField('drawing', null);
+      provider.awareness.setLocalStateField('cursor', null);
       provider.awareness.setLocalStateField('summon', null);
       undoManagerRef.current = null;
       setUndoState({ canUndo: false, canRedo: false });
+      setRemoteCursors([]);
       provider.destroy();
       doc.destroy();
       providerRef.current = null;
@@ -16743,6 +16798,10 @@ const BoardSection = ({
   }, []);
 
   useEffect(() => () => {
+    if (cursorRafRef.current) cancelAnimationFrame(cursorRafRef.current);
+  }, []);
+
+  useEffect(() => () => {
     if (imageDragRafRef.current) cancelAnimationFrame(imageDragRafRef.current);
   }, []);
 
@@ -16760,6 +16819,9 @@ const BoardSection = ({
 
   const handlePointerDown = (event) => {
     if (!roomId) return;
+    const point = getCanvasPoint(event);
+    lastPointerRef.current = point;
+    scheduleCursorUpdate(point);
     if (event.pointerType === 'touch') event.preventDefault();
     if (isSpaceDown || event.button === 1 || event.button === 2) {
       panStateRef.current = {
@@ -16773,8 +16835,6 @@ const BoardSection = ({
       return;
     }
     if (tool === 'select') {
-      const point = getCanvasPoint(event);
-      lastPointerRef.current = point;
       const currentSelection = selectionBox;
       const currentSelectedIds = selectedIdsRef.current || [];
       if (currentSelection && currentSelectedIds.length > 0 && isPointInRect(point, currentSelection)) {
@@ -16814,16 +16874,12 @@ const BoardSection = ({
       return;
     }
     if (tool === 'eraser') {
-      const point = getCanvasPoint(event);
-      lastPointerRef.current = point;
       eraserStateRef.current.active = true;
       eraseAtPoint(point);
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
     if (tool === 'move') {
-      const point = getCanvasPoint(event);
-      lastPointerRef.current = point;
       const hit = findImageAtPoint(point);
       if (hit?.item?.id) {
         setSelectedImageId(hit.item.id);
@@ -16847,8 +16903,6 @@ const BoardSection = ({
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
-    const point = getCanvasPoint(event);
-    lastPointerRef.current = point;
     if (tool === 'pen') {
       drawStateRef.current = { drawing: true, points: [point], start: null, end: null };
     } else if (tool === 'line') {
@@ -16862,6 +16916,7 @@ const BoardSection = ({
   const handlePointerMove = (event) => {
     const point = getCanvasPoint(event);
     lastPointerRef.current = point;
+    scheduleCursorUpdate(point);
     if (eraserStateRef.current.active) {
       eraseAtPoint(point);
       return;
@@ -17007,6 +17062,11 @@ const BoardSection = ({
     }
     undoManagerRef.current?.stopCapturing();
     drawStateRef.current = { drawing: false, points: [], start: null, end: null };
+  };
+
+  const handlePointerLeave = () => {
+    handlePointerUp();
+    scheduleCursorUpdate(null);
   };
 
   const handleUndo = () => {
@@ -17159,6 +17219,23 @@ const BoardSection = ({
   const canUndo = undoState.canUndo;
   const canRedo = undoState.canRedo;
   const canClear = boardItems.length > 0;
+  const remoteCursorMarkers = useMemo(() => {
+    const currentZoom = zoom || 1;
+    return remoteCursors
+      .map((cursor) => ({
+        ...cursor,
+        left: (cursor.x - offset.x) * currentZoom,
+        top: (cursor.y - offset.y) * currentZoom,
+      }))
+      .filter((cursor) => (
+        Number.isFinite(cursor.left)
+        && Number.isFinite(cursor.top)
+        && cursor.left >= -40
+        && cursor.left <= boardSize.width + 40
+        && cursor.top >= -40
+        && cursor.top <= boardSize.height + 40
+      ));
+  }, [remoteCursors, zoom, offset, boardSize.width, boardSize.height]);
   const statusLabel = status === 'connected'
     ? 'Подключено'
     : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено');
@@ -17649,11 +17726,33 @@ const BoardSection = ({
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-            onPointerLeave={handlePointerUp}
-            onPointerCancel={handlePointerUp}
+            onPointerLeave={handlePointerLeave}
+            onPointerCancel={handlePointerLeave}
             onWheel={handleWheel}
             onContextMenu={(e) => e.preventDefault()}
           />
+          {remoteCursorMarkers.map((cursor) => (
+            <div
+              key={cursor.id}
+              className="pointer-events-none absolute z-20 select-none"
+              style={{
+                left: `${cursor.left}px`,
+                top: `${cursor.top}px`,
+                transform: 'translate(-2px, -2px)',
+              }}
+            >
+              <div
+                className="h-3 w-3 rounded-full border border-white shadow"
+                style={{ backgroundColor: cursor.color }}
+              />
+              <div
+                className="mt-1 rounded-md px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm"
+                style={{ backgroundColor: cursor.color }}
+              >
+                {cursor.name}
+              </div>
+            </div>
+          ))}
           <div className="absolute right-3 top-3 z-20 rounded-xl border border-gray-200 bg-white/90 p-2 shadow-sm">
             <canvas
               ref={minimapRef}
