@@ -15549,6 +15549,7 @@ const BoardSection = ({
   const [selectionBox, setSelectionBox] = useState(null);
   const [summonNotice, setSummonNotice] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [shareMyCursor, setShareMyCursor] = useState(true);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saveTaskNumber, setSaveTaskNumber] = useState(() => String(taskOptions[0]?.number || ''));
   const [saveCategory, setSaveCategory] = useState('class');
@@ -15605,9 +15606,64 @@ const BoardSection = ({
     () => (students || []).find((student) => student.id === activeStudentId),
     [students, activeStudentId]
   );
+  const cursorVisibilityStorageKey = useMemo(
+    () => `board-share-cursor-${userId || role || 'anon'}`,
+    [userId, role]
+  );
+
+  const deleteItemsByIds = useCallback((ids) => {
+    const yItems = yItemsRef.current;
+    const docInstance = docRef.current;
+    if (!yItems || !docInstance || !Array.isArray(ids) || ids.length === 0) return false;
+    const idsSet = new Set(ids.filter(Boolean));
+    if (!idsSet.size) return false;
+    let removedCount = 0;
+    docInstance.transact(() => {
+      for (let i = yItems.length - 1; i >= 0; i -= 1) {
+        const raw = yItems.get(i);
+        const item = raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
+        if (!idsSet.has(item?.id)) continue;
+        yItems.delete(i, 1);
+        removedCount += 1;
+      }
+    }, localOriginRef.current);
+    if (removedCount > 0) {
+      undoManagerRef.current?.stopCapturing();
+      return true;
+    }
+    return false;
+  }, []);
+
+  const handleDeleteSelection = useCallback(() => {
+    const selected = selectedIdsRef.current || [];
+    const idsToDelete = selected.length
+      ? selected
+      : (selectedImageId ? [selectedImageId] : []);
+    if (!idsToDelete.length) return false;
+    const deleted = deleteItemsByIds(idsToDelete);
+    if (!deleted) return false;
+    selectingRef.current.active = false;
+    selectionDragRef.current.active = false;
+    selectionDragRef.current.items = null;
+    selectionDragRef.current.baseSelection = null;
+    if (selectionMoveRafRef.current) {
+      cancelAnimationFrame(selectionMoveRafRef.current);
+      selectionMoveRafRef.current = null;
+    }
+    pendingSelectionMoveRef.current = { dx: 0, dy: 0 };
+    setSelectedIds([]);
+    setSelectionBox(null);
+    setSelectedImageId(null);
+    return true;
+  }, [selectedImageId, deleteItemsByIds]);
 
   const scheduleCursorUpdate = useCallback((point) => {
     if (!awarenessRef.current || !roomId) return;
+    if (!shareMyCursor) {
+      pendingCursorRef.current = null;
+      awarenessRef.current.setLocalStateField('cursor', null);
+      return;
+    }
     pendingCursorRef.current = point || null;
     if (cursorRafRef.current) return;
     cursorRafRef.current = requestAnimationFrame(() => {
@@ -15628,7 +15684,42 @@ const BoardSection = ({
       }
       awarenessRef.current.setLocalStateField('cursor', null);
     });
-  }, [roomId]);
+  }, [roomId, shareMyCursor]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = window.localStorage.getItem(cursorVisibilityStorageKey);
+    if (raw == null) {
+      setShareMyCursor(true);
+      return;
+    }
+    setShareMyCursor(raw !== '0');
+  }, [cursorVisibilityStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(cursorVisibilityStorageKey, shareMyCursor ? '1' : '0');
+  }, [cursorVisibilityStorageKey, shareMyCursor]);
+
+  useEffect(() => {
+    if (!awarenessRef.current || !roomId) return;
+    if (!shareMyCursor) {
+      pendingCursorRef.current = null;
+      awarenessRef.current.setLocalStateField('cursor', null);
+      return;
+    }
+    const point = lastPointerRef.current;
+    if (
+      point
+      && Number.isFinite(Number(point.x))
+      && Number.isFinite(Number(point.y))
+    ) {
+      awarenessRef.current.setLocalStateField('cursor', {
+        x: Number(point.x),
+        y: Number(point.y),
+      });
+    }
+  }, [shareMyCursor, roomId]);
 
   useEffect(() => {
     boardSizeRef.current = boardSize;
@@ -15741,10 +15832,17 @@ const BoardSection = ({
     };
     const handleKeyDown = (event) => {
       if (event.code === 'Space') setIsSpaceDown(true);
-      const hasModifier = event.ctrlKey || event.metaKey;
-      if (!hasModifier) return;
       const key = String(event.key || '').toLowerCase();
       const code = event.code;
+      const isDeleteKey = code === 'Delete' || key === 'delete' || code === 'Backspace' || key === 'backspace';
+      if (isDeleteKey && !isEditableTarget(event.target)) {
+        if (handleDeleteSelection()) {
+          event.preventDefault();
+        }
+        return;
+      }
+      const hasModifier = event.ctrlKey || event.metaKey;
+      if (!hasModifier) return;
       const isUndoKey = code === 'KeyZ' || key === 'z' || key === 'я';
       const isRedoKey = code === 'KeyY' || key === 'y' || key === 'н' || (isUndoKey && event.shiftKey);
       if (!isUndoKey && !isRedoKey) return;
@@ -15768,7 +15866,7 @@ const BoardSection = ({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, []);
+  }, [handleDeleteSelection]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -17614,6 +17712,17 @@ const BoardSection = ({
                         />
                       ))}
                     </div>
+                  </div>
+                  <div className="border-t border-gray-100 pt-3">
+                    <label className="flex items-center gap-2 text-xs text-gray-600">
+                      <input
+                        type="checkbox"
+                        checked={shareMyCursor}
+                        onChange={(event) => setShareMyCursor(event.target.checked)}
+                        className="h-4 w-4 accent-purple-600"
+                      />
+                      Показывать мой курсор
+                    </label>
                   </div>
                   {tool === 'move' && selectedImage && (
                     <div className="border-t border-gray-100 pt-3">
