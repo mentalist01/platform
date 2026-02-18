@@ -14476,6 +14476,7 @@ const CollabSection = ({
   const [lastRunInput, setLastRunInput] = useState('');
   const [runLoading, setRunLoading] = useState(false);
   const [editorFontSize, setEditorFontSize] = useState(14);
+  const [isCollabFullscreen, setIsCollabFullscreen] = useState(false);
 
   const isMobileViewport = typeof window !== 'undefined'
     ? window.matchMedia('(max-width: 767px)').matches
@@ -14493,6 +14494,7 @@ const CollabSection = ({
     [isTeacher, teacherId, userId]
   );
   const fontSizeStorageKey = useMemo(() => `collab-font-size-${userId || role || 'anon'}`, [userId, role]);
+  const collabRootRef = useRef(null);
   const collabDocRef = useRef(null);
   const runMapRef = useRef(null);
   const runWorkerRef = useRef(null);
@@ -14513,12 +14515,37 @@ const CollabSection = ({
     cursorSmoothCaretAnimation: 'on',
     readOnly: !roomId,
   }), [roomId, editorFontSize]);
-  const editorHeight = isMobileViewport ? '50vh' : '65vh';
+  const editorHeight = isCollabFullscreen
+    ? (isMobileViewport ? '45vh' : '55vh')
+    : (isMobileViewport ? '50vh' : '65vh');
   const clampFontSize = (value) => Math.min(24, Math.max(12, Math.round(value)));
+  const collabShellClass = isCollabFullscreen
+    ? 'animate-fadeIn min-h-screen w-screen bg-[radial-gradient(circle_at_top,_rgba(124,58,237,0.22),_rgba(15,23,42,0.85)_55%,_rgba(3,7,18,1)_100%)] text-slate-100 p-3 sm:p-4 md:p-6 overflow-auto'
+    : 'animate-fadeIn pb-10';
+  const collabCardClass = isCollabFullscreen
+    ? 'p-3 sm:p-4 md:p-5 border border-slate-800/80 bg-slate-950/70 shadow-[0_0_40px_rgba(124,58,237,0.18)]'
+    : 'p-4 md:p-6';
+  const collabTitleClass = isCollabFullscreen ? 'text-slate-100' : 'text-gray-900';
+  const collabSubtitleClass = isCollabFullscreen ? 'text-slate-300' : 'text-gray-500';
+  const collabLabelClass = isCollabFullscreen ? 'text-violet-300' : 'text-purple-600';
+  const collabSessionTextClass = isCollabFullscreen ? 'text-slate-100' : 'text-gray-800';
+  const collabHintClass = isCollabFullscreen ? 'text-slate-400' : 'text-gray-400';
+  const collabControlBorder = isCollabFullscreen ? 'border-slate-700/80 bg-slate-900/70' : 'border-gray-200 bg-white';
+  const collabControlText = isCollabFullscreen ? 'text-slate-200' : 'text-gray-600';
 
   const handleEditorMount = useCallback((editor) => {
     editorRef.current = editor;
     setEditorReady(true);
+  }, []);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const active = typeof document !== 'undefined' && document.fullscreenElement === collabRootRef.current;
+      setIsCollabFullscreen(active);
+    };
+    if (typeof document === 'undefined') return undefined;
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
   useEffect(() => {
@@ -14540,6 +14567,17 @@ const CollabSection = ({
   useEffect(() => {
     editorRef.current?.updateOptions?.({ fontSize: editorFontSize });
   }, [editorFontSize]);
+
+  const toggleCollabFullscreen = async () => {
+    if (typeof document === 'undefined') return;
+    try {
+      if (!document.fullscreenElement && collabRootRef.current?.requestFullscreen) {
+        await collabRootRef.current.requestFullscreen();
+      } else if (document.fullscreenElement && document.exitFullscreen) {
+        await document.exitFullscreen();
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     if (!effectiveStudentId || !saveTaskNumber || !saveCategory) {
@@ -15126,14 +15164,14 @@ const CollabSection = ({
   ) : null;
 
   return (
-    <div className="animate-fadeIn pb-10">
-      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div ref={collabRootRef} className={collabShellClass}>
+      <div className={`mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between ${isCollabFullscreen ? 'rounded-2xl border border-slate-800/70 bg-slate-950/60 px-3 py-3 sm:px-4 sm:py-3.5 backdrop-blur' : ''}`}>
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Pencil className="text-purple-600" />
+          <h2 className={`text-2xl font-bold flex items-center gap-2 ${collabTitleClass}`}>
+            <Pencil className={collabLabelClass} />
             Совместный код
           </h2>
-          <p className="text-gray-500">Живой документ: изменения видны сразу и сохраняются для ученика.</p>
+          <p className={collabSubtitleClass}>Живой документ: изменения видны сразу и сохраняются для ученика.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {renderStudentPicker()}
@@ -15145,6 +15183,19 @@ const CollabSection = ({
             <Save size={16} />
             Сохранить в конспекты
           </Button>
+          <button
+            type="button"
+            onClick={toggleCollabFullscreen}
+            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition ${
+              isCollabFullscreen
+                ? 'border-violet-500/70 bg-violet-500/20 text-violet-100 hover:bg-violet-500/30'
+                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+            }`}
+            title={isCollabFullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'}
+          >
+            {isCollabFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
+            {isCollabFullscreen ? 'Свернуть' : 'На весь экран'}
+          </button>
           <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusClass}`}>
             {statusLabel}
           </span>
@@ -15166,11 +15217,11 @@ const CollabSection = ({
         </div>
       )}
 
-      <Card className="p-4 md:p-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <Card className={collabCardClass}>
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сессия</div>
-            <div className="text-sm font-semibold text-gray-800">
+            <div className={`text-xs font-bold uppercase tracking-widest ${collabLabelClass}`}>Сессия</div>
+            <div className={`text-sm font-semibold ${collabSessionTextClass}`}>
               {roomId
                 ? (isTeacher
                   ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
@@ -15179,22 +15230,22 @@ const CollabSection = ({
             </div>
           </div>
           <div className="flex items-center gap-2 md:justify-end">
-            <span className="text-[11px] font-semibold text-gray-400">Aa</span>
-            <div className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-1.5 py-0.5">
+            <span className={`text-[11px] font-semibold ${collabHintClass}`}>Aa</span>
+            <div className={`inline-flex items-center gap-1 rounded-lg border px-1.5 py-0.5 ${collabControlBorder}`}>
               <button
                 type="button"
                 onClick={() => setEditorFontSize((prev) => clampFontSize(prev - 1))}
-                className="h-6 w-6 rounded-md text-[11px] font-semibold text-gray-600 hover:bg-gray-100"
+                className={`h-6 w-6 rounded-md text-[11px] font-semibold hover:bg-white/10 ${collabControlText}`}
                 aria-label="Уменьшить шрифт"
                 title="Уменьшить шрифт"
               >
                 A-
               </button>
-              <span className="min-w-[40px] text-center text-[11px] font-semibold text-gray-600">{editorFontSize}px</span>
+              <span className={`min-w-[40px] text-center text-[11px] font-semibold ${collabControlText}`}>{editorFontSize}px</span>
               <button
                 type="button"
                 onClick={() => setEditorFontSize((prev) => clampFontSize(prev + 1))}
-                className="h-6 w-6 rounded-md text-[11px] font-semibold text-gray-600 hover:bg-gray-100"
+                className={`h-6 w-6 rounded-md text-[11px] font-semibold hover:bg-white/10 ${collabControlText}`}
                 aria-label="Увеличить шрифт"
                 title="Увеличить шрифт"
               >
@@ -15204,7 +15255,7 @@ const CollabSection = ({
           </div>
         </div>
 
-        <div className="mt-4 rounded-2xl overflow-hidden border border-gray-800 relative">
+        <div className={`mt-4 rounded-2xl overflow-hidden border relative ${isCollabFullscreen ? 'border-slate-700/80 bg-slate-950/60 shadow-[0_0_32px_rgba(99,102,241,0.25)]' : 'border-gray-800'}`}>
           {!roomId && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
               Выберите ученика, чтобы открыть совместный документ.
@@ -15223,22 +15274,26 @@ const CollabSection = ({
 
         <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-3">
           <div className="space-y-2">
-            <div className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Ввод (stdin)</div>
+            <div className={`text-[11px] font-semibold uppercase tracking-widest ${collabHintClass}`}>Ввод (stdin)</div>
             <textarea
               value={runInput}
               onChange={(e) => setRunInput(e.target.value)}
               rows={isMobileViewport ? 4 : 6}
               placeholder="Если нужен ввод, вставьте его сюда."
-              className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700 outline-none focus:border-purple-500"
+              className={`w-full rounded-2xl border px-3 py-2 text-xs outline-none ${
+                isCollabFullscreen
+                  ? 'border-slate-700/80 bg-slate-900/70 text-slate-100 focus:border-violet-400'
+                  : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
+              }`}
             />
           </div>
 
           <div className="lg:col-span-2 space-y-2">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Результат</div>
+                <div className={`text-[11px] font-semibold uppercase tracking-widest ${collabHintClass}`}>Результат</div>
                 {(runAuthor || runTimestamp) && (
-                  <div className="text-[11px] text-gray-500">
+                  <div className={`text-[11px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
                     {runAuthor ? `Запустил: ${runAuthor}` : 'Запуск'}
                     {runTimestamp ? ` • ${new Date(runTimestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
                   </div>
