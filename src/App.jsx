@@ -14918,16 +14918,25 @@ const CollabSection = ({
     glyphMargin: true,
     readOnly: !roomId,
   }), [roomId, editorFontSize, isCollabFullscreen]);
+  const isDesktopCollabCompact = !isMobileViewport && !isCollabFullscreen;
+  const compactCollabHeight = 'calc((var(--app-vh, 1vh) * 100) - 10.5rem)';
   const editorHeight = isCollabFullscreen
     ? (isMobileViewport ? '60vh' : '82vh')
-    : (isMobileViewport ? '50vh' : '65vh');
+    : (isMobileViewport ? '50vh' : (isDesktopCollabCompact ? '100%' : '65vh'));
   const clampFontSize = (value) => Math.min(24, Math.max(12, Math.round(value)));
   const collabShellClass = isCollabFullscreen
     ? 'animate-fadeIn min-h-screen w-screen bg-[radial-gradient(circle_at_top,_rgba(124,58,237,0.22),_rgba(15,23,42,0.85)_55%,_rgba(3,7,18,1)_100%)] text-slate-100 px-2 pt-2 pb-1 sm:px-3 sm:pt-3 sm:pb-1.5 md:px-4 md:pt-4 md:pb-2 overflow-auto'
-    : 'animate-fadeIn pb-10';
+    : (isDesktopCollabCompact
+      ? 'animate-fadeIn md:flex md:min-h-0 md:flex-col md:overflow-hidden'
+      : 'animate-fadeIn pb-10');
+  const collabShellStyle = isDesktopCollabCompact
+    ? { height: compactCollabHeight, maxHeight: compactCollabHeight }
+    : undefined;
   const collabCardClass = isCollabFullscreen
     ? 'p-2.5 sm:p-3 md:p-3.5 border border-slate-800/80 bg-slate-950/70 shadow-[0_0_40px_rgba(124,58,237,0.18)]'
-    : 'p-4 md:p-6';
+    : (isDesktopCollabCompact
+      ? 'p-3 md:p-4 flex min-h-0 flex-1 flex-col overflow-hidden'
+      : 'p-4 md:p-6');
   const collabTitleClass = isCollabFullscreen ? 'text-slate-100' : 'text-gray-900';
   const collabSubtitleClass = isCollabFullscreen ? 'text-slate-300' : 'text-gray-500';
   const collabLabelClass = isCollabFullscreen ? 'text-violet-300' : 'text-purple-600';
@@ -14939,7 +14948,7 @@ const CollabSection = ({
   const collabToolbarDividerClass = isCollabFullscreen ? 'bg-slate-300' : 'bg-purple-200';
   const collabSessionLabelClass = isCollabFullscreen ? 'text-violet-700' : collabLabelClass;
   const collabSessionValueClass = isCollabFullscreen ? 'text-slate-800' : collabSessionTextClass;
-  const collabIconButtonBase = `inline-flex ${isCollabFullscreen ? 'h-7 w-7' : 'h-8 w-8'} items-center justify-center rounded-xl border transition`;
+  const collabIconButtonBase = `inline-flex ${isCollabFullscreen || isDesktopCollabCompact ? 'h-7 w-7' : 'h-8 w-8'} items-center justify-center rounded-xl border transition`;
   const collabIconButtonDisabled = 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed';
   const collabIconButtonNeutral = 'border-gray-200 bg-white text-gray-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700';
   const collabIconButtonPrimary = 'border-purple-500 bg-purple-600 text-white shadow-sm shadow-purple-200/70 hover:bg-purple-700';
@@ -16420,7 +16429,7 @@ const CollabSection = ({
   const statusClass = status === 'connected'
     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
     : 'border-amber-200 bg-amber-50 text-amber-700';
-  const isSplitCollabLayout = isCollabFullscreen && !isMobileViewport;
+  const isSplitCollabLayout = (isCollabFullscreen || isDesktopCollabCompact) && !isMobileViewport;
   const sessionLabel = roomId
     ? (isTeacher
       ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
@@ -16470,10 +16479,10 @@ const CollabSection = ({
     if (!isTeacher) return null;
     return (
       <div className={`inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 shadow-sm shadow-purple-100/40 ${
-        isCollabFullscreen ? 'px-2.5 py-1.5' : 'px-3 py-2'
+        isCollabFullscreen || isDesktopCollabCompact ? 'px-2.5 py-1.5' : 'px-3 py-2'
       }`}>
         <span className={`font-semibold uppercase tracking-widest text-purple-500 ${
-          isCollabFullscreen ? 'text-[10px]' : 'text-[11px]'
+          isCollabFullscreen || isDesktopCollabCompact ? 'text-[10px]' : 'text-[11px]'
         }`}>Ученик</span>
         <select
           value={activeStudentId || ''}
@@ -16483,7 +16492,9 @@ const CollabSection = ({
           }}
           disabled={studentsLoading || (students || []).length === 0}
           className={`w-full min-w-0 rounded-xl border border-purple-100 bg-white text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70 ${
-            isCollabFullscreen ? 'sm:min-w-[170px] px-2.5 py-1 text-[13px]' : 'sm:min-w-[180px] px-3 py-1.5 text-sm'
+            isCollabFullscreen || isDesktopCollabCompact
+              ? 'sm:min-w-[170px] px-2.5 py-1 text-[13px]'
+              : 'sm:min-w-[180px] px-3 py-1.5 text-sm'
           }`}
         >
           <option value="" disabled>Выберите ученика</option>
@@ -16618,7 +16629,7 @@ const CollabSection = ({
   ) : null;
 
   const editorPane = (
-    <div className={`rounded-2xl overflow-hidden border relative ${isCollabFullscreen ? 'border-slate-700/80 bg-slate-950/60 shadow-[0_0_32px_rgba(99,102,241,0.25)]' : 'border-gray-800'}`}>
+    <div className={`rounded-2xl overflow-hidden border relative ${isSplitCollabLayout ? 'h-full' : ''} ${isCollabFullscreen ? 'border-slate-700/80 bg-slate-950/60 shadow-[0_0_32px_rgba(99,102,241,0.25)]' : 'border-gray-800'}`}>
       {!roomId && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
           Выберите ученика, чтобы открыть совместный документ.
@@ -16767,25 +16778,31 @@ const CollabSection = ({
   ) : null;
 
   return (
-    <div ref={collabRootRef} className={collabShellClass}>
+    <div ref={collabRootRef} className={collabShellClass} style={collabShellStyle}>
       <div className={`flex flex-col md:flex-row md:items-center md:justify-between ${
         isCollabFullscreen
           ? 'mb-3 gap-2 rounded-2xl border border-slate-800/70 bg-slate-950/60 px-2.5 py-2 sm:px-3 sm:py-2.5 backdrop-blur'
-          : 'mb-6 gap-3'
+          : (isDesktopCollabCompact ? 'mb-3 gap-2' : 'mb-6 gap-3')
       }`}>
         <div>
-          <h2 className={`font-bold flex items-center gap-2 ${isCollabFullscreen ? 'text-lg sm:text-xl' : 'text-2xl'} ${collabTitleClass}`}>
-            <Pencil size={isCollabFullscreen ? 18 : 24} className={collabLabelClass} />
+          <h2 className={`font-bold flex items-center gap-2 ${
+            isCollabFullscreen ? 'text-lg sm:text-xl' : (isDesktopCollabCompact ? 'text-xl' : 'text-2xl')
+          } ${collabTitleClass}`}>
+            <Pencil size={isCollabFullscreen || isDesktopCollabCompact ? 18 : 24} className={collabLabelClass} />
             Совместный код
           </h2>
-          <p className={`${collabSubtitleClass} ${isCollabFullscreen ? 'text-xs' : ''}`}>Живой документ: изменения видны сразу.</p>
+          <p className={`${collabSubtitleClass} ${isCollabFullscreen || isDesktopCollabCompact ? 'text-xs' : ''}`}>
+            Живой документ: изменения видны сразу.
+          </p>
         </div>
-        <div className={`flex flex-wrap items-center ${isCollabFullscreen ? 'gap-1.5' : 'gap-2'}`}>
+        <div className={`flex flex-wrap items-center ${isCollabFullscreen || isDesktopCollabCompact ? 'gap-1.5' : 'gap-2'}`}>
           {renderStudentPicker()}
           <Button
             variant="secondary"
             onClick={() => setSaveModalOpen(true)}
-            className={`flex items-center ${isCollabFullscreen ? 'gap-1.5 px-2.5 py-1.5 text-xs' : 'gap-2'}`}
+            className={`flex items-center ${
+              isCollabFullscreen || isDesktopCollabCompact ? 'gap-1.5 px-2.5 py-1.5 text-xs' : 'gap-2'
+            }`}
           >
             <Save size={16} />
             Сохранить в конспекты
@@ -16794,7 +16811,7 @@ const CollabSection = ({
             type="button"
             onClick={toggleCollabFullscreen}
             className={`inline-flex items-center rounded-full border font-semibold transition ${
-              isCollabFullscreen ? 'gap-1.5 px-2.5 py-0.5 text-[11px]' : 'gap-2 px-3 py-1 text-xs'
+              isCollabFullscreen || isDesktopCollabCompact ? 'gap-1.5 px-2.5 py-0.5 text-[11px]' : 'gap-2 px-3 py-1 text-xs'
             } ${
               isCollabFullscreen
                 ? 'border-violet-500/70 bg-violet-500/20 text-violet-100 hover:bg-violet-500/30'
@@ -16805,16 +16822,22 @@ const CollabSection = ({
             {isCollabFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
             {isCollabFullscreen ? 'Свернуть' : 'На весь экран'}
           </button>
-          <span className={`inline-flex items-center rounded-full border font-semibold ${isCollabFullscreen ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'} ${statusClass}`}>
+          <span className={`inline-flex items-center rounded-full border font-semibold ${
+            isCollabFullscreen || isDesktopCollabCompact ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
+          } ${statusClass}`}>
             {statusLabel}
           </span>
           {roomId && (
-            <span className={`inline-flex items-center rounded-full border border-slate-200 bg-white font-semibold text-slate-600 ${isCollabFullscreen ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'}`}>
+            <span className={`inline-flex items-center rounded-full border border-slate-200 bg-white font-semibold text-slate-600 ${
+              isCollabFullscreen || isDesktopCollabCompact ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
+            }`}>
               Онлайн: {peerCount}
             </span>
           )}
           {typingUsers.length > 0 && (
-            <span className={`inline-flex items-center rounded-full border font-semibold ${isCollabFullscreen ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'} ${
+            <span className={`inline-flex items-center rounded-full border font-semibold ${
+              isCollabFullscreen || isDesktopCollabCompact ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
+            } ${
               isCollabFullscreen
                 ? 'border-violet-400/60 bg-violet-500/20 text-violet-100'
                 : 'border-violet-200 bg-violet-50 text-violet-700'
@@ -16827,7 +16850,7 @@ const CollabSection = ({
 
       {isTeacher && !activeStudentId && (
         <div className={`rounded-2xl border border-amber-200 bg-amber-50 text-amber-700 flex items-start gap-2 ${
-          isCollabFullscreen ? 'mb-2 px-3 py-2 text-xs' : 'mb-4 px-4 py-3 text-sm'
+          isCollabFullscreen || isDesktopCollabCompact ? 'mb-2 px-3 py-2 text-xs' : 'mb-4 px-4 py-3 text-sm'
         }`}>
           <AlertTriangle size={18} className="mt-0.5" />
           <div>
@@ -16838,7 +16861,7 @@ const CollabSection = ({
       )}
 
       <Card className={collabCardClass}>
-        {!isCollabFullscreen && (
+        {!isCollabFullscreen && !isDesktopCollabCompact && (
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
               <div className={`text-xs font-bold uppercase tracking-widest ${collabLabelClass}`}>Сессия</div>
@@ -16857,9 +16880,11 @@ const CollabSection = ({
           </div>
         )}
 
-        <div className={`${isCollabFullscreen ? 'mt-0 flex items-center justify-between gap-2' : ''}`}>
-          <div className={`inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-xl border ${isCollabFullscreen ? 'mt-0 px-1.5 py-1' : 'mt-3 px-2 py-1.5'} ${collabToolbarClass}`}>
-            {isCollabFullscreen && (
+        <div className={`${isCollabFullscreen || isDesktopCollabCompact ? 'mt-0 flex items-center justify-between gap-2' : ''}`}>
+          <div className={`inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-xl border ${
+            isCollabFullscreen ? 'mt-0 px-1.5 py-1' : (isDesktopCollabCompact ? 'mt-2 px-1.5 py-1' : 'mt-3 px-2 py-1.5')
+          } ${collabToolbarClass}`}>
+            {(isCollabFullscreen || isDesktopCollabCompact) && (
               <>
                 <span className={`text-[10px] font-bold uppercase tracking-widest ${collabSessionLabelClass}`}>Сессия</span>
                 <span className={`max-w-[220px] truncate text-[11px] font-semibold ${collabSessionValueClass}`}>{sessionLabel}</span>
@@ -17009,12 +17034,16 @@ const CollabSection = ({
             <Trash2 size={14} />
           </button>
           </div>
-          {isCollabFullscreen && (
+          {(isCollabFullscreen || isDesktopCollabCompact) && (
             <button
               type="button"
               onClick={handleFormatCode}
               disabled={!roomId}
-              className="inline-flex items-center rounded-lg border border-slate-700 bg-slate-900/70 px-2 py-1 text-[11px] font-semibold text-slate-200 transition hover:bg-slate-800 disabled:opacity-50"
+              className={`inline-flex items-center rounded-lg border px-2 py-1 text-[11px] font-semibold transition disabled:opacity-50 ${
+                isCollabFullscreen
+                  ? 'border-slate-700 bg-slate-900/70 text-slate-200 hover:bg-slate-800'
+                  : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+              }`}
             >
               Автоформат
             </button>
@@ -17024,12 +17053,15 @@ const CollabSection = ({
         {isSplitCollabLayout ? (
           <div
             ref={splitLayoutRef}
-            className="mt-1 grid min-h-0 items-stretch gap-0.5"
+            className={`${isDesktopCollabCompact ? 'mt-2 flex-1' : 'mt-1'} grid min-h-0 items-stretch gap-0.5`}
             style={{
-              gridTemplateColumns: `minmax(420px, ${splitLeftWidth}fr) 10px minmax(300px, ${100 - splitLeftWidth}fr)`,
+              gridTemplateColumns: isDesktopCollabCompact
+                ? `minmax(360px, ${splitLeftWidth}fr) 10px minmax(280px, ${100 - splitLeftWidth}fr)`
+                : `minmax(420px, ${splitLeftWidth}fr) 10px minmax(300px, ${100 - splitLeftWidth}fr)`,
+              height: isDesktopCollabCompact ? '100%' : undefined,
             }}
           >
-            <div className="min-w-0">
+            <div className="min-h-0 min-w-0">
               {editorPane}
             </div>
             <div
