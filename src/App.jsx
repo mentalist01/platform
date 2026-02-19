@@ -12,7 +12,7 @@ import {
   X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
-  Bell, BellOff, MousePointer2
+  Bell, BellOff, MousePointer2, Moon, Sun
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
 import mascotDisapproval from './assets/mascot/disapproval.png';
@@ -1524,7 +1524,17 @@ const parseJsonResponse = async (res) => {
 };
 
 const USER_SESSION_KEY = 'ege_user_session';
+const THEME_STORAGE_KEY = 'ege_theme';
+const THEME_LIGHT = 'light';
+const THEME_DARK = 'dark';
 let unauthorizedHandler = null;
+
+const normalizeTheme = (value) => (String(value || '').trim().toLowerCase() === THEME_DARK ? THEME_DARK : THEME_LIGHT);
+
+const getPreferredTheme = () => {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return THEME_LIGHT;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? THEME_DARK : THEME_LIGHT;
+};
 
 const sanitizeAuthUserPayload = (value) => {
   if (!value || typeof value !== 'object') return null;
@@ -14893,9 +14903,11 @@ const CollabSection = ({
   const collabSessionTextClass = isCollabFullscreen ? 'text-slate-100' : 'text-gray-800';
   const collabHintClass = isCollabFullscreen ? 'text-slate-400' : 'text-gray-400';
   const collabToolbarClass = isCollabFullscreen
-    ? 'border-slate-700/80 bg-transparent'
+    ? 'border-slate-200/80 bg-white/85'
     : 'border-purple-100 bg-purple-50/70';
-  const collabToolbarDividerClass = isCollabFullscreen ? 'bg-slate-700/80' : 'bg-purple-200';
+  const collabToolbarDividerClass = isCollabFullscreen ? 'bg-slate-300' : 'bg-purple-200';
+  const collabSessionLabelClass = isCollabFullscreen ? 'text-violet-700' : collabLabelClass;
+  const collabSessionValueClass = isCollabFullscreen ? 'text-slate-800' : collabSessionTextClass;
   const collabIconButtonBase = `inline-flex ${isCollabFullscreen ? 'h-7 w-7' : 'h-8 w-8'} items-center justify-center rounded-xl border transition`;
   const collabIconButtonDisabled = 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed';
   const collabIconButtonNeutral = 'border-gray-200 bg-white text-gray-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700';
@@ -15218,10 +15230,17 @@ const CollabSection = ({
     const lineHeight = Number.isFinite(lineHeightOption) && lineHeightOption > 0
       ? lineHeightOption
       : Math.max(18, Math.round(editorFontSize * 1.5));
-    const desiredSize = Math.round(lineHeight * 0.56);
-    const maxSize = Math.max(10, glyphMarginWidth - 2);
-    const size = Math.max(8, Math.min(maxSize, desiredSize));
+    const desiredByFont = Math.round(editorFontSize * 0.5);
+    const desiredByLine = Math.round(lineHeight * 0.42);
+    const desiredSize = Math.min(desiredByFont, desiredByLine);
+    const minSize = editorFontSize <= 12 ? 5 : editorFontSize <= 14 ? 6 : 7;
+    const maxSize = Math.max(minSize + 1, glyphMarginWidth - 4);
+    const size = Math.max(minSize, Math.min(maxSize, desiredSize));
+    const glowSize = Math.max(3, Math.round(size * 0.72));
+    const ringSize = Math.max(1, Math.round(size * 0.2));
     node.style.setProperty('--collab-breakpoint-size', `${size}px`);
+    node.style.setProperty('--collab-breakpoint-glow', `${glowSize}px`);
+    node.style.setProperty('--collab-breakpoint-ring', `${ringSize}px`);
     node.style.setProperty('--collab-line-height', `${lineHeight}px`);
     node.style.setProperty('--collab-glyph-margin-width', `${glyphMarginWidth}px`);
   }, [editorFontSize]);
@@ -16811,8 +16830,8 @@ const CollabSection = ({
           <div className={`inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-xl border ${isCollabFullscreen ? 'mt-0 px-1.5 py-1' : 'mt-3 px-2 py-1.5'} ${collabToolbarClass}`}>
             {isCollabFullscreen && (
               <>
-                <span className={`text-[10px] font-bold uppercase tracking-widest ${collabLabelClass}`}>Сессия</span>
-                <span className={`max-w-[220px] truncate text-[11px] font-semibold ${collabSessionTextClass}`}>{sessionLabel}</span>
+                <span className={`text-[10px] font-bold uppercase tracking-widest ${collabSessionLabelClass}`}>Сессия</span>
+                <span className={`max-w-[220px] truncate text-[11px] font-semibold ${collabSessionValueClass}`}>{sessionLabel}</span>
                 <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
               </>
             )}
@@ -22283,7 +22302,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
             </div>
           </div>
           <nav className="flex-1 px-4 pb-7 pr-2 pt-5 overflow-y-auto sidebar-nav" data-tour="nav">
-            <div className="mb-3 px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500/85">
+            <div className="sidebar-nav-title mb-3 px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500/85">
               Навигация
             </div>
             <div className="space-y-2.5 sidebar-nav-stack">
@@ -22372,7 +22391,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
         <main className="flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8" data-tour="main">
           <div className="main-content-shell animate-soft">
           {user.role === 'student' && view !== 'collab' && view !== 'board' && (
-            <div className="mb-3 rounded-2xl border border-slate-200/80 bg-gradient-to-r from-white to-slate-50/85 px-2.5 py-1.5 shadow-sm sm:px-3 sm:py-2">
+            <div className="top-stats-strip mb-3 rounded-2xl border border-slate-200/80 bg-gradient-to-r from-white to-slate-50/85 px-2.5 py-1.5 shadow-sm sm:px-3 sm:py-2">
               <div className="flex items-center gap-1.5 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-2">
                 <div
                   className="level-progress-card min-w-0 flex-1 px-2 py-1.5 text-sm font-semibold md:min-w-[255px] md:flex-none md:px-2.5 md:py-2"
@@ -22433,7 +22452,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                       />
                       <span className="text-gray-900">{displayStreakCurrent}</span>
                     </div>
-                    <div className="pointer-events-none absolute right-0 z-50 mt-3 w-72 origin-top-right translate-y-1 rounded-3xl surface-panel p-4 text-gray-700 shadow-xl opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 streak-popover">
+                    <div className="pointer-events-none absolute right-0 top-full z-50 mt-2 w-72 origin-top-right translate-y-1 rounded-3xl surface-panel p-4 text-gray-700 shadow-xl opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 streak-popover">
                       <div className="absolute right-6 -top-1 h-3 w-3 rotate-45 border-l border-t border-purple-200 bg-white" />
                       <div className="flex items-center gap-3">
                         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-100 text-purple-600">
@@ -22860,7 +22879,36 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   );
 };
 
+const ThemeToggleButton = ({ theme, onToggle }) => {
+  const isDarkTheme = theme === THEME_DARK;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="theme-toggle"
+      aria-label={isDarkTheme ? 'Переключить на светлую тему' : 'Переключить на тёмную тему'}
+      title={isDarkTheme ? 'Светлая тема' : 'Тёмная тема'}
+    >
+      <span className="theme-toggle__icon-wrap">
+        {isDarkTheme ? <Sun size={16} /> : <Moon size={16} />}
+      </span>
+      <span className="theme-toggle__label">
+        {isDarkTheme ? 'Светлая' : 'Тёмная'}
+      </span>
+    </button>
+  );
+};
+
 const App = () => {
+  const [theme, setTheme] = useState(() => {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+        if (savedTheme) return normalizeTheme(savedTheme);
+      } catch {}
+    }
+    return getPreferredTheme();
+  });
   const [user, setUser] = useState(() => {
     if (typeof localStorage === 'undefined') return null;
     try {
@@ -22880,6 +22928,20 @@ const App = () => {
     }
   });
   const [progress, setProgress] = useState({});
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    root.setAttribute('data-theme', normalizeTheme(theme));
+    root.style.colorScheme = theme === THEME_DARK ? THEME_DARK : THEME_LIGHT;
+  }, [theme]);
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, normalizeTheme(theme));
+    } catch {}
+  }, [theme]);
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
@@ -22947,9 +23009,24 @@ const App = () => {
     // Прогресс ученика сохраняется через /api/progress/solve после проверки ответа.
   };
 
-  if (!user) return <LoginPage onLogin={handleLogin} />;
+  const handleThemeToggle = () => {
+    setTheme((currentTheme) => (currentTheme === THEME_DARK ? THEME_LIGHT : THEME_DARK));
+  };
+
+  if (!user) {
+    return (
+      <>
+        <LoginPage onLogin={handleLogin} />
+        <ThemeToggleButton theme={theme} onToggle={handleThemeToggle} />
+      </>
+    );
+  }
+
   return (
-    <DashboardLayout user={user} onLogout={handleLogout} progress={progress} onUpdateProgress={updateProgress} />
+    <>
+      <DashboardLayout user={user} onLogout={handleLogout} progress={progress} onUpdateProgress={updateProgress} />
+      <ThemeToggleButton theme={theme} onToggle={handleThemeToggle} />
+    </>
   );
 };
 
