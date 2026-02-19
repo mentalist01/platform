@@ -10,7 +10,7 @@ import { MonacoBinding } from 'y-monaco';
 import { 
   BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle, AlertCircle, AlertTriangle,
   X, ChevronRight, Folder, FolderPlus, Upload, 
-  ArrowLeft, Trash2, PlayCircle, Check, Plus, Flame, Snowflake,
+  ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   Bell, BellOff, MousePointer2
 } from 'lucide-react';  
@@ -1119,6 +1119,40 @@ const buildDebugInlineHints = (sourceText, locals) => {
     });
   }
   return hints;
+};
+
+const areNumberArraysEqual = (a, b) => {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (Number(a[i]) !== Number(b[i])) return false;
+  }
+  return true;
+};
+
+const normalizeDebugBreakpoints = (value) => {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value
+    .map((line) => Number(line))
+    .filter((line) => Number.isInteger(line) && line > 0))]
+    .sort((a, b) => a - b);
+};
+
+const normalizeDebugTrace = (value) => {
+  if (!Array.isArray(value)) return [];
+  return value.map((step) => {
+    if (!step || typeof step !== 'object') {
+      return { event: 'line', line: 0, func: '', locals: [] };
+    }
+    return {
+      event: String(step.event ?? 'line'),
+      line: Number(step.line) || 0,
+      func: String(step.func ?? ''),
+      locals: normalizeDebugLocals(step.locals),
+      exception: step.exception == null ? undefined : String(step.exception),
+    };
+  });
 };
 
 const PY_IDLE_STDIN_HEADER = '[Ввод]';
@@ -14788,6 +14822,7 @@ const CollabSection = ({
   const runWorkerRef = useRef(null);
   const runPendingRef = useRef(new Map());
   const runSessionRef = useRef(0);
+  const publishRunStateRef = useRef(null);
   const monacoRef = useRef(null);
   const runStreamTimerRef = useRef(null);
   const runStreamPendingRef = useRef(null);
@@ -14804,6 +14839,7 @@ const CollabSection = ({
   const debugInlayProviderRef = useRef(null);
   const debugBreakpointDecorationsRef = useRef([]);
   const debugGutterDisposableRef = useRef(null);
+  const suppressBreakpointSyncRef = useRef(false);
   const typingIdleTimerRef = useRef(null);
   const collabSnippetProviderRef = useRef(null);
   const selectedStudent = useMemo(
@@ -14820,6 +14856,7 @@ const CollabSection = ({
     scrollBeyondLastLine: false,
     smoothScrolling: true,
     cursorSmoothCaretAnimation: 'on',
+    mouseWheelZoom: true,
     quickSuggestions: { other: true, comments: false, strings: true },
     suggestOnTriggerCharacters: true,
     acceptSuggestionOnEnter: 'on',
@@ -14832,22 +14869,30 @@ const CollabSection = ({
     readOnly: !roomId,
   }), [roomId, editorFontSize]);
   const editorHeight = isCollabFullscreen
-    ? (isMobileViewport ? '45vh' : '55vh')
+    ? (isMobileViewport ? '54vh' : '72vh')
     : (isMobileViewport ? '50vh' : '65vh');
   const clampFontSize = (value) => Math.min(24, Math.max(12, Math.round(value)));
   const collabShellClass = isCollabFullscreen
-    ? 'animate-fadeIn min-h-screen w-screen bg-[radial-gradient(circle_at_top,_rgba(124,58,237,0.22),_rgba(15,23,42,0.85)_55%,_rgba(3,7,18,1)_100%)] text-slate-100 p-3 sm:p-4 md:p-6 overflow-auto'
+    ? 'animate-fadeIn min-h-screen w-screen bg-[radial-gradient(circle_at_top,_rgba(124,58,237,0.22),_rgba(15,23,42,0.85)_55%,_rgba(3,7,18,1)_100%)] text-slate-100 p-2 sm:p-3 md:p-4 overflow-auto'
     : 'animate-fadeIn pb-10';
   const collabCardClass = isCollabFullscreen
-    ? 'p-3 sm:p-4 md:p-5 border border-slate-800/80 bg-slate-950/70 shadow-[0_0_40px_rgba(124,58,237,0.18)]'
+    ? 'p-2.5 sm:p-3 md:p-3.5 border border-slate-800/80 bg-slate-950/70 shadow-[0_0_40px_rgba(124,58,237,0.18)]'
     : 'p-4 md:p-6';
   const collabTitleClass = isCollabFullscreen ? 'text-slate-100' : 'text-gray-900';
   const collabSubtitleClass = isCollabFullscreen ? 'text-slate-300' : 'text-gray-500';
   const collabLabelClass = isCollabFullscreen ? 'text-violet-300' : 'text-purple-600';
   const collabSessionTextClass = isCollabFullscreen ? 'text-slate-100' : 'text-gray-800';
   const collabHintClass = isCollabFullscreen ? 'text-slate-400' : 'text-gray-400';
-  const collabControlBorder = isCollabFullscreen ? 'border-slate-700/80 bg-slate-900/70' : 'border-gray-200 bg-white';
-  const collabControlText = isCollabFullscreen ? 'text-slate-200' : 'text-gray-600';
+  const collabToolbarClass = isCollabFullscreen
+    ? 'border-slate-700/80 bg-transparent'
+    : 'border-purple-100 bg-purple-50/70';
+  const collabToolbarDividerClass = isCollabFullscreen ? 'bg-slate-700/80' : 'bg-purple-200';
+  const collabIconButtonBase = `inline-flex ${isCollabFullscreen ? 'h-7 w-7' : 'h-8 w-8'} items-center justify-center rounded-xl border transition`;
+  const collabIconButtonDisabled = 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed';
+  const collabIconButtonNeutral = 'border-gray-200 bg-white text-gray-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700';
+  const collabIconButtonPrimary = 'border-purple-500 bg-purple-600 text-white shadow-sm shadow-purple-200/70 hover:bg-purple-700';
+  const collabIconButtonAccent = 'border-purple-200 bg-white text-purple-700 hover:border-purple-300 hover:bg-purple-50';
+  const collabIconButtonDanger = 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100';
 
   const stopDebugPlayback = useCallback(() => {
     if (debugPlaybackTimerRef.current) {
@@ -15030,13 +15075,31 @@ const CollabSection = ({
   const handleDebugStepBack = useCallback(() => {
     if (!debugActive) return;
     stopDebugPlayback();
-    setDebugStep((debugStepIndexRef.current || 0) - 1);
+    const trace = debugTraceRef.current;
+    if (!Array.isArray(trace) || !trace.length) return;
+    const current = Number(debugStepIndexRef.current) || 0;
+    const nextIndex = Math.max(0, Math.min(current - 1, trace.length - 1));
+    setDebugStep(nextIndex);
+    publishRunStateRef.current?.({
+      debugActive: true,
+      debugStepIndex: nextIndex,
+      debugPlaying: false,
+    });
   }, [debugActive, setDebugStep, stopDebugPlayback]);
 
   const handleDebugStepForward = useCallback(() => {
     if (!debugActive) return;
     stopDebugPlayback();
-    setDebugStep((debugStepIndexRef.current || 0) + 1);
+    const trace = debugTraceRef.current;
+    if (!Array.isArray(trace) || !trace.length) return;
+    const current = Number(debugStepIndexRef.current) || 0;
+    const nextIndex = Math.max(0, Math.min(current + 1, trace.length - 1));
+    setDebugStep(nextIndex);
+    publishRunStateRef.current?.({
+      debugActive: true,
+      debugStepIndex: nextIndex,
+      debugPlaying: false,
+    });
   }, [debugActive, setDebugStep, stopDebugPlayback]);
 
   const handleDebugContinue = useCallback(() => {
@@ -15048,22 +15111,41 @@ const CollabSection = ({
     if (targetIndex <= currentIndex) return;
     stopDebugPlayback();
     setDebugPlaying(true);
+    publishRunStateRef.current?.({
+      debugActive: true,
+      debugPlaying: true,
+    });
     debugPlaybackTimerRef.current = setInterval(() => {
       const idx = debugStepIndexRef.current;
       if (idx >= targetIndex) {
         stopDebugPlayback();
+        publishRunStateRef.current?.({ debugPlaying: false });
         return;
       }
       const next = idx + 1;
       setDebugStep(next);
+      publishRunStateRef.current?.({
+        debugActive: true,
+        debugStepIndex: next,
+        debugPlaying: true,
+      });
       if (next >= targetIndex) {
         stopDebugPlayback();
+        publishRunStateRef.current?.({ debugPlaying: false });
       }
     }, COLLAB_DEBUG_AUTOPLAY_MS);
   }, [debugActive, findContinueTargetIndex, setDebugStep, stopDebugPlayback]);
 
   const handleStopDebug = useCallback(() => {
     clearDebugSession(false);
+    publishRunStateRef.current?.({
+      debugActive: false,
+      debugTrace: [],
+      debugTraceTruncated: false,
+      debugStepIndex: -1,
+      debugPlaying: false,
+      debugSource: '',
+    });
   }, [clearDebugSession]);
 
   const currentDebugStep = useMemo(() => {
@@ -15239,8 +15321,14 @@ const CollabSection = ({
   }, [debugStepIndex]);
 
   useEffect(() => {
-    debugBreakpointsRef.current = Array.isArray(debugBreakpoints) ? debugBreakpoints : [];
-    applyBreakpointDecorations(debugBreakpointsRef.current);
+    const normalized = normalizeDebugBreakpoints(debugBreakpoints);
+    debugBreakpointsRef.current = normalized;
+    applyBreakpointDecorations(normalized);
+    if (suppressBreakpointSyncRef.current) {
+      suppressBreakpointSyncRef.current = false;
+      return;
+    }
+    publishRunStateRef.current?.({ debugBreakpoints: normalized });
   }, [debugBreakpoints, applyBreakpointDecorations]);
 
   useEffect(() => () => {
@@ -15428,6 +15516,13 @@ const CollabSection = ({
       setRunAuthor('');
       setRunTimestamp(null);
       setLastRunInput('');
+      setDebugActive(false);
+      setDebugTrace([]);
+      debugTraceRef.current = [];
+      setDebugTraceTruncated(false);
+      setDebugPlaying(false);
+      setDebugSourceSnapshot('');
+      setDebugStep(-1);
       return;
     }
     const output = typeof runMap.get('output') === 'string' ? runMap.get('output') : String(runMap.get('output') ?? '');
@@ -15443,6 +15538,34 @@ const CollabSection = ({
     setRunAuthor(author);
     setRunTimestamp(ts);
     setLastRunInput(input);
+
+    const nextTrace = normalizeDebugTrace(runMap.get('debugTrace'));
+    const rawStepIndex = Number(runMap.get('debugStepIndex'));
+    const nextStepIndex = Number.isInteger(rawStepIndex) ? rawStepIndex : -1;
+    const clampedStepIndex = nextTrace.length > 0
+      ? Math.max(0, Math.min(nextStepIndex, nextTrace.length - 1))
+      : -1;
+    const nextActive = Boolean(runMap.get('debugActive')) && nextTrace.length > 0;
+    const nextPlaying = Boolean(runMap.get('debugPlaying')) && nextActive;
+    const nextTruncated = Boolean(runMap.get('debugTraceTruncated'));
+    const nextSource = typeof runMap.get('debugSource') === 'string'
+      ? runMap.get('debugSource')
+      : String(runMap.get('debugSource') ?? '');
+    const nextBreakpoints = normalizeDebugBreakpoints(runMap.get('debugBreakpoints'));
+
+    setDebugActive(nextActive);
+    setDebugTrace(nextTrace);
+    debugTraceRef.current = nextTrace;
+    setDebugTraceTruncated(nextTruncated);
+    setDebugPlaying(nextPlaying);
+    setDebugSourceSnapshot(nextSource);
+    setDebugStep(clampedStepIndex);
+
+    if (!areNumberArraysEqual(debugBreakpointsRef.current, nextBreakpoints)) {
+      suppressBreakpointSyncRef.current = true;
+      debugBreakpointsRef.current = nextBreakpoints;
+      setDebugBreakpoints(nextBreakpoints);
+    }
   };
 
   const publishRunState = (payload) => {
@@ -15468,6 +15591,33 @@ const CollabSection = ({
       if (Object.prototype.hasOwnProperty.call(payload, 'input')) {
         setLastRunInput(payload.input || '');
       }
+      if (Object.prototype.hasOwnProperty.call(payload, 'debugActive')) {
+        setDebugActive(Boolean(payload.debugActive));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'debugTrace')) {
+        const nextTrace = normalizeDebugTrace(payload.debugTrace);
+        setDebugTrace(nextTrace);
+        debugTraceRef.current = nextTrace;
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'debugTraceTruncated')) {
+        setDebugTraceTruncated(Boolean(payload.debugTraceTruncated));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'debugStepIndex')) {
+        setDebugStep(Number(payload.debugStepIndex));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'debugPlaying')) {
+        setDebugPlaying(Boolean(payload.debugPlaying));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'debugSource')) {
+        setDebugSourceSnapshot(String(payload.debugSource || ''));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'debugBreakpoints')) {
+        const nextBreakpoints = normalizeDebugBreakpoints(payload.debugBreakpoints);
+        if (!areNumberArraysEqual(debugBreakpointsRef.current, nextBreakpoints)) {
+          debugBreakpointsRef.current = nextBreakpoints;
+          setDebugBreakpoints(nextBreakpoints);
+        }
+      }
       return;
     }
     doc.transact(() => {
@@ -15489,8 +15639,31 @@ const CollabSection = ({
       if (Object.prototype.hasOwnProperty.call(payload, 'input')) {
         runMap.set('input', payload.input || '');
       }
+      if (Object.prototype.hasOwnProperty.call(payload, 'debugActive')) {
+        runMap.set('debugActive', Boolean(payload.debugActive));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'debugTrace')) {
+        runMap.set('debugTrace', normalizeDebugTrace(payload.debugTrace));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'debugTraceTruncated')) {
+        runMap.set('debugTraceTruncated', Boolean(payload.debugTraceTruncated));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'debugStepIndex')) {
+        const step = Number(payload.debugStepIndex);
+        runMap.set('debugStepIndex', Number.isInteger(step) ? step : -1);
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'debugPlaying')) {
+        runMap.set('debugPlaying', Boolean(payload.debugPlaying));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'debugSource')) {
+        runMap.set('debugSource', String(payload.debugSource || ''));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'debugBreakpoints')) {
+        runMap.set('debugBreakpoints', normalizeDebugBreakpoints(payload.debugBreakpoints));
+      }
     });
   };
+  publishRunStateRef.current = publishRunState;
 
   const scheduleRunStreamSync = (payload) => {
     runStreamPendingRef.current = payload;
@@ -15752,6 +15925,14 @@ const CollabSection = ({
     stopDebugPlayback();
     if (!isDebugRun) {
       clearDebugSession(false);
+      publishRunStateRef.current?.({
+        debugActive: false,
+        debugTrace: [],
+        debugTraceTruncated: false,
+        debugStepIndex: -1,
+        debugPlaying: false,
+        debugSource: '',
+      });
     }
     const sessionId = runSessionRef.current + 1;
     runSessionRef.current = sessionId;
@@ -15762,9 +15943,18 @@ const CollabSection = ({
       setDebugActive(false);
       setDebugTrace([]);
       setDebugTraceTruncated(false);
+      setDebugPlaying(false);
       setDebugSourceSnapshot(code);
       debugTraceRef.current = [];
       setDebugStep(-1);
+      publishRunStateRef.current?.({
+        debugActive: false,
+        debugTrace: [],
+        debugTraceTruncated: false,
+        debugStepIndex: -1,
+        debugPlaying: false,
+        debugSource: code,
+      });
     }
     const startedAt = Date.now();
     const inputSnapshot = runInputRef.current || '';
@@ -15815,14 +16005,32 @@ const CollabSection = ({
           debugTraceRef.current = trace;
           setDebugTraceTruncated(traceTruncated);
           setDebugActive(true);
+          setDebugPlaying(false);
           setDebugStep(firstBreakpointIndex);
+          publishRunStateRef.current?.({
+            debugActive: true,
+            debugTrace: trace,
+            debugTraceTruncated: traceTruncated,
+            debugStepIndex: firstBreakpointIndex,
+            debugPlaying: false,
+            debugSource: code,
+          });
         } else {
           // Если ни одна точка останова не достигнута, завершаем как обычный запуск.
           setDebugTrace([]);
           debugTraceRef.current = [];
           setDebugTraceTruncated(false);
           setDebugActive(false);
+          setDebugPlaying(false);
           setDebugStep(-1);
+          publishRunStateRef.current?.({
+            debugActive: false,
+            debugTrace: [],
+            debugTraceTruncated: false,
+            debugStepIndex: -1,
+            debugPlaying: false,
+            debugSource: code,
+          });
         }
       }
       publishRunState({
@@ -15840,6 +16048,16 @@ const CollabSection = ({
         runStreamTimerRef.current = null;
       }
       runStreamPendingRef.current = null;
+      if (isDebugRun) {
+        publishRunStateRef.current?.({
+          debugActive: false,
+          debugTrace: [],
+          debugTraceTruncated: false,
+          debugStepIndex: -1,
+          debugPlaying: false,
+          debugSource: code,
+        });
+      }
       publishRunState({
         status: 'done',
         output: '',
@@ -15875,8 +16093,24 @@ const CollabSection = ({
       author: localName,
       ts: Date.now(),
       input: runInputRef.current || '',
+      debugActive: false,
+      debugTrace: [],
+      debugTraceTruncated: false,
+      debugStepIndex: -1,
+      debugPlaying: false,
+      debugSource: '',
     });
   };
+
+  const handleTopStop = useCallback(() => {
+    if (runLoading) {
+      handleStopRun();
+      return;
+    }
+    if (debugActive) {
+      handleStopDebug();
+    }
+  }, [runLoading, debugActive, handleStopDebug, handleStopRun]);
 
   const signalTyping = useCallback(() => {
     if (!roomId || !collabAwarenessRef.current) return;
@@ -15966,6 +16200,12 @@ const CollabSection = ({
       author: '',
       ts: null,
       input: '',
+      debugActive: false,
+      debugTrace: [],
+      debugTraceTruncated: false,
+      debugStepIndex: -1,
+      debugPlaying: false,
+      debugSource: '',
     });
   };
 
@@ -16069,6 +16309,7 @@ const CollabSection = ({
   const statusClass = status === 'connected'
     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
     : 'border-amber-200 bg-amber-50 text-amber-700';
+  const isSplitCollabLayout = isCollabFullscreen && !isMobileViewport;
 
   const renderStudentPicker = () => {
     if (!isTeacher) return null;
@@ -16221,22 +16462,173 @@ const CollabSection = ({
     </div>
   ) : null;
 
+  const editorPane = (
+    <div className={`rounded-2xl overflow-hidden border relative ${isCollabFullscreen ? 'border-slate-700/80 bg-slate-950/60 shadow-[0_0_32px_rgba(99,102,241,0.25)]' : 'border-gray-800'}`}>
+      {!roomId && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
+          Выберите ученика, чтобы открыть совместный документ.
+        </div>
+      )}
+      <Editor
+        height={editorHeight}
+        language="python"
+        theme="vs-dark"
+        defaultValue=""
+        onMount={handleEditorMount}
+        options={editorOptions}
+        loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+      />
+    </div>
+  );
+
+  const inputPane = (
+    <div className={isSplitCollabLayout ? 'space-y-1' : 'space-y-2'}>
+      <div className={`text-[11px] font-semibold uppercase tracking-widest ${collabHintClass}`}>Ввод (stdin)</div>
+      <textarea
+        value={runInput}
+        onChange={(e) => setRunInput(e.target.value)}
+        rows={isSplitCollabLayout ? 3 : (isCollabFullscreen ? (isMobileViewport ? 3 : 4) : (isMobileViewport ? 4 : 6))}
+        placeholder="Если нужен ввод, вставьте его сюда."
+        className={`w-full rounded-2xl border px-3 py-2 text-xs outline-none ${
+          isCollabFullscreen
+            ? 'border-slate-700/80 bg-slate-900/70 text-slate-100 focus:border-violet-400'
+            : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
+        }`}
+      />
+    </div>
+  );
+
+  const resultHeader = (
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <div>
+        <div className={`text-[11px] font-semibold uppercase tracking-widest ${collabHintClass}`}>Результат</div>
+        {(runAuthor || runTimestamp) && (
+          <div className={`text-[11px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
+            {runAuthor ? `Запустил: ${runAuthor}` : 'Запуск'}
+            {runTimestamp ? ` • ${new Date(runTimestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const resultConsoleClass = `rounded-2xl border bg-slate-950 text-slate-100 p-3 text-xs font-mono ${
+    isSplitCollabLayout ? 'min-h-0 h-full overflow-auto' : 'min-h-[160px]'
+  } ${
+    runStatus === 'running'
+      ? 'border-amber-300/70 shadow-[0_0_24px_rgba(251,191,36,0.25)]'
+      : 'border-gray-900'
+  }`;
+
+  const resultConsole = (
+    <div className={resultConsoleClass}>
+      {runStatus === 'running' && (
+        <div className="mb-2 flex items-center gap-2 text-[11px] text-amber-300">
+          <span className="inline-flex h-2 w-2 rounded-full bg-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.9)] animate-pulse" />
+          Выполняется...
+        </div>
+      )}
+      {runStatus === 'stopped' && (
+        <div className="mb-2 text-[11px] text-rose-300">Остановлено пользователем</div>
+      )}
+      {lastRunInput && (
+        <div className="mb-3">
+          <div className="text-[10px] uppercase tracking-widest text-slate-400">Ввод</div>
+          <pre className="mt-1 whitespace-pre-wrap break-words text-slate-200">{lastRunInput}</pre>
+        </div>
+      )}
+      {(runOutput || runError) ? (
+        <>
+          {runOutput && (
+            <pre className="whitespace-pre-wrap break-words">{runOutput}</pre>
+          )}
+          {runError && (
+            <pre className="mt-2 whitespace-pre-wrap break-words text-rose-300">{runError}</pre>
+          )}
+        </>
+      ) : (
+        <div className="text-slate-400">Здесь появится вывод программы.</div>
+      )}
+    </div>
+  );
+
+  const debugPane = debugActive ? (
+    <div className={`rounded-2xl border p-3 text-xs ${
+      isCollabFullscreen
+        ? 'border-violet-500/40 bg-slate-900/80 text-slate-100'
+        : 'border-violet-200 bg-violet-50/70 text-slate-800'
+    } ${isSplitCollabLayout ? 'max-h-[34vh] overflow-auto' : ''}`}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-widest text-violet-400">Пошаговый дебаг</div>
+          <div className="mt-1 text-[12px]">
+            {`Шаг ${Math.max(0, debugStepIndex + 1)} из ${debugTrace.length}`}
+            {debugTraceTruncated ? ' • Трасса ограничена по размеру' : ''}
+          </div>
+          <div className="mt-1 text-[10px] text-slate-400">F10 шаг • F8 продолжить • F7 назад • Esc выйти • точка останова: клик по номеру строки</div>
+        </div>
+      </div>
+
+      {currentDebugStep && (
+        <div className={`mt-3 rounded-xl border p-2 ${
+          isCollabFullscreen
+            ? 'border-slate-700/80 bg-slate-950/80'
+            : 'border-violet-200/80 bg-white'
+        }`}>
+          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+            <span className="font-semibold text-violet-400">{`Строка ${currentDebugStep.line || '?'}`}</span>
+            <span className={isCollabFullscreen ? 'text-slate-400' : 'text-slate-500'}>{`Событие: ${currentDebugStep.event || 'line'}`}</span>
+            <span className={isCollabFullscreen ? 'text-slate-400' : 'text-slate-500'}>{`Функция: ${currentDebugStep.func || '<module>'}`}</span>
+          </div>
+          {currentDebugLineText && (
+            <pre className={`mt-2 whitespace-pre-wrap break-words rounded-lg px-2 py-1 text-[11px] ${
+              isCollabFullscreen ? 'bg-slate-900 text-cyan-200' : 'bg-slate-950 text-cyan-100'
+            }`}>{currentDebugLineText}</pre>
+          )}
+          {currentDebugStep.exception && (
+            <div className="mt-2 text-[11px] text-rose-400">{currentDebugStep.exception}</div>
+          )}
+          <div className="mt-2 text-[10px] uppercase tracking-widest text-slate-400">Локальные переменные</div>
+          {currentDebugLocals.length > 0 ? (
+            <div className="mt-1 max-h-44 overflow-auto space-y-1 pr-1">
+              {currentDebugLocals.map((local, idx) => (
+                <div key={`${local.name}-${idx}`} className={`rounded-lg px-2 py-1 text-[11px] font-mono ${
+                  isCollabFullscreen ? 'bg-slate-900/80 text-slate-200' : 'bg-slate-100 text-slate-700'
+                }`}>
+                  <span className="text-violet-400">{local.name || '?'}</span>
+                  {local.type ? <span className="ml-1 text-slate-400">{`(${local.type})`}</span> : null}
+                  <span className="ml-2">{local.value || '—'}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-1 text-[11px] text-slate-400">Нет локальных переменных на этом шаге.</div>
+          )}
+        </div>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div ref={collabRootRef} className={collabShellClass}>
-      <div className={`mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between ${isCollabFullscreen ? 'rounded-2xl border border-slate-800/70 bg-slate-950/60 px-3 py-3 sm:px-4 sm:py-3.5 backdrop-blur' : ''}`}>
+      <div className={`flex flex-col md:flex-row md:items-center md:justify-between ${
+        isCollabFullscreen
+          ? 'mb-3 gap-2 rounded-2xl border border-slate-800/70 bg-slate-950/60 px-2.5 py-2 sm:px-3 sm:py-2.5 backdrop-blur'
+          : 'mb-6 gap-3'
+      }`}>
         <div>
-          <h2 className={`text-2xl font-bold flex items-center gap-2 ${collabTitleClass}`}>
-            <Pencil className={collabLabelClass} />
+          <h2 className={`font-bold flex items-center gap-2 ${isCollabFullscreen ? 'text-lg sm:text-xl' : 'text-2xl'} ${collabTitleClass}`}>
+            <Pencil size={isCollabFullscreen ? 18 : 24} className={collabLabelClass} />
             Совместный код
           </h2>
-          <p className={collabSubtitleClass}>Живой документ: изменения видны сразу.</p>
+          <p className={`${collabSubtitleClass} ${isCollabFullscreen ? 'text-xs' : ''}`}>Живой документ: изменения видны сразу.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className={`flex flex-wrap items-center ${isCollabFullscreen ? 'gap-1.5' : 'gap-2'}`}>
           {renderStudentPicker()}
           <Button
             variant="secondary"
             onClick={() => setSaveModalOpen(true)}
-            className="flex items-center gap-2"
+            className={`flex items-center ${isCollabFullscreen ? 'gap-1.5 px-2.5 py-1.5 text-xs' : 'gap-2'}`}
           >
             <Save size={16} />
             Сохранить в конспекты
@@ -16244,7 +16636,9 @@ const CollabSection = ({
           <button
             type="button"
             onClick={toggleCollabFullscreen}
-            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition ${
+            className={`inline-flex items-center rounded-full border font-semibold transition ${
+              isCollabFullscreen ? 'gap-1.5 px-2.5 py-0.5 text-[11px]' : 'gap-2 px-3 py-1 text-xs'
+            } ${
               isCollabFullscreen
                 ? 'border-violet-500/70 bg-violet-500/20 text-violet-100 hover:bg-violet-500/30'
                 : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -16254,16 +16648,16 @@ const CollabSection = ({
             {isCollabFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
             {isCollabFullscreen ? 'Свернуть' : 'На весь экран'}
           </button>
-          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusClass}`}>
+          <span className={`inline-flex items-center rounded-full border font-semibold ${isCollabFullscreen ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'} ${statusClass}`}>
             {statusLabel}
           </span>
           {roomId && (
-            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+            <span className={`inline-flex items-center rounded-full border border-slate-200 bg-white font-semibold text-slate-600 ${isCollabFullscreen ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'}`}>
               Онлайн: {peerCount}
             </span>
           )}
           {typingUsers.length > 0 && (
-            <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${
+            <span className={`inline-flex items-center rounded-full border font-semibold ${isCollabFullscreen ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'} ${
               isCollabFullscreen
                 ? 'border-violet-400/60 bg-violet-500/20 text-violet-100'
                 : 'border-violet-200 bg-violet-50 text-violet-700'
@@ -16275,7 +16669,9 @@ const CollabSection = ({
       </div>
 
       {isTeacher && !activeStudentId && (
-        <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 flex items-start gap-2">
+        <div className={`rounded-2xl border border-amber-200 bg-amber-50 text-amber-700 flex items-start gap-2 ${
+          isCollabFullscreen ? 'mb-2 px-3 py-2 text-xs' : 'mb-4 px-4 py-3 text-sm'
+        }`}>
           <AlertTriangle size={18} className="mt-0.5" />
           <div>
             <div className="font-semibold">Сначала выберите ученика</div>
@@ -16285,10 +16681,10 @@ const CollabSection = ({
       )}
 
       <Card className={collabCardClass}>
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div className={`flex flex-col md:flex-row md:justify-between ${isCollabFullscreen ? 'gap-2 md:items-center' : 'gap-3 md:items-end'}`}>
           <div>
-            <div className={`text-xs font-bold uppercase tracking-widest ${collabLabelClass}`}>Сессия</div>
-            <div className={`text-sm font-semibold ${collabSessionTextClass}`}>
+            <div className={`${isCollabFullscreen ? 'text-[10px]' : 'text-xs'} font-bold uppercase tracking-widest ${collabLabelClass}`}>Сессия</div>
+            <div className={`${isCollabFullscreen ? 'text-xs' : 'text-sm'} font-semibold ${collabSessionTextClass}`}>
               {roomId
                 ? (isTeacher
                   ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
@@ -16296,29 +16692,7 @@ const CollabSection = ({
                 : 'Не выбрана'}
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 md:justify-end">
-            <span className={`text-[11px] font-semibold ${collabHintClass}`}>Aa</span>
-            <div className={`inline-flex items-center gap-1 rounded-lg border px-1.5 py-0.5 ${collabControlBorder}`}>
-              <button
-                type="button"
-                onClick={() => setEditorFontSize((prev) => clampFontSize(prev - 1))}
-                className={`h-6 w-6 rounded-md text-[11px] font-semibold hover:bg-white/10 ${collabControlText}`}
-                aria-label="Уменьшить шрифт"
-                title="Уменьшить шрифт"
-              >
-                A-
-              </button>
-              <span className={`min-w-[40px] text-center text-[11px] font-semibold ${collabControlText}`}>{editorFontSize}px</span>
-              <button
-                type="button"
-                onClick={() => setEditorFontSize((prev) => clampFontSize(prev + 1))}
-                className={`h-6 w-6 rounded-md text-[11px] font-semibold hover:bg-white/10 ${collabControlText}`}
-                aria-label="Увеличить шрифт"
-                title="Увеличить шрифт"
-              >
-                A+
-              </button>
-            </div>
+          <div className={`flex flex-wrap items-center md:justify-end ${isCollabFullscreen ? 'gap-1.5' : 'gap-2'}`}>
             <button
               type="button"
               onClick={handleFormatCode}
@@ -16334,220 +16708,190 @@ const CollabSection = ({
           </div>
         </div>
 
-        <div className={`mt-4 rounded-2xl overflow-hidden border relative ${isCollabFullscreen ? 'border-slate-700/80 bg-slate-950/60 shadow-[0_0_32px_rgba(99,102,241,0.25)]' : 'border-gray-800'}`}>
-          {!roomId && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
-              Выберите ученика, чтобы открыть совместный документ.
-            </div>
+        <div className={`inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-xl border ${isCollabFullscreen ? 'mt-2 px-1.5 py-1' : 'mt-3 px-2 py-1.5'} ${collabToolbarClass}`}>
+          <button
+            type="button"
+            onClick={() => handleRunCode('all')}
+            disabled={runLoading || !roomId}
+            className={`${collabIconButtonBase} ${
+              runLoading || !roomId
+                ? collabIconButtonDisabled
+                : collabIconButtonPrimary
+            }`}
+            title="Запустить код"
+            aria-label="Запустить код"
+          >
+            <Play size={15} />
+          </button>
+          <button
+            type="button"
+            onClick={() => handleRunCode('selection')}
+            disabled={runLoading || !roomId}
+            className={`${collabIconButtonBase} ${
+              runLoading || !roomId
+                ? collabIconButtonDisabled
+                : collabIconButtonNeutral
+            }`}
+            title="Запустить выделенный фрагмент"
+            aria-label="Запустить выделение"
+          >
+            <span className="relative inline-flex h-4 w-4 items-center justify-center">
+              <MousePointer2 size={12} />
+              <span className="absolute -right-1 -bottom-1 text-[8px] font-bold leading-none">▶</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleRunCode('all', true)}
+            disabled={runLoading || !roomId}
+            className={`${collabIconButtonBase} ${
+              runLoading || !roomId
+                ? collabIconButtonDisabled
+                : (debugActive
+                  ? collabIconButtonPrimary
+                  : collabIconButtonAccent)
+            }`}
+            title="Дебаг (до первой точки остановки)"
+            aria-label="Дебаг"
+          >
+            <Bug size={15} />
+          </button>
+
+          {debugActive && (
+            <>
+              <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
+              <button
+                type="button"
+                onClick={handleDebugStepBack}
+                disabled={debugPlaying || debugStepIndex <= 0}
+                className={`${collabIconButtonBase} ${
+                  debugPlaying || debugStepIndex <= 0
+                    ? collabIconButtonDisabled
+                    : collabIconButtonNeutral
+                }`}
+                title="Шаг назад (F7)"
+                aria-label="Шаг назад"
+              >
+                <StepBack size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={handleDebugStepForward}
+                disabled={debugPlaying || debugStepIndex >= debugTrace.length - 1}
+                className={`${collabIconButtonBase} ${
+                  debugPlaying || debugStepIndex >= debugTrace.length - 1
+                    ? collabIconButtonDisabled
+                    : collabIconButtonNeutral
+                }`}
+                title="Шаг вперёд (F10)"
+                aria-label="Шаг вперёд"
+              >
+                <StepForward size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={handleDebugContinue}
+                disabled={debugPlaying || debugStepIndex >= debugTrace.length - 1}
+                className={`${collabIconButtonBase} ${
+                  debugPlaying || debugStepIndex >= debugTrace.length - 1
+                    ? collabIconButtonDisabled
+                    : collabIconButtonPrimary
+                }`}
+                title="Продолжить (F8)"
+                aria-label="Продолжить"
+              >
+                <Play size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  stopDebugPlayback();
+                  publishRunStateRef.current?.({ debugPlaying: false });
+                }}
+                disabled={!debugPlaying}
+                className={`${collabIconButtonBase} ${
+                  !debugPlaying
+                    ? collabIconButtonDisabled
+                    : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                }`}
+                title="Пауза"
+                aria-label="Пауза"
+              >
+                <Pause size={14} />
+              </button>
+            </>
           )}
-          <Editor
-            height={editorHeight}
-            language="python"
-            theme="vs-dark"
-            defaultValue=""
-            onMount={handleEditorMount}
-            options={editorOptions}
-            loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
-          />
+
+          <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
+          <button
+            type="button"
+            onClick={handleTopStop}
+            disabled={!runLoading && !debugActive}
+            className={`${collabIconButtonBase} ${
+              !runLoading && !debugActive
+                ? collabIconButtonDisabled
+                : collabIconButtonDanger
+            }`}
+            title={runLoading ? 'Остановить выполнение (Ctrl+C)' : 'Выйти из дебага (Esc)'}
+            aria-label="Остановить"
+          >
+            <Square size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={handleClearRun}
+            disabled={!runOutput && !runError && runStatus === 'idle' && !lastRunInput && !debugActive}
+            className={`${collabIconButtonBase} ${
+              !runOutput && !runError && runStatus === 'idle' && !lastRunInput && !debugActive
+                ? collabIconButtonDisabled
+                : collabIconButtonNeutral
+            }`}
+            title="Очистить вывод"
+            aria-label="Очистить вывод"
+          >
+            <Trash2 size={14} />
+          </button>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-3">
-          <div className="space-y-2">
-            <div className={`text-[11px] font-semibold uppercase tracking-widest ${collabHintClass}`}>Ввод (stdin)</div>
-            <textarea
-              value={runInput}
-              onChange={(e) => setRunInput(e.target.value)}
-              rows={isMobileViewport ? 4 : 6}
-              placeholder="Если нужен ввод, вставьте его сюда."
-              className={`w-full rounded-2xl border px-3 py-2 text-xs outline-none ${
-                isCollabFullscreen
-                  ? 'border-slate-700/80 bg-slate-900/70 text-slate-100 focus:border-violet-400'
-                  : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
-              }`}
-            />
+        {isSplitCollabLayout ? (
+          <div className="mt-2 grid grid-cols-12 gap-2">
+            <div className="col-span-8">
+              {editorPane}
+            </div>
+            <div className="col-span-4 min-h-0">
+              <div className="flex min-h-0 flex-col gap-2" style={{ height: editorHeight }}>
+                <div className={`min-h-0 flex flex-1 flex-col rounded-2xl border p-2 ${
+                  isCollabFullscreen
+                    ? 'border-slate-700/80 bg-slate-950/60'
+                    : 'border-gray-200 bg-white'
+                }`}>
+                  {resultHeader}
+                  <div className="mt-2 min-h-0 flex-1">
+                    {resultConsole}
+                  </div>
+                </div>
+                {debugPane}
+                {inputPane}
+              </div>
+            </div>
           </div>
-
-          <div className="lg:col-span-2 space-y-2">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        ) : (
+          <>
+            <div className={isCollabFullscreen ? 'mt-2' : 'mt-4'}>
+              {editorPane}
+            </div>
+            <div className={`grid grid-cols-1 lg:grid-cols-3 ${isCollabFullscreen ? 'mt-2 gap-2' : 'mt-4 gap-3'}`}>
               <div>
-                <div className={`text-[11px] font-semibold uppercase tracking-widest ${collabHintClass}`}>Результат</div>
-                {(runAuthor || runTimestamp) && (
-                  <div className={`text-[11px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
-                    {runAuthor ? `Запустил: ${runAuthor}` : 'Запуск'}
-                    {runTimestamp ? ` • ${new Date(runTimestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
-                  </div>
-                )}
+                {inputPane}
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={() => handleRunCode('all')}
-                  disabled={runLoading || !roomId}
-                  className="flex items-center gap-2"
-                >
-                  <PlayCircle size={16} />
-                  {runLoading ? 'Запуск...' : 'Запустить'}
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => handleRunCode('selection')}
-                  disabled={runLoading || !roomId}
-                >
-                  Выделение
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => handleRunCode('all', true)}
-                  disabled={runLoading || !roomId}
-                  className={`flex items-center gap-2 ${debugActive ? 'ring-2 ring-violet-300/70' : ''}`}
-                >
-                  <AlertCircle size={14} />
-                  Дебаг
-                </Button>
-                <button
-                  type="button"
-                  onClick={handleStopRun}
-                  disabled={!runLoading}
-                  className={`inline-flex h-9 w-9 items-center justify-center rounded-full border transition ${
-                    runLoading
-                      ? 'border-rose-300 bg-rose-500 text-white hover:bg-rose-600 ring-2 ring-rose-400/70 shadow-[0_0_18px_rgba(244,63,94,0.75)] animate-pulse'
-                      : 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
-                  }`}
-                  title="Остановить (Ctrl+C)"
-                  aria-label="Остановить"
-                >
-                  <Square size={14} />
-                </button>
-                <Button
-                  variant="secondary"
-                  onClick={handleClearRun}
-                  disabled={!runOutput && !runError && runStatus === 'idle' && !lastRunInput && !debugActive}
-                >
-                  Очистить
-                </Button>
+              <div className="lg:col-span-2 space-y-2">
+                {resultHeader}
+                {resultConsole}
+                {debugPane}
               </div>
             </div>
-
-            <div className={`rounded-2xl border bg-slate-950 text-slate-100 p-3 text-xs font-mono min-h-[160px] ${
-              runStatus === 'running'
-                ? 'border-amber-300/70 shadow-[0_0_24px_rgba(251,191,36,0.25)]'
-                : 'border-gray-900'
-            }`}>
-              {runStatus === 'running' && (
-                <div className="mb-2 flex items-center gap-2 text-[11px] text-amber-300">
-                  <span className="inline-flex h-2 w-2 rounded-full bg-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.9)] animate-pulse" />
-                  Выполняется...
-                </div>
-              )}
-              {runStatus === 'stopped' && (
-                <div className="mb-2 text-[11px] text-rose-300">Остановлено пользователем</div>
-              )}
-              {lastRunInput && (
-                <div className="mb-3">
-                  <div className="text-[10px] uppercase tracking-widest text-slate-400">Ввод</div>
-                  <pre className="mt-1 whitespace-pre-wrap break-words text-slate-200">{lastRunInput}</pre>
-                </div>
-              )}
-              {(runOutput || runError) ? (
-                <>
-                  {runOutput && (
-                    <pre className="whitespace-pre-wrap break-words">{runOutput}</pre>
-                  )}
-                  {runError && (
-                    <pre className="mt-2 whitespace-pre-wrap break-words text-rose-300">{runError}</pre>
-                  )}
-                </>
-              ) : (
-                <div className="text-slate-400">Здесь появится вывод программы.</div>
-              )}
-            </div>
-
-            {debugActive && (
-              <div className={`rounded-2xl border p-3 text-xs ${
-                isCollabFullscreen
-                  ? 'border-violet-500/40 bg-slate-900/80 text-slate-100'
-                  : 'border-violet-200 bg-violet-50/70 text-slate-800'
-              }`}>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-widest text-violet-400">Пошаговый дебаг</div>
-                    <div className="mt-1 text-[12px]">
-                      {`Шаг ${Math.max(0, debugStepIndex + 1)} из ${debugTrace.length}`}
-                      {debugTraceTruncated ? ' • Трасса ограничена по размеру' : ''}
-                    </div>
-                    <div className="mt-1 text-[10px] text-slate-400">F10 шаг • F8 продолжить • F7 назад • Esc выйти • точка останова: клик по номеру строки</div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      variant="secondary"
-                      onClick={handleDebugStepBack}
-                      disabled={debugPlaying || debugStepIndex <= 0}
-                    >
-                      ← Назад
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      onClick={handleDebugStepForward}
-                      disabled={debugPlaying || debugStepIndex >= debugTrace.length - 1}
-                    >
-                      Шаг →
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      onClick={handleDebugContinue}
-                      disabled={debugPlaying || debugStepIndex >= debugTrace.length - 1}
-                    >
-                      {debugPlaying ? 'Идёт...' : 'Продолжить'}
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      onClick={handleStopDebug}
-                    >
-                      Выйти
-                    </Button>
-                  </div>
-                </div>
-
-                {currentDebugStep && (
-                  <div className={`mt-3 rounded-xl border p-2 ${
-                    isCollabFullscreen
-                      ? 'border-slate-700/80 bg-slate-950/80'
-                      : 'border-violet-200/80 bg-white'
-                  }`}>
-                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                      <span className="font-semibold text-violet-400">{`Строка ${currentDebugStep.line || '?'}`}</span>
-                      <span className={isCollabFullscreen ? 'text-slate-400' : 'text-slate-500'}>{`Событие: ${currentDebugStep.event || 'line'}`}</span>
-                      <span className={isCollabFullscreen ? 'text-slate-400' : 'text-slate-500'}>{`Функция: ${currentDebugStep.func || '<module>'}`}</span>
-                    </div>
-                    {currentDebugLineText && (
-                      <pre className={`mt-2 whitespace-pre-wrap break-words rounded-lg px-2 py-1 text-[11px] ${
-                        isCollabFullscreen ? 'bg-slate-900 text-cyan-200' : 'bg-slate-950 text-cyan-100'
-                      }`}>{currentDebugLineText}</pre>
-                    )}
-                    {currentDebugStep.exception && (
-                      <div className="mt-2 text-[11px] text-rose-400">{currentDebugStep.exception}</div>
-                    )}
-                    <div className="mt-2 text-[10px] uppercase tracking-widest text-slate-400">Локальные переменные</div>
-                    {currentDebugLocals.length > 0 ? (
-                      <div className="mt-1 max-h-44 overflow-auto space-y-1 pr-1">
-                        {currentDebugLocals.map((local, idx) => (
-                          <div key={`${local.name}-${idx}`} className={`rounded-lg px-2 py-1 text-[11px] font-mono ${
-                            isCollabFullscreen ? 'bg-slate-900/80 text-slate-200' : 'bg-slate-100 text-slate-700'
-                          }`}>
-                            <span className="text-violet-400">{local.name || '?'}</span>
-                            {local.type ? <span className="ml-1 text-slate-400">{`(${local.type})`}</span> : null}
-                            <span className="ml-2">{local.value || '—'}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="mt-1 text-[11px] text-slate-400">Нет локальных переменных на этом шаге.</div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+          </>
+        )}
       </Card>
       {typeof document !== 'undefined' ? createPortal(saveModal, document.body) : null}
     </div>
