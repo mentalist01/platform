@@ -12,7 +12,8 @@ import {
   X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
-  Bell, BellOff, MousePointer2, Moon, Sun
+  ChevronsLeft, ChevronsRight,
+  Bell, BellOff, MousePointer2, Moon, Sun, Code2
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
 import mascotDisapproval from './assets/mascot/disapproval.png';
@@ -1525,6 +1526,7 @@ const parseJsonResponse = async (res) => {
 
 const USER_SESSION_KEY = 'ege_user_session';
 const THEME_STORAGE_KEY = 'ege_theme';
+const DESKTOP_NAV_COLLAPSED_KEY = 'ege_desktop_nav_collapsed_v1';
 const THEME_LIGHT = 'light';
 const THEME_DARK = 'dark';
 let unauthorizedHandler = null;
@@ -2295,6 +2297,32 @@ const LogoMark = ({ className = '' }) => (
     <span className="text-purple-600 logo-glow">форма</span>
   </span>
 );
+
+const PythonLogoIcon = ({ size = 18 }) => {
+  const baseSize = Number(size) || 18;
+  const renderSize = Math.round(baseSize * 1.22);
+  return (
+    <svg
+      aria-hidden="true"
+      className="python-logo-icon"
+      viewBox="0 0 128 128"
+      width={renderSize}
+      height={renderSize}
+      fill="none"
+    >
+    <path
+      fill="currentColor"
+      d="M63.391 1.988c-4.222.02-8.252.379-11.8 1.007-10.45 1.846-12.346 5.71-12.346 12.837v9.411h24.693v3.137H29.977c-7.176 0-13.46 4.313-15.426 12.521-2.268 9.405-2.368 15.275 0 25.096 1.755 7.311 5.947 12.519 13.124 12.519h8.491V67.234c0-8.151 7.051-15.34 15.426-15.34h24.665c6.866 0 12.346-5.654 12.346-12.548V15.833c0-6.693-5.646-11.72-12.346-12.837-4.244-.706-8.645-1.027-12.866-1.008zM50.037 9.557c2.55 0 4.634 2.117 4.634 4.721 0 2.593-2.083 4.69-4.634 4.69-2.56 0-4.633-2.097-4.633-4.69-.001-2.604 2.073-4.721 4.633-4.721z"
+      transform="translate(0 10.26)"
+    />
+    <path
+      fill="currentColor"
+      d="M91.682 28.38v10.966c0 8.5-7.208 15.655-15.426 15.655H51.591c-6.756 0-12.346 5.783-12.346 12.549v23.515c0 6.691 5.818 10.628 12.346 12.547 7.816 2.297 15.312 2.713 24.665 0 6.216-1.801 12.346-5.423 12.346-12.547v-9.412H63.938v-3.138h37.012c7.176 0 9.852-5.005 12.348-12.519 2.578-7.735 2.467-15.174 0-25.096-1.774-7.145-5.161-12.521-12.348-12.521h-9.268zM77.809 87.927c2.561 0 4.634 2.097 4.634 4.692 0 2.602-2.074 4.719-4.634 4.719-2.55 0-4.633-2.117-4.633-4.719 0-2.595 2.083-4.692 4.633-4.692z"
+      transform="translate(0 10.26)"
+    />
+    </svg>
+  );
+};
 
 const Button = ({ children, onClick, variant = 'primary', className = '', ...props }) => {
   const baseStyle = "px-4 py-2.5 sm:py-2 rounded-xl font-semibold text-sm sm:text-[15px] leading-tight transition-all duration-200 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-[1px] disabled:opacity-50 disabled:cursor-not-allowed";
@@ -7373,11 +7401,6 @@ const ProgressSection = ({
   const totalMasteryLabel = Number.isFinite(totalMasteryRounded)
     ? totalMasteryRounded.toString()
     : '0';
-  const masteredTasksCount = taskList.filter((task) => Number(progressMap[task.id] || 0) >= 70).length;
-  const needsAttentionTasksCount = taskList.filter((task) => Number(progressMap[task.id] || 0) < 40).length;
-  const activeSectionLabel = section === 'progress'
-    ? 'Тестирования'
-    : (section === 'notes' ? 'Заметки учителя' : 'Пробники');
   const sectionTabs = [
     { id: 'progress', label: 'Тестирования', icon: BarChart2 },
     { id: 'notes', label: 'Заметки учителя', icon: FileText },
@@ -8009,26 +8032,6 @@ const ProgressSection = ({
             <div className="space-y-2.5 md:space-y-3">
               <div>
                 <h2 className="text-xl md:text-2xl font-bold text-gray-900">Успеваемость</h2>
-                <p className="hidden md:block text-sm text-slate-600">Тестирования, заметки и пробники</p>
-              </div>
-              <div className="flex flex-wrap gap-1.5 md:gap-2 text-[11px] md:text-xs font-semibold">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white/90 px-2 py-1 md:px-2.5 text-purple-700">
-                  <BarChart2 size={13} />
-                  <span className="sm:hidden">{`Прогресс: ${totalMasteryLabel}%`}</span>
-                  <span className="hidden sm:inline">{`Общий прогресс: ${totalMasteryLabel}%`}</span>
-                </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-white/90 px-2 py-1 md:px-2.5 text-emerald-700">
-                  <CheckCircle size={13} />
-                  <span className="sm:hidden">{`Увер.: ${masteredTasksCount}/${taskList.length}`}</span>
-                  <span className="hidden sm:inline">{`Уверенно: ${masteredTasksCount}/${taskList.length}`}</span>
-                </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-white/90 px-2 py-1 md:px-2.5 text-amber-700">
-                  <RefreshCcw size={12} />
-                  <span>{`Подтянуть: ${needsAttentionTasksCount}`}</span>
-                </span>
-                <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-slate-600">
-                  {`Раздел: ${activeSectionLabel}`}
-                </span>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -8042,7 +8045,6 @@ const ProgressSection = ({
                 <div className="rounded-full bg-purple-600 px-2.5 py-1 text-[10px] md:text-xs font-bold uppercase tracking-[0.14em] md:tracking-widest text-white">
                   {getProgressHeadline(totalMasteryRounded)}
                 </div>
-                <span className="hidden md:inline text-sm text-gray-500">Общий прогресс ЕГЭ</span>
               </div>
               <div className="text-2xl md:text-3xl font-extrabold text-purple-700 drop-shadow-sm">
                 {totalMasteryLabel} {getBallLabel(totalMasteryRounded)}
@@ -8057,10 +8059,6 @@ const ProgressSection = ({
                 key={`sheen-${totalMasteryRounded}`}
                 className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-sheen"
               />
-            </div>
-            <div className="mt-2 text-[11px] md:text-xs text-gray-500">
-              <span className="md:hidden">Регулярность = рост итогового балла.</span>
-              <span className="hidden md:inline">Решай задания регулярно, чтобы повышать итоговый балл.</span>
             </div>
           </div>
         </div>
@@ -8107,7 +8105,7 @@ const ProgressSection = ({
         <>
           {role === 'student' && (
             <div className="md:hidden">
-              <div className="rounded-3xl border border-purple-200/80 bg-white/85 p-3 shadow-[0_10px_24px_rgba(99,102,241,0.12)]">
+              <div className="mobile-topic-path-card rounded-3xl border border-purple-200/80 bg-white/85 p-3 shadow-[0_10px_24px_rgba(99,102,241,0.12)]">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <h3 className="text-sm font-bold text-slate-900">Путь по темам</h3>
                   <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-1 text-[10px] font-semibold text-purple-700">
@@ -8118,7 +8116,7 @@ const ProgressSection = ({
                 <div className="mt-3">
                   <div
                     ref={mobilePathCanvasRef}
-                    className="relative overflow-visible rounded-2xl border border-purple-100/80 bg-gradient-to-b from-white/95 via-purple-50/55 to-sky-50/45 px-1.5 py-2"
+                    className="mobile-topic-path-canvas relative overflow-visible rounded-2xl border border-purple-100/80 bg-gradient-to-b from-white/95 via-purple-50/55 to-sky-50/45 px-1.5 py-2"
                     style={{ height: `${mobilePathLayout.height}px` }}
                     onClick={() => setMobileLevelPickerTaskId(null)}
                   >
@@ -8133,7 +8131,7 @@ const ProgressSection = ({
                             key={`mobile-curve-${curve.id}`}
                             d={curve.d}
                             fill="none"
-                            stroke="rgba(168,85,247,0.44)"
+                            stroke="var(--mobile-path-curve, rgba(168,85,247,0.44))"
                             strokeWidth="1.7"
                             strokeLinecap="round"
                             strokeDasharray={curveIdx % 2 === 0 ? '7.5 6.4' : '6.8 6'}
@@ -8299,7 +8297,7 @@ const ProgressSection = ({
                                 cy={mobilePathLayout.ringSize / 2}
                                 r={mobilePathLayout.radius}
                                 fill="none"
-                                stroke="#d7dee8"
+                                stroke="var(--mobile-ring-track, #d7dee8)"
                                 strokeWidth={mobilePathLayout.strokeWidth}
                               />
                               <circle
@@ -8316,7 +8314,7 @@ const ProgressSection = ({
                               />
                             </svg>
                             {node.val > 2 && <span className="mobile-topic-marker" />}
-                            <div className="absolute inset-[12px] z-[5] rounded-full border border-white/90 bg-gradient-to-br from-white to-purple-50 shadow-[0_12px_22px_rgba(15,23,42,0.18)]" />
+                            <div className="mobile-topic-core absolute inset-[12px] z-[5] rounded-full border border-white/90 bg-gradient-to-br from-white to-purple-50 shadow-[0_12px_22px_rgba(15,23,42,0.18)]" />
                             <div className="absolute inset-0 z-[6] flex flex-col items-center justify-center px-2">
                               <div className="text-[22px] font-black leading-none text-slate-900">№{getTaskDisplayNumber(node.task)}</div>
                               <div className="mt-1 text-[14px] font-bold leading-tight text-slate-600">{`${node.val}%`}</div>
@@ -8325,7 +8323,7 @@ const ProgressSection = ({
                             {isMastered && <span className="mobile-topic-sparkle" />}
                           </div>
                           <div className="mt-1.5 flex justify-center px-1">
-                            <div className={`max-w-[148px] rounded-xl border border-white/80 bg-white/88 px-2.5 py-1 shadow-[0_7px_14px_rgba(148,163,184,0.22)] ${isSelected ? 'ring-2 ring-purple-200/80' : ''}`}>
+                            <div className={`mobile-topic-label-card max-w-[148px] rounded-xl border border-white/80 bg-white/88 px-2.5 py-1 shadow-[0_7px_14px_rgba(148,163,184,0.22)] ${isSelected ? 'ring-2 ring-purple-200/80' : ''}`}>
                               <div className="text-center text-[12.5px] font-semibold leading-[1.05rem] text-slate-700 [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden">
                                 {node.title}
                               </div>
@@ -9550,7 +9548,7 @@ const PythonSection = ({
 
       {role === 'student' && (
         <div className="md:hidden">
-          <div className="rounded-3xl border border-purple-200/80 bg-white/85 p-3 shadow-[0_10px_24px_rgba(99,102,241,0.12)]">
+          <div className="mobile-topic-path-card rounded-3xl border border-purple-200/80 bg-white/85 p-3 shadow-[0_10px_24px_rgba(99,102,241,0.12)]">
             <div className="mb-2 flex items-center justify-between gap-2">
               <h3 className="text-sm font-bold text-slate-900">Путь по темам Python</h3>
               <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-1 text-[10px] font-semibold text-purple-700">
@@ -9561,7 +9559,7 @@ const PythonSection = ({
             <div className="mt-3">
               <div
                 ref={mobilePythonPathCanvasRef}
-                className="relative overflow-visible rounded-2xl border border-purple-100/80 bg-gradient-to-b from-white/95 via-purple-50/55 to-sky-50/45 px-1.5 py-2"
+                className="mobile-topic-path-canvas relative overflow-visible rounded-2xl border border-purple-100/80 bg-gradient-to-b from-white/95 via-purple-50/55 to-sky-50/45 px-1.5 py-2"
                 style={{ height: `${mobilePythonPathLayout.height}px` }}
               >
                 <div className="pointer-events-none absolute inset-0 z-0" aria-hidden="true">
@@ -9575,7 +9573,7 @@ const PythonSection = ({
                         key={`mobile-python-curve-${curve.id}`}
                         d={curve.d}
                         fill="none"
-                        stroke="rgba(168,85,247,0.44)"
+                        stroke="var(--mobile-path-curve, rgba(168,85,247,0.44))"
                         strokeWidth="1.7"
                         strokeLinecap="round"
                         strokeDasharray={curveIdx % 2 === 0 ? '7.5 6.4' : '6.8 6'}
@@ -9648,7 +9646,7 @@ const PythonSection = ({
                             cy={mobilePythonPathLayout.ringSize / 2}
                             r={mobilePythonPathLayout.radius}
                             fill="none"
-                            stroke="#d7dee8"
+                            stroke="var(--mobile-ring-track, #d7dee8)"
                             strokeWidth={mobilePythonPathLayout.strokeWidth}
                           />
                           <circle
@@ -9665,7 +9663,7 @@ const PythonSection = ({
                           />
                         </svg>
                         {node.val > 2 && <span className="mobile-topic-marker" />}
-                        <div className="absolute inset-[12px] z-[5] rounded-full border border-white/90 bg-gradient-to-br from-white to-purple-50 shadow-[0_12px_22px_rgba(15,23,42,0.18)]" />
+                        <div className="mobile-topic-core absolute inset-[12px] z-[5] rounded-full border border-white/90 bg-gradient-to-br from-white to-purple-50 shadow-[0_12px_22px_rgba(15,23,42,0.18)]" />
                         <div className="absolute inset-0 z-[6] flex flex-col items-center justify-center px-2">
                           <div className="text-[22px] font-black leading-none text-slate-900">№{getTaskDisplayNumber(node.task)}</div>
                           <div className="mt-1 text-[14px] font-bold leading-tight text-slate-600">{`${node.val}%`}</div>
@@ -9674,7 +9672,7 @@ const PythonSection = ({
                         {isMastered && <span className="mobile-topic-sparkle" />}
                       </div>
                       <div className="mt-1.5 flex justify-center px-1">
-                        <div className={`max-w-[148px] rounded-xl border border-white/80 bg-white/88 px-2.5 py-1 shadow-[0_7px_14px_rgba(148,163,184,0.22)] ${isSelected ? 'ring-2 ring-purple-200/80' : ''}`}>
+                        <div className={`mobile-topic-label-card max-w-[148px] rounded-xl border border-white/80 bg-white/88 px-2.5 py-1 shadow-[0_7px_14px_rgba(148,163,184,0.22)] ${isSelected ? 'ring-2 ring-purple-200/80' : ''}`}>
                           <div className="text-center text-[12.5px] font-semibold leading-[1.05rem] text-slate-700 [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden">
                             {node.title}
                           </div>
@@ -10083,6 +10081,7 @@ const ScheduleSection = ({
   const [editingId, setEditingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [scheduleCompactMode, setScheduleCompactMode] = useState(true);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
@@ -10413,8 +10412,6 @@ const ScheduleSection = ({
   const nextHomeworkEntry = sortedHomeworks[0] || null;
   const previousHomeworkEntries = sortedHomeworks.slice(1);
   const totalHomeworkCount = sortedHomeworks.length;
-  const latestIssuedLabel = nextHomeworkEntry?.issuedAt ? formatDate(nextHomeworkEntry.issuedAt) : '';
-  const nextDeadlineLabel = formatDaysText(nextHomeworkEntry?.daysToComplete || nextLesson?.daysToComplete || 7);
 
   const buildGoalView = (goal, goalIndex = 0) => {
     const goalType = normalizeGoalType(goal);
@@ -10535,6 +10532,9 @@ const ScheduleSection = ({
     : [];
   const nextHomeworkSummary = summarizeGoalViews(nextHomeworkGoalViews);
   const nextHomeworkPendingGoal = nextHomeworkSummary.pendingGoals[0] || null;
+  const nextHomeworkPendingShortLabel = nextHomeworkPendingGoal?.heading
+    ? String(nextHomeworkPendingGoal.heading).split('·')[0].trim()
+    : '';
 
   useEffect(() => {
     setShowHistory(false);
@@ -10559,6 +10559,8 @@ const ScheduleSection = ({
         || (firstPendingGoal.type === GOAL_TYPE_TASK && onOpenTask)
       )
     );
+    const compactPendingPreview = goalsSummary.pendingGoals.slice(0, 2);
+    const compactCompletedPreview = goalsSummary.completedGoals.slice(0, 2);
     const sectionTone = isNextSection
       ? 'border-purple-300/80 bg-gradient-to-br from-white via-purple-50/85 to-fuchsia-50/65 shadow-[0_12px_30px_rgba(147,51,234,0.12)]'
       : 'border-slate-200/90 bg-white';
@@ -10575,6 +10577,8 @@ const ScheduleSection = ({
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean);
+    const visibleChecklistLines = scheduleCompactMode ? checklistLines.slice(0, 4) : checklistLines;
+    const hiddenChecklistCount = Math.max(checklistLines.length - visibleChecklistLines.length, 0);
 
     const openGoal = (goalView) => {
       if (!goalView) return;
@@ -10608,11 +10612,6 @@ const ScheduleSection = ({
               <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${summaryStatus.tone}`}>
                 {summaryStatus.label}
               </span>
-            </div>
-            <div className="hidden md:block text-xs text-slate-500">
-              {isNextSection
-                ? 'Эту домашку нужно выполнить к ближайшему занятию.'
-                : 'Ранее выданная домашка для повторения и контроля прогресса.'}
             </div>
           </div>
           {role === 'teacher' && (
@@ -10670,63 +10669,93 @@ const ScheduleSection = ({
                 />
               </div>
             )}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-                <div className="text-[10px] uppercase tracking-wider text-slate-400">Решено</div>
-                <div className="mt-1 text-sm font-semibold text-slate-800">{goalsSummary.solvedCount}</div>
+            {scheduleCompactMode ? (
+              <div className="rounded-xl border border-purple-100 bg-white/85 px-3 py-2.5">
+                {compactPendingPreview.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-semibold text-purple-700">Что сделать сейчас</div>
+                    {compactPendingPreview.map((goalView) => (
+                      <div key={`compact-pending-${goalView.viewKey}`} className="flex items-start gap-2 text-xs text-slate-700">
+                        <ChevronRight size={13} className="mt-[1px] text-purple-500" />
+                        <span>{goalView.heading}</span>
+                      </div>
+                    ))}
+                    {goalsSummary.pendingGoals.length > compactPendingPreview.length && (
+                      <div className="text-[11px] text-purple-600">
+                        {`Ещё ${goalsSummary.pendingGoals.length - compactPendingPreview.length} целей`}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-xs font-medium text-emerald-700">Все цели закрыты. Отличная работа.</div>
+                )}
+                {compactCompletedPreview.length > 0 && (
+                  <div className="mt-2 text-[11px] text-emerald-700">
+                    {`Уже выполнено: ${goalsSummary.completedGoals.length} из ${goalsSummary.goalCount} целей`}
+                  </div>
+                )}
               </div>
-              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-                <div className="text-[10px] uppercase tracking-wider text-slate-400">Осталось</div>
-                <div className="mt-1 text-sm font-semibold text-slate-800">{goalsSummary.remainingCount}</div>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-                <div className="text-[10px] uppercase tracking-wider text-slate-400">Закрыто целей</div>
-                <div className="mt-1 text-sm font-semibold text-slate-800">{goalsSummary.completedGoals.length}/{goalsSummary.goalCount}</div>
-              </div>
-            </div>
-            {isNextSection && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                <div className="rounded-xl border border-purple-100 bg-purple-50/70 px-3 py-2.5">
-                  <div className="text-[11px] font-semibold text-purple-700">Что сделать к следующему занятию</div>
-                  {goalsSummary.pendingGoals.length > 0 ? (
-                    <div className="mt-2 space-y-1.5">
-                      {goalsSummary.pendingGoals.slice(0, 3).map((goalView) => (
-                        <div key={`pending-${goalView.viewKey}`} className="flex items-start gap-2 text-xs text-purple-800">
-                          <ChevronRight size={13} className="mt-[1px] text-purple-500" />
-                          <span>{goalView.heading}</span>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-400">Решено</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-800">{goalsSummary.solvedCount}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-400">Осталось</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-800">{goalsSummary.remainingCount}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-400">Закрыто целей</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-800">{goalsSummary.completedGoals.length}/{goalsSummary.goalCount}</div>
+                  </div>
+                </div>
+                {isNextSection && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    <div className="rounded-xl border border-purple-100 bg-purple-50/70 px-3 py-2.5">
+                      <div className="text-[11px] font-semibold text-purple-700">Что сделать к следующему занятию</div>
+                      {goalsSummary.pendingGoals.length > 0 ? (
+                        <div className="mt-2 space-y-1.5">
+                          {goalsSummary.pendingGoals.slice(0, 3).map((goalView) => (
+                            <div key={`pending-${goalView.viewKey}`} className="flex items-start gap-2 text-xs text-purple-800">
+                              <ChevronRight size={13} className="mt-[1px] text-purple-500" />
+                              <span>{goalView.heading}</span>
+                            </div>
+                          ))}
+                          {goalsSummary.pendingGoals.length > 3 && (
+                            <div className="text-[11px] text-purple-600">
+                              {`И ещё ${goalsSummary.pendingGoals.length - 3} целей`}
+                            </div>
+                          )}
                         </div>
-                      ))}
-                      {goalsSummary.pendingGoals.length > 3 && (
-                        <div className="text-[11px] text-purple-600">
-                          {`И ещё ${goalsSummary.pendingGoals.length - 3} целей`}
-                        </div>
+                      ) : (
+                        <div className="mt-2 text-xs text-emerald-700">Все цели закрыты. Отличная работа.</div>
                       )}
                     </div>
-                  ) : (
-                    <div className="mt-2 text-xs text-emerald-700">Все цели закрыты. Отличная работа.</div>
-                  )}
-                </div>
-                <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2.5">
-                  <div className="text-[11px] font-semibold text-emerald-700">Уже сделано</div>
-                  {goalsSummary.completedGoals.length > 0 ? (
-                    <div className="mt-2 space-y-1.5">
-                      {goalsSummary.completedGoals.slice(0, 3).map((goalView) => (
-                        <div key={`done-${goalView.viewKey}`} className="flex items-start gap-2 text-xs text-emerald-800">
-                          <CheckCircle size={13} className="mt-[1px]" />
-                          <span>{goalView.heading}</span>
+                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2.5">
+                      <div className="text-[11px] font-semibold text-emerald-700">Уже сделано</div>
+                      {goalsSummary.completedGoals.length > 0 ? (
+                        <div className="mt-2 space-y-1.5">
+                          {goalsSummary.completedGoals.slice(0, 3).map((goalView) => (
+                            <div key={`done-${goalView.viewKey}`} className="flex items-start gap-2 text-xs text-emerald-800">
+                              <CheckCircle size={13} className="mt-[1px]" />
+                              <span>{goalView.heading}</span>
+                            </div>
+                          ))}
+                          {goalsSummary.completedGoals.length > 3 && (
+                            <div className="text-[11px] text-emerald-700">
+                              {`И ещё ${goalsSummary.completedGoals.length - 3} выполнено`}
+                            </div>
+                          )}
                         </div>
-                      ))}
-                      {goalsSummary.completedGoals.length > 3 && (
-                        <div className="text-[11px] text-emerald-700">
-                          {`И ещё ${goalsSummary.completedGoals.length - 3} выполнено`}
-                        </div>
+                      ) : (
+                        <div className="mt-2 text-xs text-slate-500">Пока нет выполненных целей.</div>
                       )}
                     </div>
-                  ) : (
-                    <div className="mt-2 text-xs text-slate-500">Пока нет выполненных целей.</div>
-                  )}
-                </div>
-              </div>
+                  </div>
+                )}
+              </>
             )}
             {isNextSection && canOpenFirstPending && (
               <button
@@ -10744,7 +10773,7 @@ const ScheduleSection = ({
           </div>
         )}
 
-        {goalViews.length > 0 && (
+        {goalViews.length > 0 && !scheduleCompactMode && (
           <div className="space-y-2.5">
             {goalViews.map((goalView) => {
               if (goalView.type === GOAL_TYPE_MOCK) {
@@ -10885,12 +10914,17 @@ const ScheduleSection = ({
           </div>
           {checklistLines.length > 0 ? (
             <div className="space-y-1.5">
-              {checklistLines.map((line, index) => (
+              {visibleChecklistLines.map((line, index) => (
                 <div key={`${line}-${index}`} className="flex items-start gap-2 text-[13px] md:text-sm text-gray-700 leading-relaxed">
                   <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-purple-400" />
                   <span className="whitespace-pre-wrap">{line}</span>
                 </div>
               ))}
+              {hiddenChecklistCount > 0 && (
+                <div className="text-[11px] text-slate-500">
+                  {`Ещё ${hiddenChecklistCount} пунктов — переключите режим на «Подробно», чтобы увидеть всё.`}
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-[13px] md:text-sm leading-relaxed text-slate-500">
@@ -11127,37 +11161,35 @@ const ScheduleSection = ({
           <div className="space-y-2.5 md:space-y-3">
             <div>
               <h2 className="text-xl md:text-2xl font-bold text-gray-900">Моё расписание</h2>
-              <p className="hidden md:block text-sm text-slate-600">Домашка, цели и полезные ссылки к занятиям</p>
             </div>
-            <div className="flex flex-wrap gap-1.5 md:gap-2 text-[11px] md:text-xs font-semibold">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white/85 px-2 py-1 md:px-2.5 text-purple-700">
-                <Calendar size={14} />
-                {`Домашек: ${totalHomeworkCount}`}
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-white/85 px-2 py-1 md:px-2.5 text-sky-700">
-                <RefreshCcw size={12} />
-                {`Срок: ${nextDeadlineLabel}`}
-              </span>
-              {nextHomeworkGoalViews.length > 0 && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-white/85 px-2 py-1 md:px-2.5 text-emerald-700">
-                  <CheckCircle size={13} />
-                  {nextHomeworkSummary.totalCount > 0
-                    ? `Выполнено: ${nextHomeworkSummary.solvedCount}/${nextHomeworkSummary.totalCount}`
-                    : `Целей: ${nextHomeworkSummary.goalCount}`}
-                </span>
-              )}
-              {latestIssuedLabel && (
-                <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/85 px-2.5 py-1 text-slate-600">
-                  {`Выдано: ${latestIssuedLabel}`}
-                </span>
-              )}
+            <div className="inline-flex items-center rounded-xl border border-slate-200 bg-white/85 p-1 text-xs font-semibold text-slate-600 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setScheduleCompactMode(true)}
+                className={`rounded-lg px-2.5 py-1 transition ${
+                  scheduleCompactMode
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'hover:bg-slate-100'
+                }`}
+              >
+                Кратко
+              </button>
+              <button
+                type="button"
+                onClick={() => setScheduleCompactMode(false)}
+                className={`rounded-lg px-2.5 py-1 transition ${
+                  scheduleCompactMode
+                    ? 'hover:bg-slate-100'
+                    : 'bg-purple-600 text-white shadow-sm'
+                }`}
+              >
+                Подробно
+              </button>
             </div>
             {nextHomeworkPendingGoal && (
-              <div className="inline-flex max-w-full items-center gap-2 rounded-xl border border-purple-200/80 bg-white/90 px-3 py-2 text-xs text-slate-700">
-                <span className="shrink-0 rounded-full bg-purple-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
-                  Следующий шаг
-                </span>
-                <span className="truncate">{nextHomeworkPendingGoal.heading}</span>
+              <div className="inline-flex max-w-full items-center gap-1.5 rounded-xl border border-slate-200/85 bg-white/80 px-3 py-1.5 text-xs text-slate-600 shadow-sm">
+                <span className="shrink-0 font-semibold text-slate-500">Следующий шаг:</span>
+                <span className="truncate font-semibold text-purple-700">{nextHomeworkPendingShortLabel || nextHomeworkPendingGoal.heading}</span>
               </div>
             )}
           </div>
@@ -11412,7 +11444,6 @@ const ScheduleSection = ({
       <div className="space-y-4 md:space-y-5">
         <div>
           <h3 className="text-lg font-bold text-gray-800">Домашние задания</h3>
-          <p className="hidden md:block text-xs text-slate-500">Текущая домашка и архив предыдущих заданий</p>
         </div>
 
         {loading ? (
@@ -18861,14 +18892,14 @@ const BoardSection = ({
     const toMiniY = (y) => pad + (y - bounds.minY) * scale;
 
     ctx.save();
-    ctx.strokeStyle = '#e2e8f0';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.52)';
+    ctx.lineWidth = 0.9;
     ctx.strokeRect(pad, pad, mapWidth * scale, mapHeight * scale);
     ctx.restore();
 
     ctx.save();
     ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 0.9;
     boardItems.forEach((item) => {
       if (!item) return;
       if (item.type === 'stroke') {
@@ -18895,6 +18926,7 @@ const BoardSection = ({
         ctx.fillStyle = 'rgba(99, 102, 241, 0.18)';
         ctx.fillRect(x, y, w, h);
         ctx.strokeStyle = 'rgba(99, 102, 241, 0.5)';
+        ctx.lineWidth = 0.9;
         ctx.strokeRect(x, y, w, h);
       }
     });
@@ -18906,7 +18938,7 @@ const BoardSection = ({
     const viewW = viewWidth * scale;
     const viewH = viewHeight * scale;
     ctx.strokeStyle = '#ef4444';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1;
     ctx.strokeRect(viewX, viewY, viewW, viewH);
     ctx.restore();
   }, [boardItems, boardSize.width, boardSize.height]);
@@ -19492,12 +19524,12 @@ const BoardSection = ({
               </div>
             </div>
           ))}
-          <div className="absolute right-3 top-3 z-20 rounded-xl border border-gray-200 bg-white/90 p-2 shadow-sm">
+          <div className="board-minimap-shell absolute right-3 top-3 z-20">
             <canvas
               ref={minimapRef}
               width={160}
               height={120}
-              className="block"
+              className="board-minimap-canvas block"
             />
           </div>
         </div>
@@ -20106,12 +20138,12 @@ const StudentLeaderboardSection = ({ role, userId, userName }) => {
   );
 };
 
-const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
+const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, onThemeToggle }) => {
   const allowedViews = user.role === 'admin'
     ? ['admin']
     : user.role === 'teacher'
-      ? ['schedule', 'progress', 'rating', 'python', 'collab', 'board', 'teacher', 'notes']
-      : ['schedule', 'progress', 'rating', 'python', 'collab', 'board', 'notes'];
+      ? ['schedule', 'progress', 'python', 'rating', 'collab', 'board', 'teacher', 'notes']
+      : ['schedule', 'progress', 'python', 'rating', 'collab', 'board', 'notes'];
   const defaultView = user.role === 'teacher' ? 'teacher' : (user.role === 'admin' ? 'admin' : 'progress');
   const storedLocation = readUserLocation(user);
   const storedView = storedLocation?.view;
@@ -20143,6 +20175,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
 
   const [view, setView] = useState(initialView);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [desktopNavCollapsed, setDesktopNavCollapsed] = useState(() => {
+    if (typeof localStorage === 'undefined') return false;
+    try {
+      return localStorage.getItem(DESKTOP_NAV_COLLAPSED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
   const [progressSectionJumpToken, setProgressSectionJumpToken] = useState(0);
   const [pendingOpenTask, setPendingOpenTask] = useState(() => (user.role === 'student' ? restoredOpenTask : null));
   const [pendingOpenMockExamId, setPendingOpenMockExamId] = useState(
@@ -20151,7 +20191,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const [goalState, setGoalState] = useState(null);
   const [goalTestsDb, setGoalTestsDb] = useState(null);
   const [goalRefreshTick, setGoalRefreshTick] = useState(0);
-  const [goalCollapsed, setGoalCollapsed] = useState(false);
+  const [goalCollapsed, setGoalCollapsed] = useState(user.role === 'student');
   const [goalPanelAnimClass, setGoalPanelAnimClass] = useState('');
   const [homeworkPopupEntry, setHomeworkPopupEntry] = useState(null);
   const [homeworkPopupOpen, setHomeworkPopupOpen] = useState(false);
@@ -20197,6 +20237,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   const goalFlyRevealTimerRef = useRef(null);
   const goalFlyResetTimerRef = useRef(null);
   const goalFlyTargetNodeRef = useRef(null);
+  const mainScrollRef = useRef(null);
   const paceForecastShownRef = useRef(false);
   const prevGoalCollapsedRef = useRef(goalCollapsed);
   const [isDesktopWide, setIsDesktopWide] = useState(
@@ -20255,9 +20296,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       ? [
         { id: 'schedule', label: 'Моё расписание', icon: Calendar },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
+        { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
         { id: 'rating', label: 'Рейтинг', icon: Trophy },
-        { id: 'python', label: 'Изучение Python', icon: FileText },
-        { id: 'collab', label: 'Совместный код', icon: Pencil },
+        { id: 'collab', label: 'Совместный код', icon: Code2 },
         { id: 'board', label: 'Доска', icon: Brush },
         { id: 'teacher', label: 'Управление тестами', icon: Settings },
         { id: 'notes', label: 'Конспекты', icon: Folder }
@@ -20265,9 +20306,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
       : [
         { id: 'schedule', label: 'Моё расписание', icon: Calendar },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
+        { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
         { id: 'rating', label: 'Рейтинг', icon: Trophy },
-        { id: 'python', label: 'Изучение Python', icon: FileText },
-        { id: 'collab', label: 'Совместный код', icon: Pencil },
+        { id: 'collab', label: 'Совместный код', icon: Code2 },
         { id: 'board', label: 'Доска', icon: Brush },
         { id: 'notes', label: 'Конспекты', icon: BookOpen }
       ];
@@ -21205,22 +21246,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   }, [goalTestsLoaded, studentDataLoaded, solvedPerDayStats.solvedCount, user.role, user.id]);
 
   useEffect(() => {
-    if (user.role !== 'student') {
-      setGoalCollapsed(false);
-      return;
-    }
-    try {
-      const saved = localStorage.getItem('ege_goal_collapsed_v1');
-      setGoalCollapsed(saved === '1');
-    } catch {}
+    setGoalCollapsed(user.role === 'student');
   }, [user.role]);
 
   useEffect(() => {
-    if (user.role !== 'student') return;
+    if (typeof localStorage === 'undefined') return;
     try {
-      localStorage.setItem('ege_goal_collapsed_v1', goalCollapsed ? '1' : '0');
+      localStorage.setItem(DESKTOP_NAV_COLLAPSED_KEY, desktopNavCollapsed ? '1' : '0');
     } catch {}
-  }, [goalCollapsed, user.role]);
+  }, [desktopNavCollapsed]);
 
   useEffect(() => {
     const prev = prevGoalCollapsedRef.current;
@@ -21410,6 +21444,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
     if (user.role !== 'student') return;
     updateUserLocation(user, { mockExamId: null });
   };
+
+  const handleExpandGoalBlock = useCallback(() => {
+    setGoalCollapsed(false);
+    const mainNode = mainScrollRef.current;
+    if (mainNode && typeof mainNode.scrollTo === 'function') {
+      mainNode.scrollTo({ top: 0, behavior: 'auto' });
+      return;
+    }
+    if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+  }, []);
 
   const formatDaysText = (days) => {
     const value = Number(days) || 0;
@@ -22282,113 +22328,177 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
           />
         )}
       */}
-      <aside className="hidden md:block md:sticky md:top-0 z-40 w-64 lg:w-72 app-h sidebar-shell rounded-none overflow-hidden">
-        <div className="relative flex h-full flex-col">
-          <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-            <div className="sidebar-aurora sidebar-aurora--top" />
-            <div className="sidebar-aurora sidebar-aurora--bottom" />
-            <div className="sidebar-grid" />
-          </div>
-          <div className="sidebar-top px-6 py-7 border-b border-white/65 bg-white/55 backdrop-blur-xl">
-            <div className="hidden md:flex items-center gap-4">
-              <div className="sidebar-brand-mark relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-purple-600 to-fuchsia-500 text-white shadow-lg shadow-purple-300/40 ring-1 ring-white/70 font-display text-lg font-bold tracking-tight">
-                100
-                <span className="sidebar-brand-dot absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-white/90" />
-              </div>
-              <div className="min-w-0">
-                <div className="sidebar-brand-title font-display text-xl font-bold text-slate-900">Иван на сотку</div>
-                <div className="sidebar-brand-subtitle text-xs font-semibold uppercase tracking-[0.17em] text-purple-700/80">Личный профиль</div>
-              </div>
+      <div
+        className={`hidden md:block md:sticky md:top-0 z-40 app-h shrink-0 overflow-hidden transition-all duration-300 ease-out ${
+          desktopNavCollapsed ? 'w-0' : 'w-64 lg:w-72'
+        }`}
+      >
+        <aside
+          className={`h-full w-64 lg:w-72 sidebar-shell rounded-none overflow-hidden transition-transform duration-300 ease-out ${
+            desktopNavCollapsed ? '-translate-x-full' : 'translate-x-0'
+          }`}
+        >
+          <div className="relative flex h-full flex-col">
+            <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+              <div className="sidebar-aurora sidebar-aurora--top" />
+              <div className="sidebar-aurora sidebar-aurora--bottom" />
+              <div className="sidebar-grid" />
             </div>
-          </div>
-          <nav className="flex-1 px-4 pb-7 pr-2 pt-5 overflow-y-auto sidebar-nav" data-tour="nav">
-            <div className="sidebar-nav-title mb-3 px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500/85">
-              Навигация
-            </div>
-            <div className="space-y-2.5 sidebar-nav-stack">
-              {nav.map((n, idx) => {
-                const isActive = view === n.id;
-                return (
-                  <button
-                    key={n.id}
-                    onClick={() => {
-                      navigateToView(n.id);
-                      setMenuOpen(false);
-                    }}
-                    aria-current={isActive ? 'page' : undefined}
-                    style={{ '--item-index': idx }}
-                    className={`sidebar-nav-item group relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-2xl border px-3.5 py-3 text-left transition-all duration-200 ease-out ${
-                      isActive
-                        ? 'is-active border-purple-200/80 bg-white text-slate-900 shadow-[0_16px_30px_rgba(124,58,237,0.16)]'
-                        : 'border-transparent text-slate-700 hover:-translate-y-[1px] hover:border-purple-200/80 hover:bg-white/92 hover:text-slate-900 hover:shadow-[0_10px_24px_rgba(148,163,184,0.24)]'
-                    }`}
-                  >
-                    <span className="flex min-w-0 flex-1 items-center gap-3">
-                      <span
-                        className={`sidebar-nav-icon grid h-10 w-10 place-items-center rounded-xl border transition-all duration-200 ${
-                          isActive
-                            ? 'is-active bg-gradient-to-br from-violet-100 to-fuchsia-100 text-purple-700 border-purple-200/90 shadow-sm shadow-purple-200/60'
-                            : 'bg-white/85 text-purple-600 border-purple-100/80 group-hover:bg-white group-hover:border-purple-200/70'
-                        }`}
-                      >
-                        <n.icon size={18} />
-                      </span>
-                      <span className="sidebar-nav-label whitespace-nowrap text-[13px] font-semibold leading-tight md:text-sm">{n.label}</span>
-                    </span>
-                    <span
-                      className={`sidebar-nav-arrow ml-auto flex h-8 w-8 items-center justify-center rounded-xl border transition-all duration-200 ${
-                        isActive
-                          ? 'is-active translate-x-0.5 border-purple-200/80 bg-purple-100/90 text-purple-700 opacity-100 shadow-sm shadow-purple-200/50'
-                          : 'border-purple-100/70 bg-white/75 text-purple-400 opacity-60 group-hover:translate-x-0.5 group-hover:opacity-100 group-hover:text-purple-600 group-hover:border-purple-200/70'
-                      }`}
-                    >
-                      <ChevronRight size={14} />
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </nav>
-          <div className="sidebar-footer p-5 border-t border-white/70 bg-white/55 backdrop-blur-xl shrink-0">
-            <div className="sidebar-profile-card rounded-2xl border border-white/70 bg-gradient-to-br from-white to-purple-50/75 p-4 shadow-[0_10px_24px_rgba(148,163,184,0.24)]">
-              <div className="flex items-center gap-3">
-                <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white flex items-center justify-center font-bold shadow-md shadow-purple-300/40 ring-1 ring-white/70">
-                  {user.name[0]}
+            <div className="sidebar-top relative px-6 py-7 border-b border-white/65 bg-white/55 backdrop-blur-xl">
+              <div className="hidden md:flex items-center gap-4">
+                <div className="sidebar-brand-mark relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-purple-600 to-fuchsia-500 text-white shadow-lg shadow-purple-300/40 ring-1 ring-white/70 font-display text-lg font-bold tracking-tight">
+                  100
+                  <span className="sidebar-brand-dot absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-white/90" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-base font-semibold text-slate-900 truncate">{user.name}</p>
-                  <div className="mt-1 inline-flex items-center rounded-lg border border-purple-100 bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2.5 py-1 text-[11px] font-semibold text-purple-700">
-                    {user.role === 'admin' ? 'Администратор' : (user.role === 'teacher' ? 'Преподаватель' : 'Ученик')}
+                  <div className="sidebar-brand-title font-display text-xl font-bold text-slate-900">Иван на сотку</div>
+                  <div className="sidebar-brand-subtitle text-xs font-semibold uppercase tracking-[0.17em] text-purple-700/80">Личный профиль</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDesktopNavCollapsed(true)}
+                className="sidebar-collapse-btn absolute right-4 top-1/2 -translate-y-1/2"
+                aria-label="Свернуть панель навигации"
+                title="Свернуть панель"
+              >
+                <ChevronsLeft size={16} />
+              </button>
+            </div>
+            <nav className="flex-1 px-4 pb-7 pr-2 pt-5 overflow-y-auto sidebar-nav" data-tour="nav">
+              <div className="sidebar-nav-title mb-3 px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500/85">
+                Навигация
+              </div>
+              <div className="space-y-2.5 sidebar-nav-stack">
+                {nav.map((n, idx) => {
+                  const isActive = view === n.id;
+                  return (
+                    <button
+                      key={n.id}
+                      onClick={() => {
+                        navigateToView(n.id);
+                        setMenuOpen(false);
+                      }}
+                      aria-current={isActive ? 'page' : undefined}
+                      style={{ '--item-index': idx }}
+                      className={`sidebar-nav-item group relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-2xl border px-3.5 py-3 text-left transition-all duration-200 ease-out ${
+                        isActive
+                          ? 'is-active border-purple-200/80 bg-white text-slate-900 shadow-[0_16px_30px_rgba(124,58,237,0.16)]'
+                          : 'border-transparent text-slate-700 hover:-translate-y-[1px] hover:border-purple-200/80 hover:bg-white/92 hover:text-slate-900 hover:shadow-[0_10px_24px_rgba(148,163,184,0.24)]'
+                      }`}
+                    >
+                      <span className="flex min-w-0 flex-1 items-center gap-3">
+                        <span
+                          className={`sidebar-nav-icon grid h-10 w-10 place-items-center rounded-xl border transition-all duration-200 ${
+                            isActive
+                              ? 'is-active bg-gradient-to-br from-violet-100 to-fuchsia-100 text-purple-700 border-purple-200/90 shadow-sm shadow-purple-200/60'
+                              : 'bg-white/85 text-purple-600 border-purple-100/80 group-hover:bg-white group-hover:border-purple-200/70'
+                          }`}
+                        >
+                          <n.icon size={18} />
+                        </span>
+                        <span className="sidebar-nav-label whitespace-nowrap text-[13px] font-semibold leading-tight md:text-sm">{n.label}</span>
+                      </span>
+                      <span
+                        className={`sidebar-nav-arrow ml-auto flex h-8 w-8 items-center justify-center rounded-xl border transition-all duration-200 ${
+                          isActive
+                            ? 'is-active translate-x-0.5 border-purple-200/80 bg-purple-100/90 text-purple-700 opacity-100 shadow-sm shadow-purple-200/50'
+                            : 'border-purple-100/70 bg-white/75 text-purple-400 opacity-60 group-hover:translate-x-0.5 group-hover:opacity-100 group-hover:text-purple-600 group-hover:border-purple-200/70'
+                        }`}
+                      >
+                        <ChevronRight size={14} />
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </nav>
+            <div className="sidebar-footer p-5 border-t border-white/70 bg-white/55 backdrop-blur-xl shrink-0">
+              <div className="sidebar-profile-card rounded-2xl border border-white/70 bg-gradient-to-br from-white to-purple-50/75 p-4 shadow-[0_10px_24px_rgba(148,163,184,0.24)]">
+                <div className="flex items-center gap-3">
+                  <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white flex items-center justify-center font-bold shadow-md shadow-purple-300/40 ring-1 ring-white/70">
+                    {user.name[0]}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-base font-semibold text-slate-900 truncate">{user.name}</p>
+                    <div className="mt-1 inline-flex items-center rounded-lg border border-purple-100 bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2.5 py-1 text-[11px] font-semibold text-purple-700">
+                      {user.role === 'admin' ? 'Администратор' : (user.role === 'teacher' ? 'Преподаватель' : 'Ученик')}
+                    </div>
                   </div>
                 </div>
               </div>
+              {renderPushControl()}
+              <button
+                onClick={onLogout}
+                className="sidebar-logout mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/75 bg-white/85 px-4 py-2.5 text-sm font-semibold text-rose-600 transition hover:-translate-y-[1px] hover:border-rose-300 hover:bg-rose-50 hover:shadow-sm"
+              >
+                <LogOut size={16} /> Выйти
+              </button>
             </div>
-            {renderPushControl()}
-            <button
-              onClick={onLogout}
-              className="sidebar-logout mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/75 bg-white/85 px-4 py-2.5 text-sm font-semibold text-rose-600 transition hover:-translate-y-[1px] hover:border-rose-300 hover:bg-rose-50 hover:shadow-sm"
-            >
-              <LogOut size={16} /> Выйти
-            </button>
           </div>
+        </aside>
+      </div>
+      <div className={`desktop-nav-fab hidden md:flex ${desktopNavCollapsed ? 'is-visible' : ''}`} aria-hidden={!desktopNavCollapsed}>
+        <button
+          type="button"
+          onClick={() => setDesktopNavCollapsed(false)}
+          className="desktop-nav-fab__toggle"
+          aria-label="Развернуть панель навигации"
+          title="Развернуть панель"
+        >
+          <ChevronsRight size={22} />
+        </button>
+        <div className="desktop-nav-fab__divider" aria-hidden="true" />
+        <div className="desktop-nav-fab__stack">
+          {nav.map((n) => {
+            const isActive = view === n.id;
+            const Icon = n.icon;
+            return (
+              <button
+                key={`desktop-nav-fab-${n.id}`}
+                type="button"
+                onClick={() => {
+                  navigateToView(n.id);
+                  setMenuOpen(false);
+                }}
+                className={`desktop-nav-fab__item ${isActive ? 'is-active' : ''}`}
+                aria-current={isActive ? 'page' : undefined}
+                aria-label={n.label}
+                title={n.label}
+              >
+                <Icon size={24} />
+              </button>
+            );
+          })}
         </div>
-      </aside>
-      <div className="main-shell relative flex-1 flex flex-col app-h overflow-hidden">
+      </div>
+      <div className={`main-shell relative flex-1 flex flex-col app-h overflow-hidden ${desktopNavCollapsed ? 'desktop-main-shifted' : ''}`}>
         <header className="sticky top-0 z-20 md:hidden bg-white/85 backdrop-blur border-b border-slate-200/70 px-3.5 py-3 pt-[calc(env(safe-area-inset-top)+0.55rem)] flex justify-between items-center">
           <LogoMark className="text-lg" />
-          <button
-            type="button"
-            onClick={() => setMenuOpen(true)}
-            className="flex h-10 min-w-[40px] items-center gap-2 rounded-xl border border-purple-200/70 bg-white px-2 text-purple-700 shadow-sm"
-            aria-label="Открыть профиль"
-          >
-            <span className="grid h-6 w-6 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 text-[11px] font-bold text-white">
-              {String(user?.name || '?').slice(0, 1).toUpperCase()}
-            </span>
-            <span className="text-xs font-semibold">Профиль</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <ThemeToggleButton
+              theme={theme}
+              onToggle={onThemeToggle}
+              className="theme-toggle--inline"
+            />
+            <button
+              type="button"
+              onClick={() => setMenuOpen(true)}
+              className="flex h-10 min-w-[40px] items-center gap-2 rounded-xl border border-purple-200/70 bg-white px-2 text-purple-700 shadow-sm"
+              aria-label="Открыть профиль"
+            >
+              <span className="grid h-6 w-6 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 text-[11px] font-bold text-white">
+                {String(user?.name || '?').slice(0, 1).toUpperCase()}
+              </span>
+              <span className="text-xs font-semibold">Профиль</span>
+            </button>
+          </div>
         </header>
-        <main className="flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8" data-tour="main">
+        <main
+          ref={mainScrollRef}
+          className="flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8"
+          data-tour="main"
+        >
           <div className="main-content-shell animate-soft">
           {user.role === 'student' && view !== 'collab' && view !== 'board' && (
             <div className="top-stats-strip mb-3 rounded-2xl border border-slate-200/80 bg-gradient-to-r from-white to-slate-50/85 px-2.5 py-1.5 shadow-sm sm:px-3 sm:py-2">
@@ -22528,7 +22638,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
                     )}
                     <button
                       type="button"
-                      onClick={() => setGoalCollapsed(false)}
+                      onClick={handleExpandGoalBlock}
                       className="px-2.5 py-1 rounded-lg border border-purple-200 text-[11px] font-semibold text-purple-700 hover:bg-purple-50 sm:px-3 sm:py-1.5 sm:text-xs"
                     >
                       Развернуть
@@ -22879,13 +22989,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress }) => {
   );
 };
 
-const ThemeToggleButton = ({ theme, onToggle }) => {
+const ThemeToggleButton = ({ theme, onToggle, className = '' }) => {
   const isDarkTheme = theme === THEME_DARK;
   return (
     <button
       type="button"
       onClick={onToggle}
-      className="theme-toggle"
+      className={`theme-toggle ${className}`.trim()}
       aria-label={isDarkTheme ? 'Переключить на светлую тему' : 'Переключить на тёмную тему'}
       title={isDarkTheme ? 'Светлая тема' : 'Тёмная тема'}
     >
@@ -23024,8 +23134,15 @@ const App = () => {
 
   return (
     <>
-      <DashboardLayout user={user} onLogout={handleLogout} progress={progress} onUpdateProgress={updateProgress} />
-      <ThemeToggleButton theme={theme} onToggle={handleThemeToggle} />
+      <DashboardLayout
+        user={user}
+        onLogout={handleLogout}
+        progress={progress}
+        onUpdateProgress={updateProgress}
+        theme={theme}
+        onThemeToggle={handleThemeToggle}
+      />
+      <ThemeToggleButton theme={theme} onToggle={handleThemeToggle} className="theme-toggle--desktop" />
     </>
   );
 };
