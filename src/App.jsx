@@ -14768,6 +14768,7 @@ const CollabSection = ({
   const [status, setStatus] = useState('disconnected');
   const [peerCount, setPeerCount] = useState(0);
   const [editorReady, setEditorReady] = useState(false);
+  const [editorMountVersion, setEditorMountVersion] = useState(0);
   const editorRef = useRef(null);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
@@ -14802,6 +14803,7 @@ const CollabSection = ({
   const [editorFontSize, setEditorFontSize] = useState(14);
   const [isCollabFullscreen, setIsCollabFullscreen] = useState(false);
   const [typingUsers, setTypingUsers] = useState([]);
+  const [splitLeftWidth, setSplitLeftWidth] = useState(68);
 
   const isMobileViewport = typeof window !== 'undefined'
     ? window.matchMedia('(max-width: 767px)').matches
@@ -14815,7 +14817,10 @@ const CollabSection = ({
     [isTeacher, teacherId, userId]
   );
   const fontSizeStorageKey = useMemo(() => `collab-font-size-${userId || role || 'anon'}`, [userId, role]);
+  const splitWidthStorageKey = useMemo(() => `collab-split-width-${userId || role || 'anon'}`, [userId, role]);
   const collabRootRef = useRef(null);
+  const splitLayoutRef = useRef(null);
+  const splitDragCleanupRef = useRef(null);
   const collabDocRef = useRef(null);
   const runMapRef = useRef(null);
   const collabAwarenessRef = useRef(null);
@@ -14856,6 +14861,10 @@ const CollabSection = ({
     scrollBeyondLastLine: false,
     smoothScrolling: true,
     cursorSmoothCaretAnimation: 'on',
+    scrollbar: {
+      verticalScrollbarSize: isCollabFullscreen ? 8 : 10,
+      horizontalScrollbarSize: isCollabFullscreen ? 6 : 8,
+    },
     mouseWheelZoom: true,
     quickSuggestions: { other: true, comments: false, strings: true },
     suggestOnTriggerCharacters: true,
@@ -14867,13 +14876,13 @@ const CollabSection = ({
     inlayHints: { enabled: 'on' },
     glyphMargin: true,
     readOnly: !roomId,
-  }), [roomId, editorFontSize]);
+  }), [roomId, editorFontSize, isCollabFullscreen]);
   const editorHeight = isCollabFullscreen
-    ? (isMobileViewport ? '54vh' : '72vh')
+    ? (isMobileViewport ? '60vh' : '82vh')
     : (isMobileViewport ? '50vh' : '65vh');
   const clampFontSize = (value) => Math.min(24, Math.max(12, Math.round(value)));
   const collabShellClass = isCollabFullscreen
-    ? 'animate-fadeIn min-h-screen w-screen bg-[radial-gradient(circle_at_top,_rgba(124,58,237,0.22),_rgba(15,23,42,0.85)_55%,_rgba(3,7,18,1)_100%)] text-slate-100 p-2 sm:p-3 md:p-4 overflow-auto'
+    ? 'animate-fadeIn min-h-screen w-screen bg-[radial-gradient(circle_at_top,_rgba(124,58,237,0.22),_rgba(15,23,42,0.85)_55%,_rgba(3,7,18,1)_100%)] text-slate-100 px-2 pt-2 pb-1 sm:px-3 sm:pt-3 sm:pb-1.5 md:px-4 md:pt-4 md:pb-2 overflow-auto'
     : 'animate-fadeIn pb-10';
   const collabCardClass = isCollabFullscreen
     ? 'p-2.5 sm:p-3 md:p-3.5 border border-slate-800/80 bg-slate-950/70 shadow-[0_0_40px_rgba(124,58,237,0.18)]'
@@ -15195,10 +15204,32 @@ const CollabSection = ({
     if (!compact) return [];
     return [{ lineNumber: fallbackLine, text: compact }];
   }, [debugActive, debugSourceSnapshot, currentDebugLocals, cumulativeDebugLocals, currentDebugStep]);
+  const applyDebugGlyphScale = useCallback((editorInstance = editorRef.current) => {
+    const editor = editorInstance;
+    if (!editor) return;
+    const node = editor.getDomNode?.();
+    if (!node) return;
+    const monaco = monacoRef.current;
+    const layout = editor.getLayoutInfo?.() || null;
+    const glyphMarginWidth = Number(layout?.glyphMarginWidth) || 14;
+    const lineHeightOption = monaco?.editor?.EditorOption?.lineHeight
+      ? Number(editor.getOption(monaco.editor.EditorOption.lineHeight))
+      : 0;
+    const lineHeight = Number.isFinite(lineHeightOption) && lineHeightOption > 0
+      ? lineHeightOption
+      : Math.max(18, Math.round(editorFontSize * 1.5));
+    const desiredSize = Math.round(lineHeight * 0.56);
+    const maxSize = Math.max(10, glyphMarginWidth - 2);
+    const size = Math.max(8, Math.min(maxSize, desiredSize));
+    node.style.setProperty('--collab-breakpoint-size', `${size}px`);
+    node.style.setProperty('--collab-line-height', `${lineHeight}px`);
+    node.style.setProperty('--collab-glyph-margin-width', `${glyphMarginWidth}px`);
+  }, [editorFontSize]);
 
   const handleEditorMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    applyDebugGlyphScale(editor);
     if (monaco?.languages && !collabSnippetProviderRef.current) {
       collabSnippetProviderRef.current = monaco.languages.registerCompletionItemProvider('python', {
         provideCompletionItems: (model, position) => {
@@ -15240,7 +15271,17 @@ const CollabSection = ({
           || type === monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS;
         if (!isGutterClick) return;
         if (event?.event?.leftButton !== true) return;
-        const lineNumber = Number(event?.target?.position?.lineNumber);
+        const browserEvent = event?.event?.browserEvent;
+        const targetAtPoint = browserEvent
+          ? editor.getTargetAtClientPoint?.(browserEvent.clientX, browserEvent.clientY)
+          : null;
+        const resolvedTarget = targetAtPoint || event?.target;
+        const lineNumber = Number(
+          resolvedTarget?.position?.lineNumber
+          || resolvedTarget?.detail?.lineNumber
+          || event?.target?.position?.lineNumber
+          || event?.target?.detail?.lineNumber
+        );
         if (!Number.isInteger(lineNumber) || lineNumber <= 0) return;
         setDebugBreakpoints((prev) => {
           if ((prev || []).includes(lineNumber)) {
@@ -15251,7 +15292,8 @@ const CollabSection = ({
       });
     }
     setEditorReady(true);
-  }, []);
+    setEditorMountVersion((prev) => prev + 1);
+  }, [applyDebugGlyphScale]);
 
   useEffect(() => () => {
     collabSnippetProviderRef.current?.dispose?.();
@@ -15293,8 +15335,27 @@ const CollabSection = ({
   }, [editorFontSize, fontSizeStorageKey]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = window.localStorage.getItem(splitWidthStorageKey);
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return;
+    const clamped = Math.max(48, Math.min(82, parsed));
+    setSplitLeftWidth(clamped);
+  }, [splitWidthStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(splitWidthStorageKey, String(splitLeftWidth));
+  }, [splitWidthStorageKey, splitLeftWidth]);
+
+  useEffect(() => () => {
+    splitDragCleanupRef.current?.();
+  }, []);
+
+  useEffect(() => {
     editorRef.current?.updateOptions?.({ fontSize: editorFontSize });
-  }, [editorFontSize]);
+    applyDebugGlyphScale();
+  }, [editorFontSize, applyDebugGlyphScale]);
 
   useEffect(() => {
     runInputRef.current = runInput;
@@ -16301,7 +16362,7 @@ const CollabSection = ({
       clearDebugSession(false);
       updateRunStateFromMap(null);
     };
-  }, [roomId, editorReady, wsUrl, localName, localColor, signalTyping, clearDebugSession]);
+  }, [roomId, editorReady, wsUrl, localName, localColor, signalTyping, clearDebugSession, editorMountVersion]);
 
   const statusLabel = status === 'connected'
     ? 'Подключено'
@@ -16310,6 +16371,50 @@ const CollabSection = ({
     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
     : 'border-amber-200 bg-amber-50 text-amber-700';
   const isSplitCollabLayout = isCollabFullscreen && !isMobileViewport;
+  const sessionLabel = roomId
+    ? (isTeacher
+      ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
+      : 'Учитель + ученик')
+    : 'Не выбрана';
+  const handleSplitResizeStart = useCallback((event) => {
+    if (!isSplitCollabLayout) return;
+    event.preventDefault();
+    const applyFromClientX = (clientX) => {
+      const container = splitLayoutRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      if (!rect.width) return;
+      const relative = ((clientX - rect.left) / rect.width) * 100;
+      const clamped = Math.max(48, Math.min(82, relative));
+      setSplitLeftWidth(clamped);
+    };
+    const handlePointerMove = (moveEvent) => {
+      applyFromClientX(moveEvent.clientX);
+    };
+    const stopDragging = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopDragging);
+      window.removeEventListener('pointercancel', stopDragging);
+      if (typeof document !== 'undefined') {
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+      splitDragCleanupRef.current = null;
+    };
+    splitDragCleanupRef.current?.();
+    splitDragCleanupRef.current = stopDragging;
+    if (typeof document !== 'undefined') {
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+    applyFromClientX(event.clientX);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopDragging);
+    window.addEventListener('pointercancel', stopDragging);
+  }, [isSplitCollabLayout]);
+  const handleSplitResizeReset = useCallback(() => {
+    setSplitLeftWidth(68);
+  }, []);
 
   const renderStudentPicker = () => {
     if (!isTeacher) return null;
@@ -16483,13 +16588,15 @@ const CollabSection = ({
 
   const inputPane = (
     <div className={isSplitCollabLayout ? 'space-y-1' : 'space-y-2'}>
-      <div className={`text-[11px] font-semibold uppercase tracking-widest ${collabHintClass}`}>Ввод (stdin)</div>
+      <div className={`${isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>Ввод (stdin)</div>
       <textarea
         value={runInput}
         onChange={(e) => setRunInput(e.target.value)}
-        rows={isSplitCollabLayout ? 3 : (isCollabFullscreen ? (isMobileViewport ? 3 : 4) : (isMobileViewport ? 4 : 6))}
+        rows={isSplitCollabLayout ? 2 : (isCollabFullscreen ? (isMobileViewport ? 3 : 4) : (isMobileViewport ? 4 : 6))}
         placeholder="Если нужен ввод, вставьте его сюда."
-        className={`w-full rounded-2xl border px-3 py-2 text-xs outline-none ${
+        className={`w-full rounded-2xl border outline-none ${
+          isSplitCollabLayout ? 'px-2.5 py-1.5 text-[11px]' : 'px-3 py-2 text-xs'
+        } ${
           isCollabFullscreen
             ? 'border-slate-700/80 bg-slate-900/70 text-slate-100 focus:border-violet-400'
             : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
@@ -16557,7 +16664,7 @@ const CollabSection = ({
       isCollabFullscreen
         ? 'border-violet-500/40 bg-slate-900/80 text-slate-100'
         : 'border-violet-200 bg-violet-50/70 text-slate-800'
-    } ${isSplitCollabLayout ? 'max-h-[34vh] overflow-auto' : ''}`}>
+    } ${isSplitCollabLayout ? 'max-h-[24vh] overflow-auto' : ''}`}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-widest text-violet-400">Пошаговый дебаг</div>
@@ -16681,34 +16788,34 @@ const CollabSection = ({
       )}
 
       <Card className={collabCardClass}>
-        <div className={`flex flex-col md:flex-row md:justify-between ${isCollabFullscreen ? 'gap-2 md:items-center' : 'gap-3 md:items-end'}`}>
-          <div>
-            <div className={`${isCollabFullscreen ? 'text-[10px]' : 'text-xs'} font-bold uppercase tracking-widest ${collabLabelClass}`}>Сессия</div>
-            <div className={`${isCollabFullscreen ? 'text-xs' : 'text-sm'} font-semibold ${collabSessionTextClass}`}>
-              {roomId
-                ? (isTeacher
-                  ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
-                  : 'Учитель + ученик')
-                : 'Не выбрана'}
+        {!isCollabFullscreen && (
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <div className={`text-xs font-bold uppercase tracking-widest ${collabLabelClass}`}>Сессия</div>
+              <div className={`text-sm font-semibold ${collabSessionTextClass}`}>{sessionLabel}</div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 md:justify-end">
+              <button
+                type="button"
+                onClick={handleFormatCode}
+                disabled={!roomId}
+                className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
+              >
+                Автоформат
+              </button>
             </div>
           </div>
-          <div className={`flex flex-wrap items-center md:justify-end ${isCollabFullscreen ? 'gap-1.5' : 'gap-2'}`}>
-            <button
-              type="button"
-              onClick={handleFormatCode}
-              disabled={!roomId}
-              className={`inline-flex items-center rounded-lg border px-2 py-1 text-[11px] font-semibold transition ${
-                isCollabFullscreen
-                  ? 'border-slate-700 bg-slate-900/70 text-slate-200 hover:bg-slate-800 disabled:opacity-50'
-                  : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50'
-              }`}
-            >
-              Автоформат
-            </button>
-          </div>
-        </div>
+        )}
 
-        <div className={`inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-xl border ${isCollabFullscreen ? 'mt-2 px-1.5 py-1' : 'mt-3 px-2 py-1.5'} ${collabToolbarClass}`}>
+        <div className={`${isCollabFullscreen ? 'mt-0 flex items-center justify-between gap-2' : ''}`}>
+          <div className={`inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-xl border ${isCollabFullscreen ? 'mt-0 px-1.5 py-1' : 'mt-3 px-2 py-1.5'} ${collabToolbarClass}`}>
+            {isCollabFullscreen && (
+              <>
+                <span className={`text-[10px] font-bold uppercase tracking-widest ${collabLabelClass}`}>Сессия</span>
+                <span className={`max-w-[220px] truncate text-[11px] font-semibold ${collabSessionTextClass}`}>{sessionLabel}</span>
+                <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
+              </>
+            )}
           <button
             type="button"
             onClick={() => handleRunCode('all')}
@@ -16851,15 +16958,50 @@ const CollabSection = ({
           >
             <Trash2 size={14} />
           </button>
+          </div>
+          {isCollabFullscreen && (
+            <button
+              type="button"
+              onClick={handleFormatCode}
+              disabled={!roomId}
+              className="inline-flex items-center rounded-lg border border-slate-700 bg-slate-900/70 px-2 py-1 text-[11px] font-semibold text-slate-200 transition hover:bg-slate-800 disabled:opacity-50"
+            >
+              Автоформат
+            </button>
+          )}
         </div>
 
         {isSplitCollabLayout ? (
-          <div className="mt-2 grid grid-cols-12 gap-2">
-            <div className="col-span-8">
+          <div
+            ref={splitLayoutRef}
+            className="mt-1 grid min-h-0 items-stretch gap-0.5"
+            style={{
+              gridTemplateColumns: `minmax(420px, ${splitLeftWidth}fr) 10px minmax(300px, ${100 - splitLeftWidth}fr)`,
+            }}
+          >
+            <div className="min-w-0">
               {editorPane}
             </div>
-            <div className="col-span-4 min-h-0">
-              <div className="flex min-h-0 flex-col gap-2" style={{ height: editorHeight }}>
+            <div
+              role="separator"
+              aria-label="Изменить ширину панелей"
+              aria-orientation="vertical"
+              aria-valuemin={48}
+              aria-valuemax={82}
+              aria-valuenow={Math.round(splitLeftWidth)}
+              onPointerDown={handleSplitResizeStart}
+              onDoubleClick={handleSplitResizeReset}
+              className="group relative flex w-[10px] cursor-col-resize select-none items-center justify-center"
+              title="Перетащите, чтобы изменить ширину. Двойной клик — сброс."
+            >
+              <div className={`h-full w-[2px] rounded-full transition ${
+                isCollabFullscreen
+                  ? 'bg-slate-700/80 group-hover:bg-violet-400/80'
+                  : 'bg-gray-300 group-hover:bg-purple-400'
+              }`} />
+            </div>
+            <div className="min-h-0 min-w-0">
+              <div className="flex min-h-0 flex-col gap-1.5" style={{ height: editorHeight }}>
                 <div className={`min-h-0 flex flex-1 flex-col rounded-2xl border p-2 ${
                   isCollabFullscreen
                     ? 'border-slate-700/80 bg-slate-950/60'
@@ -16880,7 +17022,7 @@ const CollabSection = ({
             <div className={isCollabFullscreen ? 'mt-2' : 'mt-4'}>
               {editorPane}
             </div>
-            <div className={`grid grid-cols-1 lg:grid-cols-3 ${isCollabFullscreen ? 'mt-2 gap-2' : 'mt-4 gap-3'}`}>
+            <div className={`grid grid-cols-1 lg:grid-cols-3 ${isCollabFullscreen ? 'mt-1 gap-1.5' : 'mt-4 gap-3'}`}>
               <div>
                 {inputPane}
               </div>
