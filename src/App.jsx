@@ -77,8 +77,35 @@ const BOARD_SELECTION_HIT_RADIUS = 6;
 const BOARD_MIN_ZOOM = 0.25;
 const BOARD_MAX_ZOOM = 2.5;
 const BOARD_POINT_MIN_DISTANCE = 1.5;
+const BOARD_LOW_BANDWIDTH_CURSOR_MS = 130;
+const BOARD_LOW_BANDWIDTH_PREVIEW_MS = 130;
+const BOARD_LOW_BANDWIDTH_POINT_STEP = 2;
 const BOARD_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const BOARD_DEFAULT_IMAGE_MAX_WIDTH = 640;
+const COLLAB_TYPING_IDLE_MS = 1200;
+const COLLAB_TYPING_STALE_MS = 4500;
+const COLLAB_SNIPPETS = [
+  {
+    prefix: 'for',
+    description: 'Цикл for по range',
+    snippet: 'for ${1:i} in range(${2:n}):\n    ${0:pass}',
+  },
+  {
+    prefix: 'if',
+    description: 'Условный блок if',
+    snippet: 'if ${1:condition}:\n    ${0:pass}',
+  },
+  {
+    prefix: 'def',
+    description: 'Шаблон функции',
+    snippet: 'def ${1:solve}(${2}) -> ${3:None}:\n    ${0:pass}',
+  },
+  {
+    prefix: 'while',
+    description: 'Цикл while',
+    snippet: 'while ${1:condition}:\n    ${0:pass}',
+  },
+];
 const pickCollabColor = (seed) => {
   const text = String(seed || 'collab');
   let hash = 0;
@@ -966,6 +993,11 @@ const PYODIDE_STREAM_FLUSH_MS = 35;
 const PYODIDE_STREAM_CHUNK_CHARS = 2048;
 const COLLAB_RUN_OUTPUT_LIMIT = 20000;
 const COLLAB_RUN_TIMEOUT_MS = 60000;
+const COLLAB_DEBUG_TIMEOUT_MS = 30 * 60 * 1000;
+const COLLAB_DEBUG_TRACE_LIMIT = 2500;
+const COLLAB_DEBUG_AUTOPLAY_MS = 75;
+const COLLAB_DEBUG_INLINE_HINT_MAX_CHARS = 90;
+const COLLAB_DEBUG_INLINE_HINT_LINES_MAX = 120;
 
 const getCollabWsUrl = () => {
   if (typeof window === 'undefined') return '';
@@ -985,6 +1017,108 @@ const mergeRuntimeErrorText = (base, next) => {
   if (!nextText) return baseText;
   if (!baseText) return nextText;
   return `${baseText}${baseText.endsWith('\n') ? '' : '\n'}${nextText}`;
+};
+
+const normalizeDebugLocals = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      if (item instanceof Map) {
+        return {
+          name: String(item.get('name') ?? ''),
+          value: String(item.get('value') ?? ''),
+          type: String(item.get('type') ?? ''),
+        };
+      }
+      if (Array.isArray(item) && item.length >= 2) {
+        return {
+          name: String(item[0] ?? ''),
+          value: String(item[1] ?? ''),
+          type: '',
+        };
+      }
+      if (item && typeof item === 'object') {
+        if (Object.prototype.hasOwnProperty.call(item, 'name')) {
+          return {
+            name: String(item.name ?? ''),
+            value: String(item.value ?? ''),
+            type: String(item.type ?? ''),
+          };
+        }
+        const entries = Object.entries(item);
+        if (entries.length === 1) {
+          return {
+            name: String(entries[0][0] ?? ''),
+            value: String(entries[0][1] ?? ''),
+            type: '',
+          };
+        }
+      }
+      return { name: '', value: '', type: '' };
+    }).filter((item) => item.name);
+  }
+  if (value instanceof Map) {
+    return Array.from(value.entries()).map(([name, localValue]) => ({
+      name: String(name),
+      value: String(localValue ?? ''),
+      type: '',
+    }));
+  }
+  if (value && typeof value === 'object') {
+    return Object.entries(value).map(([name, localValue]) => ({
+      name: String(name),
+      value: String(localValue ?? ''),
+      type: '',
+    }));
+  }
+  return [];
+};
+
+const sanitizeDebugInlineHintValue = (value) => {
+  const oneLine = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (!oneLine) return '';
+  if (oneLine.length <= COLLAB_DEBUG_INLINE_HINT_MAX_CHARS) return oneLine;
+  return `${oneLine.slice(0, Math.max(0, COLLAB_DEBUG_INLINE_HINT_MAX_CHARS - 3))}...`;
+};
+
+const buildDebugInlineHints = (sourceText, locals) => {
+  const source = String(sourceText ?? '').replace(/\r\n/g, '\n');
+  if (!source) return [];
+  const localList = normalizeDebugLocals(locals);
+  if (!localList.length) return [];
+  const localsMap = new Map();
+  localList.forEach((item) => {
+    const name = String(item?.name ?? '').trim();
+    if (!name || name === '...') return;
+    localsMap.set(name, String(item?.value ?? ''));
+  });
+  if (!localsMap.size) return [];
+
+  const lines = source.split('\n');
+  const hints = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (hints.length >= COLLAB_DEBUG_INLINE_HINT_LINES_MAX) break;
+    const line = lines[i];
+    if (!line || /^\s*#/.test(line)) continue;
+    const names = [];
+    const assignmentMatch = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^=].*)?$/);
+    if (assignmentMatch) names.push(assignmentMatch[1]);
+    const forMatch = line.match(/^\s*for\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b/);
+    if (forMatch) names.push(forMatch[1]);
+    if (!names.length) continue;
+    const parts = [];
+    names.forEach((name) => {
+      if (!localsMap.has(name)) return;
+      const value = sanitizeDebugInlineHintValue(localsMap.get(name));
+      if (!value) return;
+      parts.push(`${name}: ${value}`);
+    });
+    if (!parts.length) continue;
+    hints.push({
+      lineNumber: i + 1,
+      text: parts.join('   '),
+    });
+  }
+  return hints;
 };
 
 const PY_IDLE_STDIN_HEADER = '[Ввод]';
@@ -1071,16 +1205,19 @@ const createPyodideWorker = () => {
       return { push, close };
     };
 
-    const runPython = async (id, source, inputValue) => {
+    const runPython = async (id, source, inputValue, debugMode = false) => {
       const pyodide = await ensurePyodide();
       const safeInput = toText(inputValue);
       const safeSource = toText(source);
+      const useDebugMode = Boolean(debugMode);
       const stdoutEmitter = createChunkEmitter(id, 'stdout');
       const stderrEmitter = createChunkEmitter(id, 'stderr');
       let output = '';
       let error = '';
       let stdoutNeedsLineBreak = false;
       let stderrNeedsLineBreak = false;
+      let debugTrace = [];
+      let debugTraceTruncated = false;
 
       const appendStdout = (value) => {
         let safe = toText(value);
@@ -1120,32 +1257,162 @@ const createPyodideWorker = () => {
       }
 
       const wrapped = [
-        'import sys, io, traceback, builtins',
+        'import sys, io, traceback, builtins, json',
+        'def _debug_safe_repr(_value, _max_len=220):',
+        '    try:',
+        '        _text = repr(_value)',
+        '    except Exception:',
+        '        return "<unreprable>"',
+        '    if len(_text) > _max_len:',
+        '        return _text[:_max_len] + "..."',
+        '    return _text',
         'try:',
         '    sys.stdout.reconfigure(line_buffering=True)',
         '    sys.stderr.reconfigure(line_buffering=True)',
         'except Exception:',
         '    pass',
-        '_orig_print = builtins.print',
-        'def _print(*args, **kwargs):',
+        'if not hasattr(builtins, "__collab_print_original"):',
+        '    builtins.__collab_print_original = builtins.print',
+        'def _collab_print(*args, **kwargs):',
         '    kwargs.setdefault("flush", True)',
-        '    return _orig_print(*args, **kwargs)',
-        'builtins.print = _print',
+        '    return builtins.__collab_print_original(*args, **kwargs)',
+        'builtins.print = _collab_print',
         '_input = ' + JSON.stringify(safeInput),
+        '_debug_mode = ' + (useDebugMode ? 'True' : 'False'),
+        '_source_text = ' + JSON.stringify(safeSource),
+        '_source_lines = _source_text.splitlines()',
+        '_debug_events = []',
+        '_debug_trace_limit = ${COLLAB_DEBUG_TRACE_LIMIT}',
+        '_debug_trace_truncated = False',
+        'def _debug_capture_locals(_scope):',
+        '    _result = []',
+        '    for _idx, (_name, _value) in enumerate(_scope.items()):',
+        '        if _idx >= 50:',
+        '            _result.append({"name": "...", "value": "...", "type": ""})',
+        '            break',
+        '        _result.append({',
+        '            "name": str(_name),',
+        '            "value": _debug_safe_repr(_value),',
+        '            "type": type(_value).__name__,',
+        '        })',
+        '    return _result',
+        'def _debug_trace(_frame, _event, _arg):',
+        '    global _debug_trace_truncated',
+        '    if not _debug_mode:',
+        '        return _debug_trace',
+        '    if _frame.f_code.co_filename != "<collab>":',
+        '        return _debug_trace',
+        '    if _event not in ("line", "return", "exception"):',
+        '        return _debug_trace',
+        '    if len(_debug_events) >= _debug_trace_limit:',
+        '        _debug_trace_truncated = True',
+        '        return _debug_trace',
+        '    _entry = {',
+        '        "event": _event,',
+        '        "line": int(getattr(_frame, "f_lineno", 0) or 0),',
+        '        "func": _frame.f_code.co_name,',
+        '        "locals": _debug_capture_locals(_frame.f_locals),',
+        '    }',
+        '    if _event == "exception" and _arg:',
+        '        try:',
+        '            _entry["exception"] = f"{_arg[0].__name__}: {_arg[1]}"',
+        '        except Exception:',
+        '            _entry["exception"] = "Exception"',
+        '    _debug_events.append(_entry)',
+        '    return _debug_trace',
         'sys.stdin = io.StringIO(_input)',
         '_globals = {}',
         'try:',
-        '    exec(' + JSON.stringify(safeSource) + ', _globals, _globals)',
+        '    if _debug_mode:',
+        '        sys.settrace(_debug_trace)',
+        '    _compiled = compile(_source_text, "<collab>", "exec")',
+        '    exec(_compiled, _globals, _globals)',
         'except Exception:',
         '    traceback.print_exc()',
+        '    if _debug_mode:',
+        '        _exc_type, _exc_value, _tb = sys.exc_info()',
+        '        if _tb is not None:',
+        '            while _tb.tb_next is not None:',
+        '                _tb = _tb.tb_next',
+        '            _line_no = int(getattr(_tb, "tb_lineno", 0) or 0)',
+        '            if _line_no > 0:',
+        '                print(f"\\\\n[DEBUG] Ошибка на строке: {_line_no}")',
+        '                if _line_no <= len(_source_lines):',
+        '                    print(f"[DEBUG] Код: {_source_lines[_line_no - 1]}")',
+        '            _locals_items = list(getattr(_tb.tb_frame, "f_locals", {}).items())',
+        '            if _locals_items:',
+        '                print("[DEBUG] Локальные переменные:")',
+        '                for _idx, (_name, _value) in enumerate(_locals_items):',
+        '                    if _idx >= 50:',
+        '                        print("  ...")',
+        '                        break',
+        '                    try:',
+        '                        print(f"  {_name} = {repr(_value)}")',
+        '                    except Exception:',
+        '                        print(f"  {_name} = <unreprable>")',
+        'finally:',
+        '    sys.settrace(None)',
+        '    builtins.print = builtins.__collab_print_original',
+        '__collab_debug_events = _debug_events if _debug_mode else []',
+        '__collab_debug_events_json = json.dumps(__collab_debug_events, ensure_ascii=False)',
+        '__collab_debug_truncated = bool(_debug_trace_truncated)',
       ].join('\\n');
       try {
         await pyodide.runPythonAsync(wrapped);
+        if (useDebugMode) {
+          let parsedFromJson = false;
+          try {
+            const traceJsonValue = pyodide.globals.get('__collab_debug_events_json');
+            const traceJsonText = traceJsonValue && typeof traceJsonValue.toJs === 'function'
+              ? traceJsonValue.toJs()
+              : traceJsonValue;
+            traceJsonValue?.destroy?.();
+            const parsed = typeof traceJsonText === 'string' ? JSON.parse(traceJsonText) : [];
+            if (Array.isArray(parsed)) {
+              debugTrace = parsed;
+              parsedFromJson = true;
+            }
+          } catch {}
+          try {
+            if (!parsedFromJson) {
+              const traceValue = pyodide.globals.get('__collab_debug_events');
+              if (traceValue) {
+                debugTrace = typeof traceValue.toJs === 'function'
+                  ? traceValue.toJs({ dict_converter: Object.fromEntries })
+                  : traceValue;
+                traceValue.destroy?.();
+              }
+            }
+          } catch {}
+          try {
+            const truncatedValue = pyodide.globals.get('__collab_debug_truncated');
+            debugTraceTruncated = Boolean(
+              truncatedValue && typeof truncatedValue.toJs === 'function'
+                ? truncatedValue.toJs()
+                : truncatedValue
+            );
+            truncatedValue?.destroy?.();
+          } catch {}
+        }
       } finally {
+        try {
+          pyodide.globals.delete('__collab_debug_events');
+          pyodide.globals.delete('__collab_debug_events_json');
+          pyodide.globals.delete('__collab_debug_truncated');
+        } catch {}
         stdoutEmitter.close();
         stderrEmitter.close();
       }
-      return { output, error };
+      return {
+        output,
+        error,
+        debug: useDebugMode
+          ? {
+            trace: Array.isArray(debugTrace) ? debugTrace : [],
+            truncated: Boolean(debugTraceTruncated),
+          }
+          : null,
+      };
     };
 
     self.onmessage = async (event) => {
@@ -1153,7 +1420,15 @@ const createPyodideWorker = () => {
       const id = data.id;
       if (!id) return;
       try {
-        const result = await runPython(id, data.source, data.input);
+        const result = await runPython(id, data.source, data.input, data.debug);
+        if (result?.debug) {
+          self.postMessage({
+            id,
+            type: 'debug-trace',
+            trace: Array.isArray(result.debug.trace) ? result.debug.trace : [],
+            truncated: Boolean(result.debug.truncated),
+          });
+        }
         self.postMessage({ id, type: 'result', output: result.output, error: result.error });
       } catch (err) {
         const message = err && err.message ? err.message : String(err);
@@ -14483,8 +14758,16 @@ const CollabSection = ({
   const [runTimestamp, setRunTimestamp] = useState(null);
   const [lastRunInput, setLastRunInput] = useState('');
   const [runLoading, setRunLoading] = useState(false);
+  const [debugActive, setDebugActive] = useState(false);
+  const [debugTrace, setDebugTrace] = useState([]);
+  const [debugStepIndex, setDebugStepIndex] = useState(-1);
+  const [debugTraceTruncated, setDebugTraceTruncated] = useState(false);
+  const [debugBreakpoints, setDebugBreakpoints] = useState([]);
+  const [debugPlaying, setDebugPlaying] = useState(false);
+  const [debugSourceSnapshot, setDebugSourceSnapshot] = useState('');
   const [editorFontSize, setEditorFontSize] = useState(14);
   const [isCollabFullscreen, setIsCollabFullscreen] = useState(false);
+  const [typingUsers, setTypingUsers] = useState([]);
 
   const isMobileViewport = typeof window !== 'undefined'
     ? window.matchMedia('(max-width: 767px)').matches
@@ -14501,15 +14784,28 @@ const CollabSection = ({
   const collabRootRef = useRef(null);
   const collabDocRef = useRef(null);
   const runMapRef = useRef(null);
+  const collabAwarenessRef = useRef(null);
   const runWorkerRef = useRef(null);
   const runPendingRef = useRef(new Map());
   const runSessionRef = useRef(0);
+  const monacoRef = useRef(null);
   const runStreamTimerRef = useRef(null);
   const runStreamPendingRef = useRef(null);
   const runInputRef = useRef(runInput);
   const runOutputRef = useRef(runOutput);
   const runErrorRef = useRef(runError);
   const runStatusRef = useRef(runStatus);
+  const debugTraceRef = useRef([]);
+  const debugStepIndexRef = useRef(-1);
+  const debugBreakpointsRef = useRef([]);
+  const debugPlaybackTimerRef = useRef(null);
+  const debugDecorationsRef = useRef([]);
+  const debugInlineHintDecorationsRef = useRef([]);
+  const debugInlayProviderRef = useRef(null);
+  const debugBreakpointDecorationsRef = useRef([]);
+  const debugGutterDisposableRef = useRef(null);
+  const typingIdleTimerRef = useRef(null);
+  const collabSnippetProviderRef = useRef(null);
   const selectedStudent = useMemo(
     () => (students || []).find((student) => student.id === activeStudentId),
     [students, activeStudentId]
@@ -14524,6 +14820,15 @@ const CollabSection = ({
     scrollBeyondLastLine: false,
     smoothScrolling: true,
     cursorSmoothCaretAnimation: 'on',
+    quickSuggestions: { other: true, comments: false, strings: true },
+    suggestOnTriggerCharacters: true,
+    acceptSuggestionOnEnter: 'on',
+    snippetSuggestions: 'inline',
+    tabCompletion: 'on',
+    suggest: { preview: true, showSnippets: true },
+    inlineSuggest: { enabled: true },
+    inlayHints: { enabled: 'on' },
+    glyphMargin: true,
     readOnly: !roomId,
   }), [roomId, editorFontSize]);
   const editorHeight = isCollabFullscreen
@@ -14544,9 +14849,339 @@ const CollabSection = ({
   const collabControlBorder = isCollabFullscreen ? 'border-slate-700/80 bg-slate-900/70' : 'border-gray-200 bg-white';
   const collabControlText = isCollabFullscreen ? 'text-slate-200' : 'text-gray-600';
 
-  const handleEditorMount = useCallback((editor) => {
+  const stopDebugPlayback = useCallback(() => {
+    if (debugPlaybackTimerRef.current) {
+      clearInterval(debugPlaybackTimerRef.current);
+      debugPlaybackTimerRef.current = null;
+    }
+    setDebugPlaying(false);
+  }, []);
+
+  const applyBreakpointDecorations = useCallback((lines = debugBreakpointsRef.current) => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor) return;
+    const model = editor.getModel?.();
+    if (!model || !monaco?.Range) return;
+    const validLines = [...new Set((Array.isArray(lines) ? lines : [])
+      .map((line) => Number(line))
+      .filter((line) => Number.isInteger(line) && line > 0 && line <= model.getLineCount()))]
+      .sort((a, b) => a - b);
+    const decorations = validLines.map((line) => ({
+      range: new monaco.Range(line, 1, line, 1),
+      options: {
+        glyphMarginClassName: 'collab-debug-breakpoint-glyph',
+        glyphMarginHoverMessage: [{ value: `Точка останова: строка ${line}` }],
+      },
+    }));
+    debugBreakpointDecorationsRef.current = editor.deltaDecorations(
+      debugBreakpointDecorationsRef.current,
+      decorations
+    );
+  }, []);
+
+  const applyDebugDecoration = useCallback((lineNumber) => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco?.Range) return;
+    const model = editor.getModel?.();
+    if (!model) return;
+    if (!Number.isInteger(lineNumber) || lineNumber <= 0) {
+      debugDecorationsRef.current = editor.deltaDecorations(debugDecorationsRef.current, []);
+      return;
+    }
+    const safeLine = Math.max(1, Math.min(lineNumber, model.getLineCount()));
+    debugDecorationsRef.current = editor.deltaDecorations(debugDecorationsRef.current, [{
+      range: new monaco.Range(safeLine, 1, safeLine, 1),
+      options: {
+        isWholeLine: true,
+        className: 'collab-debug-active-line',
+        glyphMarginClassName: 'collab-debug-active-glyph',
+        glyphMarginHoverMessage: [{ value: `Текущая строка: ${safeLine}` }],
+      },
+    }]);
+    editor.revealLineInCenterIfOutsideViewport?.(safeLine);
+  }, []);
+
+  const applyDebugInlineHints = useCallback((hints = []) => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor) return;
+    const model = editor.getModel?.();
+    if (!model || !monaco?.Range) {
+      debugInlineHintDecorationsRef.current = editor.deltaDecorations(debugInlineHintDecorationsRef.current, []);
+      return;
+    }
+    const decorations = (Array.isArray(hints) ? hints : []).map((hint) => {
+      const lineNumber = Number(hint?.lineNumber);
+      if (!Number.isInteger(lineNumber) || lineNumber <= 0 || lineNumber > model.getLineCount()) return null;
+      const text = String(hint?.text ?? '').replace(/\s+/g, ' ').trim();
+      if (!text) return null;
+      const column = model.getLineMaxColumn(lineNumber);
+      return {
+        range: new monaco.Range(lineNumber, column, lineNumber, column),
+        options: {
+          after: {
+            content: `   ${text}`,
+            inlineClassName: 'collab-debug-inline-hint',
+          },
+        },
+      };
+    }).filter(Boolean);
+    debugInlineHintDecorationsRef.current = editor.deltaDecorations(
+      debugInlineHintDecorationsRef.current,
+      decorations
+    );
+  }, []);
+
+  const applyDebugInlayHints = useCallback((hints = []) => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    const model = editor?.getModel?.();
+    debugInlayProviderRef.current?.dispose?.();
+    debugInlayProviderRef.current = null;
+    if (!editor || !model || !monaco?.languages) return;
+
+    const normalized = (Array.isArray(hints) ? hints : [])
+      .map((hint) => {
+        const lineNumber = Number(hint?.lineNumber);
+        const text = String(hint?.text ?? '').replace(/\s+/g, ' ').trim();
+        if (!Number.isInteger(lineNumber) || lineNumber <= 0 || lineNumber > model.getLineCount() || !text) return null;
+        return { lineNumber, text };
+      })
+      .filter(Boolean);
+
+    if (!normalized.length) return;
+    const modelUri = model.uri?.toString?.() || '';
+    debugInlayProviderRef.current = monaco.languages.registerInlayHintsProvider('python', {
+      provideInlayHints: (targetModel, range) => {
+        const targetUri = targetModel?.uri?.toString?.() || '';
+        if (!targetModel || targetUri !== modelUri) {
+          return { hints: [], dispose: () => {} };
+        }
+        const hintsInRange = normalized
+          .filter((hint) => hint.lineNumber >= range.startLineNumber && hint.lineNumber <= range.endLineNumber)
+          .map((hint) => ({
+            kind: monaco.languages.InlayHintKind.Parameter,
+            position: {
+              lineNumber: hint.lineNumber,
+              column: targetModel.getLineMaxColumn(hint.lineNumber),
+            },
+            label: ` ${hint.text}`,
+            paddingLeft: true,
+            paddingRight: false,
+            tooltip: 'Значение переменной в текущем шаге дебага',
+          }));
+        return { hints: hintsInRange, dispose: () => {} };
+      },
+    });
+    editor.layout?.();
+  }, []);
+
+  const setDebugStep = useCallback((nextIndex) => {
+    const trace = debugTraceRef.current;
+    if (!Array.isArray(trace) || trace.length === 0) {
+      debugStepIndexRef.current = -1;
+      setDebugStepIndex(-1);
+      applyDebugDecoration(0);
+      return;
+    }
+    const clamped = Math.max(0, Math.min(nextIndex, trace.length - 1));
+    debugStepIndexRef.current = clamped;
+    setDebugStepIndex(clamped);
+    const step = trace[clamped] || null;
+    const lineNumber = Number(step?.line) || 0;
+    applyDebugDecoration(lineNumber);
+  }, [applyDebugDecoration]);
+
+  const findContinueTargetIndex = useCallback((fromIndex) => {
+    const trace = debugTraceRef.current;
+    if (!Array.isArray(trace) || trace.length === 0) return -1;
+    const start = Math.max(-1, Number(fromIndex));
+    const breakpoints = debugBreakpointsRef.current || [];
+    if (!breakpoints.length) return trace.length - 1;
+    const bpSet = new Set(breakpoints);
+    for (let idx = start + 1; idx < trace.length; idx += 1) {
+      const lineNumber = Number(trace[idx]?.line) || 0;
+      if (bpSet.has(lineNumber)) return idx;
+    }
+    return trace.length - 1;
+  }, []);
+
+  const clearDebugSession = useCallback((clearBreakpoints = false) => {
+    stopDebugPlayback();
+    setDebugActive(false);
+    setDebugTrace([]);
+    setDebugTraceTruncated(false);
+    setDebugSourceSnapshot('');
+    debugTraceRef.current = [];
+    setDebugStep(-1);
+    applyDebugInlineHints([]);
+    applyDebugInlayHints([]);
+    if (clearBreakpoints) {
+      debugBreakpointsRef.current = [];
+      setDebugBreakpoints([]);
+      applyBreakpointDecorations([]);
+    } else {
+      applyBreakpointDecorations(debugBreakpointsRef.current);
+    }
+  }, [applyBreakpointDecorations, applyDebugInlineHints, applyDebugInlayHints, setDebugStep, stopDebugPlayback]);
+
+  const handleDebugStepBack = useCallback(() => {
+    if (!debugActive) return;
+    stopDebugPlayback();
+    setDebugStep((debugStepIndexRef.current || 0) - 1);
+  }, [debugActive, setDebugStep, stopDebugPlayback]);
+
+  const handleDebugStepForward = useCallback(() => {
+    if (!debugActive) return;
+    stopDebugPlayback();
+    setDebugStep((debugStepIndexRef.current || 0) + 1);
+  }, [debugActive, setDebugStep, stopDebugPlayback]);
+
+  const handleDebugContinue = useCallback(() => {
+    if (!debugActive) return;
+    const trace = debugTraceRef.current;
+    if (!Array.isArray(trace) || trace.length === 0) return;
+    const currentIndex = debugStepIndexRef.current;
+    const targetIndex = findContinueTargetIndex(currentIndex);
+    if (targetIndex <= currentIndex) return;
+    stopDebugPlayback();
+    setDebugPlaying(true);
+    debugPlaybackTimerRef.current = setInterval(() => {
+      const idx = debugStepIndexRef.current;
+      if (idx >= targetIndex) {
+        stopDebugPlayback();
+        return;
+      }
+      const next = idx + 1;
+      setDebugStep(next);
+      if (next >= targetIndex) {
+        stopDebugPlayback();
+      }
+    }, COLLAB_DEBUG_AUTOPLAY_MS);
+  }, [debugActive, findContinueTargetIndex, setDebugStep, stopDebugPlayback]);
+
+  const handleStopDebug = useCallback(() => {
+    clearDebugSession(false);
+  }, [clearDebugSession]);
+
+  const currentDebugStep = useMemo(() => {
+    if (!debugActive) return null;
+    if (!Array.isArray(debugTrace) || debugTrace.length === 0) return null;
+    if (!Number.isInteger(debugStepIndex) || debugStepIndex < 0 || debugStepIndex >= debugTrace.length) return null;
+    return debugTrace[debugStepIndex] || null;
+  }, [debugActive, debugTrace, debugStepIndex]);
+  const currentDebugLocals = useMemo(() => normalizeDebugLocals(currentDebugStep?.locals), [currentDebugStep]);
+  const cumulativeDebugLocals = useMemo(() => {
+    if (!debugActive) return [];
+    if (!Array.isArray(debugTrace) || debugTrace.length === 0) return [];
+    const lastIndex = Math.max(0, Math.min(debugStepIndex, debugTrace.length - 1));
+    const byName = new Map();
+    for (let i = 0; i <= lastIndex; i += 1) {
+      const stepLocals = normalizeDebugLocals(debugTrace[i]?.locals);
+      stepLocals.forEach((item) => {
+        const name = String(item?.name ?? '').trim();
+        if (!name || name === '...') return;
+        byName.set(name, {
+          name,
+          value: String(item?.value ?? ''),
+          type: String(item?.type ?? ''),
+        });
+      });
+    }
+    return Array.from(byName.values());
+  }, [debugActive, debugTrace, debugStepIndex]);
+  const currentDebugLineText = useMemo(() => {
+    if (!currentDebugStep) return '';
+    const lineNumber = Number(currentDebugStep.line) || 0;
+    if (!lineNumber) return '';
+    const lines = String(debugSourceSnapshot || '').replace(/\r\n/g, '\n').split('\n');
+    return lines[lineNumber - 1] || '';
+  }, [currentDebugStep, debugSourceSnapshot]);
+  const currentDebugInlineHints = useMemo(() => {
+    if (!debugActive) return [];
+    const primaryHints = buildDebugInlineHints(debugSourceSnapshot, cumulativeDebugLocals);
+    if (primaryHints.length > 0) return primaryHints;
+    const fallbackLine = Number(currentDebugStep?.line) || 0;
+    if (!fallbackLine || currentDebugLocals.length === 0) return [];
+    const compact = currentDebugLocals
+      .slice(0, 4)
+      .map((item) => `${item.name}: ${sanitizeDebugInlineHintValue(item.value)}`)
+      .filter(Boolean)
+      .join('   ');
+    if (!compact) return [];
+    return [{ lineNumber: fallbackLine, text: compact }];
+  }, [debugActive, debugSourceSnapshot, currentDebugLocals, cumulativeDebugLocals, currentDebugStep]);
+
+  const handleEditorMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
+    monacoRef.current = monaco;
+    if (monaco?.languages && !collabSnippetProviderRef.current) {
+      collabSnippetProviderRef.current = monaco.languages.registerCompletionItemProvider('python', {
+        provideCompletionItems: (model, position) => {
+          const word = model.getWordUntilPosition(position);
+          const range = new monaco.Range(
+            position.lineNumber,
+            word.startColumn,
+            position.lineNumber,
+            word.endColumn
+          );
+          const typed = String(word.word || '').toLowerCase();
+          if (typed.length < 2) {
+            return { suggestions: [] };
+          }
+          const suggestions = COLLAB_SNIPPETS
+            .filter((item) => item.prefix.startsWith(typed))
+            .map((item, index) => ({
+              label: item.prefix,
+              kind: monaco.languages.CompletionItemKind.Snippet,
+              documentation: item.description,
+              detail: 'Сниппет',
+              insertText: item.snippet,
+              insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+              range,
+              filterText: item.prefix,
+              sortText: `0${String(index).padStart(2, '0')}`,
+              preselect: item.prefix === typed,
+            }));
+          return { suggestions };
+        },
+      });
+    }
+    debugGutterDisposableRef.current?.dispose?.();
+    if (monaco?.editor?.MouseTargetType) {
+      debugGutterDisposableRef.current = editor.onMouseDown((event) => {
+        const type = event?.target?.type;
+        const isGutterClick = type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN
+          || type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS
+          || type === monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS;
+        if (!isGutterClick) return;
+        if (event?.event?.leftButton !== true) return;
+        const lineNumber = Number(event?.target?.position?.lineNumber);
+        if (!Number.isInteger(lineNumber) || lineNumber <= 0) return;
+        setDebugBreakpoints((prev) => {
+          if ((prev || []).includes(lineNumber)) {
+            return prev.filter((line) => line !== lineNumber);
+          }
+          return [...prev, lineNumber].sort((a, b) => a - b);
+        });
+      });
+    }
     setEditorReady(true);
+  }, []);
+
+  useEffect(() => () => {
+    collabSnippetProviderRef.current?.dispose?.();
+    collabSnippetProviderRef.current = null;
+    debugGutterDisposableRef.current?.dispose?.();
+    debugGutterDisposableRef.current = null;
+    debugInlayProviderRef.current?.dispose?.();
+    debugInlayProviderRef.current = null;
+    if (debugPlaybackTimerRef.current) {
+      clearInterval(debugPlaybackTimerRef.current);
+      debugPlaybackTimerRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
@@ -14595,12 +15230,74 @@ const CollabSection = ({
     runStatusRef.current = runStatus;
   }, [runStatus]);
 
+  useEffect(() => {
+    debugTraceRef.current = Array.isArray(debugTrace) ? debugTrace : [];
+  }, [debugTrace]);
+
+  useEffect(() => {
+    debugStepIndexRef.current = Number.isInteger(debugStepIndex) ? debugStepIndex : -1;
+  }, [debugStepIndex]);
+
+  useEffect(() => {
+    debugBreakpointsRef.current = Array.isArray(debugBreakpoints) ? debugBreakpoints : [];
+    applyBreakpointDecorations(debugBreakpointsRef.current);
+  }, [debugBreakpoints, applyBreakpointDecorations]);
+
   useEffect(() => () => {
     if (runStreamTimerRef.current) {
       clearTimeout(runStreamTimerRef.current);
       runStreamTimerRef.current = null;
     }
   }, []);
+
+  useEffect(() => () => {
+    if (typingIdleTimerRef.current) {
+      clearTimeout(typingIdleTimerRef.current);
+      typingIdleTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => {
+    stopDebugPlayback();
+    const editor = editorRef.current;
+    debugInlayProviderRef.current?.dispose?.();
+    debugInlayProviderRef.current = null;
+    if (!editor) return;
+    if (debugDecorationsRef.current.length) {
+      debugDecorationsRef.current = editor.deltaDecorations(debugDecorationsRef.current, []);
+    }
+    if (debugInlineHintDecorationsRef.current.length) {
+      debugInlineHintDecorationsRef.current = editor.deltaDecorations(debugInlineHintDecorationsRef.current, []);
+    }
+    if (debugBreakpointDecorationsRef.current.length) {
+      debugBreakpointDecorationsRef.current = editor.deltaDecorations(debugBreakpointDecorationsRef.current, []);
+    }
+  }, [stopDebugPlayback]);
+
+  useEffect(() => {
+    if (!editorReady) return;
+    applyBreakpointDecorations(debugBreakpointsRef.current);
+    if (debugActive) {
+      const lineNumber = Number(currentDebugStep?.line) || 0;
+      applyDebugDecoration(lineNumber);
+      applyDebugInlineHints(currentDebugInlineHints);
+      applyDebugInlayHints(currentDebugInlineHints);
+    } else {
+      applyDebugDecoration(0);
+      applyDebugInlineHints([]);
+      applyDebugInlayHints([]);
+    }
+  }, [
+    editorReady,
+    roomId,
+    debugActive,
+    currentDebugStep,
+    currentDebugInlineHints,
+    applyBreakpointDecorations,
+    applyDebugDecoration,
+    applyDebugInlineHints,
+    applyDebugInlayHints,
+  ]);
 
   const toggleCollabFullscreen = async () => {
     if (typeof document === 'undefined') return;
@@ -14820,10 +15517,17 @@ const CollabSection = ({
       clearTimeout(entry.timer);
       const output = typeof entry.output === 'string' ? entry.output : '';
       const error = mergeRuntimeErrorText(entry.error, message);
+      const debugTraceSnapshot = Array.isArray(entry.debugTrace) ? entry.debugTrace : [];
+      const debugTraceTruncatedSnapshot = Boolean(entry.debugTraceTruncated);
       if (typeof entry.onProgress === 'function') {
         entry.onProgress({ output, error, done: true });
       }
-      entry.resolve({ output, error });
+      entry.resolve({
+        output,
+        error,
+        debugTrace: debugTraceSnapshot,
+        debugTraceTruncated: debugTraceTruncatedSnapshot,
+      });
     });
     runPendingRef.current.clear();
   };
@@ -14846,6 +15550,11 @@ const CollabSection = ({
         const pending = runPendingRef.current.get(data.id);
         if (!pending) return;
         const messageType = typeof data.type === 'string' ? data.type : 'result';
+        if (messageType === 'debug-trace') {
+          pending.debugTrace = Array.isArray(data.trace) ? data.trace : [];
+          pending.debugTraceTruncated = Boolean(data.truncated);
+          return;
+        }
         if (messageType === 'stdout' || messageType === 'stderr') {
           const chunk = typeof data.chunk === 'string' ? data.chunk : String(data.chunk ?? '');
           if (!chunk) return;
@@ -14871,10 +15580,18 @@ const CollabSection = ({
         const error = typeof data.error === 'string'
           ? data.error
           : (data.error ? String(data.error) : (pending.error || ''));
+        const debugTrace = Array.isArray(data.debugTrace)
+          ? data.debugTrace
+          : (Array.isArray(pending.debugTrace) ? pending.debugTrace : []);
+        const debugTraceTruncated = Boolean(
+          Object.prototype.hasOwnProperty.call(data, 'debugTraceTruncated')
+            ? data.debugTraceTruncated
+            : pending.debugTraceTruncated
+        );
         if (typeof pending.onProgress === 'function') {
           pending.onProgress({ output, error, done: true });
         }
-        pending.resolve({ output, error });
+        pending.resolve({ output, error, debugTrace, debugTraceTruncated });
       };
       worker.onerror = () => disposeRunWorker('Ошибка выполнения Python.');
       worker.onmessageerror = () => disposeRunWorker('Ошибка выполнения Python.');
@@ -14913,32 +15630,40 @@ const CollabSection = ({
     return { output: String(output), error: String(error) };
   };
 
-  const runPythonCode = async (source, inputValue, onProgress = null) => {
+  const runPythonCode = async (source, inputValue, onProgress = null, options = {}) => {
+    const debugMode = Boolean(options?.debug);
     const worker = ensureRunWorker();
     if (worker) {
       const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const timeoutMs = debugMode ? COLLAB_DEBUG_TIMEOUT_MS : COLLAB_RUN_TIMEOUT_MS;
       return new Promise((resolve) => {
         const timer = setTimeout(() => {
           const pending = runPendingRef.current.get(id);
           if (!pending) return;
           runPendingRef.current.delete(id);
-          const timeoutMessage = `Превышено время выполнения (${Math.round(COLLAB_RUN_TIMEOUT_MS / 1000)} сек).`;
+          const timeoutMessage = debugMode
+            ? `Превышено время отладки (${Math.round(timeoutMs / 1000)} сек).`
+            : `Превышено время выполнения (${Math.round(timeoutMs / 1000)} сек).`;
           const output = pending.output || '';
           const error = mergeRuntimeErrorText(pending.error, timeoutMessage);
+          const debugTrace = Array.isArray(pending.debugTrace) ? pending.debugTrace : [];
+          const debugTraceTruncated = Boolean(pending.debugTraceTruncated);
           if (typeof pending.onProgress === 'function') {
             pending.onProgress({ output, error, done: true });
           }
-          resolve({ output, error });
-          disposeRunWorker('Превышено время выполнения.');
-        }, COLLAB_RUN_TIMEOUT_MS);
+          resolve({ output, error, debugTrace, debugTraceTruncated });
+          disposeRunWorker(debugMode ? 'Превышено время отладки.' : 'Превышено время выполнения.');
+        }, timeoutMs);
         runPendingRef.current.set(id, {
           resolve,
           timer,
           output: '',
           error: '',
+          debugTrace: [],
+          debugTraceTruncated: false,
           onProgress: typeof onProgress === 'function' ? onProgress : null,
         });
-        worker.postMessage({ id, source, input: inputValue });
+        worker.postMessage({ id, source, input: inputValue, debug: debugMode });
       });
     }
     if (!ALLOW_MAIN_THREAD_PYTHON_FALLBACK) {
@@ -14950,20 +15675,97 @@ const CollabSection = ({
     return runPythonInMainThread(source, inputValue);
   };
 
-  const handleRunCode = async () => {
+  const normalizePythonForAutoFormat = (value) => {
+    const text = String(value ?? '');
+    const normalized = text
+      .replace(/\r\n/g, '\n')
+      .replace(/\t/g, '    ')
+      .split('\n')
+      .map((line) => line.replace(/\s+$/g, ''))
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n');
+    return normalized.endsWith('\n') || normalized.length === 0 ? normalized : `${normalized}\n`;
+  };
+
+  const handleFormatCode = () => {
+    const editor = editorRef.current;
+    const model = editor?.getModel?.();
+    if (!editor || !model) return;
+    const source = model.getValue();
+    if (!source) return;
+    const formatted = normalizePythonForAutoFormat(source);
+    if (formatted === source) return;
+    editor.pushUndoStop?.();
+    editor.executeEdits('collab-auto-format', [{
+      range: model.getFullModelRange(),
+      text: formatted,
+      forceMoveMarkers: true,
+    }]);
+    editor.pushUndoStop?.();
+    editor.focus?.();
+    signalTyping();
+  };
+
+  const getSelectedCode = () => {
+    const editor = editorRef.current;
+    const model = editor?.getModel?.();
+    if (!editor || !model) return '';
+    const selection = editor.getSelection?.();
+    if (!selection) return '';
+    if (
+      selection.startLineNumber === selection.endLineNumber
+      && selection.startColumn === selection.endColumn
+    ) {
+      return '';
+    }
+    return model.getValueInRange(selection);
+  };
+
+  const resolveRunnableCode = (mode = 'all') => {
+    const editor = editorRef.current;
+    if (!editor) return { code: '', mode: 'all' };
+    const fullCode = editor.getValue?.() ?? '';
+    const selectedCode = getSelectedCode();
+    if (mode === 'selection') {
+      return { code: selectedCode, mode: 'selection' };
+    }
+    return { code: fullCode, mode: 'all' };
+  };
+
+  const handleRunCode = async (mode = 'all', debug = false) => {
     if (!roomId || !editorRef.current) return;
-    const code = editorRef.current?.getValue?.() ?? '';
+    const requestedDebug = Boolean(debug);
+    const breakpointsSource = Array.isArray(debugBreakpoints) && debugBreakpoints.length > 0
+      ? debugBreakpoints
+      : (debugBreakpointsRef.current || []);
+    const activeBreakpoints = [...new Set(breakpointsSource
+      .map((line) => Number(line))
+      .filter((line) => Number.isInteger(line) && line > 0))];
+    const isDebugRun = requestedDebug && activeBreakpoints.length > 0;
+    const { code, mode: resolvedMode } = resolveRunnableCode(mode);
     if (!code.trim()) {
       setRunOutput('');
-      setRunError('Код пустой.');
+      setRunError(resolvedMode === 'selection' ? 'Сначала выделите код для запуска.' : 'Код пустой.');
       return;
     }
     if (runLoading) return;
+    stopDebugPlayback();
+    if (!isDebugRun) {
+      clearDebugSession(false);
+    }
     const sessionId = runSessionRef.current + 1;
     runSessionRef.current = sessionId;
     setRunLoading(true);
     setRunStatus('running');
     setRunError('');
+    if (isDebugRun) {
+      setDebugActive(false);
+      setDebugTrace([]);
+      setDebugTraceTruncated(false);
+      setDebugSourceSnapshot(code);
+      debugTraceRef.current = [];
+      setDebugStep(-1);
+    }
     const startedAt = Date.now();
     const inputSnapshot = runInputRef.current || '';
     publishRunState({
@@ -14989,13 +15791,40 @@ const CollabSection = ({
           ts: Date.now(),
           input: inputSnapshot,
         });
-      });
+      }, { debug: isDebugRun });
       if (runSessionRef.current !== sessionId) return;
       if (runStreamTimerRef.current) {
         clearTimeout(runStreamTimerRef.current);
         runStreamTimerRef.current = null;
       }
       runStreamPendingRef.current = null;
+      if (isDebugRun) {
+        const trace = Array.isArray(result?.debugTrace) ? result.debugTrace : [];
+        const traceTruncated = Boolean(result?.debugTraceTruncated);
+        const bpSet = new Set(activeBreakpoints);
+        let firstBreakpointIndex = -1;
+        for (let i = 0; i < trace.length; i += 1) {
+          const lineNumber = Number(trace[i]?.line) || 0;
+          if (bpSet.has(lineNumber)) {
+            firstBreakpointIndex = i;
+            break;
+          }
+        }
+        if (firstBreakpointIndex >= 0) {
+          setDebugTrace(trace);
+          debugTraceRef.current = trace;
+          setDebugTraceTruncated(traceTruncated);
+          setDebugActive(true);
+          setDebugStep(firstBreakpointIndex);
+        } else {
+          // Если ни одна точка останова не достигнута, завершаем как обычный запуск.
+          setDebugTrace([]);
+          debugTraceRef.current = [];
+          setDebugTraceTruncated(false);
+          setDebugActive(false);
+          setDebugStep(-1);
+        }
+      }
       publishRunState({
         status: 'done',
         output: normalizeRunText(result.output || ''),
@@ -15028,6 +15857,7 @@ const CollabSection = ({
 
   const handleStopRun = () => {
     if (!runLoading) return;
+    stopDebugPlayback();
     runSessionRef.current += 1;
     if (runStreamTimerRef.current) {
       clearTimeout(runStreamTimerRef.current);
@@ -15047,6 +15877,21 @@ const CollabSection = ({
       input: runInputRef.current || '',
     });
   };
+
+  const signalTyping = useCallback(() => {
+    if (!roomId || !collabAwarenessRef.current) return;
+    collabAwarenessRef.current.setLocalStateField('typing', {
+      active: true,
+      ts: Date.now(),
+    });
+    if (typingIdleTimerRef.current) {
+      clearTimeout(typingIdleTimerRef.current);
+    }
+    typingIdleTimerRef.current = setTimeout(() => {
+      collabAwarenessRef.current?.setLocalStateField('typing', null);
+      typingIdleTimerRef.current = null;
+    }, COLLAB_TYPING_IDLE_MS);
+  }, [roomId]);
 
   useEffect(() => {
     const isEditableTarget = (target) => {
@@ -15076,7 +15921,44 @@ const CollabSection = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [runLoading, runOutput, localName]);
 
+  useEffect(() => {
+    if (!debugActive) return undefined;
+    const isEditableTarget = (target) => {
+      const element = target;
+      if (!element || typeof element !== 'object') return false;
+      if (element.isContentEditable) return true;
+      const tagName = element.tagName;
+      return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
+    };
+    const handleDebugHotkeys = (event) => {
+      if (isEditableTarget(event.target)) return;
+      if (event.key === 'F10') {
+        event.preventDefault();
+        handleDebugStepForward();
+        return;
+      }
+      if (event.key === 'F8') {
+        event.preventDefault();
+        handleDebugContinue();
+        return;
+      }
+      if (event.key === 'F7') {
+        event.preventDefault();
+        handleDebugStepBack();
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        handleStopDebug();
+      }
+    };
+    if (typeof window === 'undefined') return undefined;
+    window.addEventListener('keydown', handleDebugHotkeys);
+    return () => window.removeEventListener('keydown', handleDebugHotkeys);
+  }, [debugActive, handleDebugStepForward, handleDebugContinue, handleDebugStepBack, handleStopDebug]);
+
   const handleClearRun = () => {
+    clearDebugSession(false);
     publishRunState({
       status: 'idle',
       output: '',
@@ -15092,7 +15974,10 @@ const CollabSection = ({
       setStatus('disconnected');
       setPeerCount(0);
       collabDocRef.current = null;
+      collabAwarenessRef.current = null;
       runMapRef.current = null;
+      setTypingUsers([]);
+      clearDebugSession(false);
       updateRunStateFromMap(null);
       return;
     }
@@ -15101,17 +15986,20 @@ const CollabSection = ({
     const doc = new Y.Doc();
     collabDocRef.current = doc;
     const provider = new WebsocketProvider(wsUrl, roomId, doc);
+    collabAwarenessRef.current = provider.awareness;
     const model = editorRef.current?.getModel?.();
     if (!model) {
       provider.destroy();
       doc.destroy();
       collabDocRef.current = null;
+      collabAwarenessRef.current = null;
       return;
     }
 
     const ytext = doc.getText('monaco');
     const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]), provider.awareness);
     provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
+    provider.awareness.setLocalStateField('typing', null);
 
     const runMap = doc.getMap('collabRun');
     runMapRef.current = runMap;
@@ -15123,26 +16011,57 @@ const CollabSection = ({
       if (event?.status) setStatus(event.status);
     };
     const handleAwareness = () => {
-      const total = provider.awareness.getStates().size;
+      const states = provider.awareness.getStates();
+      const total = states.size;
       setPeerCount(Math.max(0, total - 1));
+      const now = Date.now();
+      const nextTypingUsers = [];
+      states.forEach((state, clientId) => {
+        if (clientId === provider.awareness.clientID) return;
+        const typing = state?.typing;
+        if (!typing?.active) return;
+        const ts = Number(typing.ts) || 0;
+        if (!ts || (now - ts) > COLLAB_TYPING_STALE_MS) return;
+        const user = state?.user;
+        const name = typeof user?.name === 'string' && user.name.trim() ? user.name.trim() : 'Участник';
+        nextTypingUsers.push(name);
+      });
+      setTypingUsers([...new Set(nextTypingUsers)].slice(0, 2));
     };
+
+    const typingDisposable = editorRef.current?.onDidType?.(() => {
+      signalTyping();
+    });
+    const pasteDisposable = editorRef.current?.onDidPaste?.(() => {
+      signalTyping();
+    });
 
     provider.on('status', handleStatus);
     provider.awareness.on('change', handleAwareness);
     handleAwareness();
 
     return () => {
+      typingDisposable?.dispose?.();
+      pasteDisposable?.dispose?.();
+      if (typingIdleTimerRef.current) {
+        clearTimeout(typingIdleTimerRef.current);
+        typingIdleTimerRef.current = null;
+      }
       provider.awareness.off('change', handleAwareness);
       provider.off('status', handleStatus);
+      provider.awareness.setLocalStateField('typing', null);
       runMap.unobserve(handleRunMapChange);
       binding.destroy();
       provider.destroy();
       doc.destroy();
+      setTypingUsers([]);
       runMapRef.current = null;
       collabDocRef.current = null;
+      collabAwarenessRef.current = null;
+      clearDebugSession(false);
       updateRunStateFromMap(null);
     };
-  }, [roomId, editorReady, wsUrl, localName, localColor]);
+  }, [roomId, editorReady, wsUrl, localName, localColor, signalTyping, clearDebugSession]);
 
   const statusLabel = status === 'connected'
     ? 'Подключено'
@@ -15154,8 +16073,12 @@ const CollabSection = ({
   const renderStudentPicker = () => {
     if (!isTeacher) return null;
     return (
-      <div className="inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-purple-100/40">
-        <span className="text-[11px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
+      <div className={`inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 shadow-sm shadow-purple-100/40 ${
+        isCollabFullscreen ? 'px-2.5 py-1.5' : 'px-3 py-2'
+      }`}>
+        <span className={`font-semibold uppercase tracking-widest text-purple-500 ${
+          isCollabFullscreen ? 'text-[10px]' : 'text-[11px]'
+        }`}>Ученик</span>
         <select
           value={activeStudentId || ''}
           onChange={(e) => {
@@ -15163,7 +16086,9 @@ const CollabSection = ({
             onSelectStudent?.(value || null);
           }}
           disabled={studentsLoading || (students || []).length === 0}
-          className="w-full min-w-0 sm:min-w-[180px] rounded-xl border border-purple-100 bg-white px-3 py-1.5 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
+          className={`w-full min-w-0 rounded-xl border border-purple-100 bg-white text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70 ${
+            isCollabFullscreen ? 'sm:min-w-[170px] px-2.5 py-1 text-[13px]' : 'sm:min-w-[180px] px-3 py-1.5 text-sm'
+          }`}
         >
           <option value="" disabled>Выберите ученика</option>
           {(students || []).map((student) => (
@@ -15337,6 +16262,15 @@ const CollabSection = ({
               Онлайн: {peerCount}
             </span>
           )}
+          {typingUsers.length > 0 && (
+            <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${
+              isCollabFullscreen
+                ? 'border-violet-400/60 bg-violet-500/20 text-violet-100'
+                : 'border-violet-200 bg-violet-50 text-violet-700'
+            }`}>
+              {`Печатает: ${typingUsers.join(', ')}`}
+            </span>
+          )}
         </div>
       </div>
 
@@ -15362,7 +16296,7 @@ const CollabSection = ({
                 : 'Не выбрана'}
             </div>
           </div>
-          <div className="flex items-center gap-2 md:justify-end">
+          <div className="flex flex-wrap items-center gap-2 md:justify-end">
             <span className={`text-[11px] font-semibold ${collabHintClass}`}>Aa</span>
             <div className={`inline-flex items-center gap-1 rounded-lg border px-1.5 py-0.5 ${collabControlBorder}`}>
               <button
@@ -15385,6 +16319,18 @@ const CollabSection = ({
                 A+
               </button>
             </div>
+            <button
+              type="button"
+              onClick={handleFormatCode}
+              disabled={!roomId}
+              className={`inline-flex items-center rounded-lg border px-2 py-1 text-[11px] font-semibold transition ${
+                isCollabFullscreen
+                  ? 'border-slate-700 bg-slate-900/70 text-slate-200 hover:bg-slate-800 disabled:opacity-50'
+                  : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50'
+              }`}
+            >
+              Автоформат
+            </button>
           </div>
         </div>
 
@@ -15434,12 +16380,28 @@ const CollabSection = ({
               </div>
               <div className="flex items-center gap-2">
                 <Button
-                  onClick={handleRunCode}
+                  onClick={() => handleRunCode('all')}
                   disabled={runLoading || !roomId}
                   className="flex items-center gap-2"
                 >
                   <PlayCircle size={16} />
                   {runLoading ? 'Запуск...' : 'Запустить'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => handleRunCode('selection')}
+                  disabled={runLoading || !roomId}
+                >
+                  Выделение
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => handleRunCode('all', true)}
+                  disabled={runLoading || !roomId}
+                  className={`flex items-center gap-2 ${debugActive ? 'ring-2 ring-violet-300/70' : ''}`}
+                >
+                  <AlertCircle size={14} />
+                  Дебаг
                 </Button>
                 <button
                   type="button"
@@ -15458,7 +16420,7 @@ const CollabSection = ({
                 <Button
                   variant="secondary"
                   onClick={handleClearRun}
-                  disabled={!runOutput && !runError && runStatus === 'idle' && !lastRunInput}
+                  disabled={!runOutput && !runError && runStatus === 'idle' && !lastRunInput && !debugActive}
                 >
                   Очистить
                 </Button>
@@ -15498,6 +16460,92 @@ const CollabSection = ({
                 <div className="text-slate-400">Здесь появится вывод программы.</div>
               )}
             </div>
+
+            {debugActive && (
+              <div className={`rounded-2xl border p-3 text-xs ${
+                isCollabFullscreen
+                  ? 'border-violet-500/40 bg-slate-900/80 text-slate-100'
+                  : 'border-violet-200 bg-violet-50/70 text-slate-800'
+              }`}>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-widest text-violet-400">Пошаговый дебаг</div>
+                    <div className="mt-1 text-[12px]">
+                      {`Шаг ${Math.max(0, debugStepIndex + 1)} из ${debugTrace.length}`}
+                      {debugTraceTruncated ? ' • Трасса ограничена по размеру' : ''}
+                    </div>
+                    <div className="mt-1 text-[10px] text-slate-400">F10 шаг • F8 продолжить • F7 назад • Esc выйти • точка останова: клик по номеру строки</div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      onClick={handleDebugStepBack}
+                      disabled={debugPlaying || debugStepIndex <= 0}
+                    >
+                      ← Назад
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={handleDebugStepForward}
+                      disabled={debugPlaying || debugStepIndex >= debugTrace.length - 1}
+                    >
+                      Шаг →
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={handleDebugContinue}
+                      disabled={debugPlaying || debugStepIndex >= debugTrace.length - 1}
+                    >
+                      {debugPlaying ? 'Идёт...' : 'Продолжить'}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={handleStopDebug}
+                    >
+                      Выйти
+                    </Button>
+                  </div>
+                </div>
+
+                {currentDebugStep && (
+                  <div className={`mt-3 rounded-xl border p-2 ${
+                    isCollabFullscreen
+                      ? 'border-slate-700/80 bg-slate-950/80'
+                      : 'border-violet-200/80 bg-white'
+                  }`}>
+                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                      <span className="font-semibold text-violet-400">{`Строка ${currentDebugStep.line || '?'}`}</span>
+                      <span className={isCollabFullscreen ? 'text-slate-400' : 'text-slate-500'}>{`Событие: ${currentDebugStep.event || 'line'}`}</span>
+                      <span className={isCollabFullscreen ? 'text-slate-400' : 'text-slate-500'}>{`Функция: ${currentDebugStep.func || '<module>'}`}</span>
+                    </div>
+                    {currentDebugLineText && (
+                      <pre className={`mt-2 whitespace-pre-wrap break-words rounded-lg px-2 py-1 text-[11px] ${
+                        isCollabFullscreen ? 'bg-slate-900 text-cyan-200' : 'bg-slate-950 text-cyan-100'
+                      }`}>{currentDebugLineText}</pre>
+                    )}
+                    {currentDebugStep.exception && (
+                      <div className="mt-2 text-[11px] text-rose-400">{currentDebugStep.exception}</div>
+                    )}
+                    <div className="mt-2 text-[10px] uppercase tracking-widest text-slate-400">Локальные переменные</div>
+                    {currentDebugLocals.length > 0 ? (
+                      <div className="mt-1 max-h-44 overflow-auto space-y-1 pr-1">
+                        {currentDebugLocals.map((local, idx) => (
+                          <div key={`${local.name}-${idx}`} className={`rounded-lg px-2 py-1 text-[11px] font-mono ${
+                            isCollabFullscreen ? 'bg-slate-900/80 text-slate-200' : 'bg-slate-100 text-slate-700'
+                          }`}>
+                            <span className="text-violet-400">{local.name || '?'}</span>
+                            {local.type ? <span className="ml-1 text-slate-400">{`(${local.type})`}</span> : null}
+                            <span className="ml-2">{local.value || '—'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-[11px] text-slate-400">Нет локальных переменных на этом шаге.</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </Card>
@@ -15550,6 +16598,7 @@ const BoardSection = ({
   const [summonNotice, setSummonNotice] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [shareMyCursor, setShareMyCursor] = useState(true);
+  const [lowBandwidthMode, setLowBandwidthMode] = useState(false);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saveTaskNumber, setSaveTaskNumber] = useState(() => String(taskOptions[0]?.number || ''));
   const [saveCategory, setSaveCategory] = useState('class');
@@ -15578,6 +16627,8 @@ const BoardSection = ({
   const previewRafRef = useRef(null);
   const cursorRafRef = useRef(null);
   const pendingCursorRef = useRef(null);
+  const lastCursorSyncAtRef = useRef(0);
+  const lastPreviewSyncAtRef = useRef(0);
   const imageDragRafRef = useRef(null);
   const pendingImageMoveRef = useRef(null);
   const renderRef = useRef(null);
@@ -15608,6 +16659,10 @@ const BoardSection = ({
   );
   const cursorVisibilityStorageKey = useMemo(
     () => `board-share-cursor-${userId || role || 'anon'}`,
+    [userId, role]
+  );
+  const lowBandwidthStorageKey = useMemo(
+    () => `board-low-bandwidth-${userId || role || 'anon'}`,
     [userId, role]
   );
 
@@ -15670,6 +16725,16 @@ const BoardSection = ({
       cursorRafRef.current = null;
       if (!awarenessRef.current || !roomId) return;
       const nextPoint = pendingCursorRef.current;
+      const canThrottle = Boolean(nextPoint);
+      const now = Date.now();
+      if (
+        lowBandwidthMode
+        && canThrottle
+        && (now - lastCursorSyncAtRef.current) < BOARD_LOW_BANDWIDTH_CURSOR_MS
+      ) {
+        return;
+      }
+      lastCursorSyncAtRef.current = now;
       pendingCursorRef.current = null;
       if (
         nextPoint
@@ -15684,7 +16749,7 @@ const BoardSection = ({
       }
       awarenessRef.current.setLocalStateField('cursor', null);
     });
-  }, [roomId, shareMyCursor]);
+  }, [roomId, shareMyCursor, lowBandwidthMode]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -15700,6 +16765,21 @@ const BoardSection = ({
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(cursorVisibilityStorageKey, shareMyCursor ? '1' : '0');
   }, [cursorVisibilityStorageKey, shareMyCursor]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = window.localStorage.getItem(lowBandwidthStorageKey);
+    if (raw == null) {
+      setLowBandwidthMode(false);
+      return;
+    }
+    setLowBandwidthMode(raw === '1');
+  }, [lowBandwidthStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(lowBandwidthStorageKey, lowBandwidthMode ? '1' : '0');
+  }, [lowBandwidthStorageKey, lowBandwidthMode]);
 
   useEffect(() => {
     if (!awarenessRef.current || !roomId) return;
@@ -16870,14 +17950,30 @@ const BoardSection = ({
       const state = drawStateRef.current;
       if (!state.drawing) {
         awarenessRef.current?.setLocalStateField('drawing', null);
+        lastPreviewSyncAtRef.current = 0;
         return;
       }
+      const now = Date.now();
+      if (
+        lowBandwidthMode
+        && (now - lastPreviewSyncAtRef.current) < BOARD_LOW_BANDWIDTH_PREVIEW_MS
+      ) {
+        return;
+      }
+      lastPreviewSyncAtRef.current = now;
       if (tool === 'pen') {
+        const sourcePoints = Array.isArray(state.points) ? state.points : [];
+        const points = lowBandwidthMode && sourcePoints.length > 8
+          ? sourcePoints.filter((_, index) => (
+            index === sourcePoints.length - 1
+            || index % BOARD_LOW_BANDWIDTH_POINT_STEP === 0
+          ))
+          : sourcePoints;
         awarenessRef.current?.setLocalStateField('drawing', {
           type: 'stroke',
           color,
           width: penWidth,
-          points: state.points,
+          points,
         });
       } else if (tool === 'line') {
         awarenessRef.current?.setLocalStateField('drawing', {
@@ -17334,13 +18430,18 @@ const BoardSection = ({
         && cursor.top <= boardSize.height + 40
       ));
   }, [remoteCursors, zoom, offset, boardSize.width, boardSize.height]);
+  const sessionTitle = roomId
+    ? (isTeacher
+      ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
+      : 'Учитель + ученик')
+    : 'Не выбрана';
   const statusLabel = status === 'connected'
     ? 'Подключено'
     : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено');
   const statusClass = status === 'connected'
     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
     : 'border-amber-200 bg-amber-50 text-amber-700';
-  const boardCanvasHeight = isFullscreen ? 'calc(100vh - 240px)' : '62vh';
+  const boardCanvasHeight = isFullscreen ? 'calc(100vh - 200px)' : '62vh';
   const activeWidth = tool === 'line' ? lineWidth : penWidth;
   const widthTargetLabel = tool === 'line' ? 'Линия' : 'Карандаш';
   const showWidthControls = tool === 'pen' || tool === 'line';
@@ -17503,20 +18604,22 @@ const BoardSection = ({
   ) : null;
 
   return (
-    <div ref={boardRootRef} className="animate-fadeIn pb-10">
-      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div ref={boardRootRef} className={isFullscreen ? 'animate-fadeIn pb-2' : 'animate-fadeIn pb-10'}>
+      <div className={`flex flex-col md:flex-row md:items-center md:justify-between ${
+        isFullscreen ? 'mb-2 gap-2' : 'mb-6 gap-3'
+      }`}>
         <div>
-          <h2 className={`text-2xl font-bold flex items-center gap-2 ${isFullscreen ? 'text-white' : 'text-gray-900'}`}>
+          <h2 className={`font-bold flex items-center gap-2 ${isFullscreen ? 'text-white text-xl' : 'text-gray-900 text-2xl'}`}>
             <Brush className={isFullscreen ? 'text-purple-300' : 'text-purple-600'} />
             Онлайн-доска
           </h2>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className={`flex flex-wrap items-center ${isFullscreen ? 'gap-1.5' : 'gap-2'}`}>
           {renderStudentPicker()}
           <Button
             variant="secondary"
             onClick={() => setSaveModalOpen(true)}
-            className="flex items-center gap-2"
+            className={`flex items-center gap-2 ${isFullscreen ? 'h-9 px-3 py-1.5 text-xs' : ''}`}
             disabled={!roomId}
           >
             <Save size={16} />
@@ -17527,16 +18630,22 @@ const BoardSection = ({
               type="button"
               onClick={handleSummonStudent}
               disabled={!roomId}
-              className="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-white px-3 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-50 disabled:opacity-60"
+              className={`inline-flex items-center gap-2 rounded-full border border-purple-200 bg-white font-semibold text-purple-700 hover:bg-purple-50 disabled:opacity-60 ${
+                isFullscreen ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
+              }`}
             >
               Призвать ко мне
             </button>
           )}
-          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusClass}`}>
+          <span className={`inline-flex items-center rounded-full border font-semibold ${statusClass} ${
+            isFullscreen ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
+          }`}>
             {statusLabel}
           </span>
           {roomId && (
-            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+            <span className={`inline-flex items-center rounded-full border border-slate-200 bg-white font-semibold text-slate-600 ${
+              isFullscreen ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
+            }`}>
               Онлайн: {peerCount}
             </span>
           )}
@@ -17553,24 +18662,26 @@ const BoardSection = ({
         </div>
       )}
 
-      <Card className="p-4 md:p-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сессия</div>
-            <div className="text-sm font-semibold text-gray-800">
-              {roomId
-                ? (isTeacher
-                  ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
-                  : 'Учитель + ученик')
-                : 'Не выбрана'}
+      <Card className={isFullscreen ? 'p-3 md:p-3.5' : 'p-4 md:p-6'}>
+        {!isFullscreen && (
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сессия</div>
+              <div className="text-sm font-semibold text-gray-800">{sessionTitle}</div>
+            </div>
+            <div className="text-xs text-gray-500">
+              Вставка картинки: Ctrl+V. Лимит 10 МБ. Панорамирование: удерживайте Space и тяните.
             </div>
           </div>
-          <div className="text-xs text-gray-500">
-            Вставка картинки: Ctrl+V. Лимит 10 МБ. Панорамирование: удерживайте Space и тяните.
-          </div>
-        </div>
+        )}
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
+        {isFullscreen && (
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            {sessionTitle}
+          </div>
+        )}
+
+        <div className={`flex flex-wrap items-center ${isFullscreen ? 'mt-2 gap-1.5' : 'mt-4 gap-2'}`}>
           <button
             type="button"
             onClick={() => setTool('pen')}
@@ -17724,6 +18835,20 @@ const BoardSection = ({
                       Показывать мой курсор
                     </label>
                   </div>
+                  <div className="border-t border-gray-100 pt-3">
+                    <label className="flex items-center gap-2 text-xs text-gray-600">
+                      <input
+                        type="checkbox"
+                        checked={lowBandwidthMode}
+                        onChange={(event) => setLowBandwidthMode(event.target.checked)}
+                        className="h-4 w-4 accent-purple-600"
+                      />
+                      Режим слабого интернета
+                    </label>
+                    <div className="mt-1 text-[11px] text-gray-400">
+                      Реже отправляет курсор и превью линий, чтобы снизить трафик.
+                    </div>
+                  </div>
                   {tool === 'move' && selectedImage && (
                     <div className="border-t border-gray-100 pt-3">
                       <div className="text-[11px] uppercase tracking-wide text-gray-500">Изображение</div>
@@ -17872,7 +18997,9 @@ const BoardSection = ({
           </div>
         </div>
       </Card>
-      {typeof document !== 'undefined' ? createPortal(saveModal, document.body) : null}
+      {isFullscreen
+        ? saveModal
+        : (typeof document !== 'undefined' ? createPortal(saveModal, document.body) : null)}
     </div>
   );
 };

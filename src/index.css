@@ -115,6 +115,49 @@
   box-sizing: border-box;
 }
 
+.monaco-editor .collab-debug-active-line {
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.18), rgba(56, 189, 248, 0.06));
+  border-left: 2px solid rgba(56, 189, 248, 0.92);
+  box-sizing: border-box;
+}
+
+.monaco-editor .margin .collab-debug-breakpoint-glyph {
+  background: radial-gradient(circle at 35% 35%, #fecdd3 0%, #f43f5e 38%, #be123c 100%);
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35), 0 0 10px rgba(244, 63, 94, 0.55);
+  width: 10px !important;
+  height: 10px !important;
+  margin-left: 5px;
+  margin-top: 5px;
+}
+
+.monaco-editor .margin .collab-debug-active-glyph {
+  background: radial-gradient(circle at 35% 35%, #e0f2fe 0%, #22d3ee 45%, #0ea5e9 100%);
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4), 0 0 12px rgba(14, 165, 233, 0.7);
+  width: 10px !important;
+  height: 10px !important;
+  margin-left: 5px;
+  margin-top: 5px;
+}
+
+.monaco-editor .collab-debug-inline-hint {
+  color: rgba(148, 163, 184, 0.88) !important;
+  font-style: italic;
+  font-size: 0.92em;
+  letter-spacing: 0.01em;
+  opacity: 0.95;
+}
+
+.monaco-editor .inline-inlay-hint,
+.monaco-editor .inline-hints .inline-hint,
+.monaco-editor .editorInlayHint {
+  color: rgba(148, 163, 184, 0.92) !important;
+  font-style: italic;
+  background: transparent !important;
+  border: none !important;
+}
+
 @layer components {
   .app-shell {
     background:
