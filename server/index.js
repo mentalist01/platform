@@ -5184,22 +5184,302 @@ const pushSweepStartTimer = setTimeout(startPushReminderSweep, PUSH_SWEEP_START_
 if (typeof pushSweepStartTimer.unref === 'function') pushSweepStartTimer.unref();
 
 const server = createServer(app);
-const wss = new WebSocketServer({ noServer: true });
+const collabWss = new WebSocketServer({ noServer: true });
+const rtcWss = new WebSocketServer({ noServer: true });
+const WS_OPEN_STATE = 1;
+const RTC_SIGNAL_MAX_MESSAGE_BYTES = 64 * 1024;
+const rtcRooms = new Map();
+const rtcClientsBySocket = new Map();
 
-server.on('upgrade', (request, socket, head) => {
-  const url = typeof request?.url === 'string' ? request.url : '';
-  if (!url.startsWith('/collab')) {
-    socket.destroy();
+const getUpgradePathname = (requestUrl) => {
+  const url = typeof requestUrl === 'string' ? requestUrl : '';
+  try {
+    return new URL(url, 'http://localhost').pathname;
+  } catch {
+    return '';
+  }
+};
+
+const rejectUpgrade = (socket, status = 400, message = 'Bad Request') => {
+  try {
+    socket.write(`HTTP/1.1 ${status} ${message}\r\nConnection: close\r\n\r\n`);
+  } catch {}
+  socket.destroy();
+};
+
+const sendRtcPayload = (ws, payload) => {
+  if (!ws || ws.readyState !== WS_OPEN_STATE) return;
+  try {
+    ws.send(JSON.stringify(payload));
+  } catch {}
+};
+
+const normalizeRtcRoomPart = (value) => {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized || normalized.length > 120) return '';
+  if (!/^[a-zA-Z0-9:_-]+$/.test(normalized)) return '';
+  return normalized;
+};
+
+const parseRtcRoomId = (value) => {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) return null;
+  const parts = normalized.split(':');
+  if (parts.length !== 3 || parts[0] !== 'rtc') return null;
+  const teacherId = normalizeRtcRoomPart(parts[1]);
+  const studentId = normalizeRtcRoomPart(parts[2]);
+  if (!teacherId || !studentId) return null;
+  return {
+    roomId: `rtc:${teacherId}:${studentId}`,
+    teacherId,
+    studentId,
+  };
+};
+
+const getRtcRoomAccessError = (auth, roomMeta) => {
+  if (!auth || !roomMeta) return 'Требуется авторизация';
+  const { teacherId, studentId } = roomMeta;
+  const student = findStudentById(studentId);
+  if (!student) return 'Ученик не найден';
+  if (!student.teacherId || student.teacherId !== teacherId) return 'Некорректная комната созвона';
+
+  if (isAdminRole(auth)) return '';
+  if (isTeacherRole(auth)) {
+    if (auth.id !== teacherId) return 'Недостаточно прав для этой комнаты';
+    return '';
+  }
+  if (isStudentRole(auth)) {
+    if (auth.id !== studentId) return 'Недостаточно прав для этой комнаты';
+    if (!auth.teacherId || auth.teacherId !== teacherId) return 'Недостаточно прав для этой комнаты';
+    return '';
+  }
+  return 'Недостаточно прав';
+};
+
+const serializeRtcPeer = (client) => ({
+  id: client.clientId,
+  userId: client.auth.id,
+  name: client.auth.name,
+  role: client.auth.role,
+});
+
+const broadcastRtcToRoom = (roomId, payload, excludeClientId = '') => {
+  const room = rtcRooms.get(roomId);
+  if (!room || room.size === 0) return;
+  room.forEach((peerClient, peerId) => {
+    if (excludeClientId && peerId === excludeClientId) return;
+    sendRtcPayload(peerClient.ws, payload);
+  });
+};
+
+const leaveRtcRoom = (client) => {
+  if (!client || !client.roomId) return;
+  const roomId = client.roomId;
+  const room = rtcRooms.get(roomId);
+  client.roomId = '';
+  if (!room) return;
+  room.delete(client.clientId);
+  if (room.size === 0) {
+    rtcRooms.delete(roomId);
+    return;
+  }
+  broadcastRtcToRoom(roomId, {
+    type: 'peer-left',
+    roomId,
+    peerId: client.clientId,
+  }, client.clientId);
+};
+
+const joinRtcRoom = (client, roomMeta) => {
+  if (!client || !roomMeta) return;
+  const { roomId } = roomMeta;
+  if (client.roomId && client.roomId !== roomId) {
+    leaveRtcRoom(client);
+  }
+
+  let room = rtcRooms.get(roomId);
+  if (!room) {
+    room = new Map();
+    rtcRooms.set(roomId, room);
+  }
+
+  const peers = Array.from(room.values())
+    .filter((entry) => entry.clientId !== client.clientId)
+    .map((entry) => serializeRtcPeer(entry));
+
+  room.set(client.clientId, client);
+  client.roomId = roomId;
+
+  sendRtcPayload(client.ws, {
+    type: 'joined',
+    roomId,
+    selfId: client.clientId,
+    peers,
+  });
+
+  broadcastRtcToRoom(roomId, {
+    type: 'peer-joined',
+    roomId,
+    peer: serializeRtcPeer(client),
+  }, client.clientId);
+};
+
+const handleRtcMessage = (client, rawData, isBinary) => {
+  if (!client) return;
+  if (isBinary) return;
+  const dataText = typeof rawData === 'string'
+    ? rawData
+    : Buffer.isBuffer(rawData)
+      ? rawData.toString('utf8')
+      : String(rawData ?? '');
+  if (!dataText) return;
+
+  if (Buffer.byteLength(dataText, 'utf8') > RTC_SIGNAL_MAX_MESSAGE_BYTES) {
+    sendRtcPayload(client.ws, { type: 'error', error: 'Слишком большое сообщение' });
+    try {
+      client.ws.close(1009, 'Message too large');
+    } catch {}
     return;
   }
 
-  wss.handleUpgrade(request, socket, head, (ws) => {
-    wss.emit('connection', ws, request);
-  });
+  let payload = null;
+  try {
+    payload = JSON.parse(dataText);
+  } catch {
+    sendRtcPayload(client.ws, { type: 'error', error: 'Некорректный формат сообщения' });
+    return;
+  }
+
+  const type = typeof payload?.type === 'string' ? payload.type.trim() : '';
+  if (!type) return;
+
+  if (type === 'join') {
+    const roomMeta = parseRtcRoomId(payload?.roomId);
+    if (!roomMeta) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'Некорректная комната' });
+      return;
+    }
+    const accessError = getRtcRoomAccessError(client.auth, roomMeta);
+    if (accessError) {
+      sendRtcPayload(client.ws, { type: 'error', error: accessError });
+      return;
+    }
+    joinRtcRoom(client, roomMeta);
+    return;
+  }
+
+  if (type === 'leave') {
+    leaveRtcRoom(client);
+    sendRtcPayload(client.ws, { type: 'left' });
+    return;
+  }
+
+  if (type === 'signal') {
+    if (!client.roomId) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'Сначала подключитесь к комнате' });
+      return;
+    }
+    const room = rtcRooms.get(client.roomId);
+    if (!room) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'Комната не найдена' });
+      return;
+    }
+    const targetId = typeof payload?.targetId === 'string' ? payload.targetId.trim() : '';
+    const signal = payload?.signal && typeof payload.signal === 'object' ? payload.signal : null;
+    if (!targetId || !signal) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'Некорректный сигнал' });
+      return;
+    }
+    const targetClient = room.get(targetId);
+    if (!targetClient) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'Собеседник недоступен' });
+      return;
+    }
+    sendRtcPayload(targetClient.ws, {
+      type: 'signal',
+      roomId: client.roomId,
+      fromId: client.clientId,
+      peer: serializeRtcPeer(client),
+      signal,
+    });
+    return;
+  }
+
+  if (type === 'ping') {
+    sendRtcPayload(client.ws, { type: 'pong' });
+  }
+};
+
+server.on('upgrade', (request, socket, head) => {
+  const pathname = getUpgradePathname(request?.url);
+  if (pathname === '/collab') {
+    collabWss.handleUpgrade(request, socket, head, (ws) => {
+      collabWss.emit('connection', ws, request);
+    });
+    return;
+  }
+
+  if (pathname === '/rtc') {
+    const token = getAuthTokenFromRequest(request);
+    const session = getAuthSession(token);
+    if (!session?.user) {
+      rejectUpgrade(socket, 401, 'Unauthorized');
+      return;
+    }
+
+    rtcWss.handleUpgrade(request, socket, head, (ws) => {
+      rtcWss.emit('connection', ws, request, session.user);
+    });
+    return;
+  }
+
+  socket.destroy();
 });
 
-wss.on('connection', (ws, request) => {
+collabWss.on('connection', (ws, request) => {
   setupWSConnection(ws, request);
+});
+
+rtcWss.on('connection', (ws, _request, user) => {
+  const auth = buildSessionUser(user);
+  if (!auth) {
+    try {
+      ws.close(1008, 'Unauthorized');
+    } catch {}
+    return;
+  }
+
+  const client = {
+    clientId: crypto.randomUUID(),
+    ws,
+    auth,
+    roomId: '',
+  };
+  rtcClientsBySocket.set(ws, client);
+
+  sendRtcPayload(ws, {
+    type: 'ready',
+    clientId: client.clientId,
+    user: {
+      id: auth.id,
+      name: auth.name,
+      role: auth.role,
+    },
+  });
+
+  ws.on('message', (rawData, isBinary) => {
+    handleRtcMessage(client, rawData, isBinary);
+  });
+
+  ws.on('close', () => {
+    leaveRtcRoom(client);
+    rtcClientsBySocket.delete(ws);
+  });
+
+  ws.on('error', () => {
+    leaveRtcRoom(client);
+    rtcClientsBySocket.delete(ws);
+  });
 });
 
 server.listen(PORT, () => {

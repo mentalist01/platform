@@ -28,6 +28,7 @@ import leagueDiamond from './assets/leagues/diamond.png';
 import leagueAbsolute from './assets/leagues/absolute.png';
 import leagueCelestial from './assets/leagues/celestial.png';
 import AdminPanel from './components/AdminPanel';
+import CallSection from './components/CallSection';
 import ImageViewer from './components/ImageViewer';
 import LoginPage from './components/LoginPage';
 import NotesSection from './components/NotesSection';
@@ -6470,8 +6471,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const allowedViews = user.role === 'admin'
     ? ['admin']
     : user.role === 'teacher'
-      ? ['schedule', 'progress', 'python', 'rating', 'collab', 'board', 'teacher', 'notes']
-      : ['schedule', 'progress', 'python', 'rating', 'collab', 'board', 'notes'];
+      ? ['schedule', 'progress', 'python', 'rating', 'collab', 'call', 'board', 'teacher', 'notes']
+      : ['schedule', 'progress', 'python', 'rating', 'collab', 'call', 'board', 'notes'];
   const defaultView = user.role === 'teacher' ? 'teacher' : (user.role === 'admin' ? 'admin' : 'progress');
   const storedLocation = readUserLocation(user);
   const storedView = storedLocation?.view;
@@ -6627,6 +6628,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
         { id: 'rating', label: 'Рейтинг', icon: Trophy },
         { id: 'collab', label: 'Совместный код', icon: Code2 },
+        { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
         { id: 'board', label: 'Доска', icon: Brush },
         { id: 'teacher', label: 'Управление тестами', icon: Settings },
         { id: 'notes', label: 'Конспекты', icon: Folder }
@@ -6637,6 +6639,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
         { id: 'rating', label: 'Рейтинг', icon: Trophy },
         { id: 'collab', label: 'Совместный код', icon: Code2 },
+        { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
         { id: 'board', label: 'Доска', icon: Brush },
         { id: 'notes', label: 'Конспекты', icon: BookOpen }
       ];
@@ -6646,6 +6649,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     rating: 'Рейтинг',
     python: 'Python',
     collab: 'Код',
+    call: '\u0417\u0432\u043e\u043d\u043e\u043a',
     board: 'Доска',
     teacher: 'Управ.',
     notes: 'Консп.',
@@ -9281,6 +9285,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               userName={user.name}
               teacherId={user.role === 'teacher' ? user.id : user.teacherId}
               tasks={tasksWithTitles}
+              students={studentsWithNicknames}
+              activeStudentId={activeStudentId}
+              onSelectStudent={setActiveStudentId}
+              studentsLoading={studentsLoading}
+            />
+          )}
+          {view === 'call' && (
+            <CallSection
+              role={user.role}
+              userId={user.id}
+              teacherId={user.role === 'teacher' ? user.id : user.teacherId}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}

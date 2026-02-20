@@ -12,6 +12,10 @@ export default defineConfig({
         target: 'http://localhost:5175',
         ws: true,
       },
+      '/rtc': {
+        target: 'http://localhost:5175',
+        ws: true,
+      },
     },
   },
   preview: {
@@ -19,6 +23,10 @@ export default defineConfig({
       '/api': 'http://localhost:5175',
       '/uploads': 'http://localhost:5175',
       '/collab': {
+        target: 'http://localhost:5175',
+        ws: true,
+      },
+      '/rtc': {
         target: 'http://localhost:5175',
         ws: true,
       },
