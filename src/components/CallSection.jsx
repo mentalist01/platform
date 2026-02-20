@@ -1968,10 +1968,6 @@ const CallSection = ({
       setPresencePeers([]);
       return undefined;
     }
-    if (status === 'connected' || status === 'connecting') {
-      closePresenceSocket();
-      return undefined;
-    }
     if (!rtcWsUrl) return undefined;
 
     let disposed = false;
@@ -2095,7 +2091,7 @@ const CallSection = ({
       clearInterval(presencePollTimer);
       closePresenceSocket();
     };
-  }, [closePresenceSocket, mapPresenceParticipants, roomId, rtcWsUrl, status]);
+  }, [closePresenceSocket, mapPresenceParticipants, roomId, rtcWsUrl]);
 
   useEffect(() => {
     const previewNode = localScreenPreviewRef.current;
@@ -2246,17 +2242,23 @@ const CallSection = ({
         }
 
         const usedTrackIds = new Set();
+        const renderedVideoKinds = new Set();
+        let pushedRemoteVideoCount = 0;
         const pushRemoteVideoTrack = (track, kind, subtitle) => {
           if (!track || track.readyState !== 'live') return false;
+          const normalizedKind = kind === 'screen' ? 'screen' : 'camera';
           if (usedTrackIds.has(track.id)) return false;
+          if (renderedVideoKinds.has(normalizedKind)) return false;
           usedTrackIds.add(track.id);
+          renderedVideoKinds.add(normalizedKind);
+          pushedRemoteVideoCount += 1;
           participants.push({
-            id: `${peer.peerId}:${kind}:${track.id}`,
+            id: `${peer.peerId}:${normalizedKind}:${track.id}`,
             title: peer.title,
             subtitle,
             isSelf: false,
             hasVideo: true,
-            videoKind: kind,
+            videoKind: normalizedKind,
             stream: getStreamForVideoTrack(track),
             isSpeaking,
           });
@@ -2281,6 +2283,22 @@ const CallSection = ({
             !usedTrackIds.has(track.id) && inferVideoTrackKind(track) === 'camera'
           )) || liveVideoTracks.find((track) => !usedTrackIds.has(track.id));
           pushRemoteVideoTrack(inferredCameraTrack, 'camera', 'Камера');
+        }
+
+        if (hasExplicitMediaState) {
+          if (pushedRemoteVideoCount === 0) {
+            participants.push({
+              id: peer.peerId,
+              title: peer.title,
+              subtitle: peer.subtitle || '',
+              isSelf: false,
+              hasVideo: false,
+              videoKind: null,
+              stream: null,
+              isSpeaking,
+            });
+          }
+          return;
         }
 
         liveVideoTracks.forEach((track) => {
