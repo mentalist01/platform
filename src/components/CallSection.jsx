@@ -288,6 +288,22 @@ const MediaTile = ({ stream, title, subtitle, className = '', compact = false })
   );
 };
 
+const RemoteAudioPlayer = ({ stream }) => {
+  const audioRef = useRef(null);
+
+  useEffect(() => {
+    const audioNode = audioRef.current;
+    if (!audioNode) return undefined;
+    audioNode.srcObject = stream || null;
+    audioNode.play?.().catch(() => {});
+    return () => {
+      audioNode.srcObject = null;
+    };
+  }, [stream]);
+
+  return <audio ref={audioRef} autoPlay playsInline className="hidden" />;
+};
+
 const CallSection = ({
   role,
   userId,
@@ -1336,6 +1352,10 @@ const CallSection = ({
           )}
 
           <div className="mt-4 space-y-3">
+            {isConnected && remotePeers.map((peer) => (
+              <RemoteAudioPlayer key={`audio:${peer.peerId}`} stream={peer.stream || null} />
+            ))}
+
             {isConnected ? (
               <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 md:p-6">
                 <div className="flex flex-wrap items-center justify-center gap-5 md:gap-8">
