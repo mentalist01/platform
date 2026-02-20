@@ -1,4 +1,4 @@
-﻿import express from 'express';
+import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -3105,6 +3105,27 @@ app.use('/api', (req, res, next) => {
   return next();
 });
 
+app.get('/api/rtc/presence', (req, res) => {
+  const roomMeta = parseRtcRoomId(req.query?.roomId);
+  if (!roomMeta) {
+    return res.status(400).json({ error: 'Некорректная комната' });
+  }
+
+  const accessError = getRtcRoomAccessError(req.auth, roomMeta);
+  if (accessError) {
+    return res.status(403).json({ error: accessError });
+  }
+
+  const authUserId = typeof req.auth?.id === 'string' ? req.auth.id.trim() : '';
+  const participants = getRtcPresenceParticipantsForRoom(roomMeta.roomId, authUserId);
+
+  return res.json({
+    roomId: roomMeta.roomId,
+    participants,
+    count: participants.length,
+  });
+});
+
 app.get('/api/push/public-key', (req, res) => {
   if (!isStudentRole(req.auth)) return forbid(res);
   const student = findStudentById(req.auth.id);
@@ -5188,7 +5209,18 @@ const collabWss = new WebSocketServer({ noServer: true });
 const rtcWss = new WebSocketServer({ noServer: true });
 const WS_OPEN_STATE = 1;
 const RTC_SIGNAL_MAX_MESSAGE_BYTES = 64 * 1024;
+const RTC_CLIENT_STALE_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.RTC_CLIENT_STALE_TIMEOUT_MS);
+  if (Number.isFinite(raw) && raw >= 60 * 1000) return Math.round(raw);
+  return 8 * 60 * 1000;
+})();
+const RTC_CLIENT_SWEEP_INTERVAL_MS = (() => {
+  const raw = Number(process.env.RTC_CLIENT_SWEEP_INTERVAL_MS);
+  if (Number.isFinite(raw) && raw >= 10 * 1000) return Math.round(raw);
+  return 60 * 1000;
+})();
 const rtcRooms = new Map();
+const rtcPresenceWatchers = new Map();
 const rtcClientsBySocket = new Map();
 
 const getUpgradePathname = (requestUrl) => {
@@ -5261,7 +5293,27 @@ const serializeRtcPeer = (client) => ({
   userId: client.auth.id,
   name: client.auth.name,
   role: client.auth.role,
+  isScreenSharing: Boolean(client.isScreenSharing),
+  isCameraEnabled: Boolean(client.isCameraEnabled),
+  screenTrackId: typeof client.screenTrackId === 'string' ? client.screenTrackId : '',
+  cameraTrackId: typeof client.cameraTrackId === 'string' ? client.cameraTrackId : '',
+  callState: client.roomId ? 'in-call' : 'idle',
+  joinedAt: Number.isFinite(client.joinedAt) ? client.joinedAt : 0,
 });
+
+const getRtcPresenceParticipantsForRoom = (roomId, excludeUserId = '') => {
+  const room = rtcRooms.get(roomId);
+  if (!room || room.size === 0) return [];
+  const normalizedExcludeUserId = typeof excludeUserId === 'string' ? excludeUserId.trim() : '';
+  return Array.from(room.values())
+    .map((client) => serializeRtcPeer(client))
+    .filter((peer) => !normalizedExcludeUserId || peer.userId !== normalizedExcludeUserId)
+    .sort((left, right) => {
+      const leftName = String(left?.name || '');
+      const rightName = String(right?.name || '');
+      return leftName.localeCompare(rightName, 'ru');
+    });
+};
 
 const broadcastRtcToRoom = (roomId, payload, excludeClientId = '') => {
   const room = rtcRooms.get(roomId);
@@ -5272,15 +5324,73 @@ const broadcastRtcToRoom = (roomId, payload, excludeClientId = '') => {
   });
 };
 
+const leaveRtcPresenceWatch = (client) => {
+  if (!client || !client.watchedRoomId) return;
+  const roomId = client.watchedRoomId;
+  client.watchedRoomId = '';
+  const watchers = rtcPresenceWatchers.get(roomId);
+  if (!watchers) return;
+  watchers.delete(client.clientId);
+  if (watchers.size === 0) {
+    rtcPresenceWatchers.delete(roomId);
+  }
+};
+
+const sendRtcPresenceUpdateToClient = (client, roomId) => {
+  if (!client || !roomId) return;
+  const authUserId = typeof client.auth?.id === 'string' ? client.auth.id.trim() : '';
+  const participants = getRtcPresenceParticipantsForRoom(roomId, authUserId);
+  sendRtcPayload(client.ws, {
+    type: 'presence-update',
+    roomId,
+    participants,
+    count: participants.length,
+  });
+};
+
+const broadcastRtcPresenceUpdate = (roomId) => {
+  const watchers = rtcPresenceWatchers.get(roomId);
+  if (!watchers || watchers.size === 0) return;
+  watchers.forEach((watcherClient) => {
+    sendRtcPresenceUpdateToClient(watcherClient, roomId);
+  });
+};
+
+const watchRtcPresence = (client, roomMeta) => {
+  if (!client || !roomMeta) return;
+  const { roomId } = roomMeta;
+  if (client.watchedRoomId && client.watchedRoomId !== roomId) {
+    leaveRtcPresenceWatch(client);
+  }
+  let watchers = rtcPresenceWatchers.get(roomId);
+  if (!watchers) {
+    watchers = new Map();
+    rtcPresenceWatchers.set(roomId, watchers);
+  }
+  watchers.set(client.clientId, client);
+  client.watchedRoomId = roomId;
+  sendRtcPresenceUpdateToClient(client, roomId);
+};
+
 const leaveRtcRoom = (client) => {
   if (!client || !client.roomId) return;
   const roomId = client.roomId;
   const room = rtcRooms.get(roomId);
   client.roomId = '';
-  if (!room) return;
-  room.delete(client.clientId);
+  client.isScreenSharing = false;
+  client.isCameraEnabled = false;
+  client.screenTrackId = '';
+  client.cameraTrackId = '';
+  client.joinedAt = 0;
+  if (!room) {
+    broadcastRtcPresenceUpdate(roomId);
+    return;
+  }
+  const removed = room.delete(client.clientId);
+  if (!removed) return;
   if (room.size === 0) {
     rtcRooms.delete(roomId);
+    broadcastRtcPresenceUpdate(roomId);
     return;
   }
   broadcastRtcToRoom(roomId, {
@@ -5288,6 +5398,7 @@ const leaveRtcRoom = (client) => {
     roomId,
     peerId: client.clientId,
   }, client.clientId);
+  broadcastRtcPresenceUpdate(roomId);
 };
 
 const joinRtcRoom = (client, roomMeta) => {
@@ -5309,6 +5420,11 @@ const joinRtcRoom = (client, roomMeta) => {
 
   room.set(client.clientId, client);
   client.roomId = roomId;
+  client.isScreenSharing = false;
+  client.isCameraEnabled = false;
+  client.screenTrackId = '';
+  client.cameraTrackId = '';
+  client.joinedAt = Date.now();
 
   sendRtcPayload(client.ws, {
     type: 'joined',
@@ -5322,6 +5438,7 @@ const joinRtcRoom = (client, roomMeta) => {
     roomId,
     peer: serializeRtcPeer(client),
   }, client.clientId);
+  broadcastRtcPresenceUpdate(roomId);
 };
 
 const handleRtcMessage = (client, rawData, isBinary) => {
@@ -5352,6 +5469,28 @@ const handleRtcMessage = (client, rawData, isBinary) => {
 
   const type = typeof payload?.type === 'string' ? payload.type.trim() : '';
   if (!type) return;
+  client.lastHeartbeatAt = Date.now();
+
+  if (type === 'watch-presence') {
+    const roomMeta = parseRtcRoomId(payload?.roomId);
+    if (!roomMeta) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'Некорректная комната' });
+      return;
+    }
+    const accessError = getRtcRoomAccessError(client.auth, roomMeta);
+    if (accessError) {
+      sendRtcPayload(client.ws, { type: 'error', error: accessError });
+      return;
+    }
+    watchRtcPresence(client, roomMeta);
+    return;
+  }
+
+  if (type === 'unwatch-presence') {
+    leaveRtcPresenceWatch(client);
+    sendRtcPayload(client.ws, { type: 'presence-unwatched' });
+    return;
+  }
 
   if (type === 'join') {
     const roomMeta = parseRtcRoomId(payload?.roomId);
@@ -5364,6 +5503,7 @@ const handleRtcMessage = (client, rawData, isBinary) => {
       sendRtcPayload(client.ws, { type: 'error', error: accessError });
       return;
     }
+    leaveRtcPresenceWatch(client);
     joinRtcRoom(client, roomMeta);
     return;
   }
@@ -5405,10 +5545,82 @@ const handleRtcMessage = (client, rawData, isBinary) => {
     return;
   }
 
+  if (type === 'presence-state') {
+    if (!client.roomId) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'Сначала подключитесь к комнате' });
+      return;
+    }
+    const payloadRoomId = typeof payload?.roomId === 'string' ? payload.roomId.trim() : '';
+    if (payloadRoomId && payloadRoomId !== client.roomId) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'Некорректная комната' });
+      return;
+    }
+    const nextScreenSharing = Boolean(payload?.isScreenSharing);
+    const nextCameraEnabled = Boolean(payload?.isCameraEnabled);
+    const nextScreenTrackIdRaw = typeof payload?.screenTrackId === 'string' ? payload.screenTrackId.trim() : '';
+    const nextCameraTrackIdRaw = typeof payload?.cameraTrackId === 'string' ? payload.cameraTrackId.trim() : '';
+    const nextScreenTrackId = nextScreenSharing ? nextScreenTrackIdRaw : '';
+    const nextCameraTrackId = nextCameraEnabled ? nextCameraTrackIdRaw : '';
+    const hasPresenceChange = client.isScreenSharing !== nextScreenSharing
+      || client.isCameraEnabled !== nextCameraEnabled
+      || client.screenTrackId !== nextScreenTrackId
+      || client.cameraTrackId !== nextCameraTrackId;
+    if (hasPresenceChange) {
+      client.isScreenSharing = nextScreenSharing;
+      client.isCameraEnabled = nextCameraEnabled;
+      client.screenTrackId = nextScreenTrackId;
+      client.cameraTrackId = nextCameraTrackId;
+      broadcastRtcToRoom(client.roomId, {
+        type: 'peer-updated',
+        roomId: client.roomId,
+        peer: serializeRtcPeer(client),
+      }, client.clientId);
+      broadcastRtcPresenceUpdate(client.roomId);
+    }
+    return;
+  }
+
   if (type === 'ping') {
     sendRtcPayload(client.ws, { type: 'pong' });
   }
 };
+
+const cleanupRtcClient = (client, options = {}) => {
+  if (!client) return;
+  const { closeSocket = false, closeCode = 1000, closeReason = 'Normal Closure' } = options;
+  leaveRtcPresenceWatch(client);
+  leaveRtcRoom(client);
+  if (closeSocket && client.ws && client.ws.readyState === WS_OPEN_STATE) {
+    try {
+      client.ws.close(closeCode, closeReason);
+    } catch {}
+  }
+  rtcClientsBySocket.delete(client.ws);
+};
+
+const runRtcClientSweep = () => {
+  const now = Date.now();
+  rtcClientsBySocket.forEach((client) => {
+    if (!client) return;
+    if (!client.ws || client.ws.readyState !== WS_OPEN_STATE) {
+      cleanupRtcClient(client, { closeSocket: false });
+      return;
+    }
+    const lastHeartbeatAt = Number(client.lastHeartbeatAt) || 0;
+    if (!lastHeartbeatAt) return;
+    if (now - lastHeartbeatAt < RTC_CLIENT_STALE_TIMEOUT_MS) return;
+    cleanupRtcClient(client, {
+      closeSocket: true,
+      closeCode: 1011,
+      closeReason: 'Heartbeat timeout',
+    });
+  });
+};
+
+const rtcClientSweepInterval = setInterval(runRtcClientSweep, RTC_CLIENT_SWEEP_INTERVAL_MS);
+if (typeof rtcClientSweepInterval.unref === 'function') {
+  rtcClientSweepInterval.unref();
+}
 
 server.on('upgrade', (request, socket, head) => {
   const pathname = getUpgradePathname(request?.url);
@@ -5454,6 +5666,13 @@ rtcWss.on('connection', (ws, _request, user) => {
     ws,
     auth,
     roomId: '',
+    watchedRoomId: '',
+    isScreenSharing: false,
+    isCameraEnabled: false,
+    screenTrackId: '',
+    cameraTrackId: '',
+    joinedAt: 0,
+    lastHeartbeatAt: Date.now(),
   };
   rtcClientsBySocket.set(ws, client);
 
@@ -5472,13 +5691,11 @@ rtcWss.on('connection', (ws, _request, user) => {
   });
 
   ws.on('close', () => {
-    leaveRtcRoom(client);
-    rtcClientsBySocket.delete(ws);
+    cleanupRtcClient(client, { closeSocket: false });
   });
 
   ws.on('error', () => {
-    leaveRtcRoom(client);
-    rtcClientsBySocket.delete(ws);
+    cleanupRtcClient(client, { closeSocket: false });
   });
 });
 
@@ -5494,7 +5711,4 @@ server.listen(PORT, () => {
       console.warn('[python] runner warmup failed:', error?.message || error);
     });
 });
-
-
-
 

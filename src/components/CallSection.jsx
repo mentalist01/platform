@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Loader2, Maximize2, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Phone, PhoneOff, Signal, Users } from 'lucide-react';
+import { AlertCircle, Camera, CameraOff, Loader2, Maximize2, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Phone, PhoneOff, Signal, Users } from 'lucide-react';
 
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
@@ -15,8 +15,14 @@ const VIDEO_MAX_BITRATE = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_BITRATE'
 const SCREEN_MAX_FRAMERATE = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_FRAMERATE', 60);
 const SCREEN_MAX_WIDTH = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_WIDTH', 1920);
 const SCREEN_MAX_HEIGHT = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_HEIGHT', 1080);
+const CAMERA_MAX_FRAMERATE = getPositiveNumberFromEnv('VITE_RTC_CAMERA_MAX_FRAMERATE', 30);
+const CAMERA_MAX_WIDTH = getPositiveNumberFromEnv('VITE_RTC_CAMERA_MAX_WIDTH', 1280);
+const CAMERA_MAX_HEIGHT = getPositiveNumberFromEnv('VITE_RTC_CAMERA_MAX_HEIGHT', 720);
 const CONNECTION_STATS_INTERVAL_MS = 2500;
-const RTC_PRESENCE_POLL_INTERVAL_MS = 3000;
+const RTC_PRESENCE_RECONNECT_DELAY_MS = 2000;
+const WS_HEARTBEAT_TIMEOUT_MS = 45000;
+const JOIN_ACK_TIMEOUT_MS = 15000;
+const ROOM_RESYNC_COOLDOWN_MS = 4000;
 const PEER_DISCONNECTED_GRACE_MS = 10000;
 const SPEAKING_RMS_THRESHOLD = getPositiveNumberFromEnv('VITE_RTC_SPEAKING_RMS_THRESHOLD', 0.008);
 const SPEAKING_HOLD_MS = getPositiveNumberFromEnv('VITE_RTC_SPEAKING_HOLD_MS', 420);
@@ -82,7 +88,19 @@ const formatRtcRoleLabel = (role) => {
 
 const hasLiveVideoInStream = (stream) => {
   const tracks = Array.isArray(stream?.getVideoTracks?.()) ? stream.getVideoTracks() : [];
-  return tracks.some((track) => track.readyState === 'live');
+  return tracks.some((track) => track.readyState === 'live' && !track.muted);
+};
+
+const getLiveVideoTracks = (stream) => {
+  const tracks = Array.isArray(stream?.getVideoTracks?.()) ? stream.getVideoTracks() : [];
+  return tracks.filter((track) => track.readyState === 'live' && !track.muted);
+};
+
+const getVideoTrackById = (stream, trackId) => {
+  const normalizedTrackId = typeof trackId === 'string' ? trackId.trim() : '';
+  if (!normalizedTrackId) return null;
+  const tracks = Array.isArray(stream?.getVideoTracks?.()) ? stream.getVideoTracks() : [];
+  return tracks.find((track) => track.id === normalizedTrackId) || null;
 };
 
 const observeAudioTrackSpeaking = (track, onSpeakingChange) => {
@@ -201,7 +219,15 @@ const exitDocumentFullscreen = async () => {
   }
 };
 
-const MediaTile = ({ stream, title, subtitle, className = '', compact = false, isSpeaking = false }) => {
+const MediaTile = ({
+  stream,
+  title,
+  subtitle,
+  className = '',
+  compact = false,
+  isSpeaking = false,
+  muted = true,
+}) => {
   const tileRef = useRef(null);
   const mediaRef = useRef(null);
   const [, setVideoTrackVersion] = useState(0);
@@ -267,6 +293,7 @@ const MediaTile = ({ stream, title, subtitle, className = '', compact = false, i
     const mediaNode = mediaRef.current;
     if (!mediaNode) return;
     mediaNode.srcObject = stream || null;
+    mediaNode.play?.().catch(() => {});
     return () => {
       mediaNode.srcObject = null;
     };
@@ -319,6 +346,7 @@ const MediaTile = ({ stream, title, subtitle, className = '', compact = false, i
           <video
             ref={mediaRef}
             autoPlay
+            muted={muted}
             playsInline
             className="h-full w-full bg-slate-950 object-cover"
           />
@@ -368,6 +396,7 @@ const MediaTile = ({ stream, title, subtitle, className = '', compact = false, i
       <video
         ref={mediaRef}
         autoPlay
+        muted={muted}
         playsInline
         className={`w-full bg-slate-950 object-cover ${isFullscreen ? 'h-screen' : (isCompact ? 'h-24 md:h-28' : 'h-72 md:h-80')}`}
       />
@@ -463,6 +492,12 @@ const RemoteAudioPlayer = ({ peerId, stream, onSpeakingChange }) => {
     });
   }, [audioTrackVersion, onSpeakingChange, peerId, stream]);
 
+  useEffect(() => {
+    const audioNode = audioRef.current;
+    if (!audioNode || !stream) return;
+    audioNode.play?.().catch(() => {});
+  }, [audioTrackVersion, stream]);
+
   return <audio ref={audioRef} autoPlay playsInline className="hidden" />;
 };
 
@@ -491,6 +526,8 @@ const CallSection = ({
   const [error, setError] = useState('');
   const [micEnabled, setMicEnabled] = useState(false);
   const [micBusy, setMicBusy] = useState(false);
+  const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [cameraBusy, setCameraBusy] = useState(false);
   const [screenSharing, setScreenSharing] = useState(false);
   const [screenBusy, setScreenBusy] = useState(false);
   const [selfClientId, setSelfClientId] = useState('');
@@ -498,6 +535,14 @@ const CallSection = ({
   const [presencePeers, setPresencePeers] = useState([]);
   const [speakingByPeer, setSpeakingByPeer] = useState({});
   const [selfSpeaking, setSelfSpeaking] = useState(false);
+  const [peerConnectionSummary, setPeerConnectionSummary] = useState({
+    total: 0,
+    connected: 0,
+    connecting: 0,
+    disconnected: 0,
+    failed: 0,
+    closed: 0,
+  });
   const [connectionStats, setConnectionStats] = useState({
     quality: 'unknown',
     lossPercent: 0,
@@ -506,8 +551,10 @@ const CallSection = ({
   });
 
   const wsRef = useRef(null);
+  const presenceWsRef = useRef(null);
   const activeRoomRef = useRef('');
   const manualCloseRef = useRef(false);
+  const statusRef = useRef(status);
   const previousRoomIdRef = useRef(roomId);
   const selfClientIdRef = useRef('');
   const peersRef = useRef(new Map());
@@ -515,14 +562,61 @@ const CallSection = ({
   const remoteStreamsRef = useRef(new Map());
   const localStreamRef = useRef(new MediaStream());
   const localAudioTrackRef = useRef(null);
+  const localCameraTrackRef = useRef(null);
+  const localCameraStreamRef = useRef(null);
   const localScreenTrackRef = useRef(null);
   const localScreenStreamRef = useRef(null);
-  const localPreviewRef = useRef(null);
-  const localScreenShellRef = useRef(null);
-  const [isLocalScreenFullscreen, setIsLocalScreenFullscreen] = useState(false);
+  const localScreenPreviewRef = useRef(null);
+  const localCameraPreviewRef = useRef(null);
+  const videoTrackStreamsRef = useRef(new Map());
   const wsPingTimerRef = useRef(null);
+  const joinAckTimerRef = useRef(null);
+  const presencePingTimerRef = useRef(null);
+  const presenceReconnectTimerRef = useRef(null);
+  const wsHadErrorRef = useRef(false);
+  const lastWsPongAtRef = useRef(0);
+  const lastPresencePongAtRef = useRef(0);
+  const roomResyncCooldownUntilRef = useRef(0);
   const statsTimerRef = useRef(null);
   const lastInboundAudioRef = useRef(new Map());
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  const applyStatus = useCallback((nextStatus) => {
+    statusRef.current = nextStatus;
+    setStatus(nextStatus);
+  }, []);
+
+  const refreshPeerConnectionSummary = useCallback(() => {
+    const next = {
+      total: 0,
+      connected: 0,
+      connecting: 0,
+      disconnected: 0,
+      failed: 0,
+      closed: 0,
+    };
+    peersRef.current.forEach((peerState) => {
+      const state = typeof peerState?.pc?.connectionState === 'string' ? peerState.pc.connectionState : 'new';
+      next.total += 1;
+      if (state === 'connected') {
+        next.connected += 1;
+      } else if (state === 'new' || state === 'connecting') {
+        next.connecting += 1;
+      } else if (state === 'disconnected') {
+        next.disconnected += 1;
+      } else if (state === 'failed') {
+        next.failed += 1;
+      } else if (state === 'closed') {
+        next.closed += 1;
+      } else {
+        next.connecting += 1;
+      }
+    });
+    setPeerConnectionSummary(next);
+  }, []);
 
   const tuneAudioSender = useCallback((sender) => {
     if (!sender || typeof sender.getParameters !== 'function') return;
@@ -559,13 +653,35 @@ const CallSection = ({
 
   const syncRemotePeers = useCallback(() => {
     const next = [];
-    remoteStreamsRef.current.forEach((stream, peerId) => {
+    const peerIds = new Set([
+      ...Array.from(peerMetaRef.current.keys()),
+      ...Array.from(remoteStreamsRef.current.keys()),
+    ]);
+    peerIds.forEach((peerId) => {
       const meta = peerMetaRef.current.get(peerId) || {};
+      const stream = remoteStreamsRef.current.get(peerId) || null;
+      const role = typeof meta.role === 'string' ? meta.role.trim() : '';
+      const roleLabel = role ? formatRtcRoleLabel(role) : 'Участник';
+      const isScreenSharing = Boolean(meta.isScreenSharing);
+      const isCameraEnabled = Boolean(meta.isCameraEnabled);
+      const screenTrackId = typeof meta.screenTrackId === 'string' ? meta.screenTrackId.trim() : '';
+      const cameraTrackId = typeof meta.cameraTrackId === 'string' ? meta.cameraTrackId.trim() : '';
+      const isVideoEnabled = isScreenSharing || isCameraEnabled;
+      const subtitle = isScreenSharing
+        ? `${roleLabel} в созвоне | экран включен`
+        : isCameraEnabled
+          ? `${roleLabel} в созвоне | камера включена`
+          : roleLabel;
       next.push({
         peerId,
         stream,
         title: typeof meta.name === 'string' && meta.name.trim() ? meta.name : 'Участник',
-        subtitle: typeof meta.role === 'string' && meta.role.trim() ? meta.role : 'Собеседник',
+        subtitle,
+        isScreenSharing,
+        isCameraEnabled,
+        screenTrackId,
+        cameraTrackId,
+        isVideoEnabled,
       });
     });
     next.sort((a, b) => a.title.localeCompare(b.title, 'ru'));
@@ -583,11 +699,122 @@ const CallSection = ({
     }
   }, []);
 
+  const clearJoinAckTimer = useCallback(() => {
+    if (!joinAckTimerRef.current) return;
+    clearTimeout(joinAckTimerRef.current);
+    joinAckTimerRef.current = null;
+  }, []);
+
+  const startJoinAckTimer = useCallback((ws) => {
+    if (!ws) return;
+    clearJoinAckTimer();
+    joinAckTimerRef.current = setTimeout(() => {
+      if (wsRef.current !== ws) return;
+      if (statusRef.current !== 'connecting') return;
+      wsHadErrorRef.current = true;
+      setError('Не удалось подтвердить подключение к комнате.');
+      try { ws.close(1013, 'Join timeout'); } catch {}
+    }, JOIN_ACK_TIMEOUT_MS);
+  }, [clearJoinAckTimer]);
+
+  const requestRoomResync = useCallback(() => {
+    const ws = wsRef.current;
+    const roomId = activeRoomRef.current;
+    const now = Date.now();
+    if (!roomId || !ws || ws.readyState !== WebSocket.OPEN) return;
+    if (manualCloseRef.current) return;
+    if (statusRef.current === 'connecting') return;
+    if (now < roomResyncCooldownUntilRef.current) return;
+    roomResyncCooldownUntilRef.current = now + ROOM_RESYNC_COOLDOWN_MS;
+    clearJoinAckTimer();
+    wsHadErrorRef.current = false;
+    applyStatus('connecting');
+    setSocketStatus('connected');
+    sendWs({ type: 'join', roomId });
+    startJoinAckTimer(ws);
+  }, [applyStatus, clearJoinAckTimer, sendWs, startJoinAckTimer]);
+
+  const mapPresenceParticipants = useCallback((participants) => {
+    const list = Array.isArray(participants) ? participants : [];
+    const nextPeers = list
+      .map((peer, index) => {
+        const peerId = typeof peer?.id === 'string' ? peer.id.trim() : '';
+        const name = typeof peer?.name === 'string' ? peer.name.trim() : '';
+        const role = typeof peer?.role === 'string' ? peer.role.trim() : '';
+        const isScreenSharing = Boolean(peer?.isScreenSharing);
+        const isCameraEnabled = Boolean(peer?.isCameraEnabled);
+        const screenTrackId = typeof peer?.screenTrackId === 'string' ? peer.screenTrackId.trim() : '';
+        const cameraTrackId = typeof peer?.cameraTrackId === 'string' ? peer.cameraTrackId.trim() : '';
+        const isVideoEnabled = isScreenSharing || isCameraEnabled;
+        const roleLabel = formatRtcRoleLabel(role);
+        return {
+          peerId: `presence:${peerId || index}`,
+          stream: null,
+          title: name || 'Участник',
+          subtitle: isScreenSharing
+            ? `${roleLabel} в комнате | экран включен`
+            : isCameraEnabled
+              ? `${roleLabel} в комнате | камера включена`
+            : `${roleLabel} в комнате`,
+          isScreenSharing,
+          isCameraEnabled,
+          screenTrackId,
+          cameraTrackId,
+          isVideoEnabled,
+        };
+      })
+      .sort((a, b) => a.title.localeCompare(b.title, 'ru'));
+    setPresencePeers(nextPeers);
+  }, []);
+
+  const closePresenceSocket = useCallback(() => {
+    if (presenceReconnectTimerRef.current) {
+      clearTimeout(presenceReconnectTimerRef.current);
+      presenceReconnectTimerRef.current = null;
+    }
+    if (presencePingTimerRef.current) {
+      clearInterval(presencePingTimerRef.current);
+      presencePingTimerRef.current = null;
+    }
+    lastPresencePongAtRef.current = 0;
+    const ws = presenceWsRef.current;
+    presenceWsRef.current = null;
+    if (!ws) return;
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({ type: 'unwatch-presence' }));
+      } catch {}
+    }
+    try {
+      ws.close();
+    } catch {}
+  }, []);
+
+  const getStreamForVideoTrack = useCallback((track) => {
+    if (!track || track.kind !== 'video') return null;
+    const cached = videoTrackStreamsRef.current.get(track.id);
+    if (cached) {
+      const hasTrack = cached.getVideoTracks().some((existingTrack) => existingTrack.id === track.id);
+      if (hasTrack) return cached;
+      cached.getVideoTracks().forEach((existingTrack) => {
+        cached.removeTrack(existingTrack);
+      });
+      cached.addTrack(track);
+      return cached;
+    }
+    const stream = new MediaStream([track]);
+    videoTrackStreamsRef.current.set(track.id, stream);
+    return stream;
+  }, []);
+
   const syncLocalTracksToPeer = useCallback((peerState) => {
     if (!peerState?.pc) return;
     const { pc } = peerState;
     const audioTrack = localAudioTrackRef.current;
-    const videoTrack = localScreenTrackRef.current;
+    const screenTrack = localScreenTrackRef.current;
+    const cameraTrack = localCameraTrackRef.current;
+    const liveScreenTrack = screenTrack && screenTrack.readyState === 'live' ? screenTrack : null;
+    const liveCameraTrack = cameraTrack && cameraTrack.readyState === 'live' ? cameraTrack : null;
 
     if (audioTrack && audioTrack.readyState === 'live') {
       if (peerState.audioSender) {
@@ -603,19 +830,26 @@ const CallSection = ({
       peerState.audioSender = null;
     }
 
-    if (videoTrack && videoTrack.readyState === 'live') {
-      if (peerState.videoSender) {
-        peerState.videoSender.replaceTrack(videoTrack).catch(() => {});
-        tuneVideoSender(peerState.videoSender);
-      } else {
-        peerState.videoSender = pc.addTrack(videoTrack, localStreamRef.current);
-        tuneVideoSender(peerState.videoSender);
+    const syncVideoSender = (senderKey, track) => {
+      const currentSender = peerState[senderKey] || null;
+      if (track) {
+        if (currentSender) {
+          currentSender.replaceTrack(track).catch(() => {});
+          tuneVideoSender(currentSender);
+          return;
+        }
+        peerState[senderKey] = pc.addTrack(track, localStreamRef.current);
+        tuneVideoSender(peerState[senderKey]);
+        return;
       }
-    } else if (peerState.videoSender) {
-      try { peerState.videoSender.replaceTrack(null); } catch {}
-      try { pc.removeTrack(peerState.videoSender); } catch {}
-      peerState.videoSender = null;
-    }
+      if (!currentSender) return;
+      try { currentSender.replaceTrack(null); } catch {}
+      try { pc.removeTrack(currentSender); } catch {}
+      peerState[senderKey] = null;
+    };
+
+    syncVideoSender('screenSender', liveScreenTrack);
+    syncVideoSender('cameraSender', liveCameraTrack);
   }, [tuneAudioSender, tuneVideoSender]);
 
   const syncLocalTracksToAllPeers = useCallback(() => {
@@ -739,8 +973,17 @@ const CallSection = ({
     peerMetaRef.current.clear();
     remoteStreamsRef.current.clear();
     lastInboundAudioRef.current.clear();
+    videoTrackStreamsRef.current.clear();
     setRemotePeers([]);
     setSpeakingByPeer({});
+    setPeerConnectionSummary({
+      total: 0,
+      connected: 0,
+      connecting: 0,
+      disconnected: 0,
+      failed: 0,
+      closed: 0,
+    });
   }, []);
 
   const detachPeer = useCallback((peerId, options = {}) => {
@@ -774,8 +1017,9 @@ const CallSection = ({
       delete next[normalizedPeerId];
       return next;
     });
+    refreshPeerConnectionSummary();
     syncRemotePeers();
-  }, [syncRemotePeers]);
+  }, [refreshPeerConnectionSummary, syncRemotePeers]);
 
   const handlePeerSpeakingChange = useCallback((peerId, isSpeaking) => {
     const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
@@ -807,11 +1051,31 @@ const CallSection = ({
     if (withSync) syncLocalTracksToAllPeers();
   }, [syncLocalTracksToAllPeers]);
 
+  const stopCameraTrack = useCallback((withSync = true) => {
+    const track = localCameraTrackRef.current;
+    if (track) {
+      track.onended = null;
+      try { track.stop(); } catch {}
+      videoTrackStreamsRef.current.delete(track.id);
+      localCameraTrackRef.current = null;
+      localStreamRef.current.removeTrack(track);
+    }
+    if (localCameraStreamRef.current) {
+      localCameraStreamRef.current.getTracks().forEach((streamTrack) => {
+        try { streamTrack.stop(); } catch {}
+      });
+      localCameraStreamRef.current = null;
+    }
+    setCameraEnabled(false);
+    if (withSync) syncLocalTracksToAllPeers();
+  }, [syncLocalTracksToAllPeers]);
+
   const stopScreenTrack = useCallback((withSync = true) => {
     const track = localScreenTrackRef.current;
     if (track) {
       track.onended = null;
       try { track.stop(); } catch {}
+      videoTrackStreamsRef.current.delete(track.id);
       localScreenTrackRef.current = null;
       localStreamRef.current.removeTrack(track);
     }
@@ -822,7 +1086,6 @@ const CallSection = ({
       localScreenStreamRef.current = null;
     }
     setScreenSharing(false);
-    setIsLocalScreenFullscreen(false);
     if (withSync) syncLocalTracksToAllPeers();
   }, [syncLocalTracksToAllPeers]);
 
@@ -879,6 +1142,69 @@ const CallSection = ({
     return track;
   }, [syncLocalTracksToAllPeers]);
 
+  const ensureCameraTrack = useCallback(async () => {
+    const existing = localCameraTrackRef.current;
+    if (existing && existing.readyState === 'live') {
+      existing.enabled = true;
+      setCameraEnabled(true);
+      syncLocalTracksToAllPeers();
+      return existing;
+    }
+
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      throw new Error('Браузер не поддерживает доступ к веб-камере.');
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        frameRate: { ideal: CAMERA_MAX_FRAMERATE, max: CAMERA_MAX_FRAMERATE },
+        width: { ideal: CAMERA_MAX_WIDTH, max: CAMERA_MAX_WIDTH },
+        height: { ideal: CAMERA_MAX_HEIGHT, max: CAMERA_MAX_HEIGHT },
+      },
+    });
+
+    const track = stream.getVideoTracks()[0];
+    if (!track) {
+      throw new Error('Не удалось получить видеодорожку веб-камеры.');
+    }
+
+    try {
+      track.contentHint = 'motion';
+    } catch {}
+    track.applyConstraints?.({
+      frameRate: { ideal: CAMERA_MAX_FRAMERATE, max: CAMERA_MAX_FRAMERATE },
+      width: { ideal: CAMERA_MAX_WIDTH, max: CAMERA_MAX_WIDTH },
+      height: { ideal: CAMERA_MAX_HEIGHT, max: CAMERA_MAX_HEIGHT },
+    }).catch(() => {});
+
+    stream.getTracks().forEach((streamTrack) => {
+      if (streamTrack !== track) {
+        try { streamTrack.stop(); } catch {}
+      }
+    });
+
+    stopCameraTrack(false);
+    localCameraStreamRef.current = stream;
+    localCameraTrackRef.current = track;
+    track.enabled = true;
+    track.onended = () => {
+      if (localCameraTrackRef.current !== track) return;
+      videoTrackStreamsRef.current.delete(track.id);
+      localCameraTrackRef.current = null;
+      localStreamRef.current.removeTrack(track);
+      setCameraEnabled(false);
+      syncLocalTracksToAllPeers();
+    };
+
+    if (!localStreamRef.current.getVideoTracks().includes(track)) {
+      localStreamRef.current.addTrack(track);
+    }
+    setCameraEnabled(true);
+    syncLocalTracksToAllPeers();
+    return track;
+  }, [stopCameraTrack, syncLocalTracksToAllPeers]);
+
   const createPeerState = useCallback((peerId, peerMeta = {}) => {
     const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
     if (!normalizedPeerId || normalizedPeerId === selfClientIdRef.current) return null;
@@ -899,8 +1225,10 @@ const CallSection = ({
       polite: Boolean(selfClientIdRef.current && selfClientIdRef.current > normalizedPeerId),
       makingOffer: false,
       ignoreOffer: false,
+      pendingCandidates: [],
       audioSender: null,
-      videoSender: null,
+      screenSender: null,
+      cameraSender: null,
       disconnectTimer: null,
     };
 
@@ -937,13 +1265,31 @@ const CallSection = ({
       }
 
       const track = event?.track || null;
+      if (track?.kind === 'video') {
+        const staleVideoTracks = Array.isArray(stream.getVideoTracks?.())
+          ? stream.getVideoTracks().filter((existingTrack) => existingTrack.readyState === 'ended')
+          : [];
+        staleVideoTracks.forEach((existingTrack) => {
+          stream.removeTrack(existingTrack);
+          videoTrackStreamsRef.current.delete(existingTrack.id);
+        });
+      }
       if (track && !stream.getTracks().some((existingTrack) => existingTrack.id === track.id)) {
         stream.addTrack(track);
       }
 
       if (track) {
-        track.onended = () => {
+        const removeTrackFromStream = () => {
+          const currentStream = remoteStreamsRef.current.get(normalizedPeerId);
+          if (!currentStream) return;
+          const hasTrack = currentStream.getTracks().some((existingTrack) => existingTrack.id === track.id);
+          if (!hasTrack) return;
+          currentStream.removeTrack(track);
+          videoTrackStreamsRef.current.delete(track.id);
           syncRemotePeers();
+        };
+        track.onended = () => {
+          removeTrackFromStream();
         };
         track.onmute = () => {
           syncRemotePeers();
@@ -966,8 +1312,10 @@ const CallSection = ({
             if (!currentPeerState) return;
             if (currentPeerState.pc.connectionState !== 'disconnected') return;
             detachPeer(normalizedPeerId, { closeConnection: true });
+            requestRoomResync();
           }, PEER_DISCONNECTED_GRACE_MS);
         }
+        refreshPeerConnectionSummary();
         return;
       }
 
@@ -976,14 +1324,23 @@ const CallSection = ({
         peerState.disconnectTimer = null;
       }
 
-      if (state === 'failed' || state === 'closed') {
-        detachPeer(normalizedPeerId, { closeConnection: state !== 'closed' });
+      if (state === 'failed') {
+        detachPeer(normalizedPeerId, { closeConnection: true });
+        requestRoomResync();
+        return;
       }
+
+      if (state === 'closed') {
+        detachPeer(normalizedPeerId, { closeConnection: false });
+        return;
+      }
+      refreshPeerConnectionSummary();
     };
 
     syncLocalTracksToPeer(peerState);
+    refreshPeerConnectionSummary();
     return peerState;
-  }, [detachPeer, rtcIceServers, sendWs, syncLocalTracksToPeer, syncRemotePeers]);
+  }, [detachPeer, refreshPeerConnectionSummary, requestRoomResync, rtcIceServers, sendWs, syncLocalTracksToPeer, syncRemotePeers]);
 
   const makeOfferToPeer = useCallback(async (peerId) => {
     const peerState = peersRef.current.get(peerId);
@@ -1041,6 +1398,19 @@ const CallSection = ({
 
       try {
         await peerState.pc.setRemoteDescription(description);
+        if (Array.isArray(peerState.pendingCandidates) && peerState.pendingCandidates.length > 0) {
+          const queuedCandidates = [...peerState.pendingCandidates];
+          peerState.pendingCandidates = [];
+          for (const queuedCandidate of queuedCandidates) {
+            try {
+              await peerState.pc.addIceCandidate(queuedCandidate);
+            } catch (queuedCandidateError) {
+              if (!peerState.ignoreOffer) {
+                console.error('[call] queued addIceCandidate failed:', queuedCandidateError);
+              }
+            }
+          }
+        }
         if (description.type === 'offer') {
           syncLocalTracksToPeer(peerState);
           const answer = await peerState.pc.createAnswer();
@@ -1061,6 +1431,17 @@ const CallSection = ({
 
     const candidate = signal.candidate;
     if (candidate) {
+      const hasRemoteDescription = Boolean(peerState.pc.remoteDescription && peerState.pc.remoteDescription.type);
+      if (!hasRemoteDescription) {
+        if (!Array.isArray(peerState.pendingCandidates)) {
+          peerState.pendingCandidates = [];
+        }
+        if (peerState.pendingCandidates.length >= 100) {
+          peerState.pendingCandidates.shift();
+        }
+        peerState.pendingCandidates.push(candidate);
+        return;
+      }
       try {
         await peerState.pc.addIceCandidate(candidate);
       } catch (candidateError) {
@@ -1082,19 +1463,52 @@ const CallSection = ({
     const type = typeof payload?.type === 'string' ? payload.type.trim() : '';
     if (!type) return;
 
+    if (type === 'pong') {
+      lastWsPongAtRef.current = Date.now();
+      return;
+    }
+
     if (type === 'error') {
       const errorText = typeof payload?.error === 'string' ? payload.error.trim() : '';
-      setError(errorText || 'Сигнальный сервер вернул ошибку.');
+      const normalizedError = errorText || 'Сигнальный сервер вернул ошибку.';
+      setError(normalizedError);
+
+      const isJoinPhaseError = statusRef.current === 'connecting' || !activeRoomRef.current;
+      if (isJoinPhaseError) {
+        clearJoinAckTimer();
+        if (wsPingTimerRef.current) {
+          clearInterval(wsPingTimerRef.current);
+          wsPingTimerRef.current = null;
+        }
+        stopConnectionStatsPolling();
+        const ws = wsRef.current;
+        wsRef.current = null;
+        if (ws) {
+          try { ws.close(); } catch {}
+        }
+        activeRoomRef.current = '';
+        selfClientIdRef.current = '';
+        setSelfClientId('');
+        closeAllPeers();
+        stopScreenTrack(false);
+        stopCameraTrack(false);
+        stopMicTrack(false);
+        setSocketStatus('disconnected');
+        roomResyncCooldownUntilRef.current = 0;
+        applyStatus('idle');
+      }
       return;
     }
 
     if (type === 'joined') {
+      clearJoinAckTimer();
       const normalizedRoomId = typeof payload?.roomId === 'string' ? payload.roomId.trim() : '';
       activeRoomRef.current = normalizedRoomId;
       const nextSelfId = typeof payload?.selfId === 'string' ? payload.selfId.trim() : '';
       selfClientIdRef.current = nextSelfId;
       setSelfClientId(nextSelfId);
-      setStatus('connected');
+      roomResyncCooldownUntilRef.current = 0;
+      applyStatus('connected');
       setError('');
 
       const peers = Array.isArray(payload?.peers) ? payload.peers : [];
@@ -1117,8 +1531,11 @@ const CallSection = ({
     if (type === 'peer-joined') {
       const peerId = typeof payload?.peer?.id === 'string' ? payload.peer.id.trim() : '';
       if (!peerId || peerId === selfClientIdRef.current) return;
+      const existingPeer = peersRef.current.get(peerId);
       createPeerState(peerId, payload.peer);
-      if (selfClientIdRef.current && selfClientIdRef.current < peerId) {
+      const existingState = typeof existingPeer?.pc?.connectionState === 'string' ? existingPeer.pc.connectionState : '';
+      const shouldOffer = !existingPeer || existingState === 'disconnected' || existingState === 'failed' || existingState === 'closed';
+      if (selfClientIdRef.current && selfClientIdRef.current < peerId && shouldOffer) {
         makeOfferToPeer(peerId);
       }
       syncRemotePeers();
@@ -1130,20 +1547,34 @@ const CallSection = ({
       return;
     }
 
+    if (type === 'peer-updated') {
+      const peerId = typeof payload?.peer?.id === 'string' ? payload.peer.id.trim() : '';
+      if (!peerId || peerId === selfClientIdRef.current) return;
+      peerMetaRef.current.set(peerId, {
+        ...(peerMetaRef.current.get(peerId) || {}),
+        ...(payload?.peer && typeof payload.peer === 'object' ? payload.peer : {}),
+      });
+      syncRemotePeers();
+      return;
+    }
+
     if (type === 'signal') {
       handleSignalPayload(payload).catch((signalError) => {
         console.error('[call] signal handling failed:', signalError);
       });
     }
-  }, [createPeerState, handleSignalPayload, makeOfferToPeer, removePeer, syncRemotePeers]);
+  }, [applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, makeOfferToPeer, removePeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
 
   const stopCall = useCallback(() => {
     manualCloseRef.current = true;
+    wsHadErrorRef.current = false;
+    clearJoinAckTimer();
     stopConnectionStatsPolling();
     if (wsPingTimerRef.current) {
       clearInterval(wsPingTimerRef.current);
       wsPingTimerRef.current = null;
     }
+    lastWsPongAtRef.current = 0;
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN && activeRoomRef.current) {
       try {
@@ -1158,11 +1589,13 @@ const CallSection = ({
     selfClientIdRef.current = '';
     setSelfClientId('');
     setSocketStatus('disconnected');
-    setStatus('idle');
+    roomResyncCooldownUntilRef.current = 0;
+    applyStatus('idle');
     closeAllPeers();
     stopScreenTrack(false);
+    stopCameraTrack(false);
     stopMicTrack(false);
-  }, [closeAllPeers, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
+  }, [applyStatus, clearJoinAckTimer, closeAllPeers, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
 
   const startCall = useCallback(async () => {
     if (!roomId) {
@@ -1173,20 +1606,41 @@ const CallSection = ({
       setError('Не удалось определить WebSocket-адрес для созвона.');
       return;
     }
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      sendWs({ type: 'join', roomId });
+    const existingWs = wsRef.current;
+    if (existingWs && existingWs.readyState === WebSocket.OPEN) {
+      clearJoinAckTimer();
+      manualCloseRef.current = false;
+      wsHadErrorRef.current = false;
+      applyStatus('connecting');
+      setSocketStatus('connected');
+      const joinSent = sendWs({ type: 'join', roomId });
+      if (!joinSent) {
+        wsHadErrorRef.current = true;
+        setError('Не удалось отправить запрос на подключение.');
+        try { existingWs.close(); } catch {}
+        return;
+      }
+      startJoinAckTimer(existingWs);
+      return;
+    }
+    if (existingWs && existingWs.readyState === WebSocket.CONNECTING) {
+      applyStatus('connecting');
+      setSocketStatus('connecting');
       return;
     }
 
     setError('');
-    setStatus('connecting');
+    applyStatus('connecting');
     setSocketStatus('connecting');
     manualCloseRef.current = false;
+    wsHadErrorRef.current = false;
+    clearJoinAckTimer();
 
     try {
       await ensureMicTrack();
     } catch (micError) {
-      setStatus('idle');
+      roomResyncCooldownUntilRef.current = 0;
+      applyStatus('idle');
       setSocketStatus('disconnected');
       setError(normalizeErrorMessage(micError, 'Не удалось включить микрофон.'));
       return;
@@ -1199,12 +1653,26 @@ const CallSection = ({
       ws.onopen = () => {
         if (wsRef.current !== ws) return;
         setSocketStatus('connected');
-        sendWs({ type: 'join', roomId });
+        lastWsPongAtRef.current = Date.now();
+        const joinSent = sendWs({ type: 'join', roomId });
+        if (!joinSent) {
+          wsHadErrorRef.current = true;
+          setError('Не удалось отправить запрос на подключение.');
+          try { ws.close(); } catch {}
+          return;
+        }
+        startJoinAckTimer(ws);
         if (wsPingTimerRef.current) {
           clearInterval(wsPingTimerRef.current);
           wsPingTimerRef.current = null;
         }
         wsPingTimerRef.current = setInterval(() => {
+          if (wsRef.current !== ws) return;
+          if (Date.now() - lastWsPongAtRef.current >= WS_HEARTBEAT_TIMEOUT_MS) {
+            setError('Потеряно соединение с сигнальным сервером.');
+            try { ws.close(1011, 'Heartbeat timeout'); } catch {}
+            return;
+          }
           sendWs({ type: 'ping' });
         }, WS_PING_INTERVAL_MS);
       };
@@ -1214,34 +1682,47 @@ const CallSection = ({
       };
       ws.onerror = () => {
         if (wsRef.current !== ws) return;
+        wsHadErrorRef.current = true;
         setError('Ошибка сигнального канала WebSocket.');
+        try { ws.close(); } catch {}
       };
       ws.onclose = () => {
         if (wsRef.current !== ws) return;
+        clearJoinAckTimer();
         if (wsPingTimerRef.current) {
           clearInterval(wsPingTimerRef.current);
           wsPingTimerRef.current = null;
         }
+        lastWsPongAtRef.current = 0;
         stopConnectionStatsPolling();
         wsRef.current = null;
         setSocketStatus('disconnected');
-        setStatus('idle');
+        roomResyncCooldownUntilRef.current = 0;
+        applyStatus('idle');
         activeRoomRef.current = '';
         selfClientIdRef.current = '';
         setSelfClientId('');
         closeAllPeers();
         stopScreenTrack(false);
+        stopCameraTrack(false);
         stopMicTrack(false);
-        if (!manualCloseRef.current) {
+        if (!manualCloseRef.current && !wsHadErrorRef.current) {
           setError('Соединение для созвона разорвано.');
         }
+        wsHadErrorRef.current = false;
       };
     } catch (connectError) {
-      setStatus('idle');
+      clearJoinAckTimer();
+      roomResyncCooldownUntilRef.current = 0;
+      applyStatus('idle');
       setSocketStatus('disconnected');
+      closeAllPeers();
+      stopScreenTrack(false);
+      stopCameraTrack(false);
+      stopMicTrack(false);
       setError(normalizeErrorMessage(connectError, 'Не удалось открыть сигнальный канал.'));
     }
-  }, [closeAllPeers, ensureMicTrack, handleWsMessage, roomId, rtcWsUrl, sendWs, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
+  }, [applyStatus, clearJoinAckTimer, closeAllPeers, ensureMicTrack, handleWsMessage, roomId, rtcWsUrl, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
 
   const toggleMic = useCallback(async () => {
     if (micBusy) return;
@@ -1263,6 +1744,30 @@ const CallSection = ({
       setMicBusy(false);
     }
   }, [ensureMicTrack, micBusy, renegotiatePeers, syncLocalTracksToAllPeers]);
+
+  const toggleCamera = useCallback(async () => {
+    if (cameraBusy) return;
+    if (cameraEnabled) {
+      stopCameraTrack(true);
+      renegotiatePeers();
+      return;
+    }
+    if (status !== 'connected') {
+      setError('Сначала подключись к созвону, затем включи веб-камеру.');
+      return;
+    }
+
+    setCameraBusy(true);
+    setError('');
+    try {
+      await ensureCameraTrack();
+      renegotiatePeers();
+    } catch (cameraError) {
+      setError(normalizeErrorMessage(cameraError, 'Не удалось включить веб-камеру.'));
+    } finally {
+      setCameraBusy(false);
+    }
+  }, [cameraBusy, cameraEnabled, ensureCameraTrack, renegotiatePeers, status, stopCameraTrack]);
 
   const toggleScreenShare = useCallback(async () => {
     if (screenBusy) return;
@@ -1324,33 +1829,24 @@ const CallSection = ({
     }
   }, [renegotiatePeers, screenBusy, screenSharing, status, stopScreenTrack, syncLocalTracksToAllPeers]);
 
-  const toggleLocalScreenFullscreen = useCallback(async () => {
-    if (!screenSharing) return;
-    if (typeof document === 'undefined') return;
-    const panel = localScreenShellRef.current;
-    if (!panel) return;
-    if (document.fullscreenElement === panel) {
-      await exitDocumentFullscreen();
-      return;
-    }
-    if (document.fullscreenElement) {
-      await exitDocumentFullscreen();
-    }
-    await requestElementFullscreen(panel);
-  }, [screenSharing]);
-
   useEffect(() => {
-    if (typeof document === 'undefined') return undefined;
-    const handleFullscreenChange = () => {
-      const panel = localScreenShellRef.current;
-      setIsLocalScreenFullscreen(Boolean(panel && document.fullscreenElement === panel));
-    };
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    handleFullscreenChange();
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    };
-  }, []);
+    if (status !== 'connected') return;
+    if (!activeRoomRef.current) return;
+    const screenTrackId = screenSharing && localScreenTrackRef.current
+      ? localScreenTrackRef.current.id
+      : '';
+    const cameraTrackId = cameraEnabled && localCameraTrackRef.current
+      ? localCameraTrackRef.current.id
+      : '';
+    sendWs({
+      type: 'presence-state',
+      roomId: activeRoomRef.current,
+      isScreenSharing: Boolean(screenSharing),
+      isCameraEnabled: Boolean(cameraEnabled),
+      screenTrackId,
+      cameraTrackId,
+    });
+  }, [cameraEnabled, screenSharing, sendWs, status]);
 
   useEffect(() => {
     const prevRoomId = previousRoomIdRef.current;
@@ -1364,17 +1860,51 @@ const CallSection = ({
 
   useEffect(() => {
     if (!roomId) {
+      closePresenceSocket();
       setPresencePeers([]);
       return undefined;
     }
     if (status === 'connected' || status === 'connecting') {
+      closePresenceSocket();
       return undefined;
     }
+    if (!rtcWsUrl) return undefined;
 
     let disposed = false;
-    let timerId = null;
 
-    const loadPresence = async () => {
+    const scheduleReconnect = () => {
+      if (disposed) return;
+      if (presenceReconnectTimerRef.current) {
+        clearTimeout(presenceReconnectTimerRef.current);
+      }
+      presenceReconnectTimerRef.current = setTimeout(() => {
+        presenceReconnectTimerRef.current = null;
+        connectPresence();
+      }, RTC_PRESENCE_RECONNECT_DELAY_MS);
+    };
+
+    const applyPresencePayload = (raw) => {
+      let payload = null;
+      try {
+        payload = JSON.parse(typeof raw === 'string' ? raw : String(raw ?? ''));
+      } catch {
+        return;
+      }
+
+      const type = typeof payload?.type === 'string' ? payload.type.trim() : '';
+      if (!type) return;
+      if (type === 'pong') {
+        lastPresencePongAtRef.current = Date.now();
+        return;
+      }
+      if (type !== 'presence-update') return;
+      const payloadRoomId = typeof payload?.roomId === 'string' ? payload.roomId.trim() : '';
+      if (payloadRoomId && payloadRoomId !== roomId) return;
+      const participants = Array.isArray(payload?.participants) ? payload.participants : [];
+      mapPresenceParticipants(participants);
+    };
+
+    const loadPresenceOnce = async () => {
       try {
         const response = await fetch(`/api/rtc/presence?roomId=${encodeURIComponent(roomId)}`, {
           credentials: 'include',
@@ -1385,49 +1915,111 @@ const CallSection = ({
         }
         const payload = await response.json();
         if (disposed) return;
-        const participants = Array.isArray(payload?.participants) ? payload.participants : [];
-        const nextPeers = participants
-          .map((peer, index) => {
-            const peerId = typeof peer?.id === 'string' ? peer.id.trim() : '';
-            const name = typeof peer?.name === 'string' ? peer.name.trim() : '';
-            const role = typeof peer?.role === 'string' ? peer.role.trim() : '';
-            return {
-              peerId: `presence:${peerId || index}`,
-              stream: null,
-              title: name || 'Участник',
-              subtitle: `${formatRtcRoleLabel(role)} в комнате`,
-            };
-          })
-          .sort((a, b) => a.title.localeCompare(b.title, 'ru'));
-        setPresencePeers(nextPeers);
+        mapPresenceParticipants(Array.isArray(payload?.participants) ? payload.participants : []);
       } catch {
         if (!disposed) setPresencePeers([]);
       }
     };
 
-    loadPresence();
-    timerId = setInterval(loadPresence, RTC_PRESENCE_POLL_INTERVAL_MS);
+    const connectPresence = () => {
+      if (disposed) return;
+      const existing = presenceWsRef.current;
+      if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+      try {
+        const ws = new WebSocket(rtcWsUrl);
+        presenceWsRef.current = ws;
+
+        ws.onopen = () => {
+          if (disposed || presenceWsRef.current !== ws) return;
+          lastPresencePongAtRef.current = Date.now();
+          try {
+            ws.send(JSON.stringify({ type: 'watch-presence', roomId }));
+          } catch {}
+          if (presencePingTimerRef.current) {
+            clearInterval(presencePingTimerRef.current);
+          }
+          presencePingTimerRef.current = setInterval(() => {
+            if (presenceWsRef.current !== ws) return;
+            if (Date.now() - lastPresencePongAtRef.current >= WS_HEARTBEAT_TIMEOUT_MS) {
+              try { ws.close(1011, 'Presence heartbeat timeout'); } catch {}
+              return;
+            }
+            try {
+              ws.send(JSON.stringify({ type: 'ping' }));
+            } catch {}
+          }, WS_PING_INTERVAL_MS);
+        };
+
+        ws.onmessage = (event) => {
+          if (disposed || presenceWsRef.current !== ws) return;
+          applyPresencePayload(event.data);
+        };
+
+        ws.onerror = () => {
+          if (disposed || presenceWsRef.current !== ws) return;
+          try { ws.close(); } catch {}
+        };
+
+        ws.onclose = () => {
+          if (presenceWsRef.current !== ws) return;
+          presenceWsRef.current = null;
+          if (presencePingTimerRef.current) {
+            clearInterval(presencePingTimerRef.current);
+            presencePingTimerRef.current = null;
+          }
+          lastPresencePongAtRef.current = 0;
+          if (!disposed) setPresencePeers([]);
+          scheduleReconnect();
+        };
+      } catch {
+        scheduleReconnect();
+      }
+    };
+
+    loadPresenceOnce();
+    connectPresence();
 
     return () => {
       disposed = true;
-      if (timerId) clearInterval(timerId);
+      closePresenceSocket();
     };
-  }, [roomId, status]);
+  }, [closePresenceSocket, mapPresenceParticipants, roomId, rtcWsUrl, status]);
 
   useEffect(() => {
-    const previewNode = localPreviewRef.current;
-    if (!previewNode) return;
-    if (!screenSharing || !localScreenTrackRef.current) {
+    const previewNode = localScreenPreviewRef.current;
+    if (!previewNode) return undefined;
+    const track = localScreenTrackRef.current;
+    if (!screenSharing || !track || track.readyState !== 'live') {
       previewNode.srcObject = null;
-      return;
+      return undefined;
     }
-    const stream = new MediaStream([localScreenTrackRef.current]);
+    const stream = getStreamForVideoTrack(track);
     previewNode.srcObject = stream;
+    previewNode.play?.().catch(() => {});
     return () => {
       if (!previewNode) return;
       previewNode.srcObject = null;
     };
-  }, [screenSharing]);
+  }, [getStreamForVideoTrack, screenSharing]);
+
+  useEffect(() => {
+    const previewNode = localCameraPreviewRef.current;
+    if (!previewNode) return undefined;
+    const track = localCameraTrackRef.current;
+    if (!cameraEnabled || !track || track.readyState !== 'live') {
+      previewNode.srcObject = null;
+      return undefined;
+    }
+    const stream = getStreamForVideoTrack(track);
+    previewNode.srcObject = stream;
+    previewNode.play?.().catch(() => {});
+    return () => {
+      if (!previewNode) return;
+      previewNode.srcObject = null;
+    };
+  }, [cameraEnabled, getStreamForVideoTrack]);
 
   useEffect(() => {
     if (status === 'connected') {
@@ -1460,43 +2052,141 @@ const CallSection = ({
 
   const isConnected = status === 'connected';
   const isConnecting = status === 'connecting';
+  const hasActiveMediaConnection = peerConnectionSummary.connected > 0;
+  const hasMediaConnectionIssue = peerConnectionSummary.disconnected > 0 || peerConnectionSummary.failed > 0;
+  const hasPendingPeerConnection = peerConnectionSummary.total > 0 && !hasActiveMediaConnection && !hasMediaConnectionIssue;
   const visiblePeers = isConnected ? remotePeers : presencePeers;
-  const participantCount = isConnected ? remotePeers.length + 1 : presencePeers.length;
+  const participantCount = isConnected ? peerConnectionSummary.total + 1 : presencePeers.length;
   const voiceCallParticipants = isConnected
-    ? [
-      {
-        id: 'self',
-        title: 'Вы',
-        subtitle: screenSharing
-          ? 'Трансляция активна'
-          : (micEnabled ? 'Микрофон включен' : 'Микрофон выключен'),
-        isSelf: true,
-        hasVideo: screenSharing,
-        stream: null,
-        isSpeaking: selfSpeaking,
-      },
-      ...remotePeers.map((peer) => ({
-        id: peer.peerId,
-        title: peer.title,
-        subtitle: peer.subtitle || 'В созвоне',
-        isSelf: false,
-        hasVideo: hasLiveVideoInStream(peer.stream),
-        stream: peer.stream || null,
-        isSpeaking: Boolean(speakingByPeer[peer.peerId]),
-      })),
-    ]
+    ? (() => {
+      const participants = [];
+      const localScreenTrack = localScreenTrackRef.current;
+      const localCameraTrack = localCameraTrackRef.current;
+
+      if (screenSharing && localScreenTrack && localScreenTrack.readyState === 'live') {
+        participants.push({
+          id: 'self:screen',
+          title: 'Вы',
+          subtitle: 'Трансляция активна',
+          isSelf: true,
+          hasVideo: true,
+          videoKind: 'screen',
+          stream: getStreamForVideoTrack(localScreenTrack),
+          isSpeaking: selfSpeaking,
+        });
+      }
+
+      if (cameraEnabled && localCameraTrack && localCameraTrack.readyState === 'live') {
+        participants.push({
+          id: 'self:camera',
+          title: 'Вы',
+          subtitle: 'Камера включена',
+          isSelf: true,
+          hasVideo: true,
+          videoKind: 'camera',
+          stream: getStreamForVideoTrack(localCameraTrack),
+          isSpeaking: selfSpeaking,
+        });
+      }
+
+      if (participants.length === 0) {
+        participants.push({
+          id: 'self',
+          title: 'Вы',
+          subtitle: micEnabled ? 'Микрофон включен' : 'Микрофон выключен',
+          isSelf: true,
+          hasVideo: false,
+          videoKind: null,
+          stream: null,
+          isSpeaking: selfSpeaking,
+        });
+      }
+
+      remotePeers.forEach((peer) => {
+        const peerStream = peer.stream || null;
+        const liveVideoTracks = getLiveVideoTracks(peerStream);
+        let screenTrack = getVideoTrackById(peerStream, peer.screenTrackId);
+        let cameraTrack = getVideoTrackById(peerStream, peer.cameraTrackId);
+
+        if (peer.isScreenSharing && !screenTrack && liveVideoTracks.length > 0) {
+          screenTrack = liveVideoTracks[0];
+        }
+        if (peer.isCameraEnabled && !cameraTrack) {
+          cameraTrack = liveVideoTracks.find((track) => !screenTrack || track.id !== screenTrack.id) || null;
+        }
+
+        const hasScreenVideo = Boolean(screenTrack && screenTrack.readyState === 'live' && !screenTrack.muted);
+        const hasCameraVideo = Boolean(cameraTrack && cameraTrack.readyState === 'live' && !cameraTrack.muted);
+
+        if (hasScreenVideo) {
+          participants.push({
+            id: `${peer.peerId}:screen`,
+            title: peer.title,
+            subtitle: 'Экран',
+            isSelf: false,
+            hasVideo: true,
+            videoKind: 'screen',
+            stream: getStreamForVideoTrack(screenTrack),
+            isSpeaking: Boolean(speakingByPeer[peer.peerId]),
+          });
+        }
+
+        if (hasCameraVideo) {
+          participants.push({
+            id: `${peer.peerId}:camera`,
+            title: peer.title,
+            subtitle: 'Камера',
+            isSelf: false,
+            hasVideo: true,
+            videoKind: 'camera',
+            stream: getStreamForVideoTrack(cameraTrack),
+            isSpeaking: Boolean(speakingByPeer[peer.peerId]),
+          });
+        }
+
+        if (!hasScreenVideo && !hasCameraVideo) {
+          participants.push({
+            id: peer.peerId,
+            title: peer.title,
+            subtitle: peer.subtitle || 'В созвоне',
+            isSelf: false,
+            hasVideo: false,
+            videoKind: null,
+            stream: null,
+            isSpeaking: Boolean(speakingByPeer[peer.peerId]),
+          });
+        }
+      });
+
+      return participants;
+    })()
     : [];
   const statusChipClass = isConnected
-    ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
+    ? hasActiveMediaConnection
+      ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
+      : hasMediaConnectionIssue
+        ? 'border-rose-300/40 bg-rose-500/15 text-rose-100'
+        : hasPendingPeerConnection
+          ? 'border-amber-300/40 bg-amber-500/15 text-amber-200'
+          : 'border-sky-300/40 bg-sky-500/15 text-sky-200'
     : isConnecting
       ? 'border-amber-300/40 bg-amber-500/15 text-amber-200'
       : 'border-slate-600/60 bg-slate-800/70 text-slate-200';
-  const statusText = isConnected ? 'В созвоне' : (isConnecting ? 'Подключение...' : 'Отключено');
+  const statusText = isConnected
+    ? hasActiveMediaConnection
+      ? 'Связь установлена'
+      : hasMediaConnectionIssue
+        ? 'Связь потеряна'
+        : hasPendingPeerConnection
+          ? 'Соединение с собеседником...'
+          : 'В комнате (ожидание)'
+    : (isConnecting ? 'Подключение...' : 'Отключено');
   const roomHint = roomId || 'Комната не выбрана';
   const selectedStudentName = selectedStudent?.name || 'Ученик не выбран';
   const canStart = Boolean(roomId) && !isConnecting && !isConnected;
   const canStop = isConnecting || isConnected;
   const canToggleMic = isConnected && !micBusy;
+  const canToggleCamera = isConnected && !cameraBusy;
   const canToggleScreen = isConnected && !screenBusy;
   const qualityClass = connectionStats.quality === 'good'
     ? 'text-emerald-300'
@@ -1575,24 +2265,14 @@ const CallSection = ({
                 <div className="flex flex-wrap items-center justify-center gap-5 md:gap-8">
                   {voiceCallParticipants.map((peer) => {
                     const initial = String(peer.title || 'U').trim().charAt(0).toUpperCase() || 'U';
-                    if (peer.isSelf && screenSharing) {
+                    if (peer.isSelf && peer.hasVideo) {
                       return (
                         <article
                           key={peer.id}
-                          ref={localScreenShellRef}
-                          onDoubleClick={toggleLocalScreenFullscreen}
-                          className={`relative overflow-hidden border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)] ${isLocalScreenFullscreen ? 'h-screen w-screen rounded-none border-0' : 'h-24 w-36 rounded-xl md:h-28 md:w-44'} ${peer.isSpeaking && !isLocalScreenFullscreen ? 'ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900' : ''}`}
+                          className={`relative h-24 w-36 overflow-hidden rounded-xl border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)] md:h-28 md:w-44 ${peer.isSpeaking ? 'ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900' : ''}`}
                         >
-                          <button
-                            type="button"
-                            onClick={toggleLocalScreenFullscreen}
-                            className="absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/20 bg-black/45 text-white transition hover:bg-black/65"
-                            title={isLocalScreenFullscreen ? 'Выйти из полного экрана' : 'Открыть на весь экран'}
-                          >
-                            {isLocalScreenFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-                          </button>
                           <video
-                            ref={localPreviewRef}
+                            ref={peer.videoKind === 'camera' ? localCameraPreviewRef : localScreenPreviewRef}
                             autoPlay
                             muted
                             playsInline
@@ -1600,7 +2280,7 @@ const CallSection = ({
                           />
                           <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent px-2 pb-2 pt-5">
                             <p className="truncate text-xs font-semibold text-white">Вы</p>
-                            <p className="truncate text-[11px] text-slate-200">Трансляция активна</p>
+                            <p className="truncate text-[11px] text-slate-200">{peer.subtitle}</p>
                           </div>
                         </article>
                       );
@@ -1723,6 +2403,19 @@ const CallSection = ({
             </button>
             <button
               type="button"
+              onClick={toggleCamera}
+              disabled={!canToggleCamera}
+              className={`inline-flex h-11 min-w-[150px] items-center justify-center gap-2 rounded-xl border px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                cameraEnabled
+                  ? 'border-cyan-300/40 bg-cyan-400/20 text-cyan-100 hover:bg-cyan-400/30'
+                  : 'border-white/15 bg-slate-800 text-slate-200 hover:bg-slate-700'
+              }`}
+            >
+              {cameraBusy ? <Loader2 size={16} className="animate-spin" /> : (cameraEnabled ? <Camera size={16} /> : <CameraOff size={16} />)}
+              {cameraEnabled ? 'Камера вкл' : 'Камера выкл'}
+            </button>
+            <button
+              type="button"
               onClick={toggleScreenShare}
               disabled={!canToggleScreen}
               className={`inline-flex h-11 min-w-[160px] items-center justify-center gap-2 rounded-xl border px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${
@@ -1743,4 +2436,3 @@ const CallSection = ({
 };
 
 export default CallSection;
-
