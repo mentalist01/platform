@@ -10,10 +10,10 @@ import { createRequire } from 'module';
 import webpush from 'web-push';
 import { WebSocketServer } from 'ws';
 import yWsUtils from 'y-websocket/bin/utils';
-import * as Y from 'yjs';
 
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
+const Y = require('yjs');
 let LeveldbPersistence = null;
 try {
   ({ LeveldbPersistence } = require('y-leveldb'));
