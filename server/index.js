@@ -5412,7 +5412,7 @@ const handleRtcMessage = (client, rawData, isBinary) => {
 
 server.on('upgrade', (request, socket, head) => {
   const pathname = getUpgradePathname(request?.url);
-  if (pathname === '/collab') {
+  if (pathname === '/collab' || pathname.startsWith('/collab/')) {
     collabWss.handleUpgrade(request, socket, head, (ws) => {
       collabWss.emit('connection', ws, request);
     });
