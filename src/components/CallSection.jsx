@@ -18,9 +18,9 @@ const SCREEN_MAX_HEIGHT = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_HEIGHT',
 const CONNECTION_STATS_INTERVAL_MS = 2500;
 const RTC_PRESENCE_POLL_INTERVAL_MS = 3000;
 const PEER_DISCONNECTED_GRACE_MS = 10000;
-const SPEAKING_RMS_THRESHOLD = 0.03;
-const SPEAKING_HOLD_MS = 280;
-const SPEAKING_ANALYSER_FFT_SIZE = 512;
+const SPEAKING_RMS_THRESHOLD = getPositiveNumberFromEnv('VITE_RTC_SPEAKING_RMS_THRESHOLD', 0.008);
+const SPEAKING_HOLD_MS = getPositiveNumberFromEnv('VITE_RTC_SPEAKING_HOLD_MS', 420);
+const SPEAKING_ANALYSER_FFT_SIZE = 1024;
 
 const getRtcWsUrl = () => {
   if (typeof window === 'undefined') return '';
@@ -121,7 +121,7 @@ const observeAudioTrackSpeaking = (track, onSpeakingChange) => {
     sourceNode = audioContext.createMediaStreamSource(probeStream);
     analyser = audioContext.createAnalyser();
     analyser.fftSize = SPEAKING_ANALYSER_FFT_SIZE;
-    analyser.smoothingTimeConstant = 0.82;
+    analyser.smoothingTimeConstant = 0.6;
     sourceNode.connect(analyser);
     audioContext.resume?.().catch(() => {});
   } catch {
@@ -389,6 +389,7 @@ const MediaTile = ({ stream, title, subtitle, className = '', compact = false, i
 
 const RemoteAudioPlayer = ({ peerId, stream, onSpeakingChange }) => {
   const audioRef = useRef(null);
+  const [audioTrackVersion, setAudioTrackVersion] = useState(0);
 
   useEffect(() => {
     const audioNode = audioRef.current;
@@ -401,13 +402,66 @@ const RemoteAudioPlayer = ({ peerId, stream, onSpeakingChange }) => {
   }, [stream]);
 
   useEffect(() => {
+    const bumpVersion = () => {
+      setAudioTrackVersion((value) => value + 1);
+    };
+    bumpVersion();
+    if (!stream || typeof stream.addEventListener !== 'function') return undefined;
+
+    const trackListeners = new Map();
+    const bindAudioTrack = (track) => {
+      if (!track || track.kind !== 'audio' || trackListeners.has(track)) return;
+      const handler = () => {
+        bumpVersion();
+      };
+      track.addEventListener?.('ended', handler);
+      track.addEventListener?.('mute', handler);
+      track.addEventListener?.('unmute', handler);
+      trackListeners.set(track, handler);
+    };
+    const unbindAudioTrack = (track) => {
+      const handler = trackListeners.get(track);
+      if (!handler) return;
+      track.removeEventListener?.('ended', handler);
+      track.removeEventListener?.('mute', handler);
+      track.removeEventListener?.('unmute', handler);
+      trackListeners.delete(track);
+    };
+
+    const initialTracks = Array.isArray(stream.getAudioTracks?.()) ? stream.getAudioTracks() : [];
+    initialTracks.forEach(bindAudioTrack);
+
+    const handleAddTrack = (event) => {
+      bindAudioTrack(event?.track);
+      bumpVersion();
+    };
+    const handleRemoveTrack = (event) => {
+      unbindAudioTrack(event?.track);
+      bumpVersion();
+    };
+
+    stream.addEventListener('addtrack', handleAddTrack);
+    stream.addEventListener('removetrack', handleRemoveTrack);
+
+    return () => {
+      stream.removeEventListener('addtrack', handleAddTrack);
+      stream.removeEventListener('removetrack', handleRemoveTrack);
+      trackListeners.forEach((handler, track) => {
+        track.removeEventListener?.('ended', handler);
+        track.removeEventListener?.('mute', handler);
+        track.removeEventListener?.('unmute', handler);
+      });
+    };
+  }, [stream]);
+
+  useEffect(() => {
     const audioTrack = Array.isArray(stream?.getAudioTracks?.())
       ? stream.getAudioTracks().find((track) => track.readyState === 'live')
       : null;
     return observeAudioTrackSpeaking(audioTrack, (isSpeaking) => {
       onSpeakingChange?.(peerId, isSpeaking);
     });
-  }, [onSpeakingChange, peerId, stream]);
+  }, [audioTrackVersion, onSpeakingChange, peerId, stream]);
 
   return <audio ref={audioRef} autoPlay playsInline className="hidden" />;
 };
