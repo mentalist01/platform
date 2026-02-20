@@ -88,12 +88,12 @@ const formatRtcRoleLabel = (role) => {
 
 const hasLiveVideoInStream = (stream) => {
   const tracks = Array.isArray(stream?.getVideoTracks?.()) ? stream.getVideoTracks() : [];
-  return tracks.some((track) => track.readyState === 'live' && !track.muted);
+  return tracks.some((track) => track.readyState === 'live');
 };
 
 const getLiveVideoTracks = (stream) => {
   const tracks = Array.isArray(stream?.getVideoTracks?.()) ? stream.getVideoTracks() : [];
-  return tracks.filter((track) => track.readyState === 'live' && !track.muted);
+  return tracks.filter((track) => track.readyState === 'live');
 };
 
 const getVideoTrackById = (stream, trackId) => {
@@ -2115,8 +2115,8 @@ const CallSection = ({
           cameraTrack = liveVideoTracks.find((track) => !screenTrack || track.id !== screenTrack.id) || null;
         }
 
-        const hasScreenVideo = Boolean(screenTrack && screenTrack.readyState === 'live' && !screenTrack.muted);
-        const hasCameraVideo = Boolean(cameraTrack && cameraTrack.readyState === 'live' && !cameraTrack.muted);
+        const hasScreenVideo = Boolean(screenTrack && screenTrack.readyState === 'live');
+        const hasCameraVideo = Boolean(cameraTrack && cameraTrack.readyState === 'live');
 
         if (hasScreenVideo) {
           participants.push({
