@@ -6593,7 +6593,7 @@ const BoardSection = ({
 };
 
 const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, onThemeToggle }) => {
-  const STUDENT_CALL_SECTION_ENABLED = false;
+  const STUDENT_CALL_SECTION_ENABLED = true;
   const allowedViews = user.role === 'admin'
     ? ['admin']
     : user.role === 'teacher'
