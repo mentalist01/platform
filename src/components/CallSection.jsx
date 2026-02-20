@@ -20,6 +20,7 @@ const CAMERA_MAX_WIDTH = getPositiveNumberFromEnv('VITE_RTC_CAMERA_MAX_WIDTH', 1
 const CAMERA_MAX_HEIGHT = getPositiveNumberFromEnv('VITE_RTC_CAMERA_MAX_HEIGHT', 720);
 const CONNECTION_STATS_INTERVAL_MS = 2500;
 const RTC_PRESENCE_RECONNECT_DELAY_MS = 2000;
+const RTC_PRESENCE_POLL_INTERVAL_MS = 4000;
 const WS_HEARTBEAT_TIMEOUT_MS = 45000;
 const JOIN_ACK_TIMEOUT_MS = 15000;
 const ROOM_RESYNC_COOLDOWN_MS = 4000;
@@ -716,6 +717,39 @@ const CallSection = ({
     }
   }, []);
 
+  const sendLocalMediaStateToPeer = useCallback((peerId) => {
+    const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
+    const roomId = activeRoomRef.current;
+    if (!normalizedPeerId || !roomId) return false;
+    const screenTrack = localScreenTrackRef.current;
+    const cameraTrack = localCameraTrackRef.current;
+    const isScreenSharing = Boolean(screenTrack && screenTrack.readyState === 'live');
+    const isCameraEnabled = Boolean(cameraTrack && cameraTrack.readyState === 'live');
+    const screenTrackId = isScreenSharing ? screenTrack.id : '';
+    const cameraTrackId = isCameraEnabled ? cameraTrack.id : '';
+    return sendWs({
+      type: 'signal',
+      roomId,
+      targetId: normalizedPeerId,
+      signal: {
+        mediaState: {
+          isScreenSharing,
+          isCameraEnabled,
+          screenTrackId,
+          cameraTrackId,
+        },
+      },
+    });
+  }, [sendWs]);
+
+  const broadcastLocalMediaStateToPeers = useCallback(() => {
+    peersRef.current.forEach((peerState, peerId) => {
+      const pcState = typeof peerState?.pc?.connectionState === 'string' ? peerState.pc.connectionState : 'new';
+      if (pcState === 'closed' || pcState === 'failed') return;
+      sendLocalMediaStateToPeer(peerId);
+    });
+  }, [sendLocalMediaStateToPeer]);
+
   const clearJoinAckTimer = useCallback(() => {
     if (!joinAckTimerRef.current) return;
     clearTimeout(joinAckTimerRef.current);
@@ -1406,6 +1440,26 @@ const CallSection = ({
     const peerState = createPeerState(fromId, payload?.peer || {});
     if (!peerState) return;
 
+    const mediaState = signal.mediaState && typeof signal.mediaState === 'object'
+      ? signal.mediaState
+      : null;
+    if (mediaState) {
+      const nextIsScreenSharing = Boolean(mediaState?.isScreenSharing);
+      const nextIsCameraEnabled = Boolean(mediaState?.isCameraEnabled);
+      const nextScreenTrackIdRaw = typeof mediaState?.screenTrackId === 'string' ? mediaState.screenTrackId.trim() : '';
+      const nextCameraTrackIdRaw = typeof mediaState?.cameraTrackId === 'string' ? mediaState.cameraTrackId.trim() : '';
+      const nextScreenTrackId = nextIsScreenSharing ? nextScreenTrackIdRaw : '';
+      const nextCameraTrackId = nextIsCameraEnabled ? nextCameraTrackIdRaw : '';
+      peerMetaRef.current.set(fromId, {
+        ...(peerMetaRef.current.get(fromId) || {}),
+        isScreenSharing: nextIsScreenSharing,
+        isCameraEnabled: nextIsCameraEnabled,
+        screenTrackId: nextScreenTrackId,
+        cameraTrackId: nextCameraTrackId,
+      });
+      syncRemotePeers();
+    }
+
     const description = signal.description;
     if (description && typeof description === 'object') {
       const offerCollision = description.type === 'offer'
@@ -1467,7 +1521,7 @@ const CallSection = ({
         }
       }
     }
-  }, [createPeerState, sendWs, syncLocalTracksToPeer]);
+  }, [createPeerState, sendWs, syncLocalTracksToPeer, syncRemotePeers]);
 
   const handleWsMessage = useCallback((raw) => {
     let payload = null;
@@ -1555,6 +1609,7 @@ const CallSection = ({
       if (selfClientIdRef.current && selfClientIdRef.current < peerId && shouldOffer) {
         makeOfferToPeer(peerId);
       }
+      sendLocalMediaStateToPeer(peerId);
       syncRemotePeers();
       return;
     }
@@ -1580,7 +1635,7 @@ const CallSection = ({
         console.error('[call] signal handling failed:', signalError);
       });
     }
-  }, [applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, makeOfferToPeer, removePeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
+  }, [applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, makeOfferToPeer, removePeer, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
 
   const stopCall = useCallback(() => {
     manualCloseRef.current = true;
@@ -1863,7 +1918,8 @@ const CallSection = ({
       screenTrackId,
       cameraTrackId,
     });
-  }, [cameraEnabled, screenSharing, sendWs, status]);
+    broadcastLocalMediaStateToPeers();
+  }, [broadcastLocalMediaStateToPeers, cameraEnabled, screenSharing, sendWs, status]);
 
   useEffect(() => {
     const prevRoomId = previousRoomIdRef.current;
@@ -1997,9 +2053,13 @@ const CallSection = ({
 
     loadPresenceOnce();
     connectPresence();
+    const presencePollTimer = setInterval(() => {
+      loadPresenceOnce();
+    }, RTC_PRESENCE_POLL_INTERVAL_MS);
 
     return () => {
       disposed = true;
+      clearInterval(presencePollTimer);
       closePresenceSocket();
     };
   }, [closePresenceSocket, mapPresenceParticipants, roomId, rtcWsUrl, status]);
