@@ -17,6 +17,7 @@ const SCREEN_MAX_WIDTH = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_WIDTH', 1
 const SCREEN_MAX_HEIGHT = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_HEIGHT', 1080);
 const CONNECTION_STATS_INTERVAL_MS = 2500;
 const RTC_PRESENCE_POLL_INTERVAL_MS = 3000;
+const PEER_DISCONNECTED_GRACE_MS = 10000;
 
 const getRtcWsUrl = () => {
   if (typeof window === 'undefined') return '';
@@ -104,7 +105,7 @@ const exitDocumentFullscreen = async () => {
 const MediaTile = ({ stream, title, subtitle, className = '', compact = false }) => {
   const tileRef = useRef(null);
   const mediaRef = useRef(null);
-  const [videoTrackVersion, setVideoTrackVersion] = useState(0);
+  const [, setVideoTrackVersion] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const isCompact = compact && !isFullscreen;
 
@@ -161,14 +162,14 @@ const MediaTile = ({ stream, title, subtitle, className = '', compact = false })
     };
   }, [stream]);
 
-  const hasVideo = useMemo(() => hasLiveVideoInStream(stream), [stream, videoTrackVersion]);
+  const hasVideo = hasLiveVideoInStream(stream);
 
   useEffect(() => {
-    if (!mediaRef.current) return;
-    mediaRef.current.srcObject = stream || null;
+    const mediaNode = mediaRef.current;
+    if (!mediaNode) return;
+    mediaNode.srcObject = stream || null;
     return () => {
-      if (!mediaRef.current) return;
-      mediaRef.current.srcObject = null;
+      mediaNode.srcObject = null;
     };
   }, [stream]);
 
@@ -543,6 +544,10 @@ const CallSection = ({
 
   const closeAllPeers = useCallback(() => {
     peersRef.current.forEach((peerState) => {
+      if (peerState.disconnectTimer) {
+        clearTimeout(peerState.disconnectTimer);
+        peerState.disconnectTimer = null;
+      }
       try {
         peerState.pc.ontrack = null;
         peerState.pc.onicecandidate = null;
@@ -556,6 +561,34 @@ const CallSection = ({
     lastInboundAudioRef.current.clear();
     setRemotePeers([]);
   }, []);
+
+  const detachPeer = useCallback((peerId, options = {}) => {
+    const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
+    if (!normalizedPeerId) return;
+
+    const { closeConnection = true } = options;
+    const peerState = peersRef.current.get(normalizedPeerId);
+
+    if (peerState?.disconnectTimer) {
+      clearTimeout(peerState.disconnectTimer);
+      peerState.disconnectTimer = null;
+    }
+
+    if (closeConnection && peerState?.pc) {
+      try {
+        peerState.pc.ontrack = null;
+        peerState.pc.onicecandidate = null;
+        peerState.pc.onconnectionstatechange = null;
+        peerState.pc.close();
+      } catch {}
+    }
+
+    peersRef.current.delete(normalizedPeerId);
+    peerMetaRef.current.delete(normalizedPeerId);
+    remoteStreamsRef.current.delete(normalizedPeerId);
+    lastInboundAudioRef.current.delete(normalizedPeerId);
+    syncRemotePeers();
+  }, [syncRemotePeers]);
 
   const stopMicTrack = useCallback((withSync = true) => {
     const track = localAudioTrackRef.current;
@@ -662,6 +695,7 @@ const CallSection = ({
       ignoreOffer: false,
       audioSender: null,
       videoSender: null,
+      disconnectTimer: null,
     };
 
     peersRef.current.set(normalizedPeerId, peerState);
@@ -679,9 +713,21 @@ const CallSection = ({
 
     pc.ontrack = (event) => {
       const candidateStreams = Array.isArray(event.streams) ? event.streams.filter(Boolean) : [];
-      let stream = candidateStreams[0] || remoteStreamsRef.current.get(normalizedPeerId);
+      const existingStream = remoteStreamsRef.current.get(normalizedPeerId) || null;
+      const incomingStream = candidateStreams[0] || null;
+
+      let stream = existingStream || incomingStream;
       if (!stream) {
         stream = new MediaStream();
+      }
+
+      if (existingStream && incomingStream && existingStream !== incomingStream) {
+        incomingStream.getTracks().forEach((incomingTrack) => {
+          if (!existingStream.getTracks().some((existingTrack) => existingTrack.id === incomingTrack.id)) {
+            existingStream.addTrack(incomingTrack);
+          }
+        });
+        stream = existingStream;
       }
 
       const track = event?.track || null;
@@ -707,17 +753,31 @@ const CallSection = ({
 
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
-      if (state !== 'failed' && state !== 'closed') return;
-      peerMetaRef.current.delete(normalizedPeerId);
-      remoteStreamsRef.current.delete(normalizedPeerId);
-      peersRef.current.delete(normalizedPeerId);
-      lastInboundAudioRef.current.delete(normalizedPeerId);
-      syncRemotePeers();
+      if (state === 'disconnected') {
+        if (!peerState.disconnectTimer) {
+          peerState.disconnectTimer = setTimeout(() => {
+            const currentPeerState = peersRef.current.get(normalizedPeerId);
+            if (!currentPeerState) return;
+            if (currentPeerState.pc.connectionState !== 'disconnected') return;
+            detachPeer(normalizedPeerId, { closeConnection: true });
+          }, PEER_DISCONNECTED_GRACE_MS);
+        }
+        return;
+      }
+
+      if (peerState.disconnectTimer) {
+        clearTimeout(peerState.disconnectTimer);
+        peerState.disconnectTimer = null;
+      }
+
+      if (state === 'failed' || state === 'closed') {
+        detachPeer(normalizedPeerId, { closeConnection: state !== 'closed' });
+      }
     };
 
     syncLocalTracksToPeer(peerState);
     return peerState;
-  }, [rtcIceServers, sendWs, syncLocalTracksToPeer, syncRemotePeers]);
+  }, [detachPeer, rtcIceServers, sendWs, syncLocalTracksToPeer, syncRemotePeers]);
 
   const makeOfferToPeer = useCallback(async (peerId) => {
     const peerState = peersRef.current.get(peerId);
@@ -754,23 +814,8 @@ const CallSection = ({
   }, [makeOfferToPeer]);
 
   const removePeer = useCallback((peerId) => {
-    const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
-    if (!normalizedPeerId) return;
-    const peerState = peersRef.current.get(normalizedPeerId);
-    if (peerState) {
-      try {
-        peerState.pc.ontrack = null;
-        peerState.pc.onicecandidate = null;
-        peerState.pc.onconnectionstatechange = null;
-        peerState.pc.close();
-      } catch {}
-    }
-    peersRef.current.delete(normalizedPeerId);
-    peerMetaRef.current.delete(normalizedPeerId);
-    remoteStreamsRef.current.delete(normalizedPeerId);
-    lastInboundAudioRef.current.delete(normalizedPeerId);
-    syncRemotePeers();
-  }, [syncRemotePeers]);
+    detachPeer(peerId, { closeConnection: true });
+  }, [detachPeer]);
 
   const handleSignalPayload = useCallback(async (payload) => {
     const fromId = typeof payload?.fromId === 'string' ? payload.fromId.trim() : '';
@@ -946,6 +991,7 @@ const CallSection = ({
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (wsRef.current !== ws) return;
         setSocketStatus('connected');
         sendWs({ type: 'join', roomId });
         if (wsPingTimerRef.current) {
@@ -957,12 +1003,15 @@ const CallSection = ({
         }, WS_PING_INTERVAL_MS);
       };
       ws.onmessage = (event) => {
+        if (wsRef.current !== ws) return;
         handleWsMessage(event.data);
       };
       ws.onerror = () => {
+        if (wsRef.current !== ws) return;
         setError('Ошибка сигнального канала WebSocket.');
       };
       ws.onclose = () => {
+        if (wsRef.current !== ws) return;
         if (wsPingTimerRef.current) {
           clearInterval(wsPingTimerRef.current);
           wsPingTimerRef.current = null;
