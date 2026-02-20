@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Camera, CameraOff, Loader2, Maximize2, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Phone, PhoneOff, Signal, Users } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { AlertCircle, Camera, CameraOff, Loader2, Maximize2, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Move, Phone, PhoneOff, Signal, Users } from 'lucide-react';
 
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
@@ -42,6 +43,25 @@ const percentToPeerVolume = (value) => {
 };
 
 const peerVolumeToPercent = (value) => Math.round(normalizePeerVolume(value) * 100);
+const clampToRange = (value, min, max) => Math.min(Math.max(value, min), max);
+
+const clampPanelPositionToViewport = (position, width, height) => {
+  const normalizedWidth = Number(width);
+  const normalizedHeight = Number(height);
+  if (!Number.isFinite(normalizedWidth) || normalizedWidth <= 0 || !Number.isFinite(normalizedHeight) || normalizedHeight <= 0) {
+    return position;
+  }
+  if (typeof window === 'undefined') return position;
+  const margin = 8;
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const maxX = Math.max(margin, viewportWidth - normalizedWidth - margin);
+  const maxY = Math.max(margin, viewportHeight - normalizedHeight - margin);
+  return {
+    x: clampToRange(Number(position?.x) || margin, margin, maxX),
+    y: clampToRange(Number(position?.y) || margin, margin, maxY),
+  };
+};
 
 const getRtcWsUrl = () => {
   if (typeof window === 'undefined') return '';
@@ -557,6 +577,10 @@ const CallSection = ({
   activeStudentId,
   onSelectStudent,
   studentsLoading,
+  uiMode = 'full',
+  onRequestExpand,
+  onRequestCollapse,
+  onStatusChange,
 }) => {
   const isTeacher = role === 'teacher';
   const effectiveStudentId = isTeacher ? String(activeStudentId || '').trim() : String(userId || '').trim();
@@ -584,6 +608,8 @@ const CallSection = ({
   const [speakingByPeer, setSpeakingByPeer] = useState({});
   const [volumeByPeer, setVolumeByPeer] = useState({});
   const [volumePopup, setVolumePopup] = useState(null);
+  const [collapsedPanelPosition, setCollapsedPanelPosition] = useState(null);
+  const [floatingPanelPosition, setFloatingPanelPosition] = useState(null);
   const [selfSpeaking, setSelfSpeaking] = useState(false);
   const [peerConnectionSummary, setPeerConnectionSummary] = useState({
     total: 0,
@@ -603,6 +629,9 @@ const CallSection = ({
   const wsRef = useRef(null);
   const presenceWsRef = useRef(null);
   const volumePopupRef = useRef(null);
+  const collapsedPanelRef = useRef(null);
+  const floatingPanelRef = useRef(null);
+  const panelDragStateRef = useRef(null);
   const activeRoomRef = useRef('');
   const manualCloseRef = useRef(false);
   const statusRef = useRef(status);
@@ -630,10 +659,20 @@ const CallSection = ({
   const roomResyncCooldownUntilRef = useRef(0);
   const statsTimerRef = useRef(null);
   const lastInboundAudioRef = useRef(new Map());
+  const normalizedUiMode = ['full', 'floating', 'collapsed', 'hidden'].includes(uiMode)
+    ? uiMode
+    : 'full';
+  const isFloatingUi = normalizedUiMode === 'floating';
+  const isCollapsedUi = normalizedUiMode === 'collapsed';
+  const isHiddenUi = normalizedUiMode === 'hidden';
 
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  useEffect(() => {
+    onStatusChange?.(status);
+  }, [onStatusChange, status]);
 
   const applyStatus = useCallback((nextStatus) => {
     statusRef.current = nextStatus;
@@ -1193,6 +1232,89 @@ const CallSection = ({
       y,
     });
   }, []);
+
+  const stopPanelDrag = useCallback(() => {
+    const dragState = panelDragStateRef.current;
+    if (!dragState) return;
+    window.removeEventListener('pointermove', dragState.onPointerMove);
+    window.removeEventListener('pointerup', dragState.onPointerUp);
+    window.removeEventListener('pointercancel', dragState.onPointerUp);
+    if (dragState.target?.releasePointerCapture && Number.isFinite(dragState.pointerId)) {
+      try {
+        if (dragState.target.hasPointerCapture?.(dragState.pointerId)) {
+          dragState.target.releasePointerCapture(dragState.pointerId);
+        }
+      } catch {}
+    }
+    panelDragStateRef.current = null;
+  }, []);
+
+  const startPanelDrag = useCallback((event, panelKind) => {
+    if (!event || panelKind === 'full') return;
+    if (event.button !== 0) return;
+    const targetRef = panelKind === 'collapsed' ? collapsedPanelRef.current : floatingPanelRef.current;
+    if (!targetRef) return;
+    event.preventDefault();
+    event.stopPropagation();
+    stopPanelDrag();
+
+    const rect = targetRef.getBoundingClientRect();
+    const panelWidth = rect.width;
+    const panelHeight = rect.height;
+    const pointerOffsetX = event.clientX - rect.left;
+    const pointerOffsetY = event.clientY - rect.top;
+
+    if (panelKind === 'collapsed' && !collapsedPanelPosition) {
+      setCollapsedPanelPosition(clampPanelPositionToViewport({
+        x: rect.left,
+        y: rect.top,
+      }, panelWidth, panelHeight));
+    }
+    if (panelKind === 'floating' && !floatingPanelPosition) {
+      const anchoredPosition = clampPanelPositionToViewport({
+        x: rect.left,
+        y: rect.top,
+      }, panelWidth, panelHeight);
+      setFloatingPanelPosition({
+        ...anchoredPosition,
+        width: panelWidth,
+      });
+    }
+
+    const onPointerMove = (moveEvent) => {
+      const nextPosition = clampPanelPositionToViewport({
+        x: moveEvent.clientX - pointerOffsetX,
+        y: moveEvent.clientY - pointerOffsetY,
+      }, panelWidth, panelHeight);
+      if (panelKind === 'collapsed') {
+        setCollapsedPanelPosition(nextPosition);
+      } else {
+        setFloatingPanelPosition({
+          ...nextPosition,
+          width: panelWidth,
+        });
+      }
+    };
+    const onPointerUp = () => {
+      stopPanelDrag();
+    };
+
+    if (targetRef.setPointerCapture && Number.isFinite(event.pointerId)) {
+      try {
+        targetRef.setPointerCapture(event.pointerId);
+      } catch {}
+    }
+
+    panelDragStateRef.current = {
+      onPointerMove,
+      onPointerUp,
+      target: targetRef,
+      pointerId: event.pointerId,
+    };
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+  }, [collapsedPanelPosition, floatingPanelPosition, stopPanelDrag]);
 
   const stopMicTrack = useCallback((withSync = true) => {
     const track = localAudioTrackRef.current;
@@ -2280,6 +2402,64 @@ const CallSection = ({
     };
   }, [volumePopup]);
 
+  useEffect(() => () => {
+    stopPanelDrag();
+  }, [stopPanelDrag]);
+
+  useEffect(() => {
+    if (!isCollapsedUi || collapsedPanelPosition) return;
+    const panelNode = collapsedPanelRef.current;
+    if (!panelNode) return;
+    const rect = panelNode.getBoundingClientRect();
+    setCollapsedPanelPosition(clampPanelPositionToViewport({
+      x: rect.left,
+      y: rect.top,
+    }, rect.width, rect.height));
+  }, [collapsedPanelPosition, isCollapsedUi]);
+
+  useEffect(() => {
+    if (!isFloatingUi || floatingPanelPosition) return;
+    const panelNode = floatingPanelRef.current;
+    if (!panelNode) return;
+    const rect = panelNode.getBoundingClientRect();
+    const anchoredPosition = clampPanelPositionToViewport({
+      x: rect.left,
+      y: rect.top,
+    }, rect.width, rect.height);
+    setFloatingPanelPosition({
+      ...anchoredPosition,
+      width: rect.width,
+    });
+  }, [floatingPanelPosition, isFloatingUi]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleResize = () => {
+      setCollapsedPanelPosition((prev) => {
+        if (!prev) return prev;
+        const rect = collapsedPanelRef.current?.getBoundingClientRect?.();
+        const width = rect?.width || Math.min(window.innerWidth * 0.96, 640);
+        const height = rect?.height || 56;
+        return clampPanelPositionToViewport(prev, width, height);
+      });
+      setFloatingPanelPosition((prev) => {
+        if (!prev) return prev;
+        const rect = floatingPanelRef.current?.getBoundingClientRect?.();
+        const width = rect?.width || Math.min(980, Math.max(320, window.innerWidth - 16));
+        const height = rect?.height || Math.min(680, Math.max(160, window.innerHeight - 16));
+        const clamped = clampPanelPositionToViewport(prev, width, height);
+        return {
+          ...clamped,
+          width,
+        };
+      });
+    };
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
   const isConnected = status === 'connected';
   const isConnecting = status === 'connecting';
   const hasActiveMediaConnection = peerConnectionSummary.connected > 0;
@@ -2489,13 +2669,108 @@ const CallSection = ({
         ? 'плохо'
         : 'нет данных';
 
-  return (
-    <div className="animate-fadeIn pb-10" data-tour="call">
+  const collapsedPanelStyle = collapsedPanelPosition
+    ? { left: `${collapsedPanelPosition.x}px`, top: `${collapsedPanelPosition.y}px`, transform: 'none' }
+    : undefined;
+  const floatingPanelStyle = floatingPanelPosition
+    ? {
+      left: `${floatingPanelPosition.x}px`,
+      top: `${floatingPanelPosition.y}px`,
+      right: 'auto',
+      width: Number.isFinite(floatingPanelPosition.width) ? `${floatingPanelPosition.width}px` : undefined,
+    }
+    : undefined;
+
+  if (isHiddenUi) {
+    return null;
+  }
+
+  if (isCollapsedUi) {
+    const collapsedPanelNode = (
+      <div
+        ref={collapsedPanelRef}
+        className="fixed left-1/2 top-2 z-50 w-[min(96vw,640px)] -translate-x-1/2"
+        style={collapsedPanelStyle}
+      >
+        <div className="flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/95 px-3 py-2 shadow-[0_14px_30px_rgba(2,6,23,0.45)] backdrop-blur">
+          <button
+            type="button"
+            onPointerDown={(event) => startPanelDrag(event, 'collapsed')}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-slate-800 text-slate-200 transition hover:bg-slate-700 cursor-grab active:cursor-grabbing"
+            title="Move panel"
+          >
+            <Move size={13} />
+          </button>
+          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusChipClass}`}>
+            {statusText}
+          </span>
+          <p className="min-w-0 flex-1 truncate text-xs text-slate-200">
+            Call active • participants: {participantCount}
+          </p>
+          <button
+            type="button"
+            onClick={onRequestExpand}
+            className="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-white/15 bg-slate-800 px-2 text-xs font-semibold text-slate-100 transition hover:bg-slate-700"
+            title="Expand"
+          >
+            <Maximize2 size={13} />
+            Expand
+          </button>
+          <button
+            type="button"
+            onClick={stopCall}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-400/40 bg-rose-500/15 text-rose-100 transition hover:bg-rose-500/25"
+            title="Hang up"
+          >
+            <PhoneOff size={13} />
+          </button>
+        </div>
+      </div>
+    );
+    if (typeof document !== 'undefined') {
+      return createPortal(collapsedPanelNode, document.body);
+    }
+    return collapsedPanelNode;
+  }
+
+  const panelNode = (
+    <div
+      ref={isFloatingUi ? floatingPanelRef : null}
+      className={isFloatingUi
+        ? 'fixed inset-x-2 top-2 z-50 max-h-[calc(100vh-1rem)] overflow-y-auto md:inset-x-auto md:right-4 md:top-4 md:w-[min(980px,calc(100vw-2rem))]'
+        : 'animate-fadeIn pb-10'}
+      style={isFloatingUi ? floatingPanelStyle : undefined}
+      data-tour="call"
+    >
       <section className="relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 p-4 shadow-[0_30px_90px_rgba(2,6,23,0.5)] md:p-6">
         <div className="pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-blue-500/20 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-emerald-500/20 blur-3xl" />
 
         <div className="relative z-10">
+          {isFloatingUi && (
+            <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onPointerDown={(event) => startPanelDrag(event, 'floating')}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-slate-800 text-slate-200 transition hover:bg-slate-700 cursor-grab active:cursor-grabbing"
+                  title="Move panel"
+                >
+                  <Move size={13} />
+                </button>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-200">Call panel</p>
+              </div>
+              <button
+                type="button"
+                onClick={onRequestCollapse}
+                className="inline-flex items-center gap-1 rounded-md border border-white/15 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-100 transition hover:bg-slate-700"
+                title="Collapse"
+              >
+                <Minimize2 size={13} />
+                Collapse
+              </button>
+            </div>
+          )}
           <header className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold text-white md:text-2xl">Онлайн-созвон</h2>
@@ -2778,6 +3053,10 @@ const CallSection = ({
       </section>
     </div>
   );
+  if (isFloatingUi && typeof document !== 'undefined') {
+    return createPortal(panelNode, document.body);
+  }
+  return panelNode;
 };
 
 export default CallSection;
