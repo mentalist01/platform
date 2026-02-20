@@ -32,7 +32,7 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil((async () => {
     const target = new URL(targetUrl, self.location.origin);
-    const clientList = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const clientList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const client of clientList) {
       if (!client?.url) continue;
       const clientUrl = new URL(client.url);
@@ -41,10 +41,13 @@ self.addEventListener('notificationclick', (event) => {
       if (clientUrl.href !== target.href) {
         try {
           await client.navigate(target.href);
-        } catch {}
+        } catch {
+          // Ignore navigation failures and keep focused window.
+        }
       }
       return;
     }
-    await clients.openWindow(target.href);
+    await self.clients.openWindow(target.href);
   })());
 });
+
