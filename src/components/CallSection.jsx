@@ -103,6 +103,23 @@ const getVideoTrackById = (stream, trackId) => {
   return tracks.find((track) => track.id === normalizedTrackId) || null;
 };
 
+const inferVideoTrackKind = (track) => {
+  if (!track || track.kind !== 'video') return 'video';
+  try {
+    const settings = typeof track.getSettings === 'function' ? track.getSettings() : null;
+    const displaySurface = typeof settings?.displaySurface === 'string'
+      ? settings.displaySurface.trim().toLowerCase()
+      : '';
+    if (displaySurface) return 'screen';
+  } catch {}
+
+  const label = typeof track.label === 'string' ? track.label.trim().toLowerCase() : '';
+  if (label && /(screen|window|tab|display|экран)/i.test(label)) {
+    return 'screen';
+  }
+  return 'camera';
+};
+
 const observeAudioTrackSpeaking = (track, onSpeakingChange) => {
   const reportSpeaking = (value) => {
     onSpeakingChange?.(value);
@@ -2105,46 +2122,8 @@ const CallSection = ({
       remotePeers.forEach((peer) => {
         const peerStream = peer.stream || null;
         const liveVideoTracks = getLiveVideoTracks(peerStream);
-        let screenTrack = getVideoTrackById(peerStream, peer.screenTrackId);
-        let cameraTrack = getVideoTrackById(peerStream, peer.cameraTrackId);
-
-        if (peer.isScreenSharing && !screenTrack && liveVideoTracks.length > 0) {
-          screenTrack = liveVideoTracks[0];
-        }
-        if (peer.isCameraEnabled && !cameraTrack) {
-          cameraTrack = liveVideoTracks.find((track) => !screenTrack || track.id !== screenTrack.id) || null;
-        }
-
-        const hasScreenVideo = Boolean(screenTrack && screenTrack.readyState === 'live');
-        const hasCameraVideo = Boolean(cameraTrack && cameraTrack.readyState === 'live');
-
-        if (hasScreenVideo) {
-          participants.push({
-            id: `${peer.peerId}:screen`,
-            title: peer.title,
-            subtitle: 'Экран',
-            isSelf: false,
-            hasVideo: true,
-            videoKind: 'screen',
-            stream: getStreamForVideoTrack(screenTrack),
-            isSpeaking: Boolean(speakingByPeer[peer.peerId]),
-          });
-        }
-
-        if (hasCameraVideo) {
-          participants.push({
-            id: `${peer.peerId}:camera`,
-            title: peer.title,
-            subtitle: 'Камера',
-            isSelf: false,
-            hasVideo: true,
-            videoKind: 'camera',
-            stream: getStreamForVideoTrack(cameraTrack),
-            isSpeaking: Boolean(speakingByPeer[peer.peerId]),
-          });
-        }
-
-        if (!hasScreenVideo && !hasCameraVideo) {
+        const isSpeaking = Boolean(speakingByPeer[peer.peerId]);
+        if (liveVideoTracks.length === 0) {
           participants.push({
             id: peer.peerId,
             title: peer.title,
@@ -2153,9 +2132,59 @@ const CallSection = ({
             hasVideo: false,
             videoKind: null,
             stream: null,
-            isSpeaking: Boolean(speakingByPeer[peer.peerId]),
+            isSpeaking,
           });
+          return;
         }
+
+        const usedTrackIds = new Set();
+        const pushRemoteVideoTrack = (track, kind, subtitle) => {
+          if (!track || track.readyState !== 'live') return false;
+          if (usedTrackIds.has(track.id)) return false;
+          usedTrackIds.add(track.id);
+          participants.push({
+            id: `${peer.peerId}:${kind}:${track.id}`,
+            title: peer.title,
+            subtitle,
+            isSelf: false,
+            hasVideo: true,
+            videoKind: kind,
+            stream: getStreamForVideoTrack(track),
+            isSpeaking,
+          });
+          return true;
+        };
+
+        const screenTrackById = getVideoTrackById(peerStream, peer.screenTrackId);
+        const cameraTrackById = getVideoTrackById(peerStream, peer.cameraTrackId);
+
+        pushRemoteVideoTrack(screenTrackById, 'screen', 'Экран');
+        pushRemoteVideoTrack(cameraTrackById, 'camera', 'Камера');
+
+        if (peer.isScreenSharing && !screenTrackById) {
+          const inferredScreenTrack = liveVideoTracks.find((track) => (
+            !usedTrackIds.has(track.id) && inferVideoTrackKind(track) === 'screen'
+          )) || liveVideoTracks.find((track) => !usedTrackIds.has(track.id));
+          pushRemoteVideoTrack(inferredScreenTrack, 'screen', 'Экран');
+        }
+
+        if (peer.isCameraEnabled && !cameraTrackById) {
+          const inferredCameraTrack = liveVideoTracks.find((track) => (
+            !usedTrackIds.has(track.id) && inferVideoTrackKind(track) === 'camera'
+          )) || liveVideoTracks.find((track) => !usedTrackIds.has(track.id));
+          pushRemoteVideoTrack(inferredCameraTrack, 'camera', 'Камера');
+        }
+
+        liveVideoTracks.forEach((track) => {
+          if (usedTrackIds.has(track.id)) return;
+          const inferredKind = inferVideoTrackKind(track);
+          const subtitle = inferredKind === 'screen'
+            ? 'Экран'
+            : inferredKind === 'camera'
+              ? 'Камера'
+              : 'Видео';
+          pushRemoteVideoTrack(track, inferredKind, subtitle);
+        });
       });
 
       return participants;
