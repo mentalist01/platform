@@ -397,6 +397,9 @@ const collabPersistence = rawCollabPersistence ? {
     }
   },
 } : null;
+if (collabPersistence && typeof yWsUtils?.setPersistence === 'function') {
+  yWsUtils.setPersistence(collabPersistence);
+}
 
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
@@ -5189,7 +5192,7 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 wss.on('connection', (ws, request) => {
-  setupWSConnection(ws, request, { persistence: collabPersistence || undefined });
+  setupWSConnection(ws, request);
 });
 
 server.listen(PORT, () => {
