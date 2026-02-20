@@ -28,6 +28,20 @@ const PEER_DISCONNECTED_GRACE_MS = 10000;
 const SPEAKING_RMS_THRESHOLD = getPositiveNumberFromEnv('VITE_RTC_SPEAKING_RMS_THRESHOLD', 0.008);
 const SPEAKING_HOLD_MS = getPositiveNumberFromEnv('VITE_RTC_SPEAKING_HOLD_MS', 420);
 const SPEAKING_ANALYSER_FFT_SIZE = 1024;
+const PEER_VOLUME_STEP_PERCENT = 10;
+const DEFAULT_PEER_VOLUME = 1;
+
+const normalizePeerVolume = (value) => {
+  if (!Number.isFinite(value)) return DEFAULT_PEER_VOLUME;
+  return Math.max(0, Math.min(1, value));
+};
+
+const percentToPeerVolume = (value) => {
+  if (!Number.isFinite(value)) return DEFAULT_PEER_VOLUME;
+  return normalizePeerVolume(value / 100);
+};
+
+const peerVolumeToPercent = (value) => Math.round(normalizePeerVolume(value) * 100);
 
 const getRtcWsUrl = () => {
   if (typeof window === 'undefined') return '';
@@ -245,6 +259,7 @@ const MediaTile = ({
   compact = false,
   isSpeaking = false,
   muted = true,
+  onContextMenu,
 }) => {
   const tileRef = useRef(null);
   const mediaRef = useRef(null);
@@ -351,6 +366,7 @@ const MediaTile = ({
         <article
           ref={tileRef}
           onDoubleClick={toggleFullscreen}
+          onContextMenu={onContextMenu}
           className={`relative overflow-hidden border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)] ${isFullscreen ? 'h-screen w-screen rounded-none border-0' : 'h-24 w-36 rounded-xl md:h-28 md:w-44'} ${isSpeaking && !isFullscreen ? 'ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900' : ''} ${className}`}
         >
           <button
@@ -379,6 +395,7 @@ const MediaTile = ({
       <article
         ref={tileRef}
         onDoubleClick={undefined}
+        onContextMenu={onContextMenu}
         className={`relative rounded-xl border border-white/10 bg-slate-900/85 px-2.5 py-2 shadow-[0_6px_16px_rgba(2,6,23,0.32)] ${className}`}
       >
         <div className="flex items-center gap-2.5">
@@ -401,6 +418,7 @@ const MediaTile = ({
     <article
       ref={tileRef}
       onDoubleClick={toggleFullscreen}
+      onContextMenu={onContextMenu}
       className={`relative overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-[0_8px_24px_rgba(2,6,23,0.35)] ${isSpeaking && !isFullscreen ? 'ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900' : ''} ${className}`}
     >
       <button
@@ -434,9 +452,15 @@ const MediaTile = ({
   );
 };
 
-const RemoteAudioPlayer = ({ peerId, stream, onSpeakingChange }) => {
+const RemoteAudioPlayer = ({
+  peerId,
+  stream,
+  onSpeakingChange,
+  volume = DEFAULT_PEER_VOLUME,
+}) => {
   const audioRef = useRef(null);
   const [audioTrackVersion, setAudioTrackVersion] = useState(0);
+  const effectiveVolume = normalizePeerVolume(volume);
 
   useEffect(() => {
     const audioNode = audioRef.current;
@@ -516,6 +540,12 @@ const RemoteAudioPlayer = ({ peerId, stream, onSpeakingChange }) => {
     audioNode.play?.().catch(() => {});
   }, [audioTrackVersion, stream]);
 
+  useEffect(() => {
+    const audioNode = audioRef.current;
+    if (!audioNode) return;
+    audioNode.volume = effectiveVolume;
+  }, [effectiveVolume]);
+
   return <audio ref={audioRef} autoPlay playsInline className="hidden" />;
 };
 
@@ -552,6 +582,8 @@ const CallSection = ({
   const [remotePeers, setRemotePeers] = useState([]);
   const [presencePeers, setPresencePeers] = useState([]);
   const [speakingByPeer, setSpeakingByPeer] = useState({});
+  const [volumeByPeer, setVolumeByPeer] = useState({});
+  const [volumePopup, setVolumePopup] = useState(null);
   const [selfSpeaking, setSelfSpeaking] = useState(false);
   const [peerConnectionSummary, setPeerConnectionSummary] = useState({
     total: 0,
@@ -570,6 +602,7 @@ const CallSection = ({
 
   const wsRef = useRef(null);
   const presenceWsRef = useRef(null);
+  const volumePopupRef = useRef(null);
   const activeRoomRef = useRef('');
   const manualCloseRef = useRef(false);
   const statusRef = useRef(status);
@@ -1031,6 +1064,7 @@ const CallSection = ({
     videoTrackStreamsRef.current.clear();
     setRemotePeers([]);
     setSpeakingByPeer({});
+    setVolumeByPeer({});
     setPeerConnectionSummary({
       total: 0,
       connected: 0,
@@ -1072,6 +1106,12 @@ const CallSection = ({
       delete next[normalizedPeerId];
       return next;
     });
+    setVolumeByPeer((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, normalizedPeerId)) return prev;
+      const next = { ...prev };
+      delete next[normalizedPeerId];
+      return next;
+    });
     refreshPeerConnectionSummary();
     syncRemotePeers();
   }, [refreshPeerConnectionSummary, syncRemotePeers]);
@@ -1092,6 +1132,65 @@ const CallSection = ({
         ...prev,
         [normalizedPeerId]: true,
       };
+    });
+  }, []);
+
+  const setPeerVolumePercent = useCallback((peerId, percentValue) => {
+    const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
+    if (!normalizedPeerId) return;
+    const nextVolume = percentToPeerVolume(Number(percentValue));
+    setVolumeByPeer((prev) => {
+      const currentVolume = normalizePeerVolume(prev[normalizedPeerId]);
+      if (Math.abs(currentVolume - nextVolume) < 0.0001) return prev;
+      return {
+        ...prev,
+        [normalizedPeerId]: nextVolume,
+      };
+    });
+  }, []);
+
+  const adjustPeerVolume = useCallback((peerId, percentDelta) => {
+    const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
+    if (!normalizedPeerId) return;
+    setVolumeByPeer((prev) => {
+      const currentPercent = peerVolumeToPercent(prev[normalizedPeerId]);
+      const nextPercent = Math.max(0, Math.min(100, currentPercent + Number(percentDelta || 0)));
+      const nextVolume = percentToPeerVolume(nextPercent);
+      const currentVolume = normalizePeerVolume(prev[normalizedPeerId]);
+      if (Math.abs(currentVolume - nextVolume) < 0.0001) return prev;
+      return {
+        ...prev,
+        [normalizedPeerId]: nextVolume,
+      };
+    });
+  }, []);
+
+  const closeVolumePopup = useCallback(() => {
+    setVolumePopup(null);
+  }, []);
+
+  const openVolumePopupForParticipant = useCallback((event, participant) => {
+    const normalizedPeerId = typeof participant?.peerId === 'string' ? participant.peerId.trim() : '';
+    if (!normalizedPeerId) return;
+    if (statusRef.current !== 'connected') return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const popupWidth = 244;
+    const popupHeight = 132;
+    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1024;
+    const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 768;
+    const margin = 8;
+    const x = Math.min(Math.max(event.clientX, margin), Math.max(margin, viewportWidth - popupWidth - margin));
+    const y = Math.min(Math.max(event.clientY, margin), Math.max(margin, viewportHeight - popupHeight - margin));
+
+    setVolumePopup({
+      peerId: normalizedPeerId,
+      title: typeof participant?.title === 'string' && participant.title.trim()
+        ? participant.title
+        : 'Участник',
+      x,
+      y,
     });
   }, []);
 
@@ -2156,6 +2255,31 @@ const CallSection = ({
     setSelfSpeaking(false);
   }, [status]);
 
+  useEffect(() => {
+    if (!volumePopup) return;
+    if (status !== 'connected') {
+      setVolumePopup(null);
+      return;
+    }
+    const hasPeer = remotePeers.some((peer) => peer.peerId === volumePopup.peerId);
+    if (!hasPeer) {
+      setVolumePopup(null);
+    }
+  }, [remotePeers, status, volumePopup]);
+
+  useEffect(() => {
+    if (!volumePopup) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setVolumePopup(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [volumePopup]);
+
   const isConnected = status === 'connected';
   const isConnecting = status === 'connecting';
   const hasActiveMediaConnection = peerConnectionSummary.connected > 0;
@@ -2172,6 +2296,7 @@ const CallSection = ({
       if (screenSharing && localScreenTrack && localScreenTrack.readyState === 'live') {
         participants.push({
           id: 'self:screen',
+          peerId: '',
           title: 'Вы',
           subtitle: 'Трансляция активна',
           isSelf: true,
@@ -2185,6 +2310,7 @@ const CallSection = ({
       if (cameraEnabled && localCameraTrack && localCameraTrack.readyState === 'live') {
         participants.push({
           id: 'self:camera',
+          peerId: '',
           title: 'Вы',
           subtitle: 'Камера включена',
           isSelf: true,
@@ -2198,6 +2324,7 @@ const CallSection = ({
       if (participants.length === 0) {
         participants.push({
           id: 'self',
+          peerId: '',
           title: 'Вы',
           subtitle: micEnabled ? 'Микрофон включен' : 'Микрофон выключен',
           isSelf: true,
@@ -2217,6 +2344,7 @@ const CallSection = ({
         if (shouldSuppressVideoByState) {
           participants.push({
             id: peer.peerId,
+            peerId: peer.peerId,
             title: peer.title,
             subtitle: peer.subtitle || 'В созвоне',
             isSelf: false,
@@ -2230,6 +2358,7 @@ const CallSection = ({
         if (liveVideoTracks.length === 0) {
           participants.push({
             id: peer.peerId,
+            peerId: peer.peerId,
             title: peer.title,
             subtitle: peer.subtitle || 'В созвоне',
             isSelf: false,
@@ -2254,6 +2383,7 @@ const CallSection = ({
           pushedRemoteVideoCount += 1;
           participants.push({
             id: `${peer.peerId}:${normalizedKind}:${track.id}`,
+            peerId: peer.peerId,
             title: peer.title,
             subtitle,
             isSelf: false,
@@ -2289,6 +2419,7 @@ const CallSection = ({
           if (pushedRemoteVideoCount === 0) {
             participants.push({
               id: peer.peerId,
+              peerId: peer.peerId,
               title: peer.title,
               subtitle: peer.subtitle || '',
               isSelf: false,
@@ -2412,6 +2543,7 @@ const CallSection = ({
                 peerId={peer.peerId}
                 stream={peer.stream || null}
                 onSpeakingChange={handlePeerSpeakingChange}
+                volume={normalizePeerVolume(volumeByPeer[peer.peerId])}
               />
             ))}
 
@@ -2449,11 +2581,17 @@ const CallSection = ({
                           subtitle={peer.subtitle}
                           compact
                           isSpeaking={peer.isSpeaking}
+                          onContextMenu={(event) => openVolumePopupForParticipant(event, peer)}
                         />
                       );
                     }
                     return (
-                      <article key={peer.id} className="flex w-[104px] flex-col items-center gap-2 text-center" title={peer.subtitle}>
+                      <article
+                        key={peer.id}
+                        onContextMenu={(event) => openVolumePopupForParticipant(event, peer)}
+                        className="flex w-[104px] flex-col items-center gap-2 text-center"
+                        title={peer.subtitle}
+                      >
                         <div className={`relative flex h-20 w-20 items-center justify-center rounded-full border bg-slate-800 text-2xl font-semibold text-slate-100 shadow-[0_10px_26px_rgba(2,6,23,0.45)] ${peer.isSpeaking ? 'border-emerald-300/85 ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900' : 'border-white/15'}`}>
                           {initial}
                           {peer.isSelf && (
@@ -2583,6 +2721,58 @@ const CallSection = ({
               {screenSharing ? 'Остановить экран' : 'Показать экран'}
             </button>
           </div>
+
+          {volumePopup && (
+            <div
+              className="fixed inset-0 z-50"
+              onMouseDown={closeVolumePopup}
+              onContextMenu={(event) => event.preventDefault()}
+            >
+              <div
+                ref={volumePopupRef}
+                onMouseDown={(event) => event.stopPropagation()}
+                onContextMenu={(event) => event.preventDefault()}
+                className="absolute w-[244px] rounded-xl border border-white/15 bg-slate-900/95 p-3 shadow-[0_16px_34px_rgba(2,6,23,0.55)] backdrop-blur"
+                style={{ left: `${volumePopup.x}px`, top: `${volumePopup.y}px` }}
+              >
+                <p className="truncate text-xs font-semibold text-slate-100">{volumePopup.title}</p>
+                <p className="mt-0.5 text-[11px] text-slate-400">Громкость</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => adjustPeerVolume(volumePopup.peerId, -PEER_VOLUME_STEP_PERCENT)}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-slate-800 text-sm font-semibold text-slate-200 transition hover:bg-slate-700"
+                    title="Убавить громкость"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={peerVolumeToPercent(volumeByPeer[volumePopup.peerId])}
+                    onChange={(event) => {
+                      setPeerVolumePercent(volumePopup.peerId, Number(event.target.value));
+                    }}
+                    className="h-2 flex-1 accent-emerald-300"
+                    aria-label={`Громкость ${volumePopup.title}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => adjustPeerVolume(volumePopup.peerId, PEER_VOLUME_STEP_PERCENT)}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-slate-800 text-sm font-semibold text-slate-200 transition hover:bg-slate-700"
+                    title="Прибавить громкость"
+                  >
+                    +
+                  </button>
+                  <span className="w-10 text-right text-xs font-semibold text-slate-200">
+                    {peerVolumeToPercent(volumeByPeer[volumePopup.peerId])}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
 
         </div>
       </section>
