@@ -1334,6 +1334,7 @@ const CallSection = ({
       }
 
       if (track) {
+        let muteCleanupTimer = null;
         const removeTrackFromStream = () => {
           const currentStream = remoteStreamsRef.current.get(normalizedPeerId);
           if (!currentStream) return;
@@ -1343,13 +1344,39 @@ const CallSection = ({
           videoTrackStreamsRef.current.delete(track.id);
           syncRemotePeers();
         };
+        const ensureTrackInStream = () => {
+          const currentStream = remoteStreamsRef.current.get(normalizedPeerId);
+          if (!currentStream) return;
+          const hasTrack = currentStream.getTracks().some((existingTrack) => existingTrack.id === track.id);
+          if (hasTrack) return;
+          currentStream.addTrack(track);
+        };
+        const clearMuteCleanupTimer = () => {
+          if (!muteCleanupTimer) return;
+          clearTimeout(muteCleanupTimer);
+          muteCleanupTimer = null;
+        };
         track.onended = () => {
+          clearMuteCleanupTimer();
           removeTrackFromStream();
         };
         track.onmute = () => {
+          clearMuteCleanupTimer();
+          if (track.kind === 'video') {
+            muteCleanupTimer = setTimeout(() => {
+              muteCleanupTimer = null;
+              if (track.readyState !== 'live') return;
+              if (!track.muted) return;
+              removeTrackFromStream();
+            }, 1200);
+          }
           syncRemotePeers();
         };
         track.onunmute = () => {
+          clearMuteCleanupTimer();
+          if (track.kind === 'video') {
+            ensureTrackInStream();
+          }
           syncRemotePeers();
         };
       }
@@ -1983,8 +2010,14 @@ const CallSection = ({
 
     const loadPresenceOnce = async () => {
       try {
-        const response = await fetch(`/api/rtc/presence?roomId=${encodeURIComponent(roomId)}`, {
+        const cacheBust = Date.now();
+        const response = await fetch(`/api/rtc/presence?roomId=${encodeURIComponent(roomId)}&_=${cacheBust}`, {
           credentials: 'include',
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache',
+            Pragma: 'no-cache',
+          },
         });
         if (!response.ok) {
           return;
