@@ -111,6 +111,7 @@ const BOARD_SELECTION_HIT_RADIUS = 6;
 const BOARD_MIN_ZOOM = 0.25;
 const BOARD_MAX_ZOOM = 2.5;
 const BOARD_POINT_MIN_DISTANCE = 1.5;
+const BOARD_PRESSURE_MIN_RATIO = 0.6;
 const BOARD_LOW_BANDWIDTH_CURSOR_MS = 130;
 const BOARD_LOW_BANDWIDTH_PREVIEW_MS = 130;
 const BOARD_LOW_BANDWIDTH_POINT_STEP = 2;
@@ -4437,6 +4438,22 @@ const BoardSection = ({
     };
   };
 
+  const getPenPressure = (event) => {
+    if (event?.pointerType !== 'pen') return null;
+    const raw = Number(event.pressure);
+    if (!Number.isFinite(raw)) return null;
+    return clamp(raw, 0, 1);
+  };
+
+  const withPenPressure = (point, event) => {
+    const pressure = getPenPressure(event);
+    if (!Number.isFinite(pressure)) return point;
+    return {
+      ...point,
+      pressure,
+    };
+  };
+
   const zoomAt = (nextZoom, centerX, centerY) => {
     const clamped = clamp(nextZoom, BOARD_MIN_ZOOM, BOARD_MAX_ZOOM);
     const currentZoom = zoomRef.current || 1;
@@ -4940,7 +4957,13 @@ const BoardSection = ({
           return {
             id: item.id,
             type: 'stroke',
-            points: (item.points || []).map((pt) => ({ x: pt?.x || 0, y: pt?.y || 0 })),
+            points: (item.points || []).map((pt) => {
+              const pressure = Number(pt?.pressure);
+              if (Number.isFinite(pressure)) {
+                return { x: pt?.x || 0, y: pt?.y || 0, pressure };
+              }
+              return { x: pt?.x || 0, y: pt?.y || 0 };
+            }),
           };
         }
         if (item.type === 'line') {
@@ -4977,7 +5000,13 @@ const BoardSection = ({
           if (current?.id !== item.id) continue;
           let next = current;
           if (current.type === 'stroke') {
-            const points = (item.points || []).map((pt) => ({ x: (pt.x || 0) + dx, y: (pt.y || 0) + dy }));
+            const points = (item.points || []).map((pt) => {
+              const pressure = Number(pt?.pressure);
+              if (Number.isFinite(pressure)) {
+                return { x: (pt.x || 0) + dx, y: (pt.y || 0) + dy, pressure };
+              }
+              return { x: (pt.x || 0) + dx, y: (pt.y || 0) + dy };
+            });
             next = { ...current, points };
           } else if (current.type === 'line') {
             next = {
@@ -5036,23 +5065,94 @@ const BoardSection = ({
     ctx.quadraticCurveTo(penultimate.x, penultimate.y, last.x, last.y);
   };
 
+  const getPressurePointWidth = (baseWidth, point) => {
+    const pressure = Number(point?.pressure);
+    if (!Number.isFinite(pressure)) return baseWidth;
+    const normalized = clamp(pressure, 0, 1);
+    const ratio = BOARD_PRESSURE_MIN_RATIO + (1 - BOARD_PRESSURE_MIN_RATIO) * normalized;
+    return Math.max(0.1, baseWidth * ratio);
+  };
+
+  const drawPressureStroke = (ctx, points, baseWidth) => {
+    if (!Array.isArray(points) || points.length < 2) return;
+    const normalizePoint = (point) => ({
+      x: point?.x || 0,
+      y: point?.y || 0,
+      width: getPressurePointWidth(baseWidth, point),
+    });
+    const first = normalizePoint(points[0]);
+    if (points.length === 2) {
+      const second = normalizePoint(points[1]);
+      ctx.lineWidth = (first.width + second.width) / 2;
+      ctx.beginPath();
+      ctx.moveTo(first.x, first.y);
+      ctx.lineTo(second.x, second.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(first.x, first.y, first.width / 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(second.x, second.y, second.width / 2, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    let previous = first;
+    let previousWidth = first.width;
+    for (let index = 1; index < points.length - 1; index += 1) {
+      const current = normalizePoint(points[index]);
+      const next = normalizePoint(points[index + 1]);
+      const midpoint = {
+        x: (current.x + next.x) / 2,
+        y: (current.y + next.y) / 2,
+        width: (current.width + next.width) / 2,
+      };
+      ctx.lineWidth = Math.max(0.1, (previousWidth + current.width + midpoint.width) / 3);
+      ctx.beginPath();
+      ctx.moveTo(previous.x, previous.y);
+      ctx.quadraticCurveTo(current.x, current.y, midpoint.x, midpoint.y);
+      ctx.stroke();
+      previous = midpoint;
+      previousWidth = midpoint.width;
+    }
+    const penultimate = normalizePoint(points[points.length - 2]);
+    const last = normalizePoint(points[points.length - 1]);
+    ctx.lineWidth = Math.max(0.1, (previousWidth + penultimate.width + last.width) / 3);
+    ctx.beginPath();
+    ctx.moveTo(previous.x, previous.y);
+    ctx.quadraticCurveTo(penultimate.x, penultimate.y, last.x, last.y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(first.x, first.y, first.width / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(last.x, last.y, last.width / 2, 0, Math.PI * 2);
+    ctx.fill();
+  };
+
   const drawStroke = (ctx, stroke) => {
     const points = Array.isArray(stroke?.points) ? stroke.points : [];
+    const lineWidth = Number(stroke.width) || BOARD_STROKE_WIDTH;
+    const colorValue = stroke.color || '#0f172a';
+    const hasPressure = points.some((point) => Number.isFinite(Number(point?.pressure)));
     if (points.length < 2) {
       if (points.length === 1) {
         const p = points[0];
-        ctx.fillStyle = stroke.color || '#0f172a';
+        ctx.fillStyle = colorValue;
         ctx.beginPath();
-        ctx.arc(p.x || 0, p.y || 0, (stroke.width || BOARD_STROKE_WIDTH) / 2, 0, Math.PI * 2);
+        ctx.arc(p.x || 0, p.y || 0, getPressurePointWidth(lineWidth, p) / 2, 0, Math.PI * 2);
         ctx.fill();
       }
       return;
     }
-    const lineWidth = stroke.width || BOARD_STROKE_WIDTH;
-    ctx.strokeStyle = stroke.color || '#0f172a';
-    ctx.lineWidth = lineWidth;
+    ctx.strokeStyle = colorValue;
+    ctx.fillStyle = colorValue;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+    if (hasPressure) {
+      drawPressureStroke(ctx, points, lineWidth);
+      return;
+    }
+    ctx.lineWidth = lineWidth;
     ctx.beginPath();
     drawSmoothStrokePath(ctx, points);
     ctx.stroke();
@@ -5584,7 +5684,7 @@ const BoardSection = ({
       return;
     }
     if (tool === 'pen') {
-      drawStateRef.current = { drawing: true, points: [point], start: null, end: null };
+      drawStateRef.current = { drawing: true, points: [withPenPressure(point, event)], start: null, end: null };
     } else if (tool === 'line') {
       drawStateRef.current = { drawing: true, points: [], start: point, end: point };
     }
@@ -5640,11 +5740,12 @@ const BoardSection = ({
     const state = drawStateRef.current;
     if (!state.drawing) return;
     if (tool === 'pen') {
+      const penPoint = withPenPressure(point, event);
       const last = state.points[state.points.length - 1];
-      const dx = point.x - (last?.x || 0);
-      const dy = point.y - (last?.y || 0);
+      const dx = penPoint.x - (last?.x || 0);
+      const dy = penPoint.y - (last?.y || 0);
       if ((dx * dx + dy * dy) < BOARD_POINT_MIN_DISTANCE * BOARD_POINT_MIN_DISTANCE) return;
-      state.points.push(point);
+      state.points.push(penPoint);
     } else if (tool === 'line') {
       state.end = point;
     }
