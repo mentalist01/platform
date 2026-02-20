@@ -18,6 +18,9 @@ const SCREEN_MAX_HEIGHT = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_HEIGHT',
 const CONNECTION_STATS_INTERVAL_MS = 2500;
 const RTC_PRESENCE_POLL_INTERVAL_MS = 3000;
 const PEER_DISCONNECTED_GRACE_MS = 10000;
+const SPEAKING_RMS_THRESHOLD = 0.03;
+const SPEAKING_HOLD_MS = 280;
+const SPEAKING_ANALYSER_FFT_SIZE = 512;
 
 const getRtcWsUrl = () => {
   if (typeof window === 'undefined') return '';
@@ -82,6 +85,102 @@ const hasLiveVideoInStream = (stream) => {
   return tracks.some((track) => track.readyState === 'live');
 };
 
+const observeAudioTrackSpeaking = (track, onSpeakingChange) => {
+  const reportSpeaking = (value) => {
+    onSpeakingChange?.(value);
+  };
+
+  if (!track || track.readyState !== 'live' || typeof window === 'undefined') {
+    reportSpeaking(false);
+    return () => {};
+  }
+
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextCtor) {
+    reportSpeaking(false);
+    return () => {};
+  }
+
+  let disposed = false;
+  let rafId = null;
+  let silenceTimer = null;
+  let audioContext = null;
+  let analyser = null;
+  let sourceNode = null;
+  let speaking = false;
+
+  const markSpeaking = (nextSpeaking) => {
+    if (speaking === nextSpeaking) return;
+    speaking = nextSpeaking;
+    reportSpeaking(nextSpeaking);
+  };
+
+  try {
+    audioContext = new AudioContextCtor();
+    const probeStream = new MediaStream([track]);
+    sourceNode = audioContext.createMediaStreamSource(probeStream);
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = SPEAKING_ANALYSER_FFT_SIZE;
+    analyser.smoothingTimeConstant = 0.82;
+    sourceNode.connect(analyser);
+    audioContext.resume?.().catch(() => {});
+  } catch {
+    reportSpeaking(false);
+    return () => {};
+  }
+
+  const data = new Float32Array(analyser.fftSize);
+  const poll = () => {
+    if (disposed) return;
+    analyser.getFloatTimeDomainData(data);
+    let sumSquares = 0;
+    for (let index = 0; index < data.length; index += 1) {
+      const sample = data[index];
+      sumSquares += sample * sample;
+    }
+    const rms = Math.sqrt(sumSquares / data.length);
+    if (rms > SPEAKING_RMS_THRESHOLD) {
+      if (silenceTimer) {
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+      }
+      markSpeaking(true);
+    } else if (speaking && !silenceTimer) {
+      silenceTimer = setTimeout(() => {
+        silenceTimer = null;
+        markSpeaking(false);
+      }, SPEAKING_HOLD_MS);
+    }
+    rafId = requestAnimationFrame(poll);
+  };
+
+  const handleTrackEnded = () => {
+    markSpeaking(false);
+  };
+  const handleTrackMuted = () => {
+    markSpeaking(false);
+  };
+  track.addEventListener('ended', handleTrackEnded);
+  track.addEventListener('mute', handleTrackMuted);
+  poll();
+
+  return () => {
+    disposed = true;
+    track.removeEventListener('ended', handleTrackEnded);
+    track.removeEventListener('mute', handleTrackMuted);
+    if (rafId) cancelAnimationFrame(rafId);
+    if (silenceTimer) clearTimeout(silenceTimer);
+    try {
+      sourceNode?.disconnect();
+    } catch {}
+    try {
+      analyser?.disconnect?.();
+    } catch {}
+    audioContext?.close?.().catch(() => {});
+    reportSpeaking(false);
+  };
+};
+
 const requestElementFullscreen = async (element) => {
   if (!element?.requestFullscreen) return false;
   try {
@@ -102,7 +201,7 @@ const exitDocumentFullscreen = async () => {
   }
 };
 
-const MediaTile = ({ stream, title, subtitle, className = '', compact = false }) => {
+const MediaTile = ({ stream, title, subtitle, className = '', compact = false, isSpeaking = false }) => {
   const tileRef = useRef(null);
   const mediaRef = useRef(null);
   const [, setVideoTrackVersion] = useState(0);
@@ -207,7 +306,7 @@ const MediaTile = ({ stream, title, subtitle, className = '', compact = false })
         <article
           ref={tileRef}
           onDoubleClick={toggleFullscreen}
-          className={`relative overflow-hidden border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)] ${isFullscreen ? 'h-screen w-screen rounded-none border-0' : 'h-24 w-36 rounded-xl md:h-28 md:w-44'} ${className}`}
+          className={`relative overflow-hidden border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)] ${isFullscreen ? 'h-screen w-screen rounded-none border-0' : 'h-24 w-36 rounded-xl md:h-28 md:w-44'} ${isSpeaking && !isFullscreen ? 'ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900' : ''} ${className}`}
         >
           <button
             type="button"
@@ -256,7 +355,7 @@ const MediaTile = ({ stream, title, subtitle, className = '', compact = false })
     <article
       ref={tileRef}
       onDoubleClick={toggleFullscreen}
-      className={`relative overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-[0_8px_24px_rgba(2,6,23,0.35)] ${className}`}
+      className={`relative overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-[0_8px_24px_rgba(2,6,23,0.35)] ${isSpeaking && !isFullscreen ? 'ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900' : ''} ${className}`}
     >
       <button
         type="button"
@@ -288,7 +387,7 @@ const MediaTile = ({ stream, title, subtitle, className = '', compact = false })
   );
 };
 
-const RemoteAudioPlayer = ({ stream }) => {
+const RemoteAudioPlayer = ({ peerId, stream, onSpeakingChange }) => {
   const audioRef = useRef(null);
 
   useEffect(() => {
@@ -300,6 +399,15 @@ const RemoteAudioPlayer = ({ stream }) => {
       audioNode.srcObject = null;
     };
   }, [stream]);
+
+  useEffect(() => {
+    const audioTrack = Array.isArray(stream?.getAudioTracks?.())
+      ? stream.getAudioTracks().find((track) => track.readyState === 'live')
+      : null;
+    return observeAudioTrackSpeaking(audioTrack, (isSpeaking) => {
+      onSpeakingChange?.(peerId, isSpeaking);
+    });
+  }, [onSpeakingChange, peerId, stream]);
 
   return <audio ref={audioRef} autoPlay playsInline className="hidden" />;
 };
@@ -334,6 +442,8 @@ const CallSection = ({
   const [selfClientId, setSelfClientId] = useState('');
   const [remotePeers, setRemotePeers] = useState([]);
   const [presencePeers, setPresencePeers] = useState([]);
+  const [speakingByPeer, setSpeakingByPeer] = useState({});
+  const [selfSpeaking, setSelfSpeaking] = useState(false);
   const [connectionStats, setConnectionStats] = useState({
     quality: 'unknown',
     lossPercent: 0,
@@ -576,6 +686,7 @@ const CallSection = ({
     remoteStreamsRef.current.clear();
     lastInboundAudioRef.current.clear();
     setRemotePeers([]);
+    setSpeakingByPeer({});
   }, []);
 
   const detachPeer = useCallback((peerId, options = {}) => {
@@ -603,8 +714,33 @@ const CallSection = ({
     peerMetaRef.current.delete(normalizedPeerId);
     remoteStreamsRef.current.delete(normalizedPeerId);
     lastInboundAudioRef.current.delete(normalizedPeerId);
+    setSpeakingByPeer((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, normalizedPeerId)) return prev;
+      const next = { ...prev };
+      delete next[normalizedPeerId];
+      return next;
+    });
     syncRemotePeers();
   }, [syncRemotePeers]);
+
+  const handlePeerSpeakingChange = useCallback((peerId, isSpeaking) => {
+    const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
+    if (!normalizedPeerId) return;
+    setSpeakingByPeer((prev) => {
+      const current = Boolean(prev[normalizedPeerId]);
+      if (current === isSpeaking) return prev;
+      if (!isSpeaking) {
+        if (!Object.prototype.hasOwnProperty.call(prev, normalizedPeerId)) return prev;
+        const next = { ...prev };
+        delete next[normalizedPeerId];
+        return next;
+      }
+      return {
+        ...prev,
+        [normalizedPeerId]: true,
+      };
+    });
+  }, []);
 
   const stopMicTrack = useCallback((withSync = true) => {
     const track = localAudioTrackRef.current;
@@ -1251,6 +1387,23 @@ const CallSection = ({
     stopCall();
   }, [stopCall]);
 
+  useEffect(() => {
+    if (status !== 'connected' || !micEnabled) {
+      setSelfSpeaking(false);
+      return undefined;
+    }
+    const localTrack = localAudioTrackRef.current;
+    return observeAudioTrackSpeaking(localTrack, (isSpeaking) => {
+      setSelfSpeaking(isSpeaking);
+    });
+  }, [micEnabled, status]);
+
+  useEffect(() => {
+    if (status === 'connected') return;
+    setSpeakingByPeer({});
+    setSelfSpeaking(false);
+  }, [status]);
+
   const isConnected = status === 'connected';
   const isConnecting = status === 'connecting';
   const visiblePeers = isConnected ? remotePeers : presencePeers;
@@ -1266,6 +1419,7 @@ const CallSection = ({
         isSelf: true,
         hasVideo: screenSharing,
         stream: null,
+        isSpeaking: selfSpeaking,
       },
       ...remotePeers.map((peer) => ({
         id: peer.peerId,
@@ -1274,6 +1428,7 @@ const CallSection = ({
         isSelf: false,
         hasVideo: hasLiveVideoInStream(peer.stream),
         stream: peer.stream || null,
+        isSpeaking: Boolean(speakingByPeer[peer.peerId]),
       })),
     ]
     : [];
@@ -1353,7 +1508,12 @@ const CallSection = ({
 
           <div className="mt-4 space-y-3">
             {isConnected && remotePeers.map((peer) => (
-              <RemoteAudioPlayer key={`audio:${peer.peerId}`} stream={peer.stream || null} />
+              <RemoteAudioPlayer
+                key={`audio:${peer.peerId}`}
+                peerId={peer.peerId}
+                stream={peer.stream || null}
+                onSpeakingChange={handlePeerSpeakingChange}
+              />
             ))}
 
             {isConnected ? (
@@ -1367,7 +1527,7 @@ const CallSection = ({
                           key={peer.id}
                           ref={localScreenShellRef}
                           onDoubleClick={toggleLocalScreenFullscreen}
-                          className={`relative overflow-hidden border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)] ${isLocalScreenFullscreen ? 'h-screen w-screen rounded-none border-0' : 'h-24 w-36 rounded-xl md:h-28 md:w-44'}`}
+                          className={`relative overflow-hidden border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)] ${isLocalScreenFullscreen ? 'h-screen w-screen rounded-none border-0' : 'h-24 w-36 rounded-xl md:h-28 md:w-44'} ${peer.isSpeaking && !isLocalScreenFullscreen ? 'ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900' : ''}`}
                         >
                           <button
                             type="button"
@@ -1399,12 +1559,13 @@ const CallSection = ({
                           title={peer.title}
                           subtitle={peer.subtitle}
                           compact
+                          isSpeaking={peer.isSpeaking}
                         />
                       );
                     }
                     return (
                       <article key={peer.id} className="flex w-[104px] flex-col items-center gap-2 text-center" title={peer.subtitle}>
-                        <div className="relative flex h-20 w-20 items-center justify-center rounded-full border border-white/15 bg-slate-800 text-2xl font-semibold text-slate-100 shadow-[0_10px_26px_rgba(2,6,23,0.45)]">
+                        <div className={`relative flex h-20 w-20 items-center justify-center rounded-full border bg-slate-800 text-2xl font-semibold text-slate-100 shadow-[0_10px_26px_rgba(2,6,23,0.45)] ${peer.isSpeaking ? 'border-emerald-300/85 ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900' : 'border-white/15'}`}>
                           {initial}
                           {peer.isSelf && (
                             <span className="absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-900 bg-slate-700 text-slate-100">
