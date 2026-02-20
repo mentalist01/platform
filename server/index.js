@@ -10,6 +10,7 @@ import { createRequire } from 'module';
 import webpush from 'web-push';
 import { WebSocketServer } from 'ws';
 import yWsUtils from 'y-websocket/bin/utils';
+import * as Y from 'yjs';
 
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
@@ -367,7 +368,18 @@ const collabPersistence = rawCollabPersistence ? {
   bindState: async (docName, ydoc) => {
     if (!docName?.startsWith('board-') && !docName?.startsWith('collab-')) return Promise.resolve();
     try {
-      return await rawCollabPersistence.bindState(docName, ydoc);
+      const persistedYdoc = await rawCollabPersistence.getYDoc(docName);
+      const localStateUpdate = Y.encodeStateAsUpdate(ydoc);
+      await rawCollabPersistence.storeUpdate(docName, localStateUpdate);
+      const persistedStateUpdate = Y.encodeStateAsUpdate(persistedYdoc);
+      Y.applyUpdate(ydoc, persistedStateUpdate);
+      if (typeof persistedYdoc.destroy === 'function') persistedYdoc.destroy();
+      ydoc.on('update', (update) => {
+        rawCollabPersistence.storeUpdate(docName, update).catch((error) => {
+          console.warn('[collab] storeUpdate failed:', error?.message || error);
+        });
+      });
+      return Promise.resolve();
     } catch (error) {
       console.warn('[collab] bindState failed:', error?.message || error);
       return Promise.resolve();
@@ -376,7 +388,9 @@ const collabPersistence = rawCollabPersistence ? {
   writeState: async (docName, ydoc) => {
     if (!docName?.startsWith('board-') && !docName?.startsWith('collab-')) return Promise.resolve();
     try {
-      return await rawCollabPersistence.writeState(docName, ydoc);
+      const stateUpdate = Y.encodeStateAsUpdate(ydoc);
+      await rawCollabPersistence.storeUpdate(docName, stateUpdate);
+      return Promise.resolve();
     } catch (error) {
       console.warn('[collab] writeState failed:', error?.message || error);
       return Promise.resolve();
