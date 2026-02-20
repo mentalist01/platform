@@ -364,9 +364,16 @@ if (isProduction && uploadsDir === defaultUploadsDir) {
   console.warn('[storage] PLATFORM_UPLOADS_DIR is not set. Uploads can be lost after a clean deploy.');
 }
 const rawCollabPersistence = LeveldbPersistence ? new LeveldbPersistence(collabDir) : null;
+const isPersistedCollabDoc = (docName) => {
+  if (typeof docName !== 'string') return false;
+  const normalized = docName.trim();
+  if (!normalized) return false;
+  const base = normalized.split('/').pop() || normalized;
+  return base.startsWith('board-') || base.startsWith('collab-');
+};
 const collabPersistence = rawCollabPersistence ? {
   bindState: async (docName, ydoc) => {
-    if (!docName?.startsWith('board-') && !docName?.startsWith('collab-')) return Promise.resolve();
+    if (!isPersistedCollabDoc(docName)) return Promise.resolve();
     try {
       const persistedYdoc = await rawCollabPersistence.getYDoc(docName);
       const localStateUpdate = Y.encodeStateAsUpdate(ydoc);
@@ -386,7 +393,7 @@ const collabPersistence = rawCollabPersistence ? {
     }
   },
   writeState: async (docName, ydoc) => {
-    if (!docName?.startsWith('board-') && !docName?.startsWith('collab-')) return Promise.resolve();
+    if (!isPersistedCollabDoc(docName)) return Promise.resolve();
     try {
       const stateUpdate = Y.encodeStateAsUpdate(ydoc);
       await rawCollabPersistence.storeUpdate(docName, stateUpdate);
