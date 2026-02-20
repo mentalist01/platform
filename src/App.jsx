@@ -6608,6 +6608,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         'board',
         'notes'
       ];
+  const isCallViewAvailable = allowedViews.includes('call');
   const defaultView = user.role === 'teacher' ? 'teacher' : (user.role === 'admin' ? 'admin' : 'progress');
   const storedLocation = readUserLocation(user);
   const storedView = storedLocation?.view;
@@ -6638,6 +6639,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : null;
 
   const [view, setView] = useState(initialView);
+  const [callSessionStatus, setCallSessionStatus] = useState('idle');
+  const [callPanelExpanded, setCallPanelExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [desktopNavCollapsed, setDesktopNavCollapsed] = useState(() => {
     if (typeof localStorage === 'undefined') return false;
@@ -6726,6 +6729,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [pushBusy, setPushBusy] = useState(false);
   const [pushError, setPushError] = useState('');
   const [pushReady, setPushReady] = useState(false);
+  const isCallSessionActive = callSessionStatus === 'connected' || callSessionStatus === 'connecting';
+  const callUiMode = !isCallViewAvailable
+    ? 'hidden'
+    : view === 'call'
+      ? 'full'
+      : isCallSessionActive
+        ? (callPanelExpanded ? 'floating' : 'collapsed')
+        : 'hidden';
   const studentsWithNicknames = useMemo(
     () => students,
     [students]
@@ -6741,6 +6752,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       updateUserLocation(user, { openTask: null });
     }
   }, [view, user]);
+
+  useEffect(() => {
+    if (view === 'call') return;
+    if (!isCallSessionActive) return;
+    setCallPanelExpanded(false);
+  }, [isCallSessionActive, view]);
+
+  useEffect(() => {
+    if (isCallSessionActive) return;
+    setCallPanelExpanded(false);
+  }, [isCallSessionActive]);
 
   useEffect(() => {
     if (user.role !== 'teacher') return;
@@ -9429,7 +9451,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               studentsLoading={studentsLoading}
             />
           )}
-          {view === 'call' && (
+          {isCallViewAvailable && (
             <CallSection
               role={user.role}
               userId={user.id}
@@ -9438,6 +9460,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
               studentsLoading={studentsLoading}
+              uiMode={callUiMode}
+              onStatusChange={setCallSessionStatus}
+              onRequestExpand={() => setCallPanelExpanded(true)}
+              onRequestCollapse={() => setCallPanelExpanded(false)}
             />
           )}
           {view === 'board' && (
