@@ -5007,6 +5007,35 @@ const BoardSection = ({
     });
   };
 
+  const drawSmoothStrokePath = (ctx, points, mapPoint = (point) => point) => {
+    const mapAndNormalize = (point) => {
+      const nextPoint = mapPoint(point || {});
+      return {
+        x: nextPoint?.x || 0,
+        y: nextPoint?.y || 0,
+      };
+    };
+    if (!Array.isArray(points) || points.length === 0) return;
+    const first = mapAndNormalize(points[0]);
+    ctx.moveTo(first.x, first.y);
+    if (points.length === 1) return;
+    if (points.length === 2) {
+      const second = mapAndNormalize(points[1]);
+      ctx.lineTo(second.x, second.y);
+      return;
+    }
+    for (let index = 1; index < points.length - 1; index += 1) {
+      const current = mapAndNormalize(points[index]);
+      const next = mapAndNormalize(points[index + 1]);
+      const midX = (current.x + next.x) / 2;
+      const midY = (current.y + next.y) / 2;
+      ctx.quadraticCurveTo(current.x, current.y, midX, midY);
+    }
+    const penultimate = mapAndNormalize(points[points.length - 2]);
+    const last = mapAndNormalize(points[points.length - 1]);
+    ctx.quadraticCurveTo(penultimate.x, penultimate.y, last.x, last.y);
+  };
+
   const drawStroke = (ctx, stroke) => {
     const points = Array.isArray(stroke?.points) ? stroke.points : [];
     if (points.length < 2) {
@@ -5025,12 +5054,7 @@ const BoardSection = ({
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.beginPath();
-    points.forEach((point, index) => {
-      const px = point?.x || 0;
-      const py = point?.y || 0;
-      if (index === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    });
+    drawSmoothStrokePath(ctx, points);
     ctx.stroke();
   };
 
@@ -5826,18 +5850,18 @@ const BoardSection = ({
     ctx.save();
     ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
     ctx.lineWidth = 0.9;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     boardItems.forEach((item) => {
       if (!item) return;
       if (item.type === 'stroke') {
         const pts = item.points || [];
         if (pts.length < 2) return;
         ctx.beginPath();
-        pts.forEach((pt, index) => {
-          const x = toMiniX(pt?.x || 0);
-          const y = toMiniY(pt?.y || 0);
-          if (index === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        });
+        drawSmoothStrokePath(ctx, pts, (point) => ({
+          x: toMiniX(point?.x || 0),
+          y: toMiniY(point?.y || 0),
+        }));
         ctx.stroke();
       } else if (item.type === 'line') {
         ctx.beginPath();
