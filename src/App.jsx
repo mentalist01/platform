@@ -6468,11 +6468,21 @@ const BoardSection = ({
 };
 
 const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, onThemeToggle }) => {
+  const STUDENT_CALL_SECTION_ENABLED = false;
   const allowedViews = user.role === 'admin'
     ? ['admin']
     : user.role === 'teacher'
       ? ['schedule', 'progress', 'python', 'rating', 'collab', 'call', 'board', 'teacher', 'notes']
-      : ['schedule', 'progress', 'python', 'rating', 'collab', 'call', 'board', 'notes'];
+      : [
+        'schedule',
+        'progress',
+        'python',
+        'rating',
+        'collab',
+        ...(STUDENT_CALL_SECTION_ENABLED ? ['call'] : []),
+        'board',
+        'notes'
+      ];
   const defaultView = user.role === 'teacher' ? 'teacher' : (user.role === 'admin' ? 'admin' : 'progress');
   const storedLocation = readUserLocation(user);
   const storedView = storedLocation?.view;
@@ -6643,6 +6653,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'board', label: 'Доска', icon: Brush },
         { id: 'notes', label: 'Конспекты', icon: BookOpen }
       ];
+  const visibleNav = (user.role === 'student' && !STUDENT_CALL_SECTION_ENABLED)
+    ? nav.filter((item) => item.id !== 'call')
+    : nav;
   const mobileNavLabels = {
     schedule: 'График',
     progress: 'Тесты',
@@ -8717,7 +8730,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 Навигация
               </div>
               <div className="space-y-2.5 sidebar-nav-stack">
-                {nav.map((n, idx) => {
+                {visibleNav.map((n, idx) => {
                   const isActive = view === n.id;
                   return (
                     <button
@@ -8797,7 +8810,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         </button>
         <div className="desktop-nav-fab__divider" aria-hidden="true" />
         <div className="desktop-nav-fab__stack">
-          {nav.map((n) => {
+          {visibleNav.map((n) => {
             const isActive = view === n.id;
             const Icon = n.icon;
             return (
@@ -9426,8 +9439,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         </div>
         <nav className="fixed inset-x-0 bottom-0 z-20 px-2 pb-[calc(env(safe-area-inset-bottom)+0.45rem)] md:hidden" data-tour="nav">
           <div className="surface-panel rounded-2xl border border-purple-100/70 bg-white/90 p-1.5 shadow-[0_12px_26px_rgba(15,23,42,0.16)]">
-            <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${Math.max(1, nav.length)}, minmax(0, 1fr))` }}>
-              {nav.map((n) => {
+            <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${Math.max(1, visibleNav.length)}, minmax(0, 1fr))` }}>
+              {visibleNav.map((n) => {
                 const isActive = view === n.id;
                 const Icon = n.icon;
                 return (
