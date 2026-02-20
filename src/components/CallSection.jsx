@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Loader2, Mic, MicOff, MonitorUp, MonitorX, Phone, PhoneOff } from 'lucide-react';
+import { AlertCircle, Loader2, Maximize2, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Phone, PhoneOff, Signal, Users } from 'lucide-react';
 
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
@@ -61,12 +61,64 @@ const normalizeErrorMessage = (error, fallback) => {
   return text || fallbackText;
 };
 
-const MediaTile = ({ stream, title, subtitle }) => {
+const requestElementFullscreen = async (element) => {
+  if (!element?.requestFullscreen) return false;
+  try {
+    await element.requestFullscreen();
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const exitDocumentFullscreen = async () => {
+  if (typeof document === 'undefined' || !document.fullscreenElement || !document.exitFullscreen) return false;
+  try {
+    await document.exitFullscreen();
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const MediaTile = ({ stream, title, subtitle, className = '', compact = false }) => {
+  const tileRef = useRef(null);
   const mediaRef = useRef(null);
-  const hasVideo = useMemo(
-    () => Boolean(stream?.getVideoTracks?.().some((track) => track.readyState === 'live')),
-    [stream]
-  );
+  const [hasVideo, setHasVideo] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const updateHasVideo = () => {
+      const tracks = Array.isArray(stream?.getVideoTracks?.()) ? stream.getVideoTracks() : [];
+      setHasVideo(tracks.some((track) => track.readyState === 'live'));
+    };
+
+    updateHasVideo();
+    if (!stream || typeof stream.addEventListener !== 'function') return undefined;
+
+    const handleTrackEvent = () => {
+      updateHasVideo();
+    };
+
+    stream.addEventListener('addtrack', handleTrackEvent);
+    stream.addEventListener('removetrack', handleTrackEvent);
+    const tracks = Array.isArray(stream.getVideoTracks?.()) ? stream.getVideoTracks() : [];
+    tracks.forEach((track) => {
+      track.addEventListener?.('ended', handleTrackEvent);
+      track.addEventListener?.('mute', handleTrackEvent);
+      track.addEventListener?.('unmute', handleTrackEvent);
+    });
+
+    return () => {
+      stream.removeEventListener('addtrack', handleTrackEvent);
+      stream.removeEventListener('removetrack', handleTrackEvent);
+      tracks.forEach((track) => {
+        track.removeEventListener?.('ended', handleTrackEvent);
+        track.removeEventListener?.('mute', handleTrackEvent);
+        track.removeEventListener?.('unmute', handleTrackEvent);
+      });
+    };
+  }, [stream]);
 
   useEffect(() => {
     if (!mediaRef.current) return;
@@ -77,24 +129,63 @@ const MediaTile = ({ stream, title, subtitle }) => {
     };
   }, [stream]);
 
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const handleFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === tileRef.current);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    handleFullscreenChange();
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    if (typeof document === 'undefined') return;
+    const tile = tileRef.current;
+    if (!tile) return;
+    if (document.fullscreenElement === tile) {
+      await exitDocumentFullscreen();
+      return;
+    }
+    if (document.fullscreenElement) {
+      await exitDocumentFullscreen();
+    }
+    await requestElementFullscreen(tile);
+  }, []);
+
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-      <header className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-slate-900">{title}</p>
-          <p className="truncate text-xs text-slate-500">{subtitle}</p>
-        </div>
-        <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-          {hasVideo ? 'screen' : 'audio'}
-        </span>
-      </header>
-      <div className="relative mt-3 overflow-hidden rounded-xl bg-slate-900">
-        <video ref={mediaRef} autoPlay playsInline className="h-48 w-full bg-slate-950 object-cover" />
-        {!hasVideo && (
-          <div className="absolute inset-0 flex items-center justify-center text-sm font-medium text-slate-200">
-            Видео не передается
+    <article
+      ref={tileRef}
+      onDoubleClick={toggleFullscreen}
+      className={`relative overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-[0_12px_40px_rgba(2,6,23,0.45)] ${className}`}
+    >
+      <button
+        type="button"
+        onClick={toggleFullscreen}
+        className="absolute right-3 top-3 z-10 inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 bg-black/45 text-white transition hover:bg-black/65"
+        title={isFullscreen ? 'Выйти из полного экрана' : 'Открыть на весь экран'}
+      >
+        {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+      </button>
+      <video
+        ref={mediaRef}
+        autoPlay
+        playsInline
+        className={`w-full bg-slate-950 object-cover ${isFullscreen ? 'h-screen' : (compact ? 'h-40' : 'h-72 md:h-80')}`}
+      />
+      {!hasVideo && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-900 text-slate-300">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-700 text-2xl font-semibold text-slate-100">
+            {String(title || 'U').trim().charAt(0).toUpperCase() || 'U'}
           </div>
-        )}
+          <p className="text-sm font-medium">Видео не передается</p>
+        </div>
+      )}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent px-3 pb-3 pt-8">
+        <p className="truncate text-sm font-semibold text-white">{title}</p>
+        <p className="truncate text-xs text-slate-200">{subtitle}</p>
       </div>
     </article>
   );
@@ -149,6 +240,8 @@ const CallSection = ({
   const localScreenTrackRef = useRef(null);
   const localScreenStreamRef = useRef(null);
   const localPreviewRef = useRef(null);
+  const localScreenShellRef = useRef(null);
+  const [isLocalScreenFullscreen, setIsLocalScreenFullscreen] = useState(false);
   const wsPingTimerRef = useRef(null);
   const statsTimerRef = useRef(null);
   const lastInboundAudioRef = useRef(new Map());
@@ -526,6 +619,18 @@ const CallSection = ({
     }
   }, [sendWs]);
 
+  const renegotiatePeers = useCallback(() => {
+    if (!activeRoomRef.current) return;
+    peersRef.current.forEach((peerState, peerId) => {
+      const pc = peerState?.pc;
+      if (!pc) return;
+      if (peerState.makingOffer) return;
+      if (pc.signalingState !== 'stable') return;
+      if (pc.connectionState === 'closed' || pc.connectionState === 'failed') return;
+      makeOfferToPeer(peerId);
+    });
+  }, [makeOfferToPeer]);
+
   const removePeer = useCallback((peerId) => {
     const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
     if (!normalizedPeerId) return;
@@ -769,6 +874,7 @@ const CallSection = ({
       const track = localAudioTrackRef.current;
       if (!track || track.readyState !== 'live') {
         await ensureMicTrack();
+        renegotiatePeers();
       } else {
         track.enabled = !track.enabled;
         setMicEnabled(track.enabled);
@@ -779,12 +885,13 @@ const CallSection = ({
     } finally {
       setMicBusy(false);
     }
-  }, [ensureMicTrack, micBusy, syncLocalTracksToAllPeers]);
+  }, [ensureMicTrack, micBusy, renegotiatePeers, syncLocalTracksToAllPeers]);
 
   const toggleScreenShare = useCallback(async () => {
     if (screenBusy) return;
     if (screenSharing) {
       stopScreenTrack(true);
+      renegotiatePeers();
       return;
     }
     if (status !== 'connected') {
@@ -825,18 +932,47 @@ const CallSection = ({
       localScreenTrackRef.current = track;
       track.onended = () => {
         stopScreenTrack(true);
+        renegotiatePeers();
       };
       if (!localStreamRef.current.getVideoTracks().includes(track)) {
         localStreamRef.current.addTrack(track);
       }
       setScreenSharing(true);
       syncLocalTracksToAllPeers();
+      renegotiatePeers();
     } catch (screenError) {
       setError(normalizeErrorMessage(screenError, 'Не удалось начать демонстрацию экрана.'));
     } finally {
       setScreenBusy(false);
     }
-  }, [screenBusy, screenSharing, status, stopScreenTrack, syncLocalTracksToAllPeers]);
+  }, [renegotiatePeers, screenBusy, screenSharing, status, stopScreenTrack, syncLocalTracksToAllPeers]);
+
+  const toggleLocalScreenFullscreen = useCallback(async () => {
+    if (!screenSharing) return;
+    if (typeof document === 'undefined') return;
+    const panel = localScreenShellRef.current;
+    if (!panel) return;
+    if (document.fullscreenElement === panel) {
+      await exitDocumentFullscreen();
+      return;
+    }
+    if (document.fullscreenElement) {
+      await exitDocumentFullscreen();
+    }
+    await requestElementFullscreen(panel);
+  }, [screenSharing]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const handleFullscreenChange = () => {
+      setIsLocalScreenFullscreen(document.fullscreenElement === localScreenShellRef.current);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    handleFullscreenChange();
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
 
   useEffect(() => {
     const prevRoomId = previousRoomIdRef.current;
@@ -879,10 +1015,10 @@ const CallSection = ({
   const isConnecting = status === 'connecting';
   const participantCount = isConnected ? remotePeers.length + 1 : 0;
   const statusChipClass = isConnected
-    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+    ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
     : isConnecting
-      ? 'border-amber-200 bg-amber-50 text-amber-700'
-      : 'border-slate-200 bg-slate-50 text-slate-600';
+      ? 'border-amber-300/40 bg-amber-500/15 text-amber-200'
+      : 'border-slate-600/60 bg-slate-800/70 text-slate-200';
   const statusText = isConnected ? 'В созвоне' : (isConnecting ? 'Подключение...' : 'Отключено');
   const roomHint = roomId || 'Комната не выбрана';
   const selectedStudentName = selectedStudent?.name || 'Ученик не выбран';
@@ -891,173 +1027,205 @@ const CallSection = ({
   const canToggleMic = isConnected && !micBusy;
   const canToggleScreen = isConnected && !screenBusy;
   const qualityClass = connectionStats.quality === 'good'
-    ? 'text-emerald-700'
+    ? 'text-emerald-300'
     : connectionStats.quality === 'ok'
-      ? 'text-amber-700'
+      ? 'text-amber-300'
       : connectionStats.quality === 'poor'
-        ? 'text-rose-700'
-        : 'text-slate-700';
+        ? 'text-rose-300'
+        : 'text-slate-300';
   const qualityText = connectionStats.quality === 'good'
-    ? 'good'
+    ? 'стабильно'
     : connectionStats.quality === 'ok'
-      ? 'ok'
+      ? 'средне'
       : connectionStats.quality === 'poor'
-        ? 'poor'
-        : 'n/a';
+        ? 'плохо'
+        : 'нет данных';
 
   return (
     <div className="animate-fadeIn pb-10" data-tour="call">
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
-        <header className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900">Онлайн созвон</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Голос в реальном времени + демонстрация экрана через WebRTC.
-            </p>
-          </div>
-          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusChipClass}`}>
-            {statusText}
-          </span>
-        </header>
+      <section className="relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 p-4 shadow-[0_30px_90px_rgba(2,6,23,0.5)] md:p-6">
+        <div className="pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-blue-500/20 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-emerald-500/20 blur-3xl" />
 
-        {isTeacher && (
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600" htmlFor="call-student-select">
-              Ученик
-            </label>
-            <select
-              id="call-student-select"
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-200"
-              value={activeStudentId || ''}
-              onChange={(event) => onSelectStudent?.(event.target.value || null)}
-              disabled={studentsLoading}
-            >
-              <option value="">Выбери ученика</option>
-              {(students || []).map((student) => (
-                <option key={student.id} value={student.id}>
-                  {student.name}
-                </option>
-              ))}
-            </select>
-            <p className="mt-2 text-xs text-slate-500">{selectedStudentName}</p>
-          </div>
-        )}
-
-        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          <button
-            type="button"
-            onClick={startCall}
-            disabled={!canStart}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isConnecting ? <Loader2 size={16} className="animate-spin" /> : <Phone size={16} />}
-            Подключиться
-          </button>
-          <button
-            type="button"
-            onClick={stopCall}
-            disabled={!canStop}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <PhoneOff size={16} />
-            Завершить
-          </button>
-          <button
-            type="button"
-            onClick={toggleMic}
-            disabled={!canToggleMic}
-            className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-              micEnabled
-                ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
-                : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            {micBusy ? <Loader2 size={16} className="animate-spin" /> : (micEnabled ? <Mic size={16} /> : <MicOff size={16} />)}
-            {micEnabled ? 'Микрофон вкл' : 'Микрофон выкл'}
-          </button>
-          <button
-            type="button"
-            onClick={toggleScreenShare}
-            disabled={!canToggleScreen}
-            className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-              screenSharing
-                ? 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
-                : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            {screenBusy ? <Loader2 size={16} className="animate-spin" /> : (screenSharing ? <MonitorX size={16} /> : <MonitorUp size={16} />)}
-            {screenSharing ? 'Остановить экран' : 'Показать экран'}
-          </button>
-        </div>
-
-        <div className="mt-4 grid gap-2 text-xs text-slate-600 md:grid-cols-5">
-          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-            Сигналинг: <span className="font-semibold text-slate-800">{socketStatus}</span>
-          </p>
-          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-            Участников: <span className="font-semibold text-slate-800">{participantCount}</span>
-          </p>
-          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 truncate" title={roomHint}>
-            Комната: <span className="font-semibold text-slate-800">{roomHint}</span>
-          </p>
-          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 truncate" title={selfClientId || 'Не назначен'}>
-            Client ID: <span className="font-semibold text-slate-800">{selfClientId || '—'}</span>
-          </p>
-          <p className={`rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 ${qualityClass}`}>
-            Audio: <span className="font-semibold">{qualityText}</span>{' '}
-            <span className="text-slate-600">
-              ({connectionStats.lossPercent.toFixed(1)}% loss, {Math.round(connectionStats.jitterMs)}ms jitter, {Math.round(connectionStats.rttMs)}ms rtt)
+        <div className="relative z-10">
+          <header className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold text-white md:text-2xl">Онлайн-созвон</h2>
+              <p className="mt-1 text-sm text-slate-300">Голос и демонстрация экрана в реальном времени.</p>
+            </div>
+            <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusChipClass}`}>
+              {statusText}
             </span>
-          </p>
-        </div>
+          </header>
 
-        {error && (
-          <div className="mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-            <AlertCircle size={16} className="mt-0.5 shrink-0" />
-            <p>{error}</p>
-          </div>
-        )}
+          {isTeacher && (
+            <div className="mt-4 rounded-2xl border border-white/10 bg-slate-900/70 p-3 backdrop-blur">
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-300" htmlFor="call-student-select">
+                Ученик
+              </label>
+              <select
+                id="call-student-select"
+                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-violet-400"
+                value={activeStudentId || ''}
+                onChange={(event) => onSelectStudent?.(event.target.value || null)}
+                disabled={studentsLoading}
+              >
+                <option value="">Выбери ученика</option>
+                {(students || []).map((student) => (
+                  <option key={student.id} value={student.id}>
+                    {student.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs text-slate-400">Текущий: {selectedStudentName}</p>
+            </div>
+          )}
 
-        <div className="mt-5 grid gap-4 xl:grid-cols-2">
-          <article className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-            <header className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-slate-800">Твой экран</h3>
-              <span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
-                {screenSharing ? 'on air' : 'idle'}
-              </span>
-            </header>
-            <div className="relative mt-3 overflow-hidden rounded-xl bg-slate-900">
-              <video ref={localPreviewRef} autoPlay muted playsInline className="h-48 w-full bg-slate-950 object-cover" />
+          {error && (
+            <div className="mt-4 flex items-start gap-2 rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              <p>{error}</p>
+            </div>
+          )}
+
+          <div className="mt-4 space-y-3">
+            {isConnected && (
+              <article
+                ref={localScreenShellRef}
+                onDoubleClick={() => { if (screenSharing) toggleLocalScreenFullscreen(); }}
+                className="relative overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-[0_12px_40px_rgba(2,6,23,0.45)]"
+              >
+              <button
+                type="button"
+                onClick={toggleLocalScreenFullscreen}
+                disabled={!screenSharing}
+                className="absolute right-3 top-3 z-10 inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 bg-black/45 text-white transition hover:bg-black/65 disabled:cursor-not-allowed disabled:opacity-45"
+                title={isLocalScreenFullscreen ? 'Выйти из полного экрана' : 'Открыть на весь экран'}
+              >
+                {isLocalScreenFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              </button>
+              <video
+                ref={localPreviewRef}
+                autoPlay
+                muted
+                playsInline
+                className={`w-full bg-slate-950 object-cover ${isLocalScreenFullscreen ? 'h-screen' : 'h-72 md:h-80'}`}
+              />
               {!screenSharing && (
-                <div className="absolute inset-0 flex items-center justify-center text-sm font-medium text-slate-300">
-                  Демонстрация экрана выключена
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-900/95 text-slate-300">
+                  <MonitorUp size={30} className="text-slate-400" />
+                  <p className="text-sm font-medium">Демонстрация экрана выключена</p>
                 </div>
               )}
-            </div>
-          </article>
-
-          <div className="space-y-4">
-            {remotePeers.length === 0 ? (
-              <div className="flex h-full min-h-40 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
-                Ждем подключения собеседника...
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent px-3 pb-3 pt-8">
+                <p className="truncate text-sm font-semibold text-white">Ваш экран</p>
+                <p className="truncate text-xs text-slate-200">{screenSharing ? 'Трансляция активна' : 'Трансляция не начата'}</p>
               </div>
-            ) : (
-              remotePeers.map((peer) => (
-                <MediaTile
-                  key={peer.peerId}
-                  stream={peer.stream}
-                  title={peer.title}
-                  subtitle={peer.subtitle}
-                />
-              ))
+              </article>
             )}
+            <section className="rounded-3xl border border-white/10 bg-slate-900/70 p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold text-white">Участники созвона</h3>
+                <span className="rounded-full border border-white/15 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-200">
+                  {remotePeers.length}
+                </span>
+              </div>
+              {remotePeers.length === 0 ? (
+                <div className="flex min-h-28 items-center justify-center rounded-2xl border border-dashed border-white/15 bg-slate-900/55 px-4 text-center text-sm text-slate-300">
+                  В созвоне никого
+                </div>
+              ) : (
+                <div className={`grid gap-3 ${remotePeers.length > 1 ? 'sm:grid-cols-2 xl:grid-cols-3' : ''}`}>
+                  {remotePeers.map((peer) => (
+                    <MediaTile
+                      key={peer.peerId}
+                      stream={peer.stream}
+                      title={peer.title}
+                      subtitle={peer.subtitle}
+                      compact={remotePeers.length > 2}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
-        </div>
 
-        <p className="mt-4 text-xs text-slate-500">
-          Для NAT-сложных сетей добавь TURN через переменную `VITE_RTC_ICE_SERVERS`.
-        </p>
-      </div>
+          <div className="mt-4 grid gap-2 text-xs text-slate-200 sm:grid-cols-2 xl:grid-cols-5">
+            <p className="rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2">
+              <span className="inline-flex items-center gap-1"><Users size={13} /> Участники:</span>{' '}
+              <span className="font-semibold text-white">{participantCount}</span>
+            </p>
+            <p className={`rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 ${qualityClass}`}>
+              <span className="inline-flex items-center gap-1"><Signal size={13} /> Качество:</span>{' '}
+              <span className="font-semibold">{qualityText}</span>
+            </p>
+            <p className="rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-slate-200">
+              Сигналинг: <span className="font-semibold text-white">{socketStatus}</span>
+            </p>
+            <p className="rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 truncate" title={roomHint}>
+              Комната: <span className="font-semibold text-white">{roomHint}</span>
+            </p>
+            <p className="rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 truncate" title={selfClientId || 'Не назначен'}>
+              Client ID: <span className="font-semibold text-white">{selfClientId || '—'}</span>
+            </p>
+          </div>
+
+          <p className="mt-2 text-xs text-slate-400">
+            Потери: {connectionStats.lossPercent.toFixed(1)}% · Джиттер: {Math.round(connectionStats.jitterMs)} ms · RTT: {Math.round(connectionStats.rttMs)} ms
+          </p>
+
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/10 bg-slate-900/80 p-2 backdrop-blur">
+            <button
+              type="button"
+              onClick={startCall}
+              disabled={!canStart}
+              className="inline-flex h-11 min-w-[140px] items-center justify-center gap-2 rounded-xl bg-emerald-400 px-4 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              {isConnecting ? <Loader2 size={16} className="animate-spin" /> : <Phone size={16} />}
+              Подключиться
+            </button>
+            <button
+              type="button"
+              onClick={stopCall}
+              disabled={!canStop}
+              className="inline-flex h-11 min-w-[120px] items-center justify-center gap-2 rounded-xl bg-rose-500 px-4 text-sm font-semibold text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              <PhoneOff size={16} />
+              Завершить
+            </button>
+            <button
+              type="button"
+              onClick={toggleMic}
+              disabled={!canToggleMic}
+              className={`inline-flex h-11 min-w-[140px] items-center justify-center gap-2 rounded-xl border px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                micEnabled
+                  ? 'border-sky-300/40 bg-sky-400/20 text-sky-100 hover:bg-sky-400/30'
+                  : 'border-white/15 bg-slate-800 text-slate-200 hover:bg-slate-700'
+              }`}
+            >
+              {micBusy ? <Loader2 size={16} className="animate-spin" /> : (micEnabled ? <Mic size={16} /> : <MicOff size={16} />)}
+              {micEnabled ? 'Микрофон вкл' : 'Микрофон выкл'}
+            </button>
+            <button
+              type="button"
+              onClick={toggleScreenShare}
+              disabled={!canToggleScreen}
+              className={`inline-flex h-11 min-w-[160px] items-center justify-center gap-2 rounded-xl border px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                screenSharing
+                  ? 'border-violet-300/40 bg-violet-400/20 text-violet-100 hover:bg-violet-400/30'
+                  : 'border-white/15 bg-slate-800 text-slate-200 hover:bg-slate-700'
+              }`}
+            >
+              {screenBusy ? <Loader2 size={16} className="animate-spin" /> : (screenSharing ? <MonitorX size={16} /> : <MonitorUp size={16} />)}
+              {screenSharing ? 'Остановить экран' : 'Показать экран'}
+            </button>
+          </div>
+
+          <p className="mt-3 text-xs text-slate-400">
+            Для NAT-сложных сетей добавь TURN через переменную <span className="font-mono text-slate-200">VITE_RTC_ICE_SERVERS</span>.
+          </p>
+        </div>
+      </section>
     </div>
   );
 };
