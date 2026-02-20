@@ -2727,10 +2727,23 @@ const CallSection = ({
         </div>
       </div>
     );
-    if (typeof document !== 'undefined') {
-      return createPortal(collapsedPanelNode, document.body);
-    }
-    return collapsedPanelNode;
+    const collapsedPanelPortal = typeof document !== 'undefined'
+      ? createPortal(collapsedPanelNode, document.body)
+      : collapsedPanelNode;
+    return (
+      <>
+        {isConnected && remotePeers.map((peer) => (
+          <RemoteAudioPlayer
+            key={`audio:${peer.peerId}`}
+            peerId={peer.peerId}
+            stream={peer.stream || null}
+            onSpeakingChange={handlePeerSpeakingChange}
+            volume={normalizePeerVolume(volumeByPeer[peer.peerId])}
+          />
+        ))}
+        {collapsedPanelPortal}
+      </>
+    );
   }
 
   const panelNode = (
