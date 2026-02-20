@@ -680,6 +680,9 @@ const CallSection = ({
       const stream = remoteStreamsRef.current.get(peerId) || null;
       const role = typeof meta.role === 'string' ? meta.role.trim() : '';
       const roleLabel = role ? formatRtcRoleLabel(role) : 'Участник';
+      const hasScreenState = Object.prototype.hasOwnProperty.call(meta, 'isScreenSharing');
+      const hasCameraState = Object.prototype.hasOwnProperty.call(meta, 'isCameraEnabled');
+      const hasMediaState = hasScreenState || hasCameraState;
       const isScreenSharing = Boolean(meta.isScreenSharing);
       const isCameraEnabled = Boolean(meta.isCameraEnabled);
       const screenTrackId = typeof meta.screenTrackId === 'string' ? meta.screenTrackId.trim() : '';
@@ -697,6 +700,7 @@ const CallSection = ({
         subtitle,
         isScreenSharing,
         isCameraEnabled,
+        hasMediaState,
         screenTrackId,
         cameraTrackId,
         isVideoEnabled,
@@ -1983,15 +1987,12 @@ const CallSection = ({
           credentials: 'include',
         });
         if (!response.ok) {
-          if (!disposed) setPresencePeers([]);
           return;
         }
         const payload = await response.json();
         if (disposed) return;
         mapPresenceParticipants(Array.isArray(payload?.participants) ? payload.participants : []);
-      } catch {
-        if (!disposed) setPresencePeers([]);
-      }
+      } catch {}
     };
 
     const connectPresence = () => {
@@ -2043,7 +2044,6 @@ const CallSection = ({
             presencePingTimerRef.current = null;
           }
           lastPresencePongAtRef.current = 0;
-          if (!disposed) setPresencePeers([]);
           scheduleReconnect();
         };
       } catch {
@@ -2183,6 +2183,21 @@ const CallSection = ({
         const peerStream = peer.stream || null;
         const liveVideoTracks = getLiveVideoTracks(peerStream);
         const isSpeaking = Boolean(speakingByPeer[peer.peerId]);
+        const hasExplicitMediaState = Boolean(peer.hasMediaState);
+        const shouldSuppressVideoByState = hasExplicitMediaState && !peer.isScreenSharing && !peer.isCameraEnabled;
+        if (shouldSuppressVideoByState) {
+          participants.push({
+            id: peer.peerId,
+            title: peer.title,
+            subtitle: peer.subtitle || 'В созвоне',
+            isSelf: false,
+            hasVideo: false,
+            videoKind: null,
+            stream: null,
+            isSpeaking,
+          });
+          return;
+        }
         if (liveVideoTracks.length === 0) {
           participants.push({
             id: peer.peerId,
