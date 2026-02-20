@@ -26,9 +26,26 @@ const PORT = process.env.PORT || 5175;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const uploadsDir = path.join(__dirname, 'uploads');
-const dataDir = path.join(__dirname, 'data');
-const collabDir = path.join(dataDir, 'collab');
+const resolveStoragePath = (value, fallbackPath) => {
+  if (typeof value !== 'string') return fallbackPath;
+  const trimmed = value.trim();
+  if (!trimmed) return fallbackPath;
+  return path.isAbsolute(trimmed) ? trimmed : path.resolve(__dirname, trimmed);
+};
+const defaultDataDir = path.join(__dirname, 'data');
+const defaultUploadsDir = path.join(__dirname, 'uploads');
+const dataDir = resolveStoragePath(
+  process.env.PLATFORM_DATA_DIR || process.env.APP_DATA_DIR || process.env.DATA_DIR,
+  defaultDataDir
+);
+const uploadsDir = resolveStoragePath(
+  process.env.PLATFORM_UPLOADS_DIR || process.env.APP_UPLOADS_DIR || process.env.UPLOADS_DIR,
+  defaultUploadsDir
+);
+const collabDir = resolveStoragePath(
+  process.env.PLATFORM_COLLAB_DIR || process.env.APP_COLLAB_DIR,
+  path.join(dataDir, 'collab')
+);
 const dataFile = path.join(dataDir, 'files.json');
 const foldersFile = path.join(dataDir, 'folders.json');
 const studentsFile = path.join(dataDir, 'students.json');
@@ -38,6 +55,7 @@ const testsFile = path.join(dataDir, 'tests.json');
 const mockExamsFile = path.join(dataDir, 'mock-exams.json');
 const taskTitlesFile = path.join(dataDir, 'task-titles.json');
 const authFile = path.join(dataDir, 'auth.json');
+const authSessionsFile = path.join(dataDir, 'auth-sessions.json');
 const usageFile = path.join(dataDir, 'usage.json');
 const pushFile = path.join(dataDir, 'push.json');
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
@@ -54,6 +72,7 @@ const AUTH_SESSION_TTL_MS = (() => {
   return 30 * 24 * 60 * 60 * 1000;
 })();
 const AUTH_SESSION_SWEEP_MS = 10 * 60 * 1000;
+const AUTH_SESSION_PERSIST_DEBOUNCE_MS = 5000;
 const ADMIN_CODE = process.env.ADMIN_CODE || 'admin-7264';
 const ADMIN_NAME = process.env.ADMIN_NAME || 'Администратор';
 const TEACHER_CODE = process.env.TEACHER_CODE || 'admin100';
@@ -336,6 +355,13 @@ const normalizeStreak = (value) => {
 fs.mkdirSync(uploadsDir, { recursive: true });
 fs.mkdirSync(dataDir, { recursive: true });
 fs.mkdirSync(collabDir, { recursive: true });
+const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+if (isProduction && dataDir === defaultDataDir) {
+  console.warn('[storage] PLATFORM_DATA_DIR is not set. Data can be lost after a clean deploy.');
+}
+if (isProduction && uploadsDir === defaultUploadsDir) {
+  console.warn('[storage] PLATFORM_UPLOADS_DIR is not set. Uploads can be lost after a clean deploy.');
+}
 const rawCollabPersistence = LeveldbPersistence ? new LeveldbPersistence(collabDir) : null;
 const collabPersistence = rawCollabPersistence ? {
   bindState: async (docName, ydoc) => {
@@ -908,6 +934,44 @@ const ensureAdminAuth = () => {
 };
 
 const authSessions = new Map();
+let authSessionsPersistTimer = null;
+
+const readAuthSessionsDb = () => {
+  try {
+    const raw = fs.readFileSync(authSessionsFile, 'utf8');
+    const data = JSON.parse(raw);
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeAuthSessionsDb = (sessions) => {
+  fs.writeFileSync(authSessionsFile, JSON.stringify(sessions, null, 2), 'utf8');
+};
+
+const persistAuthSessions = () => {
+  try {
+    const payload = Array.from(authSessions.values()).map((session) => ({
+      token: session.token,
+      user: session.user,
+      createdAtMs: session.createdAtMs,
+      expiresAtMs: session.expiresAtMs,
+    }));
+    writeAuthSessionsDb(payload);
+  } catch (error) {
+    console.error('[auth] failed to persist sessions:', error);
+  }
+};
+
+const schedulePersistAuthSessions = () => {
+  if (authSessionsPersistTimer) return;
+  authSessionsPersistTimer = setTimeout(() => {
+    authSessionsPersistTimer = null;
+    persistAuthSessions();
+  }, AUTH_SESSION_PERSIST_DEBOUNCE_MS);
+  if (typeof authSessionsPersistTimer.unref === 'function') authSessionsPersistTimer.unref();
+};
 
 const createAuthToken = () => crypto.randomBytes(32).toString('hex');
 
@@ -922,6 +986,21 @@ const buildSessionUser = (user) => {
     payload.teacherId = user.teacherId ? String(user.teacherId) : null;
   }
   return payload;
+};
+
+const normalizeStoredAuthSession = (entry) => {
+  if (!entry || typeof entry !== 'object') return null;
+  const token = typeof entry.token === 'string' ? entry.token.trim() : '';
+  const user = buildSessionUser(entry.user);
+  const createdAtMs = Number(entry.createdAtMs);
+  const expiresAtMs = Number(entry.expiresAtMs);
+  if (!token || !user || !Number.isFinite(expiresAtMs)) return null;
+  return {
+    token,
+    user,
+    createdAtMs: Number.isFinite(createdAtMs) ? Math.floor(createdAtMs) : Date.now(),
+    expiresAtMs: Math.floor(expiresAtMs),
+  };
 };
 
 const resolveSessionUser = (sessionUser) => {
@@ -947,13 +1026,38 @@ const resolveSessionUser = (sessionUser) => {
   return null;
 };
 
+const hydrateAuthSessions = () => {
+  const now = Date.now();
+  let hadExpired = false;
+  readAuthSessionsDb().forEach((entry) => {
+    const normalized = normalizeStoredAuthSession(entry);
+    if (!normalized) return;
+    if (normalized.expiresAtMs <= now) {
+      hadExpired = true;
+      return;
+    }
+    authSessions.set(normalized.token, normalized);
+  });
+  if (hadExpired) persistAuthSessions();
+};
+
+const deleteAuthSession = (token) => {
+  if (!token) return false;
+  const deleted = authSessions.delete(token);
+  if (deleted) persistAuthSessions();
+  return deleted;
+};
+
 const purgeExpiredAuthSessions = () => {
   const now = Date.now();
+  let changed = false;
   for (const [token, session] of authSessions.entries()) {
     if (!session || !Number.isFinite(session.expiresAtMs) || session.expiresAtMs <= now) {
       authSessions.delete(token);
+      changed = true;
     }
   }
+  if (changed) persistAuthSessions();
 };
 
 const authSessionSweepTimer = setInterval(purgeExpiredAuthSessions, AUTH_SESSION_SWEEP_MS);
@@ -972,12 +1076,14 @@ const createAuthSession = (user) => {
     expiresAtMs: now + AUTH_SESSION_TTL_MS,
   };
   authSessions.set(session.token, session);
+  persistAuthSessions();
   return session;
 };
 
 const touchAuthSession = (session) => {
   if (!session) return;
   session.expiresAtMs = Date.now() + AUTH_SESSION_TTL_MS;
+  schedulePersistAuthSessions();
 };
 
 const getAuthSession = (token) => {
@@ -985,12 +1091,12 @@ const getAuthSession = (token) => {
   const session = authSessions.get(token);
   if (!session) return null;
   if (!Number.isFinite(session.expiresAtMs) || session.expiresAtMs <= Date.now()) {
-    authSessions.delete(token);
+    deleteAuthSession(token);
     return null;
   }
   const user = resolveSessionUser(session.user);
   if (!user) {
-    authSessions.delete(token);
+    deleteAuthSession(token);
     return null;
   }
   session.user = user;
@@ -2794,6 +2900,7 @@ migrateFileNames();
 migrateTestsFileNames();
 migrateMockExamFileNames();
 ensureStudentIds();
+hydrateAuthSessions();
 
 const getEntrySizeBytes = (entry) => {
   if (!entry) return 0;
@@ -2956,7 +3063,7 @@ app.post('/api/login', (req, res) => {
 
 app.post('/api/logout', (req, res) => {
   const token = getAuthTokenFromRequest(req);
-  if (token) authSessions.delete(token);
+  if (token) deleteAuthSession(token);
   clearAuthSessionCookie(res);
   res.json({ ok: true });
 });
