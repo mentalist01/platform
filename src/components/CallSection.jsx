@@ -280,12 +280,49 @@ const MediaTile = ({
   isSpeaking = false,
   muted = true,
   onContextMenu,
+  isDarkTheme = false,
 }) => {
   const tileRef = useRef(null);
   const mediaRef = useRef(null);
   const [, setVideoTrackVersion] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const isCompact = compact && !isFullscreen;
+  const speakingRingClass = isDarkTheme
+    ? 'ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900'
+    : 'ring-2 ring-emerald-400/80 ring-offset-2 ring-offset-slate-50';
+  const videoCardClass = isDarkTheme
+    ? 'relative overflow-hidden border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)]'
+    : 'relative overflow-hidden border border-slate-200 bg-white shadow-[0_8px_20px_rgba(15,23,42,0.14)]';
+  const compactCardClass = isDarkTheme
+    ? 'relative rounded-xl border border-white/10 bg-slate-900/85 px-2.5 py-2 shadow-[0_6px_16px_rgba(2,6,23,0.32)]'
+    : 'relative rounded-xl border border-slate-200/90 bg-white px-2.5 py-2 shadow-[0_6px_16px_rgba(15,23,42,0.12)]';
+  const fullscreenButtonClass = isDarkTheme
+    ? 'absolute z-10 inline-flex items-center justify-center rounded-md border border-white/20 bg-black/45 text-white transition hover:bg-black/65'
+    : 'absolute z-10 inline-flex items-center justify-center rounded-md border border-slate-200 bg-white/85 text-slate-700 transition hover:bg-white';
+  const videoFillClass = isDarkTheme ? 'h-full w-full bg-slate-950 object-cover' : 'h-full w-full bg-slate-100 object-cover';
+  const videoOverlayClass = isDarkTheme
+    ? 'pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent'
+    : 'pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/65 via-slate-900/20 to-transparent';
+  const overlayTitleClass = isDarkTheme ? 'truncate text-xs font-semibold text-white' : 'truncate text-xs font-semibold text-slate-50';
+  const overlaySubtitleClass = isDarkTheme ? 'truncate text-[11px] text-slate-200' : 'truncate text-[11px] text-slate-100';
+  const compactAvatarClass = isDarkTheme
+    ? 'relative h-10 w-10 shrink-0 overflow-hidden rounded-full border border-white/15 bg-slate-700'
+    : 'relative h-10 w-10 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100';
+  const compactAvatarTextClass = isDarkTheme
+    ? 'flex h-full w-full items-center justify-center text-sm font-semibold text-slate-100'
+    : 'flex h-full w-full items-center justify-center text-sm font-semibold text-slate-700';
+  const compactAvatarBadgeClass = isDarkTheme
+    ? 'absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border border-slate-900 bg-slate-500'
+    : 'absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border border-white bg-emerald-500';
+  const compactTitleClass = isDarkTheme ? 'truncate text-xs font-semibold text-slate-100' : 'truncate text-xs font-semibold text-slate-700';
+  const compactSubtitleClass = isDarkTheme ? 'truncate text-[11px] text-slate-400' : 'truncate text-[11px] text-slate-500';
+  const placeholderWrapClass = isDarkTheme
+    ? 'absolute inset-0 flex flex-col items-center justify-center bg-slate-900 text-slate-300'
+    : 'absolute inset-0 flex flex-col items-center justify-center bg-slate-100 text-slate-600';
+  const placeholderAvatarClass = isDarkTheme
+    ? 'flex items-center justify-center rounded-full bg-slate-700 font-semibold text-slate-100'
+    : 'flex items-center justify-center rounded-full border border-slate-200 bg-white font-semibold text-slate-700';
+  const placeholderTextClass = isDarkTheme ? 'text-slate-300' : 'text-slate-600';
 
   useEffect(() => {
     const bumpVideoVersion = () => {
@@ -387,12 +424,12 @@ const MediaTile = ({
           ref={tileRef}
           onDoubleClick={toggleFullscreen}
           onContextMenu={onContextMenu}
-          className={`relative overflow-hidden border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)] ${isFullscreen ? 'h-screen w-screen rounded-none border-0' : 'h-24 w-36 rounded-xl md:h-28 md:w-44'} ${isSpeaking && !isFullscreen ? 'ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900' : ''} ${className}`}
+          className={`${videoCardClass} ${isFullscreen ? 'h-screen w-screen rounded-none border-0' : 'h-24 w-36 rounded-xl md:h-28 md:w-44'} ${isSpeaking && !isFullscreen ? speakingRingClass : ''} ${className}`}
         >
           <button
             type="button"
             onClick={toggleFullscreen}
-            className="absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/20 bg-black/45 text-white transition hover:bg-black/65"
+            className={`${fullscreenButtonClass} right-2 top-2 h-7 w-7`}
             title={isFullscreen ? 'Выйти из полного экрана' : 'Открыть на весь экран'}
           >
             {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
@@ -402,11 +439,11 @@ const MediaTile = ({
             autoPlay
             muted={muted}
             playsInline
-            className="h-full w-full bg-slate-950 object-cover"
+            className={videoFillClass}
           />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent px-2 pb-2 pt-5">
-            <p className="truncate text-xs font-semibold text-white">{title}</p>
-            <p className="truncate text-[11px] text-slate-200">{subtitle}</p>
+          <div className={`${videoOverlayClass} px-2 pb-2 pt-5`}>
+            <p className={overlayTitleClass}>{title}</p>
+            <p className={overlaySubtitleClass}>{subtitle}</p>
           </div>
         </article>
       );
@@ -416,18 +453,18 @@ const MediaTile = ({
         ref={tileRef}
         onDoubleClick={undefined}
         onContextMenu={onContextMenu}
-        className={`relative rounded-xl border border-white/10 bg-slate-900/85 px-2.5 py-2 shadow-[0_6px_16px_rgba(2,6,23,0.32)] ${className}`}
+        className={`${compactCardClass} ${className}`}
       >
         <div className="flex items-center gap-2.5">
-          <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full border border-white/15 bg-slate-700">
-            <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-slate-100">
+          <div className={compactAvatarClass}>
+            <div className={compactAvatarTextClass}>
               {initial}
             </div>
-            <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border border-slate-900 bg-slate-500" />
+            <span className={compactAvatarBadgeClass} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-semibold text-slate-100">{title}</p>
-            <p className="truncate text-[11px] text-slate-400">{subtitle}</p>
+            <p className={compactTitleClass}>{title}</p>
+            <p className={compactSubtitleClass}>{subtitle}</p>
           </div>
         </div>
       </article>
@@ -439,12 +476,12 @@ const MediaTile = ({
       ref={tileRef}
       onDoubleClick={toggleFullscreen}
       onContextMenu={onContextMenu}
-      className={`relative overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-[0_8px_24px_rgba(2,6,23,0.35)] ${isSpeaking && !isFullscreen ? 'ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900' : ''} ${className}`}
+      className={`${videoCardClass} rounded-2xl ${isSpeaking && !isFullscreen ? speakingRingClass : ''} ${className}`}
     >
       <button
         type="button"
         onClick={toggleFullscreen}
-        className={`absolute z-10 inline-flex items-center justify-center rounded-lg border border-white/20 bg-black/45 text-white transition hover:bg-black/65 ${isCompact ? 'right-2 top-2 h-7 w-7' : 'right-3 top-3 h-9 w-9'}`}
+        className={`${fullscreenButtonClass} rounded-lg ${isCompact ? 'right-2 top-2 h-7 w-7' : 'right-3 top-3 h-9 w-9'}`}
         title={isFullscreen ? 'Выйти из полного экрана' : 'Открыть на весь экран'}
       >
         {isFullscreen ? <Minimize2 size={isCompact ? 13 : 16} /> : <Maximize2 size={isCompact ? 13 : 16} />}
@@ -454,19 +491,19 @@ const MediaTile = ({
         autoPlay
         muted={muted}
         playsInline
-        className={`w-full bg-slate-950 object-cover ${isFullscreen ? 'h-screen' : (isCompact ? 'h-24 md:h-28' : 'h-72 md:h-80')}`}
+        className={`w-full ${isDarkTheme ? 'bg-slate-950' : 'bg-slate-100'} object-cover ${isFullscreen ? 'h-screen' : (isCompact ? 'h-24 md:h-28' : 'h-72 md:h-80')}`}
       />
       {!hasVideo && (
-        <div className={`absolute inset-0 flex flex-col items-center justify-center bg-slate-900 text-slate-300 ${isCompact ? 'gap-2' : 'gap-3'}`}>
-          <div className={`flex items-center justify-center rounded-full bg-slate-700 font-semibold text-slate-100 ${isCompact ? 'h-10 w-10 text-lg' : 'h-16 w-16 text-2xl'}`}>
+        <div className={`${placeholderWrapClass} ${isCompact ? 'gap-2' : 'gap-3'}`}>
+          <div className={`${placeholderAvatarClass} ${isCompact ? 'h-10 w-10 text-lg' : 'h-16 w-16 text-2xl'}`}>
             {String(title || 'U').trim().charAt(0).toUpperCase() || 'U'}
           </div>
-          <p className={isCompact ? 'text-xs font-medium' : 'text-sm font-medium'}>Видео не передается</p>
+          <p className={`${isCompact ? 'text-xs font-medium' : 'text-sm font-medium'} ${placeholderTextClass}`}>Видео не передается</p>
         </div>
       )}
-      <div className={`pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent ${isCompact ? 'px-2.5 pb-2 pt-6' : 'px-3 pb-3 pt-8'}`}>
-        <p className={`truncate font-semibold text-white ${isCompact ? 'text-xs' : 'text-sm'}`}>{title}</p>
-        <p className={`truncate text-slate-200 ${isCompact ? 'text-[11px]' : 'text-xs'}`}>{subtitle}</p>
+      <div className={`${videoOverlayClass} ${isCompact ? 'px-2.5 pb-2 pt-6' : 'px-3 pb-3 pt-8'}`}>
+        <p className={`${isCompact ? 'text-xs' : 'text-sm'} ${overlayTitleClass}`}>{title}</p>
+        <p className={`${isCompact ? 'text-[11px]' : 'text-xs'} ${overlaySubtitleClass}`}>{subtitle}</p>
       </div>
     </article>
   );
@@ -581,6 +618,7 @@ const CallSection = ({
   onRequestExpand,
   onRequestCollapse,
   onStatusChange,
+  theme = 'light',
 }) => {
   const isTeacher = role === 'teacher';
   const effectiveStudentId = isTeacher ? String(activeStudentId || '').trim() : String(userId || '').trim();
@@ -665,6 +703,7 @@ const CallSection = ({
   const isFloatingUi = normalizedUiMode === 'floating';
   const isCollapsedUi = normalizedUiMode === 'collapsed';
   const isHiddenUi = normalizedUiMode === 'hidden';
+  const isDarkTheme = String(theme || '').trim().toLowerCase() === 'dark';
 
   useEffect(() => {
     statusRef.current = status;
@@ -2627,17 +2666,29 @@ const CallSection = ({
       return participants;
     })()
     : [];
-  const statusChipClass = isConnected
-    ? hasActiveMediaConnection
-      ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
-      : hasMediaConnectionIssue
-        ? 'border-rose-300/40 bg-rose-500/15 text-rose-100'
-        : hasPendingPeerConnection
-          ? 'border-amber-300/40 bg-amber-500/15 text-amber-200'
-          : 'border-sky-300/40 bg-sky-500/15 text-sky-200'
-    : isConnecting
-      ? 'border-amber-300/40 bg-amber-500/15 text-amber-200'
-      : 'border-slate-600/60 bg-slate-800/70 text-slate-200';
+  const statusChipClass = isDarkTheme
+    ? (isConnected
+      ? hasActiveMediaConnection
+        ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
+        : hasMediaConnectionIssue
+          ? 'border-rose-300/40 bg-rose-500/15 text-rose-100'
+          : hasPendingPeerConnection
+            ? 'border-amber-300/40 bg-amber-500/15 text-amber-200'
+            : 'border-sky-300/40 bg-sky-500/15 text-sky-200'
+      : isConnecting
+        ? 'border-amber-300/40 bg-amber-500/15 text-amber-200'
+        : 'border-slate-600/60 bg-slate-800/70 text-slate-200')
+    : (isConnected
+      ? hasActiveMediaConnection
+        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+        : hasMediaConnectionIssue
+          ? 'border-rose-200 bg-rose-50 text-rose-700'
+          : hasPendingPeerConnection
+            ? 'border-amber-200 bg-amber-50 text-amber-700'
+            : 'border-sky-200 bg-sky-50 text-sky-700'
+      : isConnecting
+        ? 'border-amber-200 bg-amber-50 text-amber-700'
+        : 'border-slate-200 bg-slate-100 text-slate-600');
   const statusText = isConnected
     ? hasActiveMediaConnection
       ? 'Связь установлена'
@@ -2655,12 +2706,12 @@ const CallSection = ({
   const canToggleCamera = isConnected && !cameraBusy;
   const canToggleScreen = isConnected && !screenBusy;
   const qualityClass = connectionStats.quality === 'good'
-    ? 'text-emerald-300'
+    ? (isDarkTheme ? 'text-emerald-300' : 'text-emerald-700')
     : connectionStats.quality === 'ok'
-      ? 'text-amber-300'
+      ? (isDarkTheme ? 'text-amber-300' : 'text-amber-700')
       : connectionStats.quality === 'poor'
-        ? 'text-rose-300'
-        : 'text-slate-300';
+        ? (isDarkTheme ? 'text-rose-300' : 'text-rose-700')
+        : (isDarkTheme ? 'text-slate-300' : 'text-slate-600');
   const qualityText = connectionStats.quality === 'good'
     ? 'стабильно'
     : connectionStats.quality === 'ok'
@@ -2668,6 +2719,116 @@ const CallSection = ({
       : connectionStats.quality === 'poor'
         ? 'плохо'
         : 'нет данных';
+
+  const sectionShellClass = isDarkTheme
+    ? 'relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 p-4 shadow-[0_30px_90px_rgba(2,6,23,0.5)] md:p-6'
+    : 'relative overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 p-4 shadow-[0_24px_60px_rgba(15,23,42,0.12)] md:p-6';
+  const sectionGlowPrimaryClass = isDarkTheme
+    ? 'pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-blue-500/20 blur-3xl'
+    : 'pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-violet-200/45 blur-3xl';
+  const sectionGlowSecondaryClass = isDarkTheme
+    ? 'pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-emerald-500/20 blur-3xl'
+    : 'pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-sky-200/40 blur-3xl';
+  const collapsedCardClass = isDarkTheme
+    ? 'flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/95 px-3 py-2 shadow-[0_14px_30px_rgba(2,6,23,0.45)] backdrop-blur'
+    : 'flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 px-3 py-2 shadow-[0_12px_26px_rgba(15,23,42,0.14)] backdrop-blur';
+  const collapsedTextClass = isDarkTheme ? 'text-slate-200' : 'text-slate-600';
+  const floatingToolbarClass = isDarkTheme
+    ? 'mb-3 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2'
+    : 'mb-3 flex items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2';
+  const floatingToolbarLabelClass = isDarkTheme ? 'text-slate-200' : 'text-slate-700';
+  const ghostButtonClass = isDarkTheme
+    ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-slate-800 text-slate-200 transition hover:bg-slate-700 cursor-grab active:cursor-grabbing'
+    : 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-100 cursor-grab active:cursor-grabbing';
+  const actionButtonClass = isDarkTheme
+    ? 'inline-flex h-7 items-center justify-center gap-1 rounded-md border border-white/15 bg-slate-800 px-2 text-xs font-semibold text-slate-100 transition hover:bg-slate-700'
+    : 'inline-flex h-7 items-center justify-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100';
+  const collapseButtonClass = isDarkTheme
+    ? 'inline-flex items-center gap-1 rounded-md border border-white/15 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-100 transition hover:bg-slate-700'
+    : 'inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-100';
+  const hangupButtonClass = isDarkTheme
+    ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-400/40 bg-rose-500/15 text-rose-100 transition hover:bg-rose-500/25'
+    : 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-rose-100';
+  const titleClass = isDarkTheme ? 'text-xl font-bold text-white md:text-2xl' : 'text-xl font-bold text-slate-900 md:text-2xl';
+  const subtitleClass = isDarkTheme ? 'mt-1 text-sm text-slate-300' : 'mt-1 text-sm text-slate-600';
+  const teacherCardClass = isDarkTheme
+    ? 'mt-4 rounded-2xl border border-white/10 bg-slate-900/70 p-3 backdrop-blur'
+    : 'mt-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3 backdrop-blur';
+  const teacherLabelClass = isDarkTheme ? 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-300' : 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600';
+  const teacherSelectClass = isDarkTheme
+    ? 'w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-violet-400'
+    : 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-violet-400';
+  const mutedTextClass = isDarkTheme ? 'mt-2 text-xs text-slate-400' : 'mt-2 text-xs text-slate-500';
+  const errorBoxClass = isDarkTheme
+    ? 'mt-4 flex items-start gap-2 rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100'
+    : 'mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700';
+  const mediaSectionClass = isDarkTheme
+    ? 'rounded-2xl border border-white/10 bg-slate-900/70 p-4 md:p-6'
+    : 'rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 md:p-6';
+  const peersSectionClass = isDarkTheme
+    ? 'rounded-2xl border border-white/10 bg-slate-900/70 p-2.5'
+    : 'rounded-2xl border border-slate-200/80 bg-slate-50/70 p-2.5';
+  const peersHeadingClass = isDarkTheme ? 'text-xs font-semibold uppercase tracking-wide text-slate-200' : 'text-xs font-semibold uppercase tracking-wide text-slate-700';
+  const peersCountClass = isDarkTheme
+    ? 'rounded-full border border-white/15 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-200'
+    : 'rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700';
+  const emptyPeersClass = isDarkTheme
+    ? 'flex min-h-16 items-center justify-center rounded-xl border border-dashed border-white/15 bg-slate-900/55 px-3 text-center text-xs text-slate-300'
+    : 'flex min-h-16 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white/70 px-3 text-center text-xs text-slate-500';
+  const statsGridTextClass = isDarkTheme ? 'mt-4 grid gap-2 text-xs text-slate-200 sm:grid-cols-2 xl:grid-cols-5' : 'mt-4 grid gap-2 text-xs text-slate-700 sm:grid-cols-2 xl:grid-cols-5';
+  const statCardClass = isDarkTheme
+    ? 'rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2'
+    : 'rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2';
+  const statStrongClass = isDarkTheme ? 'font-semibold text-white' : 'font-semibold text-slate-900';
+  const connectionHintClass = isDarkTheme ? 'mt-2 text-xs text-slate-400' : 'mt-2 text-xs text-slate-500';
+  const controlsWrapClass = isDarkTheme
+    ? 'mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/10 bg-slate-900/80 p-2 backdrop-blur'
+    : 'mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-slate-200/80 bg-white/85 p-2 backdrop-blur';
+  const neutralControlClass = isDarkTheme
+    ? 'border-white/15 bg-slate-800 text-slate-200 hover:bg-slate-700'
+    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100';
+  const micOnControlClass = isDarkTheme
+    ? 'border-sky-300/40 bg-sky-400/20 text-sky-100 hover:bg-sky-400/30'
+    : 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100';
+  const cameraOnControlClass = isDarkTheme
+    ? 'border-cyan-300/40 bg-cyan-400/20 text-cyan-100 hover:bg-cyan-400/30'
+    : 'border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100';
+  const screenOnControlClass = isDarkTheme
+    ? 'border-violet-300/40 bg-violet-400/20 text-violet-100 hover:bg-violet-400/30'
+    : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100';
+  const popupCardClass = isDarkTheme
+    ? 'absolute w-[244px] rounded-xl border border-white/15 bg-slate-900/95 p-3 shadow-[0_16px_34px_rgba(2,6,23,0.55)] backdrop-blur'
+    : 'absolute w-[244px] rounded-xl border border-slate-200 bg-white/95 p-3 shadow-[0_16px_34px_rgba(15,23,42,0.2)] backdrop-blur';
+  const popupTitleClass = isDarkTheme ? 'truncate text-xs font-semibold text-slate-100' : 'truncate text-xs font-semibold text-slate-800';
+  const popupHintClass = isDarkTheme ? 'mt-0.5 text-[11px] text-slate-400' : 'mt-0.5 text-[11px] text-slate-500';
+  const popupButtonClass = isDarkTheme
+    ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-slate-800 text-sm font-semibold text-slate-200 transition hover:bg-slate-700'
+    : 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-semibold text-slate-700 transition hover:bg-slate-100';
+  const popupValueClass = isDarkTheme ? 'w-10 text-right text-xs font-semibold text-slate-200' : 'w-10 text-right text-xs font-semibold text-slate-700';
+  const videoTileClass = isDarkTheme
+    ? 'relative h-24 w-36 overflow-hidden rounded-xl border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)] md:h-28 md:w-44'
+    : 'relative h-24 w-36 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-[0_8px_20px_rgba(15,23,42,0.14)] md:h-28 md:w-44';
+  const selfVideoFillClass = isDarkTheme ? 'h-full w-full bg-slate-950 object-cover' : 'h-full w-full bg-white object-cover';
+  const selfVideoOverlayClass = isDarkTheme
+    ? 'pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent px-2 pb-2 pt-5'
+    : 'pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/65 via-slate-900/20 to-transparent px-2 pb-2 pt-5';
+  const videoOverlayTextPrimaryClass = isDarkTheme ? 'truncate text-xs font-semibold text-white' : 'truncate text-xs font-semibold text-slate-800';
+  const videoOverlayTextSecondaryClass = isDarkTheme ? 'truncate text-[11px] text-slate-200' : 'truncate text-[11px] text-slate-600';
+  const speakingRingClass = isDarkTheme
+    ? 'ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900'
+    : 'ring-2 ring-emerald-400/80 ring-offset-2 ring-offset-slate-50';
+  const avatarCardClass = isDarkTheme
+    ? 'relative flex h-20 w-20 items-center justify-center rounded-full border bg-slate-800 text-2xl font-semibold text-slate-100 shadow-[0_10px_26px_rgba(2,6,23,0.45)]'
+    : 'relative flex h-20 w-20 items-center justify-center rounded-full border border-slate-200 bg-white text-2xl font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.12)]';
+  const idleAvatarBorderClass = isDarkTheme ? 'border-white/15' : 'border-slate-200';
+  const avatarBadgeClass = isDarkTheme
+    ? 'absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-900 bg-slate-700 text-slate-100'
+    : 'absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600';
+  const avatarNameClass = isDarkTheme ? 'w-full truncate text-xs font-semibold text-slate-100' : 'w-full truncate text-xs font-semibold text-slate-700';
+  const waitingTextClass = isDarkTheme ? 'mt-3 text-center text-xs text-slate-400' : 'mt-3 text-center text-xs text-slate-500';
+  const modalOverlayClass = isDarkTheme ? 'fixed inset-0 z-50' : 'fixed inset-0 z-50 bg-slate-900/10';
+  const popupRangeClass = isDarkTheme ? 'h-2 flex-1 accent-emerald-300' : 'h-2 flex-1 accent-emerald-500';
+  const popupToneClass = isDarkTheme ? 'text-slate-200' : 'text-slate-700';
 
   const collapsedPanelStyle = collapsedPanelPosition
     ? { left: `${collapsedPanelPosition.x}px`, top: `${collapsedPanelPosition.y}px`, transform: 'none' }
@@ -2692,11 +2853,11 @@ const CallSection = ({
         className="fixed left-1/2 top-2 z-50 w-[min(96vw,640px)] -translate-x-1/2"
         style={collapsedPanelStyle}
       >
-        <div className="flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/95 px-3 py-2 shadow-[0_14px_30px_rgba(2,6,23,0.45)] backdrop-blur">
+        <div className={collapsedCardClass}>
           <button
             type="button"
             onPointerDown={(event) => startPanelDrag(event, 'collapsed')}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-slate-800 text-slate-200 transition hover:bg-slate-700 cursor-grab active:cursor-grabbing"
+            className={ghostButtonClass}
             title="Переместить панель"
           >
             <Move size={13} />
@@ -2704,13 +2865,13 @@ const CallSection = ({
           <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusChipClass}`}>
             {statusText}
           </span>
-          <p className="min-w-0 flex-1 truncate text-xs text-slate-200">
+          <p className={`min-w-0 flex-1 truncate text-xs ${collapsedTextClass}`}>
             Созвон активен • участников: {participantCount}
           </p>
           <button
             type="button"
             onClick={onRequestExpand}
-            className="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-white/15 bg-slate-800 px-2 text-xs font-semibold text-slate-100 transition hover:bg-slate-700"
+            className={actionButtonClass}
             title="Развернуть"
           >
             <Maximize2 size={13} />
@@ -2719,7 +2880,7 @@ const CallSection = ({
           <button
             type="button"
             onClick={stopCall}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-400/40 bg-rose-500/15 text-rose-100 transition hover:bg-rose-500/25"
+            className={hangupButtonClass}
             title="Завершить звонок"
           >
             <PhoneOff size={13} />
@@ -2755,28 +2916,28 @@ const CallSection = ({
       style={isFloatingUi ? floatingPanelStyle : undefined}
       data-tour="call"
     >
-      <section className="relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 p-4 shadow-[0_30px_90px_rgba(2,6,23,0.5)] md:p-6">
-        <div className="pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-blue-500/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-emerald-500/20 blur-3xl" />
+      <section className={sectionShellClass}>
+        <div className={sectionGlowPrimaryClass} />
+        <div className={sectionGlowSecondaryClass} />
 
         <div className="relative z-10">
           {isFloatingUi && (
-            <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2">
+            <div className={floatingToolbarClass}>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onPointerDown={(event) => startPanelDrag(event, 'floating')}
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-slate-800 text-slate-200 transition hover:bg-slate-700 cursor-grab active:cursor-grabbing"
+                  className={ghostButtonClass}
                   title="Переместить панель"
                 >
                   <Move size={13} />
                 </button>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-200">Панель созвона</p>
+                <p className={`text-xs font-semibold uppercase tracking-wide ${floatingToolbarLabelClass}`}>Панель созвона</p>
               </div>
               <button
                 type="button"
                 onClick={onRequestCollapse}
-                className="inline-flex items-center gap-1 rounded-md border border-white/15 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-100 transition hover:bg-slate-700"
+                className={collapseButtonClass}
                 title="Свернуть"
               >
                 <Minimize2 size={13} />
@@ -2786,8 +2947,8 @@ const CallSection = ({
           )}
           <header className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-xl font-bold text-white md:text-2xl">Онлайн-созвон</h2>
-              <p className="mt-1 text-sm text-slate-300">Голос и демонстрация экрана в реальном времени.</p>
+              <h2 className={titleClass}>Онлайн-созвон</h2>
+              <p className={subtitleClass}>Голос и демонстрация экрана в реальном времени.</p>
             </div>
             <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusChipClass}`}>
               {statusText}
@@ -2795,13 +2956,13 @@ const CallSection = ({
           </header>
 
           {isTeacher && (
-            <div className="mt-4 rounded-2xl border border-white/10 bg-slate-900/70 p-3 backdrop-blur">
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-300" htmlFor="call-student-select">
+            <div className={teacherCardClass}>
+              <label className={teacherLabelClass} htmlFor="call-student-select">
                 Ученик
               </label>
               <select
                 id="call-student-select"
-                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-violet-400"
+                className={teacherSelectClass}
                 value={activeStudentId || ''}
                 onChange={(event) => onSelectStudent?.(event.target.value || null)}
                 disabled={studentsLoading}
@@ -2813,12 +2974,12 @@ const CallSection = ({
                   </option>
                 ))}
               </select>
-              <p className="mt-2 text-xs text-slate-400">Текущий: {selectedStudentName}</p>
+              <p className={mutedTextClass}>Текущий: {selectedStudentName}</p>
             </div>
           )}
 
           {error && (
-            <div className="mt-4 flex items-start gap-2 rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+            <div className={errorBoxClass}>
               <AlertCircle size={16} className="mt-0.5 shrink-0" />
               <p>{error}</p>
             </div>
@@ -2836,7 +2997,7 @@ const CallSection = ({
             ))}
 
             {isConnected ? (
-              <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 md:p-6">
+              <section className={mediaSectionClass}>
                 <div className="flex flex-wrap items-center justify-center gap-5 md:gap-8">
                   {voiceCallParticipants.map((peer) => {
                     const initial = String(peer.title || 'U').trim().charAt(0).toUpperCase() || 'U';
@@ -2844,18 +3005,18 @@ const CallSection = ({
                       return (
                         <article
                           key={peer.id}
-                          className={`relative h-24 w-36 overflow-hidden rounded-xl border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)] md:h-28 md:w-44 ${peer.isSpeaking ? 'ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900' : ''}`}
+                          className={`${videoTileClass} ${peer.isSpeaking ? speakingRingClass : ''}`}
                         >
                           <video
                             ref={peer.videoKind === 'camera' ? localCameraPreviewRef : localScreenPreviewRef}
                             autoPlay
                             muted
                             playsInline
-                            className="h-full w-full bg-slate-950 object-cover"
+                            className={selfVideoFillClass}
                           />
-                          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent px-2 pb-2 pt-5">
-                            <p className="truncate text-xs font-semibold text-white">Вы</p>
-                            <p className="truncate text-[11px] text-slate-200">{peer.subtitle}</p>
+                          <div className={selfVideoOverlayClass}>
+                            <p className={videoOverlayTextPrimaryClass}>Вы</p>
+                            <p className={videoOverlayTextSecondaryClass}>{peer.subtitle}</p>
                           </div>
                         </article>
                       );
@@ -2869,6 +3030,7 @@ const CallSection = ({
                           subtitle={peer.subtitle}
                           compact
                           isSpeaking={peer.isSpeaking}
+                          isDarkTheme={isDarkTheme}
                           onContextMenu={(event) => openVolumePopupForParticipant(event, peer)}
                         />
                       );
@@ -2880,33 +3042,33 @@ const CallSection = ({
                         className="flex w-[104px] flex-col items-center gap-2 text-center"
                         title={peer.subtitle}
                       >
-                        <div className={`relative flex h-20 w-20 items-center justify-center rounded-full border bg-slate-800 text-2xl font-semibold text-slate-100 shadow-[0_10px_26px_rgba(2,6,23,0.45)] ${peer.isSpeaking ? 'border-emerald-300/85 ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900' : 'border-white/15'}`}>
+                        <div className={`${avatarCardClass} ${peer.isSpeaking ? speakingRingClass : idleAvatarBorderClass}`}>
                           {initial}
                           {peer.isSelf && (
-                            <span className="absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-900 bg-slate-700 text-slate-100">
+                            <span className={avatarBadgeClass}>
                               {micEnabled ? <Mic size={10} /> : <MicOff size={10} />}
                             </span>
                           )}
                         </div>
-                        <p className="w-full truncate text-xs font-semibold text-slate-100">{peer.title}</p>
+                        <p className={avatarNameClass}>{peer.title}</p>
                       </article>
                     );
                   })}
                 </div>
                 {voiceCallParticipants.length <= 1 && (
-                  <p className="mt-3 text-center text-xs text-slate-400">Ожидание подключения собеседника</p>
+                  <p className={waitingTextClass}>Ожидание подключения собеседника</p>
                 )}
               </section>
             ) : (
-              <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-2.5">
+              <section className={peersSectionClass}>
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-200">Участники созвона</h3>
-                  <span className="rounded-full border border-white/15 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-200">
+                  <h3 className={peersHeadingClass}>Участники созвона</h3>
+                  <span className={peersCountClass}>
                     {visiblePeers.length}
                   </span>
                 </div>
                 {visiblePeers.length === 0 ? (
-                  <div className="flex min-h-16 items-center justify-center rounded-xl border border-dashed border-white/15 bg-slate-900/55 px-3 text-center text-xs text-slate-300">
+                  <div className={emptyPeersClass}>
                     В созвоне никого
                   </div>
                 ) : (
@@ -2918,6 +3080,7 @@ const CallSection = ({
                         title={peer.title}
                         subtitle={peer.subtitle}
                         compact
+                        isDarkTheme={isDarkTheme}
                       />
                     ))}
                   </div>
@@ -2926,93 +3089,102 @@ const CallSection = ({
             )}
           </div>
 
-          <div className="mt-4 grid gap-2 text-xs text-slate-200 sm:grid-cols-2 xl:grid-cols-5">
-            <p className="rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2">
-              <span className="inline-flex items-center gap-1"><Users size={13} /> Участники:</span>{' '}
-              <span className="font-semibold text-white">{participantCount}</span>
-            </p>
-            <p className={`rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 ${qualityClass}`}>
-              <span className="inline-flex items-center gap-1"><Signal size={13} /> Качество:</span>{' '}
-              <span className="font-semibold">{qualityText}</span>
-            </p>
-            <p className="rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-slate-200">
-              Сигналинг: <span className="font-semibold text-white">{socketStatus}</span>
-            </p>
-            <p className="rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 truncate" title={roomHint}>
-              Комната: <span className="font-semibold text-white">{roomHint}</span>
-            </p>
-            <p className="rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 truncate" title={selfClientId || 'Не назначен'}>
-              ID клиента: <span className="font-semibold text-white">{selfClientId || '—'}</span>
-            </p>
-          </div>
+          {isTeacher && (
+            <>
+              <div className={statsGridTextClass}>
+                <p className={statCardClass}>
+                  <span className="inline-flex items-center gap-1"><Users size={13} /> Участники:</span>{' '}
+                  <span className={statStrongClass}>{participantCount}</span>
+                </p>
+                <p className={`${statCardClass} ${qualityClass}`}>
+                  <span className="inline-flex items-center gap-1"><Signal size={13} /> Качество:</span>{' '}
+                  <span className="font-semibold">{qualityText}</span>
+                </p>
+                <p className={`${statCardClass} ${popupToneClass}`}>
+                  Сигналинг: <span className={statStrongClass}>{socketStatus}</span>
+                </p>
+                <p className={`${statCardClass} truncate`} title={roomHint}>
+                  Комната: <span className={statStrongClass}>{roomHint}</span>
+                </p>
+                <p className={`${statCardClass} truncate`} title={selfClientId || 'Не назначен'}>
+                  ID клиента: <span className={statStrongClass}>{selfClientId || '—'}</span>
+                </p>
+              </div>
 
-          <p className="mt-2 text-xs text-slate-400">
-            Потери: {connectionStats.lossPercent.toFixed(1)}% | Джиттер: {Math.round(connectionStats.jitterMs)} ms | RTT: {Math.round(connectionStats.rttMs)} ms
-          </p>
+              <p className={connectionHintClass}>
+                Потери: {connectionStats.lossPercent.toFixed(1)}% | Джиттер: {Math.round(connectionStats.jitterMs)} ms | RTT: {Math.round(connectionStats.rttMs)} ms
+              </p>
+            </>
+          )}
 
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/10 bg-slate-900/80 p-2 backdrop-blur">
+          <div className={controlsWrapClass}>
             <button
               type="button"
               onClick={startCall}
               disabled={!canStart}
-              className="inline-flex h-11 min-w-[140px] items-center justify-center gap-2 rounded-xl bg-emerald-400 px-4 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-400 text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
+              aria-label={isConnecting ? 'Подключение...' : 'Подключиться'}
+              title={isConnecting ? 'Подключение...' : 'Подключиться'}
             >
-              {isConnecting ? <Loader2 size={16} className="animate-spin" /> : <Phone size={16} />}
-              Подключиться
+              {isConnecting ? <Loader2 size={18} className="animate-spin" /> : <Phone size={18} />}
             </button>
             <button
               type="button"
               onClick={stopCall}
               disabled={!canStop}
-              className="inline-flex h-11 min-w-[120px] items-center justify-center gap-2 rounded-xl bg-rose-500 px-4 text-sm font-semibold text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-45"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-500 text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-45"
+              aria-label="Завершить звонок"
+              title="Завершить звонок"
             >
-              <PhoneOff size={16} />
-              Завершить
+              <PhoneOff size={18} />
             </button>
             <button
               type="button"
               onClick={toggleMic}
               disabled={!canToggleMic}
-              className={`inline-flex h-11 min-w-[140px] items-center justify-center gap-2 rounded-xl border px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${
+              className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition disabled:cursor-not-allowed disabled:opacity-45 ${
                 micEnabled
-                  ? 'border-sky-300/40 bg-sky-400/20 text-sky-100 hover:bg-sky-400/30'
-                  : 'border-white/15 bg-slate-800 text-slate-200 hover:bg-slate-700'
+                  ? micOnControlClass
+                  : neutralControlClass
               }`}
+              aria-label={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
+              title={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
             >
-              {micBusy ? <Loader2 size={16} className="animate-spin" /> : (micEnabled ? <Mic size={16} /> : <MicOff size={16} />)}
-              {micEnabled ? 'Микрофон вкл' : 'Микрофон выкл'}
+              {micBusy ? <Loader2 size={18} className="animate-spin" /> : (micEnabled ? <Mic size={18} /> : <MicOff size={18} />)}
             </button>
             <button
               type="button"
               onClick={toggleCamera}
               disabled={!canToggleCamera}
-              className={`inline-flex h-11 min-w-[150px] items-center justify-center gap-2 rounded-xl border px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${
+              className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition disabled:cursor-not-allowed disabled:opacity-45 ${
                 cameraEnabled
-                  ? 'border-cyan-300/40 bg-cyan-400/20 text-cyan-100 hover:bg-cyan-400/30'
-                  : 'border-white/15 bg-slate-800 text-slate-200 hover:bg-slate-700'
+                  ? cameraOnControlClass
+                  : neutralControlClass
               }`}
+              aria-label={cameraEnabled ? 'Выключить камеру' : 'Включить камеру'}
+              title={cameraEnabled ? 'Выключить камеру' : 'Включить камеру'}
             >
-              {cameraBusy ? <Loader2 size={16} className="animate-spin" /> : (cameraEnabled ? <Camera size={16} /> : <CameraOff size={16} />)}
-              {cameraEnabled ? 'Камера вкл' : 'Камера выкл'}
+              {cameraBusy ? <Loader2 size={18} className="animate-spin" /> : (cameraEnabled ? <Camera size={18} /> : <CameraOff size={18} />)}
             </button>
             <button
               type="button"
               onClick={toggleScreenShare}
               disabled={!canToggleScreen}
-              className={`inline-flex h-11 min-w-[160px] items-center justify-center gap-2 rounded-xl border px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${
+              className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition disabled:cursor-not-allowed disabled:opacity-45 ${
                 screenSharing
-                  ? 'border-violet-300/40 bg-violet-400/20 text-violet-100 hover:bg-violet-400/30'
-                  : 'border-white/15 bg-slate-800 text-slate-200 hover:bg-slate-700'
+                  ? screenOnControlClass
+                  : neutralControlClass
               }`}
+              aria-label={screenSharing ? 'Остановить показ экрана' : 'Показать экран'}
+              title={screenSharing ? 'Остановить показ экрана' : 'Показать экран'}
             >
-              {screenBusy ? <Loader2 size={16} className="animate-spin" /> : (screenSharing ? <MonitorX size={16} /> : <MonitorUp size={16} />)}
-              {screenSharing ? 'Остановить экран' : 'Показать экран'}
+              {screenBusy ? <Loader2 size={18} className="animate-spin" /> : (screenSharing ? <MonitorX size={18} /> : <MonitorUp size={18} />)}
             </button>
           </div>
 
           {volumePopup && (
             <div
-              className="fixed inset-0 z-50"
+              className={modalOverlayClass}
               onMouseDown={closeVolumePopup}
               onContextMenu={(event) => event.preventDefault()}
             >
@@ -3020,16 +3192,16 @@ const CallSection = ({
                 ref={volumePopupRef}
                 onMouseDown={(event) => event.stopPropagation()}
                 onContextMenu={(event) => event.preventDefault()}
-                className="absolute w-[244px] rounded-xl border border-white/15 bg-slate-900/95 p-3 shadow-[0_16px_34px_rgba(2,6,23,0.55)] backdrop-blur"
+                className={popupCardClass}
                 style={{ left: `${volumePopup.x}px`, top: `${volumePopup.y}px` }}
               >
-                <p className="truncate text-xs font-semibold text-slate-100">{volumePopup.title}</p>
-                <p className="mt-0.5 text-[11px] text-slate-400">Громкость</p>
+                <p className={popupTitleClass}>{volumePopup.title}</p>
+                <p className={popupHintClass}>Громкость</p>
                 <div className="mt-2 flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => adjustPeerVolume(volumePopup.peerId, -PEER_VOLUME_STEP_PERCENT)}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-slate-800 text-sm font-semibold text-slate-200 transition hover:bg-slate-700"
+                    className={popupButtonClass}
                     title="Убавить громкость"
                   >
                     -
@@ -3043,18 +3215,18 @@ const CallSection = ({
                     onChange={(event) => {
                       setPeerVolumePercent(volumePopup.peerId, Number(event.target.value));
                     }}
-                    className="h-2 flex-1 accent-emerald-300"
+                    className={popupRangeClass}
                     aria-label={`Громкость ${volumePopup.title}`}
                   />
                   <button
                     type="button"
                     onClick={() => adjustPeerVolume(volumePopup.peerId, PEER_VOLUME_STEP_PERCENT)}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-slate-800 text-sm font-semibold text-slate-200 transition hover:bg-slate-700"
+                    className={popupButtonClass}
                     title="Прибавить громкость"
                   >
                     +
                   </button>
-                  <span className="w-10 text-right text-xs font-semibold text-slate-200">
+                  <span className={popupValueClass}>
                     {peerVolumeToPercent(volumeByPeer[volumePopup.peerId])}%
                   </span>
                 </div>

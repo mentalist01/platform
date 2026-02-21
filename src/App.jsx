@@ -9461,6 +9461,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onSelectStudent={setActiveStudentId}
               studentsLoading={studentsLoading}
               uiMode={callUiMode}
+              theme={theme}
               onStatusChange={setCallSessionStatus}
               onRequestExpand={() => setCallPanelExpanded(true)}
               onRequestCollapse={() => setCallPanelExpanded(false)}
