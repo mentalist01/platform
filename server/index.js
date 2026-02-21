@@ -3116,8 +3116,7 @@ app.get('/api/rtc/presence', (req, res) => {
     return res.status(403).json({ error: accessError });
   }
 
-  const authUserId = typeof req.auth?.id === 'string' ? req.auth.id.trim() : '';
-  const participants = getRtcPresenceParticipantsForRoom(roomMeta.roomId, authUserId);
+  const participants = getRtcPresenceParticipantsForRoom(roomMeta.roomId);
 
   return res.json({
     roomId: roomMeta.roomId,
@@ -5301,13 +5300,13 @@ const serializeRtcPeer = (client) => ({
   joinedAt: Number.isFinite(client.joinedAt) ? client.joinedAt : 0,
 });
 
-const getRtcPresenceParticipantsForRoom = (roomId, excludeUserId = '') => {
+const getRtcPresenceParticipantsForRoom = (roomId, excludeClientId = '') => {
   const room = rtcRooms.get(roomId);
   if (!room || room.size === 0) return [];
-  const normalizedExcludeUserId = typeof excludeUserId === 'string' ? excludeUserId.trim() : '';
+  const normalizedExcludeClientId = typeof excludeClientId === 'string' ? excludeClientId.trim() : '';
   return Array.from(room.values())
     .map((client) => serializeRtcPeer(client))
-    .filter((peer) => !normalizedExcludeUserId || peer.userId !== normalizedExcludeUserId)
+    .filter((peer) => !normalizedExcludeClientId || peer.id !== normalizedExcludeClientId)
     .sort((left, right) => {
       const leftName = String(left?.name || '');
       const rightName = String(right?.name || '');
@@ -5338,8 +5337,7 @@ const leaveRtcPresenceWatch = (client) => {
 
 const sendRtcPresenceUpdateToClient = (client, roomId) => {
   if (!client || !roomId) return;
-  const authUserId = typeof client.auth?.id === 'string' ? client.auth.id.trim() : '';
-  const participants = getRtcPresenceParticipantsForRoom(roomId, authUserId);
+  const participants = getRtcPresenceParticipantsForRoom(roomId, client.clientId);
   sendRtcPayload(client.ws, {
     type: 'presence-update',
     roomId,
@@ -5711,4 +5709,3 @@ server.listen(PORT, () => {
       console.warn('[python] runner warmup failed:', error?.message || error);
     });
 });
-
