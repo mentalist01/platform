@@ -59,6 +59,7 @@ const authFile = path.join(dataDir, 'auth.json');
 const authSessionsFile = path.join(dataDir, 'auth-sessions.json');
 const usageFile = path.join(dataDir, 'usage.json');
 const pushFile = path.join(dataDir, 'push.json');
+const rtcPresenceDir = path.join(dataDir, 'rtc-presence');
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
 const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
 const JSON_BODY_LIMIT = '20mb';
@@ -356,6 +357,7 @@ const normalizeStreak = (value) => {
 fs.mkdirSync(uploadsDir, { recursive: true });
 fs.mkdirSync(dataDir, { recursive: true });
 fs.mkdirSync(collabDir, { recursive: true });
+fs.mkdirSync(rtcPresenceDir, { recursive: true });
 const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
 if (isProduction && dataDir === defaultDataDir) {
   console.warn('[storage] PLATFORM_DATA_DIR is not set. Data can be lost after a clean deploy.');
@@ -5218,6 +5220,11 @@ const RTC_CLIENT_SWEEP_INTERVAL_MS = (() => {
   if (Number.isFinite(raw) && raw >= 10 * 1000) return Math.round(raw);
   return 60 * 1000;
 })();
+const RTC_PRESENCE_FILE_STALE_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.RTC_PRESENCE_FILE_STALE_TIMEOUT_MS);
+  if (Number.isFinite(raw) && raw >= 60 * 1000) return Math.round(raw);
+  return RTC_CLIENT_STALE_TIMEOUT_MS + 30 * 1000;
+})();
 const rtcRooms = new Map();
 const rtcPresenceWatchers = new Map();
 const rtcClientsBySocket = new Map();
@@ -5300,12 +5307,148 @@ const serializeRtcPeer = (client) => ({
   joinedAt: Number.isFinite(client.joinedAt) ? client.joinedAt : 0,
 });
 
+const normalizeRtcPresenceClientId = (value) => {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized || normalized.length > 120) return '';
+  if (!/^[a-zA-Z0-9_-]+$/.test(normalized)) return '';
+  return normalized;
+};
+
+const getRtcPresenceFilePath = (clientId) => {
+  const normalizedClientId = normalizeRtcPresenceClientId(clientId);
+  if (!normalizedClientId) return '';
+  return path.join(rtcPresenceDir, `${normalizedClientId}.json`);
+};
+
+const removeRtcPresenceFileByClientId = (clientId) => {
+  const filePath = getRtcPresenceFilePath(clientId);
+  if (!filePath) return;
+  try {
+    fs.unlinkSync(filePath);
+  } catch {}
+};
+
+const upsertRtcPresenceFileFromClient = (client) => {
+  if (!client || !client.roomId) return;
+  const clientId = normalizeRtcPresenceClientId(client.clientId);
+  if (!clientId) return;
+  const filePath = getRtcPresenceFilePath(clientId);
+  if (!filePath) return;
+
+  const joinedAt = Number.isFinite(client.joinedAt) ? client.joinedAt : Date.now();
+  const heartbeatAt = Number.isFinite(client.lastHeartbeatAt) ? client.lastHeartbeatAt : Date.now();
+  const payload = {
+    clientId,
+    roomId: client.roomId,
+    userId: typeof client.auth?.id === 'string' ? client.auth.id : '',
+    name: typeof client.auth?.name === 'string' ? client.auth.name : '',
+    role: typeof client.auth?.role === 'string' ? client.auth.role : '',
+    isScreenSharing: Boolean(client.isScreenSharing),
+    isCameraEnabled: Boolean(client.isCameraEnabled),
+    screenTrackId: typeof client.screenTrackId === 'string' ? client.screenTrackId : '',
+    cameraTrackId: typeof client.cameraTrackId === 'string' ? client.cameraTrackId : '',
+    joinedAt,
+    heartbeatAt,
+  };
+  const tempPath = `${filePath}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tempPath, JSON.stringify(payload), 'utf8');
+    fs.renameSync(tempPath, filePath);
+  } catch {
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {}
+  }
+};
+
+const recordToRtcPeer = (record) => {
+  if (!record || typeof record !== 'object') return null;
+  const clientId = normalizeRtcPresenceClientId(record.clientId);
+  const userId = typeof record.userId === 'string' ? record.userId.trim() : '';
+  const name = typeof record.name === 'string' ? record.name.trim() : '';
+  const role = typeof record.role === 'string' ? record.role.trim() : '';
+  if (!clientId || !userId || !name || !role) return null;
+  const joinedAtRaw = Number(record.joinedAt);
+  const joinedAt = Number.isFinite(joinedAtRaw) ? Math.max(0, Math.floor(joinedAtRaw)) : 0;
+  const isScreenSharing = Boolean(record.isScreenSharing);
+  const isCameraEnabled = Boolean(record.isCameraEnabled);
+  return {
+    id: clientId,
+    userId,
+    name,
+    role,
+    isScreenSharing,
+    isCameraEnabled,
+    screenTrackId: isScreenSharing && typeof record.screenTrackId === 'string' ? record.screenTrackId : '',
+    cameraTrackId: isCameraEnabled && typeof record.cameraTrackId === 'string' ? record.cameraTrackId : '',
+    callState: 'in-call',
+    joinedAt,
+  };
+};
+
+const readRtcPresenceParticipantsFromFiles = (roomId) => {
+  const normalizedRoomId = typeof roomId === 'string' ? roomId.trim() : '';
+  if (!normalizedRoomId) return [];
+
+  const now = Date.now();
+  let fileNames = [];
+  try {
+    fileNames = fs.readdirSync(rtcPresenceDir);
+  } catch {
+    return [];
+  }
+
+  const peersByClientId = new Map();
+  fileNames.forEach((fileName) => {
+    if (typeof fileName !== 'string' || !fileName.endsWith('.json')) return;
+    const filePath = path.join(rtcPresenceDir, fileName);
+    let parsed = null;
+    try {
+      const raw = fs.readFileSync(filePath, 'utf8');
+      parsed = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    const parsedRoomId = typeof parsed?.roomId === 'string' ? parsed.roomId.trim() : '';
+    const heartbeatAt = Number(parsed?.heartbeatAt);
+    if (!parsedRoomId || !Number.isFinite(heartbeatAt)) {
+      return;
+    }
+    if (now - heartbeatAt > RTC_PRESENCE_FILE_STALE_TIMEOUT_MS) {
+      const staleClientId = normalizeRtcPresenceClientId(parsed?.clientId);
+      if (staleClientId) {
+        removeRtcPresenceFileByClientId(staleClientId);
+      }
+      return;
+    }
+    if (parsedRoomId !== normalizedRoomId) return;
+    const peer = recordToRtcPeer(parsed);
+    if (!peer) return;
+    peersByClientId.set(peer.id, peer);
+  });
+
+  return Array.from(peersByClientId.values());
+};
+
 const getRtcPresenceParticipantsForRoom = (roomId, excludeClientId = '') => {
-  const room = rtcRooms.get(roomId);
-  if (!room || room.size === 0) return [];
+  const normalizedRoomId = typeof roomId === 'string' ? roomId.trim() : '';
+  if (!normalizedRoomId) return [];
+  const roomMeta = parseRtcRoomId(normalizedRoomId);
+  if (!roomMeta) return [];
+
+  const peersByClientId = new Map();
+  readRtcPresenceParticipantsFromFiles(roomMeta.roomId).forEach((peer) => {
+    peersByClientId.set(peer.id, peer);
+  });
+  const room = rtcRooms.get(roomMeta.roomId);
+  if (room && room.size > 0) {
+    room.forEach((client) => {
+      peersByClientId.set(client.clientId, serializeRtcPeer(client));
+    });
+  }
+
   const normalizedExcludeClientId = typeof excludeClientId === 'string' ? excludeClientId.trim() : '';
-  return Array.from(room.values())
-    .map((client) => serializeRtcPeer(client))
+  return Array.from(peersByClientId.values())
     .filter((peer) => !normalizedExcludeClientId || peer.id !== normalizedExcludeClientId)
     .sort((left, right) => {
       const leftName = String(left?.name || '');
@@ -5373,6 +5516,7 @@ const watchRtcPresence = (client, roomMeta) => {
 const leaveRtcRoom = (client) => {
   if (!client || !client.roomId) return;
   const roomId = client.roomId;
+  const clientId = client.clientId;
   const room = rtcRooms.get(roomId);
   client.roomId = '';
   client.isScreenSharing = false;
@@ -5380,6 +5524,7 @@ const leaveRtcRoom = (client) => {
   client.screenTrackId = '';
   client.cameraTrackId = '';
   client.joinedAt = 0;
+  removeRtcPresenceFileByClientId(clientId);
   if (!room) {
     broadcastRtcPresenceUpdate(roomId);
     return;
@@ -5423,6 +5568,7 @@ const joinRtcRoom = (client, roomMeta) => {
   client.screenTrackId = '';
   client.cameraTrackId = '';
   client.joinedAt = Date.now();
+  upsertRtcPresenceFileFromClient(client);
 
   sendRtcPayload(client.ws, {
     type: 'joined',
@@ -5568,6 +5714,7 @@ const handleRtcMessage = (client, rawData, isBinary) => {
       client.isCameraEnabled = nextCameraEnabled;
       client.screenTrackId = nextScreenTrackId;
       client.cameraTrackId = nextCameraTrackId;
+      upsertRtcPresenceFileFromClient(client);
       broadcastRtcToRoom(client.roomId, {
         type: 'peer-updated',
         roomId: client.roomId,
@@ -5579,6 +5726,9 @@ const handleRtcMessage = (client, rawData, isBinary) => {
   }
 
   if (type === 'ping') {
+    if (client.roomId) {
+      upsertRtcPresenceFileFromClient(client);
+    }
     sendRtcPayload(client.ws, { type: 'pong' });
   }
 };
@@ -5593,6 +5743,7 @@ const cleanupRtcClient = (client, options = {}) => {
       client.ws.close(closeCode, closeReason);
     } catch {}
   }
+  removeRtcPresenceFileByClientId(client.clientId);
   rtcClientsBySocket.delete(client.ws);
 };
 
