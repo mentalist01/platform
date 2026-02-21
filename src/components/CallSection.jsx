@@ -2253,7 +2253,103 @@ const CallSection = ({
       return undefined;
     }
 
+    if (!rtcWsUrl) {
+      setPresencePeers([]);
+      setPresenceError('Не удалось определить адрес сервера для списка участников.');
+      return undefined;
+    }
+
     let disposed = false;
+    let usingWsFallback = false;
+
+    const scheduleReconnect = () => {
+      if (disposed || !usingWsFallback) return;
+      if (presenceReconnectTimerRef.current) {
+        clearTimeout(presenceReconnectTimerRef.current);
+      }
+      presenceReconnectTimerRef.current = setTimeout(() => {
+        presenceReconnectTimerRef.current = null;
+        connectPresenceWs();
+      }, RTC_PRESENCE_RECONNECT_DELAY_MS);
+    };
+
+    const applyPresencePayload = (raw) => {
+      let payload = null;
+      try {
+        payload = JSON.parse(typeof raw === 'string' ? raw : String(raw ?? ''));
+      } catch {
+        return;
+      }
+
+      const type = typeof payload?.type === 'string' ? payload.type.trim() : '';
+      if (!type) return;
+      if (type === 'pong') {
+        lastPresencePongAtRef.current = Date.now();
+        return;
+      }
+      if (type !== 'presence-update') return;
+      const payloadRoomId = typeof payload?.roomId === 'string' ? payload.roomId.trim() : '';
+      if (payloadRoomId && payloadRoomId !== roomId) return;
+      const participants = Array.isArray(payload?.participants) ? payload.participants : [];
+      setPresenceError('');
+      mapPresenceParticipants(participants);
+    };
+
+    const connectPresenceWs = () => {
+      if (disposed || !usingWsFallback) return;
+      const existing = presenceWsRef.current;
+      if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+      try {
+        const ws = new WebSocket(rtcWsUrl);
+        presenceWsRef.current = ws;
+
+        ws.onopen = () => {
+          if (disposed || !usingWsFallback || presenceWsRef.current !== ws) return;
+          lastPresencePongAtRef.current = Date.now();
+          try {
+            ws.send(JSON.stringify({ type: 'watch-presence', roomId }));
+          } catch {}
+          if (presencePingTimerRef.current) {
+            clearInterval(presencePingTimerRef.current);
+          }
+          presencePingTimerRef.current = setInterval(() => {
+            if (presenceWsRef.current !== ws) return;
+            if (Date.now() - lastPresencePongAtRef.current >= WS_HEARTBEAT_TIMEOUT_MS) {
+              try { ws.close(1011, 'Presence heartbeat timeout'); } catch {}
+              return;
+            }
+            try {
+              ws.send(JSON.stringify({ type: 'ping' }));
+            } catch {}
+          }, WS_PING_INTERVAL_MS);
+        };
+
+        ws.onmessage = (event) => {
+          if (disposed || !usingWsFallback || presenceWsRef.current !== ws) return;
+          applyPresencePayload(event.data);
+        };
+
+        ws.onerror = () => {
+          if (disposed || !usingWsFallback || presenceWsRef.current !== ws) return;
+          try { ws.close(); } catch {}
+        };
+
+        ws.onclose = () => {
+          if (presenceWsRef.current !== ws) return;
+          presenceWsRef.current = null;
+          if (presencePingTimerRef.current) {
+            clearInterval(presencePingTimerRef.current);
+            presencePingTimerRef.current = null;
+          }
+          lastPresencePongAtRef.current = 0;
+          scheduleReconnect();
+        };
+      } catch {
+        scheduleReconnect();
+      }
+    };
 
     const loadPresenceOnce = async () => {
       try {
@@ -2267,6 +2363,14 @@ const CallSection = ({
           },
         });
         if (!response.ok) {
+          if (response.status === 404) {
+            if (!usingWsFallback) {
+              usingWsFallback = true;
+              setPresenceError('');
+              connectPresenceWs();
+            }
+            return;
+          }
           if (disposed) return;
           const fallbackMessage = `Не удалось обновить список участников (${response.status})`;
           const message = await extractHttpErrorMessage(response, fallbackMessage);
@@ -2276,16 +2380,21 @@ const CallSection = ({
         }
         const payload = await response.json();
         if (disposed) return;
+        if (usingWsFallback) {
+          usingWsFallback = false;
+          closePresenceSocket();
+        }
         setPresenceError('');
         mapPresenceParticipants(Array.isArray(payload?.participants) ? payload.participants : []);
       } catch (requestError) {
-        if (disposed) return;
+        if (disposed || usingWsFallback) return;
         setPresenceError(normalizeErrorMessage(requestError, 'Не удалось обновить список участников созвона.'));
       }
     };
 
     loadPresenceOnce();
     const presencePollTimer = setInterval(() => {
+      if (usingWsFallback) return;
       loadPresenceOnce();
     }, RTC_PRESENCE_POLL_INTERVAL_MS);
 
@@ -2294,7 +2403,7 @@ const CallSection = ({
       clearInterval(presencePollTimer);
       closePresenceSocket();
     };
-  }, [closePresenceSocket, mapPresenceParticipants, roomId, status]);
+  }, [closePresenceSocket, mapPresenceParticipants, roomId, rtcWsUrl, status]);
 
   useEffect(() => {
     const previewNode = localScreenPreviewRef.current;
