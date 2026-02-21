@@ -976,14 +976,16 @@ const writeAuthSessionsDb = (sessions) => {
   fs.writeFileSync(authSessionsFile, JSON.stringify(sessions, null, 2), 'utf8');
 };
 
+const serializeAuthSessionForStorage = (session) => ({
+  token: session.token,
+  user: session.user,
+  createdAtMs: session.createdAtMs,
+  expiresAtMs: session.expiresAtMs,
+});
+
 const persistAuthSessions = () => {
   try {
-    const payload = Array.from(authSessions.values()).map((session) => ({
-      token: session.token,
-      user: session.user,
-      createdAtMs: session.createdAtMs,
-      expiresAtMs: session.expiresAtMs,
-    }));
+    const payload = Array.from(authSessions.values()).map((session) => serializeAuthSessionForStorage(session));
     writeAuthSessionsDb(payload);
   } catch (error) {
     console.error('[auth] failed to persist sessions:', error);
@@ -1029,6 +1031,56 @@ const normalizeStoredAuthSession = (entry) => {
   };
 };
 
+const getAuthSessionFromStorage = (token) => {
+  const normalizedToken = typeof token === 'string' ? token.trim() : '';
+  if (!normalizedToken) return null;
+  const now = Date.now();
+  const entries = readAuthSessionsDb();
+  for (const entry of entries) {
+    const normalized = normalizeStoredAuthSession(entry);
+    if (!normalized) continue;
+    if (normalized.expiresAtMs <= now) continue;
+    if (normalized.token !== normalizedToken) continue;
+    authSessions.set(normalizedToken, normalized);
+    return normalized;
+  }
+  return null;
+};
+
+const deleteAuthSessionFromStorage = (token) => {
+  const normalizedToken = typeof token === 'string' ? token.trim() : '';
+  if (!normalizedToken) return false;
+  const now = Date.now();
+  const entries = readAuthSessionsDb();
+  if (!entries.length) return false;
+  let changed = false;
+  const next = [];
+  entries.forEach((entry) => {
+    const normalized = normalizeStoredAuthSession(entry);
+    if (!normalized) {
+      changed = true;
+      return;
+    }
+    if (normalized.expiresAtMs <= now) {
+      changed = true;
+      return;
+    }
+    if (normalized.token === normalizedToken) {
+      changed = true;
+      return;
+    }
+    next.push(normalized);
+  });
+  if (!changed) return false;
+  try {
+    writeAuthSessionsDb(next.map((session) => serializeAuthSessionForStorage(session)));
+    return true;
+  } catch (error) {
+    console.error('[auth] failed to delete session from storage:', error);
+    return false;
+  }
+};
+
 const resolveSessionUser = (sessionUser) => {
   const role = String(sessionUser?.role || '');
   if (role === 'admin') {
@@ -1070,8 +1122,11 @@ const hydrateAuthSessions = () => {
 const deleteAuthSession = (token) => {
   if (!token) return false;
   const deleted = authSessions.delete(token);
-  if (deleted) persistAuthSessions();
-  return deleted;
+  if (deleted) {
+    persistAuthSessions();
+    return true;
+  }
+  return deleteAuthSessionFromStorage(token);
 };
 
 const purgeExpiredAuthSessions = () => {
@@ -1114,15 +1169,17 @@ const touchAuthSession = (session) => {
 
 const getAuthSession = (token) => {
   if (!token) return null;
-  const session = authSessions.get(token);
+  const normalizedToken = typeof token === 'string' ? token.trim() : '';
+  if (!normalizedToken) return null;
+  const session = authSessions.get(normalizedToken) || getAuthSessionFromStorage(normalizedToken);
   if (!session) return null;
   if (!Number.isFinite(session.expiresAtMs) || session.expiresAtMs <= Date.now()) {
-    deleteAuthSession(token);
+    deleteAuthSession(normalizedToken);
     return null;
   }
   const user = resolveSessionUser(session.user);
   if (!user) {
-    deleteAuthSession(token);
+    deleteAuthSession(normalizedToken);
     return null;
   }
   session.user = user;
