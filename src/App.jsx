@@ -13,7 +13,7 @@ import {
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   ChevronsLeft, ChevronsRight,
-  Bell, BellOff, MousePointer2, Code2
+  Bell, BellOff, MousePointer2, Code2, MoreHorizontal
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
 import mascotDisapproval from './assets/mascot/disapproval.png';
@@ -6642,6 +6642,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [callSessionStatus, setCallSessionStatus] = useState('idle');
   const [callPanelExpanded, setCallPanelExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [desktopStudentMoreOpen, setDesktopStudentMoreOpen] = useState(false);
   const [desktopNavCollapsed, setDesktopNavCollapsed] = useState(() => {
     if (typeof localStorage === 'undefined') return false;
     try {
@@ -6803,9 +6804,69 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const visibleNav = (user.role === 'student' && !STUDENT_CALL_SECTION_ENABLED)
     ? nav.filter((item) => item.id !== 'call')
     : nav;
+  const studentLessonNavIds = STUDENT_CALL_SECTION_ENABLED
+    ? ['call', 'board', 'collab']
+    : ['board', 'collab'];
+  const teacherLessonNavIds = ['call', 'board', 'collab'];
+  const studentCoreNavIds = ['schedule', 'progress', 'notes'];
+  const studentLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
+  const teacherLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
+  const studentPrimaryNav = user.role === 'student'
+    ? [
+      ...['schedule', 'progress']
+        .map((id) => visibleNav.find((item) => item.id === id))
+        .filter(Boolean),
+      studentLessonNavItem,
+      ...['notes']
+        .map((id) => visibleNav.find((item) => item.id === id))
+        .filter(Boolean)
+    ]
+    : visibleNav;
+  const studentExtraNav = user.role === 'student'
+    ? visibleNav.filter((item) => !studentCoreNavIds.includes(item.id) && !studentLessonNavIds.includes(item.id))
+    : [];
+  const lessonQuickNavIds = user.role === 'teacher'
+    ? teacherLessonNavIds
+    : studentLessonNavIds;
+  const lessonQuickNav = lessonQuickNavIds
+    .map((id) => visibleNav.find((item) => item.id === id))
+    .filter(Boolean);
+  const studentDefaultLessonView = lessonQuickNav[0]?.id || 'progress';
+  const shouldShowMobileMoreButton = user.role === 'student'
+    && studentExtraNav.length > 0
+    && studentPrimaryNav.length <= 3;
+  const mobileNav = user.role === 'student'
+    ? [
+      ...studentPrimaryNav,
+      ...(shouldShowMobileMoreButton ? [{ id: 'more', label: '\u0415\u0449\u0435', icon: MoreHorizontal }] : [])
+    ]
+    : visibleNav;
+  const teacherDesktopPrimaryNav = user.role === 'teacher'
+    ? [
+      ...['schedule', 'progress', 'python', 'rating']
+        .map((id) => visibleNav.find((item) => item.id === id))
+        .filter(Boolean),
+      teacherLessonNavItem,
+      ...['teacher', 'notes']
+        .map((id) => visibleNav.find((item) => item.id === id))
+        .filter(Boolean)
+    ]
+    : visibleNav;
+  const desktopPrimaryNav = user.role === 'student'
+    ? studentPrimaryNav
+    : teacherDesktopPrimaryNav;
+  const desktopExtraActive = user.role === 'student'
+    && studentExtraNav.some((item) => item.id === view);
+  const desktopFabNav = user.role === 'student'
+    ? [
+      ...desktopPrimaryNav,
+      ...(studentExtraNav.length > 0 ? [{ id: 'more', label: '\u0415\u0449\u0435', icon: MoreHorizontal }] : [])
+    ]
+    : desktopPrimaryNav;
   const mobileNavLabels = {
     schedule: 'График',
     progress: 'Тесты',
+    lesson: '\u0423\u0440\u043e\u043a',
     rating: 'Рейтинг',
     python: 'Python',
     collab: 'Код',
@@ -6814,7 +6875,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     teacher: 'Управ.',
     notes: 'Консп.',
     admin: 'Админка',
+    more: '\u0415\u0449\u0435',
   };
+  useEffect(() => {
+    if (user.role !== 'student') {
+      setDesktopStudentMoreOpen(false);
+      return;
+    }
+    if (desktopExtraActive) setDesktopStudentMoreOpen(true);
+  }, [desktopExtraActive, user.role]);
   const syncPushSubscriptionState = useCallback(async ({ silent = true } = {}) => {
     if (user.role !== 'student') return;
     const supported = isPushFeatureSupported();
@@ -7272,11 +7341,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [user.role, view]);
   const navigateToView = useCallback((nextView) => {
     const normalizedView = String(nextView || '').trim();
-    if (!normalizedView || normalizedView === view) return;
+    const resolvedView = ((user.role === 'student' || user.role === 'teacher') && normalizedView === 'lesson')
+      ? studentDefaultLessonView
+      : normalizedView;
+    if (!resolvedView || resolvedView === view) return;
     stopGoalFlyAnimation();
-    captureGoalFlySource(normalizedView);
-    setView(normalizedView);
-  }, [captureGoalFlySource, stopGoalFlyAnimation, view]);
+    captureGoalFlySource(resolvedView);
+    setView(resolvedView);
+  }, [captureGoalFlySource, stopGoalFlyAnimation, studentDefaultLessonView, user.role, view]);
   const handleStreakSaved = (nextStreak) => {
     const normalizedNext = normalizeStreak(nextStreak);
     const normalizedPrev = normalizeStreak(studentStreakRef.current);
@@ -8283,6 +8355,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     && view !== 'schedule'
     && view !== 'collab'
     && view !== 'board'
+    && view !== 'call'
     && goalState?.entry
     && !goalState.completed
     && goalGoals.length > 0;
@@ -8877,8 +8950,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 Навигация
               </div>
               <div className="space-y-2.5 sidebar-nav-stack">
-                {visibleNav.map((n, idx) => {
-                  const isActive = view === n.id;
+                {desktopPrimaryNav.map((n, idx) => {
+                  const isLessonButton = n.id === 'lesson';
+                  const isActive = isLessonButton ? lessonQuickNavIds.includes(view) : view === n.id;
                   return (
                     <button
                       key={n.id}
@@ -8918,6 +8992,74 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     </button>
                   );
                 })}
+                {user.role === 'student' && studentExtraNav.length > 0 && (
+                  <div className="mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setDesktopStudentMoreOpen((prev) => !prev)}
+                      className={`group flex w-full items-center justify-between gap-2 rounded-2xl border px-3.5 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.06em] transition-colors ${
+                        desktopExtraActive
+                          ? 'border-purple-200/90 bg-purple-50 text-purple-700'
+                          : 'border-purple-100/80 bg-white/80 text-slate-600 hover:border-purple-200 hover:bg-purple-50/80 hover:text-purple-700'
+                      }`}
+                      aria-expanded={desktopStudentMoreOpen}
+                    >
+                      <span className="flex items-center gap-2">
+                        <MoreHorizontal size={14} />
+                        <span>{'\u0415\u0449\u0435 \u0440\u0430\u0437\u0434\u0435\u043b\u044b'}</span>
+                      </span>
+                      <ChevronRight
+                        size={14}
+                        className={`transition-transform duration-200 ${desktopStudentMoreOpen ? 'rotate-90' : ''}`}
+                      />
+                    </button>
+                    {desktopStudentMoreOpen && (
+                      <div className="mt-2 space-y-2">
+                        {studentExtraNav.map((n, idx) => {
+                          const isActive = view === n.id;
+                          return (
+                            <button
+                              key={`desktop-extra-${n.id}`}
+                              onClick={() => {
+                                navigateToView(n.id);
+                                setMenuOpen(false);
+                              }}
+                              aria-current={isActive ? 'page' : undefined}
+                              style={{ '--item-index': desktopPrimaryNav.length + idx }}
+                              className={`sidebar-nav-item group relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-2xl border px-3.5 py-3 text-left transition-all duration-200 ease-out ${
+                                isActive
+                                  ? 'is-active border-purple-200/80 bg-white text-slate-900 shadow-[0_16px_30px_rgba(124,58,237,0.16)]'
+                                  : 'border-transparent text-slate-700 hover:-translate-y-[1px] hover:border-purple-200/80 hover:bg-white/92 hover:text-slate-900 hover:shadow-[0_10px_24px_rgba(148,163,184,0.24)]'
+                              }`}
+                            >
+                              <span className="flex min-w-0 flex-1 items-center gap-3">
+                                <span
+                                  className={`sidebar-nav-icon grid h-10 w-10 place-items-center rounded-xl border transition-all duration-200 ${
+                                    isActive
+                                      ? 'is-active bg-gradient-to-br from-violet-100 to-fuchsia-100 text-purple-700 border-purple-200/90 shadow-sm shadow-purple-200/60'
+                                      : 'bg-white/85 text-purple-600 border-purple-100/80 group-hover:bg-white group-hover:border-purple-200/70'
+                                  }`}
+                                >
+                                  <n.icon size={18} />
+                                </span>
+                                <span className="sidebar-nav-label whitespace-nowrap text-[13px] font-semibold leading-tight md:text-sm">{n.label}</span>
+                              </span>
+                              <span
+                                className={`sidebar-nav-arrow ml-auto flex h-8 w-8 items-center justify-center rounded-xl border transition-all duration-200 ${
+                                  isActive
+                                    ? 'is-active translate-x-0.5 border-purple-200/80 bg-purple-100/90 text-purple-700 opacity-100 shadow-sm shadow-purple-200/50'
+                                    : 'border-purple-100/70 bg-white/75 text-purple-400 opacity-60 group-hover:translate-x-0.5 group-hover:opacity-100 group-hover:text-purple-600 group-hover:border-purple-200/70'
+                                }`}
+                              >
+                                <ChevronRight size={14} />
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </nav>
             <div className="sidebar-footer p-5 border-t border-white/70 bg-white/55 backdrop-blur-xl shrink-0">
@@ -8957,14 +9099,23 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         </button>
         <div className="desktop-nav-fab__divider" aria-hidden="true" />
         <div className="desktop-nav-fab__stack">
-          {visibleNav.map((n) => {
-            const isActive = view === n.id;
+          {desktopFabNav.map((n) => {
+            const isMoreButton = n.id === 'more';
+            const isLessonButton = n.id === 'lesson';
+            const isActive = isMoreButton
+              ? desktopExtraActive
+              : (isLessonButton ? lessonQuickNavIds.includes(view) : view === n.id);
             const Icon = n.icon;
             return (
               <button
                 key={`desktop-nav-fab-${n.id}`}
                 type="button"
                 onClick={() => {
+                  if (isMoreButton) {
+                    setDesktopNavCollapsed(false);
+                    setDesktopStudentMoreOpen(true);
+                    return;
+                  }
                   navigateToView(n.id);
                   setMenuOpen(false);
                 }}
@@ -9007,7 +9158,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           data-tour="main"
         >
           <div className="main-content-shell animate-soft">
-          {user.role === 'student' && view !== 'collab' && view !== 'board' && (
+          {user.role === 'student' && view !== 'collab' && view !== 'board' && view !== 'call' && (
             <div className="top-stats-strip mb-3 rounded-2xl border border-slate-200/80 bg-gradient-to-r from-white to-slate-50/85 px-2.5 py-1.5 shadow-sm sm:px-3 sm:py-2">
               <div className="flex items-center gap-1.5 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-2">
                 <div
@@ -9113,6 +9264,34 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+          {(user.role === 'student' || user.role === 'teacher') && lessonQuickNav.length > 1 && lessonQuickNavIds.includes(view) && (
+            <div className="mb-3 rounded-2xl border border-purple-200/70 bg-white/90 p-2 shadow-sm">
+              <div
+                className="grid gap-1.5"
+                style={{ gridTemplateColumns: `repeat(${Math.max(1, lessonQuickNav.length)}, minmax(0, 1fr))` }}
+              >
+                {lessonQuickNav.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = view === item.id;
+                  return (
+                    <button
+                      key={`lesson-quick-${item.id}`}
+                      type="button"
+                      onClick={() => navigateToView(item.id)}
+                      className={`flex h-14 min-w-0 items-center justify-center gap-2.5 rounded-xl px-3 text-base font-semibold transition-colors ${
+                        isActive
+                          ? 'bg-purple-600 text-white shadow-sm'
+                          : 'border border-purple-100 bg-white text-slate-700 hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700'
+                      }`}
+                    >
+                      <Icon size={20} />
+                      <span className="truncate leading-none">{mobileNavLabels[item.id] || item.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -9580,6 +9759,37 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 </div>
               </div>
               {renderPushControl({ mobile: true })}
+              {user.role === 'student' && studentExtraNav.length > 0 && (
+                <div className="mt-4 rounded-2xl border border-purple-100/75 bg-white/90 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-purple-700/80">
+                    {'\u0415\u0449\u0435 \u0440\u0430\u0437\u0434\u0435\u043b\u044b'}
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {studentExtraNav.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = view === item.id;
+                      return (
+                        <button
+                          key={`mobile-more-${item.id}`}
+                          type="button"
+                          onClick={() => {
+                            navigateToView(item.id);
+                            setMenuOpen(false);
+                          }}
+                          className={`flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2 text-left text-xs font-semibold transition-colors ${
+                            isActive
+                              ? 'border-purple-600 bg-purple-600 text-white shadow-sm'
+                              : 'border-purple-100 bg-white text-slate-700 hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700'
+                          }`}
+                        >
+                          <Icon size={15} />
+                          <span className="truncate leading-tight">{mobileNavLabels[item.id] || item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <button
                 onClick={onLogout}
                 className="mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/70 bg-white/90 px-4 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 hover:shadow-sm"
@@ -9591,15 +9801,23 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         </div>
         <nav className="fixed inset-x-0 bottom-0 z-20 px-2 pb-[calc(env(safe-area-inset-bottom)+0.45rem)] md:hidden" data-tour="nav">
           <div className="surface-panel rounded-2xl border border-purple-100/70 bg-white/90 p-1.5 shadow-[0_12px_26px_rgba(15,23,42,0.16)]">
-            <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${Math.max(1, visibleNav.length)}, minmax(0, 1fr))` }}>
-              {visibleNav.map((n) => {
-                const isActive = view === n.id;
+            <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${Math.max(1, mobileNav.length)}, minmax(0, 1fr))` }}>
+              {mobileNav.map((n) => {
+                const isMoreButton = n.id === 'more';
+                const isLessonButton = n.id === 'lesson';
+                const isActive = isMoreButton
+                  ? (menuOpen || studentExtraNav.some((item) => item.id === view))
+                  : (isLessonButton ? studentLessonNavIds.includes(view) : view === n.id);
                 const Icon = n.icon;
                 return (
                   <button
                     key={`mobile-nav-${n.id}`}
                     type="button"
                     onClick={() => {
+                      if (isMoreButton) {
+                        setMenuOpen(true);
+                        return;
+                      }
                       navigateToView(n.id);
                       setMenuOpen(false);
                     }}
