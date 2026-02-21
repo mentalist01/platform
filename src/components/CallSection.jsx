@@ -114,6 +114,26 @@ const normalizeErrorMessage = (error, fallback) => {
   return text || fallbackText;
 };
 
+const extractHttpErrorMessage = async (response, fallback) => {
+  const fallbackText = typeof fallback === 'string' && fallback.trim()
+    ? fallback.trim()
+    : 'Не удалось выполнить запрос.';
+  if (!response) return fallbackText;
+
+  try {
+    const jsonPayload = await response.clone().json();
+    const jsonError = typeof jsonPayload?.error === 'string' ? jsonPayload.error.trim() : '';
+    if (jsonError) return jsonError;
+  } catch {}
+
+  try {
+    const textPayload = (await response.clone().text()).trim();
+    if (textPayload && textPayload.length <= 240) return textPayload;
+  } catch {}
+
+  return fallbackText;
+};
+
 const formatRtcRoleLabel = (role) => {
   if (role === 'teacher') return 'Преподаватель';
   if (role === 'student') return 'Ученик';
@@ -634,6 +654,7 @@ const CallSection = ({
   const [status, setStatus] = useState('idle');
   const [socketStatus, setSocketStatus] = useState('disconnected');
   const [error, setError] = useState('');
+  const [presenceError, setPresenceError] = useState('');
   const [micEnabled, setMicEnabled] = useState(false);
   const [micBusy, setMicBusy] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
@@ -946,11 +967,6 @@ const CallSection = ({
     const ws = presenceWsRef.current;
     presenceWsRef.current = null;
     if (!ws) return;
-    if (ws.readyState === WebSocket.OPEN) {
-      try {
-        ws.send(JSON.stringify({ type: 'unwatch-presence' }));
-      } catch {}
-    }
     try {
       ws.close();
     } catch {}
@@ -1962,6 +1978,7 @@ const CallSection = ({
 
   const startCall = useCallback(async () => {
     if (!roomId) {
+      setPresenceError('');
       setError('Сначала выбери ученика для созвона.');
       return;
     }
@@ -1993,6 +2010,7 @@ const CallSection = ({
     }
 
     setError('');
+    setPresenceError('');
     applyStatus('connecting');
     setSocketStatus('connecting');
     manualCloseRef.current = false;
@@ -2226,43 +2244,16 @@ const CallSection = ({
     if (!roomId) {
       closePresenceSocket();
       setPresencePeers([]);
+      setPresenceError('');
       return undefined;
     }
-    if (!rtcWsUrl) return undefined;
+    if (status !== 'idle') {
+      closePresenceSocket();
+      setPresenceError('');
+      return undefined;
+    }
 
     let disposed = false;
-
-    const scheduleReconnect = () => {
-      if (disposed) return;
-      if (presenceReconnectTimerRef.current) {
-        clearTimeout(presenceReconnectTimerRef.current);
-      }
-      presenceReconnectTimerRef.current = setTimeout(() => {
-        presenceReconnectTimerRef.current = null;
-        connectPresence();
-      }, RTC_PRESENCE_RECONNECT_DELAY_MS);
-    };
-
-    const applyPresencePayload = (raw) => {
-      let payload = null;
-      try {
-        payload = JSON.parse(typeof raw === 'string' ? raw : String(raw ?? ''));
-      } catch {
-        return;
-      }
-
-      const type = typeof payload?.type === 'string' ? payload.type.trim() : '';
-      if (!type) return;
-      if (type === 'pong') {
-        lastPresencePongAtRef.current = Date.now();
-        return;
-      }
-      if (type !== 'presence-update') return;
-      const payloadRoomId = typeof payload?.roomId === 'string' ? payload.roomId.trim() : '';
-      if (payloadRoomId && payloadRoomId !== roomId) return;
-      const participants = Array.isArray(payload?.participants) ? payload.participants : [];
-      mapPresenceParticipants(participants);
-    };
 
     const loadPresenceOnce = async () => {
       try {
@@ -2276,72 +2267,24 @@ const CallSection = ({
           },
         });
         if (!response.ok) {
+          if (disposed) return;
+          const fallbackMessage = `Не удалось обновить список участников (${response.status})`;
+          const message = await extractHttpErrorMessage(response, fallbackMessage);
+          setPresencePeers([]);
+          setPresenceError(message);
           return;
         }
         const payload = await response.json();
         if (disposed) return;
+        setPresenceError('');
         mapPresenceParticipants(Array.isArray(payload?.participants) ? payload.participants : []);
-      } catch {}
-    };
-
-    const connectPresence = () => {
-      if (disposed) return;
-      const existing = presenceWsRef.current;
-      if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
-        return;
-      }
-      try {
-        const ws = new WebSocket(rtcWsUrl);
-        presenceWsRef.current = ws;
-
-        ws.onopen = () => {
-          if (disposed || presenceWsRef.current !== ws) return;
-          lastPresencePongAtRef.current = Date.now();
-          try {
-            ws.send(JSON.stringify({ type: 'watch-presence', roomId }));
-          } catch {}
-          if (presencePingTimerRef.current) {
-            clearInterval(presencePingTimerRef.current);
-          }
-          presencePingTimerRef.current = setInterval(() => {
-            if (presenceWsRef.current !== ws) return;
-            if (Date.now() - lastPresencePongAtRef.current >= WS_HEARTBEAT_TIMEOUT_MS) {
-              try { ws.close(1011, 'Presence heartbeat timeout'); } catch {}
-              return;
-            }
-            try {
-              ws.send(JSON.stringify({ type: 'ping' }));
-            } catch {}
-          }, WS_PING_INTERVAL_MS);
-        };
-
-        ws.onmessage = (event) => {
-          if (disposed || presenceWsRef.current !== ws) return;
-          applyPresencePayload(event.data);
-        };
-
-        ws.onerror = () => {
-          if (disposed || presenceWsRef.current !== ws) return;
-          try { ws.close(); } catch {}
-        };
-
-        ws.onclose = () => {
-          if (presenceWsRef.current !== ws) return;
-          presenceWsRef.current = null;
-          if (presencePingTimerRef.current) {
-            clearInterval(presencePingTimerRef.current);
-            presencePingTimerRef.current = null;
-          }
-          lastPresencePongAtRef.current = 0;
-          scheduleReconnect();
-        };
-      } catch {
-        scheduleReconnect();
+      } catch (requestError) {
+        if (disposed) return;
+        setPresenceError(normalizeErrorMessage(requestError, 'Не удалось обновить список участников созвона.'));
       }
     };
 
     loadPresenceOnce();
-    connectPresence();
     const presencePollTimer = setInterval(() => {
       loadPresenceOnce();
     }, RTC_PRESENCE_POLL_INTERVAL_MS);
@@ -2351,7 +2294,7 @@ const CallSection = ({
       clearInterval(presencePollTimer);
       closePresenceSocket();
     };
-  }, [closePresenceSocket, mapPresenceParticipants, roomId, rtcWsUrl]);
+  }, [closePresenceSocket, mapPresenceParticipants, roomId, status]);
 
   useEffect(() => {
     const previewNode = localScreenPreviewRef.current;
@@ -2699,6 +2642,7 @@ const CallSection = ({
           : 'В комнате (ожидание)'
     : (isConnecting ? 'Подключение...' : 'Отключено');
   const roomHint = roomId || 'Комната не выбрана';
+  const resolvedError = error || (status === 'idle' ? presenceError : '');
   const selectedStudentName = selectedStudent?.name || 'Ученик не выбран';
   const canStart = Boolean(roomId) && !isConnecting && !isConnected;
   const canStop = isConnecting || isConnected;
@@ -2978,10 +2922,10 @@ const CallSection = ({
             </div>
           )}
 
-          {error && (
+          {resolvedError && (
             <div className={errorBoxClass}>
               <AlertCircle size={16} className="mt-0.5 shrink-0" />
-              <p>{error}</p>
+              <p>{resolvedError}</p>
             </div>
           )}
 
