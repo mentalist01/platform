@@ -22,6 +22,7 @@ const CAMERA_MAX_HEIGHT = getPositiveNumberFromEnv('VITE_RTC_CAMERA_MAX_HEIGHT',
 const CONNECTION_STATS_INTERVAL_MS = 2500;
 const RTC_PRESENCE_RECONNECT_DELAY_MS = 2000;
 const RTC_PRESENCE_POLL_INTERVAL_MS = 4000;
+const RTC_PRESENCE_FALLBACK_BOOT_TIMEOUT_MS = 5000;
 const WS_HEARTBEAT_TIMEOUT_MS = 45000;
 const JOIN_ACK_TIMEOUT_MS = 15000;
 const ROOM_RESYNC_COOLDOWN_MS = 4000;
@@ -2261,6 +2262,7 @@ const CallSection = ({
 
     let disposed = false;
     let usingWsFallback = false;
+    let fallbackBootTimeout = null;
 
     const scheduleReconnect = () => {
       if (disposed || !usingWsFallback) return;
@@ -2287,10 +2289,25 @@ const CallSection = ({
         lastPresencePongAtRef.current = Date.now();
         return;
       }
+      if (type === 'error') {
+        if (fallbackBootTimeout) {
+          clearTimeout(fallbackBootTimeout);
+          fallbackBootTimeout = null;
+        }
+        const fallbackMessage = 'Presence fallback is unavailable on this server. Update backend and restart it.';
+        const serverMessage = typeof payload?.error === 'string' ? payload.error.trim() : '';
+        setPresencePeers([]);
+        setPresenceError(serverMessage || fallbackMessage);
+        return;
+      }
       if (type !== 'presence-update') return;
       const payloadRoomId = typeof payload?.roomId === 'string' ? payload.roomId.trim() : '';
       if (payloadRoomId && payloadRoomId !== roomId) return;
       const participants = Array.isArray(payload?.participants) ? payload.participants : [];
+      if (fallbackBootTimeout) {
+        clearTimeout(fallbackBootTimeout);
+        fallbackBootTimeout = null;
+      }
       setPresenceError('');
       mapPresenceParticipants(participants);
     };
@@ -2367,6 +2384,15 @@ const CallSection = ({
             if (!usingWsFallback) {
               usingWsFallback = true;
               setPresenceError('');
+              if (fallbackBootTimeout) {
+                clearTimeout(fallbackBootTimeout);
+              }
+              fallbackBootTimeout = setTimeout(() => {
+                fallbackBootTimeout = null;
+                if (disposed || !usingWsFallback) return;
+                setPresencePeers([]);
+                setPresenceError('Presence API endpoint is missing on backend (/api/rtc/presence). Update backend deployment.');
+              }, RTC_PRESENCE_FALLBACK_BOOT_TIMEOUT_MS);
               connectPresenceWs();
             }
             return;
@@ -2382,6 +2408,10 @@ const CallSection = ({
         if (disposed) return;
         if (usingWsFallback) {
           usingWsFallback = false;
+          if (fallbackBootTimeout) {
+            clearTimeout(fallbackBootTimeout);
+            fallbackBootTimeout = null;
+          }
           closePresenceSocket();
         }
         setPresenceError('');
@@ -2394,12 +2424,15 @@ const CallSection = ({
 
     loadPresenceOnce();
     const presencePollTimer = setInterval(() => {
-      if (usingWsFallback) return;
       loadPresenceOnce();
     }, RTC_PRESENCE_POLL_INTERVAL_MS);
 
     return () => {
       disposed = true;
+      if (fallbackBootTimeout) {
+        clearTimeout(fallbackBootTimeout);
+        fallbackBootTimeout = null;
+      }
       clearInterval(presencePollTimer);
       closePresenceSocket();
     };
