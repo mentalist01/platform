@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, X } from 'lucide-react';
+import { ChevronRight, Download, X } from 'lucide-react';
 import { api } from '../services/api';
 import { Button } from './ui';
 const MockExamModal = ({
