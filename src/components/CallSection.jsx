@@ -32,6 +32,10 @@ const SPEAKING_HOLD_MS = getPositiveNumberFromEnv('VITE_RTC_SPEAKING_HOLD_MS', 4
 const SPEAKING_ANALYSER_FFT_SIZE = 1024;
 const PEER_VOLUME_STEP_PERCENT = 10;
 const DEFAULT_PEER_VOLUME = 1;
+const MIN_PEER_MIC_SENSITIVITY_PERCENT = 50;
+const MAX_PEER_MIC_SENSITIVITY_PERCENT = 200;
+const DEFAULT_PEER_MIC_SENSITIVITY_PERCENT = 100;
+const PEER_MIC_SENSITIVITY_STEP_PERCENT = 10;
 
 const normalizePeerVolume = (value) => {
   if (!Number.isFinite(value)) return DEFAULT_PEER_VOLUME;
@@ -45,6 +49,19 @@ const percentToPeerVolume = (value) => {
 
 const peerVolumeToPercent = (value) => Math.round(normalizePeerVolume(value) * 100);
 const clampToRange = (value, min, max) => Math.min(Math.max(value, min), max);
+const normalizePeerMicSensitivityPercent = (value) => {
+  if (!Number.isFinite(value)) return DEFAULT_PEER_MIC_SENSITIVITY_PERCENT;
+  return Math.round(clampToRange(
+    Number(value),
+    MIN_PEER_MIC_SENSITIVITY_PERCENT,
+    MAX_PEER_MIC_SENSITIVITY_PERCENT
+  ));
+};
+const peerMicSensitivityPercentToThreshold = (value) => {
+  const sensitivityPercent = normalizePeerMicSensitivityPercent(value);
+  const factor = DEFAULT_PEER_MIC_SENSITIVITY_PERCENT / sensitivityPercent;
+  return Math.max(0.0005, SPEAKING_RMS_THRESHOLD * factor);
+};
 
 const clampPanelPositionToViewport = (position, width, height) => {
   const normalizedWidth = Number(width);
@@ -176,10 +193,13 @@ const inferVideoTrackKind = (track) => {
   return 'camera';
 };
 
-const observeAudioTrackSpeaking = (track, onSpeakingChange) => {
+const observeAudioTrackSpeaking = (track, onSpeakingChange, threshold = SPEAKING_RMS_THRESHOLD) => {
   const reportSpeaking = (value) => {
     onSpeakingChange?.(value);
   };
+  const effectiveThreshold = Number.isFinite(threshold) && threshold > 0
+    ? threshold
+    : SPEAKING_RMS_THRESHOLD;
 
   if (!track || track.readyState !== 'live' || typeof window === 'undefined') {
     reportSpeaking(false);
@@ -230,7 +250,7 @@ const observeAudioTrackSpeaking = (track, onSpeakingChange) => {
       sumSquares += sample * sample;
     }
     const rms = Math.sqrt(sumSquares / data.length);
-    if (rms > SPEAKING_RMS_THRESHOLD) {
+    if (rms > effectiveThreshold) {
       if (silenceTimer) {
         clearTimeout(silenceTimer);
         silenceTimer = null;
@@ -535,6 +555,7 @@ const RemoteAudioPlayer = ({
   stream,
   onSpeakingChange,
   volume = DEFAULT_PEER_VOLUME,
+  speakingThreshold = SPEAKING_RMS_THRESHOLD,
 }) => {
   const audioRef = useRef(null);
   const [audioTrackVersion, setAudioTrackVersion] = useState(0);
@@ -609,8 +630,8 @@ const RemoteAudioPlayer = ({
       : null;
     return observeAudioTrackSpeaking(audioTrack, (isSpeaking) => {
       onSpeakingChange?.(peerId, isSpeaking);
-    });
-  }, [audioTrackVersion, onSpeakingChange, peerId, stream]);
+    }, speakingThreshold);
+  }, [audioTrackVersion, onSpeakingChange, peerId, speakingThreshold, stream]);
 
   useEffect(() => {
     const audioNode = audioRef.current;
@@ -667,6 +688,7 @@ const CallSection = ({
   const [presencePeers, setPresencePeers] = useState([]);
   const [speakingByPeer, setSpeakingByPeer] = useState({});
   const [volumeByPeer, setVolumeByPeer] = useState({});
+  const [micSensitivityByPeer, setMicSensitivityByPeer] = useState({});
   const [volumePopup, setVolumePopup] = useState(null);
   const [collapsedPanelPosition, setCollapsedPanelPosition] = useState(null);
   const [floatingPanelPosition, setFloatingPanelPosition] = useState(null);
@@ -1207,6 +1229,12 @@ const CallSection = ({
       delete next[normalizedPeerId];
       return next;
     });
+    setMicSensitivityByPeer((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, normalizedPeerId)) return prev;
+      const next = { ...prev };
+      delete next[normalizedPeerId];
+      return next;
+    });
     refreshPeerConnectionSummary();
     syncRemotePeers();
   }, [refreshPeerConnectionSummary, syncRemotePeers]);
@@ -1260,6 +1288,34 @@ const CallSection = ({
     });
   }, []);
 
+  const setPeerMicSensitivityPercent = useCallback((peerId, percentValue) => {
+    const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
+    if (!normalizedPeerId) return;
+    const nextPercent = normalizePeerMicSensitivityPercent(Number(percentValue));
+    setMicSensitivityByPeer((prev) => {
+      const currentPercent = normalizePeerMicSensitivityPercent(prev[normalizedPeerId]);
+      if (currentPercent === nextPercent) return prev;
+      return {
+        ...prev,
+        [normalizedPeerId]: nextPercent,
+      };
+    });
+  }, []);
+
+  const adjustPeerMicSensitivity = useCallback((peerId, percentDelta) => {
+    const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
+    if (!normalizedPeerId) return;
+    setMicSensitivityByPeer((prev) => {
+      const currentPercent = normalizePeerMicSensitivityPercent(prev[normalizedPeerId]);
+      const nextPercent = normalizePeerMicSensitivityPercent(currentPercent + Number(percentDelta || 0));
+      if (currentPercent === nextPercent) return prev;
+      return {
+        ...prev,
+        [normalizedPeerId]: nextPercent,
+      };
+    });
+  }, []);
+
   const closeVolumePopup = useCallback(() => {
     setVolumePopup(null);
   }, []);
@@ -1272,7 +1328,7 @@ const CallSection = ({
     event.stopPropagation();
 
     const popupWidth = 244;
-    const popupHeight = 132;
+    const popupHeight = 188;
     const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1024;
     const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 768;
     const margin = 8;
@@ -2986,6 +3042,7 @@ const CallSection = ({
             stream={peer.stream || null}
             onSpeakingChange={handlePeerSpeakingChange}
             volume={normalizePeerVolume(volumeByPeer[peer.peerId])}
+            speakingThreshold={peerMicSensitivityPercentToThreshold(micSensitivityByPeer[peer.peerId])}
           />
         ))}
         {collapsedPanelPortal}
@@ -3079,6 +3136,7 @@ const CallSection = ({
                 stream={peer.stream || null}
                 onSpeakingChange={handlePeerSpeakingChange}
                 volume={normalizePeerVolume(volumeByPeer[peer.peerId])}
+                speakingThreshold={peerMicSensitivityPercentToThreshold(micSensitivityByPeer[peer.peerId])}
               />
             ))}
 
@@ -3319,6 +3377,40 @@ const CallSection = ({
                   </button>
                   <span className={popupValueClass}>
                     {peerVolumeToPercent(volumeByPeer[volumePopup.peerId])}%
+                  </span>
+                </div>
+                <p className={`${popupHintClass} mt-2`}>Чувствительность микрофона</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => adjustPeerMicSensitivity(volumePopup.peerId, -PEER_MIC_SENSITIVITY_STEP_PERCENT)}
+                    className={popupButtonClass}
+                    title="Снизить чувствительность"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="range"
+                    min={MIN_PEER_MIC_SENSITIVITY_PERCENT}
+                    max={MAX_PEER_MIC_SENSITIVITY_PERCENT}
+                    step={5}
+                    value={normalizePeerMicSensitivityPercent(micSensitivityByPeer[volumePopup.peerId])}
+                    onChange={(event) => {
+                      setPeerMicSensitivityPercent(volumePopup.peerId, Number(event.target.value));
+                    }}
+                    className={popupRangeClass}
+                    aria-label={`Чувствительность микрофона ${volumePopup.title}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => adjustPeerMicSensitivity(volumePopup.peerId, PEER_MIC_SENSITIVITY_STEP_PERCENT)}
+                    className={popupButtonClass}
+                    title="Повысить чувствительность"
+                  >
+                    +
+                  </button>
+                  <span className={popupValueClass}>
+                    {normalizePeerMicSensitivityPercent(micSensitivityByPeer[volumePopup.peerId])}%
                   </span>
                 </div>
               </div>
