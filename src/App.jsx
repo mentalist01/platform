@@ -1283,6 +1283,67 @@ const createPyodideWorker = () => {
 
     const toText = (value) => (value == null ? '' : String(value));
 
+    const toBytes = (value) => {
+      if (value instanceof Uint8Array) return value;
+      if (ArrayBuffer.isView(value)) {
+        return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+      }
+      if (value instanceof ArrayBuffer) return new Uint8Array(value);
+      if (Array.isArray(value)) {
+        return Uint8Array.from(value.map((item) => {
+          const num = Number(item);
+          if (!Number.isFinite(num)) return 0;
+          return num & 255;
+        }));
+      }
+      if (typeof value === 'string') {
+        try {
+          return new TextEncoder().encode(value);
+        } catch {
+          return new Uint8Array(0);
+        }
+      }
+      return new Uint8Array(0);
+    };
+
+    const sanitizeRuntimeFileName = (value) => {
+      const text = toText(value).replace(/\\0/g, '').trim();
+      if (!text) return '';
+      const parts = text.split(/[\\\\/]+/).filter(Boolean);
+      if (!parts.length) return '';
+      return parts[parts.length - 1];
+    };
+
+    let mountedRuntimeFiles = [];
+    const clearMountedRuntimeFiles = (pyodide) => {
+      if (!pyodide?.FS || !mountedRuntimeFiles.length) {
+        mountedRuntimeFiles = [];
+        return;
+      }
+      mountedRuntimeFiles.forEach((name) => {
+        try {
+          pyodide.FS.unlink(name);
+        } catch { /* no-op */ }
+      });
+      mountedRuntimeFiles = [];
+    };
+
+    const mountRuntimeFiles = (pyodide, files) => {
+      clearMountedRuntimeFiles(pyodide);
+      if (!pyodide?.FS || !Array.isArray(files) || !files.length) return;
+      const seen = new Set();
+      files.forEach((file) => {
+        const safeName = sanitizeRuntimeFileName(file?.name);
+        if (!safeName || seen.has(safeName)) return;
+        seen.add(safeName);
+        const bytes = toBytes(file?.bytes);
+        try {
+          pyodide.FS.writeFile(safeName, bytes);
+          mountedRuntimeFiles.push(safeName);
+        } catch { /* no-op */ }
+      });
+    };
+
     const createChunkEmitter = (id, type) => {
       const pushChunk = (chunk) => {
         if (!chunk) return;
@@ -1303,8 +1364,9 @@ const createPyodideWorker = () => {
       return { push, close };
     };
 
-    const runPython = async (id, source, inputValue, debugMode = false) => {
+    const runPython = async (id, source, inputValue, debugMode = false, runtimeFiles = []) => {
       const pyodide = await ensurePyodide();
+      mountRuntimeFiles(pyodide, runtimeFiles);
       const safeInput = toText(inputValue);
       const safeSource = toText(source);
       const useDebugMode = Boolean(debugMode);
@@ -1518,7 +1580,7 @@ const createPyodideWorker = () => {
       const id = data.id;
       if (!id) return;
       try {
-        const result = await runPython(id, data.source, data.input, data.debug);
+        const result = await runPython(id, data.source, data.input, data.debug, data.files);
         if (result?.debug) {
           self.postMessage({
             id,
@@ -1693,6 +1755,7 @@ const CollabSection = ({
   userId,
   userName,
   teacherId,
+  withStudentId,
   tasks,
   students,
   activeStudentId,
@@ -1735,10 +1798,17 @@ const CollabSection = ({
   const [debugBreakpoints, setDebugBreakpoints] = useState([]);
   const [debugPlaying, setDebugPlaying] = useState(false);
   const [debugSourceSnapshot, setDebugSourceSnapshot] = useState('');
-  const [editorFontSize, setEditorFontSize] = useState(14);
+  const [editorFontSize, setEditorFontSize] = useState(23);
   const [isCollabFullscreen, setIsCollabFullscreen] = useState(false);
   const [typingUsers, setTypingUsers] = useState([]);
   const [splitLeftWidth, setSplitLeftWidth] = useState(68);
+  const [runTaskNumber, setRunTaskNumber] = useState(() => String(taskOptions[0]?.number || ''));
+  const [runTaskCategory, setRunTaskCategory] = useState('class');
+  const [taskFiles, setTaskFiles] = useState([]);
+  const [taskFilesLoading, setTaskFilesLoading] = useState(false);
+  const [taskFilesError, setTaskFilesError] = useState('');
+  const [taskFileUploadBusy, setTaskFileUploadBusy] = useState(false);
+  const [selectedTaskFileIds, setSelectedTaskFileIds] = useState([]);
 
   const isMobileViewport = typeof window !== 'undefined'
     ? window.matchMedia('(max-width: 767px)').matches
@@ -1770,6 +1840,8 @@ const CollabSection = ({
   const runOutputRef = useRef(runOutput);
   const runErrorRef = useRef(runError);
   const runStatusRef = useRef(runStatus);
+  const taskFileInputRef = useRef(null);
+  const mountedRuntimeFilesRef = useRef([]);
   const debugTraceRef = useRef([]);
   const debugStepIndexRef = useRef(-1);
   const debugBreakpointsRef = useRef([]);
@@ -1786,6 +1858,27 @@ const CollabSection = ({
     () => (students || []).find((student) => student.id === activeStudentId),
     [students, activeStudentId]
   );
+  const runTaskNumbers = useMemo(() => {
+    const normalizedTask = normalizeTaskNumber(runTaskNumber);
+    if (!Number.isFinite(normalizedTask)) return [];
+    if (normalizedTask === GAME_THEORY_TASK) return [19, 20, 21];
+    return [normalizedTask];
+  }, [runTaskNumber]);
+  const filteredTaskFiles = useMemo(() => {
+    if (!runTaskCategory || !runTaskNumbers.length) return [];
+    return (Array.isArray(taskFiles) ? taskFiles : [])
+      .filter((file) => {
+        const taskNumber = Number(file?.taskNumber);
+        return runTaskNumbers.includes(taskNumber) && file?.category === runTaskCategory;
+      })
+      .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'ru'));
+  }, [taskFiles, runTaskCategory, runTaskNumbers]);
+  const selectedTaskFiles = useMemo(() => {
+    if (!selectedTaskFileIds.length) return [];
+    const selectedSet = new Set(selectedTaskFileIds);
+    return filteredTaskFiles.filter((file) => selectedSet.has(file.id));
+  }, [filteredTaskFiles, selectedTaskFileIds]);
+  const getTaskFileUrl = useCallback((file) => withStudentId(file?.url, effectiveStudentId), [withStudentId, effectiveStudentId]);
   const editorOptions = useMemo(() => ({
     minimap: { enabled: false },
     fontSize: editorFontSize,
@@ -1817,7 +1910,7 @@ const CollabSection = ({
   const editorHeight = isCollabFullscreen
     ? (isMobileViewport ? '60vh' : '82vh')
     : (isMobileViewport ? '50vh' : (isDesktopCollabCompact ? '100%' : '65vh'));
-  const clampFontSize = (value) => Math.min(24, Math.max(12, Math.round(value)));
+  const clampFontSize = (value) => Math.min(36, Math.max(12, Math.round(value)));
   const collabShellClass = isCollabFullscreen
     ? 'animate-fadeIn min-h-screen w-screen bg-[radial-gradient(circle_at_top,_rgba(124,58,237,0.22),_rgba(15,23,42,0.85)_55%,_rgba(3,7,18,1)_100%)] text-slate-100 px-2 pt-2 pb-1 sm:px-3 sm:pt-3 sm:pb-1.5 md:px-4 md:pt-4 md:pb-2 overflow-auto'
     : (isDesktopCollabCompact
@@ -2272,13 +2365,66 @@ const CollabSection = ({
   }, []);
 
   useEffect(() => {
+    if (!taskOptions.length) {
+      setRunTaskNumber('');
+      return;
+    }
+    const valid = taskOptions.some((task) => String(task?.number ?? '') === String(runTaskNumber ?? ''));
+    if (!valid) {
+      setRunTaskNumber(String(taskOptions[0]?.number || ''));
+    }
+  }, [taskOptions, runTaskNumber]);
+
+  useEffect(() => {
+    if (!effectiveStudentId) {
+      setTaskFiles([]);
+      setTaskFilesError('');
+      setTaskFilesLoading(false);
+      setSelectedTaskFileIds([]);
+      return;
+    }
+    let cancelled = false;
+    setTaskFilesLoading(true);
+    api.getFiles(effectiveStudentId)
+      .then((data) => {
+        if (cancelled) return;
+        setTaskFiles(Array.isArray(data) ? data : []);
+        setTaskFilesError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setTaskFiles([]);
+        setTaskFilesError(err?.message || 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ С„Р°Р№Р»С‹ Р·Р°РґР°РЅРёСЏ.');
+      })
+      .finally(() => {
+        if (!cancelled) setTaskFilesLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [effectiveStudentId]);
+
+  useEffect(() => {
+    const availableIds = new Set(filteredTaskFiles.map((file) => file.id));
+    setSelectedTaskFileIds((prev) => prev.filter((id) => availableIds.has(id)));
+  }, [filteredTaskFiles]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
+    const clampLocalFontSize = (value) => Math.min(36, Math.max(12, Math.round(value)));
+    const forcedFontSize = clampLocalFontSize(23);
+    const migrationKey = `${fontSizeStorageKey}-default23-v1`;
+    const alreadyForced = window.localStorage.getItem(migrationKey) === '1';
+    if (!alreadyForced) {
+      setEditorFontSize(forcedFontSize);
+      window.localStorage.setItem(fontSizeStorageKey, String(forcedFontSize));
+      window.localStorage.setItem(migrationKey, '1');
+      return;
+    }
     const raw = window.localStorage.getItem(fontSizeStorageKey);
     const parsed = Number(raw);
     if (Number.isFinite(parsed)) {
-      setEditorFontSize(clampFontSize(parsed));
+      setEditorFontSize(clampLocalFontSize(parsed));
     } else {
-      setEditorFontSize(14);
+      setEditorFontSize(forcedFontSize);
     }
   }, [fontSizeStorageKey]);
 
@@ -2449,6 +2595,143 @@ const CollabSection = ({
     const trimmed = String(value || '').trim();
     if (!trimmed) return '';
     return trimmed.replace(/[\\/]+/g, '').replace(/\0/g, '');
+  };
+
+  const normalizeRuntimeFileName = (value) => {
+    const text = String(value || '').replace(/\0/g, '').trim();
+    if (!text) return '';
+    const parts = text.split(/[\\/]+/).filter(Boolean);
+    if (!parts.length) return '';
+    return parts[parts.length - 1];
+  };
+
+  const getRunTaskNumberForUpload = () => {
+    const num = Number(runTaskNumber);
+    if (Number.isFinite(num) && num > 0) return num;
+    const normalized = normalizeTaskNumber(runTaskNumber);
+    if (Number.isFinite(normalized)) return normalized;
+    return Number(taskOptions[0]?.number) || NaN;
+  };
+
+  const mountRuntimeFilesInPyodide = useCallback((pyodide, runtimeFiles = []) => {
+    if (!pyodide?.FS) return;
+    const mounted = mountedRuntimeFilesRef.current || [];
+    mounted.forEach((name) => {
+      try {
+        pyodide.FS.unlink(name);
+      } catch { /* no-op */ }
+    });
+    mountedRuntimeFilesRef.current = [];
+    if (!Array.isArray(runtimeFiles) || !runtimeFiles.length) return;
+    const seen = new Set();
+    runtimeFiles.forEach((file) => {
+      const safeName = normalizeRuntimeFileName(file?.name);
+      if (!safeName || seen.has(safeName)) return;
+      seen.add(safeName);
+      const bytesSource = file?.bytes;
+      let bytes = null;
+      if (bytesSource instanceof Uint8Array) {
+        bytes = bytesSource;
+      } else if (ArrayBuffer.isView(bytesSource)) {
+        bytes = new Uint8Array(bytesSource.buffer, bytesSource.byteOffset, bytesSource.byteLength);
+      } else if (bytesSource instanceof ArrayBuffer) {
+        bytes = new Uint8Array(bytesSource);
+      } else if (Array.isArray(bytesSource)) {
+        bytes = Uint8Array.from(bytesSource.map((item) => {
+          const num = Number(item);
+          if (!Number.isFinite(num)) return 0;
+          return num & 255;
+        }));
+      } else if (typeof bytesSource === 'string') {
+        try {
+          bytes = new TextEncoder().encode(bytesSource);
+        } catch {
+          bytes = new Uint8Array(0);
+        }
+      } else {
+        bytes = new Uint8Array(0);
+      }
+      try {
+        pyodide.FS.writeFile(safeName, bytes);
+        mountedRuntimeFilesRef.current.push(safeName);
+      } catch { /* no-op */ }
+    });
+  }, []);
+
+  const resolveSelectedRuntimeFiles = useCallback(async () => {
+    if (!selectedTaskFiles.length) return [];
+    const selectedNames = new Set();
+    const payload = [];
+    for (const file of selectedTaskFiles) {
+      const safeName = normalizeRuntimeFileName(file?.name);
+      if (!safeName) continue;
+      const lowerName = safeName.toLowerCase();
+      if (selectedNames.has(lowerName)) {
+        throw new Error(`Р’С‹Р±СЂР°РЅРѕ РЅРµСЃРєРѕР»СЊРєРѕ С„Р°Р№Р»РѕРІ СЃ РёРјРµРЅРµРј ${safeName}. РћСЃС‚Р°РІСЊС‚Рµ РѕРґРёРЅ.`);
+      }
+      selectedNames.add(lowerName);
+      const fileUrl = getTaskFileUrl(file);
+      if (!fileUrl) {
+        throw new Error(`РќРµС‚ СЃСЃС‹Р»РєРё РґР»СЏ С„Р°Р№Р»Р° ${safeName}.`);
+      }
+      const response = await fetch(fileUrl, { credentials: 'include' });
+      if (!response.ok) {
+        throw new Error(`РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ С„Р°Р№Р» ${safeName}.`);
+      }
+      const buffer = await response.arrayBuffer();
+      payload.push({
+        name: safeName,
+        bytes: new Uint8Array(buffer),
+      });
+    }
+    return payload;
+  }, [selectedTaskFiles, getTaskFileUrl]);
+
+  const handleUploadTaskFiles = async (fileList) => {
+    const filesToUpload = Array.from(fileList || []).filter(Boolean);
+    if (!filesToUpload.length) return;
+    if (!effectiveStudentId) {
+      setTaskFilesError('РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°.');
+      return;
+    }
+    const uploadTaskNumber = getRunTaskNumberForUpload();
+    if (!Number.isFinite(uploadTaskNumber) || !runTaskCategory) {
+      setTaskFilesError('Р’С‹Р±РµСЂРёС‚Рµ Р·Р°РґР°РЅРёРµ Рё РєР°С‚РµРіРѕСЂРёСЋ.');
+      return;
+    }
+    if (taskFileUploadBusy) return;
+    setTaskFileUploadBusy(true);
+    setTaskFilesError('');
+    try {
+      const createdFiles = [];
+      for (const file of filesToUpload) {
+        const created = await api.uploadFile(file, uploadTaskNumber, runTaskCategory, null, effectiveStudentId);
+        createdFiles.push(created);
+      }
+      if (createdFiles.length) {
+        setTaskFiles((prev) => [...createdFiles, ...prev]);
+        setSelectedTaskFileIds((prev) => {
+          const next = new Set(prev);
+          createdFiles.forEach((file) => {
+            if (file?.id) next.add(file.id);
+          });
+          return Array.from(next);
+        });
+      }
+    } catch (err) {
+      setTaskFilesError(err?.message || err);
+    } finally {
+      setTaskFileUploadBusy(false);
+      if (taskFileInputRef.current) taskFileInputRef.current.value = '';
+    }
+  };
+
+  const handleToggleTaskFile = (fileId) => {
+    if (!fileId) return;
+    setSelectedTaskFileIds((prev) => {
+      if (prev.includes(fileId)) return prev.filter((id) => id !== fileId);
+      return [...prev, fileId];
+    });
   };
 
   const handleCreateFolder = async () => {
@@ -2791,8 +3074,9 @@ const CollabSection = ({
 
   useEffect(() => () => disposeRunWorker('Python runner stopped.'), []);
 
-  const runPythonInMainThread = async (source, inputValue) => {
+  const runPythonInMainThread = async (source, inputValue, runtimeFiles = []) => {
     const pyodide = await ensurePyodideReady();
+    mountRuntimeFilesInPyodide(pyodide, runtimeFiles);
     const wrapped = [
       'import sys, io, traceback',
       `_input = ${JSON.stringify(String(inputValue ?? ''))}`,
@@ -2819,6 +3103,7 @@ const CollabSection = ({
 
   const runPythonCode = async (source, inputValue, onProgress = null, options = {}) => {
     const debugMode = Boolean(options?.debug);
+    const runtimeFiles = Array.isArray(options?.files) ? options.files : [];
     const worker = ensureRunWorker();
     if (worker) {
       const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -2850,7 +3135,7 @@ const CollabSection = ({
           debugTraceTruncated: false,
           onProgress: typeof onProgress === 'function' ? onProgress : null,
         });
-        worker.postMessage({ id, source, input: inputValue, debug: debugMode });
+        worker.postMessage({ id, source, input: inputValue, debug: debugMode, files: runtimeFiles });
       });
     }
     if (!ALLOW_MAIN_THREAD_PYTHON_FALLBACK) {
@@ -2859,7 +3144,7 @@ const CollabSection = ({
         error: 'Не удалось запустить Python в изолированном режиме. Перезагрузите страницу.'
       };
     }
-    return runPythonInMainThread(source, inputValue);
+    return runPythonInMainThread(source, inputValue, runtimeFiles);
   };
 
   const normalizePythonForAutoFormat = (value) => {
@@ -2972,6 +3257,26 @@ const CollabSection = ({
     }
     const startedAt = Date.now();
     const inputSnapshot = runInputRef.current || '';
+    let runtimeFilesPayload = [];
+    try {
+      runtimeFilesPayload = await resolveSelectedRuntimeFiles();
+    } catch (err) {
+      if (runSessionRef.current !== sessionId) return;
+      const message = err?.message || 'РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕРґРіРѕС‚РѕРІРёС‚СЊ С„Р°Р№Р»С‹ Р·Р°РґР°РЅРёСЏ.';
+      setRunLoading(false);
+      setRunStatus('done');
+      setRunOutput('');
+      setRunError(message);
+      publishRunState({
+        status: 'done',
+        output: '',
+        error: normalizeRunText(message),
+        author: localName,
+        ts: Date.now(),
+        input: inputSnapshot,
+      });
+      return;
+    }
     publishRunState({
       status: 'running',
       output: '',
@@ -2995,7 +3300,7 @@ const CollabSection = ({
           ts: Date.now(),
           input: inputSnapshot,
         });
-      }, { debug: isDebugRun });
+      }, { debug: isDebugRun, files: runtimeFilesPayload });
       if (runSessionRef.current !== sessionId) return;
       if (runStreamTimerRef.current) {
         clearTimeout(runStreamTimerRef.current);
@@ -3558,9 +3863,135 @@ const CollabSection = ({
             : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
         }`}
       />
+      <div className={`rounded-2xl border p-2 ${isSplitCollabLayout ? 'space-y-1' : 'space-y-2'} ${
+        isCollabFullscreen
+          ? 'border-slate-700/80 bg-slate-900/70'
+          : 'border-gray-200 bg-white'
+      }`}>
+        <div className="flex items-center justify-between gap-2">
+          <div className={`${isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>
+            Файлы задания для open()
+          </div>
+          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+            isCollabFullscreen
+              ? 'border-slate-600 text-slate-200'
+              : 'border-purple-200 text-purple-700'
+          }`}>
+            {selectedTaskFiles.length}
+          </span>
+        </div>
+        <div className={`grid grid-cols-1 ${isSplitCollabLayout ? 'gap-1' : 'gap-2'} md:grid-cols-3`}>
+          <select
+            value={runTaskNumber}
+            onChange={(e) => setRunTaskNumber(e.target.value)}
+            disabled={!effectiveStudentId || taskFileUploadBusy}
+            className={`rounded-xl border outline-none ${
+              isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
+            } ${
+              isCollabFullscreen
+                ? 'border-slate-700 bg-slate-950 text-slate-100 focus:border-violet-400'
+                : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
+            }`}
+          >
+            {taskOptions.map((task) => (
+              <option key={task.id} value={task.number}>
+                {`Задание ${getTaskDisplayNumber(task)}`}
+              </option>
+            ))}
+          </select>
+          <select
+            value={runTaskCategory}
+            onChange={(e) => setRunTaskCategory(e.target.value)}
+            disabled={!effectiveStudentId || taskFileUploadBusy}
+            className={`rounded-xl border outline-none ${
+              isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
+            } ${
+              isCollabFullscreen
+                ? 'border-slate-700 bg-slate-950 text-slate-100 focus:border-violet-400'
+                : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
+            }`}
+          >
+            <option value="class">На уроке</option>
+            <option value="home">Домашка</option>
+          </select>
+          <div className="flex items-center gap-1">
+            <input
+              ref={taskFileInputRef}
+              type="file"
+              className="hidden"
+              multiple
+              onChange={(event) => handleUploadTaskFiles(event.target.files)}
+            />
+            <button
+              type="button"
+              onClick={() => taskFileInputRef.current?.click()}
+              disabled={!effectiveStudentId || taskFileUploadBusy}
+              className={`inline-flex w-full items-center justify-center gap-1 rounded-xl border transition ${
+                isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
+              } ${
+                !effectiveStudentId || taskFileUploadBusy
+                  ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : (isCollabFullscreen
+                    ? 'border-slate-600 bg-slate-950 text-slate-100 hover:border-violet-400'
+                    : 'border-purple-200 bg-white text-purple-700 hover:border-purple-300 hover:bg-purple-50')
+              }`}
+            >
+              <Upload size={13} />
+              {taskFileUploadBusy ? 'Загрузка...' : 'Загрузить файл'}
+            </button>
+          </div>
+        </div>
+        {taskFilesError && (
+          <div className={`text-[11px] ${isCollabFullscreen ? 'text-rose-300' : 'text-rose-600'}`}>
+            {taskFilesError}
+          </div>
+        )}
+        <div className={`rounded-xl border ${
+          isSplitCollabLayout ? 'max-h-20' : 'max-h-28'
+        } overflow-auto ${
+          isCollabFullscreen
+            ? 'border-slate-700/80 bg-slate-950/60'
+            : 'border-gray-200 bg-gray-50'
+        }`}>
+          {taskFilesLoading ? (
+            <div className={`px-2 py-1.5 text-[11px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
+              Загружаем файлы...
+            </div>
+          ) : (
+            <>
+              {!filteredTaskFiles.length ? (
+                <div className={`px-2 py-1.5 text-[11px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
+                  Файлы не найдены.
+                </div>
+              ) : (
+                filteredTaskFiles.map((file) => (
+                  <label
+                    key={file.id}
+                    className={`flex cursor-pointer items-start gap-2 border-b px-2 py-1.5 text-[11px] last:border-b-0 ${
+                      isCollabFullscreen
+                        ? 'border-slate-800 text-slate-100'
+                        : 'border-gray-200 text-gray-700'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedTaskFileIds.includes(file.id)}
+                      onChange={() => handleToggleTaskFile(file.id)}
+                      className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300"
+                    />
+                    <span className="min-w-0 flex-1 truncate">{file.name || 'file'}</span>
+                  </label>
+                ))
+              )}
+            </>
+          )}
+        </div>
+        <div className={`text-[10px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
+          Выбранные файлы доступны в Python как обычные файлы.
+        </div>
+      </div>
     </div>
   );
-
   const resultHeader = (
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
       <div>
@@ -9653,6 +10084,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               userId={user.id}
               userName={user.name}
               teacherId={user.role === 'teacher' ? user.id : user.teacherId}
+              withStudentId={withStudentId}
               tasks={tasksWithTitles}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
