@@ -46,6 +46,7 @@ const WS_HEARTBEAT_TIMEOUT_MS = 45000;
 const JOIN_ACK_TIMEOUT_MS = 15000;
 const ROOM_RESYNC_COOLDOWN_MS = 4000;
 const PEER_DISCONNECTED_GRACE_MS = 10000;
+const RTC_VIDEO_RECEIVER_SLOTS = 2;
 const SPEAKING_RMS_THRESHOLD = getPositiveNumberFromEnv('VITE_RTC_SPEAKING_RMS_THRESHOLD', 0.008);
 const SPEAKING_HOLD_MS = getPositiveNumberFromEnv('VITE_RTC_SPEAKING_HOLD_MS', 420);
 const SPEAKING_ANALYSER_FFT_SIZE = 1024;
@@ -66,6 +67,33 @@ const MIC_SETTINGS_POPUP_OFFSET = 10;
 const MIC_SETTINGS_POPUP_MARGIN = 8;
 const MIC_SETTINGS_POPUP_ESTIMATED_HEIGHT = 280;
 const RTC_MIC_SETTINGS_STORAGE_KEY_PREFIX = 'ege_rtc_mic_settings_v2';
+const RTC_ALERT_SOUND_GAIN = 0.08;
+const RTC_ALERT_SOUND_GAP_MS = 32;
+const RTC_ALERT_SOUND_CONNECT_PATTERN = [
+  { frequency: 660, durationMs: 90, gain: 0.08, type: 'triangle' },
+  { frequency: 880, durationMs: 120, gain: 0.1, type: 'triangle' },
+];
+const RTC_ALERT_SOUND_DISCONNECT_PATTERN = [
+  { frequency: 700, durationMs: 90, gain: 0.08, type: 'triangle' },
+  { frequency: 480, durationMs: 120, gain: 0.1, type: 'triangle' },
+];
+const RTC_ALERT_SOUND_MIC_OFF_PATTERN = [
+  { frequency: 420, durationMs: 95, gain: 0.09, type: 'sine' },
+];
+const RTC_ALERT_SOUND_PARTICIPANT_JOIN_PATTERN = [
+  { frequency: 520, durationMs: 70, gain: 0.07, type: 'sine' },
+  { frequency: 780, durationMs: 110, gain: 0.09, type: 'triangle' },
+  { frequency: 980, durationMs: 90, gain: 0.08, type: 'triangle' },
+];
+const RTC_ALERT_SOUND_SCREEN_ON_PATTERN = [
+  { frequency: 930, durationMs: 55, gain: 0.055, type: 'sine', gapMs: 18 },
+  { frequency: 1230, durationMs: 70, gain: 0.065, type: 'square', gapMs: 14 },
+  { frequency: 1560, durationMs: 52, gain: 0.055, type: 'triangle' },
+];
+const RTC_ALERT_SOUND_SCREEN_OFF_PATTERN = [
+  { frequency: 690, durationMs: 72, gain: 0.042, type: 'sine', gapMs: 20 },
+  { frequency: 520, durationMs: 96, gain: 0.05, type: 'triangle' },
+];
 
 const normalizePeerVolume = (value) => {
   if (!Number.isFinite(value)) return DEFAULT_PEER_VOLUME;
@@ -252,21 +280,28 @@ const formatRtcRoleLabel = (role) => {
   return 'Участник';
 };
 
+const isUsableVideoTrack = (track) => Boolean(
+  track
+  && track.kind === 'video'
+  && track.readyState === 'live'
+  && !track.muted
+);
+
 const hasLiveVideoInStream = (stream) => {
   const tracks = Array.isArray(stream?.getVideoTracks?.()) ? stream.getVideoTracks() : [];
-  return tracks.some((track) => track.readyState === 'live');
+  return tracks.some((track) => isUsableVideoTrack(track));
 };
 
 const getLiveVideoTracks = (stream) => {
   const tracks = Array.isArray(stream?.getVideoTracks?.()) ? stream.getVideoTracks() : [];
-  return tracks.filter((track) => track.readyState === 'live');
+  return tracks.filter((track) => isUsableVideoTrack(track));
 };
 
 const getVideoTrackById = (stream, trackId) => {
   const normalizedTrackId = typeof trackId === 'string' ? trackId.trim() : '';
   if (!normalizedTrackId) return null;
   const tracks = Array.isArray(stream?.getVideoTracks?.()) ? stream.getVideoTracks() : [];
-  return tracks.find((track) => track.id === normalizedTrackId) || null;
+  return tracks.find((track) => track.id === normalizedTrackId && isUsableVideoTrack(track)) || null;
 };
 
 const inferVideoTrackKind = (track) => {
@@ -423,6 +458,7 @@ const MediaTile = ({
   compact = false,
   isSpeaking = false,
   muted = true,
+  allowFullscreen = true,
   onContextMenu,
   isDarkTheme = false,
 }) => {
@@ -432,8 +468,8 @@ const MediaTile = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const isCompact = compact && !isFullscreen;
   const speakingRingClass = isDarkTheme
-    ? 'ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900'
-    : 'ring-2 ring-emerald-400/80 ring-offset-2 ring-offset-slate-50';
+    ? 'call-speaking-ring ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900'
+    : 'call-speaking-ring ring-2 ring-emerald-400/80 ring-offset-2 ring-offset-slate-50';
   const videoCardClass = isDarkTheme
     ? 'relative overflow-hidden border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)]'
     : 'relative overflow-hidden border border-slate-200 bg-white shadow-[0_8px_20px_rgba(15,23,42,0.14)]';
@@ -547,6 +583,7 @@ const MediaTile = ({
   }, []);
 
   const toggleFullscreen = useCallback(async () => {
+    if (!allowFullscreen) return;
     if (typeof document === 'undefined') return;
     const tile = tileRef.current;
     if (!tile) return;
@@ -558,7 +595,7 @@ const MediaTile = ({
       await exitDocumentFullscreen();
     }
     await requestElementFullscreen(tile);
-  }, []);
+  }, [allowFullscreen]);
 
   if (isCompact) {
     const initial = String(title || 'U').trim().charAt(0).toUpperCase() || 'U';
@@ -566,14 +603,15 @@ const MediaTile = ({
       return (
         <article
           ref={tileRef}
-          onDoubleClick={toggleFullscreen}
+          onDoubleClick={allowFullscreen ? toggleFullscreen : undefined}
           onContextMenu={onContextMenu}
           className={`${videoCardClass} ${isFullscreen ? 'h-screen w-screen rounded-none border-0' : 'h-24 w-36 rounded-xl md:h-28 md:w-44'} ${isSpeaking && !isFullscreen ? speakingRingClass : ''} ${className}`}
         >
           <button
             type="button"
             onClick={toggleFullscreen}
-            className={`${fullscreenButtonClass} right-2 top-2 h-7 w-7`}
+            disabled={!allowFullscreen}
+            className={`${fullscreenButtonClass} right-2 top-2 h-7 w-7 disabled:pointer-events-none disabled:opacity-0`}
             title={isFullscreen ? 'Выйти из полного экрана' : 'Открыть на весь экран'}
           >
             {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
@@ -618,14 +656,15 @@ const MediaTile = ({
   return (
     <article
       ref={tileRef}
-      onDoubleClick={toggleFullscreen}
+      onDoubleClick={allowFullscreen ? toggleFullscreen : undefined}
       onContextMenu={onContextMenu}
       className={`${videoCardClass} rounded-2xl ${isSpeaking && !isFullscreen ? speakingRingClass : ''} ${className}`}
     >
       <button
         type="button"
         onClick={toggleFullscreen}
-        className={`${fullscreenButtonClass} rounded-lg ${isCompact ? 'right-2 top-2 h-7 w-7' : 'right-3 top-3 h-9 w-9'}`}
+        disabled={!allowFullscreen}
+        className={`${fullscreenButtonClass} rounded-lg disabled:pointer-events-none disabled:opacity-0 ${isCompact ? 'right-2 top-2 h-7 w-7' : 'right-3 top-3 h-9 w-9'}`}
         title={isFullscreen ? 'Выйти из полного экрана' : 'Открыть на весь экран'}
       >
         {isFullscreen ? <Minimize2 size={isCompact ? 13 : 16} /> : <Maximize2 size={isCompact ? 13 : 16} />}
@@ -849,13 +888,13 @@ const CallSection = ({
   const localMicDestinationRef = useRef(null);
   const localMicLevelRafRef = useRef(null);
   const localMicSpeakingOpenRef = useRef(false);
+  const alertAudioContextRef = useRef(null);
+  const previousStatusRef = useRef(status);
   const micTriggerThresholdRmsRef = useRef(micTriggerThresholdPercentToRmsThreshold(DEFAULT_MIC_TRIGGER_THRESHOLD_PERCENT));
   const localCameraTrackRef = useRef(null);
   const localCameraStreamRef = useRef(null);
   const localScreenTrackRef = useRef(null);
   const localScreenStreamRef = useRef(null);
-  const localScreenPreviewRef = useRef(null);
-  const localCameraPreviewRef = useRef(null);
   const videoTrackStreamsRef = useRef(new Map());
   const wsPingTimerRef = useRef(null);
   const joinAckTimerRef = useRef(null);
@@ -938,6 +977,85 @@ const CallSection = ({
     statusRef.current = nextStatus;
     setStatus(nextStatus);
   }, []);
+  const primeAlertAudioContext = useCallback(async () => {
+    if (typeof window === 'undefined') return null;
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return null;
+
+    let audioContext = alertAudioContextRef.current;
+    if (!audioContext || audioContext.state === 'closed') {
+      try {
+        audioContext = new AudioContextCtor();
+      } catch (createError) {
+        return null;
+      }
+      alertAudioContextRef.current = audioContext;
+    }
+
+    if (audioContext.state === 'suspended') {
+      try {
+        await audioContext.resume();
+      } catch (resumeError) {
+        return audioContext;
+      }
+    }
+
+    return audioContext;
+  }, []);
+
+  const playAlertSound = useCallback(async (pattern = []) => {
+    if (!Array.isArray(pattern) || pattern.length === 0) return;
+    const audioContext = await primeAlertAudioContext();
+    if (!audioContext || audioContext.state !== 'running') return;
+
+    let cursor = audioContext.currentTime + 0.004;
+    for (let index = 0; index < pattern.length; index += 1) {
+      const note = pattern[index] || {};
+      const frequency = Math.max(120, Math.min(1800, Number(note.frequency) || 440));
+      const duration = Math.max(0.05, Math.min(0.35, (Number(note.durationMs) || 110) / 1000));
+      const gain = Math.max(0.01, Math.min(0.32, Number(note.gain) || RTC_ALERT_SOUND_GAIN));
+      const type = ['sine', 'square', 'triangle', 'sawtooth'].includes(note.type)
+        ? note.type
+        : 'sine';
+      const gap = Math.max(0, (Number(note.gapMs) || RTC_ALERT_SOUND_GAP_MS) / 1000);
+      const attack = Math.min(0.018, duration * 0.32);
+      const release = Math.min(0.075, duration * 0.6);
+      const sustainEnd = Math.max(cursor + attack + 0.001, cursor + duration - release);
+
+      try {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.type = type;
+        oscillator.frequency.setValueAtTime(frequency, cursor);
+        gainNode.gain.setValueAtTime(0.0001, cursor);
+        gainNode.gain.linearRampToValueAtTime(gain, cursor + attack);
+        gainNode.gain.setValueAtTime(gain, sustainEnd);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, cursor + duration);
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator.start(cursor);
+        oscillator.stop(cursor + duration + 0.01);
+      } catch (audioError) {
+        return;
+      }
+
+      cursor += duration + gap;
+    }
+  }, [primeAlertAudioContext]);
+
+  useEffect(() => {
+    const previousStatus = previousStatusRef.current;
+    if (previousStatus !== status) {
+      if (previousStatus !== 'connected' && status === 'connected') {
+        void playAlertSound(RTC_ALERT_SOUND_CONNECT_PATTERN);
+      } else if (previousStatus === 'connected' && status === 'idle') {
+        void playAlertSound(RTC_ALERT_SOUND_DISCONNECT_PATTERN);
+      }
+    }
+    previousStatusRef.current = status;
+  }, [playAlertSound, status]);
 
   const clearWsReconnectTimer = useCallback(() => {
     if (!wsReconnectTimerRef.current) return;
@@ -1328,8 +1446,7 @@ const CallSection = ({
       }
       if (!currentSender) return;
       try { currentSender.replaceTrack(null); } catch {}
-      try { pc.removeTrack(currentSender); } catch {}
-      peerState[senderKey] = null;
+      // Keep sender/transceiver for stable second screen-share start without black remote frames.
     };
 
     syncVideoSender('screenSender', liveScreenTrack);
@@ -2057,6 +2174,17 @@ const CallSection = ({
     }
 
     const pc = new RTCPeerConnection(getRtcPeerConnectionConfig(rtcIceServers));
+    if (typeof pc.addTransceiver === 'function') {
+      try {
+        const existingVideoTransceivers = typeof pc.getTransceivers === 'function'
+          ? pc.getTransceivers().filter((transceiver) => transceiver?.receiver?.track?.kind === 'video').length
+          : 0;
+        const missingVideoTransceivers = Math.max(0, RTC_VIDEO_RECEIVER_SLOTS - existingVideoTransceivers);
+        for (let index = 0; index < missingVideoTransceivers; index += 1) {
+          pc.addTransceiver('video', { direction: 'recvonly' });
+        }
+      } catch {}
+    }
     const peerState = {
       peerId: normalizedPeerId,
       pc,
@@ -2406,7 +2534,11 @@ const CallSection = ({
       peers.forEach((peer) => {
         const peerId = typeof peer?.id === 'string' ? peer.id.trim() : '';
         if (!peerId || peerId === nextSelfId) return;
-        if (nextSelfId && nextSelfId < peerId) {
+        const hasLiveLocalVideo = Boolean(
+          (localScreenTrackRef.current && localScreenTrackRef.current.readyState === 'live')
+          || (localCameraTrackRef.current && localCameraTrackRef.current.readyState === 'live')
+        );
+        if ((nextSelfId && nextSelfId < peerId) || hasLiveLocalVideo) {
           makeOfferToPeer(peerId);
         }
       });
@@ -2417,12 +2549,29 @@ const CallSection = ({
     if (type === 'peer-joined') {
       const peerId = typeof payload?.peer?.id === 'string' ? payload.peer.id.trim() : '';
       if (!peerId || peerId === selfClientIdRef.current) return;
+      void playAlertSound(RTC_ALERT_SOUND_PARTICIPANT_JOIN_PATTERN);
       const existingPeer = peersRef.current.get(peerId);
       createPeerState(peerId, payload.peer);
       const existingState = typeof existingPeer?.pc?.connectionState === 'string' ? existingPeer.pc.connectionState : '';
       const shouldOffer = !existingPeer || existingState === 'disconnected' || existingState === 'failed' || existingState === 'closed';
-      if (selfClientIdRef.current && selfClientIdRef.current < peerId && shouldOffer) {
+      const hasLiveLocalVideo = Boolean(
+        (localScreenTrackRef.current && localScreenTrackRef.current.readyState === 'live')
+        || (localCameraTrackRef.current && localCameraTrackRef.current.readyState === 'live')
+      );
+      const isPreferredOfferer = Boolean(selfClientIdRef.current && selfClientIdRef.current < peerId);
+      if (shouldOffer && (isPreferredOfferer || hasLiveLocalVideo)) {
         makeOfferToPeer(peerId);
+      }
+      if (hasLiveLocalVideo) {
+        setTimeout(() => {
+          const peerState = peersRef.current.get(peerId);
+          if (!peerState?.pc) return;
+          const connectionState = typeof peerState.pc.connectionState === 'string' ? peerState.pc.connectionState : '';
+          if (connectionState === 'closed' || connectionState === 'failed') return;
+          if (peerState.makingOffer) return;
+          if (peerState.pc.signalingState !== 'stable') return;
+          makeOfferToPeer(peerId);
+        }, 700);
       }
       sendLocalMediaStateToPeer(peerId);
       syncRemotePeers();
@@ -2450,7 +2599,7 @@ const CallSection = ({
         console.error('[call] signal handling failed:', signalError);
       });
     }
-  }, [applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, makeOfferToPeer, removePeer, resetWsReconnectState, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
+  }, [applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, makeOfferToPeer, playAlertSound, removePeer, resetWsReconnectState, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
 
   const stopCall = useCallback(() => {
     manualCloseRef.current = true;
@@ -2487,6 +2636,7 @@ const CallSection = ({
 
   const startCall = useCallback(async (options = {}) => {
     const isReconnect = Boolean(options?.isReconnect);
+    void primeAlertAudioContext();
     if (!roomId) {
       setPresenceError('');
       setError('Сначала выбери ученика для созвона.');
@@ -2638,7 +2788,7 @@ const CallSection = ({
         setError(connectErrorText);
       }
     }
-  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, resetWsReconnectState, roomId, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
+  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, primeAlertAudioContext, resetWsReconnectState, roomId, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
 
   useEffect(() => {
     startCallRef.current = startCall;
@@ -2647,6 +2797,13 @@ const CallSection = ({
   useEffect(() => () => {
     clearWsReconnectTimer();
   }, [clearWsReconnectTimer]);
+
+  useEffect(() => () => {
+    const audioContext = alertAudioContextRef.current;
+    alertAudioContextRef.current = null;
+    if (!audioContext) return;
+    audioContext.close().catch(() => undefined);
+  }, []);
 
   const toggleMic = useCallback(async () => {
     if (micBusy) return;
@@ -2658,8 +2815,12 @@ const CallSection = ({
         await ensureMicTrack();
         renegotiatePeers();
       } else {
-        track.enabled = !track.enabled;
-        setMicEnabled(track.enabled);
+        const nextMicEnabled = !track.enabled;
+        track.enabled = nextMicEnabled;
+        setMicEnabled(nextMicEnabled);
+        if (!nextMicEnabled) {
+          void playAlertSound(RTC_ALERT_SOUND_MIC_OFF_PATTERN);
+        }
         syncLocalTracksToAllPeers();
       }
     } catch (micError) {
@@ -2667,7 +2828,7 @@ const CallSection = ({
     } finally {
       setMicBusy(false);
     }
-  }, [ensureMicTrack, micBusy, renegotiatePeers, syncLocalTracksToAllPeers]);
+  }, [ensureMicTrack, micBusy, playAlertSound, renegotiatePeers, syncLocalTracksToAllPeers]);
 
   const toggleCamera = useCallback(async () => {
     if (cameraBusy) return;
@@ -2697,6 +2858,7 @@ const CallSection = ({
     if (screenBusy) return;
     if (screenSharing) {
       stopScreenTrack(true);
+      void playAlertSound(RTC_ALERT_SOUND_SCREEN_OFF_PATTERN);
       renegotiatePeers();
       return;
     }
@@ -2738,12 +2900,14 @@ const CallSection = ({
       localScreenTrackRef.current = track;
       track.onended = () => {
         stopScreenTrack(true);
+        void playAlertSound(RTC_ALERT_SOUND_SCREEN_OFF_PATTERN);
         renegotiatePeers();
       };
       if (!localStreamRef.current.getVideoTracks().includes(track)) {
         localStreamRef.current.addTrack(track);
       }
       setScreenSharing(true);
+      void playAlertSound(RTC_ALERT_SOUND_SCREEN_ON_PATTERN);
       syncLocalTracksToAllPeers();
       renegotiatePeers();
     } catch (screenError) {
@@ -2751,7 +2915,7 @@ const CallSection = ({
     } finally {
       setScreenBusy(false);
     }
-  }, [renegotiatePeers, screenBusy, screenSharing, status, stopScreenTrack, syncLocalTracksToAllPeers]);
+  }, [playAlertSound, renegotiatePeers, screenBusy, screenSharing, status, stopScreenTrack, syncLocalTracksToAllPeers]);
 
   useEffect(() => {
     if (status !== 'connected') return;
@@ -2979,40 +3143,6 @@ const CallSection = ({
       closePresenceSocket();
     };
   }, [closePresenceSocket, mapPresenceParticipants, roomId, rtcWsUrl, status]);
-
-  useEffect(() => {
-    const previewNode = localScreenPreviewRef.current;
-    if (!previewNode) return undefined;
-    const track = localScreenTrackRef.current;
-    if (!screenSharing || !track || track.readyState !== 'live') {
-      previewNode.srcObject = null;
-      return undefined;
-    }
-    const stream = getStreamForVideoTrack(track);
-    previewNode.srcObject = stream;
-    previewNode.play?.().catch(() => {});
-    return () => {
-      if (!previewNode) return;
-      previewNode.srcObject = null;
-    };
-  }, [getStreamForVideoTrack, screenSharing]);
-
-  useEffect(() => {
-    const previewNode = localCameraPreviewRef.current;
-    if (!previewNode) return undefined;
-    const track = localCameraTrackRef.current;
-    if (!cameraEnabled || !track || track.readyState !== 'live') {
-      previewNode.srcObject = null;
-      return undefined;
-    }
-    const stream = getStreamForVideoTrack(track);
-    previewNode.srcObject = stream;
-    previewNode.play?.().catch(() => {});
-    return () => {
-      if (!previewNode) return;
-      previewNode.srcObject = null;
-    };
-  }, [cameraEnabled, getStreamForVideoTrack]);
 
   useEffect(() => {
     if (status === 'connected') {
@@ -3376,6 +3506,9 @@ const CallSection = ({
           ? 'Соединение с собеседником...'
           : 'В комнате (ожидание)'
     : (isConnecting ? 'Подключение...' : 'Отключено');
+  const statusTone = isConnected
+    ? (hasMediaConnectionIssue ? 'problem' : (hasActiveMediaConnection ? 'connected' : 'waiting'))
+    : (isConnecting ? 'connecting' : 'idle');
   const roomHint = roomId || 'Комната не выбрана';
   const resolvedError = error || (status === 'idle' ? presenceError : '');
   const selectedStudentName = selectedStudent?.name || 'Ученик не выбран';
@@ -3405,21 +3538,21 @@ const CallSection = ({
   );
 
   const sectionShellClass = isDarkTheme
-    ? 'relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 p-4 shadow-[0_30px_90px_rgba(2,6,23,0.5)] md:p-6'
-    : 'relative overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 p-4 shadow-[0_24px_60px_rgba(15,23,42,0.12)] md:p-6';
+    ? 'call-section-shell relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 p-4 shadow-[0_30px_90px_rgba(2,6,23,0.5)] md:p-6'
+    : 'call-section-shell relative overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 p-4 shadow-[0_24px_60px_rgba(15,23,42,0.12)] md:p-6';
   const sectionGlowPrimaryClass = isDarkTheme
-    ? 'pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-blue-500/20 blur-3xl'
-    : 'pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-violet-200/45 blur-3xl';
+    ? 'call-aurora call-aurora--primary pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-blue-500/20 blur-3xl'
+    : 'call-aurora call-aurora--primary pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-violet-200/45 blur-3xl';
   const sectionGlowSecondaryClass = isDarkTheme
-    ? 'pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-emerald-500/20 blur-3xl'
-    : 'pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-sky-200/40 blur-3xl';
+    ? 'call-aurora call-aurora--secondary pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-emerald-500/20 blur-3xl'
+    : 'call-aurora call-aurora--secondary pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-sky-200/40 blur-3xl';
   const collapsedCardClass = isDarkTheme
-    ? 'flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/95 px-3 py-2 shadow-[0_14px_30px_rgba(2,6,23,0.45)] backdrop-blur cursor-grab active:cursor-grabbing'
-    : 'flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 px-3 py-2 shadow-[0_12px_26px_rgba(15,23,42,0.14)] backdrop-blur cursor-grab active:cursor-grabbing';
+    ? 'call-collapsed-card flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/95 px-3 py-2 shadow-[0_14px_30px_rgba(2,6,23,0.45)] backdrop-blur cursor-grab active:cursor-grabbing'
+    : 'call-collapsed-card flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 px-3 py-2 shadow-[0_12px_26px_rgba(15,23,42,0.14)] backdrop-blur cursor-grab active:cursor-grabbing';
   const collapsedTextClass = isDarkTheme ? 'text-slate-200' : 'text-slate-600';
   const floatingToolbarClass = isDarkTheme
-    ? 'mb-3 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 cursor-grab active:cursor-grabbing'
-    : 'mb-3 flex items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 cursor-grab active:cursor-grabbing';
+    ? 'call-floating-toolbar mb-3 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 cursor-grab active:cursor-grabbing'
+    : 'call-floating-toolbar mb-3 flex items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 cursor-grab active:cursor-grabbing';
   const floatingToolbarLabelClass = isDarkTheme ? 'text-slate-200' : 'text-slate-700';
   const ghostButtonClass = isDarkTheme
     ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-slate-800 text-slate-200 transition hover:bg-slate-700 cursor-grab active:cursor-grabbing'
@@ -3466,8 +3599,9 @@ const CallSection = ({
   const statStrongClass = isDarkTheme ? 'font-semibold text-white' : 'font-semibold text-slate-900';
   const connectionHintClass = isDarkTheme ? 'mt-2 text-xs text-slate-400' : 'mt-2 text-xs text-slate-500';
   const controlsWrapClass = isDarkTheme
-    ? 'mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/10 bg-slate-900/80 p-2 backdrop-blur'
-    : 'mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-slate-200/80 bg-white/85 p-2 backdrop-blur';
+    ? 'call-controls-wrap mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/10 bg-slate-900/80 p-2 backdrop-blur'
+    : 'call-controls-wrap mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-slate-200/80 bg-white/85 p-2 backdrop-blur';
+  const baseControlButtonClass = 'call-control-btn inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition disabled:cursor-not-allowed disabled:opacity-45';
   const micSensitivityLabelClass = isDarkTheme ? 'text-xs font-semibold text-slate-200' : 'text-xs font-semibold text-slate-700';
   const neutralControlClass = isDarkTheme
     ? 'border-white/15 bg-slate-800 text-slate-200 hover:bg-slate-700'
@@ -3491,8 +3625,8 @@ const CallSection = ({
     : 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-semibold text-slate-700 transition hover:bg-slate-100';
   const popupValueClass = isDarkTheme ? 'w-10 text-right text-xs font-semibold text-slate-200' : 'w-10 text-right text-xs font-semibold text-slate-700';
   const micSettingsButtonClass = isDarkTheme
-    ? 'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-slate-800 text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-45'
-    : 'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45';
+    ? `${baseControlButtonClass} border border-white/15 bg-slate-800 text-slate-200 hover:bg-slate-700`
+    : `${baseControlButtonClass} border border-slate-200 bg-white text-slate-700 hover:bg-slate-100`;
   const micSettingsButtonActiveClass = isDarkTheme
     ? 'border-emerald-300/40 bg-emerald-400/20 text-emerald-100'
     : 'border-emerald-200 bg-emerald-50 text-emerald-700';
@@ -3512,18 +3646,9 @@ const CallSection = ({
     ? 'pointer-events-none absolute -top-1 -bottom-1 w-[2px] rounded bg-emerald-300'
     : 'pointer-events-none absolute -top-1 -bottom-1 w-[2px] rounded bg-emerald-500';
   const micLevelMeterHintClass = isDarkTheme ? 'text-[11px] text-slate-400' : 'text-[11px] text-slate-500';
-  const videoTileClass = isDarkTheme
-    ? 'relative h-24 w-36 overflow-hidden rounded-xl border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)] md:h-28 md:w-44'
-    : 'relative h-24 w-36 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-[0_8px_20px_rgba(15,23,42,0.14)] md:h-28 md:w-44';
-  const selfVideoFillClass = isDarkTheme ? 'h-full w-full bg-slate-950 object-cover' : 'h-full w-full bg-white object-cover';
-  const selfVideoOverlayClass = isDarkTheme
-    ? 'pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent px-2 pb-2 pt-5'
-    : 'pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/65 via-slate-900/20 to-transparent px-2 pb-2 pt-5';
-  const videoOverlayTextPrimaryClass = isDarkTheme ? 'truncate text-xs font-semibold text-white' : 'truncate text-xs font-semibold text-slate-800';
-  const videoOverlayTextSecondaryClass = isDarkTheme ? 'truncate text-[11px] text-slate-200' : 'truncate text-[11px] text-slate-600';
   const speakingRingClass = isDarkTheme
-    ? 'ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900'
-    : 'ring-2 ring-emerald-400/80 ring-offset-2 ring-offset-slate-50';
+    ? 'call-speaking-ring ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900'
+    : 'call-speaking-ring ring-2 ring-emerald-400/80 ring-offset-2 ring-offset-slate-50';
   const avatarCardClass = isDarkTheme
     ? 'relative flex h-20 w-20 items-center justify-center rounded-full border bg-slate-800 text-2xl font-semibold text-slate-100 shadow-[0_10px_26px_rgba(2,6,23,0.45)]'
     : 'relative flex h-20 w-20 items-center justify-center rounded-full border border-slate-200 bg-white text-2xl font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.12)]';
@@ -3532,7 +3657,9 @@ const CallSection = ({
     ? 'absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-900 bg-slate-700 text-slate-100'
     : 'absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600';
   const avatarNameClass = isDarkTheme ? 'w-full truncate text-xs font-semibold text-slate-100' : 'w-full truncate text-xs font-semibold text-slate-700';
-  const waitingTextClass = isDarkTheme ? 'mt-3 text-center text-xs text-slate-400' : 'mt-3 text-center text-xs text-slate-500';
+  const waitingTextClass = isDarkTheme
+    ? 'call-waiting-hint mt-3 text-center text-xs text-slate-400'
+    : 'call-waiting-hint mt-3 text-center text-xs text-slate-500';
   const modalOverlayClass = isDarkTheme ? 'fixed inset-0 z-50' : 'fixed inset-0 z-50 bg-slate-900/10';
   const popupRangeClass = isDarkTheme ? 'h-2 flex-1 accent-emerald-300' : 'h-2 flex-1 accent-emerald-500';
   const popupToneClass = isDarkTheme ? 'text-slate-200' : 'text-slate-700';
@@ -3569,8 +3696,9 @@ const CallSection = ({
           >
             <Move size={13} />
           </button>
-          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusChipClass}`}>
-            {statusText}
+          <span className={`call-status-chip inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusChipClass}`}>
+            <span className={`call-status-dot call-status-dot--${statusTone}`} aria-hidden="true" />
+            <span>{statusText}</span>
           </span>
           <p className={`min-w-0 flex-1 truncate text-xs ${collapsedTextClass}`}>
             Созвон активен • участников: {participantCount}
@@ -3656,8 +3784,9 @@ const CallSection = ({
               <h2 className={titleClass}>Онлайн-созвон</h2>
               <p className={subtitleClass}>Голос и демонстрация экрана в реальном времени.</p>
             </div>
-            <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusChipClass}`}>
-              {statusText}
+            <span className={`call-status-chip inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusChipClass}`}>
+              <span className={`call-status-dot call-status-dot--${statusTone}`} aria-hidden="true" />
+              <span>{statusText}</span>
             </span>
           </header>
 
@@ -3705,47 +3834,53 @@ const CallSection = ({
             {isConnected ? (
               <section className={mediaSectionClass}>
                 <div className="flex flex-wrap items-center justify-center gap-5 md:gap-8">
-                  {voiceCallParticipants.map((peer) => {
+                  {voiceCallParticipants.map((peer, index) => {
                     const initial = String(peer.title || 'U').trim().charAt(0).toUpperCase() || 'U';
                     if (peer.isSelf && peer.hasVideo) {
                       return (
-                        <article
+                        <div
                           key={peer.id}
-                          className={`${videoTileClass} ${peer.isSpeaking ? speakingRingClass : ''}`}
+                          className="call-participant-entry"
+                          style={{ '--call-stagger-index': index }}
                         >
-                          <video
-                            ref={peer.videoKind === 'camera' ? localCameraPreviewRef : localScreenPreviewRef}
-                            autoPlay
+                          <MediaTile
+                            stream={peer.stream}
+                            title="Вы"
+                            subtitle={peer.subtitle}
+                            compact
+                            isSpeaking={peer.isSpeaking}
                             muted
-                            playsInline
-                            className={selfVideoFillClass}
+                            allowFullscreen={false}
+                            isDarkTheme={isDarkTheme}
                           />
-                          <div className={selfVideoOverlayClass}>
-                            <p className={videoOverlayTextPrimaryClass}>Вы</p>
-                            <p className={videoOverlayTextSecondaryClass}>{peer.subtitle}</p>
-                          </div>
-                        </article>
+                        </div>
                       );
                     }
                     if (!peer.isSelf && peer.hasVideo) {
                       return (
-                        <MediaTile
+                        <div
                           key={peer.id}
-                          stream={peer.stream}
-                          title={peer.title}
-                          subtitle={peer.subtitle}
-                          compact
-                          isSpeaking={peer.isSpeaking}
-                          isDarkTheme={isDarkTheme}
-                          onContextMenu={(event) => openVolumePopupForParticipant(event, peer)}
-                        />
+                          className="call-participant-entry"
+                          style={{ '--call-stagger-index': index }}
+                        >
+                          <MediaTile
+                            stream={peer.stream}
+                            title={peer.title}
+                            subtitle={peer.subtitle}
+                            compact
+                            isSpeaking={peer.isSpeaking}
+                            isDarkTheme={isDarkTheme}
+                            onContextMenu={(event) => openVolumePopupForParticipant(event, peer)}
+                          />
+                        </div>
                       );
                     }
                     return (
                       <article
                         key={peer.id}
                         onContextMenu={(event) => openVolumePopupForParticipant(event, peer)}
-                        className="flex w-[104px] flex-col items-center gap-2 text-center"
+                        className="call-participant-entry flex w-[104px] flex-col items-center gap-2 text-center"
+                        style={{ '--call-stagger-index': index }}
                         title={peer.subtitle}
                       >
                         <div className={`${avatarCardClass} ${peer.isSpeaking ? speakingRingClass : idleAvatarBorderClass}`}>
@@ -3779,12 +3914,13 @@ const CallSection = ({
                   </div>
                 ) : (
                   <div className="flex flex-wrap items-start justify-center gap-5 md:gap-8">
-                    {visiblePeers.map((peer) => {
+                    {visiblePeers.map((peer, index) => {
                       const initial = String(peer.title || 'U').trim().charAt(0).toUpperCase() || 'U';
                       return (
                         <article
                           key={peer.peerId}
-                          className="flex w-[104px] flex-col items-center gap-2 text-center"
+                          className="call-participant-entry flex w-[104px] flex-col items-center gap-2 text-center"
+                          style={{ '--call-stagger-index': index }}
                           title={peer.subtitle}
                         >
                           <div className={`${avatarCardClass} ${idleAvatarBorderClass}`}>
@@ -3833,7 +3969,7 @@ const CallSection = ({
               type="button"
               onClick={startCall}
               disabled={!canStart}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-400 text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
+              className={`${baseControlButtonClass} border border-emerald-300/60 bg-emerald-400 text-slate-950 hover:bg-emerald-300`}
               aria-label={isConnecting ? 'Подключение...' : 'Подключиться'}
               title={isConnecting ? 'Подключение...' : 'Подключиться'}
             >
@@ -3843,7 +3979,7 @@ const CallSection = ({
               type="button"
               onClick={stopCall}
               disabled={!canStop}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-500 text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-45"
+              className={`${baseControlButtonClass} border border-rose-300/60 bg-rose-500 text-white hover:bg-rose-400`}
               aria-label="Завершить звонок"
               title="Завершить звонок"
             >
@@ -3854,7 +3990,7 @@ const CallSection = ({
                 type="button"
                 onClick={toggleMic}
                 disabled={!canToggleMic}
-                className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                className={`${baseControlButtonClass} border ${
                   micEnabled
                     ? micOnControlClass
                     : neutralControlClass
@@ -3888,7 +4024,7 @@ const CallSection = ({
               type="button"
               onClick={toggleCamera}
               disabled={!canToggleCamera}
-              className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition disabled:cursor-not-allowed disabled:opacity-45 ${
+              className={`${baseControlButtonClass} border ${
                 cameraEnabled
                   ? cameraOnControlClass
                   : neutralControlClass
@@ -3902,7 +4038,7 @@ const CallSection = ({
               type="button"
               onClick={toggleScreenShare}
               disabled={!canToggleScreen}
-              className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition disabled:cursor-not-allowed disabled:opacity-45 ${
+              className={`${baseControlButtonClass} border ${
                 screenSharing
                   ? screenOnControlClass
                   : neutralControlClass
