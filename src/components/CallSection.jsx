@@ -3158,17 +3158,22 @@ const CallSection = ({
                     В созвоне никого
                   </div>
                 ) : (
-                  <div className={`grid grid-cols-1 gap-1.5 ${visiblePeers.length > 1 ? 'sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5' : ''}`}>
-                    {visiblePeers.map((peer) => (
-                      <MediaTile
-                        key={peer.peerId}
-                        stream={peer.stream}
-                        title={peer.title}
-                        subtitle={peer.subtitle}
-                        compact
-                        isDarkTheme={isDarkTheme}
-                      />
-                    ))}
+                  <div className="flex flex-wrap items-start justify-center gap-5 md:gap-8">
+                    {visiblePeers.map((peer) => {
+                      const initial = String(peer.title || 'U').trim().charAt(0).toUpperCase() || 'U';
+                      return (
+                        <article
+                          key={peer.peerId}
+                          className="flex w-[104px] flex-col items-center gap-2 text-center"
+                          title={peer.subtitle}
+                        >
+                          <div className={`${avatarCardClass} ${idleAvatarBorderClass}`}>
+                            {initial}
+                          </div>
+                          <p className={avatarNameClass}>{peer.title}</p>
+                        </article>
+                      );
+                    })}
                   </div>
                 )}
               </section>
