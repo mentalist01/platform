@@ -4423,12 +4423,28 @@ const BoardSection = ({
 
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
+  const getCanvasSurfacePoint = (clientX, clientY) => {
+    const surface = overlayRef.current || canvasRef.current;
+    if (!surface) return null;
+    const rect = surface.getBoundingClientRect();
+    const rectWidth = Math.max(1, Number(rect?.width) || 0);
+    const rectHeight = Math.max(1, Number(rect?.height) || 0);
+    const renderWidth = Math.max(1, Number(surface.width) || boardSizeRef.current.width || rectWidth);
+    const renderHeight = Math.max(1, Number(surface.height) || boardSizeRef.current.height || rectHeight);
+    const normalizedX = ((Number(clientX) || 0) - rect.left) / rectWidth;
+    const normalizedY = ((Number(clientY) || 0) - rect.top) / rectHeight;
+    return {
+      x: clamp(normalizedX * renderWidth, 0, renderWidth),
+      y: clamp(normalizedY * renderHeight, 0, renderHeight),
+      rect,
+    };
+  };
+
   const getCanvasPoint = (event) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0.5, y: 0.5 };
-    const rect = canvas.getBoundingClientRect();
-    const screenX = event.clientX - rect.left;
-    const screenY = event.clientY - rect.top;
+    const surfacePoint = getCanvasSurfacePoint(event?.clientX, event?.clientY);
+    if (!surfacePoint) return { x: 0.5, y: 0.5 };
+    const screenX = surfacePoint.x;
+    const screenY = surfacePoint.y;
     const currentZoom = zoomRef.current || 1;
     const worldX = offsetRef.current.x + screenX / currentZoom;
     const worldY = offsetRef.current.y + screenY / currentZoom;
@@ -4458,9 +4474,9 @@ const BoardSection = ({
     const clamped = clamp(nextZoom, BOARD_MIN_ZOOM, BOARD_MAX_ZOOM);
     const currentZoom = zoomRef.current || 1;
     if (clamped === currentZoom) return;
-    const rect = canvasRef.current?.getBoundingClientRect();
-    const screenX = rect ? (centerX - rect.left) : boardSizeRef.current.width / 2;
-    const screenY = rect ? (centerY - rect.top) : boardSizeRef.current.height / 2;
+    const surfacePoint = getCanvasSurfacePoint(centerX, centerY);
+    const screenX = surfacePoint ? surfacePoint.x : boardSizeRef.current.width / 2;
+    const screenY = surfacePoint ? surfacePoint.y : boardSizeRef.current.height / 2;
     const worldX = offsetRef.current.x + screenX / currentZoom;
     const worldY = offsetRef.current.y + screenY / currentZoom;
     setZoom(clamped);
@@ -4471,7 +4487,7 @@ const BoardSection = ({
   };
 
   const zoomBy = (factor) => {
-    const rect = canvasRef.current?.getBoundingClientRect();
+    const rect = (overlayRef.current || canvasRef.current)?.getBoundingClientRect?.();
     const centerX = rect ? rect.left + rect.width / 2 : boardSizeRef.current.width / 2;
     const centerY = rect ? rect.top + rect.height / 2 : boardSizeRef.current.height / 2;
     zoomAt((zoomRef.current || 1) * factor, centerX, centerY);
@@ -5309,8 +5325,8 @@ const BoardSection = ({
     if (!container || typeof ResizeObserver === 'undefined') return undefined;
     const updateSize = () => {
       const rect = container.getBoundingClientRect();
-      const width = Math.max(1, Math.floor(rect.width));
-      const height = Math.max(1, Math.floor(rect.height));
+      const width = Math.max(1, Math.round(rect.width));
+      const height = Math.max(1, Math.round(rect.height));
       setBoardSize({ width, height });
     };
     updateSize();
