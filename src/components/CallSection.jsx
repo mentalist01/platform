@@ -139,10 +139,10 @@ const normalizeConnectionQuality = (value) => {
   if (value === 'poor' || value === 'ok' || value === 'good') return value;
   return 'good';
 };
-const getConnectionAdaptiveProfile = (quality) => {
+const getConnectionAdaptiveProfile = (quality, highVideoLoad = false) => {
   const normalizedQuality = normalizeConnectionQuality(quality);
-  if (normalizedQuality === 'poor') {
-    return {
+  const baseProfile = normalizedQuality === 'poor'
+    ? {
       audioBitrate: Math.max(AUDIO_MIN_BITRATE, Math.round(AUDIO_MAX_BITRATE * 0.7)),
       screenBitrate: Math.max(SCREEN_MIN_BITRATE, Math.round(VIDEO_MAX_BITRATE * 0.35)),
       screenFramerate: Math.max(10, Math.min(SCREEN_MAX_FRAMERATE, 18)),
@@ -151,29 +151,42 @@ const getConnectionAdaptiveProfile = (quality) => {
       cameraFramerate: Math.max(8, Math.min(CAMERA_MAX_FRAMERATE, 14)),
       cameraScale: 2.1,
       degradationPreference: 'balanced',
-    };
+    }
+    : normalizedQuality === 'ok'
+      ? {
+        audioBitrate: Math.max(AUDIO_MIN_BITRATE, Math.round(AUDIO_MAX_BITRATE * 0.86)),
+        screenBitrate: Math.max(SCREEN_MIN_BITRATE, Math.round(VIDEO_MAX_BITRATE * 0.58)),
+        screenFramerate: Math.max(14, Math.min(SCREEN_MAX_FRAMERATE, 30)),
+        screenScale: 1.35,
+        cameraBitrate: Math.max(CAMERA_MIN_BITRATE, Math.round(CAMERA_MAX_BITRATE * 0.62)),
+        cameraFramerate: Math.max(12, Math.min(CAMERA_MAX_FRAMERATE, 22)),
+        cameraScale: 1.45,
+        degradationPreference: 'balanced',
+      }
+      : {
+        audioBitrate: AUDIO_MAX_BITRATE,
+        screenBitrate: VIDEO_MAX_BITRATE,
+        screenFramerate: SCREEN_MAX_FRAMERATE,
+        screenScale: 1,
+        cameraBitrate: CAMERA_MAX_BITRATE,
+        cameraFramerate: CAMERA_MAX_FRAMERATE,
+        cameraScale: 1,
+        degradationPreference: 'maintain-resolution',
+      };
+
+  if (!highVideoLoad) {
+    return baseProfile;
   }
-  if (normalizedQuality === 'ok') {
-    return {
-      audioBitrate: Math.max(AUDIO_MIN_BITRATE, Math.round(AUDIO_MAX_BITRATE * 0.86)),
-      screenBitrate: Math.max(SCREEN_MIN_BITRATE, Math.round(VIDEO_MAX_BITRATE * 0.58)),
-      screenFramerate: Math.max(14, Math.min(SCREEN_MAX_FRAMERATE, 30)),
-      screenScale: 1.35,
-      cameraBitrate: Math.max(CAMERA_MIN_BITRATE, Math.round(CAMERA_MAX_BITRATE * 0.62)),
-      cameraFramerate: Math.max(12, Math.min(CAMERA_MAX_FRAMERATE, 22)),
-      cameraScale: 1.45,
-      degradationPreference: 'balanced',
-    };
-  }
+
   return {
-    audioBitrate: AUDIO_MAX_BITRATE,
-    screenBitrate: VIDEO_MAX_BITRATE,
-    screenFramerate: SCREEN_MAX_FRAMERATE,
-    screenScale: 1,
-    cameraBitrate: CAMERA_MAX_BITRATE,
-    cameraFramerate: CAMERA_MAX_FRAMERATE,
-    cameraScale: 1,
-    degradationPreference: 'maintain-resolution',
+    ...baseProfile,
+    screenBitrate: Math.max(SCREEN_MIN_BITRATE, Math.round(baseProfile.screenBitrate * 0.62)),
+    screenFramerate: Math.max(10, Math.min(baseProfile.screenFramerate, 24)),
+    screenScale: Math.max(baseProfile.screenScale, 1.55),
+    cameraBitrate: Math.max(CAMERA_MIN_BITRATE, Math.round(baseProfile.cameraBitrate * 0.72)),
+    cameraFramerate: Math.max(10, Math.min(baseProfile.cameraFramerate, 20)),
+    cameraScale: Math.max(baseProfile.cameraScale, 1.4),
+    degradationPreference: 'balanced',
   };
 };
 const getRtcPeerConnectionConfig = (iceServers) => ({
@@ -908,6 +921,7 @@ const CallSection = ({
   const lastPresencePongAtRef = useRef(0);
   const roomResyncCooldownUntilRef = useRef(0);
   const connectionQualityRef = useRef('ok');
+  const highVideoLoadRef = useRef(false);
   const statsTimerRef = useRef(null);
   const lastInboundAudioRef = useRef(new Map());
   const normalizedUiMode = ['full', 'floating', 'collapsed', 'hidden'].includes(uiMode)
@@ -1183,7 +1197,7 @@ const CallSection = ({
     if (!sender || typeof sender.getParameters !== 'function') return;
     const kind = options?.kind === 'camera' ? 'camera' : 'screen';
     const quality = normalizeConnectionQuality(options?.quality || connectionQualityRef.current);
-    const profile = getConnectionAdaptiveProfile(quality);
+    const profile = getConnectionAdaptiveProfile(quality, highVideoLoadRef.current);
     const isCamera = kind === 'camera';
     const maxBitrate = isCamera ? profile.cameraBitrate : profile.screenBitrate;
     const maxFramerate = isCamera ? profile.cameraFramerate : profile.screenFramerate;
@@ -1219,6 +1233,22 @@ const CallSection = ({
       }
     });
   }, [tuneAudioSender, tuneVideoSender]);
+
+  useEffect(() => {
+    const localVideoCount = (screenSharing ? 1 : 0) + (cameraEnabled ? 1 : 0);
+    const remoteVideoCount = remotePeers.reduce((total, peer) => {
+      if (!peer) return total;
+      if (peer.hasMediaState) {
+        return total + (peer.isScreenSharing ? 1 : 0) + (peer.isCameraEnabled ? 1 : 0);
+      }
+      const stream = peer.stream || null;
+      return total + getLiveVideoTracks(stream).length;
+    }, 0);
+    const shouldUseHighVideoLoadProfile = (localVideoCount + remoteVideoCount) >= 2;
+    if (highVideoLoadRef.current === shouldUseHighVideoLoadProfile) return;
+    highVideoLoadRef.current = shouldUseHighVideoLoadProfile;
+    retuneAllPeerSenders();
+  }, [cameraEnabled, remotePeers, retuneAllPeerSenders, screenSharing]);
 
   const syncRemotePeers = useCallback(() => {
     const next = [];
@@ -1411,7 +1441,18 @@ const CallSection = ({
   const syncLocalTracksToPeer = useCallback((peerState) => {
     if (!peerState?.pc) return;
     const { pc } = peerState;
-    const audioTrack = localAudioTrackRef.current;
+    const processedAudioTrack = localAudioTrackRef.current;
+    const rawAudioTrack = localRawAudioTrackRef.current;
+    const isBackgroundTab = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+    const preferredAudioTrack = isBackgroundTab ? rawAudioTrack : processedAudioTrack;
+    const fallbackAudioTrack = isBackgroundTab ? processedAudioTrack : rawAudioTrack;
+    const livePreferredAudioTrack = preferredAudioTrack && preferredAudioTrack.readyState === 'live'
+      ? preferredAudioTrack
+      : null;
+    const liveFallbackAudioTrack = fallbackAudioTrack && fallbackAudioTrack.readyState === 'live'
+      ? fallbackAudioTrack
+      : null;
+    const audioTrack = livePreferredAudioTrack || liveFallbackAudioTrack;
     const screenTrack = localScreenTrackRef.current;
     const cameraTrack = localCameraTrackRef.current;
     const liveScreenTrack = screenTrack && screenTrack.readyState === 'live' ? screenTrack : null;
@@ -2245,7 +2286,6 @@ const CallSection = ({
       }
 
       if (track) {
-        let muteCleanupTimer = null;
         const removeTrackFromStream = () => {
           const currentStream = remoteStreamsRef.current.get(normalizedPeerId);
           if (!currentStream) return;
@@ -2262,29 +2302,13 @@ const CallSection = ({
           if (hasTrack) return;
           currentStream.addTrack(track);
         };
-        const clearMuteCleanupTimer = () => {
-          if (!muteCleanupTimer) return;
-          clearTimeout(muteCleanupTimer);
-          muteCleanupTimer = null;
-        };
         track.onended = () => {
-          clearMuteCleanupTimer();
           removeTrackFromStream();
         };
         track.onmute = () => {
-          clearMuteCleanupTimer();
-          if (track.kind === 'video') {
-            muteCleanupTimer = setTimeout(() => {
-              muteCleanupTimer = null;
-              if (track.readyState !== 'live') return;
-              if (!track.muted) return;
-              removeTrackFromStream();
-            }, 1200);
-          }
           syncRemotePeers();
         };
         track.onunmute = () => {
-          clearMuteCleanupTimer();
           if (track.kind === 'video') {
             ensureTrackInStream();
           }
@@ -2817,6 +2841,10 @@ const CallSection = ({
       } else {
         const nextMicEnabled = !track.enabled;
         track.enabled = nextMicEnabled;
+        const rawTrack = localRawAudioTrackRef.current;
+        if (rawTrack && rawTrack.readyState === 'live') {
+          rawTrack.enabled = nextMicEnabled;
+        }
         setMicEnabled(nextMicEnabled);
         if (!nextMicEnabled) {
           void playAlertSound(RTC_ALERT_SOUND_MIC_OFF_PATTERN);
@@ -3155,6 +3183,32 @@ const CallSection = ({
   useEffect(() => () => {
     stopCall();
   }, [stopCall]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'hidden') {
+        localMicAudioContextRef.current?.resume?.().catch(() => {});
+      } else {
+        const audioContext = localMicAudioContextRef.current;
+        const gateGainNode = localMicGateGainNodeRef.current;
+        if (audioContext && gateGainNode) {
+          try {
+            gateGainNode.gain.setTargetAtTime(1, audioContext.currentTime, 0.015);
+          } catch {
+            gateGainNode.gain.value = 1;
+          }
+        }
+        setSelfSpeaking(false);
+        setMicInputLevelPercent(0);
+      }
+      syncLocalTracksToAllPeers();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [syncLocalTracksToAllPeers]);
 
   useEffect(() => {
     if (status === 'connected' && micEnabled) return;

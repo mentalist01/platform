@@ -62,6 +62,7 @@ const pushFile = path.join(dataDir, 'push.json');
 const rtcPresenceDir = path.join(dataDir, 'rtc-presence');
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
 const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_FOLDER_BYTES = 30 * 1024 * 1024;
 const JSON_BODY_LIMIT = '20mb';
 const LOGIN_LIMIT = 8;
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
@@ -2997,6 +2998,13 @@ const getEntrySizeBytes = (entry) => {
   return parseSizeString(entry.size);
 };
 
+const getFolderTotalBytes = (filesDb, folderId, excludeFileId = '') => {
+  if (!Array.isArray(filesDb) || !folderId) return 0;
+  return filesDb
+    .filter((file) => file?.folderId === folderId && file?.id !== excludeFileId)
+    .reduce((sum, file) => sum + getEntrySizeBytes(file), 0);
+};
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadsDir),
   filename: (req, file, cb) => {
@@ -5108,6 +5116,15 @@ app.post('/api/files', upload.single('file'), (req, res) => {
     return res.status(413).json({ error: 'Превышен лимит 200 МБ для этого задания' });
   }
 
+  if (folderRef) {
+    const currentFolderTotal = getFolderTotalBytes(db, folderRef.id);
+    if (currentFolderTotal + req.file.size > MAX_FOLDER_BYTES) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {}
+      return res.status(413).json({ error: '\u041f\u0440\u0435\u0432\u044b\u0448\u0435\u043d \u043b\u0438\u043c\u0438\u0442 30 \u041c\u0411 \u0434\u043b\u044f \u044d\u0442\u043e\u0439 \u043f\u0430\u043f\u043a\u0438' });
+    }
+  }
   const id = req.fileId || crypto.randomUUID();
   const entry = {
     id,
@@ -5183,6 +5200,11 @@ app.patch('/api/files/:id', (req, res) => {
           f.category === updated.category
       );
       if (!folderRef) return res.status(400).json({ error: 'Папка не найдена' });
+      const movingSizeBytes = getEntrySizeBytes(db[idx]);
+      const currentFolderTotal = getFolderTotalBytes(db, folderRef.id, id);
+      if (currentFolderTotal + movingSizeBytes > MAX_FOLDER_BYTES) {
+        return res.status(413).json({ error: '\u041f\u0440\u0435\u0432\u044b\u0448\u0435\u043d \u043b\u0438\u043c\u0438\u0442 30 \u041c\u0411 \u0434\u043b\u044f \u044d\u0442\u043e\u0439 \u043f\u0430\u043f\u043a\u0438' });
+      }
       updated.folderId = folderRef.id;
       updated.folderName = folderRef.name;
     }
@@ -5209,6 +5231,12 @@ app.patch('/api/files/:id', (req, res) => {
       .reduce((sum, file) => sum + getEntrySizeBytes(file), 0);
     if (currentTotal + nextSizeBytes > MAX_TASK_BYTES) {
       return res.status(413).json({ error: 'Превышен лимит 200 МБ для этого задания' });
+    }
+    if (updated.folderId) {
+      const currentFolderTotal = getFolderTotalBytes(db, updated.folderId, id);
+      if (currentFolderTotal + nextSizeBytes > MAX_FOLDER_BYTES) {
+        return res.status(413).json({ error: '\u041f\u0440\u0435\u0432\u044b\u0448\u0435\u043d \u043b\u0438\u043c\u0438\u0442 30 \u041c\u0411 \u0434\u043b\u044f \u044d\u0442\u043e\u0439 \u043f\u0430\u043f\u043a\u0438' });
+      }
     }
     fs.writeFileSync(filePath, content, 'utf8');
     updated.sizeBytes = nextSizeBytes;

@@ -117,6 +117,8 @@ const BOARD_LOW_BANDWIDTH_PREVIEW_MS = 130;
 const BOARD_LOW_BANDWIDTH_POINT_STEP = 2;
 const BOARD_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const BOARD_DEFAULT_IMAGE_MAX_WIDTH = 640;
+const BOARD_VIEWPORT_STORAGE_KEY_PREFIX = 'board-viewport-v1';
+const BOARD_VIEWPORT_SAVE_DEBOUNCE_MS = 160;
 const COLLAB_SNIPPETS = [
   {
     prefix: 'for',
@@ -4478,6 +4480,8 @@ const BoardSection = ({
   const panStateRef = useRef({ active: false, startX: 0, startY: 0, originX: 0, originY: 0 });
   const dragImageRef = useRef({ active: false, id: null, offsetX: 0, offsetY: 0 });
   const minimapRef = useRef(null);
+  const viewportHydratedRef = useRef(false);
+  const viewportPersistTimerRef = useRef(null);
 
   const selectedStudent = useMemo(
     () => (students || []).find((student) => student.id === activeStudentId),
@@ -4491,6 +4495,12 @@ const BoardSection = ({
     () => `board-low-bandwidth-${userId || role || 'anon'}`,
     [userId, role]
   );
+  const boardViewportStorageKey = useMemo(() => {
+    if (!roomId) return '';
+    const normalizedRole = role || 'user';
+    const normalizedUserId = userId || 'anon';
+    return `${BOARD_VIEWPORT_STORAGE_KEY_PREFIX}:${roomId}:${normalizedRole}:${normalizedUserId}`;
+  }, [roomId, role, userId]);
 
   const deleteItemsByIds = useCallback((ids) => {
     const yItems = yItemsRef.current;
@@ -4606,6 +4616,90 @@ const BoardSection = ({
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(lowBandwidthStorageKey, lowBandwidthMode ? '1' : '0');
   }, [lowBandwidthStorageKey, lowBandwidthMode]);
+
+  useEffect(() => {
+    viewportHydratedRef.current = false;
+    if (typeof window === 'undefined') {
+      viewportHydratedRef.current = true;
+      return;
+    }
+    if (!boardViewportStorageKey) {
+      viewportHydratedRef.current = true;
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(boardViewportStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const savedZoom = Number(parsed?.zoom);
+        const savedOffsetX = Number(parsed?.offset?.x);
+        const savedOffsetY = Number(parsed?.offset?.y);
+        if (Number.isFinite(savedZoom) && savedZoom > 0) {
+          const clampedZoom = Math.min(BOARD_MAX_ZOOM, Math.max(BOARD_MIN_ZOOM, savedZoom));
+          setZoom(clampedZoom);
+        }
+        if (Number.isFinite(savedOffsetX) && Number.isFinite(savedOffsetY)) {
+          setOffset({
+            x: savedOffsetX,
+            y: savedOffsetY,
+          });
+        }
+      }
+    } catch {}
+    viewportHydratedRef.current = true;
+  }, [boardViewportStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!boardViewportStorageKey) return;
+    if (!viewportHydratedRef.current) return;
+
+    const nextZoom = Number(zoom);
+    const nextOffsetX = Number(offset?.x);
+    const nextOffsetY = Number(offset?.y);
+    if (!Number.isFinite(nextZoom) || !Number.isFinite(nextOffsetX) || !Number.isFinite(nextOffsetY)) return;
+
+    if (viewportPersistTimerRef.current) {
+      clearTimeout(viewportPersistTimerRef.current);
+      viewportPersistTimerRef.current = null;
+    }
+    viewportPersistTimerRef.current = setTimeout(() => {
+      viewportPersistTimerRef.current = null;
+      try {
+        window.localStorage.setItem(boardViewportStorageKey, JSON.stringify({
+          zoom: nextZoom,
+          offset: {
+            x: nextOffsetX,
+            y: nextOffsetY,
+          },
+          updatedAt: Date.now(),
+        }));
+      } catch {}
+    }, BOARD_VIEWPORT_SAVE_DEBOUNCE_MS);
+  }, [boardViewportStorageKey, zoom, offset]);
+
+  useEffect(() => () => {
+    if (typeof window === 'undefined') return;
+    if (!boardViewportStorageKey) return;
+    if (viewportPersistTimerRef.current) {
+      clearTimeout(viewportPersistTimerRef.current);
+      viewportPersistTimerRef.current = null;
+    }
+    const nextZoom = Number(zoomRef.current);
+    const nextOffsetX = Number(offsetRef.current?.x);
+    const nextOffsetY = Number(offsetRef.current?.y);
+    if (!Number.isFinite(nextZoom) || !Number.isFinite(nextOffsetX) || !Number.isFinite(nextOffsetY)) return;
+    try {
+      window.localStorage.setItem(boardViewportStorageKey, JSON.stringify({
+        zoom: nextZoom,
+        offset: {
+          x: nextOffsetX,
+          y: nextOffsetY,
+        },
+        updatedAt: Date.now(),
+      }));
+    } catch {}
+  }, [boardViewportStorageKey]);
 
   useEffect(() => {
     if (!awarenessRef.current || !roomId) return;
