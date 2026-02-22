@@ -9,8 +9,6 @@ import { api } from '../services/api';
 import { Button } from './ui';
 
 const QUESTION_CODE_SAVE_DEBOUNCE_MS = 250;
-const COLLAB_TYPING_IDLE_MS = 900;
-const COLLAB_TYPING_STALE_MS = 2500;
 
 const getCollabWsUrl = () => {
   if (typeof window === 'undefined') return '';
@@ -97,7 +95,6 @@ const PythonTestModal = ({
   const [editorMountVersion, setEditorMountVersion] = useState(0);
   const [realtimeStatus, setRealtimeStatus] = useState('disconnected');
   const [realtimePeerCount, setRealtimePeerCount] = useState(0);
-  const [typingUsers, setTypingUsers] = useState([]);
   const [sharedRunState, setSharedRunState] = useState({
     status: 'idle',
     author: '',
@@ -114,7 +111,6 @@ const PythonTestModal = ({
   const collabYTextRef = useRef(null);
   const collabStateMapRef = useRef(null);
   const collabRunMapRef = useRef(null);
-  const typingIdleTimerRef = useRef(null);
 
   const runnerWorkerRef = useRef(null);
   const runnerPendingRef = useRef(new Map());
@@ -402,21 +398,6 @@ const PythonTestModal = ({
     return getFallbackCodeForQuestion(question, key);
   };
 
-  const signalTyping = useCallback(() => {
-    if (!collabRoomId || !collabAwarenessRef.current) return;
-    collabAwarenessRef.current.setLocalStateField('typing', {
-      active: true,
-      ts: Date.now(),
-    });
-    if (typingIdleTimerRef.current) {
-      clearTimeout(typingIdleTimerRef.current);
-    }
-    typingIdleTimerRef.current = setTimeout(() => {
-      collabAwarenessRef.current?.setLocalStateField('typing', null);
-      typingIdleTimerRef.current = null;
-    }, COLLAB_TYPING_IDLE_MS);
-  }, [collabRoomId]);
-
   const updateSharedRunStateFromMap = useCallback((runMap) => {
     if (!runMap) {
       setSharedRunState({
@@ -609,7 +590,6 @@ const PythonTestModal = ({
     if (!collabRoomId || !editorReady || !collabWsUrl || !activeQuestionId) {
       setRealtimeStatus('disconnected');
       setRealtimePeerCount(0);
-      setTypingUsers([]);
       collabDocRef.current = null;
       collabProviderRef.current = null;
       collabAwarenessRef.current = null;
@@ -674,19 +654,6 @@ const PythonTestModal = ({
     const handleAwareness = () => {
       const states = provider.awareness.getStates();
       setRealtimePeerCount(Math.max(0, states.size - 1));
-      const now = Date.now();
-      const nextTypingUsers = [];
-      states.forEach((state, clientId) => {
-        if (clientId === provider.awareness.clientID) return;
-        const typing = state?.typing;
-        if (!typing?.active) return;
-        const ts = Number(typing.ts) || 0;
-        if (!ts || (now - ts) > COLLAB_TYPING_STALE_MS) return;
-        const user = state?.user;
-        const name = typeof user?.name === 'string' && user.name.trim() ? user.name.trim() : 'Участник';
-        nextTypingUsers.push(name);
-      });
-      setTypingUsers([...new Set(nextTypingUsers)].slice(0, 2));
     };
     const handleCodeChange = (event) => {
       const nextCode = ytext.toString();
@@ -697,7 +664,6 @@ const PythonTestModal = ({
         bumpQuestionCodeVersion(activeQuestionId);
         setQuestionCodeDirty(activeQuestionId, true);
         scheduleQuestionSave(activeQuestionId);
-        signalTyping();
       }
     };
     const handleStateChange = (event) => {
@@ -730,14 +696,6 @@ const PythonTestModal = ({
       color: localCollabColor,
       role: 'student',
     });
-    provider.awareness.setLocalStateField('typing', null);
-
-    const typingDisposable = editor.onDidType?.(() => {
-      signalTyping();
-    });
-    const pasteDisposable = editor.onDidPaste?.(() => {
-      signalTyping();
-    });
 
     handleAwareness();
     if (provider.synced) {
@@ -745,13 +703,6 @@ const PythonTestModal = ({
     }
 
     return () => {
-      typingDisposable?.dispose?.();
-      pasteDisposable?.dispose?.();
-      if (typingIdleTimerRef.current) {
-        clearTimeout(typingIdleTimerRef.current);
-        typingIdleTimerRef.current = null;
-      }
-      provider.awareness.setLocalStateField('typing', null);
       provider.awareness.off('change', handleAwareness);
       provider.off('sync', handleProviderSync);
       provider.off('status', handleProviderStatus);
@@ -772,7 +723,6 @@ const PythonTestModal = ({
       }
       setRealtimeStatus('disconnected');
       setRealtimePeerCount(0);
-      setTypingUsers([]);
       updateSharedRunStateFromMap(null);
     };
   }, [
@@ -785,7 +735,6 @@ const PythonTestModal = ({
     currentIndex,
     localCollabName,
     localCollabColor,
-    signalTyping,
     updateSharedRunStateFromMap,
   ]);
 
@@ -1185,7 +1134,6 @@ const PythonTestModal = ({
   };
   const codeEditorHeight = isMobileViewport ? '170px' : '260px';
   const realtimeStatusLabel = buildRealtimeStatusLabel(realtimeStatus);
-  const typingLabel = typingUsers.length > 0 ? `Печатает: ${typingUsers.join(', ')}` : '';
   const sharedRunTimeLabel = sharedRunState.ts
     ? new Date(sharedRunState.ts).toLocaleTimeString('ru-RU')
     : '';
@@ -1352,9 +1300,6 @@ const PythonTestModal = ({
                   {realtimeStatusLabel}
                   {realtimePeerCount > 0 ? ` • участников: ${realtimePeerCount + 1}` : ''}
                 </div>
-                {typingLabel && (
-                  <div className="text-[11px] text-purple-600">{typingLabel}</div>
-                )}
                 {sharedRunLabel && (
                   <div className="text-[11px] text-sky-700">
                     {sharedRunLabel}

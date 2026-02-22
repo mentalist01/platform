@@ -117,8 +117,6 @@ const BOARD_LOW_BANDWIDTH_PREVIEW_MS = 130;
 const BOARD_LOW_BANDWIDTH_POINT_STEP = 2;
 const BOARD_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const BOARD_DEFAULT_IMAGE_MAX_WIDTH = 640;
-const COLLAB_TYPING_IDLE_MS = 1200;
-const COLLAB_TYPING_STALE_MS = 4500;
 const COLLAB_SNIPPETS = [
   {
     prefix: 'for',
@@ -1800,7 +1798,6 @@ const CollabSection = ({
   const [debugSourceSnapshot, setDebugSourceSnapshot] = useState('');
   const [editorFontSize, setEditorFontSize] = useState(23);
   const [isCollabFullscreen, setIsCollabFullscreen] = useState(false);
-  const [typingUsers, setTypingUsers] = useState([]);
   const [splitLeftWidth, setSplitLeftWidth] = useState(68);
   const [runTaskNumber, setRunTaskNumber] = useState(() => String(taskOptions[0]?.number || ''));
   const [runTaskCategory, setRunTaskCategory] = useState('class');
@@ -1852,7 +1849,6 @@ const CollabSection = ({
   const debugBreakpointDecorationsRef = useRef([]);
   const debugGutterDisposableRef = useRef(null);
   const suppressBreakpointSyncRef = useRef(false);
-  const typingIdleTimerRef = useRef(null);
   const collabSnippetProviderRef = useRef(null);
   const selectedStudent = useMemo(
     () => (students || []).find((student) => student.id === activeStudentId),
@@ -2495,13 +2491,6 @@ const CollabSection = ({
     if (runStreamTimerRef.current) {
       clearTimeout(runStreamTimerRef.current);
       runStreamTimerRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => () => {
-    if (typingIdleTimerRef.current) {
-      clearTimeout(typingIdleTimerRef.current);
-      typingIdleTimerRef.current = null;
     }
   }, []);
 
@@ -3175,7 +3164,6 @@ const CollabSection = ({
     }]);
     editor.pushUndoStop?.();
     editor.focus?.();
-    signalTyping();
   };
 
   const getSelectedCode = () => {
@@ -3432,21 +3420,6 @@ const CollabSection = ({
     }
   }, [runLoading, debugActive, handleStopDebug, handleStopRun]);
 
-  const signalTyping = useCallback(() => {
-    if (!roomId || !collabAwarenessRef.current) return;
-    collabAwarenessRef.current.setLocalStateField('typing', {
-      active: true,
-      ts: Date.now(),
-    });
-    if (typingIdleTimerRef.current) {
-      clearTimeout(typingIdleTimerRef.current);
-    }
-    typingIdleTimerRef.current = setTimeout(() => {
-      collabAwarenessRef.current?.setLocalStateField('typing', null);
-      typingIdleTimerRef.current = null;
-    }, COLLAB_TYPING_IDLE_MS);
-  }, [roomId]);
-
   useEffect(() => {
     const isEditableTarget = (target) => {
       const element = target;
@@ -3536,7 +3509,6 @@ const CollabSection = ({
       collabDocRef.current = null;
       collabAwarenessRef.current = null;
       runMapRef.current = null;
-      setTypingUsers([]);
       clearDebugSession(false);
       updateRunStateFromMap(null);
       return;
@@ -3559,7 +3531,6 @@ const CollabSection = ({
     const ytext = doc.getText('monaco');
     const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]), provider.awareness);
     provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
-    provider.awareness.setLocalStateField('typing', null);
 
     const runMap = doc.getMap('collabRun');
     runMapRef.current = runMap;
@@ -3574,54 +3545,26 @@ const CollabSection = ({
       const states = provider.awareness.getStates();
       const total = states.size;
       setPeerCount(Math.max(0, total - 1));
-      const now = Date.now();
-      const nextTypingUsers = [];
-      states.forEach((state, clientId) => {
-        if (clientId === provider.awareness.clientID) return;
-        const typing = state?.typing;
-        if (!typing?.active) return;
-        const ts = Number(typing.ts) || 0;
-        if (!ts || (now - ts) > COLLAB_TYPING_STALE_MS) return;
-        const user = state?.user;
-        const name = typeof user?.name === 'string' && user.name.trim() ? user.name.trim() : 'Участник';
-        nextTypingUsers.push(name);
-      });
-      setTypingUsers([...new Set(nextTypingUsers)].slice(0, 2));
     };
-
-    const typingDisposable = editorRef.current?.onDidType?.(() => {
-      signalTyping();
-    });
-    const pasteDisposable = editorRef.current?.onDidPaste?.(() => {
-      signalTyping();
-    });
 
     provider.on('status', handleStatus);
     provider.awareness.on('change', handleAwareness);
     handleAwareness();
 
     return () => {
-      typingDisposable?.dispose?.();
-      pasteDisposable?.dispose?.();
-      if (typingIdleTimerRef.current) {
-        clearTimeout(typingIdleTimerRef.current);
-        typingIdleTimerRef.current = null;
-      }
       provider.awareness.off('change', handleAwareness);
       provider.off('status', handleStatus);
-      provider.awareness.setLocalStateField('typing', null);
       runMap.unobserve(handleRunMapChange);
       binding.destroy();
       provider.destroy();
       doc.destroy();
-      setTypingUsers([]);
       runMapRef.current = null;
       collabDocRef.current = null;
       collabAwarenessRef.current = null;
       clearDebugSession(false);
       updateRunStateFromMap(null);
     };
-  }, [roomId, editorReady, wsUrl, localName, localColor, signalTyping, clearDebugSession, editorMountVersion]);
+  }, [roomId, editorReady, wsUrl, localName, localColor, clearDebugSession, editorMountVersion]);
 
   const statusLabel = status === 'connected'
     ? 'Подключено'
@@ -4158,17 +4101,6 @@ const CollabSection = ({
               isCollabFullscreen || isDesktopCollabCompact ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
             }`}>
               Онлайн: {peerCount}
-            </span>
-          )}
-          {typingUsers.length > 0 && (
-            <span className={`inline-flex items-center rounded-full border font-semibold ${
-              isCollabFullscreen || isDesktopCollabCompact ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
-            } ${
-              isCollabFullscreen
-                ? 'border-violet-400/60 bg-violet-500/20 text-violet-100'
-                : 'border-violet-200 bg-violet-50 text-violet-700'
-            }`}>
-              {`Печатает: ${typingUsers.join(', ')}`}
             </span>
           )}
         </div>
