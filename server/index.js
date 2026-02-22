@@ -5284,6 +5284,7 @@ const RTC_PRESENCE_FILE_STALE_TIMEOUT_MS = (() => {
 })();
 const rtcRooms = new Map();
 const rtcPresenceWatchers = new Map();
+const rtcCodeSyncWatchers = new Map();
 const rtcClientsBySocket = new Map();
 
 const getUpgradePathname = (requestUrl) => {
@@ -5610,6 +5611,43 @@ const watchRtcPresence = (client, roomMeta) => {
   sendRtcPresenceUpdateToClient(client, roomId);
 };
 
+const leaveRtcCodeSyncWatch = (client) => {
+  if (!client || !client.watchedCodeRoomId) return;
+  const roomId = client.watchedCodeRoomId;
+  client.watchedCodeRoomId = '';
+  const watchers = rtcCodeSyncWatchers.get(roomId);
+  if (!watchers) return;
+  watchers.delete(client.clientId);
+  if (watchers.size === 0) {
+    rtcCodeSyncWatchers.delete(roomId);
+  }
+};
+
+const watchRtcCodeSync = (client, roomMeta) => {
+  if (!client || !roomMeta) return;
+  const { roomId } = roomMeta;
+  if (client.watchedCodeRoomId && client.watchedCodeRoomId !== roomId) {
+    leaveRtcCodeSyncWatch(client);
+  }
+  let watchers = rtcCodeSyncWatchers.get(roomId);
+  if (!watchers) {
+    watchers = new Map();
+    rtcCodeSyncWatchers.set(roomId, watchers);
+  }
+  watchers.set(client.clientId, client);
+  client.watchedCodeRoomId = roomId;
+  sendRtcPayload(client.ws, { type: 'code-sync-watched', roomId });
+};
+
+const broadcastRtcCodeSync = (roomId, payload, excludeClientId = '') => {
+  const watchers = rtcCodeSyncWatchers.get(roomId);
+  if (!watchers || watchers.size === 0) return;
+  watchers.forEach((watcherClient, watcherId) => {
+    if (excludeClientId && watcherId === excludeClientId) return;
+    sendRtcPayload(watcherClient.ws, payload);
+  });
+};
+
 const leaveRtcRoom = (client) => {
   if (!client || !client.roomId) return;
   const roomId = client.roomId;
@@ -5733,6 +5771,77 @@ const handleRtcMessage = (client, rawData, isBinary) => {
     return;
   }
 
+  if (type === 'watch-code-sync') {
+    const roomMeta = parseRtcRoomId(payload?.roomId);
+    if (!roomMeta) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'Некорректная комната' });
+      return;
+    }
+    const accessError = getRtcRoomAccessError(client.auth, roomMeta);
+    if (accessError) {
+      sendRtcPayload(client.ws, { type: 'error', error: accessError });
+      return;
+    }
+    watchRtcCodeSync(client, roomMeta);
+    return;
+  }
+
+  if (type === 'unwatch-code-sync') {
+    leaveRtcCodeSyncWatch(client);
+    sendRtcPayload(client.ws, { type: 'code-sync-unwatched' });
+    return;
+  }
+
+  if (type === 'code-sync') {
+    const roomMeta = parseRtcRoomId(payload?.roomId);
+    if (!roomMeta) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'Некорректная комната' });
+      return;
+    }
+    const accessError = getRtcRoomAccessError(client.auth, roomMeta);
+    if (accessError) {
+      sendRtcPayload(client.ws, { type: 'error', error: accessError });
+      return;
+    }
+    if (client.watchedCodeRoomId !== roomMeta.roomId) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'Сначала подпишитесь на синхронизацию кода' });
+      return;
+    }
+
+    const taskNumber = Number(payload?.taskNumber);
+    const levelId = typeof payload?.levelId === 'string' ? payload.levelId.trim() : '';
+    const questionId = typeof payload?.questionId === 'string' ? payload.questionId.trim() : '';
+    const code = typeof payload?.code === 'string' ? payload.code : '';
+    const input = typeof payload?.input === 'string' ? payload.input : '';
+    const updatedAtRaw = typeof payload?.updatedAt === 'string' ? payload.updatedAt.trim() : '';
+
+    if (!Number.isFinite(taskNumber) || !levelId || !questionId) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'Некорректные данные синхронизации' });
+      return;
+    }
+
+    const safeCode = code.slice(0, 20000);
+    const safeInput = input.slice(0, 5000);
+    const updatedAt = updatedAtRaw && updatedAtRaw.length <= 80
+      ? updatedAtRaw
+      : new Date().toISOString();
+
+    broadcastRtcCodeSync(roomMeta.roomId, {
+      type: 'code-sync',
+      roomId: roomMeta.roomId,
+      taskNumber,
+      levelId,
+      questionId,
+      code: safeCode,
+      input: safeInput,
+      updatedAt,
+      fromId: client.clientId,
+      fromUserId: client.auth.id,
+      fromRole: client.auth.role,
+    }, client.clientId);
+    return;
+  }
+
   if (type === 'join') {
     const roomMeta = parseRtcRoomId(payload?.roomId);
     if (!roomMeta) {
@@ -5834,6 +5943,7 @@ const cleanupRtcClient = (client, options = {}) => {
   if (!client) return;
   const { closeSocket = false, closeCode = 1000, closeReason = 'Normal Closure' } = options;
   leaveRtcPresenceWatch(client);
+  leaveRtcCodeSyncWatch(client);
   leaveRtcRoom(client);
   if (closeSocket && client.ws && client.ws.readyState === WS_OPEN_STATE) {
     try {
@@ -5913,6 +6023,7 @@ rtcWss.on('connection', (ws, _request, user) => {
     auth,
     roomId: '',
     watchedRoomId: '',
+    watchedCodeRoomId: '',
     isScreenSharing: false,
     isCameraEnabled: false,
     screenTrackId: '',
