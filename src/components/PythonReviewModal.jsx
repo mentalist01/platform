@@ -693,9 +693,9 @@ const PythonReviewModal = ({
           <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
           <div className="mx-auto inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-sm font-semibold text-purple-700">
             <RefreshCcw size={14} className="animate-spin" />
-            Р—Р°РіСЂСѓР·РєР° Р·Р°РґР°РЅРёР№...
+            {'\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u0437\u0430\u0434\u0430\u043d\u0438\u0439...'}
           </div>
-          <p className="text-gray-500 mt-3 text-sm">РџРѕРґРѕР¶РґРёС‚Рµ РЅРµРјРЅРѕРіРѕ, Р·Р°РіСЂСѓР¶Р°РµРј Р·Р°РґР°РЅРёСЏ Рё С‚РµСЃС‚С‹.</p>
+          <p className="text-gray-500 mt-3 text-sm">{'\u041f\u043e\u0434\u043e\u0436\u0434\u0438\u0442\u0435 \u043d\u0435\u043c\u043d\u043e\u0433\u043e, \u0437\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0437\u0430\u0434\u0430\u043d\u0438\u044f \u0438 \u0442\u0435\u0441\u0442\u044b.'}</p>
         </div>
       </div>
     );
@@ -707,10 +707,10 @@ const PythonReviewModal = ({
       <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
         <div className="surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
           <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
-          <h2 className="text-2xl font-bold text-gray-900">Р—Р°РґР°РЅРёР№ РїРѕРєР° РЅРµС‚</h2>
-          <p className="text-gray-500 mt-2">Р”Р»СЏ СЌС‚РѕР№ С‚РµРјС‹ РЅРµС‚ Р·Р°РґР°С‡.</p>
+          <h2 className="text-2xl font-bold text-gray-900">{'\u0417\u0430\u0434\u0430\u043d\u0438\u0439 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442'}</h2>
+          <p className="text-gray-500 mt-2">{'\u0414\u043b\u044f \u044d\u0442\u043e\u0439 \u0442\u0435\u043c\u044b \u043d\u0435\u0442 \u0437\u0430\u0434\u0430\u0447.'}</p>
           <div className="mt-6">
-            <Button onClick={onClose}>Р—Р°РєСЂС‹С‚СЊ</Button>
+            <Button onClick={onClose}>{'\u0417\u0430\u043a\u0440\u044b\u0442\u044c'}</Button>
           </div>
         </div>
       </div>
@@ -743,14 +743,14 @@ const PythonReviewModal = ({
     automaticLayout: true,
   };
   const realtimeStatusLabel = buildRealtimeStatusLabel(realtimeStatus);
-  const typingLabel = typingUsers.length > 0 ? `Печатает: ${typingUsers.join(', ')}` : '';
+  const typingLabel = typingUsers.length > 0 ? `\u041f\u0435\u0447\u0430\u0442\u0430\u0435\u0442: ${typingUsers.join(', ')}` : '';
   const sharedRunTimeLabel = sharedRunState.ts
     ? new Date(sharedRunState.ts).toLocaleTimeString('ru-RU')
     : '';
   const sharedRunLabel = (() => {
-    const author = String(sharedRunState.author || '').trim() || 'Собеседник';
+    const author = String(sharedRunState.author || '').trim() || '\u0421\u043e\u0431\u0435\u0441\u0435\u0434\u043d\u0438\u043a';
     const summary = String(sharedRunState.summary || '').trim();
-    if (sharedRunState.status === 'running') return `${author} запускает тесты...`;
+    if (sharedRunState.status === 'running') return `${author} \u0437\u0430\u043f\u0443\u0441\u043a\u0430\u0435\u0442 \u0442\u0435\u0441\u0442\u044b...`;
     if ((sharedRunState.status === 'done' || sharedRunState.status === 'error') && summary) {
       return `${author}: ${summary}`;
     }
@@ -763,7 +763,7 @@ const PythonReviewModal = ({
         <div className="flex flex-col gap-4 mb-4">
           <div className="flex justify-between items-start">
             <div>
-              <div className="text-xs font-bold uppercase tracking-widest text-purple-600">РўРµРјР°</div>
+              <div className="text-xs font-bold uppercase tracking-widest text-purple-600">{'\u0422\u0435\u043c\u0430'}</div>
               <div className="text-lg font-bold text-gray-900">{task.title}</div>
             </div>
             <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
@@ -804,7 +804,7 @@ const PythonReviewModal = ({
           {theory?.content && (
             <div className="mb-6 rounded-2xl border border-purple-100 bg-purple-50/60 p-4">
               <div className="flex items-center justify-between">
-                <div className="text-xs font-bold uppercase tracking-widest text-purple-600">РўРµРѕСЂРёСЏ</div>
+                <div className="text-xs font-bold uppercase tracking-widest text-purple-600">{'\u0422\u0435\u043e\u0440\u0438\u044f'}</div>
                 <div className="flex items-center gap-3">
                   {theoryFullUrl && (
                     <a
@@ -813,7 +813,7 @@ const PythonReviewModal = ({
                       rel="noopener noreferrer"
                       className="text-xs text-purple-600 hover:text-purple-700"
                     >
-                      РћС‚РєСЂС‹С‚СЊ РїРѕР»РЅРѕСЃС‚СЊСЋ
+                      {'\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043f\u043e\u043b\u043d\u043e\u0441\u0442\u044c\u044e'}
                     </a>
                   )}
                   <button
@@ -836,9 +836,7 @@ const PythonReviewModal = ({
                       />
                     </div>
                   ) : (
-                    <div className="mt-3 text-sm text-red-500">
-                      РќСѓР¶РЅР° СЃСЃС‹Р»РєР° РґР»СЏ РІСЃС‚СЂР°РёРІР°РЅРёСЏ Google Docs (Р¤Р°Р№Р» в†’ РћРїСѓР±Р»РёРєРѕРІР°С‚СЊ РІ РёРЅС‚РµСЂРЅРµС‚Рµ в†’ Р’СЃС‚СЂРѕРёС‚СЊ).
-                    </div>
+                    <div className="mt-3 text-sm text-red-500">{'\u041d\u0443\u0436\u043d\u0430 \u0441\u0441\u044b\u043b\u043a\u0430 \u0434\u043b\u044f \u0432\u0441\u0442\u0440\u0430\u0438\u0432\u0430\u043d\u0438\u044f Google Docs (\u0424\u0430\u0439\u043b \u2192 \u041e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u0442\u044c \u0432 \u0438\u043d\u0442\u0435\u0440\u043d\u0435\u0442\u0435 \u2192 \u0412\u0441\u0442\u0440\u043e\u0438\u0442\u044c).'}</div>
                   )
                 ) : (
                   <div className="mt-3 whitespace-pre-wrap text-sm text-gray-700">
@@ -896,7 +894,7 @@ const PythonReviewModal = ({
             </div>
 
             <div className="rounded-xl border p-2 bg-gray-50 space-y-2">
-              <div className="text-xs font-semibold text-gray-600">Р’РІРѕРґ (stdin)</div>
+              <div className="text-xs font-semibold text-gray-600">{'\u0412\u0432\u043e\u0434 (stdin)'}</div>
               <textarea
                 value={questionCodeEntry.input}
                 onChange={(event) => {
@@ -919,7 +917,7 @@ const PythonReviewModal = ({
           </div>
 
           {!isSolved && (
-            <div className="mt-3 text-sm text-gray-500">РЈС‡РµРЅРёРє РµС‰Рµ РЅРµ СЂРµС€РёР» СЌС‚Сѓ Р·Р°РґР°С‡Сѓ.</div>
+            <div className="mt-3 text-sm text-gray-500">{'\u0423\u0447\u0435\u043d\u0438\u043a \u0435\u0449\u0435 \u043d\u0435 \u0440\u0435\u0448\u0438\u043b \u044d\u0442\u0443 \u0437\u0430\u0434\u0430\u0447\u0443.'}</div>
           )}
         </div>
 
@@ -928,12 +926,12 @@ const PythonReviewModal = ({
             {'\u0420\u0435\u0448\u0435\u043d\u043e'}: {Array.from(solvedIds).length}/{questions.length}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={onClose}>Р—Р°РєСЂС‹С‚СЊ</Button>
+            <Button variant="secondary" onClick={onClose}>{'\u0417\u0430\u043a\u0440\u044b\u0442\u044c'}</Button>
             <Button
               onClick={() => setCurrentIndex((prev) => Math.min(prev + 1, questions.length - 1))}
               disabled={currentIndex >= questions.length - 1}
             >
-              Р”Р°Р»СЊС€Рµ
+              {'\u0414\u0430\u043b\u044c\u0448\u0435'}
             </Button>
           </div>
         </div>

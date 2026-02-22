@@ -2394,7 +2394,7 @@ const CollabSection = ({
       .catch((err) => {
         if (cancelled) return;
         setTaskFiles([]);
-        setTaskFilesError(err?.message || 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ С„Р°Р№Р»С‹ Р·Р°РґР°РЅРёСЏ.');
+        setTaskFilesError(err?.message || '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0444\u0430\u0439\u043b\u044b \u0437\u0430\u0434\u0430\u043d\u0438\u044f.');
       })
       .finally(() => {
         if (!cancelled) setTaskFilesLoading(false);
@@ -2667,16 +2667,16 @@ const CollabSection = ({
       if (!safeName) continue;
       const lowerName = safeName.toLowerCase();
       if (selectedNames.has(lowerName)) {
-        throw new Error(`Р’С‹Р±СЂР°РЅРѕ РЅРµСЃРєРѕР»СЊРєРѕ С„Р°Р№Р»РѕРІ СЃ РёРјРµРЅРµРј ${safeName}. РћСЃС‚Р°РІСЊС‚Рµ РѕРґРёРЅ.`);
+        throw new Error(`\u0412\u044b\u0431\u0440\u0430\u043d\u043e \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0444\u0430\u0439\u043b\u043e\u0432 \u0441 \u0438\u043c\u0435\u043d\u0435\u043c ${safeName}. \u041e\u0441\u0442\u0430\u0432\u044c\u0442\u0435 \u043e\u0434\u0438\u043d.`);
       }
       selectedNames.add(lowerName);
       const fileUrl = getTaskFileUrl(file);
       if (!fileUrl) {
-        throw new Error(`РќРµС‚ СЃСЃС‹Р»РєРё РґР»СЏ С„Р°Р№Р»Р° ${safeName}.`);
+        throw new Error(`\u041d\u0435\u0442 \u0441\u0441\u044b\u043b\u043a\u0438 \u0434\u043b\u044f \u0444\u0430\u0439\u043b\u0430 ${safeName}.`);
       }
       const response = await fetch(fileUrl, { credentials: 'include' });
       if (!response.ok) {
-        throw new Error(`РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ С„Р°Р№Р» ${safeName}.`);
+        throw new Error(`\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0444\u0430\u0439\u043b ${safeName}.`);
       }
       const buffer = await response.arrayBuffer();
       payload.push({
@@ -2691,12 +2691,12 @@ const CollabSection = ({
     const filesToUpload = Array.from(fileList || []).filter(Boolean);
     if (!filesToUpload.length) return;
     if (!effectiveStudentId) {
-      setTaskFilesError('РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°.');
+      setTaskFilesError('\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0443\u0447\u0435\u043d\u0438\u043a\u0430.');
       return;
     }
     const uploadTaskNumber = getRunTaskNumberForUpload();
     if (!Number.isFinite(uploadTaskNumber) || !runTaskCategory) {
-      setTaskFilesError('Р’С‹Р±РµСЂРёС‚Рµ Р·Р°РґР°РЅРёРµ Рё РєР°С‚РµРіРѕСЂРёСЋ.');
+      setTaskFilesError('\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u0438 \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044e.');
       return;
     }
     if (taskFileUploadBusy) return;
@@ -3262,7 +3262,7 @@ const CollabSection = ({
       runtimeFilesPayload = await resolveSelectedRuntimeFiles();
     } catch (err) {
       if (runSessionRef.current !== sessionId) return;
-      const message = err?.message || 'РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕРґРіРѕС‚РѕРІРёС‚СЊ С„Р°Р№Р»С‹ Р·Р°РґР°РЅРёСЏ.';
+      const message = err?.message || '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u0438\u0442\u044c \u0444\u0430\u0439\u043b\u044b \u0437\u0430\u0434\u0430\u043d\u0438\u044f.';
       setRunLoading(false);
       setRunStatus('done');
       setRunOutput('');
