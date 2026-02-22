@@ -5269,18 +5269,18 @@ const WS_OPEN_STATE = 1;
 const RTC_SIGNAL_MAX_MESSAGE_BYTES = 64 * 1024;
 const RTC_CLIENT_STALE_TIMEOUT_MS = (() => {
   const raw = Number(process.env.RTC_CLIENT_STALE_TIMEOUT_MS);
-  if (Number.isFinite(raw) && raw >= 60 * 1000) return Math.round(raw);
-  return 8 * 60 * 1000;
+  if (Number.isFinite(raw) && raw >= 30 * 1000) return Math.round(raw);
+  return 90 * 1000;
 })();
 const RTC_CLIENT_SWEEP_INTERVAL_MS = (() => {
   const raw = Number(process.env.RTC_CLIENT_SWEEP_INTERVAL_MS);
-  if (Number.isFinite(raw) && raw >= 10 * 1000) return Math.round(raw);
-  return 60 * 1000;
+  if (Number.isFinite(raw) && raw >= 5 * 1000) return Math.round(raw);
+  return 15 * 1000;
 })();
 const RTC_PRESENCE_FILE_STALE_TIMEOUT_MS = (() => {
   const raw = Number(process.env.RTC_PRESENCE_FILE_STALE_TIMEOUT_MS);
-  if (Number.isFinite(raw) && raw >= 60 * 1000) return Math.round(raw);
-  return RTC_CLIENT_STALE_TIMEOUT_MS + 30 * 1000;
+  if (Number.isFinite(raw) && raw >= 30 * 1000) return Math.round(raw);
+  return RTC_CLIENT_STALE_TIMEOUT_MS + 15 * 1000;
 })();
 const rtcRooms = new Map();
 const rtcPresenceWatchers = new Map();
@@ -5362,6 +5362,7 @@ const serializeRtcPeer = (client) => ({
   cameraTrackId: typeof client.cameraTrackId === 'string' ? client.cameraTrackId : '',
   callState: client.roomId ? 'in-call' : 'idle',
   joinedAt: Number.isFinite(client.joinedAt) ? client.joinedAt : 0,
+  heartbeatAt: Number.isFinite(client.lastHeartbeatAt) ? client.lastHeartbeatAt : 0,
 });
 
 const normalizeRtcPresenceClientId = (value) => {
@@ -5427,6 +5428,8 @@ const recordToRtcPeer = (record) => {
   if (!clientId || !userId || !name || !role) return null;
   const joinedAtRaw = Number(record.joinedAt);
   const joinedAt = Number.isFinite(joinedAtRaw) ? Math.max(0, Math.floor(joinedAtRaw)) : 0;
+  const heartbeatAtRaw = Number(record.heartbeatAt);
+  const heartbeatAt = Number.isFinite(heartbeatAtRaw) ? Math.max(0, Math.floor(heartbeatAtRaw)) : 0;
   const isScreenSharing = Boolean(record.isScreenSharing);
   const isCameraEnabled = Boolean(record.isCameraEnabled);
   return {
@@ -5440,6 +5443,7 @@ const recordToRtcPeer = (record) => {
     cameraTrackId: isCameraEnabled && typeof record.cameraTrackId === 'string' ? record.cameraTrackId : '',
     callState: 'in-call',
     joinedAt,
+    heartbeatAt,
   };
 };
 
@@ -5493,6 +5497,7 @@ const getRtcPresenceParticipantsForRoom = (roomId, excludeClientId = '') => {
   const roomMeta = parseRtcRoomId(normalizedRoomId);
   if (!roomMeta) return [];
 
+  const activeClientIds = new Set();
   const peersByClientId = new Map();
   readRtcPresenceParticipantsFromFiles(roomMeta.roomId).forEach((peer) => {
     peersByClientId.set(peer.id, peer);
@@ -5500,12 +5505,47 @@ const getRtcPresenceParticipantsForRoom = (roomId, excludeClientId = '') => {
   const room = rtcRooms.get(roomMeta.roomId);
   if (room && room.size > 0) {
     room.forEach((client) => {
+      activeClientIds.add(client.clientId);
       peersByClientId.set(client.clientId, serializeRtcPeer(client));
     });
   }
 
+  const selectPreferredPeer = (left, right) => {
+    if (!left) return right;
+    if (!right) return left;
+
+    const leftIsActive = activeClientIds.has(left.id);
+    const rightIsActive = activeClientIds.has(right.id);
+    if (leftIsActive !== rightIsActive) return rightIsActive ? right : left;
+
+    const leftHeartbeatAt = Number(left.heartbeatAt) || 0;
+    const rightHeartbeatAt = Number(right.heartbeatAt) || 0;
+    if (leftHeartbeatAt !== rightHeartbeatAt) return rightHeartbeatAt > leftHeartbeatAt ? right : left;
+
+    const leftJoinedAt = Number(left.joinedAt) || 0;
+    const rightJoinedAt = Number(right.joinedAt) || 0;
+    if (leftJoinedAt !== rightJoinedAt) return rightJoinedAt > leftJoinedAt ? right : left;
+
+    const leftHasVideo = Boolean(left.isScreenSharing || left.isCameraEnabled);
+    const rightHasVideo = Boolean(right.isScreenSharing || right.isCameraEnabled);
+    if (leftHasVideo !== rightHasVideo) return rightHasVideo ? right : left;
+
+    return String(right.id || '').localeCompare(String(left.id || '')) > 0 ? right : left;
+  };
+
+  const peersByUserKey = new Map();
+  peersByClientId.forEach((peer) => {
+    const normalizedUserId = typeof peer?.userId === 'string' ? peer.userId.trim() : '';
+    const normalizedRole = typeof peer?.role === 'string' ? peer.role.trim() : '';
+    const userKey = normalizedUserId && normalizedRole
+      ? `${normalizedRole}:${normalizedUserId}`
+      : `client:${String(peer?.id || '')}`;
+    const current = peersByUserKey.get(userKey);
+    peersByUserKey.set(userKey, selectPreferredPeer(current, peer));
+  });
+
   const normalizedExcludeClientId = typeof excludeClientId === 'string' ? excludeClientId.trim() : '';
-  return Array.from(peersByClientId.values())
+  return Array.from(peersByUserKey.values())
     .filter((peer) => !normalizedExcludeClientId || peer.id !== normalizedExcludeClientId)
     .sort((left, right) => {
       const leftName = String(left?.name || '');
