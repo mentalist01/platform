@@ -70,33 +70,37 @@ const MIC_SETTINGS_POPUP_OFFSET = 10;
 const MIC_SETTINGS_POPUP_MARGIN = 8;
 const MIC_SETTINGS_POPUP_ESTIMATED_HEIGHT = 280;
 const RTC_MIC_SETTINGS_STORAGE_KEY_PREFIX = 'ege_rtc_mic_settings_v2';
-const RTC_ALERT_SOUND_GAIN = 0.08;
-const RTC_ALERT_SOUND_GAP_MS = 32;
+const RTC_ALERT_SOUND_GAIN = 0.034;
+const RTC_ALERT_SOUND_GAP_MS = 40;
 const RTC_ALERT_SOUND_CONNECT_PATTERN = [
-  { frequency: 660, durationMs: 90, gain: 0.08, type: 'triangle' },
-  { frequency: 880, durationMs: 120, gain: 0.1, type: 'triangle' },
+  { frequency: 349, endFrequency: 370, durationMs: 210, gain: 0.026, type: 'sine', filterHz: 920, releaseMs: 260, tailMs: 120 },
+  { frequency: 440, endFrequency: 466, durationMs: 240, gain: 0.03, type: 'sine', filterHz: 1080, releaseMs: 300, tailMs: 130 },
+  { frequency: 523, endFrequency: 554, durationMs: 290, gain: 0.032, type: 'sine', filterHz: 1220, releaseMs: 340, tailMs: 150 },
 ];
 const RTC_ALERT_SOUND_DISCONNECT_PATTERN = [
-  { frequency: 700, durationMs: 90, gain: 0.08, type: 'triangle' },
-  { frequency: 480, durationMs: 120, gain: 0.1, type: 'triangle' },
+  { frequency: 466, endFrequency: 440, durationMs: 210, gain: 0.026, type: 'sine', filterHz: 1020, releaseMs: 280, tailMs: 130 },
+  { frequency: 392, endFrequency: 370, durationMs: 240, gain: 0.029, type: 'sine', filterHz: 940, releaseMs: 320, tailMs: 150 },
+  { frequency: 311, endFrequency: 294, durationMs: 285, gain: 0.031, type: 'sine', filterHz: 860, releaseMs: 360, tailMs: 170 },
 ];
 const RTC_ALERT_SOUND_MIC_OFF_PATTERN = [
-  { frequency: 420, durationMs: 95, gain: 0.09, type: 'sine' },
+  { frequency: 415, endFrequency: 349, durationMs: 260, gain: 0.027, type: 'sine', filterHz: 900, releaseMs: 330, tailMs: 170 },
 ];
 const RTC_ALERT_SOUND_PARTICIPANT_JOIN_PATTERN = [
-  { frequency: 520, durationMs: 70, gain: 0.07, type: 'sine' },
-  { frequency: 780, durationMs: 110, gain: 0.09, type: 'triangle' },
-  { frequency: 980, durationMs: 90, gain: 0.08, type: 'triangle' },
+  { frequency: 330, endFrequency: 349, durationMs: 190, gain: 0.023, type: 'sine', filterHz: 900, releaseMs: 240, tailMs: 110 },
+  { frequency: 392, endFrequency: 415, durationMs: 220, gain: 0.025, type: 'sine', filterHz: 1020, releaseMs: 270, tailMs: 125 },
+  { frequency: 494, endFrequency: 523, durationMs: 245, gain: 0.027, type: 'sine', filterHz: 1140, releaseMs: 300, tailMs: 135 },
 ];
 const RTC_ALERT_SOUND_SCREEN_ON_PATTERN = [
-  { frequency: 930, durationMs: 55, gain: 0.055, type: 'sine', gapMs: 18 },
-  { frequency: 1230, durationMs: 70, gain: 0.065, type: 'square', gapMs: 14 },
-  { frequency: 1560, durationMs: 52, gain: 0.055, type: 'triangle' },
+  { frequency: 370, endFrequency: 392, durationMs: 200, gain: 0.022, type: 'sine', gapMs: 20, filterHz: 980, releaseMs: 230, tailMs: 100 },
+  { frequency: 466, endFrequency: 494, durationMs: 225, gain: 0.024, type: 'sine', gapMs: 18, filterHz: 1080, releaseMs: 250, tailMs: 115 },
+  { frequency: 554, endFrequency: 587, durationMs: 250, gain: 0.026, type: 'sine', gapMs: 16, filterHz: 1200, releaseMs: 280, tailMs: 130 },
 ];
 const RTC_ALERT_SOUND_SCREEN_OFF_PATTERN = [
-  { frequency: 690, durationMs: 72, gain: 0.042, type: 'sine', gapMs: 20 },
-  { frequency: 520, durationMs: 96, gain: 0.05, type: 'triangle' },
+  { frequency: 494, endFrequency: 466, durationMs: 205, gain: 0.021, type: 'sine', gapMs: 20, filterHz: 980, releaseMs: 240, tailMs: 110 },
+  { frequency: 392, endFrequency: 370, durationMs: 230, gain: 0.024, type: 'sine', gapMs: 18, filterHz: 900, releaseMs: 270, tailMs: 125 },
+  { frequency: 330, endFrequency: 311, durationMs: 260, gain: 0.026, type: 'sine', gapMs: 16, filterHz: 840, releaseMs: 300, tailMs: 145 },
 ];
+const CALL_BACKGROUND_PARTICLE_COUNT = 14;
 
 const normalizePeerVolume = (value) => {
   if (!Number.isFinite(value)) return DEFAULT_PEER_VOLUME;
@@ -551,18 +555,18 @@ const MediaTile = ({
     ? 'call-speaking-ring ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900'
     : 'call-speaking-ring ring-2 ring-emerald-400/80 ring-offset-2 ring-offset-slate-50';
   const videoCardClass = isDarkTheme
-    ? 'relative overflow-hidden border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)]'
-    : 'relative overflow-hidden border border-slate-200 bg-white shadow-[0_8px_20px_rgba(15,23,42,0.14)]';
+    ? 'call-media-tile relative overflow-hidden border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)]'
+    : 'call-media-tile relative overflow-hidden border border-slate-200 bg-white shadow-[0_8px_20px_rgba(15,23,42,0.14)]';
   const compactCardClass = isDarkTheme
-    ? 'relative rounded-xl border border-white/10 bg-slate-900/85 px-2.5 py-2 shadow-[0_6px_16px_rgba(2,6,23,0.32)]'
-    : 'relative rounded-xl border border-slate-200/90 bg-white px-2.5 py-2 shadow-[0_6px_16px_rgba(15,23,42,0.12)]';
+    ? 'call-media-compact-card relative rounded-xl border border-white/10 bg-slate-900/85 px-2.5 py-2 shadow-[0_6px_16px_rgba(2,6,23,0.32)]'
+    : 'call-media-compact-card relative rounded-xl border border-slate-200/90 bg-white px-2.5 py-2 shadow-[0_6px_16px_rgba(15,23,42,0.12)]';
   const fullscreenButtonClass = isDarkTheme
     ? 'absolute z-10 inline-flex items-center justify-center rounded-md border border-white/20 bg-black/45 text-white transition hover:bg-black/65'
     : 'absolute z-10 inline-flex items-center justify-center rounded-md border border-slate-200 bg-white/85 text-slate-700 transition hover:bg-white';
-  const videoFillClass = isDarkTheme ? 'h-full w-full bg-slate-950 object-cover' : 'h-full w-full bg-slate-100 object-cover';
+  const videoFillClass = isDarkTheme ? 'call-media-video h-full w-full bg-slate-950 object-cover' : 'call-media-video h-full w-full bg-slate-100 object-cover';
   const videoOverlayClass = isDarkTheme
-    ? 'pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent'
-    : 'pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/65 via-slate-900/20 to-transparent';
+    ? 'call-media-overlay pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent'
+    : 'call-media-overlay pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/65 via-slate-900/20 to-transparent';
   const overlayTitleClass = isDarkTheme ? 'truncate text-xs font-semibold text-white' : 'truncate text-xs font-semibold text-slate-50';
   const overlaySubtitleClass = isDarkTheme ? 'truncate text-[11px] text-slate-200' : 'truncate text-[11px] text-slate-100';
   const compactAvatarClass = isDarkTheme
@@ -577,8 +581,8 @@ const MediaTile = ({
   const compactTitleClass = isDarkTheme ? 'truncate text-xs font-semibold text-slate-100' : 'truncate text-xs font-semibold text-slate-700';
   const compactSubtitleClass = isDarkTheme ? 'truncate text-[11px] text-slate-400' : 'truncate text-[11px] text-slate-500';
   const placeholderWrapClass = isDarkTheme
-    ? 'absolute inset-0 flex flex-col items-center justify-center bg-slate-900 text-slate-300'
-    : 'absolute inset-0 flex flex-col items-center justify-center bg-slate-100 text-slate-600';
+    ? 'call-media-placeholder absolute inset-0 flex flex-col items-center justify-center bg-slate-900 text-slate-300'
+    : 'call-media-placeholder absolute inset-0 flex flex-col items-center justify-center bg-slate-100 text-slate-600';
   const placeholderAvatarClass = isDarkTheme
     ? 'flex items-center justify-center rounded-full bg-slate-700 font-semibold text-slate-100'
     : 'flex items-center justify-center rounded-full border border-slate-200 bg-white font-semibold text-slate-700';
@@ -685,7 +689,8 @@ const MediaTile = ({
           ref={tileRef}
           onDoubleClick={allowFullscreen ? toggleFullscreen : undefined}
           onContextMenu={onContextMenu}
-          className={`${videoCardClass} ${isFullscreen ? 'h-screen w-screen rounded-none border-0' : 'h-24 w-36 rounded-xl md:h-28 md:w-44'} ${isSpeaking && !isFullscreen ? speakingRingClass : ''} ${className}`}
+          data-speaking={isSpeaking ? 'true' : 'false'}
+          className={`${videoCardClass} call-media-tile--compact ${isFullscreen ? 'h-screen w-screen rounded-none border-0' : 'h-24 w-36 rounded-xl md:h-28 md:w-44'} ${isSpeaking && !isFullscreen ? speakingRingClass : ''} ${className}`}
         >
           <button
             type="button"
@@ -734,12 +739,13 @@ const MediaTile = ({
   }
 
   return (
-    <article
-      ref={tileRef}
-      onDoubleClick={allowFullscreen ? toggleFullscreen : undefined}
-      onContextMenu={onContextMenu}
-      className={`${videoCardClass} rounded-2xl ${isSpeaking && !isFullscreen ? speakingRingClass : ''} ${className}`}
-    >
+      <article
+        ref={tileRef}
+        onDoubleClick={allowFullscreen ? toggleFullscreen : undefined}
+        onContextMenu={onContextMenu}
+        data-speaking={isSpeaking ? 'true' : 'false'}
+        className={`${videoCardClass} rounded-2xl ${isSpeaking && !isFullscreen ? speakingRingClass : ''} ${className}`}
+      >
       <button
         type="button"
         onClick={toggleFullscreen}
@@ -754,7 +760,7 @@ const MediaTile = ({
         autoPlay
         muted={muted}
         playsInline
-        className={`w-full ${isDarkTheme ? 'bg-slate-950' : 'bg-slate-100'} object-cover ${isFullscreen ? 'h-screen' : (isCompact ? 'h-24 md:h-28' : 'h-72 md:h-80')}`}
+        className={`call-media-video w-full ${isDarkTheme ? 'bg-slate-950' : 'bg-slate-100'} object-cover ${isFullscreen ? 'h-screen' : (isCompact ? 'h-24 md:h-28' : 'h-72 md:h-80')}`}
       />
       {!hasVideo && (
         <div className={`${placeholderWrapClass} ${isCompact ? 'gap-2' : 'gap-3'}`}>
@@ -970,6 +976,7 @@ const CallSection = ({
   const localMicDestinationRef = useRef(null);
   const localMicLevelRafRef = useRef(null);
   const localMicSpeakingOpenRef = useRef(false);
+  const localSelfSpeakingObserverCleanupRef = useRef(null);
   const alertAudioContextRef = useRef(null);
   const previousStatusRef = useRef(status);
   const micTriggerThresholdRmsRef = useRef(micTriggerThresholdPercentToRmsThreshold(DEFAULT_MIC_TRIGGER_THRESHOLD_PERCENT));
@@ -1095,34 +1102,82 @@ const CallSection = ({
     let cursor = audioContext.currentTime + 0.004;
     for (let index = 0; index < pattern.length; index += 1) {
       const note = pattern[index] || {};
-      const frequency = Math.max(120, Math.min(1800, Number(note.frequency) || 440));
-      const duration = Math.max(0.05, Math.min(0.35, (Number(note.durationMs) || 110) / 1000));
-      const gain = Math.max(0.01, Math.min(0.32, Number(note.gain) || RTC_ALERT_SOUND_GAIN));
+      const frequency = Math.max(110, Math.min(1400, Number(note.frequency) || 440));
+      const endFrequencyRaw = Number(note.endFrequency);
+      const endFrequency = Number.isFinite(endFrequencyRaw)
+        ? Math.max(110, Math.min(1500, endFrequencyRaw))
+        : frequency;
+      const duration = Math.max(0.08, Math.min(0.5, (Number(note.durationMs) || 140) / 1000));
+      const gain = Math.max(0.008, Math.min(0.24, Number(note.gain) || RTC_ALERT_SOUND_GAIN));
       const type = ['sine', 'square', 'triangle', 'sawtooth'].includes(note.type)
         ? note.type
         : 'sine';
+      const filterHzRaw = Number(note.filterHz);
+      const filterHz = Number.isFinite(filterHzRaw)
+        ? Math.max(520, Math.min(2400, filterHzRaw))
+        : Math.max(700, Math.min(1800, frequency * 2.1));
+      const detuneRaw = Number(note.detuneCents);
+      const detuneCents = Number.isFinite(detuneRaw) ? clampToRange(detuneRaw, -20, 20) : 2;
+      const shimmerEnabled = note.shimmer === true;
       const gap = Math.max(0, (Number(note.gapMs) || RTC_ALERT_SOUND_GAP_MS) / 1000);
-      const attack = Math.min(0.018, duration * 0.32);
-      const release = Math.min(0.075, duration * 0.6);
-      const sustainEnd = Math.max(cursor + attack + 0.001, cursor + duration - release);
+      const attack = Math.max(0.02, Math.min(0.085, duration * 0.58));
+      const releaseMsRaw = Number(note.releaseMs);
+      const release = Number.isFinite(releaseMsRaw)
+        ? Math.max(0.08, Math.min(0.45, releaseMsRaw / 1000))
+        : Math.max(0.12, Math.min(0.34, duration * 0.9));
+      const tailMsRaw = Number(note.tailMs);
+      const tail = Number.isFinite(tailMsRaw)
+        ? Math.max(0.04, Math.min(0.3, tailMsRaw / 1000))
+        : 0.12;
+      const noteEnd = cursor + duration + tail;
+      const sustainEnd = Math.max(cursor + attack + 0.003, noteEnd - release);
 
       try {
         const oscillator = audioContext.createOscillator();
         const gainNode = audioContext.createGain();
+        const filterNode = audioContext.createBiquadFilter();
+        const shimmerOscillator = shimmerEnabled ? audioContext.createOscillator() : null;
+        const shimmerGainNode = shimmerEnabled ? audioContext.createGain() : null;
 
         oscillator.type = type;
         oscillator.frequency.setValueAtTime(frequency, cursor);
+        if (endFrequency !== frequency) {
+          oscillator.frequency.linearRampToValueAtTime(endFrequency, cursor + duration);
+        }
+        filterNode.type = 'lowpass';
+        filterNode.frequency.setValueAtTime(filterHz, cursor);
+        filterNode.Q.value = 0.45;
+        const sustainGain = Math.max(0.0001, gain * 0.76);
         gainNode.gain.setValueAtTime(0.0001, cursor);
         gainNode.gain.linearRampToValueAtTime(gain, cursor + attack);
-        gainNode.gain.setValueAtTime(gain, sustainEnd);
-        gainNode.gain.exponentialRampToValueAtTime(0.0001, cursor + duration);
+        gainNode.gain.setValueAtTime(sustainGain, sustainEnd);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, noteEnd);
 
         oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
+        gainNode.connect(filterNode);
+        if (shimmerOscillator && shimmerGainNode) {
+          shimmerOscillator.type = type === 'sine' ? 'triangle' : 'sine';
+          shimmerOscillator.frequency.setValueAtTime(frequency, cursor);
+          if (endFrequency !== frequency) {
+            shimmerOscillator.frequency.linearRampToValueAtTime(endFrequency, cursor + duration);
+          }
+          shimmerOscillator.detune.setValueAtTime(detuneCents, cursor);
+          const shimmerPeakGain = Math.max(0.0001, gain * 0.14);
+          const shimmerSustainGain = Math.max(0.0001, shimmerPeakGain * 0.68);
+          shimmerGainNode.gain.setValueAtTime(0.0001, cursor);
+          shimmerGainNode.gain.linearRampToValueAtTime(shimmerPeakGain, cursor + attack);
+          shimmerGainNode.gain.setValueAtTime(shimmerSustainGain, sustainEnd);
+          shimmerGainNode.gain.exponentialRampToValueAtTime(0.0001, noteEnd);
+          shimmerOscillator.connect(shimmerGainNode);
+          shimmerGainNode.connect(filterNode);
+        }
+        filterNode.connect(audioContext.destination);
         oscillator.start(cursor);
-        oscillator.stop(cursor + duration + 0.01);
-      } catch (audioError) {
-        return;
+        oscillator.stop(noteEnd + 0.03);
+        shimmerOscillator?.start(cursor);
+        shimmerOscillator?.stop(noteEnd + 0.03);
+      } catch {
+        continue;
       }
 
       cursor += duration + gap;
@@ -1975,7 +2030,40 @@ const CallSection = ({
     window.addEventListener('pointercancel', onPointerUp);
   }, [collapsedPanelPosition, floatingPanelPosition, stopPanelDrag]);
 
+  const stopLocalSelfSpeakingObserver = useCallback(() => {
+    const cleanup = localSelfSpeakingObserverCleanupRef.current;
+    localSelfSpeakingObserverCleanupRef.current = null;
+    if (typeof cleanup === 'function') {
+      try {
+        cleanup();
+      } catch {}
+    }
+  }, []);
+
+  const restartLocalSelfSpeakingObserver = useCallback((track) => {
+    const observedTrack = track || localAudioTrackRef.current;
+    stopLocalSelfSpeakingObserver();
+    if (!observedTrack || observedTrack.readyState !== 'live') return;
+    localSelfSpeakingObserverCleanupRef.current = observeAudioTrackSpeaking(
+      observedTrack,
+      (isSpeaking) => {
+        if (localAudioTrackRef.current !== observedTrack) return;
+        const isTrackEnabled = Boolean(localAudioTrackRef.current?.enabled);
+        setSelfSpeaking(Boolean(isSpeaking) && statusRef.current === 'connected' && isTrackEnabled);
+      },
+      SPEAKING_RMS_THRESHOLD,
+      (rms) => {
+        if (localAudioTrackRef.current !== observedTrack) return;
+        const isPrimaryMicAnalyserActive = Boolean(localMicAnalyserNodeRef.current && localMicAudioContextRef.current);
+        if (isPrimaryMicAnalyserActive) return;
+        const nextLevel = rmsToMicLevelPercent(rms);
+        setMicInputLevelPercent((prev) => (prev === nextLevel ? prev : nextLevel));
+      }
+    );
+  }, [stopLocalSelfSpeakingObserver]);
+
   const disposeLocalMicProcessing = useCallback(() => {
+    stopLocalSelfSpeakingObserver();
     const sourceNode = localMicSourceNodeRef.current;
     const gainNode = localMicGainNodeRef.current;
     const gateGainNode = localMicGateGainNodeRef.current;
@@ -2008,7 +2096,7 @@ const CallSection = ({
     audioContext?.close?.().catch(() => {});
     setSelfSpeaking(false);
     setMicInputLevelPercent(0);
-  }, []);
+  }, [stopLocalSelfSpeakingObserver]);
 
   const createLocalProcessedMicTrack = useCallback((rawTrack) => {
     if (!rawTrack || rawTrack.readyState !== 'live' || typeof window === 'undefined') return rawTrack;
@@ -2071,7 +2159,6 @@ const CallSection = ({
         const gateOpen = Number.isFinite(threshold) ? rms >= threshold : rms >= SPEAKING_RMS_THRESHOLD;
         if (localMicSpeakingOpenRef.current !== gateOpen) {
           localMicSpeakingOpenRef.current = gateOpen;
-          setSelfSpeaking(gateOpen);
         }
         try {
           gateGainNode.gain.setTargetAtTime(gateOpen ? 1 : 0, audioContext.currentTime, gateOpen ? 0.012 : 0.028);
@@ -2161,6 +2248,9 @@ const CallSection = ({
         rawTrack.enabled = true;
       }
       setMicEnabled(true);
+      if (!localMicAnalyserNodeRef.current || !localMicAudioContextRef.current) {
+        restartLocalSelfSpeakingObserver(existing);
+      }
       syncLocalTracksToAllPeers();
       return existing;
     }
@@ -2239,6 +2329,7 @@ const CallSection = ({
       }
       setMicEnabled(Boolean(rawTrack.enabled));
       disposeLocalMicProcessing();
+      restartLocalSelfSpeakingObserver(rawTrack);
       syncLocalTracksToAllPeers();
     };
     rawTrack.onended = handleRawMicEnded;
@@ -2250,10 +2341,13 @@ const CallSection = ({
     if (!localStreamRef.current.getAudioTracks().includes(outputTrack)) {
       localStreamRef.current.addTrack(outputTrack);
     }
+    if (!localMicAnalyserNodeRef.current || !localMicAudioContextRef.current || outputTrack === rawTrack) {
+      restartLocalSelfSpeakingObserver(outputTrack);
+    }
     setMicEnabled(true);
     syncLocalTracksToAllPeers();
     return outputTrack;
-  }, [createLocalProcessedMicTrack, disposeLocalMicProcessing, syncLocalTracksToAllPeers]);
+  }, [createLocalProcessedMicTrack, disposeLocalMicProcessing, restartLocalSelfSpeakingObserver, syncLocalTracksToAllPeers]);
 
   const ensureCameraTrack = useCallback(async () => {
     const existing = localCameraTrackRef.current;
@@ -3360,6 +3454,25 @@ const CallSection = ({
     stopCall();
   }, [stopCall]);
 
+  useEffect(() => () => {
+    stopLocalSelfSpeakingObserver();
+  }, [stopLocalSelfSpeakingObserver]);
+
+  useEffect(() => {
+    const track = localAudioTrackRef.current;
+    if (!track || track.readyState !== 'live' || !micEnabled || status !== 'connected') {
+      stopLocalSelfSpeakingObserver();
+      return;
+    }
+    restartLocalSelfSpeakingObserver(track);
+  }, [
+    micEnabled,
+    micTriggerThresholdPercent,
+    restartLocalSelfSpeakingObserver,
+    status,
+    stopLocalSelfSpeakingObserver,
+  ]);
+
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
     const handleVisibilityChange = () => {
@@ -3766,10 +3879,12 @@ const CallSection = ({
   const micTriggerThresholdMeterPercent = rmsToMicLevelPercent(
     micTriggerThresholdPercentToRmsThreshold(micTriggerThresholdPercent)
   );
+  const sceneStatusClass = `call-scene--${statusTone}`;
+  const sceneConnectionClass = isConnected ? 'call-scene--connected' : 'call-scene--disconnected';
 
   const sectionShellClass = isDarkTheme
-    ? 'call-section-shell relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 p-4 shadow-[0_30px_90px_rgba(2,6,23,0.5)] md:p-6'
-    : 'call-section-shell relative overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 p-4 shadow-[0_24px_60px_rgba(15,23,42,0.12)] md:p-6';
+    ? `call-section-shell call-scene-shell relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 p-4 shadow-[0_30px_90px_rgba(2,6,23,0.5)] md:p-6 ${sceneStatusClass} ${sceneConnectionClass}`
+    : `call-section-shell call-scene-shell relative overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 p-4 shadow-[0_24px_60px_rgba(15,23,42,0.12)] md:p-6 ${sceneStatusClass} ${sceneConnectionClass}`;
   const sectionGlowPrimaryClass = isDarkTheme
     ? 'call-aurora call-aurora--primary pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-blue-500/20 blur-3xl'
     : 'call-aurora call-aurora--primary pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-violet-200/45 blur-3xl';
@@ -3796,8 +3911,8 @@ const CallSection = ({
   const hangupButtonClass = isDarkTheme
     ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-400/40 bg-rose-500/15 text-rose-100 transition hover:bg-rose-500/25'
     : 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-rose-100';
-  const titleClass = isDarkTheme ? 'text-xl font-bold text-white md:text-2xl' : 'text-xl font-bold text-slate-900 md:text-2xl';
-  const subtitleClass = isDarkTheme ? 'mt-1 text-sm text-slate-300' : 'mt-1 text-sm text-slate-600';
+  const titleClass = isDarkTheme ? 'call-main-title text-xl font-bold text-white md:text-2xl' : 'call-main-title text-xl font-bold text-slate-900 md:text-2xl';
+  const subtitleClass = isDarkTheme ? 'call-main-subtitle mt-1 text-sm text-slate-300' : 'call-main-subtitle mt-1 text-sm text-slate-600';
   const teacherCardClass = isDarkTheme
     ? 'mt-4 rounded-2xl border border-white/10 bg-slate-900/70 p-3 backdrop-blur'
     : 'mt-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3 backdrop-blur';
@@ -3810,11 +3925,11 @@ const CallSection = ({
     ? 'mt-4 flex items-start gap-2 rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100'
     : 'mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700';
   const mediaSectionClass = isDarkTheme
-    ? 'rounded-2xl border border-white/10 bg-slate-900/70 p-4 md:p-6'
-    : 'rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 md:p-6';
+    ? 'call-media-stage rounded-2xl border border-white/10 bg-slate-900/70 p-4 md:p-6'
+    : 'call-media-stage rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 md:p-6';
   const peersSectionClass = isDarkTheme
-    ? 'rounded-2xl border border-white/10 bg-slate-900/70 p-2.5'
-    : 'rounded-2xl border border-slate-200/80 bg-slate-50/70 p-2.5';
+    ? 'call-peers-stage rounded-2xl border border-white/10 bg-slate-900/70 p-2.5'
+    : 'call-peers-stage rounded-2xl border border-slate-200/80 bg-slate-50/70 p-2.5';
   const peersHeadingClass = isDarkTheme ? 'text-xs font-semibold uppercase tracking-wide text-slate-200' : 'text-xs font-semibold uppercase tracking-wide text-slate-700';
   const peersCountClass = isDarkTheme
     ? 'rounded-full border border-white/15 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-200'
@@ -3822,15 +3937,15 @@ const CallSection = ({
   const emptyPeersClass = isDarkTheme
     ? 'flex min-h-16 items-center justify-center rounded-xl border border-dashed border-white/15 bg-slate-900/55 px-3 text-center text-xs text-slate-300'
     : 'flex min-h-16 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white/70 px-3 text-center text-xs text-slate-500';
-  const statsGridTextClass = isDarkTheme ? 'mt-4 grid gap-2 text-xs text-slate-200 sm:grid-cols-2 xl:grid-cols-5' : 'mt-4 grid gap-2 text-xs text-slate-700 sm:grid-cols-2 xl:grid-cols-5';
+  const statsGridTextClass = isDarkTheme ? 'call-stats-grid mt-4 grid gap-2 text-xs text-slate-200 sm:grid-cols-2 xl:grid-cols-5' : 'call-stats-grid mt-4 grid gap-2 text-xs text-slate-700 sm:grid-cols-2 xl:grid-cols-5';
   const statCardClass = isDarkTheme
-    ? 'rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2'
-    : 'rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2';
+    ? 'call-stat-card rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2'
+    : 'call-stat-card rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2';
   const statStrongClass = isDarkTheme ? 'font-semibold text-white' : 'font-semibold text-slate-900';
-  const connectionHintClass = isDarkTheme ? 'mt-2 text-xs text-slate-400' : 'mt-2 text-xs text-slate-500';
+  const connectionHintClass = isDarkTheme ? 'call-connection-hint mt-2 text-xs text-slate-400' : 'call-connection-hint mt-2 text-xs text-slate-500';
   const controlsWrapClass = isDarkTheme
-    ? 'call-controls-wrap mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/10 bg-slate-900/80 p-2 backdrop-blur'
-    : 'call-controls-wrap mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-slate-200/80 bg-white/85 p-2 backdrop-blur';
+    ? 'call-controls-wrap call-controls-rail mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/10 bg-slate-900/80 p-2 backdrop-blur'
+    : 'call-controls-wrap call-controls-rail mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-slate-200/80 bg-white/85 p-2 backdrop-blur';
   const baseControlButtonClass = 'call-control-btn inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition disabled:cursor-not-allowed disabled:opacity-45';
   const micSensitivityLabelClass = isDarkTheme ? 'text-xs font-semibold text-slate-200' : 'text-xs font-semibold text-slate-700';
   const neutralControlClass = isDarkTheme
@@ -3880,13 +3995,13 @@ const CallSection = ({
     ? 'call-speaking-ring ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900'
     : 'call-speaking-ring ring-2 ring-emerald-400/80 ring-offset-2 ring-offset-slate-50';
   const avatarCardClass = isDarkTheme
-    ? 'relative flex h-20 w-20 items-center justify-center rounded-full border bg-slate-800 text-2xl font-semibold text-slate-100 shadow-[0_10px_26px_rgba(2,6,23,0.45)]'
-    : 'relative flex h-20 w-20 items-center justify-center rounded-full border border-slate-200 bg-white text-2xl font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.12)]';
+    ? 'call-avatar-card relative flex h-20 w-20 items-center justify-center rounded-full border bg-slate-800 text-2xl font-semibold text-slate-100 shadow-[0_10px_26px_rgba(2,6,23,0.45)]'
+    : 'call-avatar-card relative flex h-20 w-20 items-center justify-center rounded-full border border-slate-200 bg-white text-2xl font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.12)]';
   const idleAvatarBorderClass = isDarkTheme ? 'border-white/15' : 'border-slate-200';
   const avatarBadgeClass = isDarkTheme
-    ? 'absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-900 bg-slate-700 text-slate-100'
-    : 'absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600';
-  const avatarNameClass = isDarkTheme ? 'w-full truncate text-xs font-semibold text-slate-100' : 'w-full truncate text-xs font-semibold text-slate-700';
+    ? 'call-avatar-badge absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-900 bg-slate-700 text-slate-100'
+    : 'call-avatar-badge absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600';
+  const avatarNameClass = isDarkTheme ? 'call-avatar-name w-full truncate text-xs font-semibold text-slate-100' : 'call-avatar-name w-full truncate text-xs font-semibold text-slate-700';
   const waitingTextClass = isDarkTheme
     ? 'call-waiting-hint mt-3 text-center text-xs text-slate-400'
     : 'call-waiting-hint mt-3 text-center text-xs text-slate-500';
@@ -3914,7 +4029,7 @@ const CallSection = ({
     const collapsedPanelNode = (
       <div
         ref={collapsedPanelRef}
-        className="fixed left-1/2 top-2 z-50 w-[min(96vw,640px)] -translate-x-1/2"
+        className="call-collapsed-shell fixed left-1/2 top-2 z-50 w-[min(96vw,640px)] -translate-x-1/2"
         style={collapsedPanelStyle}
         onPointerDown={(event) => startPanelDrag(event, 'collapsed')}
       >
@@ -3926,7 +4041,7 @@ const CallSection = ({
           >
             <Move size={13} />
           </button>
-          <span className={`call-status-chip inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusChipClass}`}>
+          <span className={`call-status-chip call-status-chip--${statusTone} inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusChipClass}`}>
             <span className={`call-status-dot call-status-dot--${statusTone}`} aria-hidden="true" />
             <span>{statusText}</span>
           </span>
@@ -3976,14 +4091,23 @@ const CallSection = ({
     <div
       ref={isFloatingUi ? floatingPanelRef : null}
       className={isFloatingUi
-        ? 'fixed inset-x-2 top-2 z-50 max-h-[calc(100vh-1rem)] overflow-y-auto md:inset-x-auto md:right-4 md:top-4 md:w-[min(980px,calc(100vw-2rem))]'
-        : 'animate-fadeIn pb-10'}
+        ? 'call-panel-root call-panel-root--floating fixed inset-x-2 top-2 z-50 max-h-[calc(100vh-1rem)] overflow-y-auto md:inset-x-auto md:right-4 md:top-4 md:w-[min(980px,calc(100vw-2rem))]'
+        : 'call-panel-root animate-fadeIn pb-10'}
       style={isFloatingUi ? floatingPanelStyle : undefined}
       data-tour="call"
     >
       <section className={sectionShellClass}>
         <div className={sectionGlowPrimaryClass} />
         <div className={sectionGlowSecondaryClass} />
+        <div className="call-grid-overlay" aria-hidden="true" />
+        <div className="call-noise-overlay" aria-hidden="true" />
+        <div className="call-orbit-ring call-orbit-ring--one" aria-hidden="true" />
+        <div className="call-orbit-ring call-orbit-ring--two" aria-hidden="true" />
+        <div className="call-particle-field" aria-hidden="true">
+          {Array.from({ length: CALL_BACKGROUND_PARTICLE_COUNT }).map((_, index) => (
+            <span key={`call-bg-particle-${index}`} style={{ '--call-particle-index': index }} />
+          ))}
+        </div>
 
         <div className="relative z-10">
           {isFloatingUi && (
@@ -4009,12 +4133,12 @@ const CallSection = ({
               </button>
             </div>
           )}
-          <header className="flex flex-wrap items-start justify-between gap-3">
+          <header className="call-main-header flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className={titleClass}>Онлайн-созвон</h2>
               <p className={subtitleClass}>Голос и демонстрация экрана в реальном времени.</p>
             </div>
-            <span className={`call-status-chip inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusChipClass}`}>
+            <span className={`call-status-chip call-status-chip--${statusTone} inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusChipClass}`}>
               <span className={`call-status-dot call-status-dot--${statusTone}`} aria-hidden="true" />
               <span>{statusText}</span>
             </span>
@@ -4063,14 +4187,16 @@ const CallSection = ({
 
             {isConnected ? (
               <section className={mediaSectionClass}>
-                <div className="flex flex-wrap items-center justify-center gap-5 md:gap-8">
+                <div className="call-media-grid flex flex-wrap items-center justify-center gap-5 md:gap-8">
                   {voiceCallParticipants.map((peer, index) => {
                     const initial = String(peer.title || 'U').trim().charAt(0).toUpperCase() || 'U';
                     if (peer.isSelf && peer.hasVideo) {
                       return (
                         <div
                           key={peer.id}
-                          className="call-participant-entry"
+                          className="call-participant-entry call-participant-entry--video"
+                          data-speaking={peer.isSpeaking ? 'true' : 'false'}
+                          data-self={peer.isSelf ? 'true' : 'false'}
                           style={{ '--call-stagger-index': index }}
                         >
                           <MediaTile
@@ -4090,7 +4216,9 @@ const CallSection = ({
                       return (
                         <div
                           key={peer.id}
-                          className="call-participant-entry"
+                          className="call-participant-entry call-participant-entry--video"
+                          data-speaking={peer.isSpeaking ? 'true' : 'false'}
+                          data-self={peer.isSelf ? 'true' : 'false'}
                           style={{ '--call-stagger-index': index }}
                         >
                           <MediaTile
@@ -4109,7 +4237,9 @@ const CallSection = ({
                       <article
                         key={peer.id}
                         onContextMenu={(event) => openVolumePopupForParticipant(event, peer)}
-                        className="call-participant-entry flex w-[104px] flex-col items-center gap-2 text-center"
+                        className="call-participant-entry call-participant-entry--avatar flex w-[104px] flex-col items-center gap-2 text-center"
+                        data-speaking={peer.isSpeaking ? 'true' : 'false'}
+                        data-self={peer.isSelf ? 'true' : 'false'}
                         style={{ '--call-stagger-index': index }}
                         title={peer.subtitle}
                       >
@@ -4143,13 +4273,15 @@ const CallSection = ({
                     В созвоне никого
                   </div>
                 ) : (
-                  <div className="flex flex-wrap items-start justify-center gap-5 md:gap-8">
+                  <div className="call-peers-grid flex flex-wrap items-start justify-center gap-5 md:gap-8">
                     {visiblePeers.map((peer, index) => {
                       const initial = String(peer.title || 'U').trim().charAt(0).toUpperCase() || 'U';
                       return (
                         <article
                           key={peer.peerId}
-                          className="call-participant-entry flex w-[104px] flex-col items-center gap-2 text-center"
+                          className="call-participant-entry call-participant-entry--avatar flex w-[104px] flex-col items-center gap-2 text-center"
+                          data-speaking="false"
+                          data-self="false"
                           style={{ '--call-stagger-index': index }}
                           title={peer.subtitle}
                         >
@@ -4194,12 +4326,12 @@ const CallSection = ({
             </>
           )}
 
-          <div className={controlsWrapClass}>
+          <div className={`${controlsWrapClass} ${sceneStatusClass}`}>
             <button
               type="button"
               onClick={startCall}
               disabled={!canStart}
-              className={`${baseControlButtonClass} border border-emerald-300/60 bg-emerald-400 text-slate-950 hover:bg-emerald-300`}
+              className={`${baseControlButtonClass} call-control-btn--start border border-emerald-300/60 bg-emerald-400 text-slate-950 hover:bg-emerald-300`}
               aria-label={isConnecting ? 'Подключение...' : 'Подключиться'}
               title={isConnecting ? 'Подключение...' : 'Подключиться'}
             >
@@ -4209,7 +4341,7 @@ const CallSection = ({
               type="button"
               onClick={stopCall}
               disabled={!canStop}
-              className={`${baseControlButtonClass} border border-rose-300/60 bg-rose-500 text-white hover:bg-rose-400`}
+              className={`${baseControlButtonClass} call-control-btn--hangup border border-rose-300/60 bg-rose-500 text-white hover:bg-rose-400`}
               aria-label="Завершить звонок"
               title="Завершить звонок"
             >
@@ -4220,7 +4352,7 @@ const CallSection = ({
                 type="button"
                 onClick={toggleMic}
                 disabled={!canToggleMic}
-                className={`${baseControlButtonClass} border ${
+                className={`${baseControlButtonClass} call-control-btn--mic ${micEnabled ? 'call-control-btn--active' : ''} border ${
                   micEnabled
                     ? micOnControlClass
                     : neutralControlClass
@@ -4243,7 +4375,7 @@ const CallSection = ({
                   });
                 }}
                 disabled={!canToggleMic}
-                className={`${micSettingsButtonClass} ${micSettingsOpen ? micSettingsButtonActiveClass : ''}`}
+                className={`${micSettingsButtonClass} call-control-btn--settings ${micSettingsOpen ? micSettingsButtonActiveClass : ''}`}
                 aria-label="Настройки микрофона"
                 title="Настройки микрофона"
               >
@@ -4254,7 +4386,7 @@ const CallSection = ({
               type="button"
               onClick={toggleCamera}
               disabled={!canToggleCamera}
-              className={`${baseControlButtonClass} border ${
+              className={`${baseControlButtonClass} call-control-btn--camera ${cameraEnabled ? 'call-control-btn--active' : ''} border ${
                 cameraEnabled
                   ? cameraOnControlClass
                   : neutralControlClass
@@ -4268,7 +4400,7 @@ const CallSection = ({
               type="button"
               onClick={toggleScreenShare}
               disabled={!canToggleScreen}
-              className={`${baseControlButtonClass} border ${
+              className={`${baseControlButtonClass} call-control-btn--screen ${screenSharing ? 'call-control-btn--active' : ''} border ${
                 screenSharing
                   ? screenOnControlClass
                   : neutralControlClass

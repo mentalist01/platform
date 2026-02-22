@@ -1004,34 +1004,128 @@
 }
 
 @keyframes callPanelIn {
-  0% { opacity: 0; transform: translateY(12px) scale(0.985); filter: blur(2px); }
-  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  0% { opacity: 0; transform: translateY(16px) scale(0.975) rotateX(2.6deg); filter: blur(5px); }
+  58% { opacity: 1; transform: translateY(-2px) scale(1.008) rotateX(0deg); filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) scale(1) rotateX(0deg); filter: blur(0); }
+}
+@keyframes callPanelFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+@keyframes callSceneBreath {
+  0%, 100% { box-shadow: 0 24px 68px rgba(15, 23, 42, 0.16); }
+  50% { box-shadow: 0 34px 90px rgba(15, 23, 42, 0.24); }
 }
 
 @keyframes callAuroraDrift {
-  0% { opacity: 0.62; transform: translate3d(0, 0, 0) scale(1); }
-  50% { opacity: 0.9; transform: translate3d(14px, -10px, 0) scale(1.08); }
-  100% { opacity: 0.58; transform: translate3d(-12px, 8px, 0) scale(0.96); }
+  0% { opacity: 0.52; transform: translate3d(0, 0, 0) scale(1) rotate(0deg); }
+  32% { opacity: 0.88; transform: translate3d(18px, -12px, 0) scale(1.1) rotate(-4deg); }
+  67% { opacity: 0.72; transform: translate3d(-16px, 11px, 0) scale(0.94) rotate(3deg); }
+  100% { opacity: 0.58; transform: translate3d(2px, -2px, 0) scale(1) rotate(0deg); }
+}
+@keyframes callGridDrift {
+  0% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.34; }
+  50% { transform: translate3d(12px, -10px, 0) scale(1.035); opacity: 0.46; }
+  100% { transform: translate3d(-10px, 8px, 0) scale(0.99); opacity: 0.3; }
+}
+@keyframes callNoiseShift {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 0.11; }
+  50% { transform: translate3d(-10px, 7px, 0) rotate(0.35deg); opacity: 0.16; }
+  100% { transform: translate3d(8px, -6px, 0) rotate(-0.35deg); opacity: 0.1; }
+}
+@keyframes callOrbitSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes callOrbitPulse {
+  0%, 100% { opacity: 0.22; }
+  50% { opacity: 0.5; }
+}
+@keyframes callParticleFloat {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0) scale(0.4);
+  }
+  20% {
+    opacity: 0.72;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  80% {
+    opacity: 0.5;
+    transform: translate3d(0, calc(-22px - var(--call-particle-index, 0) * 0.7px), 0) scale(0.88);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, calc(-36px - var(--call-particle-index, 0) * 0.9px), 0) scale(0.58);
+  }
 }
 
 @keyframes callStatusPulse {
   0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 var(--call-dot-glow, rgba(148, 163, 184, 0.38)); }
-  50% { transform: scale(1.1); box-shadow: 0 0 0 7px rgba(148, 163, 184, 0); }
+  50% { transform: scale(1.13); box-shadow: 0 0 0 8px rgba(148, 163, 184, 0); }
+}
+@keyframes callStatusChipShine {
+  0% { transform: translateX(-145%) skewX(-18deg); opacity: 0; }
+  22% { opacity: 0.48; }
+  100% { transform: translateX(180%) skewX(-18deg); opacity: 0; }
 }
 
 @keyframes callParticipantIn {
-  0% { opacity: 0; transform: translateY(10px) scale(0.98); filter: blur(1px); }
-  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  0% { opacity: 0; transform: translateY(18px) scale(0.95) rotateX(7deg); filter: blur(2.5px); }
+  55% { opacity: 1; transform: translateY(-2px) scale(1.02) rotateX(0deg); filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) scale(1) rotateX(0deg); filter: blur(0); }
+}
+@keyframes callParticipantLevitate {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+@keyframes callParticipantHalo {
+  0%, 100% { opacity: 0.16; transform: scale(0.92); }
+  50% { opacity: 0.45; transform: scale(1.06); }
 }
 
 @keyframes callSpeakingPulse {
   0%, 100% { transform: translateY(0) scale(1); filter: saturate(1); }
-  50% { transform: translateY(-1px) scale(1.02); filter: saturate(1.12); }
+  45% { transform: translateY(-2px) scale(1.02); filter: saturate(1.15); }
+  70% { transform: translateY(0) scale(1.01); filter: saturate(1.08); }
 }
 
 @keyframes callHintBreath {
   0%, 100% { opacity: 0.76; transform: translateY(0); }
-  50% { opacity: 1; transform: translateY(-1px); }
+  50% { opacity: 1; transform: translateY(-2px); }
+}
+@keyframes callControlsBreathe {
+  0%, 100% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 12px 26px rgba(15, 23, 42, 0.12); }
+  50% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32), 0 16px 34px rgba(15, 23, 42, 0.18); }
+}
+@keyframes callControlsSweep {
+  0% { transform: translateX(-135%) skewX(-16deg); opacity: 0; }
+  28% { opacity: 0.44; }
+  100% { transform: translateX(180%) skewX(-16deg); opacity: 0; }
+}
+@keyframes callButtonAura {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.34), 0 8px 16px rgba(15, 23, 42, 0.18); }
+  50% { box-shadow: 0 0 0 8px rgba(56, 189, 248, 0), 0 12px 24px rgba(15, 23, 42, 0.22); }
+}
+@keyframes callVideoDrift {
+  0%, 100% { transform: scale(1) translate3d(0, 0, 0); }
+  50% { transform: scale(1.035) translate3d(0, -3px, 0); }
+}
+@keyframes callVideoSpeakBoost {
+  0%, 100% { filter: saturate(1) contrast(1); }
+  50% { filter: saturate(1.18) contrast(1.08); }
+}
+@keyframes callStatRise {
+  0% { opacity: 0; transform: translateY(9px) scale(0.98); filter: blur(1px); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+@keyframes callHeaderLift {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes callConnectionHintPulse {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
 }
 
 @keyframes sidebarPulse {
@@ -1141,22 +1235,192 @@
 @keyframes mobileArrowIn { from { opacity: 0; transform: translateY(-2px) scale(0.84); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
 .animate-fadeIn { animation: fadeIn 0.45s ease-out both; }
-.call-section-shell { animation: callPanelIn 0.42s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.call-panel-root {
+  perspective: 1400px;
+  transform-style: preserve-3d;
+}
+.call-panel-root--floating {
+  animation: callPanelFloat 11.5s ease-in-out infinite;
+}
+.call-collapsed-shell {
+  animation: callPanelFloat 13.5s ease-in-out infinite;
+}
+.call-section-shell {
+  position: relative;
+  isolation: isolate;
+  transform-style: preserve-3d;
+  animation: callPanelIn 0.52s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.call-scene-shell {
+  --call-scene-accent: rgba(56, 189, 248, 0.28);
+  --call-scene-accent-strong: rgba(14, 165, 233, 0.34);
+  animation: callPanelIn 0.52s cubic-bezier(0.16, 1, 0.3, 1) both, callSceneBreath 8.4s ease-in-out infinite;
+}
+.call-scene-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  padding: 1px;
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.3), transparent 35%, var(--call-scene-accent), transparent 72%, rgba(255, 255, 255, 0.2)),
+    radial-gradient(circle at 20% -10%, rgba(255, 255, 255, 0.5), transparent 45%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.75;
+  animation: callStatusChipShine 8.6s ease-in-out infinite;
+}
+.call-scene-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 50% 120%, var(--call-scene-accent), transparent 54%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 36%);
+  opacity: 0.55;
+}
+.call-scene--connected {
+  --call-scene-accent: rgba(16, 185, 129, 0.28);
+  --call-scene-accent-strong: rgba(16, 185, 129, 0.44);
+}
+.call-scene--waiting {
+  --call-scene-accent: rgba(56, 189, 248, 0.3);
+  --call-scene-accent-strong: rgba(56, 189, 248, 0.42);
+}
+.call-scene--connecting {
+  --call-scene-accent: rgba(245, 158, 11, 0.3);
+  --call-scene-accent-strong: rgba(245, 158, 11, 0.42);
+}
+.call-scene--problem {
+  --call-scene-accent: rgba(239, 68, 68, 0.28);
+  --call-scene-accent-strong: rgba(244, 63, 94, 0.42);
+}
+.call-scene--idle {
+  --call-scene-accent: rgba(148, 163, 184, 0.24);
+  --call-scene-accent-strong: rgba(148, 163, 184, 0.36);
+}
 .call-collapsed-card { animation: callPanelIn 0.28s ease-out both; }
 .call-floating-toolbar { animation: fadeSoft 0.22s ease-out both; }
+.call-main-header {
+  animation: callHeaderLift 0.42s ease-out both;
+}
+.call-main-title {
+  letter-spacing: 0.01em;
+}
+.call-main-subtitle {
+  opacity: 0.94;
+}
 .call-aurora {
   will-change: transform, opacity;
   transform-origin: center;
-  animation: callAuroraDrift 10s ease-in-out infinite;
+  animation: callAuroraDrift 11s ease-in-out infinite;
 }
 .call-aurora--secondary {
-  animation-duration: 12.5s;
+  animation-duration: 13.4s;
   animation-delay: -2.4s;
   animation-direction: reverse;
 }
+.call-grid-overlay {
+  pointer-events: none;
+  position: absolute;
+  inset: -18%;
+  background:
+    radial-gradient(circle at 20% 12%, rgba(255, 255, 255, 0.16), transparent 38%),
+    repeating-linear-gradient(120deg, rgba(255, 255, 255, 0.09) 0 1px, transparent 1px 26px),
+    repeating-linear-gradient(30deg, rgba(14, 165, 233, 0.09) 0 1px, transparent 1px 32px);
+  mix-blend-mode: soft-light;
+  opacity: 0.34;
+  animation: callGridDrift 17s ease-in-out infinite;
+}
+.call-noise-overlay {
+  pointer-events: none;
+  position: absolute;
+  inset: -22%;
+  background-image:
+    radial-gradient(circle at 15% 20%, rgba(255, 255, 255, 0.14), transparent 26%),
+    radial-gradient(circle at 82% 78%, rgba(56, 189, 248, 0.18), transparent 34%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 3px);
+  opacity: 0.12;
+  mix-blend-mode: screen;
+  animation: callNoiseShift 12s linear infinite;
+}
+.call-orbit-ring {
+  pointer-events: none;
+  position: absolute;
+  border-radius: 9999px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-top-color: var(--call-scene-accent-strong, rgba(56, 189, 248, 0.36));
+  border-left-color: rgba(255, 255, 255, 0.36);
+  opacity: 0.28;
+  animation: callOrbitSpin 18s linear infinite, callOrbitPulse 4.4s ease-in-out infinite;
+}
+.call-orbit-ring--one {
+  width: 380px;
+  height: 380px;
+  top: -170px;
+  right: -150px;
+}
+.call-orbit-ring--two {
+  width: 340px;
+  height: 340px;
+  left: -160px;
+  bottom: -190px;
+  animation-direction: reverse;
+  animation-duration: 24s, 5.4s;
+}
+.call-particle-field {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.call-particle-field span {
+  position: absolute;
+  bottom: calc(-18px + (var(--call-particle-index, 0) * 1.25px));
+  left: calc(6% + (var(--call-particle-index, 0) * 6.4%));
+  width: calc(2px + (var(--call-particle-index, 0) * 0.08px));
+  height: calc(2px + (var(--call-particle-index, 0) * 0.08px));
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.95), rgba(125, 211, 252, 0.72));
+  opacity: 0;
+  filter: blur(0.3px);
+  animation: callParticleFloat calc(4.8s + (var(--call-particle-index, 0) * 0.22s)) ease-in-out infinite;
+  animation-delay: calc(var(--call-particle-index, 0) * -0.38s);
+}
 .call-status-chip {
+  position: relative;
+  overflow: hidden;
   gap: 0.44rem;
   white-space: nowrap;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: transform 0.24s ease, box-shadow 0.28s ease;
+}
+.call-status-chip::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(116deg, transparent 22%, rgba(255, 255, 255, 0.52) 46%, transparent 72%);
+  mix-blend-mode: soft-light;
+  opacity: 0;
+  animation: callStatusChipShine 5.8s ease-in-out infinite;
+}
+.call-status-chip--connected {
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.18), 0 8px 22px rgba(16, 185, 129, 0.18);
+}
+.call-status-chip--waiting {
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.16), 0 8px 20px rgba(14, 165, 233, 0.16);
+}
+.call-status-chip--connecting {
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.18), 0 8px 22px rgba(245, 158, 11, 0.16);
+}
+.call-status-chip--problem {
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.16), 0 8px 22px rgba(239, 68, 68, 0.16);
 }
 .call-status-dot {
   --call-dot-glow: rgba(148, 163, 184, 0.38);
@@ -1190,17 +1454,161 @@
   background: rgb(148, 163, 184);
 }
 .call-participant-entry {
+  position: relative;
+  isolation: isolate;
+  transform-style: preserve-3d;
+  will-change: transform, filter;
   opacity: 1;
-  animation: callParticipantIn 0.42s cubic-bezier(0.2, 1, 0.36, 1) both;
+  animation: callParticipantIn 0.48s cubic-bezier(0.2, 1, 0.36, 1) both, callParticipantLevitate 7.4s ease-in-out infinite;
   animation-delay: calc(var(--call-stagger-index, 0) * 55ms);
-  transition: transform 0.2s ease;
+  transition: transform 0.28s ease, filter 0.3s ease;
+}
+.call-participant-entry::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: -8px;
+  border-radius: 1.1rem;
+  z-index: -1;
+  background: radial-gradient(circle at 50% 42%, var(--call-scene-accent, rgba(56, 189, 248, 0.28)), transparent 72%);
+  opacity: 0.16;
+  transform: scale(0.92);
+  animation: callParticipantHalo 5.2s ease-in-out infinite;
+  transition: opacity 0.28s ease, transform 0.3s ease;
+}
+.call-participant-entry::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: -1px;
+  border-radius: 1rem;
+  z-index: -1;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.35), transparent 40%, rgba(56, 189, 248, 0.2) 70%, transparent 100%);
+  opacity: 0;
+  transition: opacity 0.28s ease;
 }
 .call-participant-entry:hover {
-  transform: translateY(-2px);
+  transform: translateY(-4px) scale(1.02);
+  filter: saturate(1.1);
+}
+.call-participant-entry:hover::before,
+.call-participant-entry[data-speaking='true']::before {
+  opacity: 0.52;
+  transform: scale(1.04);
+}
+.call-participant-entry:hover::after,
+.call-participant-entry[data-speaking='true']::after {
+  opacity: 0.8;
+}
+.call-participant-entry[data-speaking='true'] {
+  filter: saturate(1.16);
+}
+.call-participant-entry--avatar::before,
+.call-participant-entry--avatar::after {
+  display: none;
+}
+.call-media-grid,
+.call-peers-grid {
+  position: relative;
+  perspective: 1200px;
+}
+.call-media-stage,
+.call-peers-stage {
+  position: relative;
+  overflow: hidden;
+}
+.call-media-stage::before,
+.call-peers-stage::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 18% -8%, rgba(255, 255, 255, 0.24), transparent 44%),
+    linear-gradient(120deg, transparent 22%, rgba(255, 255, 255, 0.14) 42%, transparent 66%);
+  opacity: 0.52;
+}
+.call-media-tile {
+  position: relative;
+  overflow: hidden;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  transition: transform 0.28s ease, box-shadow 0.32s ease, filter 0.3s ease;
+}
+.call-media-tile::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(115deg, transparent 22%, rgba(255, 255, 255, 0.2) 44%, transparent 72%);
+  opacity: 0;
+  transform: translateX(-110%);
+  transition: opacity 0.32s ease, transform 0.7s ease;
+}
+.call-media-tile:hover {
+  transform: translateY(-3px) scale(1.01);
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.24);
+}
+.call-media-tile:hover::before {
+  opacity: 0.8;
+  transform: translateX(125%);
+}
+.call-media-tile[data-speaking='true'] {
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.36), 0 18px 36px rgba(16, 185, 129, 0.2);
+}
+.call-media-video {
+  position: relative;
+  z-index: 0;
+  will-change: transform, filter;
+  animation: callVideoDrift 16s ease-in-out infinite;
+  transition: filter 0.35s ease, transform 0.45s ease;
+}
+.call-media-tile[data-speaking='true'] .call-media-video {
+  animation: callVideoDrift 9.6s ease-in-out infinite, callVideoSpeakBoost 1.8s ease-in-out infinite;
+}
+.call-media-overlay {
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.call-media-placeholder {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.call-media-compact-card,
+.call-avatar-card {
+  transition: transform 0.26s ease, box-shadow 0.3s ease, filter 0.28s ease;
+}
+.call-participant-entry:hover .call-media-compact-card,
+.call-participant-entry:hover .call-avatar-card {
+  transform: translateY(-2px) scale(1.02);
+}
+.call-avatar-badge {
+  animation: callStatusPulse 2.3s ease-in-out infinite;
+}
+.call-avatar-name {
+  letter-spacing: 0.01em;
+  transition: color 0.24s ease;
+}
+.call-participant-entry[data-speaking='true'] .call-avatar-name {
+  color: rgb(16 185 129);
+}
+.call-stats-grid .call-stat-card {
+  animation: callStatRise 0.4s ease-out both;
+}
+.call-stats-grid .call-stat-card:nth-child(2) { animation-delay: 55ms; }
+.call-stats-grid .call-stat-card:nth-child(3) { animation-delay: 100ms; }
+.call-stats-grid .call-stat-card:nth-child(4) { animation-delay: 145ms; }
+.call-stats-grid .call-stat-card:nth-child(5) { animation-delay: 190ms; }
+.call-connection-hint {
+  animation: callConnectionHintPulse 2.8s ease-in-out infinite;
 }
 .call-controls-wrap {
   position: relative;
   overflow: hidden;
+}
+.call-controls-rail {
+  animation: callControlsBreathe 7.2s ease-in-out infinite;
 }
 .call-controls-wrap::before {
   content: "";
@@ -1210,20 +1618,86 @@
   background: linear-gradient(112deg, rgba(255, 255, 255, 0.24), transparent 33%, rgba(255, 255, 255, 0.14) 52%, transparent 72%);
   opacity: 0.42;
 }
+.call-controls-rail::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(112deg, transparent 28%, rgba(255, 255, 255, 0.48) 46%, transparent 70%);
+  opacity: 0;
+  animation: callControlsSweep 7.6s ease-in-out infinite;
+}
 .call-control-btn {
+  position: relative;
+  overflow: hidden;
+  transform-style: preserve-3d;
   will-change: transform;
   transition: transform 0.2s ease, box-shadow 0.24s ease, filter 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+.call-control-btn::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at 25% 20%, rgba(255, 255, 255, 0.48), transparent 55%);
+  opacity: 0.36;
+}
+.call-control-btn::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(118deg, transparent 24%, rgba(255, 255, 255, 0.48) 48%, transparent 72%);
+  transform: translateX(-125%);
+  opacity: 0;
+  transition: transform 0.55s ease, opacity 0.34s ease;
 }
 .call-control-btn:hover:not(:disabled) {
   transform: translateY(-1px) scale(1.02);
   box-shadow: 0 10px 18px rgba(15, 23, 42, 0.18);
 }
+.call-control-btn:hover:not(:disabled)::after {
+  transform: translateX(130%);
+  opacity: 0.72;
+}
 .call-control-btn:active:not(:disabled) {
   transform: translateY(0) scale(0.985);
 }
+.call-control-btn--active {
+  animation: callButtonAura 2.8s ease-in-out infinite;
+}
+.call-control-btn--start {
+  box-shadow: 0 12px 22px rgba(16, 185, 129, 0.28);
+}
+.call-control-btn--hangup {
+  box-shadow: 0 12px 24px rgba(244, 63, 94, 0.26);
+}
+.call-control-btn--settings svg {
+  transition: transform 0.32s ease;
+}
+.call-control-btn--settings:hover svg {
+  transform: rotate(36deg) scale(1.08);
+}
 .call-speaking-ring {
+  position: relative;
   transform-origin: center;
   animation: callSpeakingPulse 1.7s ease-in-out infinite;
+}
+.call-speaking-ring::before,
+.call-speaking-ring::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: -7px;
+  border-radius: inherit;
+  border: 1px solid rgba(52, 211, 153, 0.42);
+  opacity: 0;
+  animation: callStatusPulse 2.1s ease-in-out infinite;
+}
+.call-speaking-ring::after {
+  animation-delay: -0.9s;
 }
 .call-waiting-hint {
   animation: callHintBreath 2.7s ease-in-out infinite;
@@ -1787,15 +2261,30 @@
   .streak-badge--active,
   .streak-flame,
   .streak-mascot,
+  .call-panel-root--floating,
+  .call-collapsed-shell,
   .call-section-shell,
+  .call-scene-shell,
   .call-collapsed-card,
   .call-floating-toolbar,
+  .call-main-header,
   .call-aurora,
+  .call-grid-overlay,
+  .call-noise-overlay,
+  .call-orbit-ring,
+  .call-particle-field span,
+  .call-status-chip::after,
   .call-status-dot--connected,
   .call-status-dot--waiting,
   .call-status-dot--connecting,
   .call-status-dot--problem,
   .call-participant-entry,
+  .call-media-video,
+  .call-controls-rail,
+  .call-controls-rail::after,
+  .call-control-btn--active,
+  .call-stats-grid .call-stat-card,
+  .call-connection-hint,
   .call-speaking-ring,
   .call-waiting-hint,
   .levelup-card,
@@ -1933,6 +2422,54 @@ html[data-theme='dark'] .call-controls-wrap::before {
 
 html[data-theme='dark'] .call-control-btn:hover:not(:disabled) {
   box-shadow: 0 12px 24px rgba(2, 6, 23, 0.48);
+}
+
+html[data-theme='dark'] .call-scene-shell {
+  box-shadow: 0 34px 88px rgba(2, 6, 23, 0.62), inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+html[data-theme='dark'] .call-scene-shell::before {
+  background:
+    linear-gradient(120deg, rgba(148, 163, 184, 0.2), transparent 36%, rgba(56, 189, 248, 0.3), transparent 72%, rgba(148, 163, 184, 0.12)),
+    radial-gradient(circle at 18% -10%, rgba(186, 230, 253, 0.3), transparent 42%);
+}
+
+html[data-theme='dark'] .call-grid-overlay {
+  opacity: 0.44;
+  mix-blend-mode: screen;
+}
+
+html[data-theme='dark'] .call-noise-overlay {
+  opacity: 0.2;
+}
+
+html[data-theme='dark'] .call-status-chip::after {
+  mix-blend-mode: screen;
+  opacity: 0.2;
+}
+
+html[data-theme='dark'] .call-media-stage::before,
+html[data-theme='dark'] .call-peers-stage::before {
+  opacity: 0.34;
+  background:
+    radial-gradient(circle at 18% -8%, rgba(186, 230, 253, 0.16), transparent 45%),
+    linear-gradient(118deg, transparent 20%, rgba(148, 163, 184, 0.12) 42%, transparent 68%);
+}
+
+html[data-theme='dark'] .call-media-tile:hover {
+  box-shadow: 0 20px 36px rgba(2, 6, 23, 0.56);
+}
+
+html[data-theme='dark'] .call-controls-rail::after {
+  background: linear-gradient(116deg, transparent 24%, rgba(186, 230, 253, 0.34) 46%, transparent 72%);
+}
+
+html[data-theme='dark'] .call-control-btn::before {
+  background: radial-gradient(circle at 25% 20%, rgba(186, 230, 253, 0.24), transparent 58%);
+}
+
+html[data-theme='dark'] .call-participant-entry[data-speaking='true'] .call-avatar-name {
+  color: rgb(110 231 183);
 }
 
 html[data-theme='dark'] .sidebar-nav::-webkit-scrollbar-track {
