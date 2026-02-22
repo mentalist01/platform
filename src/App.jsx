@@ -6029,7 +6029,14 @@ const BoardSection = ({
   const statusClass = status === 'connected'
     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
     : 'border-amber-200 bg-amber-50 text-amber-700';
-  const boardCanvasHeight = isFullscreen ? 'calc(100vh - 200px)' : '62vh';
+  const boardCanvasHeight = isFullscreen ? 'calc(100vh - 200px)' : null;
+  const boardShellClass = isFullscreen
+    ? 'animate-fadeIn pb-2'
+    : 'animate-fadeIn pb-4 md:pb-0 md:flex md:h-full md:min-h-0 md:flex-col md:overflow-hidden';
+  const boardCardClass = isFullscreen
+    ? 'p-3 md:p-3.5'
+    : 'p-4 md:p-5 md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-hidden';
+  const boardCanvasStyle = boardCanvasHeight ? { height: boardCanvasHeight } : undefined;
   const activeWidth = tool === 'line' ? lineWidth : penWidth;
   const widthTargetLabel = tool === 'line' ? 'Линия' : 'Карандаш';
   const showWidthControls = tool === 'pen' || tool === 'line';
@@ -6192,7 +6199,7 @@ const BoardSection = ({
   ) : null;
 
   return (
-    <div ref={boardRootRef} className={isFullscreen ? 'animate-fadeIn pb-2' : 'animate-fadeIn pb-10'}>
+    <div ref={boardRootRef} className={boardShellClass}>
       <div className={`flex flex-col md:flex-row md:items-center md:justify-between ${
         isFullscreen ? 'mb-2 gap-2' : 'mb-6 gap-3'
       }`}>
@@ -6250,7 +6257,7 @@ const BoardSection = ({
         </div>
       )}
 
-      <Card className={isFullscreen ? 'p-3 md:p-3.5' : 'p-4 md:p-6'}>
+      <Card className={boardCardClass}>
         {!isFullscreen && (
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
@@ -6517,10 +6524,10 @@ const BoardSection = ({
 
         <div
           ref={containerRef}
-          className={`mt-4 relative w-full rounded-2xl border border-gray-200 bg-white overflow-hidden ${
+          className={`mt-4 relative h-[62vh] w-full rounded-2xl border border-gray-200 bg-white overflow-hidden md:min-h-0 md:flex-1 md:h-auto ${
             summonNotice ? 'ring-2 ring-amber-400/70 ring-offset-2 ring-offset-white' : ''
           }`}
-          style={{ height: boardCanvasHeight }}
+          style={boardCanvasStyle}
         >
           {!roomId && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
@@ -6731,6 +6738,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [pushError, setPushError] = useState('');
   const [pushReady, setPushReady] = useState(false);
   const isCallSessionActive = callSessionStatus === 'connected' || callSessionStatus === 'connecting';
+  const isBoardView = view === 'board';
   const callUiMode = !isCallViewAvailable
     ? 'hidden'
     : view === 'call'
@@ -6738,6 +6746,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       : isCallSessionActive
         ? (callPanelExpanded ? 'floating' : 'collapsed')
         : 'hidden';
+  const mainLayoutClass = isBoardView
+    ? 'flex-1 overflow-hidden px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-4 sm:pt-4 sm:pb-4 md:p-5 lg:p-6'
+    : 'flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8';
+  const mainContentShellClass = `main-content-shell animate-soft${
+    isBoardView ? ' h-full min-h-0 flex flex-col overflow-hidden' : ''
+  }`;
   const studentsWithNicknames = useMemo(
     () => students,
     [students]
@@ -9154,10 +9168,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         </header>
         <main
           ref={mainScrollRef}
-          className="flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8"
+          className={mainLayoutClass}
           data-tour="main"
         >
-          <div className="main-content-shell animate-soft">
+          <div className={mainContentShellClass}>
           {user.role === 'student' && view !== 'collab' && view !== 'board' && view !== 'call' && (
             <div className="top-stats-strip mb-3 rounded-2xl border border-slate-200/80 bg-gradient-to-r from-white to-slate-50/85 px-2.5 py-1.5 shadow-sm sm:px-3 sm:py-2">
               <div className="flex items-center gap-1.5 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-2">
