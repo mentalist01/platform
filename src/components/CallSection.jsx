@@ -1,24 +1,43 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, Camera, CameraOff, Loader2, Maximize2, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Move, Phone, PhoneOff, Signal, Users } from 'lucide-react';
+import { AlertCircle, Camera, CameraOff, Loader2, Maximize2, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Move, Phone, PhoneOff, Settings, Signal, Users } from 'lucide-react';
 
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
 ];
 const WS_PING_INTERVAL_MS = 15000;
 const AUDIO_MAX_BITRATE = 32000;
+const AUDIO_MIN_BITRATE = 16000;
 const getPositiveNumberFromEnv = (key, fallback) => {
   const value = typeof import.meta !== 'undefined' ? import.meta.env?.[key] : undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 const VIDEO_MAX_BITRATE = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_BITRATE', 3500000);
+const CAMERA_MAX_BITRATE = getPositiveNumberFromEnv('VITE_RTC_CAMERA_MAX_BITRATE', 1200000);
+const CAMERA_MIN_BITRATE = getPositiveNumberFromEnv('VITE_RTC_CAMERA_MIN_BITRATE', 220000);
+const SCREEN_MIN_BITRATE = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MIN_BITRATE', 500000);
 const SCREEN_MAX_FRAMERATE = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_FRAMERATE', 60);
 const SCREEN_MAX_WIDTH = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_WIDTH', 1920);
 const SCREEN_MAX_HEIGHT = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_HEIGHT', 1080);
 const CAMERA_MAX_FRAMERATE = getPositiveNumberFromEnv('VITE_RTC_CAMERA_MAX_FRAMERATE', 30);
 const CAMERA_MAX_WIDTH = getPositiveNumberFromEnv('VITE_RTC_CAMERA_MAX_WIDTH', 1280);
 const CAMERA_MAX_HEIGHT = getPositiveNumberFromEnv('VITE_RTC_CAMERA_MAX_HEIGHT', 720);
+const WS_RECONNECT_BASE_DELAY_MS = 900;
+const WS_RECONNECT_MAX_DELAY_MS = 8000;
+const WS_RECONNECT_JITTER_MS = 500;
+const WS_RECONNECT_MAX_ATTEMPTS = 10;
+const RTC_ICE_CANDIDATE_POOL_SIZE = (() => {
+  const value = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_RTC_ICE_CANDIDATE_POOL_SIZE : undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(0, Math.min(32, Math.round(parsed)));
+})();
+const RTC_ICE_TRANSPORT_POLICY = (() => {
+  const value = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_RTC_ICE_TRANSPORT_POLICY : '';
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return normalized === 'relay' ? 'relay' : 'all';
+})();
 const CONNECTION_STATS_INTERVAL_MS = 2500;
 const RTC_PRESENCE_RECONNECT_DELAY_MS = 2000;
 const RTC_PRESENCE_POLL_INTERVAL_MS = 1200;
@@ -32,10 +51,21 @@ const SPEAKING_HOLD_MS = getPositiveNumberFromEnv('VITE_RTC_SPEAKING_HOLD_MS', 4
 const SPEAKING_ANALYSER_FFT_SIZE = 1024;
 const PEER_VOLUME_STEP_PERCENT = 10;
 const DEFAULT_PEER_VOLUME = 1;
-const MIN_PEER_MIC_SENSITIVITY_PERCENT = 50;
-const MAX_PEER_MIC_SENSITIVITY_PERCENT = 200;
-const DEFAULT_PEER_MIC_SENSITIVITY_PERCENT = 100;
-const PEER_MIC_SENSITIVITY_STEP_PERCENT = 10;
+const MIN_MIC_SENSITIVITY_PERCENT = 50;
+const MAX_MIC_SENSITIVITY_PERCENT = 200;
+const DEFAULT_MIC_SENSITIVITY_PERCENT = 100;
+const MIC_SENSITIVITY_STEP_PERCENT = 10;
+const MIN_MIC_TRIGGER_THRESHOLD_PERCENT = 0;
+const MAX_MIC_TRIGGER_THRESHOLD_PERCENT = 150;
+const DEFAULT_MIC_TRIGGER_THRESHOLD_PERCENT = 100;
+const MIC_TRIGGER_THRESHOLD_STEP_PERCENT = 10;
+const MIC_LEVEL_METER_MIN_DB = -60;
+const MIC_LEVEL_METER_MAX_DB = -8;
+const MIC_SETTINGS_POPUP_WIDTH = 360;
+const MIC_SETTINGS_POPUP_OFFSET = 10;
+const MIC_SETTINGS_POPUP_MARGIN = 8;
+const MIC_SETTINGS_POPUP_ESTIMATED_HEIGHT = 280;
+const RTC_MIC_SETTINGS_STORAGE_KEY_PREFIX = 'ege_rtc_mic_settings_v1';
 
 const normalizePeerVolume = (value) => {
   if (!Number.isFinite(value)) return DEFAULT_PEER_VOLUME;
@@ -49,19 +79,82 @@ const percentToPeerVolume = (value) => {
 
 const peerVolumeToPercent = (value) => Math.round(normalizePeerVolume(value) * 100);
 const clampToRange = (value, min, max) => Math.min(Math.max(value, min), max);
-const normalizePeerMicSensitivityPercent = (value) => {
-  if (!Number.isFinite(value)) return DEFAULT_PEER_MIC_SENSITIVITY_PERCENT;
+const rmsToMicLevelPercent = (value) => {
+  const rms = Number(value);
+  if (!Number.isFinite(rms) || rms <= 0) return 0;
+  const db = 20 * Math.log10(rms);
+  const normalized = ((db - MIC_LEVEL_METER_MIN_DB) / (MIC_LEVEL_METER_MAX_DB - MIC_LEVEL_METER_MIN_DB)) * 100;
+  return Math.round(clampToRange(normalized, 0, 100));
+};
+const normalizeMicSensitivityPercent = (value) => {
+  if (!Number.isFinite(value)) return DEFAULT_MIC_SENSITIVITY_PERCENT;
   return Math.round(clampToRange(
     Number(value),
-    MIN_PEER_MIC_SENSITIVITY_PERCENT,
-    MAX_PEER_MIC_SENSITIVITY_PERCENT
+    MIN_MIC_SENSITIVITY_PERCENT,
+    MAX_MIC_SENSITIVITY_PERCENT
   ));
 };
-const peerMicSensitivityPercentToThreshold = (value) => {
-  const sensitivityPercent = normalizePeerMicSensitivityPercent(value);
-  const factor = DEFAULT_PEER_MIC_SENSITIVITY_PERCENT / sensitivityPercent;
-  return Math.max(0.0005, SPEAKING_RMS_THRESHOLD * factor);
+const micSensitivityPercentToGain = (value) => normalizeMicSensitivityPercent(value) / 100;
+const normalizeMicTriggerThresholdPercent = (value) => {
+  if (!Number.isFinite(value)) return DEFAULT_MIC_TRIGGER_THRESHOLD_PERCENT;
+  return Math.round(clampToRange(
+    Number(value),
+    MIN_MIC_TRIGGER_THRESHOLD_PERCENT,
+    MAX_MIC_TRIGGER_THRESHOLD_PERCENT
+  ));
 };
+const micTriggerThresholdPercentToRmsThreshold = (value) => {
+  const thresholdPercent = normalizeMicTriggerThresholdPercent(value);
+  return Math.max(0, SPEAKING_RMS_THRESHOLD * (thresholdPercent / 100));
+};
+const normalizeConnectionQuality = (value) => {
+  if (value === 'poor' || value === 'ok' || value === 'good') return value;
+  return 'good';
+};
+const getConnectionAdaptiveProfile = (quality) => {
+  const normalizedQuality = normalizeConnectionQuality(quality);
+  if (normalizedQuality === 'poor') {
+    return {
+      audioBitrate: Math.max(AUDIO_MIN_BITRATE, Math.round(AUDIO_MAX_BITRATE * 0.7)),
+      screenBitrate: Math.max(SCREEN_MIN_BITRATE, Math.round(VIDEO_MAX_BITRATE * 0.35)),
+      screenFramerate: Math.max(10, Math.min(SCREEN_MAX_FRAMERATE, 18)),
+      screenScale: 1.9,
+      cameraBitrate: Math.max(CAMERA_MIN_BITRATE, Math.round(CAMERA_MAX_BITRATE * 0.36)),
+      cameraFramerate: Math.max(8, Math.min(CAMERA_MAX_FRAMERATE, 14)),
+      cameraScale: 2.1,
+      degradationPreference: 'balanced',
+    };
+  }
+  if (normalizedQuality === 'ok') {
+    return {
+      audioBitrate: Math.max(AUDIO_MIN_BITRATE, Math.round(AUDIO_MAX_BITRATE * 0.86)),
+      screenBitrate: Math.max(SCREEN_MIN_BITRATE, Math.round(VIDEO_MAX_BITRATE * 0.58)),
+      screenFramerate: Math.max(14, Math.min(SCREEN_MAX_FRAMERATE, 30)),
+      screenScale: 1.35,
+      cameraBitrate: Math.max(CAMERA_MIN_BITRATE, Math.round(CAMERA_MAX_BITRATE * 0.62)),
+      cameraFramerate: Math.max(12, Math.min(CAMERA_MAX_FRAMERATE, 22)),
+      cameraScale: 1.45,
+      degradationPreference: 'balanced',
+    };
+  }
+  return {
+    audioBitrate: AUDIO_MAX_BITRATE,
+    screenBitrate: VIDEO_MAX_BITRATE,
+    screenFramerate: SCREEN_MAX_FRAMERATE,
+    screenScale: 1,
+    cameraBitrate: CAMERA_MAX_BITRATE,
+    cameraFramerate: CAMERA_MAX_FRAMERATE,
+    cameraScale: 1,
+    degradationPreference: 'maintain-resolution',
+  };
+};
+const getRtcPeerConnectionConfig = (iceServers) => ({
+  iceServers,
+  bundlePolicy: 'max-bundle',
+  rtcpMuxPolicy: 'require',
+  iceCandidatePoolSize: RTC_ICE_CANDIDATE_POOL_SIZE,
+  iceTransportPolicy: RTC_ICE_TRANSPORT_POLICY,
+});
 
 const clampPanelPositionToViewport = (position, width, height) => {
   const normalizedWidth = Number(width);
@@ -193,9 +286,12 @@ const inferVideoTrackKind = (track) => {
   return 'camera';
 };
 
-const observeAudioTrackSpeaking = (track, onSpeakingChange, threshold = SPEAKING_RMS_THRESHOLD) => {
+const observeAudioTrackSpeaking = (track, onSpeakingChange, threshold = SPEAKING_RMS_THRESHOLD, onLevelChange) => {
   const reportSpeaking = (value) => {
     onSpeakingChange?.(value);
+  };
+  const reportLevel = (value) => {
+    onLevelChange?.(Number.isFinite(value) && value > 0 ? value : 0);
   };
   const effectiveThreshold = Number.isFinite(threshold) && threshold > 0
     ? threshold
@@ -203,12 +299,14 @@ const observeAudioTrackSpeaking = (track, onSpeakingChange, threshold = SPEAKING
 
   if (!track || track.readyState !== 'live' || typeof window === 'undefined') {
     reportSpeaking(false);
+    reportLevel(0);
     return () => {};
   }
 
   const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextCtor) {
     reportSpeaking(false);
+    reportLevel(0);
     return () => {};
   }
 
@@ -237,6 +335,7 @@ const observeAudioTrackSpeaking = (track, onSpeakingChange, threshold = SPEAKING
     audioContext.resume?.().catch(() => {});
   } catch {
     reportSpeaking(false);
+    reportLevel(0);
     return () => {};
   }
 
@@ -250,6 +349,7 @@ const observeAudioTrackSpeaking = (track, onSpeakingChange, threshold = SPEAKING
       sumSquares += sample * sample;
     }
     const rms = Math.sqrt(sumSquares / data.length);
+    reportLevel(rms);
     if (rms > effectiveThreshold) {
       if (silenceTimer) {
         clearTimeout(silenceTimer);
@@ -267,9 +367,11 @@ const observeAudioTrackSpeaking = (track, onSpeakingChange, threshold = SPEAKING
 
   const handleTrackEnded = () => {
     markSpeaking(false);
+    reportLevel(0);
   };
   const handleTrackMuted = () => {
     markSpeaking(false);
+    reportLevel(0);
   };
   track.addEventListener('ended', handleTrackEnded);
   track.addEventListener('mute', handleTrackMuted);
@@ -288,6 +390,7 @@ const observeAudioTrackSpeaking = (track, onSpeakingChange, threshold = SPEAKING
       analyser?.disconnect?.();
     } catch {}
     audioContext?.close?.().catch(() => {});
+    reportLevel(0);
     reportSpeaking(false);
   };
 };
@@ -555,7 +658,6 @@ const RemoteAudioPlayer = ({
   stream,
   onSpeakingChange,
   volume = DEFAULT_PEER_VOLUME,
-  speakingThreshold = SPEAKING_RMS_THRESHOLD,
 }) => {
   const audioRef = useRef(null);
   const [audioTrackVersion, setAudioTrackVersion] = useState(0);
@@ -630,8 +732,8 @@ const RemoteAudioPlayer = ({
       : null;
     return observeAudioTrackSpeaking(audioTrack, (isSpeaking) => {
       onSpeakingChange?.(peerId, isSpeaking);
-    }, speakingThreshold);
-  }, [audioTrackVersion, onSpeakingChange, peerId, speakingThreshold, stream]);
+    });
+  }, [audioTrackVersion, onSpeakingChange, peerId, stream]);
 
   useEffect(() => {
     const audioNode = audioRef.current;
@@ -672,6 +774,12 @@ const CallSection = ({
     () => (Array.isArray(students) ? students.find((student) => student.id === activeStudentId) : null),
     [students, activeStudentId]
   );
+  const micSettingsStorageKey = useMemo(() => {
+    const normalizedRole = String(role || 'user').trim() || 'user';
+    const normalizedUserId = String(userId || '').trim();
+    if (!normalizedUserId) return '';
+    return `${RTC_MIC_SETTINGS_STORAGE_KEY_PREFIX}:${normalizedRole}:${normalizedUserId}`;
+  }, [role, userId]);
 
   const [status, setStatus] = useState('idle');
   const [socketStatus, setSocketStatus] = useState('disconnected');
@@ -688,7 +796,12 @@ const CallSection = ({
   const [presencePeers, setPresencePeers] = useState([]);
   const [speakingByPeer, setSpeakingByPeer] = useState({});
   const [volumeByPeer, setVolumeByPeer] = useState({});
-  const [micSensitivityByPeer, setMicSensitivityByPeer] = useState({});
+  const [micSensitivityPercent, setMicSensitivityPercent] = useState(DEFAULT_MIC_SENSITIVITY_PERCENT);
+  const [micTriggerThresholdPercent, setMicTriggerThresholdPercent] = useState(DEFAULT_MIC_TRIGGER_THRESHOLD_PERCENT);
+  const [micSettingsReadyKey, setMicSettingsReadyKey] = useState('');
+  const [micInputLevelPercent, setMicInputLevelPercent] = useState(0);
+  const [micSettingsOpen, setMicSettingsOpen] = useState(false);
+  const [micSettingsPosition, setMicSettingsPosition] = useState(null);
   const [volumePopup, setVolumePopup] = useState(null);
   const [collapsedPanelPosition, setCollapsedPanelPosition] = useState(null);
   const [floatingPanelPosition, setFloatingPanelPosition] = useState(null);
@@ -710,6 +823,9 @@ const CallSection = ({
 
   const wsRef = useRef(null);
   const presenceWsRef = useRef(null);
+  const micSettingsWrapRef = useRef(null);
+  const micSettingsButtonRef = useRef(null);
+  const micSettingsPopupRef = useRef(null);
   const volumePopupRef = useRef(null);
   const collapsedPanelRef = useRef(null);
   const floatingPanelRef = useRef(null);
@@ -724,6 +840,16 @@ const CallSection = ({
   const remoteStreamsRef = useRef(new Map());
   const localStreamRef = useRef(new MediaStream());
   const localAudioTrackRef = useRef(null);
+  const localRawAudioTrackRef = useRef(null);
+  const localMicAudioContextRef = useRef(null);
+  const localMicSourceNodeRef = useRef(null);
+  const localMicGainNodeRef = useRef(null);
+  const localMicGateGainNodeRef = useRef(null);
+  const localMicAnalyserNodeRef = useRef(null);
+  const localMicDestinationRef = useRef(null);
+  const localMicLevelRafRef = useRef(null);
+  const localMicSpeakingOpenRef = useRef(false);
+  const micTriggerThresholdRmsRef = useRef(micTriggerThresholdPercentToRmsThreshold(DEFAULT_MIC_TRIGGER_THRESHOLD_PERCENT));
   const localCameraTrackRef = useRef(null);
   const localCameraStreamRef = useRef(null);
   const localScreenTrackRef = useRef(null);
@@ -733,12 +859,16 @@ const CallSection = ({
   const videoTrackStreamsRef = useRef(new Map());
   const wsPingTimerRef = useRef(null);
   const joinAckTimerRef = useRef(null);
+  const wsReconnectTimerRef = useRef(null);
+  const wsReconnectAttemptRef = useRef(0);
+  const startCallRef = useRef(null);
   const presencePingTimerRef = useRef(null);
   const presenceReconnectTimerRef = useRef(null);
   const wsHadErrorRef = useRef(false);
   const lastWsPongAtRef = useRef(0);
   const lastPresencePongAtRef = useRef(0);
   const roomResyncCooldownUntilRef = useRef(0);
+  const connectionQualityRef = useRef('ok');
   const statsTimerRef = useRef(null);
   const lastInboundAudioRef = useRef(new Map());
   const normalizedUiMode = ['full', 'floating', 'collapsed', 'hidden'].includes(uiMode)
@@ -754,12 +884,134 @@ const CallSection = ({
   }, [status]);
 
   useEffect(() => {
+    micTriggerThresholdRmsRef.current = micTriggerThresholdPercentToRmsThreshold(micTriggerThresholdPercent);
+  }, [micTriggerThresholdPercent]);
+
+  useEffect(() => {
+    setMicSettingsReadyKey('');
+
+    let nextMicSensitivity = DEFAULT_MIC_SENSITIVITY_PERCENT;
+    let nextMicTriggerThreshold = DEFAULT_MIC_TRIGGER_THRESHOLD_PERCENT;
+
+    if (micSettingsStorageKey && typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const raw = window.localStorage.getItem(micSettingsStorageKey);
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (parsed && typeof parsed === 'object') {
+          nextMicSensitivity = normalizeMicSensitivityPercent(Number(parsed.micSensitivityPercent));
+          nextMicTriggerThreshold = normalizeMicTriggerThresholdPercent(Number(parsed.micTriggerThresholdPercent));
+        }
+      } catch {
+        nextMicSensitivity = DEFAULT_MIC_SENSITIVITY_PERCENT;
+        nextMicTriggerThreshold = DEFAULT_MIC_TRIGGER_THRESHOLD_PERCENT;
+      }
+    }
+
+    setMicSensitivityPercent(nextMicSensitivity);
+    setMicTriggerThresholdPercent(nextMicTriggerThreshold);
+    if (micSettingsStorageKey) {
+      setMicSettingsReadyKey(micSettingsStorageKey);
+    }
+  }, [micSettingsStorageKey]);
+
+  useEffect(() => {
+    if (!micSettingsStorageKey || micSettingsReadyKey !== micSettingsStorageKey) return;
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      window.localStorage.setItem(micSettingsStorageKey, JSON.stringify({
+        micSensitivityPercent: normalizeMicSensitivityPercent(micSensitivityPercent),
+        micTriggerThresholdPercent: normalizeMicTriggerThresholdPercent(micTriggerThresholdPercent),
+      }));
+    } catch {}
+  }, [
+    micSensitivityPercent,
+    micSettingsReadyKey,
+    micSettingsStorageKey,
+    micTriggerThresholdPercent,
+  ]);
+
+  useEffect(() => {
     onStatusChange?.(status);
   }, [onStatusChange, status]);
 
   const applyStatus = useCallback((nextStatus) => {
     statusRef.current = nextStatus;
     setStatus(nextStatus);
+  }, []);
+
+  const clearWsReconnectTimer = useCallback(() => {
+    if (!wsReconnectTimerRef.current) return;
+    clearTimeout(wsReconnectTimerRef.current);
+    wsReconnectTimerRef.current = null;
+  }, []);
+
+  const resetWsReconnectState = useCallback(() => {
+    clearWsReconnectTimer();
+    wsReconnectAttemptRef.current = 0;
+  }, [clearWsReconnectTimer]);
+
+  const scheduleWsReconnect = useCallback((reasonText = '') => {
+    if (manualCloseRef.current || !roomId) return false;
+    if (wsReconnectTimerRef.current) return true;
+    const nextAttempt = wsReconnectAttemptRef.current + 1;
+    if (nextAttempt > WS_RECONNECT_MAX_ATTEMPTS) {
+      setError('Не удалось восстановить соединение созвона. Подключитесь заново.');
+      return false;
+    }
+    wsReconnectAttemptRef.current = nextAttempt;
+    const baseDelay = Math.min(
+      WS_RECONNECT_MAX_DELAY_MS,
+      WS_RECONNECT_BASE_DELAY_MS * (2 ** Math.max(0, nextAttempt - 1))
+    );
+    const jitter = Math.floor(Math.random() * WS_RECONNECT_JITTER_MS);
+    const delay = baseDelay + jitter;
+    const reason = String(reasonText || '').trim();
+    setError(reason || `Потеряно соединение. Переподключение (${nextAttempt}/${WS_RECONNECT_MAX_ATTEMPTS})...`);
+    wsReconnectTimerRef.current = setTimeout(() => {
+      wsReconnectTimerRef.current = null;
+      if (manualCloseRef.current || !roomId) return;
+      const callStarter = startCallRef.current;
+      if (typeof callStarter === 'function') {
+        callStarter({ isReconnect: true });
+      }
+    }, delay);
+    return true;
+  }, [roomId]);
+
+  const updateMicSettingsPosition = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const anchorNode = micSettingsButtonRef.current;
+    if (!anchorNode) return;
+
+    const anchorRect = anchorNode.getBoundingClientRect();
+    const popupNode = micSettingsPopupRef.current;
+    const popupHeight = popupNode?.getBoundingClientRect?.().height || MIC_SETTINGS_POPUP_ESTIMATED_HEIGHT;
+    const popupWidth = Math.min(
+      MIC_SETTINGS_POPUP_WIDTH,
+      Math.max(260, window.innerWidth - (MIC_SETTINGS_POPUP_MARGIN * 2))
+    );
+
+    const maxLeft = Math.max(MIC_SETTINGS_POPUP_MARGIN, window.innerWidth - popupWidth - MIC_SETTINGS_POPUP_MARGIN);
+    const left = clampToRange(anchorRect.right - popupWidth, MIC_SETTINGS_POPUP_MARGIN, maxLeft);
+
+    let top = anchorRect.bottom + MIC_SETTINGS_POPUP_OFFSET;
+    if (top + popupHeight + MIC_SETTINGS_POPUP_MARGIN > window.innerHeight) {
+      top = anchorRect.top - popupHeight - MIC_SETTINGS_POPUP_OFFSET;
+    }
+    const maxTop = Math.max(MIC_SETTINGS_POPUP_MARGIN, window.innerHeight - popupHeight - MIC_SETTINGS_POPUP_MARGIN);
+    top = clampToRange(top, MIC_SETTINGS_POPUP_MARGIN, maxTop);
+
+    setMicSettingsPosition((prev) => {
+      if (
+        prev
+        && Math.abs(prev.left - left) < 0.5
+        && Math.abs(prev.top - top) < 0.5
+        && Math.abs(prev.width - popupWidth) < 0.5
+      ) {
+        return prev;
+      }
+      return { left, top, width: popupWidth };
+    });
   }, []);
 
   const refreshPeerConnectionSummary = useCallback(() => {
@@ -791,38 +1043,64 @@ const CallSection = ({
     setPeerConnectionSummary(next);
   }, []);
 
-  const tuneAudioSender = useCallback((sender) => {
+  const tuneAudioSender = useCallback((sender, qualityOverride) => {
     if (!sender || typeof sender.getParameters !== 'function') return;
+    const quality = normalizeConnectionQuality(qualityOverride || connectionQualityRef.current);
+    const profile = getConnectionAdaptiveProfile(quality);
     try {
       const params = sender.getParameters() || {};
       const encodings = Array.isArray(params.encodings) ? params.encodings : [{}];
       encodings[0] = {
         ...(encodings[0] || {}),
-        maxBitrate: AUDIO_MAX_BITRATE,
-        dtx: 'disabled',
+        maxBitrate: profile.audioBitrate,
+        dtx: 'enabled',
+        priority: quality === 'poor' ? 'high' : 'medium',
       };
       params.encodings = encodings;
       sender.setParameters(params).catch(() => {});
     } catch {}
   }, []);
 
-  const tuneVideoSender = useCallback((sender) => {
+  const tuneVideoSender = useCallback((sender, options = {}) => {
     if (!sender || typeof sender.getParameters !== 'function') return;
+    const kind = options?.kind === 'camera' ? 'camera' : 'screen';
+    const quality = normalizeConnectionQuality(options?.quality || connectionQualityRef.current);
+    const profile = getConnectionAdaptiveProfile(quality);
+    const isCamera = kind === 'camera';
+    const maxBitrate = isCamera ? profile.cameraBitrate : profile.screenBitrate;
+    const maxFramerate = isCamera ? profile.cameraFramerate : profile.screenFramerate;
+    const scaleResolutionDownBy = Math.max(1, isCamera ? profile.cameraScale : profile.screenScale);
     try {
       const params = sender.getParameters() || {};
       const encodings = Array.isArray(params.encodings) ? params.encodings : [{}];
       encodings[0] = {
         ...(encodings[0] || {}),
-        maxBitrate: VIDEO_MAX_BITRATE,
-        maxFramerate: SCREEN_MAX_FRAMERATE,
-        scaleResolutionDownBy: 1,
-        priority: 'high',
+        maxBitrate,
+        maxFramerate,
+        scaleResolutionDownBy,
+        priority: isCamera ? (quality === 'poor' ? 'high' : 'medium') : 'high',
       };
-      params.degradationPreference = 'maintain-resolution';
+      params.degradationPreference = profile.degradationPreference;
       params.encodings = encodings;
       sender.setParameters(params).catch(() => {});
     } catch {}
   }, []);
+
+  const retuneAllPeerSenders = useCallback((qualityOverride) => {
+    const quality = normalizeConnectionQuality(qualityOverride || connectionQualityRef.current);
+    peersRef.current.forEach((peerState) => {
+      if (!peerState) return;
+      if (peerState.audioSender) {
+        tuneAudioSender(peerState.audioSender, quality);
+      }
+      if (peerState.screenSender) {
+        tuneVideoSender(peerState.screenSender, { kind: 'screen', quality });
+      }
+      if (peerState.cameraSender) {
+        tuneVideoSender(peerState.cameraSender, { kind: 'camera', quality });
+      }
+    });
+  }, [tuneAudioSender, tuneVideoSender]);
 
   const syncRemotePeers = useCallback(() => {
     const next = [];
@@ -1037,14 +1315,15 @@ const CallSection = ({
 
     const syncVideoSender = (senderKey, track) => {
       const currentSender = peerState[senderKey] || null;
+      const videoKind = senderKey === 'cameraSender' ? 'camera' : 'screen';
       if (track) {
         if (currentSender) {
           currentSender.replaceTrack(track).catch(() => {});
-          tuneVideoSender(currentSender);
+          tuneVideoSender(currentSender, { kind: videoKind });
           return;
         }
         peerState[senderKey] = pc.addTrack(track, localStreamRef.current);
-        tuneVideoSender(peerState[senderKey]);
+        tuneVideoSender(peerState[senderKey], { kind: videoKind });
         return;
       }
       if (!currentSender) return;
@@ -1069,6 +1348,7 @@ const CallSection = ({
       statsTimerRef.current = null;
     }
     lastInboundAudioRef.current.clear();
+    connectionQualityRef.current = 'ok';
     setConnectionStats({
       quality: 'unknown',
       lossPercent: 0,
@@ -1080,6 +1360,7 @@ const CallSection = ({
   const pollConnectionStats = useCallback(async () => {
     const peers = Array.from(peersRef.current.entries());
     if (!peers.length) {
+      connectionQualityRef.current = 'ok';
       setConnectionStats({
         quality: 'unknown',
         lossPercent: 0,
@@ -1144,14 +1425,19 @@ const CallSection = ({
       : lossPercent > 3 || jitterMs > 25 || rttMs > 130
         ? 'ok'
         : 'good';
+    const normalizedQuality = normalizeConnectionQuality(quality);
+    if (connectionQualityRef.current !== normalizedQuality) {
+      connectionQualityRef.current = normalizedQuality;
+      retuneAllPeerSenders(normalizedQuality);
+    }
 
     setConnectionStats({
-      quality,
+      quality: normalizedQuality,
       lossPercent,
       jitterMs,
       rttMs,
     });
-  }, []);
+  }, [retuneAllPeerSenders]);
 
   const startConnectionStatsPolling = useCallback(() => {
     if (statsTimerRef.current) return;
@@ -1229,12 +1515,6 @@ const CallSection = ({
       delete next[normalizedPeerId];
       return next;
     });
-    setMicSensitivityByPeer((prev) => {
-      if (!Object.prototype.hasOwnProperty.call(prev, normalizedPeerId)) return prev;
-      const next = { ...prev };
-      delete next[normalizedPeerId];
-      return next;
-    });
     refreshPeerConnectionSummary();
     syncRemotePeers();
   }, [refreshPeerConnectionSummary, syncRemotePeers]);
@@ -1288,31 +1568,35 @@ const CallSection = ({
     });
   }, []);
 
-  const setPeerMicSensitivityPercent = useCallback((peerId, percentValue) => {
-    const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
-    if (!normalizedPeerId) return;
-    const nextPercent = normalizePeerMicSensitivityPercent(Number(percentValue));
-    setMicSensitivityByPeer((prev) => {
-      const currentPercent = normalizePeerMicSensitivityPercent(prev[normalizedPeerId]);
-      if (currentPercent === nextPercent) return prev;
-      return {
-        ...prev,
-        [normalizedPeerId]: nextPercent,
-      };
+  const setMicSensitivityPercentSafe = useCallback((nextValue) => {
+    setMicSensitivityPercent((prev) => {
+      const currentPercent = normalizeMicSensitivityPercent(prev);
+      const nextPercent = normalizeMicSensitivityPercent(Number(nextValue));
+      return currentPercent === nextPercent ? prev : nextPercent;
     });
   }, []);
 
-  const adjustPeerMicSensitivity = useCallback((peerId, percentDelta) => {
-    const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
-    if (!normalizedPeerId) return;
-    setMicSensitivityByPeer((prev) => {
-      const currentPercent = normalizePeerMicSensitivityPercent(prev[normalizedPeerId]);
-      const nextPercent = normalizePeerMicSensitivityPercent(currentPercent + Number(percentDelta || 0));
-      if (currentPercent === nextPercent) return prev;
-      return {
-        ...prev,
-        [normalizedPeerId]: nextPercent,
-      };
+  const adjustMicSensitivity = useCallback((percentDelta) => {
+    setMicSensitivityPercent((prev) => {
+      const currentPercent = normalizeMicSensitivityPercent(prev);
+      const nextPercent = normalizeMicSensitivityPercent(currentPercent + Number(percentDelta || 0));
+      return currentPercent === nextPercent ? prev : nextPercent;
+    });
+  }, []);
+
+  const setMicTriggerThresholdPercentSafe = useCallback((nextValue) => {
+    setMicTriggerThresholdPercent((prev) => {
+      const currentPercent = normalizeMicTriggerThresholdPercent(prev);
+      const nextPercent = normalizeMicTriggerThresholdPercent(Number(nextValue));
+      return currentPercent === nextPercent ? prev : nextPercent;
+    });
+  }, []);
+
+  const adjustMicTriggerThreshold = useCallback((percentDelta) => {
+    setMicTriggerThresholdPercent((prev) => {
+      const currentPercent = normalizeMicTriggerThresholdPercent(prev);
+      const nextPercent = normalizeMicTriggerThresholdPercent(currentPercent + Number(percentDelta || 0));
+      return currentPercent === nextPercent ? prev : nextPercent;
     });
   }, []);
 
@@ -1328,7 +1612,7 @@ const CallSection = ({
     event.stopPropagation();
 
     const popupWidth = 244;
-    const popupHeight = 188;
+    const popupHeight = 132;
     const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1024;
     const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 768;
     const margin = 8;
@@ -1364,6 +1648,14 @@ const CallSection = ({
   const startPanelDrag = useCallback((event, panelKind) => {
     if (!event || panelKind === 'full') return;
     if (event.button !== 0) return;
+    const dragTarget = event.target;
+    if (
+      typeof Element !== 'undefined'
+      && dragTarget instanceof Element
+      && dragTarget.closest('button, a, input, select, textarea, [role="button"], [data-no-panel-drag]')
+    ) {
+      return;
+    }
     const targetRef = panelKind === 'collapsed' ? collapsedPanelRef.current : floatingPanelRef.current;
     if (!targetRef) return;
     event.preventDefault();
@@ -1428,16 +1720,144 @@ const CallSection = ({
     window.addEventListener('pointercancel', onPointerUp);
   }, [collapsedPanelPosition, floatingPanelPosition, stopPanelDrag]);
 
+  const disposeLocalMicProcessing = useCallback(() => {
+    const sourceNode = localMicSourceNodeRef.current;
+    const gainNode = localMicGainNodeRef.current;
+    const gateGainNode = localMicGateGainNodeRef.current;
+    const analyserNode = localMicAnalyserNodeRef.current;
+    const destination = localMicDestinationRef.current;
+    const audioContext = localMicAudioContextRef.current;
+    const levelRafId = localMicLevelRafRef.current;
+
+    localMicSourceNodeRef.current = null;
+    localMicGainNodeRef.current = null;
+    localMicGateGainNodeRef.current = null;
+    localMicAnalyserNodeRef.current = null;
+    localMicDestinationRef.current = null;
+    localMicAudioContextRef.current = null;
+    localMicLevelRafRef.current = null;
+    localMicSpeakingOpenRef.current = false;
+
+    if (levelRafId) {
+      cancelAnimationFrame(levelRafId);
+    }
+    try { sourceNode?.disconnect?.(); } catch {}
+    try { gainNode?.disconnect?.(); } catch {}
+    try { gateGainNode?.disconnect?.(); } catch {}
+    try { analyserNode?.disconnect?.(); } catch {}
+    try {
+      destination?.stream?.getTracks?.().forEach((track) => {
+        try { track.stop(); } catch {}
+      });
+    } catch {}
+    audioContext?.close?.().catch(() => {});
+    setSelfSpeaking(false);
+    setMicInputLevelPercent(0);
+  }, []);
+
+  const createLocalProcessedMicTrack = useCallback((rawTrack) => {
+    if (!rawTrack || rawTrack.readyState !== 'live' || typeof window === 'undefined') return rawTrack;
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return rawTrack;
+
+    try {
+      const audioContext = new AudioContextCtor();
+      const sourceStream = new MediaStream([rawTrack]);
+      const sourceNode = audioContext.createMediaStreamSource(sourceStream);
+      const gainNode = audioContext.createGain();
+      gainNode.gain.value = micSensitivityPercentToGain(micSensitivityPercent);
+      const gateGainNode = audioContext.createGain();
+      gateGainNode.gain.value = 0;
+      const analyserNode = audioContext.createAnalyser();
+      analyserNode.fftSize = SPEAKING_ANALYSER_FFT_SIZE;
+      analyserNode.smoothingTimeConstant = 0.6;
+      const destination = audioContext.createMediaStreamDestination();
+      sourceNode.connect(analyserNode);
+      sourceNode.connect(gainNode);
+      gainNode.connect(gateGainNode);
+      gateGainNode.connect(destination);
+      audioContext.resume?.().catch(() => {});
+      const processedTrack = destination.stream.getAudioTracks()[0] || null;
+      if (!processedTrack) {
+        try { sourceNode.disconnect(); } catch {}
+        try { gainNode.disconnect(); } catch {}
+        try { gateGainNode.disconnect(); } catch {}
+        try { analyserNode.disconnect(); } catch {}
+        audioContext.close?.().catch(() => {});
+        return rawTrack;
+      }
+
+      localMicAudioContextRef.current = audioContext;
+      localMicSourceNodeRef.current = sourceNode;
+      localMicGainNodeRef.current = gainNode;
+      localMicGateGainNodeRef.current = gateGainNode;
+      localMicAnalyserNodeRef.current = analyserNode;
+      localMicDestinationRef.current = destination;
+      localMicSpeakingOpenRef.current = false;
+
+      const levelData = new Float32Array(analyserNode.fftSize);
+      const monitorMicLevel = () => {
+        if (
+          localMicAudioContextRef.current !== audioContext
+          || localMicAnalyserNodeRef.current !== analyserNode
+          || rawTrack.readyState !== 'live'
+        ) {
+          return;
+        }
+
+        analyserNode.getFloatTimeDomainData(levelData);
+        let sumSquares = 0;
+        for (let index = 0; index < levelData.length; index += 1) {
+          const sample = levelData[index];
+          sumSquares += sample * sample;
+        }
+        const rms = Math.sqrt(sumSquares / levelData.length);
+        const threshold = micTriggerThresholdRmsRef.current;
+        const gateOpen = Number.isFinite(threshold) ? rms >= threshold : rms >= SPEAKING_RMS_THRESHOLD;
+        if (localMicSpeakingOpenRef.current !== gateOpen) {
+          localMicSpeakingOpenRef.current = gateOpen;
+          setSelfSpeaking(gateOpen);
+        }
+        try {
+          gateGainNode.gain.setTargetAtTime(gateOpen ? 1 : 0, audioContext.currentTime, gateOpen ? 0.012 : 0.028);
+        } catch {
+          gateGainNode.gain.value = gateOpen ? 1 : 0;
+        }
+
+        const nextLevel = rmsToMicLevelPercent(rms);
+        setMicInputLevelPercent((prev) => (prev === nextLevel ? prev : nextLevel));
+
+        localMicLevelRafRef.current = requestAnimationFrame(monitorMicLevel);
+      };
+      localMicLevelRafRef.current = requestAnimationFrame(monitorMicLevel);
+      try {
+        processedTrack.contentHint = 'speech';
+      } catch {}
+      return processedTrack;
+    } catch {
+      return rawTrack;
+    }
+  }, [micSensitivityPercent]);
+
   const stopMicTrack = useCallback((withSync = true) => {
     const track = localAudioTrackRef.current;
-    if (!track) return;
-    track.onended = null;
-    try { track.stop(); } catch {}
+    const rawTrack = localRawAudioTrackRef.current;
+    if (!track && !rawTrack) return;
+    if (track) {
+      track.onended = null;
+      try { track.stop(); } catch {}
+      localStreamRef.current.removeTrack(track);
+    }
+    if (rawTrack && rawTrack !== track) {
+      rawTrack.onended = null;
+      try { rawTrack.stop(); } catch {}
+    }
     localAudioTrackRef.current = null;
-    localStreamRef.current.removeTrack(track);
+    localRawAudioTrackRef.current = null;
+    disposeLocalMicProcessing();
     setMicEnabled(false);
     if (withSync) syncLocalTracksToAllPeers();
-  }, [syncLocalTracksToAllPeers]);
+  }, [disposeLocalMicProcessing, syncLocalTracksToAllPeers]);
 
   const stopCameraTrack = useCallback((withSync = true) => {
     const track = localCameraTrackRef.current;
@@ -1481,10 +1901,26 @@ const CallSection = ({
     const existing = localAudioTrackRef.current;
     if (existing && existing.readyState === 'live') {
       existing.enabled = true;
+      const rawTrack = localRawAudioTrackRef.current;
+      if (rawTrack && rawTrack.readyState === 'live') {
+        rawTrack.enabled = true;
+      }
       setMicEnabled(true);
       syncLocalTracksToAllPeers();
       return existing;
     }
+
+    if (existing) {
+      localStreamRef.current.removeTrack(existing);
+      localAudioTrackRef.current = null;
+    }
+    const staleRawTrack = localRawAudioTrackRef.current;
+    if (staleRawTrack) {
+      staleRawTrack.onended = null;
+      try { staleRawTrack.stop(); } catch {}
+      localRawAudioTrackRef.current = null;
+    }
+    disposeLocalMicProcessing();
 
     if (!navigator?.mediaDevices?.getUserMedia) {
       throw new Error('Браузер не поддерживает доступ к микрофону.');
@@ -1498,37 +1934,51 @@ const CallSection = ({
       },
       video: false,
     });
-    const track = stream.getAudioTracks()[0];
-    if (!track) {
+    const rawTrack = stream.getAudioTracks()[0];
+    if (!rawTrack) {
       throw new Error('Не удалось получить аудиодорожку.');
     }
     try {
-      track.contentHint = 'speech';
+      rawTrack.contentHint = 'speech';
     } catch {}
 
     stream.getTracks().forEach((streamTrack) => {
-      if (streamTrack !== track) {
+      if (streamTrack !== rawTrack) {
         try { streamTrack.stop(); } catch {}
       }
     });
 
-    track.enabled = true;
-    track.onended = () => {
-      if (localAudioTrackRef.current !== track) return;
+    localRawAudioTrackRef.current = rawTrack;
+    const outputTrack = createLocalProcessedMicTrack(rawTrack);
+    outputTrack.enabled = true;
+    rawTrack.enabled = true;
+
+    const handleMicEnded = () => {
+      if (localAudioTrackRef.current !== outputTrack && localRawAudioTrackRef.current !== rawTrack) return;
+      outputTrack.onended = null;
+      rawTrack.onended = null;
+      if (localAudioTrackRef.current) {
+        localStreamRef.current.removeTrack(localAudioTrackRef.current);
+      }
       localAudioTrackRef.current = null;
-      localStreamRef.current.removeTrack(track);
+      localRawAudioTrackRef.current = null;
       setMicEnabled(false);
+      disposeLocalMicProcessing();
       syncLocalTracksToAllPeers();
     };
+    rawTrack.onended = handleMicEnded;
+    if (outputTrack !== rawTrack) {
+      outputTrack.onended = handleMicEnded;
+    }
 
-    localAudioTrackRef.current = track;
-    if (!localStreamRef.current.getAudioTracks().includes(track)) {
-      localStreamRef.current.addTrack(track);
+    localAudioTrackRef.current = outputTrack;
+    if (!localStreamRef.current.getAudioTracks().includes(outputTrack)) {
+      localStreamRef.current.addTrack(outputTrack);
     }
     setMicEnabled(true);
     syncLocalTracksToAllPeers();
-    return track;
-  }, [syncLocalTracksToAllPeers]);
+    return outputTrack;
+  }, [createLocalProcessedMicTrack, disposeLocalMicProcessing, syncLocalTracksToAllPeers]);
 
   const ensureCameraTrack = useCallback(async () => {
     const existing = localCameraTrackRef.current;
@@ -1606,7 +2056,7 @@ const CallSection = ({
       return existing;
     }
 
-    const pc = new RTCPeerConnection({ iceServers: rtcIceServers });
+    const pc = new RTCPeerConnection(getRtcPeerConnectionConfig(rtcIceServers));
     const peerState = {
       peerId: normalizedPeerId,
       pc,
@@ -1937,6 +2387,7 @@ const CallSection = ({
 
     if (type === 'joined') {
       clearJoinAckTimer();
+      resetWsReconnectState();
       const normalizedRoomId = typeof payload?.roomId === 'string' ? payload.roomId.trim() : '';
       activeRoomRef.current = normalizedRoomId;
       const nextSelfId = typeof payload?.selfId === 'string' ? payload.selfId.trim() : '';
@@ -1999,12 +2450,13 @@ const CallSection = ({
         console.error('[call] signal handling failed:', signalError);
       });
     }
-  }, [applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, makeOfferToPeer, removePeer, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
+  }, [applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, makeOfferToPeer, removePeer, resetWsReconnectState, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
 
   const stopCall = useCallback(() => {
     manualCloseRef.current = true;
     wsHadErrorRef.current = false;
     clearJoinAckTimer();
+    resetWsReconnectState();
     stopConnectionStatsPolling();
     if (wsPingTimerRef.current) {
       clearInterval(wsPingTimerRef.current);
@@ -2031,9 +2483,10 @@ const CallSection = ({
     stopScreenTrack(false);
     stopCameraTrack(false);
     stopMicTrack(false);
-  }, [applyStatus, clearJoinAckTimer, closeAllPeers, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
+  }, [applyStatus, clearJoinAckTimer, closeAllPeers, resetWsReconnectState, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
 
-  const startCall = useCallback(async () => {
+  const startCall = useCallback(async (options = {}) => {
+    const isReconnect = Boolean(options?.isReconnect);
     if (!roomId) {
       setPresenceError('');
       setError('Сначала выбери ученика для созвона.');
@@ -2042,6 +2495,11 @@ const CallSection = ({
     if (!rtcWsUrl) {
       setError('Не удалось определить WebSocket-адрес для созвона.');
       return;
+    }
+    if (isReconnect) {
+      clearWsReconnectTimer();
+    } else {
+      resetWsReconnectState();
     }
     const existingWs = wsRef.current;
     if (existingWs && existingWs.readyState === WebSocket.OPEN) {
@@ -2066,7 +2524,9 @@ const CallSection = ({
       return;
     }
 
-    setError('');
+    if (!isReconnect) {
+      setError('');
+    }
     setPresenceError('');
     applyStatus('connecting');
     setSocketStatus('connecting');
@@ -2141,10 +2601,18 @@ const CallSection = ({
         selfClientIdRef.current = '';
         setSelfClientId('');
         closeAllPeers();
-        stopScreenTrack(false);
-        stopCameraTrack(false);
-        stopMicTrack(false);
-        if (!manualCloseRef.current && !wsHadErrorRef.current) {
+        const shouldReconnect = !manualCloseRef.current && Boolean(roomId);
+        if (shouldReconnect) {
+          const reconnectMessage = wsHadErrorRef.current
+            ? 'Сигнальный канал оборвался. Переподключаемся...'
+            : 'Соединение для созвона разорвано. Переподключаемся...';
+          scheduleWsReconnect(reconnectMessage);
+        } else {
+          stopScreenTrack(false);
+          stopCameraTrack(false);
+          stopMicTrack(false);
+        }
+        if (!shouldReconnect && !manualCloseRef.current && !wsHadErrorRef.current) {
           setError('Соединение для созвона разорвано.');
         }
         wsHadErrorRef.current = false;
@@ -2155,12 +2623,30 @@ const CallSection = ({
       applyStatus('idle');
       setSocketStatus('disconnected');
       closeAllPeers();
-      stopScreenTrack(false);
-      stopCameraTrack(false);
-      stopMicTrack(false);
-      setError(normalizeErrorMessage(connectError, 'Не удалось открыть сигнальный канал.'));
+      const connectErrorText = normalizeErrorMessage(connectError, 'Не удалось открыть сигнальный канал.');
+      if (isReconnect) {
+        const scheduled = scheduleWsReconnect(connectErrorText);
+        if (!scheduled) {
+          stopScreenTrack(false);
+          stopCameraTrack(false);
+          stopMicTrack(false);
+        }
+      } else {
+        stopScreenTrack(false);
+        stopCameraTrack(false);
+        stopMicTrack(false);
+        setError(connectErrorText);
+      }
     }
-  }, [applyStatus, clearJoinAckTimer, closeAllPeers, ensureMicTrack, handleWsMessage, roomId, rtcWsUrl, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
+  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, resetWsReconnectState, roomId, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
+
+  useEffect(() => {
+    startCallRef.current = startCall;
+  }, [startCall]);
+
+  useEffect(() => () => {
+    clearWsReconnectTimer();
+  }, [clearWsReconnectTimer]);
 
   const toggleMic = useCallback(async () => {
     if (micBusy) return;
@@ -2541,21 +3027,72 @@ const CallSection = ({
   }, [stopCall]);
 
   useEffect(() => {
-    if (status !== 'connected' || !micEnabled) {
-      setSelfSpeaking(false);
-      return undefined;
-    }
-    const localTrack = localAudioTrackRef.current;
-    return observeAudioTrackSpeaking(localTrack, (isSpeaking) => {
-      setSelfSpeaking(isSpeaking);
-    });
+    if (status === 'connected' && micEnabled) return;
+    setSelfSpeaking(false);
+    setMicInputLevelPercent(0);
   }, [micEnabled, status]);
+
+  useEffect(() => {
+    const gainNode = localMicGainNodeRef.current;
+    const audioContext = localMicAudioContextRef.current;
+    if (!gainNode || !audioContext) return;
+    const nextGain = micSensitivityPercentToGain(micSensitivityPercent);
+    try {
+      gainNode.gain.setTargetAtTime(nextGain, audioContext.currentTime, 0.02);
+    } catch {
+      gainNode.gain.value = nextGain;
+    }
+  }, [micSensitivityPercent]);
 
   useEffect(() => {
     if (status === 'connected') return;
     setSpeakingByPeer({});
     setSelfSpeaking(false);
+    setMicInputLevelPercent(0);
+    setMicSettingsOpen(false);
+    setMicSettingsPosition(null);
   }, [status]);
+
+  useEffect(() => {
+    if (!micSettingsOpen) return undefined;
+    const handlePointerDown = (event) => {
+      const wrapNode = micSettingsWrapRef.current;
+      const popupNode = micSettingsPopupRef.current;
+      if ((wrapNode && wrapNode.contains(event.target)) || (popupNode && popupNode.contains(event.target))) return;
+      setMicSettingsOpen(false);
+      setMicSettingsPosition(null);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setMicSettingsOpen(false);
+        setMicSettingsPosition(null);
+      }
+    };
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [micSettingsOpen]);
+
+  useEffect(() => {
+    if (!micSettingsOpen) return undefined;
+    updateMicSettingsPosition();
+    let rafId = requestAnimationFrame(() => {
+      updateMicSettingsPosition();
+    });
+    const handleViewportChange = () => {
+      updateMicSettingsPosition();
+    };
+    window.addEventListener('resize', handleViewportChange);
+    window.addEventListener('scroll', handleViewportChange, true);
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('scroll', handleViewportChange, true);
+    };
+  }, [micSettingsOpen, updateMicSettingsPosition]);
 
   useEffect(() => {
     if (!volumePopup) return;
@@ -2862,6 +3399,11 @@ const CallSection = ({
         ? 'плохо'
         : 'нет данных';
 
+  const normalizedMicInputLevelPercent = clampToRange(Math.round(Number(micInputLevelPercent) || 0), 0, 100);
+  const micTriggerThresholdMeterPercent = rmsToMicLevelPercent(
+    micTriggerThresholdPercentToRmsThreshold(micTriggerThresholdPercent)
+  );
+
   const sectionShellClass = isDarkTheme
     ? 'relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 p-4 shadow-[0_30px_90px_rgba(2,6,23,0.5)] md:p-6'
     : 'relative overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 p-4 shadow-[0_24px_60px_rgba(15,23,42,0.12)] md:p-6';
@@ -2872,12 +3414,12 @@ const CallSection = ({
     ? 'pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-emerald-500/20 blur-3xl'
     : 'pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-sky-200/40 blur-3xl';
   const collapsedCardClass = isDarkTheme
-    ? 'flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/95 px-3 py-2 shadow-[0_14px_30px_rgba(2,6,23,0.45)] backdrop-blur'
-    : 'flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 px-3 py-2 shadow-[0_12px_26px_rgba(15,23,42,0.14)] backdrop-blur';
+    ? 'flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/95 px-3 py-2 shadow-[0_14px_30px_rgba(2,6,23,0.45)] backdrop-blur cursor-grab active:cursor-grabbing'
+    : 'flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 px-3 py-2 shadow-[0_12px_26px_rgba(15,23,42,0.14)] backdrop-blur cursor-grab active:cursor-grabbing';
   const collapsedTextClass = isDarkTheme ? 'text-slate-200' : 'text-slate-600';
   const floatingToolbarClass = isDarkTheme
-    ? 'mb-3 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2'
-    : 'mb-3 flex items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2';
+    ? 'mb-3 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 cursor-grab active:cursor-grabbing'
+    : 'mb-3 flex items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 cursor-grab active:cursor-grabbing';
   const floatingToolbarLabelClass = isDarkTheme ? 'text-slate-200' : 'text-slate-700';
   const ghostButtonClass = isDarkTheme
     ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-slate-800 text-slate-200 transition hover:bg-slate-700 cursor-grab active:cursor-grabbing'
@@ -2926,6 +3468,7 @@ const CallSection = ({
   const controlsWrapClass = isDarkTheme
     ? 'mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/10 bg-slate-900/80 p-2 backdrop-blur'
     : 'mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-slate-200/80 bg-white/85 p-2 backdrop-blur';
+  const micSensitivityLabelClass = isDarkTheme ? 'text-xs font-semibold text-slate-200' : 'text-xs font-semibold text-slate-700';
   const neutralControlClass = isDarkTheme
     ? 'border-white/15 bg-slate-800 text-slate-200 hover:bg-slate-700'
     : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100';
@@ -2947,6 +3490,28 @@ const CallSection = ({
     ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-slate-800 text-sm font-semibold text-slate-200 transition hover:bg-slate-700'
     : 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-semibold text-slate-700 transition hover:bg-slate-100';
   const popupValueClass = isDarkTheme ? 'w-10 text-right text-xs font-semibold text-slate-200' : 'w-10 text-right text-xs font-semibold text-slate-700';
+  const micSettingsButtonClass = isDarkTheme
+    ? 'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-slate-800 text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-45'
+    : 'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45';
+  const micSettingsButtonActiveClass = isDarkTheme
+    ? 'border-emerald-300/40 bg-emerald-400/20 text-emerald-100'
+    : 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  const micSettingsPopupClass = isDarkTheme
+    ? 'fixed z-[90] rounded-xl border border-white/15 bg-slate-900/95 p-3 shadow-[0_16px_34px_rgba(2,6,23,0.55)] backdrop-blur'
+    : 'fixed z-[90] rounded-xl border border-slate-200 bg-white/95 p-3 shadow-[0_16px_34px_rgba(15,23,42,0.2)] backdrop-blur';
+  const micSettingsSectionClass = isDarkTheme
+    ? 'rounded-lg border border-white/10 bg-slate-900/50 p-2'
+    : 'rounded-lg border border-slate-200/60 bg-white/70 p-2';
+  const micLevelMeterPopupTrackClass = isDarkTheme
+    ? 'relative h-2 flex-1 overflow-hidden rounded-full bg-slate-700'
+    : 'relative h-2 flex-1 overflow-hidden rounded-full bg-slate-200';
+  const micLevelMeterFillClass = isDarkTheme
+    ? 'absolute inset-y-0 left-0 rounded-full bg-slate-400/90 transition-[width] duration-100'
+    : 'absolute inset-y-0 left-0 rounded-full bg-slate-400 transition-[width] duration-100';
+  const micLevelMeterThresholdClass = isDarkTheme
+    ? 'pointer-events-none absolute -top-1 -bottom-1 w-[2px] rounded bg-emerald-300'
+    : 'pointer-events-none absolute -top-1 -bottom-1 w-[2px] rounded bg-emerald-500';
+  const micLevelMeterHintClass = isDarkTheme ? 'text-[11px] text-slate-400' : 'text-[11px] text-slate-500';
   const videoTileClass = isDarkTheme
     ? 'relative h-24 w-36 overflow-hidden rounded-xl border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)] md:h-28 md:w-44'
     : 'relative h-24 w-36 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-[0_8px_20px_rgba(15,23,42,0.14)] md:h-28 md:w-44';
@@ -2994,11 +3559,11 @@ const CallSection = ({
         ref={collapsedPanelRef}
         className="fixed left-1/2 top-2 z-50 w-[min(96vw,640px)] -translate-x-1/2"
         style={collapsedPanelStyle}
+        onPointerDown={(event) => startPanelDrag(event, 'collapsed')}
       >
         <div className={collapsedCardClass}>
           <button
             type="button"
-            onPointerDown={(event) => startPanelDrag(event, 'collapsed')}
             className={ghostButtonClass}
             title="Переместить панель"
           >
@@ -3042,7 +3607,6 @@ const CallSection = ({
             stream={peer.stream || null}
             onSpeakingChange={handlePeerSpeakingChange}
             volume={normalizePeerVolume(volumeByPeer[peer.peerId])}
-            speakingThreshold={peerMicSensitivityPercentToThreshold(micSensitivityByPeer[peer.peerId])}
           />
         ))}
         {collapsedPanelPortal}
@@ -3065,11 +3629,10 @@ const CallSection = ({
 
         <div className="relative z-10">
           {isFloatingUi && (
-            <div className={floatingToolbarClass}>
+            <div className={floatingToolbarClass} onPointerDown={(event) => startPanelDrag(event, 'floating')}>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onPointerDown={(event) => startPanelDrag(event, 'floating')}
                   className={ghostButtonClass}
                   title="Переместить панель"
                 >
@@ -3136,7 +3699,6 @@ const CallSection = ({
                 stream={peer.stream || null}
                 onSpeakingChange={handlePeerSpeakingChange}
                 volume={normalizePeerVolume(volumeByPeer[peer.peerId])}
-                speakingThreshold={peerMicSensitivityPercentToThreshold(micSensitivityByPeer[peer.peerId])}
               />
             ))}
 
@@ -3287,20 +3849,41 @@ const CallSection = ({
             >
               <PhoneOff size={18} />
             </button>
-            <button
-              type="button"
-              onClick={toggleMic}
-              disabled={!canToggleMic}
-              className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition disabled:cursor-not-allowed disabled:opacity-45 ${
-                micEnabled
-                  ? micOnControlClass
-                  : neutralControlClass
-              }`}
-              aria-label={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
-              title={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
-            >
-              {micBusy ? <Loader2 size={18} className="animate-spin" /> : (micEnabled ? <Mic size={18} /> : <MicOff size={18} />)}
-            </button>
+            <div ref={micSettingsWrapRef} className="relative inline-flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleMic}
+                disabled={!canToggleMic}
+                className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                  micEnabled
+                    ? micOnControlClass
+                    : neutralControlClass
+                }`}
+                aria-label={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
+                title={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
+              >
+                {micBusy ? <Loader2 size={18} className="animate-spin" /> : (micEnabled ? <Mic size={18} /> : <MicOff size={18} />)}
+              </button>
+              <button
+                ref={micSettingsButtonRef}
+                type="button"
+                onClick={() => {
+                  setMicSettingsOpen((prev) => {
+                    const next = !prev;
+                    if (!next) {
+                      setMicSettingsPosition(null);
+                    }
+                    return next;
+                  });
+                }}
+                disabled={!canToggleMic}
+                className={`${micSettingsButtonClass} ${micSettingsOpen ? micSettingsButtonActiveClass : ''}`}
+                aria-label="Настройки микрофона"
+                title="Настройки микрофона"
+              >
+                <Settings size={16} />
+              </button>
+            </div>
             <button
               type="button"
               onClick={toggleCamera}
@@ -3330,6 +3913,113 @@ const CallSection = ({
               {screenBusy ? <Loader2 size={18} className="animate-spin" /> : (screenSharing ? <MonitorX size={18} /> : <MonitorUp size={18} />)}
             </button>
           </div>
+
+          {micSettingsOpen && micSettingsPosition && typeof document !== 'undefined' && createPortal(
+            <div
+              ref={micSettingsPopupRef}
+              className={micSettingsPopupClass}
+              style={{
+                left: `${micSettingsPosition.left}px`,
+                top: `${micSettingsPosition.top}px`,
+                width: `${micSettingsPosition.width}px`,
+              }}
+              onMouseDown={(event) => event.stopPropagation()}
+              onContextMenu={(event) => event.preventDefault()}
+            >
+              <p className={popupTitleClass}>Настройки микрофона</p>
+              <div className="mt-3 flex flex-col gap-3">
+                <div className={micSettingsSectionClass}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className={micSensitivityLabelClass}>Усиление микрофона</span>
+                    <span className={popupValueClass}>{normalizeMicSensitivityPercent(micSensitivityPercent)}%</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => adjustMicSensitivity(-MIC_SENSITIVITY_STEP_PERCENT)}
+                      className={popupButtonClass}
+                      title="Уменьшить усиление микрофона"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="range"
+                      min={MIN_MIC_SENSITIVITY_PERCENT}
+                      max={MAX_MIC_SENSITIVITY_PERCENT}
+                      step={5}
+                      value={normalizeMicSensitivityPercent(micSensitivityPercent)}
+                      onChange={(event) => {
+                        setMicSensitivityPercentSafe(Number(event.target.value));
+                      }}
+                      className={popupRangeClass}
+                      aria-label="Усиление вашего микрофона"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => adjustMicSensitivity(MIC_SENSITIVITY_STEP_PERCENT)}
+                      className={popupButtonClass}
+                      title="Увеличить усиление микрофона"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                <div className={micSettingsSectionClass}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className={micSensitivityLabelClass}>Порог срабатывания</span>
+                    <span className={popupValueClass}>{normalizeMicTriggerThresholdPercent(micTriggerThresholdPercent)}%</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => adjustMicTriggerThreshold(-MIC_TRIGGER_THRESHOLD_STEP_PERCENT)}
+                      className={popupButtonClass}
+                      title="Понизить порог срабатывания"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="range"
+                      min={MIN_MIC_TRIGGER_THRESHOLD_PERCENT}
+                      max={MAX_MIC_TRIGGER_THRESHOLD_PERCENT}
+                      step={5}
+                      value={normalizeMicTriggerThresholdPercent(micTriggerThresholdPercent)}
+                      onChange={(event) => {
+                        setMicTriggerThresholdPercentSafe(Number(event.target.value));
+                      }}
+                      className={popupRangeClass}
+                      aria-label="Порог срабатывания микрофона"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => adjustMicTriggerThreshold(MIC_TRIGGER_THRESHOLD_STEP_PERCENT)}
+                      className={popupButtonClass}
+                      title="Повысить порог срабатывания"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <div className={micLevelMeterPopupTrackClass} aria-hidden="true">
+                      <div
+                        className={micLevelMeterFillClass}
+                        style={{ width: `${normalizedMicInputLevelPercent}%` }}
+                      />
+                      <div
+                        className={micLevelMeterThresholdClass}
+                        style={{ left: `calc(${micTriggerThresholdMeterPercent}% - 1px)` }}
+                      />
+                    </div>
+                    <span className={popupValueClass}>{normalizedMicInputLevelPercent}%</span>
+                  </div>
+                  <p className={`${micLevelMeterHintClass} mt-2`}>
+                    Серое — текущая громкость, зелёная метка — порог.
+                  </p>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
 
           {volumePopup && (
             <div
@@ -3379,40 +4069,6 @@ const CallSection = ({
                     {peerVolumeToPercent(volumeByPeer[volumePopup.peerId])}%
                   </span>
                 </div>
-                <p className={`${popupHintClass} mt-2`}>Чувствительность микрофона</p>
-                <div className="mt-2 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => adjustPeerMicSensitivity(volumePopup.peerId, -PEER_MIC_SENSITIVITY_STEP_PERCENT)}
-                    className={popupButtonClass}
-                    title="Снизить чувствительность"
-                  >
-                    -
-                  </button>
-                  <input
-                    type="range"
-                    min={MIN_PEER_MIC_SENSITIVITY_PERCENT}
-                    max={MAX_PEER_MIC_SENSITIVITY_PERCENT}
-                    step={5}
-                    value={normalizePeerMicSensitivityPercent(micSensitivityByPeer[volumePopup.peerId])}
-                    onChange={(event) => {
-                      setPeerMicSensitivityPercent(volumePopup.peerId, Number(event.target.value));
-                    }}
-                    className={popupRangeClass}
-                    aria-label={`Чувствительность микрофона ${volumePopup.title}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => adjustPeerMicSensitivity(volumePopup.peerId, PEER_MIC_SENSITIVITY_STEP_PERCENT)}
-                    className={popupButtonClass}
-                    title="Повысить чувствительность"
-                  >
-                    +
-                  </button>
-                  <span className={popupValueClass}>
-                    {normalizePeerMicSensitivityPercent(micSensitivityByPeer[volumePopup.peerId])}%
-                  </span>
-                </div>
               </div>
             </div>
           )}
@@ -3428,3 +4084,5 @@ const CallSection = ({
 };
 
 export default CallSection;
+
+
