@@ -11,6 +11,7 @@ const PythonSection = ({
   onUpdateProgress,
   role,
   studentId,
+  teacherId,
   students,
   activeStudentId,
   onSelectStudent,
@@ -69,6 +70,10 @@ const PythonSection = ({
   const [mobilePythonPathCanvasWidth, setMobilePythonPathCanvasWidth] = useState(0);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
+  const effectiveTeacherId = String(teacherId || '').trim();
+  const codeSyncRoomId = effectiveTeacherId && effectiveStudentId
+    ? `rtc:${effectiveTeacherId}:${effectiveStudentId}`
+    : '';
 
   useEffect(() => {
     if (!effectiveStudentId) {
@@ -1231,6 +1236,7 @@ const PythonSection = ({
           getLocalDayKey={getLocalDayKey}
           normalizeXpTotal={normalizeXpTotal}
           buildGoogleDocFullUrl={buildGoogleDocFullUrl}
+          codeSyncRoomId={codeSyncRoomId}
           PYODIDE_RUN_TIMEOUT_MS={PYODIDE_RUN_TIMEOUT_MS}
           ALLOW_MAIN_THREAD_PYTHON_FALLBACK={ALLOW_MAIN_THREAD_PYTHON_FALLBACK}
           onComplete={(taskId, score, options) => {
@@ -1247,6 +1253,7 @@ const PythonSection = ({
           PYTHON_LEVEL_ID={PYTHON_LEVEL_ID}
           isGoogleDocEmbedUrl={isGoogleDocEmbedUrl}
           buildGoogleDocFullUrl={buildGoogleDocFullUrl}
+          codeSyncRoomId={codeSyncRoomId}
         />
       )}
     </div>

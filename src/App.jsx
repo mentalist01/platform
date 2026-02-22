@@ -9930,6 +9930,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             <ScheduleSection
               role={user.role}
               studentId={user.id}
+              teacherId={user.role === 'teacher' ? user.id : user.teacherId}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
@@ -10047,6 +10048,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               }}
               role={user.role}
               studentId={user.id}
+              teacherId={user.role === 'teacher' ? user.id : user.teacherId}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}

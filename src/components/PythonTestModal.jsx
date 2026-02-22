@@ -1,9 +1,53 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
 import { Download, RefreshCcw, X } from 'lucide-react';
+import * as Y from 'yjs';
+import { WebsocketProvider } from 'y-websocket';
+import { MonacoBinding } from 'y-monaco';
 import { api } from '../services/api';
 import { Button } from './ui';
+
+const QUESTION_CODE_SAVE_DEBOUNCE_MS = 250;
+const COLLAB_TYPING_IDLE_MS = 900;
+const COLLAB_TYPING_STALE_MS = 2500;
+
+const getCollabWsUrl = () => {
+  if (typeof window === 'undefined') return '';
+  const envUrl = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_COLLAB_WS_URL : '';
+  const normalizedEnvUrl = typeof envUrl === 'string' ? envUrl.trim() : '';
+  if (normalizedEnvUrl) return normalizedEnvUrl;
+
+  const { protocol, hostname, port, host } = window.location;
+  const wsProtocol = protocol === 'https:' ? 'wss' : 'ws';
+  if ((import.meta?.env?.DEV || port === '5173') && port === '5173') {
+    return `${wsProtocol}://${hostname}:5175/collab`;
+  }
+  return `${wsProtocol}://${host}/collab`;
+};
+
+const hashSeed = (value) => {
+  const text = String(value || '');
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+};
+
+const pickCollabColor = (seed, fallback = '#7c3aed') => {
+  const palette = ['#7c3aed', '#0ea5e9', '#f59e0b', '#ef4444', '#22c55e', '#ec4899', '#6366f1'];
+  if (!seed) return fallback;
+  return palette[hashSeed(seed) % palette.length] || fallback;
+};
+
+const buildRealtimeStatusLabel = (status) => {
+  if (status === 'connected') return 'Realtime: онлайн';
+  if (status === 'connecting') return 'Realtime: подключение...';
+  return 'Realtime: офлайн';
+};
+
 const PythonTestModal = ({
   task,
   onClose,
@@ -29,40 +73,422 @@ const PythonTestModal = ({
   getLocalDayKey,
   normalizeXpTotal,
   buildGoogleDocFullUrl,
+  codeSyncRoomId = '',
 }) => {
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [solvedIds, setSolvedIds] = useState(new Set());
   const [solvedCodeById, setSolvedCodeById] = useState({});
+  const [questionCodeById, setQuestionCodeById] = useState({});
+  const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
+  const [questionCodeSavingById, setQuestionCodeSavingById] = useState({});
+  const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
+  const [questionCodeDirtyById, setQuestionCodeDirtyById] = useState({});
   const [expandedImage, setExpandedImage] = useState(null);
-  const [code, setCode] = useState('');
   const [runnerLoading, setRunnerLoading] = useState(false);
   const [runnerError, setRunnerError] = useState('');
   const [testResults, setTestResults] = useState([]);
   const isMobileViewport = typeof window !== 'undefined'
     ? window.matchMedia('(max-width: 767px)').matches
     : false;
-  const [showTheory, setShowTheory] = useState(() => (
-    typeof window === 'undefined'
-      ? true
-      : !window.matchMedia('(max-width: 767px)').matches
-  ));
+  const [showTheory, setShowTheory] = useState(false);
   const [expandedTestIndex, setExpandedTestIndex] = useState(null);
-  const currentQuestionIdRef = useRef(null);
+  const [editorReady, setEditorReady] = useState(false);
+  const [editorMountVersion, setEditorMountVersion] = useState(0);
+  const [realtimeStatus, setRealtimeStatus] = useState('disconnected');
+  const [realtimePeerCount, setRealtimePeerCount] = useState(0);
+  const [typingUsers, setTypingUsers] = useState([]);
+  const [sharedRunState, setSharedRunState] = useState({
+    status: 'idle',
+    author: '',
+    summary: '',
+    ts: null,
+  });
+
+  const editorRef = useRef(null);
+  const monacoRef = useRef(null);
+  const collabDocRef = useRef(null);
+  const collabProviderRef = useRef(null);
+  const collabAwarenessRef = useRef(null);
+  const collabBindingRef = useRef(null);
+  const collabYTextRef = useRef(null);
+  const collabStateMapRef = useRef(null);
+  const collabRunMapRef = useRef(null);
+  const typingIdleTimerRef = useRef(null);
+
   const runnerWorkerRef = useRef(null);
   const runnerPendingRef = useRef(new Map());
   const runnerWarmupStartedRef = useRef(false);
+  const questionCodeByIdRef = useRef({});
+  const questionCodeLoadingByIdRef = useRef({});
+  const questionCodeSavingByIdRef = useRef({});
+  const questionCodeRetrySaveByIdRef = useRef({});
+  const questionCodeDirtyByIdRef = useRef({});
+  const questionCodeLocalVersionRef = useRef({});
+  const pendingSaveQuestionIdRef = useRef('');
+  const saveTimerRef = useRef(null);
 
   const currentMastery = progress[task.id] || 0;
+  const collabBaseRoomId = String(codeSyncRoomId || '').trim();
+  const collabWsUrl = useMemo(() => getCollabWsUrl(), []);
+  const localCollabName = useMemo(() => 'Ученик', []);
+  const localCollabColor = useMemo(
+    () => pickCollabColor(`student-${studentId || 'anon'}`, '#0ea5e9'),
+    [studentId]
+  );
+  const activeQuestionId = useMemo(
+    () => String(questions[currentIndex]?.id ?? currentIndex).trim(),
+    [questions, currentIndex]
+  );
+  const collabRoomId = useMemo(() => {
+    if (!collabBaseRoomId || !task?.number || !activeQuestionId) return '';
+    return `py-collab:${collabBaseRoomId}:${task.number}:${PYTHON_LEVEL_ID}:${activeQuestionId}`;
+  }, [collabBaseRoomId, task?.number, PYTHON_LEVEL_ID, activeQuestionId]);
+
   const getQuestionIndexKey = () => {
     const safeStudentId = studentId || 'anon';
     const taskNum = task?.number || 'task';
     return `py_last_q_${safeStudentId}_${taskNum}`;
   };
-  const getDraftKey = (questionId) => {
-    const safeStudentId = studentId || 'anon';
-    return `py_draft_${safeStudentId}_${task?.number || 'task'}_${questionId}`;
+
+  const getQuestionCodeEntry = (questionId, source = null) => {
+    const key = String(questionId ?? '').trim();
+    const store = source && typeof source === 'object'
+      ? source
+      : questionCodeByIdRef.current;
+    const cached = store?.[key];
+    if (!cached || typeof cached !== 'object') {
+      return { code: '', input: '', updatedAt: '', loaded: false };
+    }
+    return {
+      code: typeof cached.code === 'string' ? cached.code : '',
+      input: typeof cached.input === 'string' ? cached.input : '',
+      updatedAt: typeof cached.updatedAt === 'string' ? cached.updatedAt : '',
+      loaded: Boolean(cached.loaded),
+    };
   };
+
+  const setQuestionCodeEntry = (questionId, patch) => {
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    setQuestionCodeById((prev) => {
+      const current = prev?.[key] && typeof prev[key] === 'object'
+        ? prev[key]
+        : { code: '', input: '', updatedAt: '', loaded: false };
+      return {
+        ...(prev || {}),
+        [key]: {
+          ...current,
+          ...(patch || {}),
+          loaded: true,
+        },
+      };
+    });
+  };
+
+  const clearQuestionCodeError = (questionId) => {
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    setQuestionCodeErrorById((prev) => {
+      if (!prev?.[key]) return prev;
+      const next = { ...(prev || {}) };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const setQuestionCodeError = (questionId, message) => {
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    setQuestionCodeErrorById((prev) => ({ ...(prev || {}), [key]: message || '' }));
+  };
+
+  const setQuestionCodeDirty = (questionId, dirty) => {
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    setQuestionCodeDirtyById((prev) => ({ ...(prev || {}), [key]: Boolean(dirty) }));
+  };
+
+  const getFallbackCodeForQuestion = (question, questionId) => {
+    const key = String(questionId ?? '').trim();
+    const solvedCode = solvedCodeById?.[key];
+    if (typeof solvedCode === 'string' && solvedCode.length > 0) return solvedCode;
+    if (typeof question?.starterCode === 'string') return question.starterCode;
+    return '';
+  };
+
+  const getQuestionCodeVersion = (questionId) => {
+    const key = String(questionId ?? '').trim();
+    if (!key) return 0;
+    return Number(questionCodeLocalVersionRef.current?.[key] || 0);
+  };
+
+  const bumpQuestionCodeVersion = (questionId) => {
+    const key = String(questionId ?? '').trim();
+    if (!key) return 0;
+    const nextVersion = getQuestionCodeVersion(key) + 1;
+    questionCodeLocalVersionRef.current = {
+      ...(questionCodeLocalVersionRef.current || {}),
+      [key]: nextVersion,
+    };
+    return nextVersion;
+  };
+
+  const loadQuestionCode = async (question, questionId, force = false) => {
+    if (!studentId || !task?.number) return;
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    if (questionCodeLoadingByIdRef.current?.[key]) return;
+    const cached = getQuestionCodeEntry(key);
+    if (cached.loaded && !force) {
+      const hasRemoteSnapshot = Boolean(
+        String(cached.updatedAt || '').trim()
+        || String(cached.code || '').trim()
+        || String(cached.input || '').trim()
+      );
+      const isDirty = Boolean(questionCodeDirtyByIdRef.current?.[key]);
+      const isSaving = Boolean(questionCodeSavingByIdRef.current?.[key]);
+      if (hasRemoteSnapshot || isDirty || isSaving) return;
+      const fallbackCode = getFallbackCodeForQuestion(question, key);
+      if (cached.code !== fallbackCode) {
+        setQuestionCodeEntry(key, { code: fallbackCode });
+      }
+      return;
+    }
+    setQuestionCodeLoadingById((prev) => ({ ...(prev || {}), [key]: true }));
+    try {
+      const payload = await api.getQuestionCode(studentId, task.number, PYTHON_LEVEL_ID, key);
+      const remoteCode = typeof payload?.code === 'string' ? payload.code : '';
+      const remoteInput = typeof payload?.input === 'string' ? payload.input : '';
+      const remoteUpdatedAt = typeof payload?.updatedAt === 'string' ? payload.updatedAt : '';
+      const fallbackCode = getFallbackCodeForQuestion(question, key);
+      const nextCode = remoteCode.length > 0
+        ? remoteCode
+        : (remoteUpdatedAt ? '' : fallbackCode);
+      setQuestionCodeEntry(key, {
+        code: nextCode,
+        input: remoteInput,
+        updatedAt: remoteUpdatedAt,
+      });
+      if (key === activeQuestionId && collabDocRef.current && collabYTextRef.current && collabStateMapRef.current) {
+        const doc = collabDocRef.current;
+        const ytext = collabYTextRef.current;
+        const stateMap = collabStateMapRef.current;
+        const currentCode = ytext.toString();
+        const currentInput = typeof stateMap.get('input') === 'string'
+          ? stateMap.get('input')
+          : String(stateMap.get('input') ?? '');
+        if ((!currentCode && nextCode) || (!currentInput && remoteInput)) {
+          doc.transact(() => {
+            if (!ytext.toString() && nextCode) {
+              ytext.insert(0, nextCode);
+            }
+            const mapInput = typeof stateMap.get('input') === 'string'
+              ? stateMap.get('input')
+              : String(stateMap.get('input') ?? '');
+            if (!mapInput && remoteInput) {
+              stateMap.set('input', remoteInput);
+            }
+          });
+        }
+      }
+      setQuestionCodeDirty(key, false);
+      questionCodeLocalVersionRef.current = {
+        ...(questionCodeLocalVersionRef.current || {}),
+        [key]: 0,
+      };
+      clearQuestionCodeError(key);
+    } catch (err) {
+      setQuestionCodeError(key, err?.message || err);
+    } finally {
+      setQuestionCodeLoadingById((prev) => ({ ...(prev || {}), [key]: false }));
+    }
+  };
+
+  const saveQuestionCode = async (questionId, options = {}) => {
+    if (!studentId || !task?.number) return false;
+    const key = String(questionId ?? '').trim();
+    if (!key) return false;
+    const force = Boolean(options?.force);
+    const isDirty = Boolean(questionCodeDirtyByIdRef.current?.[key]);
+    if (!force && !isDirty) return true;
+    if (questionCodeSavingByIdRef.current?.[key]) {
+      questionCodeRetrySaveByIdRef.current = {
+        ...(questionCodeRetrySaveByIdRef.current || {}),
+        [key]: true,
+      };
+      return false;
+    }
+    const entry = getQuestionCodeEntry(key);
+    const sentVersion = getQuestionCodeVersion(key);
+    setQuestionCodeSavingById((prev) => ({ ...(prev || {}), [key]: true }));
+    try {
+      const payload = await api.saveQuestionCode(studentId, task.number, PYTHON_LEVEL_ID, key, {
+        code: entry.code,
+        input: entry.input,
+      });
+      const savedCode = typeof payload?.code === 'string' ? payload.code : '';
+      const savedInput = typeof payload?.input === 'string' ? payload.input : '';
+      const savedUpdatedAt = typeof payload?.updatedAt === 'string' ? payload.updatedAt : '';
+      const changedDuringSave = getQuestionCodeVersion(key) !== sentVersion;
+      if (!changedDuringSave) {
+        setQuestionCodeEntry(key, {
+          code: savedCode,
+          input: savedInput,
+          updatedAt: savedUpdatedAt,
+        });
+        setQuestionCodeDirty(key, false);
+      } else {
+        questionCodeRetrySaveByIdRef.current = {
+          ...(questionCodeRetrySaveByIdRef.current || {}),
+          [key]: true,
+        };
+        setQuestionCodeEntry(key, { updatedAt: savedUpdatedAt });
+      }
+      clearQuestionCodeError(key);
+      return !changedDuringSave;
+    } catch (err) {
+      setQuestionCodeError(key, err?.message || err);
+      return false;
+    } finally {
+      setQuestionCodeSavingById((prev) => ({ ...(prev || {}), [key]: false }));
+      const shouldRetry = Boolean(questionCodeRetrySaveByIdRef.current?.[key]);
+      if (shouldRetry) {
+        questionCodeRetrySaveByIdRef.current = {
+          ...(questionCodeRetrySaveByIdRef.current || {}),
+          [key]: false,
+        };
+        setTimeout(() => {
+          saveQuestionCode(key).catch(() => {});
+        }, 0);
+      }
+    }
+  };
+
+  const flushScheduledQuestionSave = () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const pendingQuestionId = String(pendingSaveQuestionIdRef.current || '').trim();
+    pendingSaveQuestionIdRef.current = '';
+    if (pendingQuestionId) {
+      saveQuestionCode(pendingQuestionId, { force: true }).catch(() => {});
+    }
+  };
+
+  const scheduleQuestionSave = (questionId) => {
+    const key = String(questionId ?? '').trim();
+    if (!key || !studentId || !task?.number) return;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    pendingSaveQuestionIdRef.current = key;
+    saveTimerRef.current = setTimeout(() => {
+      const pendingQuestionId = String(pendingSaveQuestionIdRef.current || '').trim();
+      pendingSaveQuestionIdRef.current = '';
+      saveTimerRef.current = null;
+      if (!pendingQuestionId) return;
+      saveQuestionCode(pendingQuestionId).catch(() => {});
+    }, QUESTION_CODE_SAVE_DEBOUNCE_MS);
+  };
+
+  const resolveCurrentQuestionCode = (question, index, source = null) => {
+    const key = String(question?.id ?? index).trim();
+    if (!key) return '';
+    const entry = getQuestionCodeEntry(key, source);
+    if (entry.loaded) return entry.code;
+    return getFallbackCodeForQuestion(question, key);
+  };
+
+  const signalTyping = useCallback(() => {
+    if (!collabRoomId || !collabAwarenessRef.current) return;
+    collabAwarenessRef.current.setLocalStateField('typing', {
+      active: true,
+      ts: Date.now(),
+    });
+    if (typingIdleTimerRef.current) {
+      clearTimeout(typingIdleTimerRef.current);
+    }
+    typingIdleTimerRef.current = setTimeout(() => {
+      collabAwarenessRef.current?.setLocalStateField('typing', null);
+      typingIdleTimerRef.current = null;
+    }, COLLAB_TYPING_IDLE_MS);
+  }, [collabRoomId]);
+
+  const updateSharedRunStateFromMap = useCallback((runMap) => {
+    if (!runMap) {
+      setSharedRunState({
+        status: 'idle',
+        author: '',
+        summary: '',
+        ts: null,
+      });
+      return;
+    }
+    const status = typeof runMap.get('status') === 'string' ? runMap.get('status') : 'idle';
+    const author = typeof runMap.get('author') === 'string' ? runMap.get('author') : '';
+    const summary = typeof runMap.get('summary') === 'string' ? runMap.get('summary') : '';
+    const tsRaw = runMap.get('ts');
+    const ts = Number.isFinite(Number(tsRaw)) ? Number(tsRaw) : null;
+    setSharedRunState({
+      status: status || 'idle',
+      author,
+      summary,
+      ts,
+    });
+  }, []);
+
+  const publishSharedRunState = useCallback((payload) => {
+    const runMap = collabRunMapRef.current;
+    const doc = collabDocRef.current;
+    if (!runMap || !doc) {
+      setSharedRunState((prev) => ({
+        status: Object.prototype.hasOwnProperty.call(payload, 'status') ? String(payload.status || 'idle') : prev.status,
+        author: Object.prototype.hasOwnProperty.call(payload, 'author') ? String(payload.author || '') : prev.author,
+        summary: Object.prototype.hasOwnProperty.call(payload, 'summary') ? String(payload.summary || '') : prev.summary,
+        ts: Object.prototype.hasOwnProperty.call(payload, 'ts')
+          ? (Number.isFinite(Number(payload.ts)) ? Number(payload.ts) : null)
+          : prev.ts,
+      }));
+      return;
+    }
+    doc.transact(() => {
+      if (Object.prototype.hasOwnProperty.call(payload, 'status')) {
+        runMap.set('status', String(payload.status || 'idle'));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'author')) {
+        runMap.set('author', String(payload.author || ''));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'summary')) {
+        runMap.set('summary', String(payload.summary || ''));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'ts')) {
+        runMap.set('ts', Number.isFinite(Number(payload.ts)) ? Number(payload.ts) : null);
+      }
+    });
+  }, []);
+
+  const replaceCodeInCollab = useCallback((nextCode) => {
+    const ytext = collabYTextRef.current;
+    const doc = collabDocRef.current;
+    if (!ytext || !doc) return false;
+    const safeCode = typeof nextCode === 'string' ? nextCode : '';
+    doc.transact(() => {
+      const currentLength = ytext.length;
+      if (currentLength > 0) ytext.delete(0, currentLength);
+      if (safeCode) ytext.insert(0, safeCode);
+    });
+    return true;
+  }, []);
+
+  const handleEditorMount = useCallback((editor, monaco) => {
+    editorRef.current = editor;
+    monacoRef.current = monaco;
+    setEditorReady(true);
+    setEditorMountVersion((prev) => prev + 1);
+  }, []);
 
   useEffect(() => {
     const qs = testDb?.[task.number]?.[PYTHON_LEVEL_ID] || [];
@@ -71,7 +497,9 @@ const PythonTestModal = ({
     if (!Number.isFinite(rawIndex) && typeof window !== 'undefined') {
       try {
         rawIndex = Number(window.localStorage.getItem(getQuestionIndexKey()));
-      } catch {}
+      } catch (error) {
+        void error;
+      }
     }
     const safeIndex = Number.isFinite(rawIndex) && list.length > 0
       ? Math.max(0, Math.min(list.length - 1, Math.floor(rawIndex)))
@@ -82,6 +510,22 @@ const PythonTestModal = ({
     }
     setSolvedIds(new Set());
     setSolvedCodeById({});
+    setQuestionCodeById({});
+    setQuestionCodeLoadingById({});
+    setQuestionCodeSavingById({});
+    setQuestionCodeErrorById({});
+    setQuestionCodeDirtyById({});
+    questionCodeByIdRef.current = {};
+    questionCodeLoadingByIdRef.current = {};
+    questionCodeSavingByIdRef.current = {};
+    questionCodeRetrySaveByIdRef.current = {};
+    questionCodeDirtyByIdRef.current = {};
+    questionCodeLocalVersionRef.current = {};
+    pendingSaveQuestionIdRef.current = '';
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
     setTestResults([]);
     setRunnerError('');
     if (studentId) {
@@ -108,47 +552,242 @@ const PythonTestModal = ({
     if (typeof window === 'undefined') return;
     try {
       window.localStorage.setItem(getQuestionIndexKey(), String(currentIndex));
-    } catch {}
+    } catch (error) {
+      void error;
+    }
   }, [currentIndex, questions.length, onQuestionChange]);
 
   useEffect(() => {
+    setEditorReady(false);
+  }, [collabRoomId]);
+
+  useEffect(() => {
+    flushScheduledQuestionSave();
     const current = questions[currentIndex];
-    const currentId = String(current?.id ?? currentIndex);
-    currentQuestionIdRef.current = currentId;
-    const starter = current?.starterCode || '';
-    const solvedCode = solvedCodeById?.[currentId];
-    let nextCode = typeof solvedCode === 'string' ? solvedCode : starter;
-    if (typeof window !== 'undefined') {
-      try {
-        const draft = window.localStorage.getItem(getDraftKey(currentId));
-        if (typeof draft === 'string' && draft.length > 0) {
-          nextCode = draft;
-        }
-      } catch {}
+    const currentId = String(current?.id ?? currentIndex).trim();
+    if (currentId) {
+      loadQuestionCode(current, currentId).catch(() => {});
     }
-    setCode(nextCode);
     setTestResults([]);
     setRunnerError('');
     setExpandedTestIndex(null);
-  }, [questions, currentIndex, solvedCodeById, studentId, task?.number]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const currentId = currentQuestionIdRef.current;
-    if (!currentId) return;
-    try {
-      if (code && code.length > 0) {
-        window.localStorage.setItem(getDraftKey(currentId), code);
-      } else {
-        window.localStorage.removeItem(getDraftKey(currentId));
-      }
-    } catch {}
-  }, [code, studentId, task?.number]);
+  }, [questions, currentIndex, studentId, task?.number, solvedCodeById]);
 
   useEffect(() => {
     document.body.classList.add('overflow-hidden');
-    return () => document.body.classList.remove('overflow-hidden');
+    return () => {
+      flushScheduledQuestionSave();
+      document.body.classList.remove('overflow-hidden');
+    };
   }, []);
+
+  useEffect(() => {
+    questionCodeByIdRef.current = questionCodeById && typeof questionCodeById === 'object'
+      ? questionCodeById
+      : {};
+  }, [questionCodeById]);
+
+  useEffect(() => {
+    questionCodeLoadingByIdRef.current = questionCodeLoadingById && typeof questionCodeLoadingById === 'object'
+      ? questionCodeLoadingById
+      : {};
+  }, [questionCodeLoadingById]);
+
+  useEffect(() => {
+    questionCodeSavingByIdRef.current = questionCodeSavingById && typeof questionCodeSavingById === 'object'
+      ? questionCodeSavingById
+      : {};
+  }, [questionCodeSavingById]);
+
+  useEffect(() => {
+    questionCodeDirtyByIdRef.current = questionCodeDirtyById && typeof questionCodeDirtyById === 'object'
+      ? questionCodeDirtyById
+      : {};
+  }, [questionCodeDirtyById]);
+
+  useEffect(() => {
+    if (!collabRoomId || !editorReady || !collabWsUrl || !activeQuestionId) {
+      setRealtimeStatus('disconnected');
+      setRealtimePeerCount(0);
+      setTypingUsers([]);
+      collabDocRef.current = null;
+      collabProviderRef.current = null;
+      collabAwarenessRef.current = null;
+      collabBindingRef.current = null;
+      collabYTextRef.current = null;
+      collabStateMapRef.current = null;
+      collabRunMapRef.current = null;
+      updateSharedRunStateFromMap(null);
+      return undefined;
+    }
+
+    const editor = editorRef.current;
+    const model = editor?.getModel?.();
+    if (!editor || !model) return undefined;
+
+    const currentQuestion = questions[currentIndex];
+    const seedCode = resolveCurrentQuestionCode(currentQuestion, currentIndex, questionCodeByIdRef.current);
+    const seedEntry = getQuestionCodeEntry(activeQuestionId, questionCodeByIdRef.current);
+    const seedInput = typeof seedEntry.input === 'string' ? seedEntry.input : '';
+
+    setRealtimeStatus('connecting');
+    const doc = new Y.Doc();
+    const provider = new WebsocketProvider(collabWsUrl, collabRoomId, doc);
+    const ytext = doc.getText('monaco');
+    const stateMap = doc.getMap('pythonState');
+    const runMap = doc.getMap('pythonRun');
+    const binding = new MonacoBinding(ytext, model, new Set([editor]), provider.awareness);
+
+    collabDocRef.current = doc;
+    collabProviderRef.current = provider;
+    collabAwarenessRef.current = provider.awareness;
+    collabBindingRef.current = binding;
+    collabYTextRef.current = ytext;
+    collabStateMapRef.current = stateMap;
+    collabRunMapRef.current = runMap;
+
+    let seeded = false;
+    const seedDocState = () => {
+      if (seeded) return;
+      const codeInDoc = ytext.toString();
+      const inputInDoc = typeof stateMap.get('input') === 'string'
+        ? stateMap.get('input')
+        : String(stateMap.get('input') ?? '');
+      const shouldSeedCode = !codeInDoc && seedCode;
+      const shouldSeedInput = !inputInDoc && seedInput;
+      if (shouldSeedCode || shouldSeedInput) {
+        doc.transact(() => {
+          if (shouldSeedCode) ytext.insert(0, seedCode);
+          if (shouldSeedInput) stateMap.set('input', seedInput);
+        });
+      }
+      seeded = true;
+    };
+
+    const handleProviderStatus = (event) => {
+      if (event?.status) setRealtimeStatus(event.status);
+    };
+    const handleProviderSync = (isSynced) => {
+      if (!isSynced) return;
+      seedDocState();
+    };
+    const handleAwareness = () => {
+      const states = provider.awareness.getStates();
+      setRealtimePeerCount(Math.max(0, states.size - 1));
+      const now = Date.now();
+      const nextTypingUsers = [];
+      states.forEach((state, clientId) => {
+        if (clientId === provider.awareness.clientID) return;
+        const typing = state?.typing;
+        if (!typing?.active) return;
+        const ts = Number(typing.ts) || 0;
+        if (!ts || (now - ts) > COLLAB_TYPING_STALE_MS) return;
+        const user = state?.user;
+        const name = typeof user?.name === 'string' && user.name.trim() ? user.name.trim() : 'Участник';
+        nextTypingUsers.push(name);
+      });
+      setTypingUsers([...new Set(nextTypingUsers)].slice(0, 2));
+    };
+    const handleCodeChange = (event) => {
+      const nextCode = ytext.toString();
+      setQuestionCodeEntry(activeQuestionId, { code: nextCode });
+      clearQuestionCodeError(activeQuestionId);
+      setTestResults((prev) => (prev.length > 0 ? [] : prev));
+      if (event?.transaction?.local) {
+        bumpQuestionCodeVersion(activeQuestionId);
+        setQuestionCodeDirty(activeQuestionId, true);
+        scheduleQuestionSave(activeQuestionId);
+        signalTyping();
+      }
+    };
+    const handleStateChange = (event) => {
+      if (!event?.keysChanged?.has('input')) return;
+      const nextInput = typeof stateMap.get('input') === 'string'
+        ? stateMap.get('input')
+        : String(stateMap.get('input') ?? '');
+      setQuestionCodeEntry(activeQuestionId, { input: nextInput });
+      clearQuestionCodeError(activeQuestionId);
+      if (event?.transaction?.local) {
+        bumpQuestionCodeVersion(activeQuestionId);
+        setQuestionCodeDirty(activeQuestionId, true);
+        scheduleQuestionSave(activeQuestionId);
+      }
+    };
+    const handleRunState = () => {
+      updateSharedRunStateFromMap(runMap);
+    };
+
+    ytext.observe(handleCodeChange);
+    stateMap.observe(handleStateChange);
+    runMap.observe(handleRunState);
+    handleRunState();
+
+    provider.on('status', handleProviderStatus);
+    provider.on('sync', handleProviderSync);
+    provider.awareness.on('change', handleAwareness);
+    provider.awareness.setLocalStateField('user', {
+      name: localCollabName,
+      color: localCollabColor,
+      role: 'student',
+    });
+    provider.awareness.setLocalStateField('typing', null);
+
+    const typingDisposable = editor.onDidType?.(() => {
+      signalTyping();
+    });
+    const pasteDisposable = editor.onDidPaste?.(() => {
+      signalTyping();
+    });
+
+    handleAwareness();
+    if (provider.synced) {
+      seedDocState();
+    }
+
+    return () => {
+      typingDisposable?.dispose?.();
+      pasteDisposable?.dispose?.();
+      if (typingIdleTimerRef.current) {
+        clearTimeout(typingIdleTimerRef.current);
+        typingIdleTimerRef.current = null;
+      }
+      provider.awareness.setLocalStateField('typing', null);
+      provider.awareness.off('change', handleAwareness);
+      provider.off('sync', handleProviderSync);
+      provider.off('status', handleProviderStatus);
+      ytext.unobserve(handleCodeChange);
+      stateMap.unobserve(handleStateChange);
+      runMap.unobserve(handleRunState);
+      binding.destroy();
+      provider.destroy();
+      doc.destroy();
+      if (collabProviderRef.current === provider) {
+        collabProviderRef.current = null;
+        collabDocRef.current = null;
+        collabAwarenessRef.current = null;
+        collabBindingRef.current = null;
+        collabYTextRef.current = null;
+        collabStateMapRef.current = null;
+        collabRunMapRef.current = null;
+      }
+      setRealtimeStatus('disconnected');
+      setRealtimePeerCount(0);
+      setTypingUsers([]);
+      updateSharedRunStateFromMap(null);
+    };
+  }, [
+    collabRoomId,
+    editorReady,
+    editorMountVersion,
+    collabWsUrl,
+    activeQuestionId,
+    questions,
+    currentIndex,
+    localCollabName,
+    localCollabColor,
+    signalTyping,
+    updateSharedRunStateFromMap,
+  ]);
 
   const resolvePendingRuns = (message) => {
     runnerPendingRef.current.forEach((entry) => {
@@ -294,8 +933,21 @@ const PythonTestModal = ({
   const handleRunTests = async (sourceRect = null) => {
     const currentQuestion = questions[currentIndex];
     if (!currentQuestion) return;
+    const currentId = String(currentQuestion?.id ?? currentIndex).trim();
+    const currentCode = resolveCurrentQuestionCode(currentQuestion, currentIndex, questionCodeById);
+    if (!String(currentCode || '').trim()) return;
+    flushScheduledQuestionSave();
+    if (studentId && currentId) {
+      await saveQuestionCode(currentId).catch(() => {});
+    }
     setRunnerLoading(true);
     setRunnerError('');
+    publishSharedRunState({
+      status: 'running',
+      author: localCollabName,
+      summary: 'Запуск тестов...',
+      ts: Date.now(),
+    });
     const rawTests = Array.isArray(currentQuestion.tests)
       ? currentQuestion.tests
       : (currentQuestion.answer ? [{ input: '', output: currentQuestion.answer }] : []);
@@ -310,12 +962,18 @@ const PythonTestModal = ({
       setRunnerLoading(false);
       setRunnerError('Для этой задачи пока нет тестов.');
       setTestResults([]);
+      publishSharedRunState({
+        status: 'error',
+        author: localCollabName,
+        summary: 'Тесты для задачи не настроены.',
+        ts: Date.now(),
+      });
       return;
     }
     try {
       const resultsList = [];
       for (const test of sanitizedTests) {
-        const res = await runPythonCode(code, test.input);
+        const res = await runPythonCode(currentCode, test.input);
         const normalizedOut = normalizeOutputForComparison(res.output);
         const normalizedExpected = normalizeOutputForComparison(test.output);
         const runtimeErrorText = normalizeRuntimeErrorForCheck(res.error);
@@ -336,6 +994,20 @@ const PythonTestModal = ({
         });
       }
       setTestResults(resultsList);
+      const passedCount = resultsList.filter((item) => item.passed === true).length;
+      const runtimeErrorCount = resultsList.filter((item) => String(item.error || '').trim().length > 0).length;
+      const baseSummary = hasExpectedOutputs
+        ? `${passedCount}/${resultsList.length} тестов пройдено`
+        : `Запуск завершен (${resultsList.length} проверок)`;
+      const runSummary = runtimeErrorCount > 0
+        ? `${baseSummary}, ошибок выполнения: ${runtimeErrorCount}`
+        : baseSummary;
+      publishSharedRunState({
+        status: 'done',
+        author: localCollabName,
+        summary: runSummary,
+        ts: Date.now(),
+      });
 
       const allPassed = hasExpectedOutputs
         && resultsList.length > 0
@@ -346,7 +1018,6 @@ const PythonTestModal = ({
       const shouldSubmit = allPassed || canSubmitWithoutExpected;
 
       if (shouldSubmit) {
-        const currentId = String(currentQuestion?.id ?? currentIndex);
         if (studentId) {
           try {
             const resp = await api.solveQuestion({
@@ -357,7 +1028,7 @@ const PythonTestModal = ({
               totalQuestions: questions.length,
               levelMax: 100,
               levelTotals: { [PYTHON_LEVEL_ID]: questions.length },
-              code,
+              code: currentCode,
               localDay: getLocalDayKey(),
               pythonResults: resultsList.map((item) => ({
                 input: String(item?.input ?? ''),
@@ -370,7 +1041,7 @@ const PythonTestModal = ({
               next.add(currentId);
               return next;
             });
-            setSolvedCodeById((prev) => ({ ...prev, [currentId]: code }));
+            setSolvedCodeById((prev) => ({ ...prev, [currentId]: currentCode }));
             if (typeof onStreakSaved === 'function') {
               if (resp?.streak) {
                 onStreakSaved(resp.streak);
@@ -399,6 +1070,12 @@ const PythonTestModal = ({
           } catch (err) {
             const message = String(err?.message || err || '');
             setRunnerError(message || 'Не удалось сохранить результат');
+            publishSharedRunState({
+              status: 'error',
+              author: localCollabName,
+              summary: message || 'Не удалось сохранить результат',
+              ts: Date.now(),
+            });
             return;
           }
         } else if (!allPassed) {
@@ -415,6 +1092,12 @@ const PythonTestModal = ({
       }
     } catch (err) {
       setRunnerError(err?.message || err);
+      publishSharedRunState({
+        status: 'error',
+        author: localCollabName,
+        summary: String(err?.message || err || 'Ошибка запуска'),
+        ts: Date.now(),
+      });
     } finally {
       setRunnerLoading(false);
     }
@@ -461,8 +1144,17 @@ const PythonTestModal = ({
   }
 
   const currentQuestion = questions[currentIndex];
-  const currentId = String(currentQuestion?.id ?? currentIndex);
+  const currentId = String(currentQuestion?.id ?? currentIndex).trim();
   const isSolved = solvedIds.has(currentId);
+  const questionCodeEntry = getQuestionCodeEntry(currentId, questionCodeById);
+  const resolvedCode = resolveCurrentQuestionCode(currentQuestion, currentIndex, questionCodeById);
+  const questionCodeLoading = Boolean(questionCodeLoadingById?.[currentId]);
+  const questionCodeSaving = Boolean(questionCodeSavingById?.[currentId]);
+  const questionCodeDirty = Boolean(questionCodeDirtyById?.[currentId]);
+  const questionCodeError = questionCodeErrorById?.[currentId] || '';
+  const questionCodeUpdatedAtLabel = questionCodeEntry.updatedAt
+    ? new Date(questionCodeEntry.updatedAt).toLocaleString('ru-RU')
+    : '';
   const screenshots = (Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [])
     .map((img) => ({ ...img, url: withStudentId(img?.url, studentId) }));
   const extraFiles = (Array.isArray(currentQuestion?.files) ? currentQuestion.files : [])
@@ -492,6 +1184,20 @@ const PythonTestModal = ({
     formatOnPaste: true
   };
   const codeEditorHeight = isMobileViewport ? '170px' : '260px';
+  const realtimeStatusLabel = buildRealtimeStatusLabel(realtimeStatus);
+  const typingLabel = typingUsers.length > 0 ? `Печатает: ${typingUsers.join(', ')}` : '';
+  const sharedRunTimeLabel = sharedRunState.ts
+    ? new Date(sharedRunState.ts).toLocaleTimeString('ru-RU')
+    : '';
+  const sharedRunLabel = (() => {
+    const author = String(sharedRunState.author || '').trim() || 'Собеседник';
+    const summary = String(sharedRunState.summary || '').trim();
+    if (sharedRunState.status === 'running') return `${author} запускает тесты...`;
+    if ((sharedRunState.status === 'done' || sharedRunState.status === 'error') && summary) {
+      return `${author}: ${summary}`;
+    }
+    return '';
+  })();
 
   const modal = (
     <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-end sm:items-center justify-center p-2 sm:p-4">
@@ -639,30 +1345,70 @@ const PythonTestModal = ({
           )}
 
           <div className="space-y-3 mb-5 md:mb-6">
-            <div className="flex items-center justify-between">
-              <label className="block text-xs font-bold text-gray-400 uppercase">Код</label>
-              <button
-                type="button"
-                onClick={() => setCode(currentQuestion?.starterCode || '')}
-                className="text-xs text-purple-600 hover:text-purple-700"
-              >
-                Сбросить
-              </button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase">Код</label>
+                <div className="mt-0.5 text-[11px] text-gray-500">
+                  {realtimeStatusLabel}
+                  {realtimePeerCount > 0 ? ` • участников: ${realtimePeerCount + 1}` : ''}
+                </div>
+                {typingLabel && (
+                  <div className="text-[11px] text-purple-600">{typingLabel}</div>
+                )}
+                {sharedRunLabel && (
+                  <div className="text-[11px] text-sky-700">
+                    {sharedRunLabel}
+                    {sharedRunTimeLabel ? ` • ${sharedRunTimeLabel}` : ''}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="text-[11px] text-gray-500">
+                  {questionCodeLoading
+                    ? 'Загрузка...'
+                    : (questionCodeSaving
+                      ? 'Сохранение...'
+                      : (questionCodeUpdatedAtLabel
+                        ? `Сохранено: ${questionCodeUpdatedAtLabel}`
+                        : (questionCodeDirty ? 'Не сохранено' : '')))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const starterCode = typeof currentQuestion?.starterCode === 'string'
+                      ? currentQuestion.starterCode
+                      : '';
+                    const updatedInCollab = replaceCodeInCollab(starterCode);
+                    clearQuestionCodeError(currentId);
+                    if (testResults.length > 0) setTestResults([]);
+                    if (!updatedInCollab) {
+                      setQuestionCodeEntry(currentId, { code: starterCode });
+                      bumpQuestionCodeVersion(currentId);
+                      setQuestionCodeDirty(currentId, true);
+                      scheduleQuestionSave(currentId);
+                    }
+                  }}
+                  className="text-xs text-purple-600 hover:text-purple-700"
+                >
+                  Сбросить
+                </button>
+              </div>
             </div>
             <div className="rounded-2xl overflow-hidden border border-gray-800">
               <Editor
+                key={`py-test-editor-${collabRoomId || currentId}`}
                 height={codeEditorHeight}
                 language="python"
                 theme="vs-dark"
-                value={code}
-                onChange={(value) => {
-                  setCode(value ?? '');
-                  if (testResults.length > 0) setTestResults([]);
-                }}
+                defaultValue={resolvedCode}
+                onMount={handleEditorMount}
                 options={editorOptions}
                 loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
               />
             </div>
+            {questionCodeError && (
+              <div className="text-xs text-red-500">{questionCodeError}</div>
+            )}
           </div>
 
           {runnerError && (
@@ -684,7 +1430,7 @@ const PythonTestModal = ({
                       }
                     : null);
                 }}
-                disabled={runnerLoading || !code.trim()}
+                disabled={runnerLoading || questionCodeLoading || !resolvedCode.trim()}
                 className="w-full sm:w-auto"
               >
                 {runnerLoading ? 'Запуск...' : 'Запустить тесты'}
