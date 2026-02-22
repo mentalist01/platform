@@ -538,6 +538,7 @@ const MediaTile = ({
   stream,
   title,
   subtitle,
+  videoKind = null,
   className = '',
   compact = false,
   isSpeaking = false,
@@ -551,6 +552,8 @@ const MediaTile = ({
   const [, setVideoTrackVersion] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const isCompact = compact && !isFullscreen;
+  const isScreenShareTile = videoKind === 'screen';
+  const isStaticFullscreen = isFullscreen && isScreenShareTile;
   const speakingRingClass = isDarkTheme
     ? 'call-speaking-ring ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900'
     : 'call-speaking-ring ring-2 ring-emerald-400/80 ring-offset-2 ring-offset-slate-50';
@@ -690,7 +693,8 @@ const MediaTile = ({
           onDoubleClick={allowFullscreen ? toggleFullscreen : undefined}
           onContextMenu={onContextMenu}
           data-speaking={isSpeaking ? 'true' : 'false'}
-          className={`${videoCardClass} call-media-tile--compact ${isFullscreen ? 'h-screen w-screen rounded-none border-0' : 'h-24 w-36 rounded-xl md:h-28 md:w-44'} ${isSpeaking && !isFullscreen ? speakingRingClass : ''} ${className}`}
+          data-static-fullscreen={isStaticFullscreen ? 'true' : 'false'}
+          className={`${videoCardClass} call-media-tile--compact ${isStaticFullscreen ? 'call-media-tile--fullscreen-static' : ''} ${isFullscreen ? 'h-screen w-screen rounded-none border-0' : 'h-24 w-36 rounded-xl md:h-28 md:w-44'} ${isSpeaking && !isFullscreen ? speakingRingClass : ''} ${className}`}
         >
           <button
             type="button"
@@ -708,6 +712,16 @@ const MediaTile = ({
             playsInline
             className={videoFillClass}
           />
+          {!isStaticFullscreen && (
+            <div
+              className={`call-audio-badge call-audio-badge--compact ${isSpeaking ? 'is-speaking' : ''}`}
+              aria-hidden="true"
+            >
+              <span />
+              <span />
+              <span />
+            </div>
+          )}
           <div className={`${videoOverlayClass} px-2 pb-2 pt-5`}>
             <p className={overlayTitleClass}>{title}</p>
             <p className={overlaySubtitleClass}>{subtitle}</p>
@@ -744,7 +758,8 @@ const MediaTile = ({
         onDoubleClick={allowFullscreen ? toggleFullscreen : undefined}
         onContextMenu={onContextMenu}
         data-speaking={isSpeaking ? 'true' : 'false'}
-        className={`${videoCardClass} rounded-2xl ${isSpeaking && !isFullscreen ? speakingRingClass : ''} ${className}`}
+        data-static-fullscreen={isStaticFullscreen ? 'true' : 'false'}
+        className={`${videoCardClass} ${isStaticFullscreen ? 'call-media-tile--fullscreen-static' : ''} rounded-2xl ${isSpeaking && !isFullscreen ? speakingRingClass : ''} ${className}`}
       >
       <button
         type="button"
@@ -762,6 +777,13 @@ const MediaTile = ({
         playsInline
         className={`call-media-video w-full ${isDarkTheme ? 'bg-slate-950' : 'bg-slate-100'} object-cover ${isFullscreen ? 'h-screen' : (isCompact ? 'h-24 md:h-28' : 'h-72 md:h-80')}`}
       />
+      {!isStaticFullscreen && (
+        <div className={`call-audio-badge ${isSpeaking ? 'is-speaking' : ''}`} aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+      )}
       {!hasVideo && (
         <div className={`${placeholderWrapClass} ${isCompact ? 'gap-2' : 'gap-3'}`}>
           <div className={`${placeholderAvatarClass} ${isCompact ? 'h-10 w-10 text-lg' : 'h-16 w-16 text-2xl'}`}>
@@ -4108,6 +4130,8 @@ const CallSection = ({
             <span key={`call-bg-particle-${index}`} style={{ '--call-particle-index': index }} />
           ))}
         </div>
+        <div className="call-light-ribbon call-light-ribbon--one" aria-hidden="true" />
+        <div className="call-light-ribbon call-light-ribbon--two" aria-hidden="true" />
 
         <div className="relative z-10">
           {isFloatingUi && (
@@ -4197,12 +4221,16 @@ const CallSection = ({
                           className="call-participant-entry call-participant-entry--video"
                           data-speaking={peer.isSpeaking ? 'true' : 'false'}
                           data-self={peer.isSelf ? 'true' : 'false'}
-                          style={{ '--call-stagger-index': index }}
+                          style={{
+                            '--call-stagger-index': index,
+                            '--call-depth-rotate': `${((index % 5) - 2) * 0.9}deg`,
+                          }}
                         >
                           <MediaTile
                             stream={peer.stream}
                             title="Вы"
                             subtitle={peer.subtitle}
+                            videoKind={peer.videoKind}
                             compact
                             isSpeaking={peer.isSpeaking}
                             muted
@@ -4219,12 +4247,16 @@ const CallSection = ({
                           className="call-participant-entry call-participant-entry--video"
                           data-speaking={peer.isSpeaking ? 'true' : 'false'}
                           data-self={peer.isSelf ? 'true' : 'false'}
-                          style={{ '--call-stagger-index': index }}
+                          style={{
+                            '--call-stagger-index': index,
+                            '--call-depth-rotate': `${((index % 5) - 2) * 0.9}deg`,
+                          }}
                         >
                           <MediaTile
                             stream={peer.stream}
                             title={peer.title}
                             subtitle={peer.subtitle}
+                            videoKind={peer.videoKind}
                             compact
                             isSpeaking={peer.isSpeaking}
                             isDarkTheme={isDarkTheme}
@@ -4240,11 +4272,19 @@ const CallSection = ({
                         className="call-participant-entry call-participant-entry--avatar flex w-[104px] flex-col items-center gap-2 text-center"
                         data-speaking={peer.isSpeaking ? 'true' : 'false'}
                         data-self={peer.isSelf ? 'true' : 'false'}
-                        style={{ '--call-stagger-index': index }}
+                        style={{
+                          '--call-stagger-index': index,
+                          '--call-depth-rotate': `${((index % 5) - 2) * 0.9}deg`,
+                        }}
                         title={peer.subtitle}
                       >
                         <div className={`${avatarCardClass} ${peer.isSpeaking ? speakingRingClass : idleAvatarBorderClass}`}>
                           {initial}
+                          <span className={`call-avatar-voice ${peer.isSpeaking ? 'is-speaking' : ''}`} aria-hidden="true">
+                            <span />
+                            <span />
+                            <span />
+                          </span>
                           {peer.isSelf && (
                             <span className={avatarBadgeClass}>
                               {micEnabled ? <Mic size={10} /> : <MicOff size={10} />}
@@ -4282,11 +4322,19 @@ const CallSection = ({
                           className="call-participant-entry call-participant-entry--avatar flex w-[104px] flex-col items-center gap-2 text-center"
                           data-speaking="false"
                           data-self="false"
-                          style={{ '--call-stagger-index': index }}
+                          style={{
+                            '--call-stagger-index': index,
+                            '--call-depth-rotate': `${((index % 5) - 2) * 0.9}deg`,
+                          }}
                           title={peer.subtitle}
                         >
                           <div className={`${avatarCardClass} ${idleAvatarBorderClass}`}>
                             {initial}
+                            <span className="call-avatar-voice" aria-hidden="true">
+                              <span />
+                              <span />
+                              <span />
+                            </span>
                           </div>
                           <p className={avatarNameClass}>{peer.title}</p>
                         </article>

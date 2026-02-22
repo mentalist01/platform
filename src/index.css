@@ -1059,6 +1059,33 @@
     transform: translate3d(0, calc(-36px - var(--call-particle-index, 0) * 0.9px), 0) scale(0.58);
   }
 }
+@keyframes callRibbonSweep {
+  0% { transform: translate3d(-14%, 0, 0) rotate(-8deg) scaleX(0.92); opacity: 0.08; }
+  50% { transform: translate3d(10%, -8px, 0) rotate(-2deg) scaleX(1.06); opacity: 0.26; }
+  100% { transform: translate3d(28%, -14px, 0) rotate(4deg) scaleX(0.96); opacity: 0.1; }
+}
+@keyframes callVoiceBarsIdle {
+  0%, 100% { transform: scaleY(0.28); opacity: 0.35; }
+  50% { transform: scaleY(0.52); opacity: 0.7; }
+}
+@keyframes callVoiceBarsA {
+  0%, 100% { transform: scaleY(0.34); }
+  20% { transform: scaleY(1); }
+  45% { transform: scaleY(0.58); }
+  68% { transform: scaleY(0.9); }
+}
+@keyframes callVoiceBarsB {
+  0%, 100% { transform: scaleY(0.28); }
+  24% { transform: scaleY(0.82); }
+  46% { transform: scaleY(1); }
+  70% { transform: scaleY(0.62); }
+}
+@keyframes callVoiceBarsC {
+  0%, 100% { transform: scaleY(0.26); }
+  18% { transform: scaleY(0.74); }
+  40% { transform: scaleY(0.92); }
+  64% { transform: scaleY(0.54); }
+}
 
 @keyframes callStatusPulse {
   0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 var(--call-dot-glow, rgba(148, 163, 184, 0.38)); }
@@ -1391,6 +1418,29 @@
   animation: callParticleFloat calc(4.8s + (var(--call-particle-index, 0) * 0.22s)) ease-in-out infinite;
   animation-delay: calc(var(--call-particle-index, 0) * -0.38s);
 }
+.call-light-ribbon {
+  pointer-events: none;
+  position: absolute;
+  left: -22%;
+  width: 150%;
+  height: 126px;
+  border-radius: 999px;
+  mix-blend-mode: screen;
+  filter: blur(18px);
+  opacity: 0.16;
+  transform-origin: center;
+  animation: callRibbonSweep 18s ease-in-out infinite;
+}
+.call-light-ribbon--one {
+  top: 10%;
+  background: linear-gradient(90deg, rgba(14, 165, 233, 0.18), rgba(56, 189, 248, 0.34), rgba(45, 212, 191, 0.2));
+}
+.call-light-ribbon--two {
+  top: 62%;
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.16), rgba(99, 102, 241, 0.28), rgba(56, 189, 248, 0.12));
+  animation-duration: 21s;
+  animation-delay: -6.5s;
+}
 .call-status-chip {
   position: relative;
   overflow: hidden;
@@ -1454,6 +1504,7 @@
   background: rgb(148, 163, 184);
 }
 .call-participant-entry {
+  --call-depth-rotate: 0deg;
   position: relative;
   isolation: isolate;
   transform-style: preserve-3d;
@@ -1488,7 +1539,7 @@
   transition: opacity 0.28s ease;
 }
 .call-participant-entry:hover {
-  transform: translateY(-4px) scale(1.02);
+  transform: translateY(-4px) scale(1.02) rotateX(1.5deg) rotateY(var(--call-depth-rotate, 0deg));
   filter: saturate(1.1);
 }
 .call-participant-entry:hover::before,
@@ -1535,6 +1586,9 @@
   transform: translateZ(0);
   transition: transform 0.28s ease, box-shadow 0.32s ease, filter 0.3s ease;
 }
+.call-media-tile--compact {
+  transform-origin: center;
+}
 .call-media-tile::before {
   content: "";
   pointer-events: none;
@@ -1547,7 +1601,7 @@
   transition: opacity 0.32s ease, transform 0.7s ease;
 }
 .call-media-tile:hover {
-  transform: translateY(-3px) scale(1.01);
+  transform: translateY(-3px) scale(1.01) rotateX(1.4deg);
   box-shadow: 0 18px 36px rgba(15, 23, 42, 0.24);
 }
 .call-media-tile:hover::before {
@@ -1556,6 +1610,61 @@
 }
 .call-media-tile[data-speaking='true'] {
   box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.36), 0 18px 36px rgba(16, 185, 129, 0.2);
+}
+.call-audio-badge {
+  pointer-events: none;
+  position: absolute;
+  z-index: 6;
+  top: 0.6rem;
+  left: 0.6rem;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 0.28rem 0.38rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(2, 6, 23, 0.36);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.call-audio-badge--compact {
+  top: 0.45rem;
+  left: 0.45rem;
+  gap: 2px;
+  padding: 0.22rem 0.3rem;
+}
+.call-audio-badge span {
+  width: 2px;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(186, 230, 253, 0.86);
+  transform-origin: bottom;
+  animation: callVoiceBarsIdle 1.8s ease-in-out infinite;
+}
+.call-audio-badge span:nth-child(2) {
+  height: 11px;
+  animation-delay: -0.35s;
+}
+.call-audio-badge span:nth-child(3) {
+  height: 8px;
+  animation-delay: -0.72s;
+}
+.call-audio-badge.is-speaking {
+  border-color: rgba(16, 185, 129, 0.48);
+  background: rgba(4, 120, 87, 0.28);
+  box-shadow: 0 8px 20px rgba(5, 150, 105, 0.24);
+}
+.call-audio-badge.is-speaking span:nth-child(1) {
+  background: rgba(167, 243, 208, 0.96);
+  animation: callVoiceBarsA 0.62s ease-in-out infinite;
+}
+.call-audio-badge.is-speaking span:nth-child(2) {
+  background: rgba(110, 231, 183, 0.98);
+  animation: callVoiceBarsB 0.57s ease-in-out infinite;
+}
+.call-audio-badge.is-speaking span:nth-child(3) {
+  background: rgba(52, 211, 153, 0.96);
+  animation: callVoiceBarsC 0.64s ease-in-out infinite;
 }
 .call-media-video {
   position: relative;
@@ -1566,6 +1675,27 @@
 }
 .call-media-tile[data-speaking='true'] .call-media-video {
   animation: callVideoDrift 9.6s ease-in-out infinite, callVideoSpeakBoost 1.8s ease-in-out infinite;
+}
+.call-media-tile--fullscreen-static,
+.call-media-tile--fullscreen-static:hover {
+  transform: none !important;
+  filter: none !important;
+  transition: none !important;
+  box-shadow: none !important;
+}
+.call-media-tile--fullscreen-static::before,
+.call-media-tile--fullscreen-static::after {
+  animation: none !important;
+  opacity: 0 !important;
+}
+.call-media-tile--fullscreen-static .call-media-video {
+  animation: none !important;
+  transform: none !important;
+  filter: none !important;
+  transition: none !important;
+}
+.call-media-tile--fullscreen-static .call-media-overlay {
+  transition: none !important;
 }
 .call-media-overlay {
   backdrop-filter: blur(2px);
@@ -1585,6 +1715,51 @@
 }
 .call-avatar-badge {
   animation: callStatusPulse 2.3s ease-in-out infinite;
+}
+.call-avatar-voice {
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 0.16rem 0.28rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  background: rgba(15, 23, 42, 0.78);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.2);
+}
+.call-avatar-voice span {
+  width: 2px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(186, 230, 253, 0.84);
+  transform-origin: bottom;
+  animation: callVoiceBarsIdle 1.9s ease-in-out infinite;
+}
+.call-avatar-voice span:nth-child(2) {
+  height: 7px;
+  animation-delay: -0.26s;
+}
+.call-avatar-voice span:nth-child(3) {
+  height: 5px;
+  animation-delay: -0.5s;
+}
+.call-avatar-voice.is-speaking {
+  border-color: rgba(16, 185, 129, 0.48);
+  background: rgba(6, 95, 70, 0.78);
+  box-shadow: 0 8px 16px rgba(16, 185, 129, 0.24);
+}
+.call-avatar-voice.is-speaking span:nth-child(1) {
+  animation: callVoiceBarsA 0.62s ease-in-out infinite;
+}
+.call-avatar-voice.is-speaking span:nth-child(2) {
+  animation: callVoiceBarsB 0.58s ease-in-out infinite;
+}
+.call-avatar-voice.is-speaking span:nth-child(3) {
+  animation: callVoiceBarsC 0.64s ease-in-out infinite;
 }
 .call-avatar-name {
   letter-spacing: 0.01em;
@@ -2273,12 +2448,15 @@
   .call-noise-overlay,
   .call-orbit-ring,
   .call-particle-field span,
+  .call-light-ribbon,
   .call-status-chip::after,
   .call-status-dot--connected,
   .call-status-dot--waiting,
   .call-status-dot--connecting,
   .call-status-dot--problem,
   .call-participant-entry,
+  .call-audio-badge span,
+  .call-avatar-voice span,
   .call-media-video,
   .call-controls-rail,
   .call-controls-rail::after,
@@ -2470,6 +2648,39 @@ html[data-theme='dark'] .call-control-btn::before {
 
 html[data-theme='dark'] .call-participant-entry[data-speaking='true'] .call-avatar-name {
   color: rgb(110 231 183);
+}
+
+html[data-theme='dark'] .call-light-ribbon {
+  opacity: 0.24;
+}
+
+html[data-theme='dark'] .call-audio-badge {
+  border-color: rgba(148, 163, 184, 0.34);
+  background: rgba(2, 6, 23, 0.62);
+}
+
+html[data-theme='dark'] .call-audio-badge span {
+  background: rgba(148, 163, 184, 0.92);
+}
+
+html[data-theme='dark'] .call-audio-badge.is-speaking {
+  border-color: rgba(52, 211, 153, 0.56);
+  background: rgba(6, 78, 59, 0.64);
+  box-shadow: 0 10px 22px rgba(16, 185, 129, 0.3);
+}
+
+html[data-theme='dark'] .call-avatar-voice {
+  border-color: rgba(148, 163, 184, 0.46);
+  background: rgba(2, 6, 23, 0.82);
+}
+
+html[data-theme='dark'] .call-avatar-voice span {
+  background: rgba(148, 163, 184, 0.9);
+}
+
+html[data-theme='dark'] .call-avatar-voice.is-speaking {
+  border-color: rgba(52, 211, 153, 0.62);
+  background: rgba(4, 120, 87, 0.72);
 }
 
 html[data-theme='dark'] .sidebar-nav::-webkit-scrollbar-track {
