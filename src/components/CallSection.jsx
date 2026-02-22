@@ -40,6 +40,9 @@ const RTC_ICE_TRANSPORT_POLICY = (() => {
 })();
 const CONNECTION_STATS_INTERVAL_MS = 2500;
 const RTC_PRESENCE_RECONNECT_DELAY_MS = 2000;
+const RTC_PRESENCE_RECONNECT_MAX_DELAY_MS = 12000;
+const RTC_PRESENCE_RECONNECT_JITTER_MS = 450;
+const RTC_PRESENCE_RECONNECT_MAX_ATTEMPTS = 10;
 const RTC_PRESENCE_POLL_INTERVAL_MS = 1200;
 const RTC_PRESENCE_FALLBACK_BOOT_TIMEOUT_MS = 5000;
 const WS_HEARTBEAT_TIMEOUT_MS = 45000;
@@ -196,6 +199,22 @@ const getRtcPeerConnectionConfig = (iceServers) => ({
   iceCandidatePoolSize: RTC_ICE_CANDIDATE_POOL_SIZE,
   iceTransportPolicy: RTC_ICE_TRANSPORT_POLICY,
 });
+const getRtcPeerConnectionState = (pc) => {
+  const directState = typeof pc?.connectionState === 'string' ? pc.connectionState : '';
+  if (directState) return directState;
+  const iceState = typeof pc?.iceConnectionState === 'string' ? pc.iceConnectionState : '';
+  if (iceState === 'failed') return 'failed';
+  if (iceState === 'disconnected') return 'disconnected';
+  if (iceState === 'closed') return 'closed';
+  if (iceState === 'connected' || iceState === 'completed') return 'connected';
+  if (iceState === 'checking' || iceState === 'new') return 'connecting';
+  return 'new';
+};
+const getRtcPeerConnectionCtor = () => {
+  if (typeof window === 'undefined') return null;
+  const ctor = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
+  return typeof ctor === 'function' ? ctor : null;
+};
 
 const clampPanelPositionToViewport = (position, width, height) => {
   const normalizedWidth = Number(width);
@@ -229,13 +248,29 @@ const getRtcWsUrl = () => {
   return `${wsProtocol}://${host}/rtc`;
 };
 
-const getRtcIceServers = () => {
+const getRtcIceConfig = () => {
   const raw = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_RTC_ICE_SERVERS : '';
   const normalizedRaw = typeof raw === 'string' ? raw.trim() : '';
-  if (!normalizedRaw) return DEFAULT_ICE_SERVERS;
+  if (!normalizedRaw) {
+    return {
+      servers: DEFAULT_ICE_SERVERS,
+      hasTurn: false,
+      hasTurnAuth: false,
+      configError: false,
+      fromEnv: false,
+    };
+  }
   try {
     const parsed = JSON.parse(normalizedRaw);
-    if (!Array.isArray(parsed)) return DEFAULT_ICE_SERVERS;
+    if (!Array.isArray(parsed)) {
+      return {
+        servers: DEFAULT_ICE_SERVERS,
+        hasTurn: false,
+        hasTurnAuth: false,
+        configError: true,
+        fromEnv: true,
+      };
+    }
     const normalized = parsed
       .filter((entry) => entry && typeof entry === 'object')
       .map((entry) => {
@@ -245,15 +280,47 @@ const getRtcIceServers = () => {
           .filter(Boolean);
         if (!urls.length) return null;
         const iceServer = { urls };
-        if (entry.username) iceServer.username = String(entry.username);
-        if (entry.credential) iceServer.credential = String(entry.credential);
+        if (entry.username !== undefined && entry.username !== null) iceServer.username = String(entry.username);
+        if (entry.credential !== undefined && entry.credential !== null) iceServer.credential = String(entry.credential);
         return iceServer;
       })
       .filter(Boolean);
-    if (!normalized.length) return DEFAULT_ICE_SERVERS;
-    return normalized;
+    if (!normalized.length) {
+      return {
+        servers: DEFAULT_ICE_SERVERS,
+        hasTurn: false,
+        hasTurnAuth: false,
+        configError: true,
+        fromEnv: true,
+      };
+    }
+    const hasTurn = normalized.some((entry) => (
+      Array.isArray(entry?.urls)
+      && entry.urls.some((url) => /^turns?:/i.test(String(url || '').trim()))
+    ));
+    const hasTurnAuth = normalized.some((entry) => {
+      if (!Array.isArray(entry?.urls)) return false;
+      const hasTurnUrls = entry.urls.some((url) => /^turns?:/i.test(String(url || '').trim()));
+      if (!hasTurnUrls) return false;
+      const username = typeof entry?.username === 'string' ? entry.username.trim() : '';
+      const credential = typeof entry?.credential === 'string' ? entry.credential.trim() : '';
+      return Boolean(username && credential);
+    });
+    return {
+      servers: normalized,
+      hasTurn,
+      hasTurnAuth,
+      configError: false,
+      fromEnv: true,
+    };
   } catch {
-    return DEFAULT_ICE_SERVERS;
+    return {
+      servers: DEFAULT_ICE_SERVERS,
+      hasTurn: false,
+      hasTurnAuth: false,
+      configError: true,
+      fromEnv: true,
+    };
   }
 };
 
@@ -821,7 +888,9 @@ const CallSection = ({
   const effectiveTeacherId = String(teacherId || '').trim();
   const roomId = effectiveTeacherId && effectiveStudentId ? `rtc:${effectiveTeacherId}:${effectiveStudentId}` : '';
   const rtcWsUrl = useMemo(() => getRtcWsUrl(), []);
-  const rtcIceServers = useMemo(() => getRtcIceServers(), []);
+  const rtcIceConfig = useMemo(() => getRtcIceConfig(), []);
+  const rtcPeerConnectionCtor = useMemo(() => getRtcPeerConnectionCtor(), []);
+  const rtcIceServers = rtcIceConfig.servers;
   const selectedStudent = useMemo(
     () => (Array.isArray(students) ? students.find((student) => student.id === activeStudentId) : null),
     [students, activeStudentId]
@@ -916,6 +985,7 @@ const CallSection = ({
   const startCallRef = useRef(null);
   const presencePingTimerRef = useRef(null);
   const presenceReconnectTimerRef = useRef(null);
+  const presenceReconnectAttemptRef = useRef(0);
   const wsHadErrorRef = useRef(false);
   const lastWsPongAtRef = useRef(0);
   const lastPresencePongAtRef = useRef(0);
@@ -1156,7 +1226,7 @@ const CallSection = ({
       closed: 0,
     };
     peersRef.current.forEach((peerState) => {
-      const state = typeof peerState?.pc?.connectionState === 'string' ? peerState.pc.connectionState : 'new';
+      const state = getRtcPeerConnectionState(peerState?.pc);
       next.total += 1;
       if (state === 'connected') {
         next.connected += 1;
@@ -1329,7 +1399,7 @@ const CallSection = ({
 
   const broadcastLocalMediaStateToPeers = useCallback(() => {
     peersRef.current.forEach((peerState, peerId) => {
-      const pcState = typeof peerState?.pc?.connectionState === 'string' ? peerState.pc.connectionState : 'new';
+      const pcState = getRtcPeerConnectionState(peerState?.pc);
       if (pcState === 'closed' || pcState === 'failed') return;
       sendLocalMediaStateToPeer(peerId);
     });
@@ -1408,6 +1478,7 @@ const CallSection = ({
       clearTimeout(presenceReconnectTimerRef.current);
       presenceReconnectTimerRef.current = null;
     }
+    presenceReconnectAttemptRef.current = 0;
     if (presencePingTimerRef.current) {
       clearInterval(presencePingTimerRef.current);
       presencePingTimerRef.current = null;
@@ -1441,6 +1512,15 @@ const CallSection = ({
   const syncLocalTracksToPeer = useCallback((peerState) => {
     if (!peerState?.pc) return;
     const { pc } = peerState;
+    const replaceSenderTrack = (sender, track) => {
+      if (!sender || typeof sender.replaceTrack !== 'function') return false;
+      try {
+        sender.replaceTrack(track).catch(() => {});
+        return true;
+      } catch {
+        return false;
+      }
+    };
     const processedAudioTrack = localAudioTrackRef.current;
     const rawAudioTrack = localRawAudioTrackRef.current;
     const isBackgroundTab = typeof document !== 'undefined' && document.visibilityState === 'hidden';
@@ -1460,14 +1540,18 @@ const CallSection = ({
 
     if (audioTrack && audioTrack.readyState === 'live') {
       if (peerState.audioSender) {
-        peerState.audioSender.replaceTrack(audioTrack).catch(() => {});
+        const replaced = replaceSenderTrack(peerState.audioSender, audioTrack);
+        if (!replaced) {
+          try { pc.removeTrack(peerState.audioSender); } catch {}
+          peerState.audioSender = pc.addTrack(audioTrack, localStreamRef.current);
+        }
         tuneAudioSender(peerState.audioSender);
       } else {
         peerState.audioSender = pc.addTrack(audioTrack, localStreamRef.current);
         tuneAudioSender(peerState.audioSender);
       }
     } else if (peerState.audioSender) {
-      try { peerState.audioSender.replaceTrack(null); } catch {}
+      replaceSenderTrack(peerState.audioSender, null);
       try { pc.removeTrack(peerState.audioSender); } catch {}
       peerState.audioSender = null;
     }
@@ -1477,8 +1561,14 @@ const CallSection = ({
       const videoKind = senderKey === 'cameraSender' ? 'camera' : 'screen';
       if (track) {
         if (currentSender) {
-          currentSender.replaceTrack(track).catch(() => {});
-          tuneVideoSender(currentSender, { kind: videoKind });
+          const replaced = replaceSenderTrack(currentSender, track);
+          let senderToTune = currentSender;
+          if (!replaced) {
+            try { pc.removeTrack(currentSender); } catch {}
+            senderToTune = pc.addTrack(track, localStreamRef.current);
+            peerState[senderKey] = senderToTune;
+          }
+          tuneVideoSender(senderToTune, { kind: videoKind });
           return;
         }
         peerState[senderKey] = pc.addTrack(track, localStreamRef.current);
@@ -1486,8 +1576,13 @@ const CallSection = ({
         return;
       }
       if (!currentSender) return;
-      try { currentSender.replaceTrack(null); } catch {}
-      // Keep sender/transceiver for stable second screen-share start without black remote frames.
+      const cleared = replaceSenderTrack(currentSender, null);
+      if (cleared) {
+        // Keep sender/transceiver for stable second screen-share start without black remote frames.
+        return;
+      }
+      try { pc.removeTrack(currentSender); } catch {}
+      peerState[senderKey] = null;
     };
 
     syncVideoSender('screenSender', liveScreenTrack);
@@ -1615,6 +1710,7 @@ const CallSection = ({
         peerState.pc.ontrack = null;
         peerState.pc.onicecandidate = null;
         peerState.pc.onconnectionstatechange = null;
+        peerState.pc.oniceconnectionstatechange = null;
         peerState.pc.close();
       } catch {}
     });
@@ -1653,6 +1749,7 @@ const CallSection = ({
         peerState.pc.ontrack = null;
         peerState.pc.onicecandidate = null;
         peerState.pc.onconnectionstatechange = null;
+        peerState.pc.oniceconnectionstatechange = null;
         peerState.pc.close();
       } catch {}
     }
@@ -2111,10 +2208,12 @@ const CallSection = ({
     outputTrack.enabled = true;
     rawTrack.enabled = true;
 
-    const handleMicEnded = () => {
-      if (localAudioTrackRef.current !== outputTrack && localRawAudioTrackRef.current !== rawTrack) return;
-      outputTrack.onended = null;
+    const handleRawMicEnded = () => {
+      if (localRawAudioTrackRef.current !== rawTrack) return;
       rawTrack.onended = null;
+      if (outputTrack && outputTrack !== rawTrack) {
+        outputTrack.onended = null;
+      }
       if (localAudioTrackRef.current) {
         localStreamRef.current.removeTrack(localAudioTrackRef.current);
       }
@@ -2124,9 +2223,27 @@ const CallSection = ({
       disposeLocalMicProcessing();
       syncLocalTracksToAllPeers();
     };
-    rawTrack.onended = handleMicEnded;
+    const handleProcessedMicEnded = () => {
+      if (outputTrack === rawTrack) return;
+      if (localAudioTrackRef.current !== outputTrack) return;
+      outputTrack.onended = null;
+      // Processed WebAudio track can end in background tabs; fallback to raw mic to keep audio alive.
+      if (rawTrack.readyState !== 'live') {
+        handleRawMicEnded();
+        return;
+      }
+      localStreamRef.current.removeTrack(outputTrack);
+      localAudioTrackRef.current = rawTrack;
+      if (!localStreamRef.current.getAudioTracks().some((track) => track.id === rawTrack.id)) {
+        localStreamRef.current.addTrack(rawTrack);
+      }
+      setMicEnabled(Boolean(rawTrack.enabled));
+      disposeLocalMicProcessing();
+      syncLocalTracksToAllPeers();
+    };
+    rawTrack.onended = handleRawMicEnded;
     if (outputTrack !== rawTrack) {
-      outputTrack.onended = handleMicEnded;
+      outputTrack.onended = handleProcessedMicEnded;
     }
 
     localAudioTrackRef.current = outputTrack;
@@ -2204,6 +2321,10 @@ const CallSection = ({
   const createPeerState = useCallback((peerId, peerMeta = {}) => {
     const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
     if (!normalizedPeerId || normalizedPeerId === selfClientIdRef.current) return null;
+    if (!rtcPeerConnectionCtor) {
+      setError('Ваш браузер не поддерживает WebRTC-звонки. Обновите браузер до последней версии.');
+      return null;
+    }
 
     const existing = peersRef.current.get(normalizedPeerId);
     if (existing) {
@@ -2214,7 +2335,7 @@ const CallSection = ({
       return existing;
     }
 
-    const pc = new RTCPeerConnection(getRtcPeerConnectionConfig(rtcIceServers));
+    const pc = new rtcPeerConnectionCtor(getRtcPeerConnectionConfig(rtcIceServers));
     if (typeof pc.addTransceiver === 'function') {
       try {
         const existingVideoTransceivers = typeof pc.getTransceivers === 'function'
@@ -2320,14 +2441,14 @@ const CallSection = ({
       syncRemotePeers();
     };
 
-    pc.onconnectionstatechange = () => {
-      const state = pc.connectionState;
+    const handlePeerConnectionStateChange = () => {
+      const state = getRtcPeerConnectionState(pc);
       if (state === 'disconnected') {
         if (!peerState.disconnectTimer) {
           peerState.disconnectTimer = setTimeout(() => {
             const currentPeerState = peersRef.current.get(normalizedPeerId);
             if (!currentPeerState) return;
-            if (currentPeerState.pc.connectionState !== 'disconnected') return;
+            if (getRtcPeerConnectionState(currentPeerState.pc) !== 'disconnected') return;
             detachPeer(normalizedPeerId, { closeConnection: true });
             requestRoomResync();
           }, PEER_DISCONNECTED_GRACE_MS);
@@ -2353,11 +2474,13 @@ const CallSection = ({
       }
       refreshPeerConnectionSummary();
     };
+    pc.onconnectionstatechange = handlePeerConnectionStateChange;
+    pc.oniceconnectionstatechange = handlePeerConnectionStateChange;
 
     syncLocalTracksToPeer(peerState);
     refreshPeerConnectionSummary();
     return peerState;
-  }, [detachPeer, refreshPeerConnectionSummary, requestRoomResync, rtcIceServers, sendWs, syncLocalTracksToPeer, syncRemotePeers]);
+  }, [detachPeer, refreshPeerConnectionSummary, requestRoomResync, rtcIceServers, rtcPeerConnectionCtor, sendWs, syncLocalTracksToPeer, syncRemotePeers]);
 
   const makeOfferToPeer = useCallback(async (peerId) => {
     const peerState = peersRef.current.get(peerId);
@@ -2388,7 +2511,8 @@ const CallSection = ({
       if (!pc) return;
       if (peerState.makingOffer) return;
       if (pc.signalingState !== 'stable') return;
-      if (pc.connectionState === 'closed' || pc.connectionState === 'failed') return;
+      const pcState = getRtcPeerConnectionState(pc);
+      if (pcState === 'closed' || pcState === 'failed') return;
       makeOfferToPeer(peerId);
     });
   }, [makeOfferToPeer]);
@@ -2403,7 +2527,7 @@ const CallSection = ({
     const signal = payload?.signal && typeof payload.signal === 'object' ? payload.signal : null;
     if (!signal) return;
 
-    const peerState = createPeerState(fromId, payload?.peer || {});
+    let peerState = createPeerState(fromId, payload?.peer || {});
     if (!peerState) return;
 
     const mediaState = signal.mediaState && typeof signal.mediaState === 'object'
@@ -2428,12 +2552,28 @@ const CallSection = ({
 
     const description = signal.description;
     if (description && typeof description === 'object') {
-      const offerCollision = description.type === 'offer'
+      const isOffer = description.type === 'offer';
+      const offerCollision = isOffer
         && (peerState.makingOffer || peerState.pc.signalingState !== 'stable');
       peerState.ignoreOffer = !peerState.polite && offerCollision;
       if (peerState.ignoreOffer) return;
 
       try {
+        if (isOffer && offerCollision && peerState.polite && peerState.pc.signalingState !== 'stable') {
+          let rolledBack = false;
+          try {
+            await peerState.pc.setLocalDescription({ type: 'rollback' });
+            rolledBack = true;
+          } catch {
+            rolledBack = peerState.pc.signalingState === 'stable';
+          }
+          if (!rolledBack) {
+            detachPeer(fromId, { closeConnection: true });
+            const recreatedPeerState = createPeerState(fromId, payload?.peer || {});
+            if (!recreatedPeerState) return;
+            peerState = recreatedPeerState;
+          }
+        }
         await peerState.pc.setRemoteDescription(description);
         if (Array.isArray(peerState.pendingCandidates) && peerState.pendingCandidates.length > 0) {
           const queuedCandidates = [...peerState.pendingCandidates];
@@ -2448,7 +2588,7 @@ const CallSection = ({
             }
           }
         }
-        if (description.type === 'offer') {
+        if (isOffer) {
           syncLocalTracksToPeer(peerState);
           const answer = await peerState.pc.createAnswer();
           await peerState.pc.setLocalDescription(answer);
@@ -2487,7 +2627,7 @@ const CallSection = ({
         }
       }
     }
-  }, [createPeerState, sendWs, syncLocalTracksToPeer, syncRemotePeers]);
+  }, [createPeerState, detachPeer, sendWs, syncLocalTracksToPeer, syncRemotePeers]);
 
   const handleWsMessage = useCallback((raw) => {
     let payload = null;
@@ -2576,7 +2716,7 @@ const CallSection = ({
       void playAlertSound(RTC_ALERT_SOUND_PARTICIPANT_JOIN_PATTERN);
       const existingPeer = peersRef.current.get(peerId);
       createPeerState(peerId, payload.peer);
-      const existingState = typeof existingPeer?.pc?.connectionState === 'string' ? existingPeer.pc.connectionState : '';
+      const existingState = getRtcPeerConnectionState(existingPeer?.pc);
       const shouldOffer = !existingPeer || existingState === 'disconnected' || existingState === 'failed' || existingState === 'closed';
       const hasLiveLocalVideo = Boolean(
         (localScreenTrackRef.current && localScreenTrackRef.current.readyState === 'live')
@@ -2586,11 +2726,11 @@ const CallSection = ({
       if (shouldOffer && (isPreferredOfferer || hasLiveLocalVideo)) {
         makeOfferToPeer(peerId);
       }
-      if (hasLiveLocalVideo) {
+      if (shouldOffer && hasLiveLocalVideo) {
         setTimeout(() => {
           const peerState = peersRef.current.get(peerId);
           if (!peerState?.pc) return;
-          const connectionState = typeof peerState.pc.connectionState === 'string' ? peerState.pc.connectionState : '';
+          const connectionState = getRtcPeerConnectionState(peerState.pc);
           if (connectionState === 'closed' || connectionState === 'failed') return;
           if (peerState.makingOffer) return;
           if (peerState.pc.signalingState !== 'stable') return;
@@ -2668,6 +2808,22 @@ const CallSection = ({
     }
     if (!rtcWsUrl) {
       setError('Не удалось определить WebSocket-адрес для созвона.');
+      return;
+    }
+    if (!rtcPeerConnectionCtor) {
+      setError('Ваш браузер не поддерживает WebRTC-звонки. Обновите браузер до последней версии.');
+      return;
+    }
+    if (rtcIceConfig.configError) {
+      setError('Некорректный VITE_RTC_ICE_SERVERS. Проверь JSON-массив ICE-серверов.');
+      return;
+    }
+    if (RTC_ICE_TRANSPORT_POLICY === 'relay' && !rtcIceConfig.hasTurn) {
+      setError('Для режима relay нужен хотя бы один TURN-сервер в VITE_RTC_ICE_SERVERS.');
+      return;
+    }
+    if (RTC_ICE_TRANSPORT_POLICY === 'relay' && !rtcIceConfig.hasTurnAuth) {
+      setError('Для режима relay TURN-сервер должен содержать username и credential.');
       return;
     }
     if (isReconnect) {
@@ -2780,7 +2936,12 @@ const CallSection = ({
           const reconnectMessage = wsHadErrorRef.current
             ? 'Сигнальный канал оборвался. Переподключаемся...'
             : 'Соединение для созвона разорвано. Переподключаемся...';
-          scheduleWsReconnect(reconnectMessage);
+          const scheduled = scheduleWsReconnect(reconnectMessage);
+          if (!scheduled) {
+            stopScreenTrack(false);
+            stopCameraTrack(false);
+            stopMicTrack(false);
+          }
         } else {
           stopScreenTrack(false);
           stopCameraTrack(false);
@@ -2812,7 +2973,7 @@ const CallSection = ({
         setError(connectErrorText);
       }
     }
-  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, primeAlertAudioContext, resetWsReconnectState, roomId, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
+  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, primeAlertAudioContext, resetWsReconnectState, roomId, rtcIceConfig.configError, rtcIceConfig.hasTurn, rtcIceConfig.hasTurnAuth, rtcPeerConnectionCtor, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
 
   useEffect(() => {
     startCallRef.current = startCall;
@@ -3001,12 +3162,24 @@ const CallSection = ({
     const scheduleReconnect = () => {
       if (disposed || !usingWsFallback) return;
       if (presenceReconnectTimerRef.current) {
-        clearTimeout(presenceReconnectTimerRef.current);
+        return;
       }
+      const nextAttempt = presenceReconnectAttemptRef.current + 1;
+      if (nextAttempt > RTC_PRESENCE_RECONNECT_MAX_ATTEMPTS) {
+        setPresenceError('Не удалось восстановить канал присутствия. Перезагрузите страницу.');
+        return;
+      }
+      presenceReconnectAttemptRef.current = nextAttempt;
+      const baseDelay = Math.min(
+        RTC_PRESENCE_RECONNECT_MAX_DELAY_MS,
+        RTC_PRESENCE_RECONNECT_DELAY_MS * (2 ** Math.max(0, nextAttempt - 1))
+      );
+      const jitter = Math.floor(Math.random() * RTC_PRESENCE_RECONNECT_JITTER_MS);
+      const reconnectDelay = baseDelay + jitter;
       presenceReconnectTimerRef.current = setTimeout(() => {
         presenceReconnectTimerRef.current = null;
         connectPresenceWs();
-      }, RTC_PRESENCE_RECONNECT_DELAY_MS);
+      }, reconnectDelay);
     };
 
     const applyPresencePayload = (raw) => {
@@ -3058,6 +3231,7 @@ const CallSection = ({
 
         ws.onopen = () => {
           if (disposed || !usingWsFallback || presenceWsRef.current !== ws) return;
+          presenceReconnectAttemptRef.current = 0;
           lastPresencePongAtRef.current = Date.now();
           try {
             ws.send(JSON.stringify({ type: 'watch-presence', roomId }));
@@ -3117,6 +3291,7 @@ const CallSection = ({
           if (response.status === 404) {
             if (!usingWsFallback) {
               usingWsFallback = true;
+              presenceReconnectAttemptRef.current = 0;
               setPresenceError('');
               if (fallbackBootTimeout) {
                 clearTimeout(fallbackBootTimeout);
@@ -3142,6 +3317,7 @@ const CallSection = ({
         if (disposed) return;
         if (usingWsFallback) {
           usingWsFallback = false;
+          presenceReconnectAttemptRef.current = 0;
           if (fallbackBootTimeout) {
             clearTimeout(fallbackBootTimeout);
             fallbackBootTimeout = null;

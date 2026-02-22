@@ -5720,6 +5720,22 @@ const joinRtcRoom = (client, roomMeta) => {
     rtcRooms.set(roomId, room);
   }
 
+  if (client.roomId === roomId) {
+    room.set(client.clientId, client);
+    upsertRtcPresenceFileFromClient(client);
+    const peers = Array.from(room.values())
+      .filter((entry) => entry.clientId !== client.clientId)
+      .map((entry) => serializeRtcPeer(entry));
+    sendRtcPayload(client.ws, {
+      type: 'joined',
+      roomId,
+      selfId: client.clientId,
+      peers,
+    });
+    broadcastRtcPresenceUpdate(roomId);
+    return;
+  }
+
   const peers = Array.from(room.values())
     .filter((entry) => entry.clientId !== client.clientId)
     .map((entry) => serializeRtcPeer(entry));
