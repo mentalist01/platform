@@ -7126,7 +7126,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         ? (callPanelExpanded ? 'floating' : 'collapsed')
         : 'hidden';
   const mainLayoutClass = isBoardView
-    ? 'flex-1 overflow-hidden px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-4 sm:pt-4 sm:pb-4 md:p-5 lg:p-6'
+    ? 'flex-1 overflow-hidden px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-4 sm:pt-4 sm:pb-4 md:px-5 md:pt-8 md:pb-5 lg:px-6 lg:pb-6'
     : 'flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8';
   const mainContentShellClass = `main-content-shell animate-soft${
     isBoardView ? ' h-full min-h-0 flex flex-col overflow-hidden' : ''
@@ -9674,7 +9674,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       key={`lesson-quick-${item.id}`}
                       type="button"
                       onClick={() => navigateToView(item.id)}
-                      className={`flex h-14 min-w-0 items-center justify-center gap-2.5 rounded-xl px-3 text-base font-semibold transition-colors ${
+                      className={`lesson-quick-nav__item flex h-14 min-w-0 items-center justify-center gap-2.5 rounded-xl px-3 text-base font-semibold transition-colors ${
                         isActive
                           ? 'bg-purple-600 text-white shadow-sm'
                           : 'border border-purple-100 bg-white text-slate-700 hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700'
