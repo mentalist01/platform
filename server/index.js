@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -644,6 +644,27 @@ const normalizePushSubscriptionsByStudent = (value) => {
   return result;
 };
 
+const normalizePushSubscriptionsByUser = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result = {};
+  Object.entries(value).forEach(([userKey, list]) => {
+    const key = String(userKey || '').trim();
+    if (!key || !Array.isArray(list)) return;
+    const unique = [];
+    const seen = new Set();
+    list.forEach((item) => {
+      const normalized = normalizePushStoredSubscription(item);
+      if (!normalized || seen.has(normalized.endpoint)) return;
+      seen.add(normalized.endpoint);
+      unique.push(normalized);
+    });
+    if (unique.length > 0) {
+      result[key] = unique;
+    }
+  });
+  return result;
+};
+
 const normalizePushReminderEntry = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const homeworkId = typeof value.homeworkId === 'string' ? value.homeworkId.trim() : '';
@@ -686,6 +707,7 @@ const normalizePushVapidKeys = (value) => {
 const getDefaultPushDb = () => ({
   vapidKeys: null,
   subscriptionsByStudent: {},
+  subscriptionsByUser: {},
   remindersByStudent: {},
 });
 
@@ -700,6 +722,7 @@ const readPushDb = () => {
     return {
       vapidKeys: normalizePushVapidKeys(data.vapidKeys),
       subscriptionsByStudent: normalizePushSubscriptionsByStudent(data.subscriptionsByStudent),
+      subscriptionsByUser: normalizePushSubscriptionsByUser(data.subscriptionsByUser),
       remindersByStudent: normalizePushRemindersByStudent(data.remindersByStudent),
     };
   } catch {
@@ -711,6 +734,7 @@ const writePushDb = (data) => {
   const normalized = {
     vapidKeys: normalizePushVapidKeys(data?.vapidKeys),
     subscriptionsByStudent: normalizePushSubscriptionsByStudent(data?.subscriptionsByStudent),
+    subscriptionsByUser: normalizePushSubscriptionsByUser(data?.subscriptionsByUser),
     remindersByStudent: normalizePushRemindersByStudent(data?.remindersByStudent),
   };
   fs.writeFileSync(pushFile, JSON.stringify(normalized, null, 2), 'utf8');
@@ -1614,7 +1638,18 @@ const isLeadAllowedApiRequest = (req) => {
   const apiPath = String(req?.path || '').trim();
   if (!apiPath) return false;
   if (apiPath === '/signup-chat/messages') return method === 'GET' || method === 'POST';
+  if (apiPath === '/push/public-key') return method === 'GET';
+  if (apiPath === '/push/subscription') return method === 'GET' || method === 'POST' || method === 'DELETE';
   return false;
+};
+
+const getPushUserStorageKey = (auth) => {
+  if (!auth) return '';
+  if (!isTeacherRole(auth) && !isLeadRole(auth)) return '';
+  const role = String(auth.role || '').trim();
+  const id = String(auth.id || '').trim();
+  if (!role || !id) return '';
+  return `${role}:${id}`;
 };
 
 const canAccessStudentByRole = (auth, student, options = {}) => {
@@ -2630,6 +2665,79 @@ const sendPushNotificationToSubscriptions = async (subscriptions = [], payload, 
   return { successCount, staleEndpoints };
 };
 
+const trimPushBodyText = (value, max = 180) => {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  if (text.length <= max) return text;
+  return `${text.slice(0, Math.max(0, max - 1))}…`;
+};
+
+const buildSignupTeacherPushPayload = (chat, message) => {
+  const guestName = String(chat?.guestName || 'Гость').trim() || 'Гость';
+  const text = trimPushBodyText(message?.text || '');
+  return {
+    title: `Новое сообщение от ${guestName}`,
+    body: text || 'Откройте чат заявок, чтобы прочитать сообщение.',
+    icon: '/favicon.ico',
+    badge: '/favicon.ico',
+    tag: `signup-teacher-${String(chat?.id || '').trim() || 'chat'}`,
+    renotify: true,
+    data: {
+      type: 'signup-chat-teacher',
+      url: '/',
+      view: 'signup-chats',
+      chatId: String(chat?.id || '').trim() || null,
+      guestName,
+    },
+  };
+};
+
+const buildSignupLeadPushPayload = (chat, message) => {
+  const senderName = String(message?.senderName || 'Преподаватель').trim() || 'Преподаватель';
+  const text = trimPushBodyText(message?.text || '');
+  return {
+    title: `Ответ от ${senderName}`,
+    body: text || 'Откройте чат, чтобы прочитать сообщение.',
+    icon: '/favicon.ico',
+    badge: '/favicon.ico',
+    tag: `signup-lead-${String(chat?.id || '').trim() || 'chat'}`,
+    renotify: true,
+    data: {
+      type: 'signup-chat-lead',
+      url: '/',
+      chatId: String(chat?.id || '').trim() || null,
+    },
+  };
+};
+
+const sendPushNotificationToUserKey = async (userKey, payload, options = {}) => {
+  const key = String(userKey || '').trim();
+  if (!key || !payload || typeof payload !== 'object') return { successCount: 0, staleEndpoints: [] };
+  if (!pushRuntimeEnabled) {
+    const runtime = ensurePushRuntimeConfigured();
+    if (!runtime.enabled) return { successCount: 0, staleEndpoints: [] };
+  }
+
+  const pushDb = readPushDb();
+  const subscriptionsByUser = normalizePushSubscriptionsByUser(pushDb.subscriptionsByUser);
+  const subscriptions = Array.isArray(subscriptionsByUser[key]) ? subscriptionsByUser[key] : [];
+  if (subscriptions.length === 0) return { successCount: 0, staleEndpoints: [] };
+
+  const logTarget = options?.logTarget ? String(options.logTarget) : key;
+  const result = await sendPushNotificationToSubscriptions(subscriptions, payload, logTarget);
+  if (result.staleEndpoints.length > 0) {
+    const staleSet = new Set(result.staleEndpoints);
+    const next = subscriptions.filter((entry) => !staleSet.has(entry.endpoint));
+    if (next.length > 0) subscriptionsByUser[key] = next;
+    else delete subscriptionsByUser[key];
+    writePushDb({
+      ...pushDb,
+      subscriptionsByUser,
+    });
+  }
+  return result;
+};
+
 const notifyStudentAboutNewHomework = async (student, entry) => {
   if (!student?.id || !entry) return;
   if (!pushRuntimeEnabled) {
@@ -3319,7 +3427,7 @@ const hasCyrillic = (value) => /[\u0400-\u04FF]/.test(value);
 
 const looksMojibake = (name) => {
   if (!name || hasCyrillic(name)) return false;
-  // Typical case: UTF-8 bytes for Cyrillic interpreted as latin1 ("Ð", "Ñ" + 0x80..0xBF).
+  // Typical case: UTF-8 bytes for Cyrillic interpreted as latin1 ("Ð", "Г‘" + 0x80..0xBF).
   if (/(?:\u00D0|\u00D1)[\u0080-\u00BF]/.test(name)) return true;
   // C1 controls should not appear in normal file names; they are common in mojibake.
   return /[\u0080-\u009F]/.test(name);
@@ -3682,6 +3790,16 @@ app.post('/api/signup-chat/messages', (req, res) => {
   chats[index] = normalizeSignupChat(appendSignupChatMessage(chat, message)) || chat;
   writeSignupChatsDb(chats);
   const updatedChat = chats[index];
+  const teacherPushKey = String(updatedChat?.teacherId || '').trim()
+    ? `teacher:${String(updatedChat.teacherId).trim()}`
+    : '';
+  if (teacherPushKey) {
+    const teacherPushPayload = buildSignupTeacherPushPayload(updatedChat, message);
+    sendPushNotificationToUserKey(teacherPushKey, teacherPushPayload, { logTarget: teacherPushKey })
+      .catch((error) => {
+        console.error('[push] failed to send signup message notification to teacher:', error);
+      });
+  }
   const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
   return res.json({
     ok: true,
@@ -3756,6 +3874,16 @@ app.post('/api/signup-chats/:chatId/messages', (req, res) => {
   chats[index] = normalizeSignupChat(appendSignupChatMessage(chat, message)) || chat;
   writeSignupChatsDb(chats);
   const updatedChat = chats[index];
+  const leadPushKey = String(updatedChat?.guestUserId || '').trim()
+    ? `lead:${String(updatedChat.guestUserId).trim()}`
+    : '';
+  if (leadPushKey) {
+    const leadPushPayload = buildSignupLeadPushPayload(updatedChat, message);
+    sendPushNotificationToUserKey(leadPushKey, leadPushPayload, { logTarget: leadPushKey })
+      .catch((error) => {
+        console.error('[push] failed to send signup message notification to lead:', error);
+      });
+  }
   const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
   return res.json({
     ok: true,
@@ -3782,9 +3910,14 @@ app.delete('/api/signup-chats/:chatId', (req, res) => {
 });
 
 app.get('/api/push/public-key', (req, res) => {
-  if (!isStudentRole(req.auth)) return forbid(res);
-  const student = findStudentById(req.auth.id);
-  if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+  if (!isStudentRole(req.auth) && !isTeacherRole(req.auth) && !isLeadRole(req.auth)) return forbid(res);
+  if (isStudentRole(req.auth)) {
+    const student = findStudentById(req.auth.id);
+    if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+  } else if (isTeacherRole(req.auth)) {
+    const teacher = findTeacherById(req.auth.id);
+    if (!teacher) return res.status(404).json({ error: 'Учитель не найден' });
+  }
   const runtime = ensurePushRuntimeConfigured();
   if (!runtime.enabled || !runtime.publicKey) {
     return res.status(503).json({ error: runtime.error || 'Push не настроен на сервере' });
@@ -3793,12 +3926,19 @@ app.get('/api/push/public-key', (req, res) => {
 });
 
 app.get('/api/push/subscription', (req, res) => {
-  if (!isStudentRole(req.auth)) return forbid(res);
-  const student = findStudentById(req.auth.id);
-  if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+  if (!isStudentRole(req.auth) && !isTeacherRole(req.auth) && !isLeadRole(req.auth)) return forbid(res);
   const pushDb = readPushDb();
   const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
-  const list = Array.isArray(subscriptionsByStudent[student.id]) ? subscriptionsByStudent[student.id] : [];
+  const subscriptionsByUser = normalizePushSubscriptionsByUser(pushDb.subscriptionsByUser);
+  let list = [];
+  if (isStudentRole(req.auth)) {
+    const student = findStudentById(req.auth.id);
+    if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+    list = Array.isArray(subscriptionsByStudent[student.id]) ? subscriptionsByStudent[student.id] : [];
+  } else {
+    const userKey = getPushUserStorageKey(req.auth);
+    list = userKey && Array.isArray(subscriptionsByUser[userKey]) ? subscriptionsByUser[userKey] : [];
+  }
   return res.json({
     subscribed: list.length > 0,
     count: list.length,
@@ -3806,9 +3946,16 @@ app.get('/api/push/subscription', (req, res) => {
 });
 
 app.post('/api/push/subscription', (req, res) => {
-  if (!isStudentRole(req.auth)) return forbid(res);
-  const student = findStudentById(req.auth.id);
-  if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+  if (!isStudentRole(req.auth) && !isTeacherRole(req.auth) && !isLeadRole(req.auth)) return forbid(res);
+  let student = null;
+  let userKey = '';
+  if (isStudentRole(req.auth)) {
+    student = findStudentById(req.auth.id);
+    if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+  } else {
+    userKey = getPushUserStorageKey(req.auth);
+    if (!userKey) return forbid(res);
+  }
   const runtime = ensurePushRuntimeConfigured();
   if (!runtime.enabled) {
     return res.status(503).json({ error: runtime.error || 'Push не настроен на сервере' });
@@ -3823,9 +3970,11 @@ app.post('/api/push/subscription', (req, res) => {
 
   const pushDb = readPushDb();
   const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
+  const subscriptionsByUser = normalizePushSubscriptionsByUser(pushDb.subscriptionsByUser);
   let changed = false;
+
   Object.keys(subscriptionsByStudent).forEach((studentId) => {
-    if (studentId === student.id) return;
+    if (student && studentId === student.id) return;
     const filtered = (subscriptionsByStudent[studentId] || []).filter((entry) => entry.endpoint !== subscription.endpoint);
     if (filtered.length !== (subscriptionsByStudent[studentId] || []).length) {
       changed = true;
@@ -3833,9 +3982,21 @@ app.post('/api/push/subscription', (req, res) => {
       else delete subscriptionsByStudent[studentId];
     }
   });
+  Object.keys(subscriptionsByUser).forEach((key) => {
+    if (userKey && key === userKey) return;
+    const filtered = (subscriptionsByUser[key] || []).filter((entry) => entry.endpoint !== subscription.endpoint);
+    if (filtered.length !== (subscriptionsByUser[key] || []).length) {
+      changed = true;
+      if (filtered.length > 0) subscriptionsByUser[key] = filtered;
+      else delete subscriptionsByUser[key];
+    }
+  });
 
   const nowIso = new Date().toISOString();
-  const current = Array.isArray(subscriptionsByStudent[student.id]) ? [...subscriptionsByStudent[student.id]] : [];
+  const ownerList = student
+    ? (Array.isArray(subscriptionsByStudent[student.id]) ? subscriptionsByStudent[student.id] : [])
+    : (Array.isArray(subscriptionsByUser[userKey]) ? subscriptionsByUser[userKey] : []);
+  const current = [...ownerList];
   const idx = current.findIndex((entry) => entry.endpoint === subscription.endpoint);
   if (idx >= 0) {
     const prev = current[idx];
@@ -3855,11 +4016,12 @@ app.post('/api/push/subscription', (req, res) => {
       userAgent,
     });
   }
-  subscriptionsByStudent[student.id] = current;
-  writePushDb({
-    ...pushDb,
-    subscriptionsByStudent,
-  });
+  if (student) {
+    subscriptionsByStudent[student.id] = current;
+  } else {
+    subscriptionsByUser[userKey] = current;
+  }
+  writePushDb({ ...pushDb, subscriptionsByStudent, subscriptionsByUser });
 
   return res.json({
     ok: true,
@@ -3870,31 +4032,42 @@ app.post('/api/push/subscription', (req, res) => {
 });
 
 app.delete('/api/push/subscription', (req, res) => {
-  if (!isStudentRole(req.auth)) return forbid(res);
-  const student = findStudentById(req.auth.id);
-  if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+  if (!isStudentRole(req.auth) && !isTeacherRole(req.auth) && !isLeadRole(req.auth)) return forbid(res);
+  let student = null;
+  let userKey = '';
+  if (isStudentRole(req.auth)) {
+    student = findStudentById(req.auth.id);
+    if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+  } else {
+    userKey = getPushUserStorageKey(req.auth);
+    if (!userKey) return forbid(res);
+  }
 
   const endpoint = String(req.body?.endpoint || req.query?.endpoint || '').trim();
   const pushDb = readPushDb();
   const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
+  const subscriptionsByUser = normalizePushSubscriptionsByUser(pushDb.subscriptionsByUser);
   const remindersByStudent = normalizePushRemindersByStudent(pushDb.remindersByStudent);
-  const current = Array.isArray(subscriptionsByStudent[student.id]) ? [...subscriptionsByStudent[student.id]] : [];
+  const current = student
+    ? (Array.isArray(subscriptionsByStudent[student.id]) ? [...subscriptionsByStudent[student.id]] : [])
+    : (Array.isArray(subscriptionsByUser[userKey]) ? [...subscriptionsByUser[userKey]] : []);
   const next = endpoint
     ? current.filter((entry) => entry.endpoint !== endpoint)
     : [];
 
   if (next.length > 0) {
-    subscriptionsByStudent[student.id] = next;
+    if (student) subscriptionsByStudent[student.id] = next;
+    else subscriptionsByUser[userKey] = next;
   } else {
-    delete subscriptionsByStudent[student.id];
-    delete remindersByStudent[student.id];
+    if (student) {
+      delete subscriptionsByStudent[student.id];
+      delete remindersByStudent[student.id];
+    } else {
+      delete subscriptionsByUser[userKey];
+    }
   }
 
-  writePushDb({
-    ...pushDb,
-    subscriptionsByStudent,
-    remindersByStudent,
-  });
+  writePushDb({ ...pushDb, subscriptionsByStudent, subscriptionsByUser, remindersByStudent });
 
   return res.json({
     ok: true,
@@ -6710,3 +6883,4 @@ server.listen(PORT, () => {
       console.warn('[python] runner warmup failed:', error?.message || error);
     });
 });
+

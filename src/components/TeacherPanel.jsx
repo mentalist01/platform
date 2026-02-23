@@ -32,6 +32,9 @@ const TeacherPanel = ({
   teacherSignupNotifySupported = false,
   teacherSignupNotifyPermission = 'default',
   teacherSignupNotifyEnabled = false,
+  teacherSignupNotifyBusy = false,
+  teacherSignupNotifySyncing = false,
+  teacherSignupNotifyReady = false,
   teacherSignupNotifyStatusText = '',
   teacherSignupNotifyError = '',
   onToggleTeacherSignupNotify = null,
@@ -780,7 +783,10 @@ const TeacherPanel = ({
     ? signupChatDetails
     : selectedSignupChatSummary;
   const isDeletingSelectedSignupChat = Boolean(selectedSignupChatId && signupChatDeletingId === selectedSignupChatId);
-  const canToggleTeacherSignupNotify = typeof onToggleTeacherSignupNotify === 'function';
+  const canToggleTeacherSignupNotify = typeof onToggleTeacherSignupNotify === 'function'
+    && !teacherSignupNotifyBusy
+    && !teacherSignupNotifySyncing
+    && teacherSignupNotifyReady;
   const resolvedTeacherSignupNotifyStatus = teacherSignupNotifyStatusText
     || (teacherSignupNotifyPermission === 'denied'
       ? 'Уведомления заблокированы в настройках браузера.'
@@ -839,7 +845,9 @@ const TeacherPanel = ({
               className="sm:ml-3"
             >
               {teacherSignupNotifyEnabled ? <BellOff size={16} /> : <Bell size={16} />}
-              {teacherSignupNotifyEnabled ? 'Отключить уведомления' : 'Включить уведомления'}
+              {teacherSignupNotifyBusy || teacherSignupNotifySyncing
+                ? 'Сохраняем...'
+                : (teacherSignupNotifyEnabled ? 'Отключить уведомления' : 'Включить уведомления')}
             </Button>
           </div>
         </div>

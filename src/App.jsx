@@ -70,9 +70,9 @@ const leagueBlank = optionalLeagueIcons['./assets/leagues/blank.png'] || null;
  */
 
 const LEVELS = {
-  BASIC: { id: 'basic', label: 'РћР±СЏР·Р°С‚РµР»СЊРЅС‹Р№', maxScore: 70, color: 'bg-blue-100 text-blue-700 border-blue-200' },
-  ADVANCED: { id: 'advanced', label: 'РџСЂРѕРґРІРёРЅСѓС‚С‹Р№', maxScore: 90, color: 'bg-purple-100 text-purple-700 border-purple-200' },
-  EXPERT: { id: 'expert', label: 'Р§С‚РѕР± РЅР°РІРµСЂРЅСЏРєР°', maxScore: 100, color: 'bg-red-100 text-red-700 border-red-200' }
+  BASIC: { id: 'basic', label: 'Обязательный', maxScore: 70, color: 'bg-blue-100 text-blue-700 border-blue-200' },
+  ADVANCED: { id: 'advanced', label: 'Продвинутый', maxScore: 90, color: 'bg-purple-100 text-purple-700 border-purple-200' },
+  EXPERT: { id: 'expert', label: 'Чтоб наверняка', maxScore: 100, color: 'bg-red-100 text-red-700 border-red-200' }
 };
 const LEVEL_WEIGHTS = {
   basic: 70,
@@ -86,15 +86,15 @@ const GOAL_TYPE_TASK = 'task';
 const GOAL_TYPE_MOCK = 'mock';
 const XP_PER_LEVEL = 1000;
 const LEAGUE_TIERS = [
-  { id: 'celestial', label: 'Р¦РµР»РµСЃС‚РёР°Р»', minXp: 80000, icon: leagueCelestial },
-  { id: 'absolute', label: 'РђР±СЃРѕР»СЋС‚', minXp: 40000, icon: leagueAbsolute },
-  { id: 'ruby', label: 'Р СѓР±РёРЅРѕРІР°СЏ Р»РёРіР°', minXp: 25000, icon: leagueRuby },
-  { id: 'diamond', label: 'РђР»РјР°Р·РЅР°СЏ Р»РёРіР°', minXp: 20000, icon: leagueDiamond },
-  { id: 'gold', label: 'Р—РѕР»РѕС‚Р°СЏ Р»РёРіР°', minXp: 15000, icon: leagueGold },
-  { id: 'silver', label: 'РЎРµСЂРµР±СЂСЏРЅР°СЏ Р»РёРіР°', minXp: 10000, icon: leagueSilver },
-  { id: 'bronze', label: 'Р‘СЂРѕРЅР·РѕРІР°СЏ Р»РёРіР°', minXp: 5000, icon: leagueBronze },
+  { id: 'celestial', label: 'Целестиал', minXp: 80000, icon: leagueCelestial },
+  { id: 'absolute', label: 'Абсолют', minXp: 40000, icon: leagueAbsolute },
+  { id: 'ruby', label: 'Рубиновая лига', minXp: 25000, icon: leagueRuby },
+  { id: 'diamond', label: 'Алмазная лига', minXp: 20000, icon: leagueDiamond },
+  { id: 'gold', label: 'Золотая лига', minXp: 15000, icon: leagueGold },
+  { id: 'silver', label: 'Серебряная лига', minXp: 10000, icon: leagueSilver },
+  { id: 'bronze', label: 'Бронзовая лига', minXp: 5000, icon: leagueBronze },
 ];
-const BLANK_LEAGUE = { id: 'blank', label: 'Р‘РµР· Р»РёРіРё', minXp: 0, icon: leagueBlank };
+const BLANK_LEAGUE = { id: 'blank', label: 'Без лиги', minXp: 0, icon: leagueBlank };
 const COLLAB_COLORS = ['#7c3aed', '#2563eb', '#0ea5e9', '#10b981', '#f97316', '#ef4444'];
 const BOARD_COLORS = ['#0f172a', '#7c3aed', '#2563eb', '#0ea5e9', '#10b981', '#f97316', '#ef4444'];
 const BOARD_STROKE_WIDTH = 2.6;
@@ -123,22 +123,22 @@ const BOARD_VIEWPORT_SAVE_DEBOUNCE_MS = 160;
 const COLLAB_SNIPPETS = [
   {
     prefix: 'for',
-    description: 'Р¦РёРєР» for РїРѕ range',
+    description: 'Цикл for по range',
     snippet: 'for ${1:i} in range(${2:n}):\n    ${0:pass}',
   },
   {
     prefix: 'if',
-    description: 'РЈСЃР»РѕРІРЅС‹Р№ Р±Р»РѕРє if',
+    description: 'Условный блок if',
     snippet: 'if ${1:condition}:\n    ${0:pass}',
   },
   {
     prefix: 'def',
-    description: 'РЁР°Р±Р»РѕРЅ С„СѓРЅРєС†РёРё',
+    description: 'Шаблон функции',
     snippet: 'def ${1:solve}(${2}) -> ${3:None}:\n    ${0:pass}',
   },
   {
     prefix: 'while',
-    description: 'Р¦РёРєР» while',
+    description: 'Цикл while',
     snippet: 'while ${1:condition}:\n    ${0:pass}',
   },
 ];
@@ -850,34 +850,6 @@ const DESKTOP_NAV_COLLAPSED_KEY = 'ege_desktop_nav_collapsed_v1';
 const PACE_FORECAST_SESSION_KEY_PREFIX = 'ege_pace_forecast_dismissed_v1';
 const PACE_FORECAST_LAST_SHOWN_KEY_PREFIX = 'ege_pace_forecast_last_shown_v1';
 const PACE_FORECAST_REMINDER_INTERVAL_MS = 48 * 60 * 60 * 1000;
-const TEACHER_SIGNUP_NOTIFY_PREF_KEY = 'ege_teacher_signup_notify_enabled';
-
-const isBrowserNotificationsSupported = () => (
-  typeof window !== 'undefined'
-  && typeof Notification !== 'undefined'
-);
-
-const getBrowserNotificationPermission = () => (
-  isBrowserNotificationsSupported() ? (Notification.permission || 'default') : 'default'
-);
-
-const readTeacherSignupNotifyPreference = () => {
-  if (typeof localStorage === 'undefined') return false;
-  try {
-    return localStorage.getItem(TEACHER_SIGNUP_NOTIFY_PREF_KEY) === '1';
-  } catch {
-    return false;
-  }
-};
-
-const writeTeacherSignupNotifyPreference = (enabled) => {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.setItem(TEACHER_SIGNUP_NOTIFY_PREF_KEY, enabled ? '1' : '0');
-  } catch {
-    // ignore storage errors
-  }
-};
 
 const buildUserLocationKey = (user) => {
   if (!user) return '';
@@ -996,19 +968,19 @@ const normalizeStoredOpenTask = (entry) => {
   };
 };
 
-// Р—Р°РіР»СѓС€РєР° СЃРїРёСЃРєР° Р·Р°РґР°РЅРёР№
+// Заглушка списка заданий
 const RAW_TASKS = Array.from({ length: 27 }, (_, i) => ({
   id: i + 1,
   number: i + 1,
   title: [
-    "РђРЅР°Р»РёР· РёРЅС„РѕСЂРјР°С†РёРѕРЅРЅС‹С… РјРѕРґРµР»РµР№", "РўР°Р±Р»РёС†С‹ РёСЃС‚РёРЅРЅРѕСЃС‚Рё", "РџРѕРёСЃРє РІ Р‘Р”", "РљРѕРґРёСЂРѕРІР°РЅРёРµ (Р¤Р°РЅРѕ)", 
-    "РђРЅР°Р»РёР· Р°Р»РіРѕСЂРёС‚РјРѕРІ", "Р¦РёРєР»С‹", "РР·РѕР±СЂР°Р¶РµРЅРёСЏ/Р—РІСѓРє", "РљРѕРјР±РёРЅР°С‚РѕСЂРёРєР°", "Excel", "Word", 
-    "Р’С‹С‡РёСЃР»РµРЅРёРµ РёРЅС„РѕСЂРјР°С†РёРё", "РСЃРїРѕР»РЅРёС‚РµР»Рё", "Р“СЂР°С„С‹", "РЎРёСЃС‚РµРјС‹ СЃС‡РёСЃР»РµРЅРёСЏ", "РђР»РіРµР±СЂР° Р»РѕРіРёРєРё", 
-    "Р РµРєСѓСЂСЃРёСЏ", "РџРѕСЃР»РµРґРѕРІР°С‚РµР»СЊРЅРѕСЃС‚Рё", "Р РѕР±РѕС‚ (Р”Рџ)", "РўРµРѕСЂРёСЏ РёРіСЂ (1)", "РўРµРѕСЂРёСЏ РёРіСЂ (2)", 
-    "РўРµРѕСЂРёСЏ РёРіСЂ (3)", "РњРЅРѕРіРѕРїСЂРѕС†РµСЃСЃРѕСЂРЅС‹Рµ", "Р”РёРЅР°РјРёРєР° (РСЃРїРѕР»РЅРёС‚РµР»СЊ)", "РЎС‚СЂРѕРєРё", "РњР°СЃРєРё С‡РёСЃРµР»", 
-    "Р–Р°РґРЅС‹Рµ Р°Р»РіРѕСЂРёС‚РјС‹", "РђРЅР°Р»РёР· РґР°РЅРЅС‹С… (РЎР»РѕР¶РЅР°СЏ)"
-  ][i] || `Р—Р°РґР°РЅРёРµ ${i + 1}`,
-  topic: "РўРµРјР° Р·Р°РґР°РЅРёСЏ",
+    "Анализ информационных моделей", "Таблицы истинности", "Поиск в БД", "Кодирование (Фано)", 
+    "Анализ алгоритмов", "Циклы", "Изображения/Звук", "Комбинаторика", "Excel", "Word", 
+    "Вычисление информации", "Исполнители", "Графы", "Системы счисления", "Алгебра логики", 
+    "Рекурсия", "Последовательности", "Робот (ДП)", "Теория игр (1)", "Теория игр (2)", 
+    "Теория игр (3)", "Многопроцессорные", "Динамика (Исполнитель)", "Строки", "Маски чисел", 
+    "Жадные алгоритмы", "Анализ данных (Сложная)"
+  ][i] || `Задание ${i + 1}`,
+  topic: "Тема задания",
   mastery: 0
 }));
 
@@ -1018,26 +990,26 @@ const MOCK_TASKS = RAW_TASKS
     if (task.number === GAME_THEORY_TASK) {
       return {
         ...task,
-        title: '19-21 - РўРµРѕСЂРёСЏ РРіСЂ',
+        title: '19-21 - Теория Игр',
         displayNumber: '19-21',
       };
     }
     return task;
   });
 
-// РќР°С‡Р°Р»СЊРЅР°СЏ Р±Р°Р·Р° РІРѕРїСЂРѕСЃРѕРІ
+// Начальная база вопросов
 const PYTHON_TASKS = [
-  { id: 101, number: 101, title: 'Р’РІРѕРґ Рё РІС‹РІРѕРґ РґР°РЅРЅС‹С…', displayNumber: '1.0' },
-  { id: 102, number: 102, title: 'РџРµСЂРµРјРµРЅРЅС‹Рµ', displayNumber: '1.1' },
-  { id: 103, number: 103, title: 'РЈСЃР»РѕРІРёСЏ', displayNumber: '2' },
-  { id: 104, number: 104, title: 'Р’С‹С‡РёСЃР»РµРЅРёСЏ', displayNumber: '3' },
-  { id: 105, number: 105, title: 'Р¦РёРєР» for', displayNumber: '4' },
-  { id: 106, number: 106, title: 'РЎС‚СЂРѕРєРё', displayNumber: '5' },
-  { id: 107, number: 107, title: 'Р¦РёРєР» while', displayNumber: '6' },
-  { id: 108, number: 108, title: 'РЎРїРёСЃРєРё', displayNumber: '7.0' },
-  { id: 109, number: 109, title: 'РљРѕСЂС‚РµР¶Рё', displayNumber: '7.1' },
-  { id: 110, number: 110, title: 'Р¤СѓРЅРєС†РёРё Рё СЂРµРєСѓСЂСЃРёСЏ', displayNumber: '8' },
-  { id: 111, number: 111, title: 'Р”РІСѓРјРµСЂРЅС‹Рµ РјР°СЃСЃРёРІС‹', displayNumber: '9' }
+  { id: 101, number: 101, title: 'Ввод и вывод данных', displayNumber: '1.0' },
+  { id: 102, number: 102, title: 'Переменные', displayNumber: '1.1' },
+  { id: 103, number: 103, title: 'Условия', displayNumber: '2' },
+  { id: 104, number: 104, title: 'Вычисления', displayNumber: '3' },
+  { id: 105, number: 105, title: 'Цикл for', displayNumber: '4' },
+  { id: 106, number: 106, title: 'Строки', displayNumber: '5' },
+  { id: 107, number: 107, title: 'Цикл while', displayNumber: '6' },
+  { id: 108, number: 108, title: 'Списки', displayNumber: '7.0' },
+  { id: 109, number: 109, title: 'Кортежи', displayNumber: '7.1' },
+  { id: 110, number: 110, title: 'Функции и рекурсия', displayNumber: '8' },
+  { id: 111, number: 111, title: 'Двумерные массивы', displayNumber: '9' }
 ];
 
 const PYTHON_TASK_MAP = new Map(PYTHON_TASKS.map((task) => [Number(task.number), task]));
@@ -1052,7 +1024,7 @@ const ensurePyodideReady = (() => {
     if (pyodidePromise) return pyodidePromise;
     pyodidePromise = new Promise((resolve, reject) => {
       if (typeof window === 'undefined') {
-        reject(new Error('Pyodide РґРѕСЃС‚СѓРїРµРЅ С‚РѕР»СЊРєРѕ РІ Р±СЂР°СѓР·РµСЂРµ.'));
+        reject(new Error('Pyodide доступен только в браузере.'));
         return;
       }
       if (window.loadPyodide) {
@@ -1066,14 +1038,14 @@ const ensurePyodideReady = (() => {
       script.async = true;
       script.onload = () => {
         if (!window.loadPyodide) {
-          reject(new Error('РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ Pyodide.'));
+          reject(new Error('Не удалось загрузить Pyodide.'));
           return;
         }
         window.loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/' })
           .then(resolve)
           .catch(reject);
       };
-      script.onerror = () => reject(new Error('РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё Pyodide.'));
+      script.onerror = () => reject(new Error('Ошибка загрузки Pyodide.'));
       document.body.appendChild(script);
     });
     return pyodidePromise;
@@ -1248,9 +1220,9 @@ const normalizeDebugTrace = (value) => {
   });
 };
 
-const PY_IDLE_STDIN_HEADER = '[Р’РІРѕРґ]';
-const PY_IDLE_STDOUT_HEADER = '[Р’С‹РІРѕРґ]';
-const PY_IDLE_STDERR_HEADER = '[РћС€РёР±РєРё]';
+const PY_IDLE_STDIN_HEADER = '[Ввод]';
+const PY_IDLE_STDOUT_HEADER = '[Вывод]';
+const PY_IDLE_STDERR_HEADER = '[Ошибки]';
 
 const normalizeIdleConsoleText = (value) => String(value ?? '').replace(/\r\n/g, '\n');
 
@@ -1259,14 +1231,14 @@ const buildIdleConsoleText = (inputValue, outputValue, errorValue) => {
   const output = normalizeIdleConsoleText(outputValue);
   const error = normalizeIdleConsoleText(errorValue);
   return [
-    `${PY_IDLE_STDIN_HEADER} Р’РІРµРґРёС‚Рµ РґР°РЅРЅС‹Рµ РґР»СЏ input():`,
+    `${PY_IDLE_STDIN_HEADER} Введите данные для input():`,
     input,
     '',
     PY_IDLE_STDOUT_HEADER,
-    output || 'Р’С‹РІРѕРґ РїСѓСЃС‚',
+    output || 'Вывод пуст',
     '',
     PY_IDLE_STDERR_HEADER,
-    error || 'РћС€РёР±РѕРє РЅРµС‚',
+    error || 'Ошибок нет',
   ].join('\n');
 };
 
@@ -1525,12 +1497,12 @@ const createPyodideWorker = () => {
         '                _tb = _tb.tb_next',
         '            _line_no = int(getattr(_tb, "tb_lineno", 0) or 0)',
         '            if _line_no > 0:',
-        '                print(f"\\\\n[DEBUG] РћС€РёР±РєР° РЅР° СЃС‚СЂРѕРєРµ: {_line_no}")',
+        '                print(f"\\\\n[DEBUG] Ошибка на строке: {_line_no}")',
         '                if _line_no <= len(_source_lines):',
-        '                    print(f"[DEBUG] РљРѕРґ: {_source_lines[_line_no - 1]}")',
+        '                    print(f"[DEBUG] Код: {_source_lines[_line_no - 1]}")',
         '            _locals_items = list(getattr(_tb.tb_frame, "f_locals", {}).items())',
         '            if _locals_items:',
-        '                print("[DEBUG] Р›РѕРєР°Р»СЊРЅС‹Рµ РїРµСЂРµРјРµРЅРЅС‹Рµ:")',
+        '                print("[DEBUG] Локальные переменные:")',
         '                for _idx, (_name, _value) in enumerate(_locals_items):',
         '                    if _idx >= 50:',
         '                        print("  ...")',
@@ -1636,8 +1608,8 @@ const createPyodideWorker = () => {
 const INITIAL_TEST_DB = {
   1: {
     basic: [
-      { id: 1, question: "Р‘Р°Р·РѕРІС‹Р№ РІРѕРїСЂРѕСЃ в„–1 РґР»СЏ Р·Р°РґР°РЅРёСЏ 1: РќР°Р№РґРёС‚Рµ РґР»РёРЅСѓ РїСѓС‚Рё Рђ-Р”.", options: ["10", "12", "14", "15"], correctIndex: 1 },
-      { id: 2, question: "Р‘Р°Р·РѕРІС‹Р№ РІРѕРїСЂРѕСЃ в„–2 РґР»СЏ Р·Р°РґР°РЅРёСЏ 1: РЎРєРѕР»СЊРєРѕ РїСѓС‚РµР№ РёР· Рђ РІ Р“?", options: ["3", "4", "5", "6"], correctIndex: 2 }
+      { id: 1, question: "Базовый вопрос №1 для задания 1: Найдите длину пути А-Д.", options: ["10", "12", "14", "15"], correctIndex: 1 },
+      { id: 2, question: "Базовый вопрос №2 для задания 1: Сколько путей из А в Г?", options: ["3", "4", "5", "6"], correctIndex: 2 }
     ],
     advanced: [],
     expert: []
@@ -1672,8 +1644,8 @@ const MAX_TASK_BYTES = 200 * 1024 * 1024;
 const HOMEWORK_POPUP_BG = '/homework-quest.png';
 
 const formatBytes = (bytes) => {
-  if (!Number.isFinite(bytes)) return '0 РњР‘';
-  return `${(bytes / (1024 * 1024)).toFixed(1)} РњР‘`;
+  if (!Number.isFinite(bytes)) return '0 МБ';
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
 };
 
 const parseSizeString = (value) => {
@@ -1722,24 +1694,24 @@ const MASCOT_IMAGES = {
 const STUDENT_TOUR_STEPS = [
   {
     id: 'welcome',
-    title: 'Р”РѕР±СЂРѕ РїРѕР¶Р°Р»РѕРІР°С‚СЊ!',
-    text: 'РџРѕРєР°Р¶Сѓ РѕСЃРЅРѕРІРЅС‹Рµ СЂР°Р·РґРµР»С‹ Рё РіРґРµ РёСЃРєР°С‚СЊ РјР°С‚РµСЂРёР°Р»С‹.',
+    title: 'Добро пожаловать!',
+    text: 'Покажу основные разделы и где искать материалы.',
     emotion: 'greetings',
     target: '[data-tour="main"]',
     menu: 'close'
   },
   {
     id: 'nav',
-    title: 'РќР°РІРёРіР°С†РёСЏ',
-    text: 'РќР° С‚РµР»РµС„РѕРЅРµ СЂР°Р·РґРµР»С‹ РїРµСЂРµРєР»СЋС‡Р°СЋС‚СЃСЏ РІРЅРёР·Сѓ, РЅР° РєРѕРјРїСЊСЋС‚РµСЂРµ вЂ” РІ РјРµРЅСЋ СЃР»РµРІР°.',
+    title: 'Навигация',
+    text: 'На телефоне разделы переключаются внизу, на компьютере — в меню слева.',
     emotion: 'peeking',
     target: '[data-tour="nav"]',
     menu: 'close'
   },
   {
     id: 'schedule',
-    title: 'Р Р°СЃРїРёСЃР°РЅРёРµ',
-    text: 'Р—РґРµСЃСЊ РґРѕРјР°С€РєР° Рё СЃСЃС‹Р»РєРё Рє СЃР»РµРґСѓСЋС‰РµРјСѓ Р·Р°РЅСЏС‚РёСЋ.',
+    title: 'Расписание',
+    text: 'Здесь домашка и ссылки к следующему занятию.',
     emotion: 'approval',
     target: '[data-tour="schedule"]',
     view: 'schedule',
@@ -1747,8 +1719,8 @@ const STUDENT_TOUR_STEPS = [
   },
   {
     id: 'progress',
-    title: 'РЈСЃРїРµРІР°РµРјРѕСЃС‚СЊ',
-    text: 'РЎР»РµРґРё Р·Р° РїСЂРѕРіСЂРµСЃСЃРѕРј РїРѕ Р·Р°РґР°РЅРёСЏРј Рё РїСЂРѕР±РЅС‹Рј.',
+    title: 'Успеваемость',
+    text: 'Следи за прогрессом по заданиям и пробным.',
     emotion: 'pondering',
     target: '[data-tour="progress"]',
     view: 'progress',
@@ -1756,8 +1728,8 @@ const STUDENT_TOUR_STEPS = [
   },
   {
     id: 'notes',
-    title: 'РљРѕРЅСЃРїРµРєС‚С‹',
-    text: 'Р—РґРµСЃСЊ РјР°С‚РµСЂРёР°Р»С‹ РїРѕ Р·Р°РґР°РЅРёСЏРј Рё С‚РІРѕРё С„Р°Р№Р»С‹.',
+    title: 'Конспекты',
+    text: 'Здесь материалы по заданиям и твои файлы.',
     emotion: 'peeking',
     target: '[data-tour="notes"]',
     view: 'notes',
@@ -1765,8 +1737,8 @@ const STUDENT_TOUR_STEPS = [
   },
   {
     id: 'files',
-    title: 'РљРѕРЅСЃРїРµРєС‚С‹',
-    text: 'Р’С‹Р±РµСЂРё Р·Р°РґР°РЅРёРµ Рё РєР°С‚РµРіРѕСЂРёСЋ, Р·Р°С‚РµРј Р·Р°РіСЂСѓР¶Р°Р№ С„Р°Р№Р»С‹ СЃСЋРґР°.',
+    title: 'Конспекты',
+    text: 'Выбери задание и категорию, затем загружай файлы сюда.',
     emotion: 'approval',
     target: '[data-tour="files"]',
     fallback: '[data-tour="notes"]',
@@ -1775,8 +1747,8 @@ const STUDENT_TOUR_STEPS = [
   },
   {
     id: 'done',
-    title: 'Р“РѕС‚РѕРІРѕ',
-    text: 'Р•СЃР»Рё РїРѕС‚РµСЂСЏРµС€СЊСЃСЏ вЂ” РїСЂРѕСЃС‚Рѕ РѕС‚РєСЂРѕР№ РЅСѓР¶РЅС‹Р№ СЂР°Р·РґРµР» СЃР»РµРІР°.',
+    title: 'Готово',
+    text: 'Если потеряешься — просто открой нужный раздел слева.',
     emotion: 'approval',
     menu: 'close'
   }
@@ -1850,7 +1822,7 @@ const CollabSection = ({
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
   const roomId = effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null;
   const wsUrl = useMemo(() => getCollabWsUrl(), []);
-  const localName = userName || (isTeacher ? 'РЈС‡РёС‚РµР»СЊ' : 'РЈС‡РµРЅРёРє');
+  const localName = userName || (isTeacher ? 'Учитель' : 'Ученик');
   const localColor = useMemo(
     () => pickCollabColor(isTeacher ? `teacher-${teacherId}` : `student-${userId}`),
     [isTeacher, teacherId, userId]
@@ -1997,7 +1969,7 @@ const CollabSection = ({
       range: new monaco.Range(line, 1, line, 1),
       options: {
         glyphMarginClassName: 'collab-debug-breakpoint-glyph',
-        glyphMarginHoverMessage: [{ value: `РўРѕС‡РєР° РѕСЃС‚Р°РЅРѕРІР°: СЃС‚СЂРѕРєР° ${line}` }],
+        glyphMarginHoverMessage: [{ value: `Точка останова: строка ${line}` }],
       },
     }));
     debugBreakpointDecorationsRef.current = editor.deltaDecorations(
@@ -2023,7 +1995,7 @@ const CollabSection = ({
         isWholeLine: true,
         className: 'collab-debug-active-line',
         glyphMarginClassName: 'collab-debug-active-glyph',
-        glyphMarginHoverMessage: [{ value: `РўРµРєСѓС‰Р°СЏ СЃС‚СЂРѕРєР°: ${safeLine}` }],
+        glyphMarginHoverMessage: [{ value: `Текущая строка: ${safeLine}` }],
       },
     }]);
     editor.revealLineInCenterIfOutsideViewport?.(safeLine);
@@ -2096,7 +2068,7 @@ const CollabSection = ({
             label: ` ${hint.text}`,
             paddingLeft: true,
             paddingRight: false,
-            tooltip: 'Р—РЅР°С‡РµРЅРёРµ РїРµСЂРµРјРµРЅРЅРѕР№ РІ С‚РµРєСѓС‰РµРј С€Р°РіРµ РґРµР±Р°РіР°',
+            tooltip: 'Значение переменной в текущем шаге дебага',
           }));
         return { hints: hintsInRange, dispose: () => {} };
       },
@@ -2329,7 +2301,7 @@ const CollabSection = ({
               label: item.prefix,
               kind: monaco.languages.CompletionItemKind.Snippet,
               documentation: item.description,
-              detail: 'РЎРЅРёРїРїРµС‚',
+              detail: 'Сниппет',
               insertText: item.snippet,
               insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
               range,
@@ -2602,7 +2574,7 @@ const CollabSection = ({
       .catch((err) => {
         if (cancelled) return;
         setFolders([]);
-        setFoldersError(err?.message || 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РїР°РїРєРё.');
+        setFoldersError(err?.message || 'Не удалось загрузить папки.');
       })
       .finally(() => {
         if (!cancelled) setFoldersLoading(false);
@@ -2763,7 +2735,7 @@ const CollabSection = ({
   const handleCreateFolder = async () => {
     const name = newFolderName.trim();
     if (!name) {
-      setFoldersError('Р’РІРµРґРёС‚Рµ РЅР°Р·РІР°РЅРёРµ РїР°РїРєРё.');
+      setFoldersError('Введите название папки.');
       return;
     }
     if (!effectiveStudentId || !saveTaskNumber || !saveCategory) return;
@@ -2787,26 +2759,26 @@ const CollabSection = ({
     setSaveSuccess('');
     setSaveNameError(false);
     if (!effectiveStudentId) {
-      setSaveError('РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°.');
+      setSaveError('Сначала выберите ученика.');
       return;
     }
     if (!saveTaskNumber || !saveCategory) {
-      setSaveError('Р’С‹Р±РµСЂРёС‚Рµ Р·Р°РґР°РЅРёРµ Рё РєР°С‚РµРіРѕСЂРёСЋ.');
+      setSaveError('Выберите задание и категорию.');
       return;
     }
     const code = editorRef.current?.getValue?.() ?? '';
     if (!code.trim()) {
-      setSaveError('РљРѕРґ РїСѓСЃС‚РѕР№.');
+      setSaveError('Код пустой.');
       return;
     }
     const baseName = normalizeFileName(saveFileName);
     if (!baseName) {
-      setSaveError('Р’РІРµРґРёС‚Рµ РЅР°Р·РІР°РЅРёРµ С„Р°Р№Р»Р°.');
+      setSaveError('Введите название файла.');
       setSaveNameError(true);
       return;
     }
     let safeName = baseName;
-    const prefix = 'РєРѕРЅСЃРїРµРєС‚-';
+    const prefix = 'конспект-';
     if (!safeName.toLowerCase().startsWith(prefix)) {
       safeName = `${prefix}${safeName}`;
     }
@@ -2817,7 +2789,7 @@ const CollabSection = ({
     setSaveBusy(true);
     try {
       await api.uploadFile(file, Number(saveTaskNumber), saveCategory, saveFolderId || null, effectiveStudentId);
-      setSaveSuccess('РЎРѕС…СЂР°РЅРµРЅРѕ РІ РєРѕРЅСЃРїРµРєС‚С‹.');
+      setSaveSuccess('Сохранено в конспекты.');
     } catch (err) {
       setSaveError(err?.message || err);
     } finally {
@@ -3089,8 +3061,8 @@ const CollabSection = ({
         }
         pending.resolve({ output, error, debugTrace, debugTraceTruncated });
       };
-      worker.onerror = () => disposeRunWorker('РћС€РёР±РєР° РІС‹РїРѕР»РЅРµРЅРёСЏ Python.');
-      worker.onmessageerror = () => disposeRunWorker('РћС€РёР±РєР° РІС‹РїРѕР»РЅРµРЅРёСЏ Python.');
+      worker.onerror = () => disposeRunWorker('Ошибка выполнения Python.');
+      worker.onmessageerror = () => disposeRunWorker('Ошибка выполнения Python.');
       runWorkerRef.current = worker;
       return worker;
     } catch {
@@ -3140,8 +3112,8 @@ const CollabSection = ({
           if (!pending) return;
           runPendingRef.current.delete(id);
           const timeoutMessage = debugMode
-            ? `РџСЂРµРІС‹С€РµРЅРѕ РІСЂРµРјСЏ РѕС‚Р»Р°РґРєРё (${Math.round(timeoutMs / 1000)} СЃРµРє).`
-            : `РџСЂРµРІС‹С€РµРЅРѕ РІСЂРµРјСЏ РІС‹РїРѕР»РЅРµРЅРёСЏ (${Math.round(timeoutMs / 1000)} СЃРµРє).`;
+            ? `Превышено время отладки (${Math.round(timeoutMs / 1000)} сек).`
+            : `Превышено время выполнения (${Math.round(timeoutMs / 1000)} сек).`;
           const output = pending.output || '';
           const error = mergeRuntimeErrorText(pending.error, timeoutMessage);
           const debugTrace = Array.isArray(pending.debugTrace) ? pending.debugTrace : [];
@@ -3150,7 +3122,7 @@ const CollabSection = ({
             pending.onProgress({ output, error, done: true });
           }
           resolve({ output, error, debugTrace, debugTraceTruncated });
-          disposeRunWorker(debugMode ? 'РџСЂРµРІС‹С€РµРЅРѕ РІСЂРµРјСЏ РѕС‚Р»Р°РґРєРё.' : 'РџСЂРµРІС‹С€РµРЅРѕ РІСЂРµРјСЏ РІС‹РїРѕР»РЅРµРЅРёСЏ.');
+          disposeRunWorker(debugMode ? 'Превышено время отладки.' : 'Превышено время выполнения.');
         }, timeoutMs);
         runPendingRef.current.set(id, {
           resolve,
@@ -3167,7 +3139,7 @@ const CollabSection = ({
     if (!ALLOW_MAIN_THREAD_PYTHON_FALLBACK) {
       return {
         output: '',
-        error: 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РїСѓСЃС‚РёС‚СЊ Python РІ РёР·РѕР»РёСЂРѕРІР°РЅРЅРѕРј СЂРµР¶РёРјРµ. РџРµСЂРµР·Р°РіСЂСѓР·РёС‚Рµ СЃС‚СЂР°РЅРёС†Сѓ.'
+        error: 'Не удалось запустить Python в изолированном режиме. Перезагрузите страницу.'
       };
     }
     return runPythonInMainThread(source, inputValue, runtimeFiles);
@@ -3242,7 +3214,7 @@ const CollabSection = ({
     const { code, mode: resolvedMode } = resolveRunnableCode(mode);
     if (!code.trim()) {
       setRunOutput('');
-      setRunError(resolvedMode === 'selection' ? 'РЎРЅР°С‡Р°Р»Р° РІС‹РґРµР»РёС‚Рµ РєРѕРґ РґР»СЏ Р·Р°РїСѓСЃРєР°.' : 'РљРѕРґ РїСѓСЃС‚РѕР№.');
+      setRunError(resolvedMode === 'selection' ? 'Сначала выделите код для запуска.' : 'Код пустой.');
       return;
     }
     if (runLoading) return;
@@ -3360,7 +3332,7 @@ const CollabSection = ({
             debugSource: code,
           });
         } else {
-          // Р•СЃР»Рё РЅРё РѕРґРЅР° С‚РѕС‡РєР° РѕСЃС‚Р°РЅРѕРІР° РЅРµ РґРѕСЃС‚РёРіРЅСѓС‚Р°, Р·Р°РІРµСЂС€Р°РµРј РєР°Рє РѕР±С‹С‡РЅС‹Р№ Р·Р°РїСѓСЃРє.
+          // Если ни одна точка останова не достигнута, завершаем как обычный запуск.
           setDebugTrace([]);
           debugTraceRef.current = [];
           setDebugTraceTruncated(false);
@@ -3405,7 +3377,7 @@ const CollabSection = ({
       publishRunState({
         status: 'done',
         output: '',
-        error: normalizeRunText(err?.message || 'РћС€РёР±РєР° РІС‹РїРѕР»РЅРµРЅРёСЏ Python.'),
+        error: normalizeRunText(err?.message || 'Ошибка выполнения Python.'),
         author: localName,
         ts: Date.now(),
         input: inputSnapshot,
@@ -3427,14 +3399,14 @@ const CollabSection = ({
       runStreamTimerRef.current = null;
     }
     runStreamPendingRef.current = null;
-    disposeRunWorker('РџСЂРµСЂРІР°РЅРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»РµРј.');
+    disposeRunWorker('Прервано пользователем.');
     setRunLoading(false);
     setRunStatus('stopped');
-    setRunError('РџСЂРµСЂРІР°РЅРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»РµРј (Ctrl+C).');
+    setRunError('Прервано пользователем (Ctrl+C).');
     publishRunState({
       status: 'stopped',
       output: normalizeRunText(runOutputRef.current || ''),
-      error: normalizeRunText('РџСЂРµСЂРІР°РЅРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»РµРј (Ctrl+C).'),
+      error: normalizeRunText('Прервано пользователем (Ctrl+C).'),
       author: localName,
       ts: Date.now(),
       input: runInputRef.current || '',
@@ -3472,7 +3444,7 @@ const CollabSection = ({
       if (!event.ctrlKey && !event.metaKey) return;
       const key = String(event.key || '').toLowerCase();
       const code = event.code;
-      const isStopKey = code === 'KeyC' || key === 'c' || key === 'СЃ' || key === 'СЏ';
+      const isStopKey = code === 'KeyC' || key === 'c' || key === 'с' || key === 'я';
       if (!isStopKey) return;
       if (isEditableTarget(event.target)) return;
       const selectionText = typeof window !== 'undefined' ? window.getSelection?.()?.toString?.() : '';
@@ -3604,17 +3576,17 @@ const CollabSection = ({
   }, [roomId, editorReady, wsUrl, localName, localColor, clearDebugSession, editorMountVersion]);
 
   const statusLabel = status === 'connected'
-    ? 'РџРѕРґРєР»СЋС‡РµРЅРѕ'
-    : (status === 'connecting' ? 'РЎРѕРµРґРёРЅСЏРµРјСЃСЏ...' : 'РќРµ РїРѕРґРєР»СЋС‡РµРЅРѕ');
+    ? 'Подключено'
+    : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено');
   const statusClass = status === 'connected'
     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
     : 'border-amber-200 bg-amber-50 text-amber-700';
   const isSplitCollabLayout = (isCollabFullscreen || isDesktopCollabCompact) && !isMobileViewport;
   const sessionLabel = roomId
     ? (isTeacher
-      ? `РЈС‡РёС‚РµР»СЊ + ${selectedStudent ? getStudentLabel(selectedStudent) : 'СѓС‡РµРЅРёРє'}`
-      : 'РЈС‡РёС‚РµР»СЊ + СѓС‡РµРЅРёРє')
-    : 'РќРµ РІС‹Р±СЂР°РЅР°';
+      ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
+      : 'Учитель + ученик')
+    : 'Не выбрана';
   const handleSplitResizeStart = useCallback((event) => {
     if (!isSplitCollabLayout) return;
     event.preventDefault();
@@ -3663,7 +3635,7 @@ const CollabSection = ({
       }`}>
         <span className={`font-semibold uppercase tracking-widest text-purple-500 ${
           isCollabFullscreen || isDesktopCollabCompact ? 'text-[10px]' : 'text-[11px]'
-        }`}>РЈС‡РµРЅРёРє</span>
+        }`}>Ученик</span>
         <select
           value={activeStudentId || ''}
           onChange={(e) => {
@@ -3677,7 +3649,7 @@ const CollabSection = ({
               : 'sm:min-w-[180px] px-3 py-1.5 text-sm'
           }`}
         >
-          <option value="" disabled>Р’С‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°</option>
+          <option value="" disabled>Выберите ученика</option>
           {(students || []).map((student) => (
             <option key={student.id} value={student.id}>
               {getStudentLabel(student)}
@@ -3694,19 +3666,19 @@ const CollabSection = ({
         <button
           onClick={() => setSaveModalOpen(false)}
           className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"
-          aria-label="Р—Р°РєСЂС‹С‚СЊ"
+          aria-label="Закрыть"
         >
           <X size={18} />
         </button>
         <div className="pr-8">
-          <div className="text-xs font-bold uppercase tracking-widest text-purple-500">РЎРѕС…СЂР°РЅРµРЅРёРµ</div>
-          <h3 className="mt-1 text-xl font-bold text-gray-900">РЎРѕС…СЂР°РЅРёС‚СЊ РІ РєРѕРЅСЃРїРµРєС‚С‹</h3>
-          <p className="mt-1 text-xs text-gray-500">Р¤Р°Р№Р» РїРѕСЏРІРёС‚СЃСЏ РІ СЂР°Р·РґРµР»Рµ В«РљРѕРЅСЃРїРµРєС‚С‹В» РІС‹Р±СЂР°РЅРЅРѕРіРѕ СѓС‡РµРЅРёРєР°.</p>
+          <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сохранение</div>
+          <h3 className="mt-1 text-xl font-bold text-gray-900">Сохранить в конспекты</h3>
+          <p className="mt-1 text-xs text-gray-500">Файл появится в разделе «Конспекты» выбранного ученика.</p>
         </div>
 
         <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Р—Р°РґР°РЅРёРµ</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Задание</label>
             <select
               value={saveTaskNumber}
               onChange={(e) => setSaveTaskNumber(e.target.value)}
@@ -3714,42 +3686,42 @@ const CollabSection = ({
             >
               {taskOptions.map((task) => (
                 <option key={task.id} value={task.number}>
-                  {`Р—Р°РґР°РЅРёРµ ${getTaskDisplayNumber(task)}: ${task.title}`}
+                  {`Задание ${getTaskDisplayNumber(task)}: ${task.title}`}
                 </option>
               ))}
             </select>
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">РљР°С‚РµРіРѕСЂРёСЏ</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Категория</label>
             <select
               value={saveCategory}
               onChange={(e) => setSaveCategory(e.target.value)}
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
             >
-              <option value="class">РќР° СѓСЂРѕРєРµ</option>
-              <option value="home">Р”РѕРјР°С€РєР°</option>
+              <option value="class">На уроке</option>
+              <option value="home">Домашка</option>
             </select>
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">РџР°РїРєР°</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Папка</label>
             <select
               value={saveFolderId}
               onChange={(e) => setSaveFolderId(e.target.value)}
               disabled={!effectiveStudentId || foldersLoading}
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
             >
-              <option value="">Р‘РµР· РїР°РїРєРё</option>
+              <option value="">Без папки</option>
               {folders.map((folder) => (
                 <option key={folder.id} value={folder.id}>{folder.name}</option>
               ))}
             </select>
-            {foldersLoading && <div className="text-[11px] text-gray-400">Р—Р°РіСЂСѓР·РєР° РїР°РїРѕРє...</div>}
+            {foldersLoading && <div className="text-[11px] text-gray-400">Загрузка папок...</div>}
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">РРјСЏ С„Р°Р№Р»Р°</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Имя файла</label>
             <input
               type="text"
               value={saveFileName}
@@ -3760,7 +3732,7 @@ const CollabSection = ({
                   setSaveError('');
                 }
               }}
-              placeholder="РєРѕРЅСЃРїРµРєС‚-..."
+              placeholder="конспект-..."
               className={`w-full rounded-xl px-3 py-2 text-sm outline-none ${
                 saveNameError
                   ? 'border border-red-300 bg-red-50 text-red-700 focus:border-red-500'
@@ -3775,7 +3747,7 @@ const CollabSection = ({
             type="text"
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
-            placeholder="РќРѕРІР°СЏ РїР°РїРєР°"
+            placeholder="Новая папка"
             className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
           />
           <Button
@@ -3785,7 +3757,7 @@ const CollabSection = ({
             className="flex items-center justify-center gap-2"
           >
             <FolderPlus size={16} />
-            {creatingFolder ? 'РЎРѕР·РґР°С‘Рј...' : 'РЎРѕР·РґР°С‚СЊ РїР°РїРєСѓ'}
+            {creatingFolder ? 'Создаём...' : 'Создать папку'}
           </Button>
         </div>
 
@@ -3794,14 +3766,14 @@ const CollabSection = ({
         {saveSuccess && <div className="mt-2 text-xs text-emerald-700">{saveSuccess}</div>}
 
         <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2">
-          <Button variant="secondary" onClick={() => setSaveModalOpen(false)}>РћС‚РјРµРЅР°</Button>
+          <Button variant="secondary" onClick={() => setSaveModalOpen(false)}>Отмена</Button>
           <Button
             onClick={handleSaveToNotes}
             disabled={saveBusy || !effectiveStudentId || !saveTaskNumber || !saveCategory}
             className="flex items-center justify-center gap-2"
           >
             <Save size={16} />
-            {saveBusy ? 'РЎРѕС…СЂР°РЅСЏРµРј...' : 'РЎРѕС…СЂР°РЅРёС‚СЊ'}
+            {saveBusy ? 'Сохраняем...' : 'Сохранить'}
           </Button>
         </div>
       </div>
@@ -3812,7 +3784,7 @@ const CollabSection = ({
     <div className={`rounded-2xl overflow-hidden border relative ${isSplitCollabLayout ? 'h-full' : ''} ${isCollabFullscreen ? 'border-slate-700/80 bg-slate-950/60 shadow-[0_0_32px_rgba(99,102,241,0.25)]' : 'border-gray-800'}`}>
       {!roomId && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
-          Р’С‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°, С‡С‚РѕР±С‹ РѕС‚РєСЂС‹С‚СЊ СЃРѕРІРјРµСЃС‚РЅС‹Р№ РґРѕРєСѓРјРµРЅС‚.
+          Выберите ученика, чтобы открыть совместный документ.
         </div>
       )}
       <Editor
@@ -3822,19 +3794,19 @@ const CollabSection = ({
         defaultValue=""
         onMount={handleEditorMount}
         options={editorOptions}
-        loading={<div className="p-4 text-sm text-gray-400">Р—Р°РіСЂСѓР·РєР° СЂРµРґР°РєС‚РѕСЂР°...</div>}
+        loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
       />
     </div>
   );
 
   const inputPane = (
     <div className={isSplitCollabLayout ? 'space-y-1' : 'space-y-2'}>
-      <div className={`${isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>Р’РІРѕРґ (stdin)</div>
+      <div className={`${isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>Ввод (stdin)</div>
       <textarea
         value={runInput}
         onChange={(e) => setRunInput(e.target.value)}
         rows={isSplitCollabLayout ? 2 : (isCollabFullscreen ? (isMobileViewport ? 3 : 4) : (isMobileViewport ? 4 : 6))}
-        placeholder="Р•СЃР»Рё РЅСѓР¶РµРЅ РІРІРѕРґ, РІСЃС‚Р°РІСЊС‚Рµ РµРіРѕ СЃСЋРґР°."
+        placeholder="Если нужен ввод, вставьте его сюда."
         className={`w-full rounded-2xl border outline-none ${
           isSplitCollabLayout ? 'px-2.5 py-1.5 text-[11px]' : 'px-3 py-2 text-xs'
         } ${
@@ -3850,7 +3822,7 @@ const CollabSection = ({
       }`}>
         <div className="flex items-center justify-between gap-2">
           <div className={`${isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>
-            Р¤Р°Р№Р»С‹ Р·Р°РґР°РЅРёСЏ РґР»СЏ open()
+            Файлы задания для open()
           </div>
           <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
             isCollabFullscreen
@@ -3875,7 +3847,7 @@ const CollabSection = ({
           >
             {taskOptions.map((task) => (
               <option key={task.id} value={task.number}>
-                {`Р—Р°РґР°РЅРёРµ ${getTaskDisplayNumber(task)}`}
+                {`Задание ${getTaskDisplayNumber(task)}`}
               </option>
             ))}
           </select>
@@ -3891,8 +3863,8 @@ const CollabSection = ({
                 : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
             }`}
           >
-            <option value="class">РќР° СѓСЂРѕРєРµ</option>
-            <option value="home">Р”РѕРјР°С€РєР°</option>
+            <option value="class">На уроке</option>
+            <option value="home">Домашка</option>
           </select>
           <div className="flex items-center gap-1">
             <input
@@ -3917,7 +3889,7 @@ const CollabSection = ({
               }`}
             >
               <Upload size={13} />
-              {taskFileUploadBusy ? 'Р—Р°РіСЂСѓР·РєР°...' : 'Р—Р°РіСЂСѓР·РёС‚СЊ С„Р°Р№Р»'}
+              {taskFileUploadBusy ? 'Загрузка...' : 'Загрузить файл'}
             </button>
           </div>
         </div>
@@ -3935,13 +3907,13 @@ const CollabSection = ({
         }`}>
           {taskFilesLoading ? (
             <div className={`px-2 py-1.5 text-[11px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
-              Р—Р°РіСЂСѓР¶Р°РµРј С„Р°Р№Р»С‹...
+              Загружаем файлы...
             </div>
           ) : (
             <>
               {!filteredTaskFiles.length ? (
                 <div className={`px-2 py-1.5 text-[11px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
-                  Р¤Р°Р№Р»С‹ РЅРµ РЅР°Р№РґРµРЅС‹.
+                  Файлы не найдены.
                 </div>
               ) : (
                 filteredTaskFiles.map((file) => (
@@ -3967,7 +3939,7 @@ const CollabSection = ({
           )}
         </div>
         <div className={`text-[10px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
-          Р’С‹Р±СЂР°РЅРЅС‹Рµ С„Р°Р№Р»С‹ РґРѕСЃС‚СѓРїРЅС‹ РІ Python РєР°Рє РѕР±С‹С‡РЅС‹Рµ С„Р°Р№Р»С‹.
+          Выбранные файлы доступны в Python как обычные файлы.
         </div>
       </div>
     </div>
@@ -3975,11 +3947,11 @@ const CollabSection = ({
   const resultHeader = (
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
       <div>
-        <div className={`text-[11px] font-semibold uppercase tracking-widest ${collabHintClass}`}>Р РµР·СѓР»СЊС‚Р°С‚</div>
+        <div className={`text-[11px] font-semibold uppercase tracking-widest ${collabHintClass}`}>Результат</div>
         {(runAuthor || runTimestamp) && (
           <div className={`text-[11px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
-            {runAuthor ? `Р—Р°РїСѓСЃС‚РёР»: ${runAuthor}` : 'Р—Р°РїСѓСЃРє'}
-            {runTimestamp ? ` вЂў ${new Date(runTimestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
+            {runAuthor ? `Запустил: ${runAuthor}` : 'Запуск'}
+            {runTimestamp ? ` • ${new Date(runTimestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
           </div>
         )}
       </div>
@@ -3999,15 +3971,15 @@ const CollabSection = ({
       {runStatus === 'running' && (
         <div className="mb-2 flex items-center gap-2 text-[11px] text-amber-300">
           <span className="inline-flex h-2 w-2 rounded-full bg-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.9)] animate-pulse" />
-          Р’С‹РїРѕР»РЅСЏРµС‚СЃСЏ...
+          Выполняется...
         </div>
       )}
       {runStatus === 'stopped' && (
-        <div className="mb-2 text-[11px] text-rose-300">РћСЃС‚Р°РЅРѕРІР»РµРЅРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»РµРј</div>
+        <div className="mb-2 text-[11px] text-rose-300">Остановлено пользователем</div>
       )}
       {lastRunInput && (
         <div className="mb-3">
-          <div className="text-[10px] uppercase tracking-widest text-slate-400">Р’РІРѕРґ</div>
+          <div className="text-[10px] uppercase tracking-widest text-slate-400">Ввод</div>
           <pre className="mt-1 whitespace-pre-wrap break-words text-slate-200">{lastRunInput}</pre>
         </div>
       )}
@@ -4021,7 +3993,7 @@ const CollabSection = ({
           )}
         </>
       ) : (
-        <div className="text-slate-400">Р—РґРµСЃСЊ РїРѕСЏРІРёС‚СЃСЏ РІС‹РІРѕРґ РїСЂРѕРіСЂР°РјРјС‹.</div>
+        <div className="text-slate-400">Здесь появится вывод программы.</div>
       )}
     </div>
   );
@@ -4034,12 +4006,12 @@ const CollabSection = ({
     } ${isSplitCollabLayout ? 'max-h-[24vh] overflow-auto' : ''}`}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-widest text-violet-400">РџРѕС€Р°РіРѕРІС‹Р№ РґРµР±Р°Рі</div>
+          <div className="text-[11px] font-semibold uppercase tracking-widest text-violet-400">Пошаговый дебаг</div>
           <div className="mt-1 text-[12px]">
-            {`РЁР°Рі ${Math.max(0, debugStepIndex + 1)} РёР· ${debugTrace.length}`}
-            {debugTraceTruncated ? ' вЂў РўСЂР°СЃСЃР° РѕРіСЂР°РЅРёС‡РµРЅР° РїРѕ СЂР°Р·РјРµСЂСѓ' : ''}
+            {`Шаг ${Math.max(0, debugStepIndex + 1)} из ${debugTrace.length}`}
+            {debugTraceTruncated ? ' • Трасса ограничена по размеру' : ''}
           </div>
-          <div className="mt-1 text-[10px] text-slate-400">F10 С€Р°Рі вЂў F8 РїСЂРѕРґРѕР»Р¶РёС‚СЊ вЂў F7 РЅР°Р·Р°Рґ вЂў Esc РІС‹Р№С‚Рё вЂў С‚РѕС‡РєР° РѕСЃС‚Р°РЅРѕРІР°: РєР»РёРє РїРѕ РЅРѕРјРµСЂСѓ СЃС‚СЂРѕРєРё</div>
+          <div className="mt-1 text-[10px] text-slate-400">F10 шаг • F8 продолжить • F7 назад • Esc выйти • точка останова: клик по номеру строки</div>
         </div>
       </div>
 
@@ -4050,9 +4022,9 @@ const CollabSection = ({
             : 'border-violet-200/80 bg-white'
         }`}>
           <div className="flex flex-wrap items-center gap-2 text-[11px]">
-            <span className="font-semibold text-violet-400">{`РЎС‚СЂРѕРєР° ${currentDebugStep.line || '?'}`}</span>
-            <span className={isCollabFullscreen ? 'text-slate-400' : 'text-slate-500'}>{`РЎРѕР±С‹С‚РёРµ: ${currentDebugStep.event || 'line'}`}</span>
-            <span className={isCollabFullscreen ? 'text-slate-400' : 'text-slate-500'}>{`Р¤СѓРЅРєС†РёСЏ: ${currentDebugStep.func || '<module>'}`}</span>
+            <span className="font-semibold text-violet-400">{`Строка ${currentDebugStep.line || '?'}`}</span>
+            <span className={isCollabFullscreen ? 'text-slate-400' : 'text-slate-500'}>{`Событие: ${currentDebugStep.event || 'line'}`}</span>
+            <span className={isCollabFullscreen ? 'text-slate-400' : 'text-slate-500'}>{`Функция: ${currentDebugStep.func || '<module>'}`}</span>
           </div>
           {currentDebugLineText && (
             <pre className={`mt-2 whitespace-pre-wrap break-words rounded-lg px-2 py-1 text-[11px] ${
@@ -4062,7 +4034,7 @@ const CollabSection = ({
           {currentDebugStep.exception && (
             <div className="mt-2 text-[11px] text-rose-400">{currentDebugStep.exception}</div>
           )}
-          <div className="mt-2 text-[10px] uppercase tracking-widest text-slate-400">Р›РѕРєР°Р»СЊРЅС‹Рµ РїРµСЂРµРјРµРЅРЅС‹Рµ</div>
+          <div className="mt-2 text-[10px] uppercase tracking-widest text-slate-400">Локальные переменные</div>
           {currentDebugLocals.length > 0 ? (
             <div className="mt-1 max-h-44 overflow-auto space-y-1 pr-1">
               {currentDebugLocals.map((local, idx) => (
@@ -4071,12 +4043,12 @@ const CollabSection = ({
                 }`}>
                   <span className="text-violet-400">{local.name || '?'}</span>
                   {local.type ? <span className="ml-1 text-slate-400">{`(${local.type})`}</span> : null}
-                  <span className="ml-2">{local.value || 'вЂ”'}</span>
+                  <span className="ml-2">{local.value || '—'}</span>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="mt-1 text-[11px] text-slate-400">РќРµС‚ Р»РѕРєР°Р»СЊРЅС‹С… РїРµСЂРµРјРµРЅРЅС‹С… РЅР° СЌС‚РѕРј С€Р°РіРµ.</div>
+            <div className="mt-1 text-[11px] text-slate-400">Нет локальных переменных на этом шаге.</div>
           )}
         </div>
       )}
@@ -4095,10 +4067,10 @@ const CollabSection = ({
             isCollabFullscreen ? 'text-lg sm:text-xl' : (isDesktopCollabCompact ? 'text-xl' : 'text-2xl')
           } ${collabTitleClass}`}>
             <Pencil size={isCollabFullscreen || isDesktopCollabCompact ? 18 : 24} className={collabLabelClass} />
-            РЎРѕРІРјРµСЃС‚РЅС‹Р№ РєРѕРґ
+            Совместный код
           </h2>
           <p className={`${collabSubtitleClass} ${isCollabFullscreen || isDesktopCollabCompact ? 'text-xs' : ''}`}>
-            Р–РёРІРѕР№ РґРѕРєСѓРјРµРЅС‚: РёР·РјРµРЅРµРЅРёСЏ РІРёРґРЅС‹ СЃСЂР°Р·Сѓ.
+            Живой документ: изменения видны сразу.
           </p>
         </div>
         <div className={`flex flex-wrap items-center ${isCollabFullscreen || isDesktopCollabCompact ? 'gap-1.5' : 'gap-2'}`}>
@@ -4111,7 +4083,7 @@ const CollabSection = ({
             }`}
           >
             <Save size={16} />
-            РЎРѕС…СЂР°РЅРёС‚СЊ РІ РєРѕРЅСЃРїРµРєС‚С‹
+            Сохранить в конспекты
           </Button>
           <button
             type="button"
@@ -4123,10 +4095,10 @@ const CollabSection = ({
                 ? 'border-violet-500/70 bg-violet-500/20 text-violet-100 hover:bg-violet-500/30'
                 : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
             }`}
-            title={isCollabFullscreen ? 'Р’С‹Р№С‚Рё РёР· РїРѕР»РЅРѕСЌРєСЂР°РЅРЅРѕРіРѕ СЂРµР¶РёРјР°' : 'Р’Рѕ РІРµСЃСЊ СЌРєСЂР°РЅ'}
+            title={isCollabFullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'}
           >
             {isCollabFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
-            {isCollabFullscreen ? 'РЎРІРµСЂРЅСѓС‚СЊ' : 'РќР° РІРµСЃСЊ СЌРєСЂР°РЅ'}
+            {isCollabFullscreen ? 'Свернуть' : 'На весь экран'}
           </button>
           <span className={`inline-flex items-center rounded-full border font-semibold ${
             isCollabFullscreen || isDesktopCollabCompact ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
@@ -4137,7 +4109,7 @@ const CollabSection = ({
             <span className={`inline-flex items-center rounded-full border border-slate-200 bg-white font-semibold text-slate-600 ${
               isCollabFullscreen || isDesktopCollabCompact ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
             }`}>
-              РћРЅР»Р°Р№РЅ: {peerCount}
+              Онлайн: {peerCount}
             </span>
           )}
         </div>
@@ -4149,8 +4121,8 @@ const CollabSection = ({
         }`}>
           <AlertTriangle size={18} className="mt-0.5" />
           <div>
-            <div className="font-semibold">РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°</div>
-            <div className="text-xs text-amber-700/80">РљРѕРјРЅР°С‚Р° СЃРѕР·РґР°С‘С‚СЃСЏ РѕС‚РґРµР»СЊРЅРѕ РґР»СЏ РєР°Р¶РґРѕРіРѕ СѓС‡РµРЅРёРєР°.</div>
+            <div className="font-semibold">Сначала выберите ученика</div>
+            <div className="text-xs text-amber-700/80">Комната создаётся отдельно для каждого ученика.</div>
           </div>
         </div>
       )}
@@ -4159,7 +4131,7 @@ const CollabSection = ({
         {!isCollabFullscreen && !isDesktopCollabCompact && (
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
-              <div className={`text-xs font-bold uppercase tracking-widest ${collabLabelClass}`}>РЎРµСЃСЃРёСЏ</div>
+              <div className={`text-xs font-bold uppercase tracking-widest ${collabLabelClass}`}>Сессия</div>
               <div className={`text-sm font-semibold ${collabSessionTextClass}`}>{sessionLabel}</div>
             </div>
             <div className="flex flex-wrap items-center gap-2 md:justify-end">
@@ -4169,7 +4141,7 @@ const CollabSection = ({
                 disabled={!roomId}
                 className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
               >
-                РђРІС‚РѕС„РѕСЂРјР°С‚
+                Автоформат
               </button>
             </div>
           </div>
@@ -4181,7 +4153,7 @@ const CollabSection = ({
           } ${collabToolbarClass}`}>
             {(isCollabFullscreen || isDesktopCollabCompact) && (
               <>
-                <span className={`text-[10px] font-bold uppercase tracking-widest ${collabSessionLabelClass}`}>РЎРµСЃСЃРёСЏ</span>
+                <span className={`text-[10px] font-bold uppercase tracking-widest ${collabSessionLabelClass}`}>Сессия</span>
                 <span className={`max-w-[220px] truncate text-[11px] font-semibold ${collabSessionValueClass}`}>{sessionLabel}</span>
                 <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
               </>
@@ -4195,8 +4167,8 @@ const CollabSection = ({
                 ? collabIconButtonDisabled
                 : collabIconButtonPrimary
             }`}
-            title="Р—Р°РїСѓСЃС‚РёС‚СЊ РєРѕРґ"
-            aria-label="Р—Р°РїСѓСЃС‚РёС‚СЊ РєРѕРґ"
+            title="Запустить код"
+            aria-label="Запустить код"
           >
             <Play size={15} />
           </button>
@@ -4209,8 +4181,8 @@ const CollabSection = ({
                 ? collabIconButtonDisabled
                 : collabIconButtonNeutral
             }`}
-            title="Р—Р°РїСѓСЃС‚РёС‚СЊ РІС‹РґРµР»РµРЅРЅС‹Р№ С„СЂР°РіРјРµРЅС‚"
-            aria-label="Р—Р°РїСѓСЃС‚РёС‚СЊ РІС‹РґРµР»РµРЅРёРµ"
+            title="Запустить выделенный фрагмент"
+            aria-label="Запустить выделение"
           >
             <span className="relative inline-flex h-4 w-4 items-center justify-center">
               <MousePointer2 size={12} />
@@ -4228,8 +4200,8 @@ const CollabSection = ({
                   ? collabIconButtonPrimary
                   : collabIconButtonAccent)
             }`}
-            title="Р”РµР±Р°Рі (РґРѕ РїРµСЂРІРѕР№ С‚РѕС‡РєРё РѕСЃС‚Р°РЅРѕРІРєРё)"
-            aria-label="Р”РµР±Р°Рі"
+            title="Дебаг (до первой точки остановки)"
+            aria-label="Дебаг"
           >
             <Bug size={15} />
           </button>
@@ -4246,8 +4218,8 @@ const CollabSection = ({
                     ? collabIconButtonDisabled
                     : collabIconButtonNeutral
                 }`}
-                title="РЁР°Рі РЅР°Р·Р°Рґ (F7)"
-                aria-label="РЁР°Рі РЅР°Р·Р°Рґ"
+                title="Шаг назад (F7)"
+                aria-label="Шаг назад"
               >
                 <StepBack size={15} />
               </button>
@@ -4260,8 +4232,8 @@ const CollabSection = ({
                     ? collabIconButtonDisabled
                     : collabIconButtonNeutral
                 }`}
-                title="РЁР°Рі РІРїРµСЂС‘Рґ (F10)"
-                aria-label="РЁР°Рі РІРїРµСЂС‘Рґ"
+                title="Шаг вперёд (F10)"
+                aria-label="Шаг вперёд"
               >
                 <StepForward size={15} />
               </button>
@@ -4274,8 +4246,8 @@ const CollabSection = ({
                     ? collabIconButtonDisabled
                     : collabIconButtonPrimary
                 }`}
-                title="РџСЂРѕРґРѕР»Р¶РёС‚СЊ (F8)"
-                aria-label="РџСЂРѕРґРѕР»Р¶РёС‚СЊ"
+                title="Продолжить (F8)"
+                aria-label="Продолжить"
               >
                 <Play size={14} />
               </button>
@@ -4291,8 +4263,8 @@ const CollabSection = ({
                     ? collabIconButtonDisabled
                     : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
                 }`}
-                title="РџР°СѓР·Р°"
-                aria-label="РџР°СѓР·Р°"
+                title="Пауза"
+                aria-label="Пауза"
               >
                 <Pause size={14} />
               </button>
@@ -4309,8 +4281,8 @@ const CollabSection = ({
                 ? collabIconButtonDisabled
                 : collabIconButtonDanger
             }`}
-            title={runLoading ? 'РћСЃС‚Р°РЅРѕРІРёС‚СЊ РІС‹РїРѕР»РЅРµРЅРёРµ (Ctrl+C)' : 'Р’С‹Р№С‚Рё РёР· РґРµР±Р°РіР° (Esc)'}
-            aria-label="РћСЃС‚Р°РЅРѕРІРёС‚СЊ"
+            title={runLoading ? 'Остановить выполнение (Ctrl+C)' : 'Выйти из дебага (Esc)'}
+            aria-label="Остановить"
           >
             <Square size={14} />
           </button>
@@ -4323,8 +4295,8 @@ const CollabSection = ({
                 ? collabIconButtonDisabled
                 : collabIconButtonNeutral
             }`}
-            title="РћС‡РёСЃС‚РёС‚СЊ РІС‹РІРѕРґ"
-            aria-label="РћС‡РёСЃС‚РёС‚СЊ РІС‹РІРѕРґ"
+            title="Очистить вывод"
+            aria-label="Очистить вывод"
           >
             <Trash2 size={14} />
           </button>
@@ -4340,7 +4312,7 @@ const CollabSection = ({
                   : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
               }`}
             >
-              РђРІС‚РѕС„РѕСЂРјР°С‚
+              Автоформат
             </button>
           )}
         </div>
@@ -4361,7 +4333,7 @@ const CollabSection = ({
             </div>
             <div
               role="separator"
-              aria-label="РР·РјРµРЅРёС‚СЊ С€РёСЂРёРЅСѓ РїР°РЅРµР»РµР№"
+              aria-label="Изменить ширину панелей"
               aria-orientation="vertical"
               aria-valuemin={48}
               aria-valuemax={82}
@@ -4369,7 +4341,7 @@ const CollabSection = ({
               onPointerDown={handleSplitResizeStart}
               onDoubleClick={handleSplitResizeReset}
               className="group relative flex w-[10px] cursor-col-resize select-none items-center justify-center"
-              title="РџРµСЂРµС‚Р°С‰РёС‚Рµ, С‡С‚РѕР±С‹ РёР·РјРµРЅРёС‚СЊ С€РёСЂРёРЅСѓ. Р”РІРѕР№РЅРѕР№ РєР»РёРє вЂ” СЃР±СЂРѕСЃ."
+              title="Перетащите, чтобы изменить ширину. Двойной клик — сброс."
             >
               <div className={`h-full w-[2px] rounded-full transition ${
                 isCollabFullscreen
@@ -4433,7 +4405,7 @@ const BoardSection = ({
   const roomId = effectiveStudentId && teacherId ? `board-${teacherId}-${effectiveStudentId}` : null;
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const wsUrl = useMemo(() => getCollabWsUrl(), []);
-  const localName = userName || (isTeacher ? 'РЈС‡РёС‚РµР»СЊ' : 'РЈС‡РµРЅРёРє');
+  const localName = userName || (isTeacher ? 'Учитель' : 'Ученик');
   const localColor = useMemo(
     () => pickCollabColor(isTeacher ? `teacher-${teacherId}` : `student-${userId}`),
     [isTeacher, teacherId, userId]
@@ -4831,7 +4803,7 @@ const BoardSection = ({
       .catch((err) => {
         if (cancelled) return;
         setFolders([]);
-        setFoldersError(err?.message || 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РїР°РїРєРё.');
+        setFoldersError(err?.message || 'Не удалось загрузить папки.');
       })
       .finally(() => {
         if (!cancelled) setFoldersLoading(false);
@@ -4878,8 +4850,8 @@ const BoardSection = ({
       }
       const hasModifier = event.ctrlKey || event.metaKey;
       if (!hasModifier) return;
-      const isUndoKey = code === 'KeyZ' || key === 'z' || key === 'СЏ';
-      const isRedoKey = code === 'KeyY' || key === 'y' || key === 'РЅ' || (isUndoKey && event.shiftKey);
+      const isUndoKey = code === 'KeyZ' || key === 'z' || key === 'я';
+      const isRedoKey = code === 'KeyY' || key === 'y' || key === 'н' || (isUndoKey && event.shiftKey);
       if (!isUndoKey && !isRedoKey) return;
       if (isEditableTarget(event.target)) return;
       event.preventDefault();
@@ -5023,7 +4995,7 @@ const BoardSection = ({
   const handleCreateFolder = async () => {
     const name = newFolderName.trim();
     if (!name) {
-      setFoldersError('Р’РІРµРґРёС‚Рµ РЅР°Р·РІР°РЅРёРµ РїР°РїРєРё.');
+      setFoldersError('Введите название папки.');
       return;
     }
     if (!effectiveStudentId || !saveTaskNumber || !saveCategory) return;
@@ -5075,10 +5047,10 @@ const BoardSection = ({
 
   const renderBoardToBlob = async () => {
     if (typeof document === 'undefined') {
-      throw new Error('РќРµР»СЊР·СЏ СЃРѕС…СЂР°РЅРёС‚СЊ РґРѕСЃРєСѓ РІ СЌС‚РѕРј РѕРєСЂСѓР¶РµРЅРёРё.');
+      throw new Error('Нельзя сохранить доску в этом окружении.');
     }
     const bounds = getBoardBounds(boardItems);
-    if (!bounds) throw new Error('Р”РѕСЃРєР° РїСѓСЃС‚Р°СЏ.');
+    if (!bounds) throw new Error('Доска пустая.');
     const padding = BOARD_EXPORT_PADDING;
     const width = Math.max(1, bounds.maxX - bounds.minX + padding * 2);
     const height = Math.max(1, bounds.maxY - bounds.minY + padding * 2);
@@ -5088,7 +5060,7 @@ const BoardSection = ({
     canvas.width = Math.max(1, Math.ceil(width * scale));
     canvas.height = Math.max(1, Math.ceil(height * scale));
     const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕРґРіРѕС‚РѕРІРёС‚СЊ С…РѕР»СЃС‚.');
+    if (!ctx) throw new Error('Не удалось подготовить холст.');
 
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -5131,7 +5103,7 @@ const BoardSection = ({
 
     return new Promise((resolve, reject) => {
       canvas.toBlob((blob) => {
-        if (!blob) reject(new Error('РќРµ СѓРґР°Р»РѕСЃСЊ СЃС„РѕСЂРјРёСЂРѕРІР°С‚СЊ РёР·РѕР±СЂР°Р¶РµРЅРёРµ.'));
+        if (!blob) reject(new Error('Не удалось сформировать изображение.'));
         else resolve(blob);
       }, 'image/png');
     });
@@ -5142,32 +5114,32 @@ const BoardSection = ({
     setSaveSuccess('');
     setSaveNameError(false);
     if (!effectiveStudentId) {
-      setSaveError('РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°.');
+      setSaveError('Сначала выберите ученика.');
       return;
     }
     if (!saveTaskNumber || !saveCategory) {
-      setSaveError('Р’С‹Р±РµСЂРёС‚Рµ Р·Р°РґР°РЅРёРµ Рё РєР°С‚РµРіРѕСЂРёСЋ.');
+      setSaveError('Выберите задание и категорию.');
       return;
     }
     if (!boardItems.length) {
-      setSaveError('Р”РѕСЃРєР° РїСѓСЃС‚Р°СЏ.');
+      setSaveError('Доска пустая.');
       return;
     }
     setSaveBusy(true);
     try {
       const blob = await renderBoardToBlob();
       if (blob.size > 50 * 1024 * 1024) {
-        throw new Error('Р¤Р°Р№Р» СЃР»РёС€РєРѕРј Р±РѕР»СЊС€РѕР№ (РјР°РєСЃРёРјСѓРј 50 РњР‘). РЈРјРµРЅСЊС€РёС‚Рµ СЂР°Р·РјРµСЂ РґРѕСЃРєРё.');
+        throw new Error('Файл слишком большой (максимум 50 МБ). Уменьшите размер доски.');
       }
       const baseName = normalizeFileName(saveFileName);
       if (!baseName) {
-        setSaveError('Р’РІРµРґРёС‚Рµ РЅР°Р·РІР°РЅРёРµ С„Р°Р№Р»Р°.');
+        setSaveError('Введите название файла.');
         setSaveNameError(true);
         setSaveBusy(false);
         return;
       }
       let safeName = baseName;
-      const prefix = 'РєРѕРЅСЃРїРµРєС‚-';
+      const prefix = 'конспект-';
       if (!safeName.toLowerCase().startsWith(prefix)) {
         safeName = `${prefix}${safeName}`;
       }
@@ -5176,7 +5148,7 @@ const BoardSection = ({
       }
       const file = new File([blob], safeName, { type: 'image/png' });
       await api.uploadFile(file, Number(saveTaskNumber), saveCategory, saveFolderId || null, effectiveStudentId);
-      setSaveSuccess('РЎРѕС…СЂР°РЅРµРЅРѕ РІ РєРѕРЅСЃРїРµРєС‚С‹.');
+      setSaveSuccess('Сохранено в конспекты.');
     } catch (err) {
       setSaveError(err?.message || err);
     } finally {
@@ -5908,7 +5880,7 @@ const BoardSection = ({
           const remoteUser = state?.user;
           const remoteName = typeof remoteUser?.name === 'string' && remoteUser.name.trim()
             ? remoteUser.name.trim()
-            : 'РЈС‡Р°СЃС‚РЅРёРє';
+            : 'Участник';
           const remoteColor = typeof remoteUser?.color === 'string' && remoteUser.color
             ? remoteUser.color
             : '#6366f1';
@@ -5990,7 +5962,7 @@ const BoardSection = ({
       const file = imageItem.getAsFile();
       if (!file) return;
       if (file.size > BOARD_MAX_IMAGE_BYTES) {
-        setPasteError('РЎР»РёС€РєРѕРј Р±РѕР»СЊС€РѕР№ С„Р°Р№Р». РњР°РєСЃРёРјСѓРј 10 РњР‘.');
+        setPasteError('Слишком большой файл. Максимум 10 МБ.');
         return;
       }
       event.preventDefault();
@@ -6372,7 +6344,7 @@ const BoardSection = ({
 
   const handleClearBoard = () => {
     if (!yItemsRef.current || !docRef.current) return;
-    if (!confirm('РћС‡РёСЃС‚РёС‚СЊ РґРѕСЃРєСѓ? Р­С‚Рѕ СѓРґР°Р»РёС‚ РІСЃРµ СЌР»РµРјРµРЅС‚С‹.')) return;
+    if (!confirm('Очистить доску? Это удалит все элементы.')) return;
     docRef.current.transact(() => {
       yItemsRef.current.delete(0, yItemsRef.current.length);
     }, localOriginRef.current);
@@ -6528,12 +6500,12 @@ const BoardSection = ({
   }, [remoteCursors, zoom, offset, boardSize.width, boardSize.height]);
   const sessionTitle = roomId
     ? (isTeacher
-      ? `РЈС‡РёС‚РµР»СЊ + ${selectedStudent ? getStudentLabel(selectedStudent) : 'СѓС‡РµРЅРёРє'}`
-      : 'РЈС‡РёС‚РµР»СЊ + СѓС‡РµРЅРёРє')
-    : 'РќРµ РІС‹Р±СЂР°РЅР°';
+      ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
+      : 'Учитель + ученик')
+    : 'Не выбрана';
   const statusLabel = status === 'connected'
-    ? 'РџРѕРґРєР»СЋС‡РµРЅРѕ'
-    : (status === 'connecting' ? 'РЎРѕРµРґРёРЅСЏРµРјСЃСЏ...' : 'РќРµ РїРѕРґРєР»СЋС‡РµРЅРѕ');
+    ? 'Подключено'
+    : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено');
   const statusClass = status === 'connected'
     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
     : 'border-amber-200 bg-amber-50 text-amber-700';
@@ -6546,7 +6518,7 @@ const BoardSection = ({
     : 'p-4 md:p-5 md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-hidden';
   const boardCanvasStyle = boardCanvasHeight ? { height: boardCanvasHeight } : undefined;
   const activeWidth = tool === 'line' ? lineWidth : penWidth;
-  const widthTargetLabel = tool === 'line' ? 'Р›РёРЅРёСЏ' : 'РљР°СЂР°РЅРґР°С€';
+  const widthTargetLabel = tool === 'line' ? 'Линия' : 'Карандаш';
   const showWidthControls = tool === 'pen' || tool === 'line';
   const zoomLabel = `${Math.round((zoom || 1) * 100)}%`;
   const formattedWidth = Number.isFinite(activeWidth)
@@ -6563,7 +6535,7 @@ const BoardSection = ({
     if (!isTeacher) return null;
     return (
       <div className="inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-purple-100/40">
-        <span className="text-[11px] font-semibold uppercase tracking-widest text-purple-500">РЈС‡РµРЅРёРє</span>
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
         <select
           value={activeStudentId || ''}
           onChange={(e) => {
@@ -6573,7 +6545,7 @@ const BoardSection = ({
           disabled={studentsLoading || (students || []).length === 0}
           className="w-full min-w-0 sm:min-w-[180px] rounded-xl border border-purple-100 bg-white px-3 py-1.5 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
         >
-          <option value="" disabled>Р’С‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°</option>
+          <option value="" disabled>Выберите ученика</option>
           {(students || []).map((student) => (
             <option key={student.id} value={student.id}>
               {getStudentLabel(student)}
@@ -6590,21 +6562,21 @@ const BoardSection = ({
         <button
           onClick={() => setSaveModalOpen(false)}
           className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"
-          aria-label="Р—Р°РєСЂС‹С‚СЊ"
+          aria-label="Закрыть"
         >
           <X size={18} />
         </button>
         <div className="pr-8">
-          <div className="text-xs font-bold uppercase tracking-widest text-purple-500">РЎРѕС…СЂР°РЅРµРЅРёРµ</div>
-          <h3 className="mt-1 text-xl font-bold text-gray-900">РЎРѕС…СЂР°РЅРёС‚СЊ РґРѕСЃРєСѓ РІ РєРѕРЅСЃРїРµРєС‚С‹</h3>
+          <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сохранение</div>
+          <h3 className="mt-1 text-xl font-bold text-gray-900">Сохранить доску в конспекты</h3>
           <p className="mt-1 text-xs text-gray-500">
-            РЎРѕС…СЂР°РЅСЏРµС‚СЃСЏ PNG СЃРЅРёРјРѕРє РІСЃРµР№ РґРѕСЃРєРё Рё РїРѕСЏРІРёС‚СЃСЏ РІ СЂР°Р·РґРµР»Рµ В«РљРѕРЅСЃРїРµРєС‚С‹В» РІС‹Р±СЂР°РЅРЅРѕРіРѕ СѓС‡РµРЅРёРєР°.
+            Сохраняется PNG снимок всей доски и появится в разделе «Конспекты» выбранного ученика.
           </p>
         </div>
 
         <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Р—Р°РґР°РЅРёРµ</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Задание</label>
             <select
               value={saveTaskNumber}
               onChange={(e) => setSaveTaskNumber(e.target.value)}
@@ -6612,42 +6584,42 @@ const BoardSection = ({
             >
               {taskOptions.map((task) => (
                 <option key={task.id} value={task.number}>
-                  {`Р—Р°РґР°РЅРёРµ ${getTaskDisplayNumber(task)}: ${task.title}`}
+                  {`Задание ${getTaskDisplayNumber(task)}: ${task.title}`}
                 </option>
               ))}
             </select>
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">РљР°С‚РµРіРѕСЂРёСЏ</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Категория</label>
             <select
               value={saveCategory}
               onChange={(e) => setSaveCategory(e.target.value)}
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
             >
-              <option value="class">РќР° СѓСЂРѕРєРµ</option>
-              <option value="home">Р”РѕРјР°С€РєР°</option>
+              <option value="class">На уроке</option>
+              <option value="home">Домашка</option>
             </select>
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">РџР°РїРєР°</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Папка</label>
             <select
               value={saveFolderId}
               onChange={(e) => setSaveFolderId(e.target.value)}
               disabled={!effectiveStudentId || foldersLoading}
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
             >
-              <option value="">Р‘РµР· РїР°РїРєРё</option>
+              <option value="">Без папки</option>
               {folders.map((folder) => (
                 <option key={folder.id} value={folder.id}>{folder.name}</option>
               ))}
             </select>
-            {foldersLoading && <div className="text-[11px] text-gray-400">Р—Р°РіСЂСѓР·РєР° РїР°РїРѕРє...</div>}
+            {foldersLoading && <div className="text-[11px] text-gray-400">Загрузка папок...</div>}
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">РРјСЏ С„Р°Р№Р»Р°</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Имя файла</label>
             <input
               type="text"
               value={saveFileName}
@@ -6658,7 +6630,7 @@ const BoardSection = ({
                   setSaveError('');
                 }
               }}
-              placeholder="РєРѕРЅСЃРїРµРєС‚-..."
+              placeholder="конспект-..."
               className={`w-full rounded-xl px-3 py-2 text-sm outline-none ${
                 saveNameError
                   ? 'border border-red-300 bg-red-50 text-red-700 focus:border-red-500'
@@ -6673,7 +6645,7 @@ const BoardSection = ({
             type="text"
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
-            placeholder="РќРѕРІР°СЏ РїР°РїРєР°"
+            placeholder="Новая папка"
             className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
           />
           <Button
@@ -6683,7 +6655,7 @@ const BoardSection = ({
             className="flex items-center justify-center gap-2"
           >
             <FolderPlus size={16} />
-            {creatingFolder ? 'РЎРѕР·РґР°С‘Рј...' : 'РЎРѕР·РґР°С‚СЊ РїР°РїРєСѓ'}
+            {creatingFolder ? 'Создаём...' : 'Создать папку'}
           </Button>
         </div>
 
@@ -6692,14 +6664,14 @@ const BoardSection = ({
         {saveSuccess && <div className="mt-2 text-xs text-emerald-700">{saveSuccess}</div>}
 
         <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2">
-          <Button variant="secondary" onClick={() => setSaveModalOpen(false)}>РћС‚РјРµРЅР°</Button>
+          <Button variant="secondary" onClick={() => setSaveModalOpen(false)}>Отмена</Button>
           <Button
             onClick={handleSaveBoardToNotes}
             disabled={saveBusy || !effectiveStudentId || !saveTaskNumber || !saveCategory}
             className="flex items-center justify-center gap-2"
           >
             <Save size={16} />
-            {saveBusy ? 'РЎРѕС…СЂР°РЅСЏРµРј...' : 'РЎРѕС…СЂР°РЅРёС‚СЊ'}
+            {saveBusy ? 'Сохраняем...' : 'Сохранить'}
           </Button>
         </div>
       </div>
@@ -6714,7 +6686,7 @@ const BoardSection = ({
         <div>
           <h2 className={`font-bold flex items-center gap-2 ${isFullscreen ? 'text-white text-xl' : 'text-gray-900 text-2xl'}`}>
             <Brush className={isFullscreen ? 'text-purple-300' : 'text-purple-600'} />
-            РћРЅР»Р°Р№РЅ-РґРѕСЃРєР°
+            Онлайн-доска
           </h2>
         </div>
         <div className={`flex flex-wrap items-center ${isFullscreen ? 'gap-1.5' : 'gap-2'}`}>
@@ -6726,7 +6698,7 @@ const BoardSection = ({
             disabled={!roomId}
           >
             <Save size={16} />
-            РЎРѕС…СЂР°РЅРёС‚СЊ РІ РєРѕРЅСЃРїРµРєС‚С‹
+            Сохранить в конспекты
           </Button>
           {isTeacher && (
             <button
@@ -6737,7 +6709,7 @@ const BoardSection = ({
                 isFullscreen ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
               }`}
             >
-              РџСЂРёР·РІР°С‚СЊ РєРѕ РјРЅРµ
+              Призвать ко мне
             </button>
           )}
           <span className={`inline-flex items-center rounded-full border font-semibold ${statusClass} ${
@@ -6749,7 +6721,7 @@ const BoardSection = ({
             <span className={`inline-flex items-center rounded-full border border-slate-200 bg-white font-semibold text-slate-600 ${
               isFullscreen ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
             }`}>
-              РћРЅР»Р°Р№РЅ: {peerCount}
+              Онлайн: {peerCount}
             </span>
           )}
         </div>
@@ -6759,8 +6731,8 @@ const BoardSection = ({
         <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 flex items-start gap-2">
           <AlertTriangle size={18} className="mt-0.5" />
           <div>
-            <div className="font-semibold">РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°</div>
-            <div className="text-xs text-amber-700/80">РљРѕРјРЅР°С‚Р° СЃРѕР·РґР°С‘С‚СЃСЏ РѕС‚РґРµР»СЊРЅРѕ РґР»СЏ РєР°Р¶РґРѕРіРѕ СѓС‡РµРЅРёРєР°.</div>
+            <div className="font-semibold">Сначала выберите ученика</div>
+            <div className="text-xs text-amber-700/80">Комната создаётся отдельно для каждого ученика.</div>
           </div>
         </div>
       )}
@@ -6769,11 +6741,11 @@ const BoardSection = ({
         {!isFullscreen && (
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <div className="text-xs font-bold uppercase tracking-widest text-purple-500">РЎРµСЃСЃРёСЏ</div>
+              <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сессия</div>
               <div className="text-sm font-semibold text-gray-800">{sessionTitle}</div>
             </div>
             <div className="text-xs text-gray-500">
-              Р’СЃС‚Р°РІРєР° РєР°СЂС‚РёРЅРєРё: Ctrl+V. Р›РёРјРёС‚ 10 РњР‘. РџР°РЅРѕСЂР°РјРёСЂРѕРІР°РЅРёРµ: СѓРґРµСЂР¶РёРІР°Р№С‚Рµ Space Рё С‚СЏРЅРёС‚Рµ.
+              Вставка картинки: Ctrl+V. Лимит 10 МБ. Панорамирование: удерживайте Space и тяните.
             </div>
           </div>
         )}
@@ -6791,8 +6763,8 @@ const BoardSection = ({
             className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
               tool === 'pen' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
-            aria-label="РљР°СЂР°РЅРґР°С€"
-            title="РљР°СЂР°РЅРґР°С€"
+            aria-label="Карандаш"
+            title="Карандаш"
           >
             <Pencil size={14} />
           </button>
@@ -6803,8 +6775,8 @@ const BoardSection = ({
             className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
               tool === 'line' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
-            aria-label="Р›РёРЅРёСЏ"
-            title="Р›РёРЅРёСЏ"
+            aria-label="Линия"
+            title="Линия"
           >
             <Minus size={14} />
           </button>
@@ -6815,8 +6787,8 @@ const BoardSection = ({
             className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
               tool === 'select' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
-            aria-label="Р’С‹РґРµР»РµРЅРёРµ"
-            title="Р’С‹РґРµР»РµРЅРёРµ"
+            aria-label="Выделение"
+            title="Выделение"
           >
             <MousePointer2 size={14} />
           </button>
@@ -6827,8 +6799,8 @@ const BoardSection = ({
             className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
               tool === 'move' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
-            aria-label="РџРµСЂРµРјРµС‰РµРЅРёРµ"
-            title="РџРµСЂРµРјРµС‰РµРЅРёРµ"
+            aria-label="Перемещение"
+            title="Перемещение"
           >
             <Hand size={14} />
           </button>
@@ -6839,8 +6811,8 @@ const BoardSection = ({
             className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
               tool === 'eraser' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
-            aria-label="Р›Р°СЃС‚РёРє"
-            title="Р›Р°СЃС‚РёРє"
+            aria-label="Ластик"
+            title="Ластик"
           >
             <Eraser size={14} />
           </button>
@@ -6851,8 +6823,8 @@ const BoardSection = ({
               onClick={handleUndo}
               disabled={!canUndo}
               className="inline-flex items-center justify-center rounded-lg px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-              aria-label="РћС‚РјРµРЅРёС‚СЊ"
-              title="РћС‚РјРµРЅРёС‚СЊ"
+              aria-label="Отменить"
+              title="Отменить"
             >
               <Undo2 size={14} />
             </button>
@@ -6861,8 +6833,8 @@ const BoardSection = ({
               onClick={handleRedo}
               disabled={!canRedo}
               className="inline-flex items-center justify-center rounded-lg px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-              aria-label="Р’РµСЂРЅСѓС‚СЊ"
-              title="Р’РµСЂРЅСѓС‚СЊ"
+              aria-label="Вернуть"
+              title="Вернуть"
             >
               <RefreshCcw size={14} />
             </button>
@@ -6871,8 +6843,8 @@ const BoardSection = ({
               onClick={handleClearBoard}
               disabled={!canClear}
               className="inline-flex items-center justify-center rounded-lg px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-              aria-label="РћС‡РёСЃС‚РёС‚СЊ РґРѕСЃРєСѓ"
-              title="РћС‡РёСЃС‚РёС‚СЊ РґРѕСЃРєСѓ"
+              aria-label="Очистить доску"
+              title="Очистить доску"
             >
               <Trash2 size={14} />
             </button>
@@ -6885,7 +6857,7 @@ const BoardSection = ({
               className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
             >
               <Settings size={14} />
-              Р¦РІРµС‚ Рё СЂР°Р·РјРµСЂ
+              Цвет и размер
               <span
                 className="ml-1 inline-flex h-2.5 w-2.5 rounded-full border border-white/80"
                 style={{ backgroundColor: color }}
@@ -6895,7 +6867,7 @@ const BoardSection = ({
               <div className="absolute right-0 z-30 mt-2 w-72 rounded-2xl border border-gray-200 bg-white p-3 shadow-lg">
                 <div className="space-y-3">
                   <div>
-                    <div className="text-[11px] uppercase tracking-wide text-gray-500">{`РўРѕР»С‰РёРЅР° (${widthTargetLabel})`}</div>
+                    <div className="text-[11px] uppercase tracking-wide text-gray-500">{`Толщина (${widthTargetLabel})`}</div>
                     <div className="mt-1 flex items-center gap-2">
                       <input
                         type="range"
@@ -6911,7 +6883,7 @@ const BoardSection = ({
                     </div>
                   </div>
                   <div>
-                    <div className="text-[11px] uppercase tracking-wide text-gray-500">Р¦РІРµС‚</div>
+                    <div className="text-[11px] uppercase tracking-wide text-gray-500">Цвет</div>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       {BOARD_COLORS.map((swatch) => (
                         <button
@@ -6922,7 +6894,7 @@ const BoardSection = ({
                             color === swatch ? 'border-gray-900 scale-110' : 'border-white/80'
                           }`}
                           style={{ backgroundColor: swatch }}
-                          aria-label={`Р¦РІРµС‚ ${swatch}`}
+                          aria-label={`Цвет ${swatch}`}
                         />
                       ))}
                     </div>
@@ -6935,7 +6907,7 @@ const BoardSection = ({
                         onChange={(event) => setShareMyCursor(event.target.checked)}
                         className="h-4 w-4 accent-purple-600"
                       />
-                      РџРѕРєР°Р·С‹РІР°С‚СЊ РјРѕР№ РєСѓСЂСЃРѕСЂ
+                      Показывать мой курсор
                     </label>
                   </div>
                   <div className="border-t border-gray-100 pt-3">
@@ -6946,15 +6918,15 @@ const BoardSection = ({
                         onChange={(event) => setLowBandwidthMode(event.target.checked)}
                         className="h-4 w-4 accent-purple-600"
                       />
-                      Р РµР¶РёРј СЃР»Р°Р±РѕРіРѕ РёРЅС‚РµСЂРЅРµС‚Р°
+                      Режим слабого интернета
                     </label>
                     <div className="mt-1 text-[11px] text-gray-400">
-                      Р РµР¶Рµ РѕС‚РїСЂР°РІР»СЏРµС‚ РєСѓСЂСЃРѕСЂ Рё РїСЂРµРІСЊСЋ Р»РёРЅРёР№, С‡С‚РѕР±С‹ СЃРЅРёР·РёС‚СЊ С‚СЂР°С„РёРє.
+                      Реже отправляет курсор и превью линий, чтобы снизить трафик.
                     </div>
                   </div>
                   {tool === 'move' && selectedImage && (
                     <div className="border-t border-gray-100 pt-3">
-                      <div className="text-[11px] uppercase tracking-wide text-gray-500">РР·РѕР±СЂР°Р¶РµРЅРёРµ</div>
+                      <div className="text-[11px] uppercase tracking-wide text-gray-500">Изображение</div>
                       <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
                         <span>{selectedImageLabel}</span>
                         <div className="flex items-center gap-1">
@@ -6985,8 +6957,8 @@ const BoardSection = ({
             type="button"
             onClick={() => zoomBy(1 / 1.12)}
             className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-            aria-label="РћС‚РґР°Р»РёС‚СЊ"
-            title="РћС‚РґР°Р»РёС‚СЊ"
+            aria-label="Отдалить"
+            title="Отдалить"
           >
             <Minus size={14} />
           </button>
@@ -6999,8 +6971,8 @@ const BoardSection = ({
             type="button"
             onClick={() => zoomBy(1.12)}
             className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-            aria-label="РџСЂРёР±Р»РёР·РёС‚СЊ"
-            title="РџСЂРёР±Р»РёР·РёС‚СЊ"
+            aria-label="Приблизить"
+            title="Приблизить"
           >
             <Plus size={14} />
           </button>
@@ -7009,18 +6981,18 @@ const BoardSection = ({
             type="button"
             onClick={resetView}
             className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-            aria-label="РЎР±СЂРѕСЃ РјР°СЃС€С‚Р°Р±Р°"
-            title="РЎР±СЂРѕСЃ РјР°СЃС€С‚Р°Р±Р°"
+            aria-label="Сброс масштаба"
+            title="Сброс масштаба"
           >
-            РЎР±СЂРѕСЃ
+            Сброс
           </button>
 
           <button
             type="button"
             onClick={toggleFullscreen}
             className="ml-auto inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-            aria-label={isFullscreen ? 'РћР±С‹С‡РЅС‹Р№ СЌРєСЂР°РЅ' : 'РџРѕР»РЅС‹Р№ СЌРєСЂР°РЅ'}
-            title={isFullscreen ? 'РћР±С‹С‡РЅС‹Р№ СЌРєСЂР°РЅ' : 'РџРѕР»РЅС‹Р№ СЌРєСЂР°РЅ'}
+            aria-label={isFullscreen ? 'Обычный экран' : 'Полный экран'}
+            title={isFullscreen ? 'Обычный экран' : 'Полный экран'}
           >
             {isFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
           </button>
@@ -7039,12 +7011,12 @@ const BoardSection = ({
         >
           {!roomId && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
-              Р’С‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°, С‡С‚РѕР±С‹ РѕС‚РєСЂС‹С‚СЊ РґРѕСЃРєСѓ.
+              Выберите ученика, чтобы открыть доску.
             </div>
           )}
           {!isTeacher && summonNotice && (
             <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border border-amber-200 bg-amber-50 px-4 py-1.5 text-xs font-semibold text-amber-700 shadow-sm">
-              РЈС‡РёС‚РµР»СЊ РїРµСЂРµРјРµСЃС‚РёР» РІР°СЃ Рє СЃРµР±Рµ
+              Учитель переместил вас к себе
             </div>
           )}
           <canvas
@@ -7229,11 +7201,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [teacherSolvedNotifs, setTeacherSolvedNotifs] = useState([]);
   const [teacherSignupNotifs, setTeacherSignupNotifs] = useState([]);
   const dismissedSignupNotifsRef = useRef(new Map());
-  const teacherSignupUnreadSnapshotRef = useRef(new Map());
-  const teacherSignupNotifyBootstrappedRef = useRef(false);
-  const [teacherSignupNotifySupported, setTeacherSignupNotifySupported] = useState(isBrowserNotificationsSupported());
-  const [teacherSignupNotifyPermission, setTeacherSignupNotifyPermission] = useState(getBrowserNotificationPermission());
-  const [teacherSignupNotifyEnabled, setTeacherSignupNotifyEnabled] = useState(() => readTeacherSignupNotifyPreference());
+  const [teacherSignupNotifySupported, setTeacherSignupNotifySupported] = useState(isPushFeatureSupported());
+  const [teacherSignupNotifyPermission, setTeacherSignupNotifyPermission] = useState(getPushPermission());
+  const [teacherSignupNotifyEnabled, setTeacherSignupNotifyEnabled] = useState(false);
+  const [teacherSignupNotifySyncing, setTeacherSignupNotifySyncing] = useState(false);
+  const [teacherSignupNotifyBusy, setTeacherSignupNotifyBusy] = useState(false);
+  const [teacherSignupNotifyReady, setTeacherSignupNotifyReady] = useState(false);
   const [teacherSignupNotifyError, setTeacherSignupNotifyError] = useState('');
   const [taskTitles, setTaskTitles] = useState({});
   const [students, setStudents] = useState([]);
@@ -7325,30 +7298,30 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const nav = user.role === 'admin'
     ? [
-      { id: 'admin', label: 'РђРґРјРёРЅРєР°', icon: Settings }
+      { id: 'admin', label: 'Админка', icon: Settings }
     ]
     : user.role === 'teacher'
       ? [
-        { id: 'schedule', label: 'РњРѕС‘ СЂР°СЃРїРёСЃР°РЅРёРµ', icon: Calendar },
-        { id: 'progress', label: 'РЈСЃРїРµРІР°РµРјРѕСЃС‚СЊ', icon: BarChart2 },
-        { id: 'python', label: 'РР·СѓС‡РµРЅРёРµ Python', icon: PythonLogoIcon },
-        { id: 'rating', label: 'Р РµР№С‚РёРЅРі', icon: Trophy },
-        { id: 'collab', label: 'РЎРѕРІРјРµСЃС‚РЅС‹Р№ РєРѕРґ', icon: Code2 },
+        { id: 'schedule', label: 'Моё расписание', icon: Calendar },
+        { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
+        { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
+        { id: 'rating', label: 'Рейтинг', icon: Trophy },
+        { id: 'collab', label: 'Совместный код', icon: Code2 },
         { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
-        { id: 'board', label: 'Р”РѕСЃРєР°', icon: Brush },
-        { id: 'teacher', label: 'РЈРїСЂР°РІР»РµРЅРёРµ С‚РµСЃС‚Р°РјРё', icon: Settings },
-        { id: 'signup-chats', label: 'Р§Р°С‚С‹ Р·Р°СЏРІРѕРє', icon: MessageSquare },
-        { id: 'notes', label: 'РљРѕРЅСЃРїРµРєС‚С‹', icon: Folder }
+        { id: 'board', label: 'Доска', icon: Brush },
+        { id: 'teacher', label: 'Управление тестами', icon: Settings },
+        { id: 'signup-chats', label: 'Чаты заявок', icon: MessageSquare },
+        { id: 'notes', label: 'Конспекты', icon: Folder }
       ]
       : [
-        { id: 'schedule', label: 'РњРѕС‘ СЂР°СЃРїРёСЃР°РЅРёРµ', icon: Calendar },
-        { id: 'progress', label: 'РЈСЃРїРµРІР°РµРјРѕСЃС‚СЊ', icon: BarChart2 },
-        { id: 'python', label: 'РР·СѓС‡РµРЅРёРµ Python', icon: PythonLogoIcon },
-        { id: 'rating', label: 'Р РµР№С‚РёРЅРі', icon: Trophy },
-        { id: 'collab', label: 'РЎРѕРІРјРµСЃС‚РЅС‹Р№ РєРѕРґ', icon: Code2 },
+        { id: 'schedule', label: 'Моё расписание', icon: Calendar },
+        { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
+        { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
+        { id: 'rating', label: 'Рейтинг', icon: Trophy },
+        { id: 'collab', label: 'Совместный код', icon: Code2 },
         { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
-        { id: 'board', label: 'Р”РѕСЃРєР°', icon: Brush },
-        { id: 'notes', label: 'РљРѕРЅСЃРїРµРєС‚С‹', icon: BookOpen }
+        { id: 'board', label: 'Доска', icon: Brush },
+        { id: 'notes', label: 'Конспекты', icon: BookOpen }
       ];
   const visibleNav = (user.role === 'student' && !STUDENT_CALL_SECTION_ENABLED)
     ? nav.filter((item) => item.id !== 'call')
@@ -7413,64 +7386,166 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ]
     : desktopPrimaryNav;
   const mobileNavLabels = {
-    schedule: 'Р“СЂР°С„РёРє',
-    progress: 'РўРµСЃС‚С‹',
+    schedule: 'График',
+    progress: 'Тесты',
     lesson: '\u0423\u0440\u043e\u043a',
-    rating: 'Р РµР№С‚РёРЅРі',
+    rating: 'Рейтинг',
     python: 'Python',
-    collab: 'РљРѕРґ',
+    collab: 'Код',
     call: '\u0417\u0432\u043e\u043d\u043e\u043a',
-    board: 'Р”РѕСЃРєР°',
-    teacher: 'РЈРїСЂР°РІ.',
-    'signup-chats': 'Р—Р°СЏРІРєРё',
-    notes: 'РљРѕРЅСЃРї.',
-    admin: 'РђРґРјРёРЅРєР°',
+    board: 'Доска',
+    teacher: 'Управ.',
+    'signup-chats': 'Заявки',
+    notes: 'Консп.',
+    admin: 'Админка',
     more: '\u0415\u0449\u0435',
   };
-  const teacherSignupNotifyStatusText = useMemo(() => {
-    if (!teacherSignupNotifySupported) return 'Браузер не поддерживает уведомления.';
-    if (teacherSignupNotifyPermission === 'denied') return 'Уведомления заблокированы в настройках браузера.';
-    if (teacherSignupNotifyEnabled && teacherSignupNotifyPermission === 'granted') {
-      return 'Браузерные уведомления о новых сообщениях в заявках включены.';
-    }
-    return 'Включите уведомления, чтобы не пропускать новые сообщения в чатах заявок.';
-  }, [teacherSignupNotifyEnabled, teacherSignupNotifyPermission, teacherSignupNotifySupported]);
-  const handleToggleTeacherSignupNotify = useCallback(async () => {
+  const syncTeacherSignupNotifyState = useCallback(async ({ silent = true } = {}) => {
     if (user.role !== 'teacher') return;
-    if (!teacherSignupNotifySupported) {
-      setTeacherSignupNotifyError('Этот браузер не поддерживает уведомления.');
-      return;
-    }
-
-    setTeacherSignupNotifyError('');
-    if (teacherSignupNotifyEnabled) {
+    const supported = isPushFeatureSupported();
+    setTeacherSignupNotifySupported(supported);
+    setTeacherSignupNotifyPermission(getPushPermission());
+    if (!supported) {
       setTeacherSignupNotifyEnabled(false);
-      writeTeacherSignupNotifyPreference(false);
-      return;
-    }
-
-    let permission = teacherSignupNotifyPermission;
-    if (permission !== 'granted') {
-      try {
-        permission = await Notification.requestPermission();
-      } catch {
-        permission = 'denied';
+      setTeacherSignupNotifyReady(true);
+      if (!silent) {
+        setTeacherSignupNotifyError('Этот браузер не поддерживает push-уведомления.');
       }
-      setTeacherSignupNotifyPermission(permission || 'default');
-    }
-
-    if (permission === 'granted') {
-      setTeacherSignupNotifyEnabled(true);
-      writeTeacherSignupNotifyPreference(true);
       return;
     }
 
-    setTeacherSignupNotifyEnabled(false);
-    writeTeacherSignupNotifyPreference(false);
-    if (permission === 'denied') {
-      setTeacherSignupNotifyError('Разрешите уведомления для сайта в настройках браузера.');
+    setTeacherSignupNotifySyncing(true);
+    if (!silent) setTeacherSignupNotifyError('');
+    try {
+      const [serverStatus, browserSubscription] = await Promise.all([
+        api.getPushSubscriptionStatus().catch(() => ({ subscribed: false, count: 0 })),
+        getBrowserPushSubscription(),
+      ]);
+
+      let subscribed = Boolean(serverStatus?.subscribed);
+      if (browserSubscription) {
+        subscribed = true;
+        if (!serverStatus?.subscribed) {
+          await api.savePushSubscription(browserSubscription.toJSON());
+        }
+      }
+
+      setTeacherSignupNotifyEnabled(subscribed);
+    } catch (error) {
+      if (!silent) {
+        setTeacherSignupNotifyError(
+          normalizePushErrorMessage(error, 'Не удалось проверить статус push-уведомлений.')
+        );
+      }
+    } finally {
+      setTeacherSignupNotifyPermission(getPushPermission());
+      setTeacherSignupNotifySyncing(false);
+      setTeacherSignupNotifyReady(true);
     }
-  }, [teacherSignupNotifyEnabled, teacherSignupNotifyPermission, teacherSignupNotifySupported, user.role]);
+  }, [user.role]);
+  const handleEnableTeacherSignupNotify = useCallback(async () => {
+    if (user.role !== 'teacher') return;
+    const supported = isPushFeatureSupported();
+    setTeacherSignupNotifySupported(supported);
+    if (!supported) {
+      setTeacherSignupNotifyError('Этот браузер не поддерживает push-уведомления.');
+      return;
+    }
+
+    setTeacherSignupNotifyBusy(true);
+    setTeacherSignupNotifyError('');
+    try {
+      const permissionBefore = getPushPermission();
+      setTeacherSignupNotifyPermission(permissionBefore);
+      if (permissionBefore === 'denied') {
+        throw new Error('Разрешение на уведомления отключено в браузере.');
+      }
+
+      let permission = permissionBefore;
+      if (permission !== 'granted') {
+        permission = await Notification.requestPermission();
+        setTeacherSignupNotifyPermission(permission);
+      }
+      if (permission !== 'granted') {
+        throw new Error('Разрешение на уведомления не выдано.');
+      }
+
+      const keyPayload = await api.getPushPublicKey();
+      const publicKey = String(keyPayload?.publicKey || '').trim();
+      if (!publicKey) {
+        throw new Error('Push не настроен на сервере.');
+      }
+
+      const registration = await getPushServiceWorkerRegistration();
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        });
+      }
+      await api.savePushSubscription(subscription.toJSON());
+      setTeacherSignupNotifyEnabled(true);
+      setTeacherSignupNotifyReady(true);
+    } catch (error) {
+      setTeacherSignupNotifyError(normalizePushErrorMessage(error));
+    } finally {
+      setTeacherSignupNotifyBusy(false);
+      setTeacherSignupNotifyPermission(getPushPermission());
+    }
+  }, [user.role]);
+  const handleDisableTeacherSignupNotify = useCallback(async () => {
+    if (user.role !== 'teacher') return;
+    setTeacherSignupNotifyBusy(true);
+    setTeacherSignupNotifyError('');
+    try {
+      const browserSubscription = await getBrowserPushSubscription();
+      const endpoint = browserSubscription?.endpoint
+        ? String(browserSubscription.endpoint)
+        : '';
+      await api.deletePushSubscription(endpoint);
+      if (browserSubscription) {
+        try {
+          await browserSubscription.unsubscribe();
+        } catch { /* no-op */ }
+      }
+      setTeacherSignupNotifyEnabled(false);
+      setTeacherSignupNotifyReady(true);
+    } catch (error) {
+      setTeacherSignupNotifyError(
+        normalizePushErrorMessage(error, 'Не удалось отключить push-уведомления.')
+      );
+    } finally {
+      setTeacherSignupNotifyBusy(false);
+      setTeacherSignupNotifyPermission(getPushPermission());
+    }
+  }, [user.role]);
+  const handleToggleTeacherSignupNotify = useCallback(() => {
+    if (teacherSignupNotifyBusy || teacherSignupNotifySyncing) return;
+    if (teacherSignupNotifyEnabled) {
+      handleDisableTeacherSignupNotify();
+      return;
+    }
+    handleEnableTeacherSignupNotify();
+  }, [
+    handleDisableTeacherSignupNotify,
+    handleEnableTeacherSignupNotify,
+    teacherSignupNotifyBusy,
+    teacherSignupNotifyEnabled,
+    teacherSignupNotifySyncing,
+  ]);
+  const teacherSignupNotifyStatusText = useMemo(() => {
+    if (teacherSignupNotifySyncing) return 'Проверяем статус push...';
+    if (!teacherSignupNotifySupported) return 'Push не поддерживается в этом браузере.';
+    if (teacherSignupNotifyPermission === 'denied') return 'Уведомления заблокированы в настройках браузера.';
+    if (teacherSignupNotifyEnabled) return 'Push-уведомления о новых сообщениях в заявках включены.';
+    return 'Включите push, чтобы получать браузерные уведомления о новых сообщениях.';
+  }, [
+    teacherSignupNotifyEnabled,
+    teacherSignupNotifyPermission,
+    teacherSignupNotifySupported,
+    teacherSignupNotifySyncing,
+  ]);
   useEffect(() => {
     if (user.role !== 'student') {
       setDesktopStudentMoreOpen(false);
@@ -7487,7 +7562,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setPushSubscribed(false);
       setPushReady(true);
       if (!silent) {
-        setPushError('Р­С‚РѕС‚ Р±СЂР°СѓР·РµСЂ РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚ push-СѓРІРµРґРѕРјР»РµРЅРёСЏ.');
+        setPushError('Этот браузер не поддерживает push-уведомления.');
       }
       return;
     }
@@ -7511,7 +7586,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setPushSubscribed(subscribed);
     } catch (error) {
       if (!silent) {
-        setPushError(normalizePushErrorMessage(error, 'РќРµ СѓРґР°Р»РѕСЃСЊ РїСЂРѕРІРµСЂРёС‚СЊ СЃС‚Р°С‚СѓСЃ push-СѓРІРµРґРѕРјР»РµРЅРёР№.'));
+        setPushError(normalizePushErrorMessage(error, 'Не удалось проверить статус push-уведомлений.'));
       }
     } finally {
       setPushPermission(getPushPermission());
@@ -7524,7 +7599,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const supported = isPushFeatureSupported();
     setPushSupported(supported);
     if (!supported) {
-      setPushError('Р­С‚РѕС‚ Р±СЂР°СѓР·РµСЂ РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚ push-СѓРІРµРґРѕРјР»РµРЅРёСЏ.');
+      setPushError('Этот браузер не поддерживает push-уведомления.');
       return;
     }
 
@@ -7534,7 +7609,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       const permissionBefore = getPushPermission();
       setPushPermission(permissionBefore);
       if (permissionBefore === 'denied') {
-        throw new Error('Р Р°Р·СЂРµС€РµРЅРёРµ РЅР° СѓРІРµРґРѕРјР»РµРЅРёСЏ РѕС‚РєР»СЋС‡РµРЅРѕ РІ Р±СЂР°СѓР·РµСЂРµ.');
+        throw new Error('Разрешение на уведомления отключено в браузере.');
       }
 
       let permission = permissionBefore;
@@ -7543,13 +7618,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         setPushPermission(permission);
       }
       if (permission !== 'granted') {
-        throw new Error('Р Р°Р·СЂРµС€РµРЅРёРµ РЅР° СѓРІРµРґРѕРјР»РµРЅРёСЏ РЅРµ РІС‹РґР°РЅРѕ.');
+        throw new Error('Разрешение на уведомления не выдано.');
       }
 
       const keyPayload = await api.getPushPublicKey();
       const publicKey = String(keyPayload?.publicKey || '').trim();
       if (!publicKey) {
-        throw new Error('Push РЅРµ РЅР°СЃС‚СЂРѕРµРЅ РЅР° СЃРµСЂРІРµСЂРµ.');
+        throw new Error('Push не настроен на сервере.');
       }
 
       const registration = await getPushServiceWorkerRegistration();
@@ -7588,7 +7663,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setPushSubscribed(false);
       setPushReady(true);
     } catch (error) {
-      setPushError(normalizePushErrorMessage(error, 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РєР»СЋС‡РёС‚СЊ push-СѓРІРµРґРѕРјР»РµРЅРёСЏ.'));
+      setPushError(normalizePushErrorMessage(error, 'Не удалось отключить push-уведомления.'));
     } finally {
       setPushBusy(false);
       setPushPermission(getPushPermission());
@@ -7603,15 +7678,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     handleEnablePush();
   }, [handleDisablePush, handleEnablePush, pushBusy, pushSubscribed, pushSyncing]);
   const pushStatusText = (() => {
-    if (pushSyncing) return 'РџСЂРѕРІРµСЂСЏРµРј СЃС‚Р°С‚СѓСЃ push...';
-    if (!pushSupported) return 'Push РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚СЃСЏ РІ СЌС‚РѕРј Р±СЂР°СѓР·РµСЂРµ.';
-    if (pushPermission === 'denied') return 'РЈРІРµРґРѕРјР»РµРЅРёСЏ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅС‹ РІ РЅР°СЃС‚СЂРѕР№РєР°С… Р±СЂР°СѓР·РµСЂР°.';
-    if (pushSubscribed) return 'Push Рѕ РЅРѕРІРѕР№ РґРѕРјР°С€РєРµ РІРєР»СЋС‡РµРЅС‹.';
-    return 'Р’РєР»СЋС‡РёС‚Рµ push, С‡С‚РѕР±С‹ РїРѕР»СѓС‡Р°С‚СЊ СѓРІРµРґРѕРјР»РµРЅРёСЏ Рѕ РЅРѕРІРѕР№ РґРѕРјР°С€РєРµ.';
+    if (pushSyncing) return 'Проверяем статус push...';
+    if (!pushSupported) return 'Push не поддерживается в этом браузере.';
+    if (pushPermission === 'denied') return 'Уведомления заблокированы в настройках браузера.';
+    if (pushSubscribed) return 'Push о новой домашке включены.';
+    return 'Включите push, чтобы получать уведомления о новой домашке.';
   })();
   const pushButtonLabel = pushBusy
-    ? 'РЎРѕС…СЂР°РЅСЏРµРј...'
-    : (pushSubscribed ? 'РћС‚РєР»СЋС‡РёС‚СЊ push' : 'Р’РєР»СЋС‡РёС‚СЊ push');
+    ? 'Сохраняем...'
+    : (pushSubscribed ? 'Отключить push' : 'Включить push');
   const PushButtonIcon = pushSubscribed ? BellOff : Bell;
   const renderPushControl = ({ mobile = false } = {}) => {
     if (user.role !== 'student') return null;
@@ -7664,24 +7739,24 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [syncPushSubscriptionState, user.role, user.id]);
 
   useEffect(() => {
-    const supported = isBrowserNotificationsSupported();
-    const permission = getBrowserNotificationPermission();
-    setTeacherSignupNotifySupported(supported);
-    setTeacherSignupNotifyPermission(permission);
-    setTeacherSignupNotifyError('');
-
-    const preferred = readTeacherSignupNotifyPreference();
-    const enabled = user.role === 'teacher' && supported && permission === 'granted' && preferred;
-    setTeacherSignupNotifyEnabled(enabled);
-    if (preferred && !enabled) {
-      writeTeacherSignupNotifyPreference(false);
+    if (user.role !== 'teacher') {
+      setTeacherSignupNotifySupported(isPushFeatureSupported());
+      setTeacherSignupNotifyPermission(getPushPermission());
+      setTeacherSignupNotifyEnabled(false);
+      setTeacherSignupNotifySyncing(false);
+      setTeacherSignupNotifyBusy(false);
+      setTeacherSignupNotifyError('');
+      setTeacherSignupNotifyReady(false);
+      return;
     }
-  }, [user.role, user.id]);
+    setTeacherSignupNotifyPermission(getPushPermission());
+    syncTeacherSignupNotifyState({ silent: true });
+  }, [syncTeacherSignupNotifyState, user.role, user.id]);
 
   useEffect(() => {
-    if (user.role !== 'teacher' || !teacherSignupNotifySupported) return undefined;
+    if (user.role !== 'teacher') return undefined;
     const syncPermission = () => {
-      setTeacherSignupNotifyPermission(getBrowserNotificationPermission());
+      setTeacherSignupNotifyPermission(getPushPermission());
     };
     syncPermission();
     if (typeof window !== 'undefined') {
@@ -7698,15 +7773,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         document.removeEventListener('visibilitychange', syncPermission);
       }
     };
-  }, [teacherSignupNotifySupported, user.role]);
-
-  useEffect(() => {
-    if (user.role !== 'teacher') return;
-    if (teacherSignupNotifyPermission === 'granted') return;
-    if (!teacherSignupNotifyEnabled) return;
-    setTeacherSignupNotifyEnabled(false);
-    writeTeacherSignupNotifyPreference(false);
-  }, [teacherSignupNotifyEnabled, teacherSignupNotifyPermission, user.role]);
+  }, [user.role]);
 
   const stopXpGainAnimation = useCallback(({ keepDock = false } = {}) => {
     xpAnimTokenRef.current += 1;
@@ -8030,14 +8097,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     return 0;
   })();
   const streakStatusText = (() => {
-    if (!lastActiveKey) return 'РќР°С‡РЅРёС‚Рµ СЂРµС€Р°С‚СЊ, С‡С‚РѕР±С‹ Р·Р°РїСѓСЃС‚РёС‚СЊ СЃРµСЂРёСЋ.';
-    if (diffDays === 0) return 'РЎРµРіРѕРґРЅСЏС€РЅСЏСЏ Р°РєС‚РёРІРЅРѕСЃС‚СЊ Р·Р°СЃС‡РёС‚Р°РЅР°.';
-    if (diffDays === 1) return 'Р РµС€РёС‚Рµ СЃРµРіРѕРґРЅСЏ, С‡С‚РѕР±С‹ СЃРѕС…СЂР°РЅРёС‚СЊ СЃРµСЂРёСЋ.';
+    if (!lastActiveKey) return 'Начните решать, чтобы запустить серию.';
+    if (diffDays === 0) return 'Сегодняшняя активность засчитана.';
+    if (diffDays === 1) return 'Решите сегодня, чтобы сохранить серию.';
     if (diffDays === 2) {
-      return freezeAvailable ? 'Р—Р°РјРѕСЂРѕР·РєР° СЃРѕС…СЂР°РЅРёС‚ СЃРµСЂРёСЋ вЂ” СЂРµС€РёС‚Рµ СЃРµРіРѕРґРЅСЏ.' : 'РЎРµСЂРёСЏ СЃР±СЂРѕС€РµРЅР°.';
+      return freezeAvailable ? 'Заморозка сохранит серию — решите сегодня.' : 'Серия сброшена.';
     }
-    if (Number.isFinite(diffDays) && diffDays > 2) return 'РЎРµСЂРёСЏ СЃР±СЂРѕС€РµРЅР°.';
-    return 'РџСЂРѕРґРѕР»Р¶Р°Р№С‚Рµ СЂРµС€Р°С‚СЊ Р·Р°РґР°С‡Рё.';
+    if (Number.isFinite(diffDays) && diffDays > 2) return 'Серия сброшена.';
+    return 'Продолжайте решать задачи.';
   })();
   const streakWeek = (() => {
     if (!Number.isFinite(todayNum)) return [];
@@ -8495,15 +8562,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setTeacherSolvedNotifs([]);
       setTeacherSignupNotifs([]);
       dismissedSignupNotifsRef.current.clear();
-      teacherSignupUnreadSnapshotRef.current.clear();
-      teacherSignupNotifyBootstrappedRef.current = false;
       return;
     }
     setTeacherSolvedNotifs([]);
     setTeacherSignupNotifs([]);
     dismissedSignupNotifsRef.current.clear();
-    teacherSignupUnreadSnapshotRef.current.clear();
-    teacherSignupNotifyBootstrappedRef.current = false;
   }, [user.role, user.id]);
 
   useEffect(() => {
@@ -8552,9 +8615,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         const chats = await api.getSignupChats();
         if (cancelled) return;
         const mutedByChat = dismissedSignupNotifsRef.current;
-        const previousUnreadByChat = teacherSignupUnreadSnapshotRef.current;
-        const nextUnreadByChat = new Map();
-        let latestIncrease = null;
         const existingChatIds = new Set();
         const nextNotifs = [];
 
@@ -8564,27 +8624,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           existingChatIds.add(chatId);
 
           const unreadForTeacher = Number(chat?.unreadForTeacher) || 0;
-          nextUnreadByChat.set(chatId, unreadForTeacher);
           const lastMessageAt = String(chat?.lastMessageAt || chat?.updatedAt || chat?.createdAt || '').trim();
           const ts = Date.parse(lastMessageAt);
           const messagePreview = String(chat?.lastMessagePreview || '').replace(/\s+/g, ' ').trim();
           const guestName = String(chat?.guestName || '').trim() || 'Гость';
-
-          if (teacherSignupNotifyBootstrappedRef.current) {
-            const previousUnread = Number(previousUnreadByChat.get(chatId)) || 0;
-            if (unreadForTeacher > previousUnread) {
-              if (!latestIncrease || (Number(latestIncrease.timestampMs) || 0) <= (Number.isFinite(ts) ? ts : 0)) {
-                latestIncrease = {
-                  chatId,
-                  guestName,
-                  preview: messagePreview,
-                  unreadCount: unreadForTeacher,
-                  delta: unreadForTeacher - previousUnread,
-                  timestampMs: Number.isFinite(ts) ? ts : 0,
-                };
-              }
-            }
-          }
 
           if (unreadForTeacher <= 0) {
             mutedByChat.delete(chatId);
@@ -8609,42 +8652,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         [...mutedByChat.keys()].forEach((chatId) => {
           if (!existingChatIds.has(chatId)) mutedByChat.delete(chatId);
         });
-        [...previousUnreadByChat.keys()].forEach((chatId) => {
-          if (!existingChatIds.has(chatId)) nextUnreadByChat.delete(chatId);
-        });
-        teacherSignupUnreadSnapshotRef.current = nextUnreadByChat;
 
         nextNotifs.sort((a, b) => (Number(b.timestampMs) || 0) - (Number(a.timestampMs) || 0));
         setTeacherSignupNotifs(nextNotifs);
-
-        if (!teacherSignupNotifyBootstrappedRef.current) {
-          teacherSignupNotifyBootstrappedRef.current = true;
-          return;
-        }
-
-        if (!latestIncrease) return;
-        if (!teacherSignupNotifySupported || !teacherSignupNotifyEnabled || teacherSignupNotifyPermission !== 'granted') return;
-        const canShowNotification = typeof document === 'undefined'
-          ? true
-          : (document.visibilityState !== 'visible'
-              || (typeof document.hasFocus === 'function' ? !document.hasFocus() : true));
-        if (!canShowNotification) return;
-
-        const title = latestIncrease.delta > 1
-          ? `Новых сообщений: ${latestIncrease.delta}`
-          : `Новое сообщение от ${latestIncrease.guestName}`;
-        const body = latestIncrease.preview
-          ? latestIncrease.preview.slice(0, 180)
-          : `Непрочитано: ${latestIncrease.unreadCount}`;
-
-        try {
-          new Notification(title, {
-            body,
-            tag: `teacher-signup-chat-${latestIncrease.chatId}`,
-          });
-        } catch {
-          // ignore notification failures
-        }
       } catch {
         // ignore
       }
@@ -8656,7 +8666,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       cancelled = true;
       clearInterval(interval);
     };
-  }, [teacherSignupNotifyEnabled, teacherSignupNotifyPermission, teacherSignupNotifySupported, user.role, user.id]);
+  }, [user.role, user.id]);
 
   const handleStudentCreated = (student) => {
     if (!student) return;
@@ -8793,17 +8803,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const value = Number(days) || 0;
     const mod10 = value % 10;
     const mod100 = value % 100;
-    if (mod10 === 1 && mod100 !== 11) return `${value} РґРµРЅСЊ`;
-    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} РґРЅСЏ`;
-    return `${value} РґРЅРµР№`;
+    if (mod10 === 1 && mod100 !== 11) return `${value} день`;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} дня`;
+    return `${value} дней`;
   };
   const formatMonthsText = (months) => {
     const value = Number(months) || 0;
     const mod10 = value % 10;
     const mod100 = value % 100;
-    if (mod10 === 1 && mod100 !== 11) return `${value} РјРµСЃСЏС†`;
-    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} РјРµСЃСЏС†Р°`;
-    return `${value} РјРµСЃСЏС†РµРІ`;
+    if (mod10 === 1 && mod100 !== 11) return `${value} месяц`;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} месяца`;
+    return `${value} месяцев`;
   };
   const formatMonthsAndDaysText = (days) => {
     const totalDays = Math.max(0, Math.ceil(Number(days) || 0));
@@ -8836,13 +8846,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   })();
   const testingForecastText = (() => {
     if (testingForecast.total <= 0) {
-      return 'РџРѕРєР° РЅРµС‚ РґР°РЅРЅС‹С… Рѕ Р·Р°РґР°РЅРёСЏС… РІ СЂР°Р·РґРµР»Рµ С‚РµСЃС‚РёСЂРѕРІР°РЅРёСЏ.';
+      return 'Пока нет данных о заданиях в разделе тестирования.';
     }
     if (testingForecast.remaining <= 0) {
-      return 'Р’СЃРµ Р·Р°РґР°РЅРёСЏ РІ С‚РµСЃС‚РёСЂРѕРІР°РЅРёСЏС… СѓР¶Рµ СЂРµС€РµРЅС‹.';
+      return 'Все задания в тестированиях уже решены.';
     }
     if (!hasForecastDuration) {
-      return 'РџРѕРєР° РЅРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ СЂРµС€РµРЅРёР№, С‡С‚РѕР±С‹ РѕС†РµРЅРёС‚СЊ СЃСЂРѕРє Р·Р°РІРµСЂС€РµРЅРёСЏ.';
+      return 'Пока недостаточно решений, чтобы оценить срок завершения.';
     }
     return '';
   })();
@@ -8880,14 +8890,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       return {
         level: 'ok',
         className: 'border-emerald-200 text-emerald-600',
-        title: `Р’ СЃСЂРµРґРЅРµРј ${averageSolvedPerDayLabel} Р·Р°РґР°РЅРёСЏ/РґРµРЅСЊ Р·Р° ${solvedPerDayStats.periodDays || 0} РґРЅ.`
+        title: `В среднем ${averageSolvedPerDayLabel} задания/день за ${solvedPerDayStats.periodDays || 0} дн.`
       };
     }
     if (egeDeadlineStats.isOnTrack) {
       return {
         level: 'ok',
         className: 'border-emerald-200 text-emerald-600',
-        title: `Р’С‹ СѓСЃРїРµРІР°РµС‚Рµ Рє РґРµРґР»Р°Р№РЅСѓ. Р—Р°РїР°СЃ: +${egeDeadlineStats.bufferPerDayLabel} Р·Р°РґР°РЅРёСЏ/РґРµРЅСЊ.`
+        title: `Вы успеваете к дедлайну. Запас: +${egeDeadlineStats.bufferPerDayLabel} задания/день.`
       };
     }
     const extra = Number(egeDeadlineStats.extraPerDay) || 0;
@@ -8898,13 +8908,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       return {
         level: 'danger',
         className: 'border-rose-200 text-rose-600',
-        title: `РЎРёР»СЊРЅРѕРµ РѕС‚СЃС‚Р°РІР°РЅРёРµ: РЅСѓР¶РЅРѕ РґРѕР±Р°РІРёС‚СЊ +${egeDeadlineStats.extraPerDayLabel} Р·Р°РґР°РЅРёСЏ/РґРµРЅСЊ.`
+        title: `Сильное отставание: нужно добавить +${egeDeadlineStats.extraPerDayLabel} задания/день.`
       };
     }
     return {
       level: 'warn',
       className: 'border-amber-200 text-amber-600',
-      title: `РќРµР±РѕР»СЊС€РѕРµ РѕС‚СЃС‚Р°РІР°РЅРёРµ: РЅСѓР¶РЅРѕ РґРѕР±Р°РІРёС‚СЊ +${egeDeadlineStats.extraPerDayLabel} Р·Р°РґР°РЅРёСЏ/РґРµРЅСЊ.`
+      title: `Небольшое отставание: нужно добавить +${egeDeadlineStats.extraPerDayLabel} задания/день.`
     };
   }, [averageSolvedPerDayLabel, egeDeadlineStats, shouldShowEgeDeadlineHint, solvedPerDayStats.periodDays]);
 
@@ -9027,7 +9037,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           return {
             type: GOAL_TYPE_MOCK,
             mockExamId,
-            mockExamTitle: mockExam?.title || 'РџСЂРѕР±РЅРёРє',
+            mockExamTitle: mockExam?.title || 'Пробник',
             taskStatus: mockProgress.taskStatus,
             solvedCount: mockProgress.solvedCount,
             totalCount: mockProgress.totalCount,
@@ -9061,7 +9071,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         const taskInfo = !isPythonGoal
           ? tasksWithTitles.find((task) => Number(task.number) === Number(taskNumber))
           : null;
-        const taskTitle = pythonTask?.title || taskInfo?.title || `Р—Р°РґР°РЅРёРµ ${formatTaskNumber(taskNumber) || taskNumber}`;
+        const taskTitle = pythonTask?.title || taskInfo?.title || `Задание ${formatTaskNumber(taskNumber) || taskNumber}`;
         const levelLabel = isPythonGoal
           ? 'Python'
           : (LEVELS[levelId?.toUpperCase()]?.label || levelId);
@@ -9422,23 +9432,23 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-full bg-purple-100 streak-mascot">
-                <img src={mascotApproval} alt="РњР°СЃРєРѕС‚" className="h-16 w-16 object-contain" />
+                <img src={mascotApproval} alt="Маскот" className="h-16 w-16 object-contain" />
               </div>
               <div className="text-5xl font-extrabold text-purple-600">{streakPopup.current}</div>
               <div className="mt-1 text-sm font-semibold text-purple-600">
-                {`${formatDaysText(streakPopup.current)} РїРѕРґСЂСЏРґ`}
+                {`${formatDaysText(streakPopup.current)} подряд`}
               </div>
               <div className="mt-4 rounded-2xl border border-purple-100 bg-purple-50 px-4 py-2 text-[11px] text-purple-700 shadow-sm">
                 {streakPopup.isNewRecord
-                  ? `РќРѕРІС‹Р№ СЂРµРєРѕСЂРґ! ${formatDaysText(streakPopup.current)} РїРѕРґСЂСЏРґ.`
-                  : `РћС‚Р»РёС‡РЅРѕ! РЎРµСЂРёСЏ ${formatDaysText(streakPopup.current)} РїРѕРґСЂСЏРґ.`}
+                  ? `Новый рекорд! ${formatDaysText(streakPopup.current)} подряд.`
+                  : `Отлично! Серия ${formatDaysText(streakPopup.current)} подряд.`}
               </div>
               <button
                 type="button"
                 onClick={() => setStreakPopup((prev) => ({ ...prev, open: false }))}
                 className="mt-4 w-full rounded-xl border border-purple-200 bg-white px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-50"
               >
-                РћРє
+                Ок
               </button>
             </div>
           </div>
@@ -9484,8 +9494,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               <div className="levelup-badge-glow" />
             </div>
             <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-fuchsia-700">Level Up</div>
-            <div className="mt-1 text-3xl font-extrabold text-slate-900">{`РЈСЂРѕРІРµРЅСЊ ${levelUpPopup.to}`}</div>
-            <div className="mt-2 text-xs font-semibold text-slate-500">{`Р‘С‹Р»Рѕ ${levelUpPopup.from} вЂў СЃС‚Р°Р»Рѕ ${levelUpPopup.to}`}</div>
+            <div className="mt-1 text-3xl font-extrabold text-slate-900">{`Уровень ${levelUpPopup.to}`}</div>
+            <div className="mt-2 text-xs font-semibold text-slate-500">{`Было ${levelUpPopup.from} • стало ${levelUpPopup.to}`}</div>
             <div className="mt-3 inline-flex items-center rounded-full border border-violet-200 bg-white/85 px-3 py-1 text-xs font-semibold text-violet-700">
               {`${(Number(levelUpPopup.totalXp) || totalXp).toLocaleString('ru-RU')} XP`}
             </div>
@@ -9494,7 +9504,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onClick={() => setLevelUpPopup((prev) => ({ ...prev, open: false }))}
               className="mt-5 w-full rounded-xl border border-violet-200 bg-white px-4 py-2.5 text-sm font-semibold text-violet-700 transition hover:bg-violet-50"
             >
-              РљСЂСѓС‚Рѕ!
+              Круто!
             </button>
           </div>
         </div>
@@ -9511,16 +9521,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">
-                  РџСЂРѕРіРЅРѕР· РїРѕРґРіРѕС‚РѕРІРєРё
+                  Прогноз подготовки
                 </div>
-                <div className="mt-2 text-base font-bold text-slate-900 sm:text-xl">РљРѕРіРґР° РїСЂРѕСЂРµС€Р°РµРј РІСЃРµ Р·Р°РґР°РЅРёСЏ</div>
-                <div className="mt-1 text-xs text-slate-500">Р Р°СЃС‡С‘С‚ РїРѕ С‚РµРєСѓС‰РµРјСѓ С‚РµРјРїСѓ СЂРµС€РµРЅРёР№</div>
+                <div className="mt-2 text-base font-bold text-slate-900 sm:text-xl">Когда прорешаем все задания</div>
+                <div className="mt-1 text-xs text-slate-500">Расчёт по текущему темпу решений</div>
               </div>
               <button
                 type="button"
                 onClick={closePaceForecastPopup}
                 className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-500 hover:bg-slate-50"
-                aria-label="Р—Р°РєСЂС‹С‚СЊ"
+                aria-label="Закрыть"
               >
                 <X size={14} />
               </button>
@@ -9528,7 +9538,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
             <div className="mt-4 rounded-2xl border border-slate-200 bg-white/90 px-3 py-3">
               <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:text-[11px]">
-                <span>РџСЂРѕРіСЂРµСЃСЃ</span>
+                <span>Прогресс</span>
                 <span>{`${testingCompletionPercent}%`}</span>
               </div>
               <div className="mt-2 h-2 rounded-full bg-slate-100 overflow-hidden">
@@ -9541,15 +9551,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
             <div className="mt-4 grid grid-cols-3 gap-1.5 text-center sm:gap-2">
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2.5">
-                <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-500 sm:text-[10px]">Р’СЃРµРіРѕ</div>
+                <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-500 sm:text-[10px]">Всего</div>
                 <div className="mt-1 text-[15px] font-bold text-slate-900 sm:text-base">{testingForecast.total}</div>
               </div>
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2.5">
-                <div className="text-[9px] font-semibold uppercase tracking-wide text-emerald-600 sm:text-[10px]">Р РµС€РµРЅРѕ</div>
+                <div className="text-[9px] font-semibold uppercase tracking-wide text-emerald-600 sm:text-[10px]">Решено</div>
                 <div className="mt-1 text-[15px] font-bold text-emerald-700 sm:text-base">{testingForecast.solved}</div>
               </div>
               <div className="rounded-xl border border-purple-200 bg-purple-50 px-2 py-2.5">
-                <div className="text-[9px] font-semibold uppercase tracking-wide text-purple-600 sm:text-[10px]">РћСЃС‚Р°Р»РѕСЃСЊ</div>
+                <div className="text-[9px] font-semibold uppercase tracking-wide text-purple-600 sm:text-[10px]">Осталось</div>
                 <div className="mt-1 text-[15px] font-bold text-purple-700 sm:text-base">{testingForecast.remaining}</div>
               </div>
             </div>
@@ -9558,7 +9568,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               {hasForecastDuration ? (
                 <div className="space-y-2">
                   <div className="text-[13px] font-semibold text-rose-700 sm:text-sm">
-                    РџСЂРё С‚Р°РєРѕРј С‚РµРјРїРµ РїРѕРґРіРѕС‚РѕРІРёРјСЃСЏ Рє Р•Р“Р­ РїРѕР»РЅРѕСЃС‚СЊСЋ РїСЂРёРјРµСЂРЅРѕ С‡РµСЂРµР·
+                    При таком темпе подготовимся к ЕГЭ полностью примерно через
                   </div>
                   <div className="rounded-xl border border-rose-300 bg-white px-3 py-3 text-center">
                     <div className="text-[30px] font-extrabold leading-none text-rose-700 sm:text-4xl">
@@ -9566,10 +9576,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     </div>
                     <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[11px] font-semibold text-rose-500">
                       <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1">
-                        {`РґРѕ ${testingForecastFinishDateLabel}`}
+                        {`до ${testingForecastFinishDateLabel}`}
                       </span>
                       <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1">
-                        {`в‰€ ${formatDaysText(testingForecast.daysToFinish)}`}
+                        {`≈ ${formatDaysText(testingForecast.daysToFinish)}`}
                       </span>
                     </div>
                   </div>
@@ -9580,8 +9590,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </div>
 
             <div className="mt-3 text-[11px] text-slate-500 sm:text-xs">
-              {`РўРµРєСѓС‰РёР№ С‚РµРјРї: ${averageSolvedPerDayLabel} Р·Р°РґР°РЅРёСЏ/РґРµРЅСЊ.`}
-              {solvedPerDayStats.periodDays > 0 ? ` РџРµСЂРёРѕРґ СЂР°СЃС‡С‘С‚Р°: ${formatDaysText(solvedPerDayStats.periodDays)}.` : ''}
+              {`Текущий темп: ${averageSolvedPerDayLabel} задания/день.`}
+              {solvedPerDayStats.periodDays > 0 ? ` Период расчёта: ${formatDaysText(solvedPerDayStats.periodDays)}.` : ''}
             </div>
             {shouldShowEgeDeadlineHint && (
               <div className={`mt-3 rounded-xl border px-3 py-2.5 ${
@@ -9593,14 +9603,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   <div className={`text-[11px] font-semibold ${
                     egeDeadlineStats.isOnTrack ? 'text-emerald-700' : 'text-amber-700'
                   }`}>
-                    {`Р¦РµР»СЊ: СѓСЃРїРµС‚СЊ РґРѕ ${egeDeadlineStats.deadlineLabel}`}
+                    {`Цель: успеть до ${egeDeadlineStats.deadlineLabel}`}
                   </div>
                   <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
                     egeDeadlineStats.isOnTrack
                       ? 'border-emerald-300 bg-emerald-100 text-emerald-700'
                       : 'border-amber-300 bg-amber-100 text-amber-700'
                   }`}>
-                    {egeDeadlineStats.isOnTrack ? 'РЈСЃРїРµРІР°РµС€СЊ' : 'РќСѓР¶РЅРѕ СѓСЃРєРѕСЂРёС‚СЊСЃСЏ'}
+                    {egeDeadlineStats.isOnTrack ? 'Успеваешь' : 'Нужно ускориться'}
                   </span>
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-center">
@@ -9611,7 +9621,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   }`}>
                     <div className={`text-[10px] uppercase tracking-wide ${
                       egeDeadlineStats.isOnTrack ? 'text-emerald-600' : 'text-amber-600'
-                    }`}>РќСѓР¶РЅРѕ РІ РґРµРЅСЊ</div>
+                    }`}>Нужно в день</div>
                     <div className={`mt-0.5 text-sm font-extrabold ${
                       egeDeadlineStats.isOnTrack ? 'text-emerald-800' : 'text-amber-800'
                     }`}>{`${egeDeadlineStats.requiredPerDayLabel}`}</div>
@@ -9623,7 +9633,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   }`}>
                     <div className={`text-[10px] uppercase tracking-wide ${
                       egeDeadlineStats.isOnTrack ? 'text-emerald-600' : 'text-amber-600'
-                    }`}>РћСЃС‚Р°Р»РѕСЃСЊ РґРЅРµР№</div>
+                    }`}>Осталось дней</div>
                     <div className={`mt-0.5 text-sm font-extrabold ${
                       egeDeadlineStats.isOnTrack ? 'text-emerald-800' : 'text-amber-800'
                     }`}>{egeDeadlineStats.daysAvailable}</div>
@@ -9633,8 +9643,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   egeDeadlineStats.isOnTrack ? 'text-emerald-900' : 'text-amber-900'
                 }`}>
                   {egeDeadlineStats.isOnTrack
-                    ? `Р—Р°РїР°СЃ РїРѕ С‚РµРјРїСѓ: +${egeDeadlineStats.bufferPerDayLabel} Р·Р°РґР°РЅРёСЏ/РґРµРЅСЊ.`
-                    : `РќСѓР¶РЅРѕ РґРѕР±Р°РІРёС‚СЊ: +${egeDeadlineStats.extraPerDayLabel} Р·Р°РґР°РЅРёСЏ/РґРµРЅСЊ.`}
+                    ? `Запас по темпу: +${egeDeadlineStats.bufferPerDayLabel} задания/день.`
+                    : `Нужно добавить: +${egeDeadlineStats.extraPerDayLabel} задания/день.`}
                 </div>
               </div>
             )}
@@ -9645,14 +9655,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 onClick={handleOpenProgressFromForecast}
                 className="rounded-xl bg-purple-600 px-3 py-3 text-sm font-semibold text-white shadow-sm hover:bg-purple-700"
               >
-                РџРµСЂРµР№С‚Рё Рє С‚РµСЃС‚Р°Рј
+                Перейти к тестам
               </button>
               <button
                 type="button"
                 onClick={closePaceForecastPopup}
                 className="rounded-xl border border-purple-200 bg-white px-3 py-3 text-sm font-semibold text-purple-700 hover:bg-purple-50"
               >
-                Р—Р°РєСЂС‹С‚СЊ
+                Закрыть
               </button>
             </div>
           </div>
@@ -9672,8 +9682,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         onFinish={() => checkHomeworkPopup()}
       />
       {/*
-        Р’СЂРµРјРµРЅРЅРѕ СЃРєСЂС‹С‚Рѕ РѕРєРЅРѕ "РєРІРµСЃС‚Р°" (РґРѕРјР°С€РєРё).
-        Р’РµСЂРЅСѓС‚СЊ РјРѕР¶РЅРѕ, СЂР°СЃРєРѕРјРјРµРЅС‚РёСЂРѕРІР°РІ Р±Р»РѕРє РЅРёР¶Рµ.
+        Временно скрыто окно "квеста" (домашки).
+        Вернуть можно, раскомментировав блок ниже.
       */}
       {/*
         {user.role === 'student' && isDesktopWide && homeworkPopupOpen && homeworkPopupEntry && (
@@ -9725,23 +9735,23 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   <span className="sidebar-brand-dot absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-white/90" />
                 </div>
                 <div className="min-w-0">
-                  <div className="sidebar-brand-title font-display text-xl font-bold text-slate-900">РРІР°РЅ РЅР° СЃРѕС‚РєСѓ</div>
-                  <div className="sidebar-brand-subtitle text-xs font-semibold uppercase tracking-[0.17em] text-purple-700/80">Р›РёС‡РЅС‹Р№ РїСЂРѕС„РёР»СЊ</div>
+                  <div className="sidebar-brand-title font-display text-xl font-bold text-slate-900">Иван на сотку</div>
+                  <div className="sidebar-brand-subtitle text-xs font-semibold uppercase tracking-[0.17em] text-purple-700/80">Личный профиль</div>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setDesktopNavCollapsed(true)}
                 className="sidebar-collapse-btn absolute right-4 top-1/2 -translate-y-1/2"
-                aria-label="РЎРІРµСЂРЅСѓС‚СЊ РїР°РЅРµР»СЊ РЅР°РІРёРіР°С†РёРё"
-                title="РЎРІРµСЂРЅСѓС‚СЊ РїР°РЅРµР»СЊ"
+                aria-label="Свернуть панель навигации"
+                title="Свернуть панель"
               >
                 <ChevronsLeft size={16} />
               </button>
             </div>
             <nav className="flex-1 px-4 pb-7 pr-2 pt-5 overflow-y-auto sidebar-nav" data-tour="nav">
               <div className="sidebar-nav-title mb-3 px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500/85">
-                РќР°РІРёРіР°С†РёСЏ
+                Навигация
               </div>
               <div className="space-y-2.5 sidebar-nav-stack">
                 {desktopPrimaryNav.map((n, idx) => {
@@ -9865,7 +9875,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   <div className="min-w-0">
                     <p className="text-base font-semibold text-slate-900 truncate">{user.name}</p>
                     <div className="mt-1 inline-flex items-center rounded-lg border border-purple-100 bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2.5 py-1 text-[11px] font-semibold text-purple-700">
-                      {user.role === 'admin' ? 'РђРґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ' : (user.role === 'teacher' ? 'РџСЂРµРїРѕРґР°РІР°С‚РµР»СЊ' : 'РЈС‡РµРЅРёРє')}
+                      {user.role === 'admin' ? 'Администратор' : (user.role === 'teacher' ? 'Преподаватель' : 'Ученик')}
                     </div>
                   </div>
                 </div>
@@ -9875,7 +9885,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 onClick={onLogout}
                 className="sidebar-logout mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/75 bg-white/85 px-4 py-2.5 text-sm font-semibold text-rose-600 transition hover:-translate-y-[1px] hover:border-rose-300 hover:bg-rose-50 hover:shadow-sm"
               >
-                <LogOut size={16} /> Р’С‹Р№С‚Рё
+                <LogOut size={16} /> Выйти
               </button>
             </div>
           </div>
@@ -9886,8 +9896,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           type="button"
           onClick={() => setDesktopNavCollapsed(false)}
           className="desktop-nav-fab__toggle"
-          aria-label="Р Р°Р·РІРµСЂРЅСѓС‚СЊ РїР°РЅРµР»СЊ РЅР°РІРёРіР°С†РёРё"
-          title="Р Р°Р·РІРµСЂРЅСѓС‚СЊ РїР°РЅРµР»СЊ"
+          aria-label="Развернуть панель навигации"
+          title="Развернуть панель"
         >
           <ChevronsRight size={22} />
         </button>
@@ -9937,12 +9947,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               type="button"
               onClick={() => setMenuOpen(true)}
               className="flex h-10 min-w-[40px] items-center gap-2 rounded-xl border border-purple-200/70 bg-white px-2 text-purple-700 shadow-sm"
-              aria-label="РћС‚РєСЂС‹С‚СЊ РїСЂРѕС„РёР»СЊ"
+              aria-label="Открыть профиль"
             >
               <span className="grid h-6 w-6 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 text-[11px] font-bold text-white">
                 {String(user?.name || '?').slice(0, 1).toUpperCase()}
               </span>
-              <span className="text-xs font-semibold">РџСЂРѕС„РёР»СЊ</span>
+              <span className="text-xs font-semibold">Профиль</span>
             </button>
           </div>
         </header>
@@ -9957,8 +9967,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               <div className="flex items-center gap-1.5 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-2">
                 <div
                   className="level-progress-card min-w-0 flex-1 px-2 py-1.5 text-sm font-semibold md:min-w-[255px] md:flex-none md:px-2.5 md:py-2"
-                  aria-label={`РЈСЂРѕРІРµРЅСЊ ${currentLevel}. РћРїС‹С‚: ${totalXpLabel}`}
-                  title={`Р’СЃРµРіРѕ РѕРїС‹С‚Р°: ${totalXpLabel} XP`}
+                  aria-label={`Уровень ${currentLevel}. Опыт: ${totalXpLabel}`}
+                  title={`Всего опыта: ${totalXpLabel} XP`}
                 >
                   <div className="level-progress-main">
                     <div className="level-progress-badge">
@@ -9966,7 +9976,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="level-progress-head">
-                        <span className="level-progress-title">{`РЈСЂРѕРІРµРЅСЊ ${currentLevel}`}</span>
+                        <span className="level-progress-title">{`Уровень ${currentLevel}`}</span>
                         <span className="level-progress-total">{`${totalXpLabel} XP`}</span>
                       </div>
                       <div
@@ -9992,19 +10002,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     type="button"
                     onClick={openPaceForecastPopup}
                     className={`flex items-center justify-center gap-1 rounded-full border bg-white px-2.5 py-1.5 text-[13px] font-semibold shadow-sm transition hover:bg-slate-50 active:scale-[0.99] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 md:gap-2 md:px-3.5 md:py-2 md:text-sm ${paceBadgeState.className}`}
-                    aria-label={`РЎСЂРµРґРЅРµРµ РІ РґРµРЅСЊ: ${averageSolvedPerDayLabel}`}
-                    title={`${paceBadgeState.title} РќР°Р¶РјРёС‚Рµ, С‡С‚РѕР±С‹ РѕС‚РєСЂС‹С‚СЊ РїСЂРѕРіРЅРѕР·.`}
+                    aria-label={`Среднее в день: ${averageSolvedPerDayLabel}`}
+                    title={`${paceBadgeState.title} Нажмите, чтобы открыть прогноз.`}
                   >
                     {paceBadgeState.level === 'ok' && <CheckCircle size={14} />}
                     {paceBadgeState.level === 'warn' && <AlertTriangle size={14} />}
                     {paceBadgeState.level === 'danger' && <AlertCircle size={14} />}
                     <span className="text-gray-900 whitespace-nowrap">{averageSolvedPerDayLabel}</span>
-                    <span className="hidden whitespace-nowrap text-[11px] font-semibold text-gray-500 sm:inline">/РґРµРЅСЊ</span>
+                    <span className="hidden whitespace-nowrap text-[11px] font-semibold text-gray-500 sm:inline">/день</span>
                   </button>
                   <div className="relative group shrink-0">
                     <div
                       className={`flex h-full items-center justify-center gap-1.5 rounded-full border border-purple-200 bg-white px-2.5 py-1.5 text-[13px] font-semibold text-purple-600 shadow-sm cursor-default streak-badge md:gap-2 md:px-3.5 md:py-2 md:text-sm ${displayStreakCurrent > 0 ? 'streak-badge--active' : ''}`}
-                      aria-label={`РЎРµСЂРёСЏ: ${displayStreakCurrent}`}
+                      aria-label={`Серия: ${displayStreakCurrent}`}
                     >
                       <Flame
                         size={16}
@@ -10021,13 +10031,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                           <Flame size={22} />
                         </div>
                         <div>
-                          <div className="text-sm font-semibold text-purple-700">РЎРµСЂРёСЏ</div>
-                          <div className="text-xs text-gray-500">Р РµС€Р°Р№С‚Рµ РєР°Р¶РґС‹Р№ РґРµРЅСЊ, С‡С‚РѕР±С‹ РїРѕРґРґРµСЂР¶РёРІР°С‚СЊ СЃРµСЂРёСЋ.</div>
+                          <div className="text-sm font-semibold text-purple-700">Серия</div>
+                          <div className="text-xs text-gray-500">Решайте каждый день, чтобы поддерживать серию.</div>
                         </div>
                       </div>
                       <div className="mt-3 flex items-end gap-2">
                         <div className="text-3xl font-bold text-gray-900">{displayStreakCurrent}</div>
-                        <div className="text-xs text-gray-500">РґРЅРµР№ РїРѕРґСЂСЏРґ</div>
+                        <div className="text-xs text-gray-500">дней подряд</div>
                       </div>
                       <div className="mt-1 text-xs text-gray-500">{streakStatusText}</div>
                       <div className="mt-3 grid grid-cols-7 gap-2 text-[10px] text-gray-400">
@@ -10049,11 +10059,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                         ))}
                       </div>
                       <div className="mt-3 flex items-center justify-between text-[11px] text-gray-500">
-                        <span>{`Р РµРєРѕСЂРґ: ${streak.best}`}</span>
-                        <span>{`Р—Р°РјРѕСЂРѕР·РєР°: ${freezeAvailable ? 'РґРѕСЃС‚СѓРїРЅР°' : 'РёСЃРїРѕР»СЊР·РѕРІР°РЅР°'}`}</span>
+                        <span>{`Рекорд: ${streak.best}`}</span>
+                        <span>{`Заморозка: ${freezeAvailable ? 'доступна' : 'использована'}`}</span>
                       </div>
                       {lastActiveLabel && (
-                        <div className="mt-1 text-[11px] text-gray-400">{`РџРѕСЃР»РµРґРЅСЏСЏ Р°РєС‚РёРІРЅРѕСЃС‚СЊ: ${lastActiveLabel}`}</div>
+                        <div className="mt-1 text-[11px] text-gray-400">{`Последняя активность: ${lastActiveLabel}`}</div>
                       )}
                     </div>
                   </div>
@@ -10094,10 +10104,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               {goalCollapsed ? (
                 <div className={`surface-panel rounded-2xl border border-purple-200/80 bg-gradient-to-r from-violet-50 via-white to-fuchsia-50 px-3 py-2 text-sm text-gray-700 shadow-soft flex items-center justify-between gap-1.5 sm:gap-2 sm:px-4 sm:py-2.5 ${goalPanelAnimClass === 'goal-collapse' ? 'goal-collapse' : ''}`}>
                   <div className="min-w-0 flex-1 flex items-center gap-1.5 sm:gap-2">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-purple-600 shrink-0">РґРѕРјР°С€РєР°</div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-purple-600 shrink-0">домашка</div>
                     <div className="min-w-0 truncate text-[13px] font-semibold text-gray-900 sm:text-sm">
                       <span className="sm:hidden">{`${formatDaysText(goalState.entry?.daysToComplete || 7)} В· ${goalCompletedCount}/${goalGoals.length}`}</span>
-                      <span className="hidden sm:inline">{`Р—Р° ${formatDaysText(goalState.entry?.daysToComplete || 7)} РІС‹РїРѕР»РЅРёС‚СЊ ${goalCompletedCount}/${goalGoals.length} С†РµР»РµР№`}</span>
+                      <span className="hidden sm:inline">{`За ${formatDaysText(goalState.entry?.daysToComplete || 7)} выполнить ${goalCompletedCount}/${goalGoals.length} целей`}</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -10113,7 +10123,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                         }}
                         className="px-2.5 py-1 rounded-lg bg-purple-600 text-white text-[11px] font-semibold hover:bg-purple-700 shadow-sm sm:px-3 sm:py-1.5 sm:text-xs"
                       >
-                        Рљ С†РµР»Рё
+                        К цели
                       </button>
                     )}
                     <button
@@ -10121,7 +10131,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       onClick={handleExpandGoalBlock}
                       className="px-2.5 py-1 rounded-lg border border-purple-200 text-[11px] font-semibold text-purple-700 hover:bg-purple-50 sm:px-3 sm:py-1.5 sm:text-xs"
                     >
-                      Р Р°Р·РІРµСЂРЅСѓС‚СЊ
+                      Развернуть
                     </button>
                   </div>
                 </div>
@@ -10129,12 +10139,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 <div className={`rounded-[24px] border border-purple-200/90 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50/80 px-4 py-3.5 text-sm text-gray-700 shadow-soft sm:px-5 ${goalPanelAnimClass === 'goal-expand' ? 'goal-expand' : ''}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-purple-600">РґРѕРјР°С€РєР°</div>
+                      <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-purple-600">домашка</div>
                       <div className="mt-1 text-base font-semibold text-gray-900">
-                        {`Р—Р° ${formatDaysText(goalState.entry?.daysToComplete || 7)} РІС‹РїРѕР»РЅРёС‚СЊ СЌС‚Рё С†РµР»Рё`}
+                        {`За ${formatDaysText(goalState.entry?.daysToComplete || 7)} выполнить эти цели`}
                       </div>
                       <div className="mt-1 text-xs text-purple-700/90">
-                        {`Р’С‹РїРѕР»РЅРµРЅРѕ ${goalCompletedCount}/${goalGoals.length}`}
+                        {`Выполнено ${goalCompletedCount}/${goalGoals.length}`}
                       </div>
                     </div>
                     <button
@@ -10142,7 +10152,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       onClick={() => setGoalCollapsed(true)}
                       className="px-3 py-1.5 rounded-lg border border-purple-200 text-xs font-semibold text-purple-700 hover:bg-purple-50"
                     >
-                      РЎРІРµСЂРЅСѓС‚СЊ
+                      Свернуть
                     </button>
                   </div>
 
@@ -10156,11 +10166,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                             <div className="flex flex-wrap items-start justify-between gap-2">
                               <div className="min-w-0">
                                 <div className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-purple-600">
-                                  РџСЂРѕР±РЅРёРє
+                                  Пробник
                                 </div>
-                                <div className="mt-1 text-sm font-semibold text-gray-900 truncate">{goal.mockExamTitle || 'РџСЂРѕР±РЅРёРє'}</div>
+                                <div className="mt-1 text-sm font-semibold text-gray-900 truncate">{goal.mockExamTitle || 'Пробник'}</div>
                                 <div className="mt-1 text-[11px] text-gray-600">
-                                  {totalCount > 0 ? `Р’С‹РїРѕР»РЅРµРЅРѕ ${solvedCount}/${totalCount}` : 'Р’ РїСЂРѕР±РЅРёРєРµ РїРѕРєР° РЅРµС‚ Р·Р°РґР°РЅРёР№'}
+                                  {totalCount > 0 ? `Выполнено ${solvedCount}/${totalCount}` : 'В пробнике пока нет заданий'}
                                 </div>
                               </div>
                               <button
@@ -10168,7 +10178,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                 onClick={() => handleOpenMockGoal(goal.mockExamId)}
                                 className="px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 shadow-sm"
                               >
-                                РџРµСЂРµР№С‚Рё
+                                Перейти
                               </button>
                             </div>
                           </div>
@@ -10182,8 +10192,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                         : null;
                       const taskDisplay = pythonTask?.displayNumber || formatTaskNumber(goal.taskNumber) || goal.taskNumber;
                       const goalHeading = isPythonGoal
-                        ? `Python ${goal.taskTitle || pythonTask?.title || (goal.taskNumber ? `С‚РµРјР° ${goal.taskNumber}` : 'С‚РµРјР°')}`
-                        : `Р—Р°РґР°РЅРёРµ ${taskDisplay} В· ${goal.levelLabel}`;
+                        ? `Python ${goal.taskTitle || pythonTask?.title || (goal.taskNumber ? `тема ${goal.taskNumber}` : 'тема')}`
+                        : `Задание ${taskDisplay} В· ${goal.levelLabel}`;
                       const targetTotal = Array.isArray(goal.targetStatus) ? goal.targetStatus.length : 0;
                       const targetSolved = Array.isArray(goal.targetStatus)
                         ? goal.targetStatus.filter((item) => item.solved).length
@@ -10197,7 +10207,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                 <div className="text-sm font-semibold text-gray-900">{goalHeading}</div>
                               ) : (
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="text-sm font-semibold text-gray-900">{`Р—Р°РґР°РЅРёРµ ${taskDisplay}`}</span>
+                                  <span className="text-sm font-semibold text-gray-900">{`Задание ${taskDisplay}`}</span>
                                   {goal.levelLabel && (
                                     <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700">
                                       {goal.levelLabel}
@@ -10207,7 +10217,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                               )}
                               {!isPythonGoal && (
                                 <div className="text-xs text-gray-500 truncate">
-                                  {`РўРµРјР°: ${goal.taskTitle || 'вЂ”'}`}
+                                  {`Тема: ${goal.taskTitle || '—'}`}
                                 </div>
                               )}
                             </div>
@@ -10216,13 +10226,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                               onClick={() => handleOpenTask(goal.taskNumber, goal.levelId, goal.targetNumbers)}
                               className="shrink-0 px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 shadow-sm"
                             >
-                              РџРµСЂРµР№С‚Рё
+                              Перейти
                             </button>
                           </div>
 
                           {hasTargets && (
                             <div className="mt-2 rounded-xl border border-purple-100/90 bg-purple-50/60 px-2.5 py-2">
-                              <div className="text-[10px] font-semibold uppercase tracking-wide text-purple-700">Р¦РµР»СЊ</div>
+                              <div className="text-[10px] font-semibold uppercase tracking-wide text-purple-700">Цель</div>
                               {goal.targetNumbers?.length > 0 ? (
                                 <>
                                   <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -10235,18 +10245,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                             : 'border-slate-200 bg-white text-slate-700'
                                         }`}
                                       >
-                                        в„–{item.num}{item.solved ? ' вњ“' : ''}
+                                        №{item.num}{item.solved ? ' ✓' : ''}
                                       </span>
                                     ))}
                                   </div>
                                   <div className="mt-2 flex items-center justify-between text-[11px] text-gray-600">
-                                    <span>Р’С‹РїРѕР»РЅРµРЅРѕ</span>
+                                    <span>Выполнено</span>
                                     <span className="font-semibold text-gray-800">{`${targetSolved}/${targetTotal}`}</span>
                                   </div>
                                 </>
                               ) : (
                                 <div className="mt-1 text-[11px] text-purple-700">
-                                  Р’СЃРµ Р·Р°РґР°РЅРёСЏ СЌС‚РѕРіРѕ СѓСЂРѕРІРЅСЏ
+                                  Все задания этого уровня
                                 </div>
                               )}
                             </div>
@@ -10519,6 +10529,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               teacherSignupNotifySupported={teacherSignupNotifySupported}
               teacherSignupNotifyPermission={teacherSignupNotifyPermission}
               teacherSignupNotifyEnabled={teacherSignupNotifyEnabled}
+              teacherSignupNotifyBusy={teacherSignupNotifyBusy}
+              teacherSignupNotifySyncing={teacherSignupNotifySyncing}
+              teacherSignupNotifyReady={teacherSignupNotifyReady}
               teacherSignupNotifyStatusText={teacherSignupNotifyStatusText}
               teacherSignupNotifyError={teacherSignupNotifyError}
               onToggleTeacherSignupNotify={handleToggleTeacherSignupNotify}
@@ -10556,6 +10569,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               teacherSignupNotifySupported={teacherSignupNotifySupported}
               teacherSignupNotifyPermission={teacherSignupNotifyPermission}
               teacherSignupNotifyEnabled={teacherSignupNotifyEnabled}
+              teacherSignupNotifyBusy={teacherSignupNotifyBusy}
+              teacherSignupNotifySyncing={teacherSignupNotifySyncing}
+              teacherSignupNotifyReady={teacherSignupNotifyReady}
               teacherSignupNotifyStatusText={teacherSignupNotifyStatusText}
               teacherSignupNotifyError={teacherSignupNotifyError}
               onToggleTeacherSignupNotify={handleToggleTeacherSignupNotify}
@@ -10581,7 +10597,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             type="button"
             className="absolute inset-0 bg-slate-900/35 backdrop-blur-[1px]"
             onClick={() => setMenuOpen(false)}
-            aria-label="Р—Р°РєСЂС‹С‚СЊ РїСЂРѕС„РёР»СЊ"
+            aria-label="Закрыть профиль"
           />
           <div className={`absolute inset-x-0 bottom-0 transition-transform duration-300 ease-out ${menuOpen ? 'translate-y-0' : 'translate-y-full'}`}>
             <div className="surface-card rounded-t-3xl border border-purple-100/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 shadow-[0_-14px_30px_rgba(15,23,42,0.22)]">
@@ -10594,7 +10610,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   <div className="min-w-0">
                     <p className="text-base font-semibold text-slate-900 truncate">{user.name}</p>
                     <div className="mt-1 inline-flex items-center rounded-md bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2.5 py-1 text-xs font-semibold text-purple-700">
-                      {user.role === 'admin' ? 'РђРґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ' : (user.role === 'teacher' ? 'РџСЂРµРїРѕРґР°РІР°С‚РµР»СЊ' : 'РЈС‡РµРЅРёРє')}
+                      {user.role === 'admin' ? 'Администратор' : (user.role === 'teacher' ? 'Преподаватель' : 'Ученик')}
                     </div>
                   </div>
                 </div>
@@ -10635,7 +10651,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 onClick={onLogout}
                 className="mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/70 bg-white/90 px-4 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 hover:shadow-sm"
               >
-                <LogOut size={16} /> Р’С‹Р№С‚Рё
+                <LogOut size={16} /> Выйти
               </button>
             </div>
           </div>
@@ -10788,7 +10804,7 @@ const App = () => {
     if (!user || user.role !== 'student') return;
     setProgress((prev) => ({ ...prev, [taskId]: val }));
     if (options?.skipServer) return;
-    // РџСЂРѕРіСЂРµСЃСЃ СѓС‡РµРЅРёРєР° СЃРѕС…СЂР°РЅСЏРµС‚СЃСЏ С‡РµСЂРµР· /api/progress/solve РїРѕСЃР»Рµ РїСЂРѕРІРµСЂРєРё РѕС‚РІРµС‚Р°.
+    // Прогресс ученика сохраняется через /api/progress/solve после проверки ответа.
   };
 
   const handleThemeToggle = () => {

@@ -1,38 +1,18 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bell, BellOff, LogOut, Send } from 'lucide-react';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
 import { LogoMark } from './Identity';
+import {
+  getBrowserPushSubscription,
+  getPushPermission,
+  getPushServiceWorkerRegistration,
+  isPushFeatureSupported,
+  normalizePushErrorMessage,
+  urlBase64ToUint8Array,
+} from '../utils/push';
 
 const POLL_INTERVAL_MS = 5000;
-const SIGNUP_CHAT_NOTIFY_PREF_KEY = 'ege_signup_chat_notify_enabled';
-
-const isBrowserNotificationsSupported = () => (
-  typeof window !== 'undefined'
-  && typeof Notification !== 'undefined'
-);
-
-const getNotificationPermission = () => (
-  isBrowserNotificationsSupported() ? (Notification.permission || 'default') : 'default'
-);
-
-const readNotifyPreference = () => {
-  if (typeof localStorage === 'undefined') return false;
-  try {
-    return localStorage.getItem(SIGNUP_CHAT_NOTIFY_PREF_KEY) === '1';
-  } catch {
-    return false;
-  }
-};
-
-const writeNotifyPreference = (enabled) => {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.setItem(SIGNUP_CHAT_NOTIFY_PREF_KEY, enabled ? '1' : '0');
-  } catch {
-    // ignore storage errors
-  }
-};
 
 const formatMessageTime = (value) => {
   const parsed = Date.parse(value || '');
@@ -51,14 +31,18 @@ const SignupGuestChat = ({ user, onLogout }) => {
   const [error, setError] = useState('');
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
-  const [notifySupported] = useState(isBrowserNotificationsSupported());
-  const [notifyPermission, setNotifyPermission] = useState(getNotificationPermission());
-  const [notifyEnabled, setNotifyEnabled] = useState(() => readNotifyPreference());
+
+  const [notifySupported, setNotifySupported] = useState(isPushFeatureSupported());
+  const [notifyPermission, setNotifyPermission] = useState(getPushPermission());
+  const [notifyEnabled, setNotifyEnabled] = useState(false);
+  const [notifySyncing, setNotifySyncing] = useState(false);
+  const [notifyBusy, setNotifyBusy] = useState(false);
+  const [notifyReady, setNotifyReady] = useState(false);
   const [notifyError, setNotifyError] = useState('');
+
   const listRef = useRef(null);
   const prevMessageCountRef = useRef(0);
-  const notificationsBootstrappedRef = useRef(false);
-  const lastTeacherMessageIdRef = useRef('');
+
   const teacherName = useMemo(
     () => String(chat?.teacherName || 'преподавателем').trim(),
     [chat?.teacherName]
@@ -98,11 +82,56 @@ const SignupGuestChat = ({ user, onLogout }) => {
     prevMessageCountRef.current = messages.length;
   }, [messages]);
 
+  const syncPushState = useCallback(async ({ silent = true } = {}) => {
+    const supported = isPushFeatureSupported();
+    setNotifySupported(supported);
+    setNotifyPermission(getPushPermission());
+    if (!supported) {
+      setNotifyEnabled(false);
+      setNotifyReady(true);
+      if (!silent) {
+        setNotifyError('Этот браузер не поддерживает push-уведомления.');
+      }
+      return;
+    }
+
+    setNotifySyncing(true);
+    if (!silent) setNotifyError('');
+    try {
+      const [serverStatus, browserSubscription] = await Promise.all([
+        api.getPushSubscriptionStatus().catch(() => ({ subscribed: false, count: 0 })),
+        getBrowserPushSubscription(),
+      ]);
+
+      let subscribed = Boolean(serverStatus?.subscribed);
+      if (browserSubscription) {
+        subscribed = true;
+        if (!serverStatus?.subscribed) {
+          await api.savePushSubscription(browserSubscription.toJSON());
+        }
+      }
+
+      setNotifyEnabled(subscribed);
+    } catch (e) {
+      if (!silent) {
+        setNotifyError(
+          normalizePushErrorMessage(e, 'Не удалось проверить статус push-уведомлений.')
+        );
+      }
+    } finally {
+      setNotifyPermission(getPushPermission());
+      setNotifySyncing(false);
+      setNotifyReady(true);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!notifySupported) return undefined;
-    const syncPermission = () => {
-      setNotifyPermission(getNotificationPermission());
-    };
+    setNotifyPermission(getPushPermission());
+    syncPushState({ silent: true });
+  }, [syncPushState, user?.id, user?.role]);
+
+  useEffect(() => {
+    const syncPermission = () => setNotifyPermission(getPushPermission());
     syncPermission();
     if (typeof window !== 'undefined') {
       window.addEventListener('focus', syncPermission);
@@ -118,103 +147,91 @@ const SignupGuestChat = ({ user, onLogout }) => {
         document.removeEventListener('visibilitychange', syncPermission);
       }
     };
-  }, [notifySupported]);
+  }, []);
 
-  useEffect(() => {
-    if (notifyPermission === 'granted') return;
-    if (!notifyEnabled) return;
-    setNotifyEnabled(false);
-    writeNotifyPreference(false);
-  }, [notifyEnabled, notifyPermission]);
-
-  useEffect(() => {
-    const teacherMessages = messages.filter((message) => (
-      message?.senderRole === 'teacher' && typeof message?.id === 'string' && message.id.trim()
-    ));
-    const latestTeacherMessageId = teacherMessages.length > 0
-      ? String(teacherMessages[teacherMessages.length - 1].id || '').trim()
-      : '';
-
-    if (!notificationsBootstrappedRef.current) {
-      notificationsBootstrappedRef.current = true;
-      lastTeacherMessageIdRef.current = latestTeacherMessageId;
+  const handleEnablePush = useCallback(async () => {
+    const supported = isPushFeatureSupported();
+    setNotifySupported(supported);
+    if (!supported) {
+      setNotifyError('Этот браузер не поддерживает push-уведомления.');
       return;
     }
 
-    const lastKnownId = lastTeacherMessageIdRef.current;
-    let freshTeacherMessages = [];
-    if (!lastKnownId) {
-      freshTeacherMessages = teacherMessages;
-    } else {
-      const knownIndex = teacherMessages.findIndex((message) => String(message.id || '').trim() === lastKnownId);
-      freshTeacherMessages = knownIndex >= 0 ? teacherMessages.slice(knownIndex + 1) : teacherMessages;
-    }
-    lastTeacherMessageIdRef.current = latestTeacherMessageId || lastKnownId;
-
-    if (freshTeacherMessages.length === 0) return;
-    if (!notifySupported || !notifyEnabled || notifyPermission !== 'granted') return;
-
-    const canShowNotification = typeof document === 'undefined'
-      ? true
-      : (document.visibilityState !== 'visible'
-          || (typeof document.hasFocus === 'function' ? !document.hasFocus() : true));
-    if (!canShowNotification) return;
-
-    const latest = freshTeacherMessages[freshTeacherMessages.length - 1];
-    const totalFresh = freshTeacherMessages.length;
-    const sender = String(latest?.senderName || teacherName || 'Преподаватель').trim();
-    const preview = String(latest?.text || '').replace(/\s+/g, ' ').trim();
-    const title = totalFresh > 1 ? `Новых сообщений: ${totalFresh}` : `Ответ от ${sender}`;
-    const body = totalFresh > 1
-      ? `${sender}: ${preview}`.slice(0, 180)
-      : preview.slice(0, 180);
-
-    try {
-      const tagChatId = String(chat?.id || user?.chatId || 'guest').trim() || 'guest';
-      new Notification(title, {
-        body,
-        tag: `signup-chat-${tagChatId}`,
-      });
-    } catch {
-      // ignore notification failures
-    }
-  }, [chat?.id, messages, notifyEnabled, notifyPermission, notifySupported, teacherName, user?.chatId]);
-
-  const handleToggleNotifications = async () => {
-    if (!notifySupported) {
-      setNotifyError('В этом браузере уведомления не поддерживаются.');
-      return;
-    }
-
+    setNotifyBusy(true);
     setNotifyError('');
-    if (notifyEnabled) {
-      setNotifyEnabled(false);
-      writeNotifyPreference(false);
-      return;
-    }
-
-    let permission = notifyPermission;
-    if (permission !== 'granted') {
-      try {
-        permission = await Notification.requestPermission();
-      } catch {
-        permission = 'denied';
+    try {
+      const permissionBefore = getPushPermission();
+      setNotifyPermission(permissionBefore);
+      if (permissionBefore === 'denied') {
+        throw new Error('Разрешение на уведомления отключено в браузере.');
       }
-      setNotifyPermission(permission || 'default');
-    }
 
-    if (permission === 'granted') {
+      let permission = permissionBefore;
+      if (permission !== 'granted') {
+        permission = await Notification.requestPermission();
+        setNotifyPermission(permission);
+      }
+      if (permission !== 'granted') {
+        throw new Error('Разрешение на уведомления не выдано.');
+      }
+
+      const keyPayload = await api.getPushPublicKey();
+      const publicKey = String(keyPayload?.publicKey || '').trim();
+      if (!publicKey) {
+        throw new Error('Push не настроен на сервере.');
+      }
+
+      const registration = await getPushServiceWorkerRegistration();
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        });
+      }
+      await api.savePushSubscription(subscription.toJSON());
       setNotifyEnabled(true);
-      writeNotifyPreference(true);
+      setNotifyReady(true);
+    } catch (e) {
+      setNotifyError(normalizePushErrorMessage(e));
+    } finally {
+      setNotifyBusy(false);
+      setNotifyPermission(getPushPermission());
+    }
+  }, []);
+
+  const handleDisablePush = useCallback(async () => {
+    setNotifyBusy(true);
+    setNotifyError('');
+    try {
+      const browserSubscription = await getBrowserPushSubscription();
+      const endpoint = browserSubscription?.endpoint
+        ? String(browserSubscription.endpoint)
+        : '';
+      await api.deletePushSubscription(endpoint);
+      if (browserSubscription) {
+        try {
+          await browserSubscription.unsubscribe();
+        } catch { /* no-op */ }
+      }
+      setNotifyEnabled(false);
+      setNotifyReady(true);
+    } catch (e) {
+      setNotifyError(normalizePushErrorMessage(e, 'Не удалось отключить push-уведомления.'));
+    } finally {
+      setNotifyBusy(false);
+      setNotifyPermission(getPushPermission());
+    }
+  }, []);
+
+  const handleToggleNotifications = useCallback(() => {
+    if (notifyBusy || notifySyncing) return;
+    if (notifyEnabled) {
+      handleDisablePush();
       return;
     }
-
-    setNotifyEnabled(false);
-    writeNotifyPreference(false);
-    if (permission === 'denied') {
-      setNotifyError('Разрешите уведомления в настройках браузера для этого сайта.');
-    }
-  };
+    handleEnablePush();
+  }, [handleDisablePush, handleEnablePush, notifyBusy, notifyEnabled, notifySyncing]);
 
   const handleSend = async () => {
     const nextText = text.trim();
@@ -234,11 +251,12 @@ const SignupGuestChat = ({ user, onLogout }) => {
   };
 
   const notificationStatusText = useMemo(() => {
-    if (!notifySupported) return 'Уведомления не поддерживаются в этом браузере.';
+    if (notifySyncing) return 'Проверяем статус push...';
+    if (!notifySupported) return 'Push не поддерживается в этом браузере.';
     if (notifyPermission === 'denied') return 'Уведомления заблокированы в браузере.';
-    if (notifyEnabled && notifyPermission === 'granted') return 'Уведомления о новых ответах включены.';
-    return 'Включите уведомления, чтобы не пропускать ответы преподавателя.';
-  }, [notifyEnabled, notifyPermission, notifySupported]);
+    if (notifyEnabled) return 'Push-уведомления о новых ответах включены.';
+    return 'Включите push, чтобы не пропускать ответы преподавателя.';
+  }, [notifyEnabled, notifyPermission, notifySupported, notifySyncing]);
 
   return (
     <div className="app-min-h app-shell relative overflow-hidden p-4 md:p-6">
@@ -320,12 +338,14 @@ const SignupGuestChat = ({ user, onLogout }) => {
                 variant={notifyEnabled ? 'secondary' : 'primary'}
                 type="button"
                 onClick={handleToggleNotifications}
-                disabled={!notifySupported && !notifyEnabled}
+                disabled={(notifyBusy || notifySyncing || !notifyReady) || (!notifySupported && !notifyEnabled)}
                 className="sm:ml-3"
-                title={notifySupported ? 'Уведомления о новых сообщениях' : 'Браузер не поддерживает уведомления'}
+                title={notifySupported ? 'Push-уведомления о новых сообщениях' : 'Браузер не поддерживает push-уведомления'}
               >
                 {notifyEnabled ? <BellOff size={16} /> : <Bell size={16} />}
-                {notifyEnabled ? 'Отключить уведомления' : 'Включить уведомления'}
+                {notifyBusy || notifySyncing
+                  ? 'Сохраняем...'
+                  : (notifyEnabled ? 'Отключить уведомления' : 'Включить уведомления')}
               </Button>
             </div>
           </div>
