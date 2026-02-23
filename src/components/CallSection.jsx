@@ -80,6 +80,7 @@ const RTC_ALERT_SOUND_SOURCES = Object.freeze({
   screenOn: '/sounds/demonstration on.MP3',
   screenOff: '/sounds/demonstration off.MP3',
 });
+const RTC_ALERT_SOUND_VOLUME = 0.6;
 const CALL_BACKGROUND_PARTICLE_COUNT = 14;
 
 const normalizePeerVolume = (value) => {
@@ -1081,6 +1082,7 @@ const CallSection = ({
     if (!template) {
       template = new Audio(source);
       template.preload = 'auto';
+      template.volume = RTC_ALERT_SOUND_VOLUME;
       cachedTemplates.set(key, template);
     }
     return template;
@@ -1101,6 +1103,7 @@ const CallSection = ({
 
     const audio = template.cloneNode(true);
     audio.preload = 'auto';
+    audio.volume = RTC_ALERT_SOUND_VOLUME;
     const activeAudios = alertAudioActiveRef.current;
     const finalize = () => {
       activeAudios.delete(audio);
