@@ -70,36 +70,16 @@ const MIC_SETTINGS_POPUP_OFFSET = 10;
 const MIC_SETTINGS_POPUP_MARGIN = 8;
 const MIC_SETTINGS_POPUP_ESTIMATED_HEIGHT = 280;
 const RTC_MIC_SETTINGS_STORAGE_KEY_PREFIX = 'ege_rtc_mic_settings_v3';
-const RTC_ALERT_SOUND_GAIN = 0.034;
-const RTC_ALERT_SOUND_GAP_MS = 40;
-const RTC_ALERT_SOUND_CONNECT_PATTERN = [
-  { frequency: 349, endFrequency: 370, durationMs: 210, gain: 0.026, type: 'sine', filterHz: 920, releaseMs: 260, tailMs: 120 },
-  { frequency: 440, endFrequency: 466, durationMs: 240, gain: 0.03, type: 'sine', filterHz: 1080, releaseMs: 300, tailMs: 130 },
-  { frequency: 523, endFrequency: 554, durationMs: 290, gain: 0.032, type: 'sine', filterHz: 1220, releaseMs: 340, tailMs: 150 },
-];
-const RTC_ALERT_SOUND_DISCONNECT_PATTERN = [
-  { frequency: 466, endFrequency: 440, durationMs: 210, gain: 0.026, type: 'sine', filterHz: 1020, releaseMs: 280, tailMs: 130 },
-  { frequency: 392, endFrequency: 370, durationMs: 240, gain: 0.029, type: 'sine', filterHz: 940, releaseMs: 320, tailMs: 150 },
-  { frequency: 311, endFrequency: 294, durationMs: 285, gain: 0.031, type: 'sine', filterHz: 860, releaseMs: 360, tailMs: 170 },
-];
-const RTC_ALERT_SOUND_MIC_OFF_PATTERN = [
-  { frequency: 415, endFrequency: 349, durationMs: 260, gain: 0.027, type: 'sine', filterHz: 900, releaseMs: 330, tailMs: 170 },
-];
-const RTC_ALERT_SOUND_PARTICIPANT_JOIN_PATTERN = [
-  { frequency: 330, endFrequency: 349, durationMs: 190, gain: 0.023, type: 'sine', filterHz: 900, releaseMs: 240, tailMs: 110 },
-  { frequency: 392, endFrequency: 415, durationMs: 220, gain: 0.025, type: 'sine', filterHz: 1020, releaseMs: 270, tailMs: 125 },
-  { frequency: 494, endFrequency: 523, durationMs: 245, gain: 0.027, type: 'sine', filterHz: 1140, releaseMs: 300, tailMs: 135 },
-];
-const RTC_ALERT_SOUND_SCREEN_ON_PATTERN = [
-  { frequency: 370, endFrequency: 392, durationMs: 200, gain: 0.022, type: 'sine', gapMs: 20, filterHz: 980, releaseMs: 230, tailMs: 100 },
-  { frequency: 466, endFrequency: 494, durationMs: 225, gain: 0.024, type: 'sine', gapMs: 18, filterHz: 1080, releaseMs: 250, tailMs: 115 },
-  { frequency: 554, endFrequency: 587, durationMs: 250, gain: 0.026, type: 'sine', gapMs: 16, filterHz: 1200, releaseMs: 280, tailMs: 130 },
-];
-const RTC_ALERT_SOUND_SCREEN_OFF_PATTERN = [
-  { frequency: 494, endFrequency: 466, durationMs: 205, gain: 0.021, type: 'sine', gapMs: 20, filterHz: 980, releaseMs: 240, tailMs: 110 },
-  { frequency: 392, endFrequency: 370, durationMs: 230, gain: 0.024, type: 'sine', gapMs: 18, filterHz: 900, releaseMs: 270, tailMs: 125 },
-  { frequency: 330, endFrequency: 311, durationMs: 260, gain: 0.026, type: 'sine', gapMs: 16, filterHz: 840, releaseMs: 300, tailMs: 145 },
-];
+const RTC_ALERT_SOUND_SOURCES = Object.freeze({
+  connected: '/sounds/user_join.mp3',
+  disconnected: '/sounds/user_leave.mp3',
+  peerJoined: '/sounds/user_join.mp3',
+  peerLeft: '/sounds/user_leave.mp3',
+  micMuted: '/sounds/mute.mp3',
+  micUnmuted: '/sounds/unmute.mp3',
+  screenOn: '/sounds/demonstration on.MP3',
+  screenOff: '/sounds/demonstration off.MP3',
+});
 const CALL_BACKGROUND_PARTICLE_COUNT = 14;
 
 const normalizePeerVolume = (value) => {
@@ -999,7 +979,8 @@ const CallSection = ({
   const localMicLevelRafRef = useRef(null);
   const localMicSpeakingOpenRef = useRef(false);
   const localSelfSpeakingObserverCleanupRef = useRef(null);
-  const alertAudioContextRef = useRef(null);
+  const alertAudioTemplatesRef = useRef(new Map());
+  const alertAudioActiveRef = useRef(new Set());
   const previousStatusRef = useRef(status);
   const micTriggerThresholdRmsRef = useRef(micTriggerThresholdPercentToRmsThreshold(DEFAULT_MIC_TRIGGER_THRESHOLD_PERCENT));
   const localCameraTrackRef = useRef(null);
@@ -1090,129 +1071,66 @@ const CallSection = ({
     statusRef.current = nextStatus;
     setStatus(nextStatus);
   }, []);
-  const primeAlertAudioContext = useCallback(async () => {
-    if (typeof window === 'undefined') return null;
-    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextCtor) return null;
+  const getAlertAudioTemplate = useCallback((soundKey) => {
+    const key = String(soundKey || '');
+    const source = RTC_ALERT_SOUND_SOURCES[key];
+    if (!source || typeof window === 'undefined') return null;
 
-    let audioContext = alertAudioContextRef.current;
-    if (!audioContext || audioContext.state === 'closed') {
-      try {
-        audioContext = new AudioContextCtor();
-      } catch (createError) {
-        return null;
-      }
-      alertAudioContextRef.current = audioContext;
+    const cachedTemplates = alertAudioTemplatesRef.current;
+    let template = cachedTemplates.get(key);
+    if (!template) {
+      template = new Audio(source);
+      template.preload = 'auto';
+      cachedTemplates.set(key, template);
     }
-
-    if (audioContext.state === 'suspended') {
-      try {
-        await audioContext.resume();
-      } catch (resumeError) {
-        return audioContext;
-      }
-    }
-
-    return audioContext;
+    return template;
   }, []);
 
-  const playAlertSound = useCallback(async (pattern = []) => {
-    if (!Array.isArray(pattern) || pattern.length === 0) return;
-    const audioContext = await primeAlertAudioContext();
-    if (!audioContext || audioContext.state !== 'running') return;
-
-    let cursor = audioContext.currentTime + 0.004;
-    for (let index = 0; index < pattern.length; index += 1) {
-      const note = pattern[index] || {};
-      const frequency = Math.max(110, Math.min(1400, Number(note.frequency) || 440));
-      const endFrequencyRaw = Number(note.endFrequency);
-      const endFrequency = Number.isFinite(endFrequencyRaw)
-        ? Math.max(110, Math.min(1500, endFrequencyRaw))
-        : frequency;
-      const duration = Math.max(0.08, Math.min(0.5, (Number(note.durationMs) || 140) / 1000));
-      const gain = Math.max(0.008, Math.min(0.24, Number(note.gain) || RTC_ALERT_SOUND_GAIN));
-      const type = ['sine', 'square', 'triangle', 'sawtooth'].includes(note.type)
-        ? note.type
-        : 'sine';
-      const filterHzRaw = Number(note.filterHz);
-      const filterHz = Number.isFinite(filterHzRaw)
-        ? Math.max(520, Math.min(2400, filterHzRaw))
-        : Math.max(700, Math.min(1800, frequency * 2.1));
-      const detuneRaw = Number(note.detuneCents);
-      const detuneCents = Number.isFinite(detuneRaw) ? clampToRange(detuneRaw, -20, 20) : 2;
-      const shimmerEnabled = note.shimmer === true;
-      const gap = Math.max(0, (Number(note.gapMs) || RTC_ALERT_SOUND_GAP_MS) / 1000);
-      const attack = Math.max(0.02, Math.min(0.085, duration * 0.58));
-      const releaseMsRaw = Number(note.releaseMs);
-      const release = Number.isFinite(releaseMsRaw)
-        ? Math.max(0.08, Math.min(0.45, releaseMsRaw / 1000))
-        : Math.max(0.12, Math.min(0.34, duration * 0.9));
-      const tailMsRaw = Number(note.tailMs);
-      const tail = Number.isFinite(tailMsRaw)
-        ? Math.max(0.04, Math.min(0.3, tailMsRaw / 1000))
-        : 0.12;
-      const noteEnd = cursor + duration + tail;
-      const sustainEnd = Math.max(cursor + attack + 0.003, noteEnd - release);
-
+  const primeAlertSounds = useCallback(() => {
+    Object.keys(RTC_ALERT_SOUND_SOURCES).forEach((soundKey) => {
+      const template = getAlertAudioTemplate(soundKey);
       try {
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        const filterNode = audioContext.createBiquadFilter();
-        const shimmerOscillator = shimmerEnabled ? audioContext.createOscillator() : null;
-        const shimmerGainNode = shimmerEnabled ? audioContext.createGain() : null;
+        template?.load?.();
+      } catch {}
+    });
+  }, [getAlertAudioTemplate]);
 
-        oscillator.type = type;
-        oscillator.frequency.setValueAtTime(frequency, cursor);
-        if (endFrequency !== frequency) {
-          oscillator.frequency.linearRampToValueAtTime(endFrequency, cursor + duration);
-        }
-        filterNode.type = 'lowpass';
-        filterNode.frequency.setValueAtTime(filterHz, cursor);
-        filterNode.Q.value = 0.45;
-        const sustainGain = Math.max(0.0001, gain * 0.76);
-        gainNode.gain.setValueAtTime(0.0001, cursor);
-        gainNode.gain.linearRampToValueAtTime(gain, cursor + attack);
-        gainNode.gain.setValueAtTime(sustainGain, sustainEnd);
-        gainNode.gain.exponentialRampToValueAtTime(0.0001, noteEnd);
+  const playAlertSound = useCallback((soundKey) => {
+    const template = getAlertAudioTemplate(soundKey);
+    if (!template) return;
 
-        oscillator.connect(gainNode);
-        gainNode.connect(filterNode);
-        if (shimmerOscillator && shimmerGainNode) {
-          shimmerOscillator.type = type === 'sine' ? 'triangle' : 'sine';
-          shimmerOscillator.frequency.setValueAtTime(frequency, cursor);
-          if (endFrequency !== frequency) {
-            shimmerOscillator.frequency.linearRampToValueAtTime(endFrequency, cursor + duration);
-          }
-          shimmerOscillator.detune.setValueAtTime(detuneCents, cursor);
-          const shimmerPeakGain = Math.max(0.0001, gain * 0.14);
-          const shimmerSustainGain = Math.max(0.0001, shimmerPeakGain * 0.68);
-          shimmerGainNode.gain.setValueAtTime(0.0001, cursor);
-          shimmerGainNode.gain.linearRampToValueAtTime(shimmerPeakGain, cursor + attack);
-          shimmerGainNode.gain.setValueAtTime(shimmerSustainGain, sustainEnd);
-          shimmerGainNode.gain.exponentialRampToValueAtTime(0.0001, noteEnd);
-          shimmerOscillator.connect(shimmerGainNode);
-          shimmerGainNode.connect(filterNode);
-        }
-        filterNode.connect(audioContext.destination);
-        oscillator.start(cursor);
-        oscillator.stop(noteEnd + 0.03);
-        shimmerOscillator?.start(cursor);
-        shimmerOscillator?.stop(noteEnd + 0.03);
-      } catch {
-        continue;
+    const audio = template.cloneNode(true);
+    audio.preload = 'auto';
+    const activeAudios = alertAudioActiveRef.current;
+    const finalize = () => {
+      activeAudios.delete(audio);
+      audio.onended = null;
+      audio.onerror = null;
+    };
+
+    activeAudios.add(audio);
+    audio.onended = finalize;
+    audio.onerror = finalize;
+    try {
+      audio.currentTime = 0;
+      const playPromise = audio.play?.();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {
+          finalize();
+        });
       }
-
-      cursor += duration + gap;
+    } catch {
+      finalize();
     }
-  }, [primeAlertAudioContext]);
+  }, [getAlertAudioTemplate]);
 
   useEffect(() => {
     const previousStatus = previousStatusRef.current;
     if (previousStatus !== status) {
       if (previousStatus !== 'connected' && status === 'connected') {
-        void playAlertSound(RTC_ALERT_SOUND_CONNECT_PATTERN);
+        void playAlertSound('connected');
       } else if (previousStatus === 'connected' && status === 'idle') {
-        void playAlertSound(RTC_ALERT_SOUND_DISCONNECT_PATTERN);
+        void playAlertSound('disconnected');
       }
     }
     previousStatusRef.current = status;
@@ -2829,7 +2747,7 @@ const CallSection = ({
     if (type === 'peer-joined') {
       const peerId = typeof payload?.peer?.id === 'string' ? payload.peer.id.trim() : '';
       if (!peerId || peerId === selfClientIdRef.current) return;
-      void playAlertSound(RTC_ALERT_SOUND_PARTICIPANT_JOIN_PATTERN);
+      void playAlertSound('peerJoined');
       const existingPeer = peersRef.current.get(peerId);
       createPeerState(peerId, payload.peer);
       const existingState = getRtcPeerConnectionState(existingPeer?.pc);
@@ -2859,6 +2777,7 @@ const CallSection = ({
     }
 
     if (type === 'peer-left') {
+      void playAlertSound('peerLeft');
       removePeer(payload?.peerId);
       return;
     }
@@ -2916,7 +2835,7 @@ const CallSection = ({
 
   const startCall = useCallback(async (options = {}) => {
     const isReconnect = Boolean(options?.isReconnect);
-    void primeAlertAudioContext();
+    primeAlertSounds();
     if (!roomId) {
       setPresenceError('');
       setError('Сначала выбери ученика для созвона.');
@@ -3089,7 +3008,7 @@ const CallSection = ({
         setError(connectErrorText);
       }
     }
-  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, primeAlertAudioContext, resetWsReconnectState, roomId, rtcIceConfig.configError, rtcIceConfig.hasTurn, rtcIceConfig.hasTurnAuth, rtcPeerConnectionCtor, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
+  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, primeAlertSounds, resetWsReconnectState, roomId, rtcIceConfig.configError, rtcIceConfig.hasTurn, rtcIceConfig.hasTurnAuth, rtcPeerConnectionCtor, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
 
   useEffect(() => {
     startCallRef.current = startCall;
@@ -3100,10 +3019,19 @@ const CallSection = ({
   }, [clearWsReconnectTimer]);
 
   useEffect(() => () => {
-    const audioContext = alertAudioContextRef.current;
-    alertAudioContextRef.current = null;
-    if (!audioContext) return;
-    audioContext.close().catch(() => undefined);
+    alertAudioActiveRef.current.forEach((audio) => {
+      try {
+        audio.pause();
+      } catch {}
+    });
+    alertAudioActiveRef.current.clear();
+
+    alertAudioTemplatesRef.current.forEach((audio) => {
+      try {
+        audio.pause();
+      } catch {}
+    });
+    alertAudioTemplatesRef.current.clear();
   }, []);
 
   const toggleMic = useCallback(async () => {
@@ -3123,9 +3051,7 @@ const CallSection = ({
           rawTrack.enabled = nextMicEnabled;
         }
         setMicEnabled(nextMicEnabled);
-        if (!nextMicEnabled) {
-          void playAlertSound(RTC_ALERT_SOUND_MIC_OFF_PATTERN);
-        }
+        void playAlertSound(nextMicEnabled ? 'micUnmuted' : 'micMuted');
         syncLocalTracksToAllPeers();
       }
     } catch (micError) {
@@ -3163,7 +3089,7 @@ const CallSection = ({
     if (screenBusy) return;
     if (screenSharing) {
       stopScreenTrack(true);
-      void playAlertSound(RTC_ALERT_SOUND_SCREEN_OFF_PATTERN);
+      void playAlertSound('screenOff');
       renegotiatePeers();
       return;
     }
@@ -3205,14 +3131,14 @@ const CallSection = ({
       localScreenTrackRef.current = track;
       track.onended = () => {
         stopScreenTrack(true);
-        void playAlertSound(RTC_ALERT_SOUND_SCREEN_OFF_PATTERN);
+        void playAlertSound('screenOff');
         renegotiatePeers();
       };
       if (!localStreamRef.current.getVideoTracks().includes(track)) {
         localStreamRef.current.addTrack(track);
       }
       setScreenSharing(true);
-      void playAlertSound(RTC_ALERT_SOUND_SCREEN_ON_PATTERN);
+      void playAlertSound('screenOn');
       syncLocalTracksToAllPeers();
       renegotiatePeers();
     } catch (screenError) {

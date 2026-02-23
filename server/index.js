@@ -2740,6 +2740,44 @@ const validatePythonSolveResults = async (question, sourceRaw) => {
   return { ok: true };
 };
 
+const validatePythonSolveResultsFromProvided = (question, pythonResultsRaw) => {
+  const tests = Array.isArray(question?.tests) ? question.tests : [];
+  if (tests.length === 0) {
+    return { ok: false, error: 'Для этой задачи не заданы тесты' };
+  }
+  const hasExpectedOutputs = tests.every((test) => (
+    Object.prototype.hasOwnProperty.call(test || {}, 'output')
+  ));
+  if (!hasExpectedOutputs) {
+    return { ok: false, error: 'Для этой задачи не заданы эталонные ответы' };
+  }
+  const pythonResults = Array.isArray(pythonResultsRaw) ? pythonResultsRaw : [];
+  if (pythonResults.length !== tests.length) {
+    return { ok: false, error: 'Тесты не пройдены' };
+  }
+  for (let index = 0; index < tests.length; index += 1) {
+    const expectedTest = tests[index] && typeof tests[index] === 'object' ? tests[index] : {};
+    const providedResult = pythonResults[index] && typeof pythonResults[index] === 'object'
+      ? pythonResults[index]
+      : {};
+    const expectedInput = String(expectedTest.input ?? '');
+    const providedInput = String(providedResult.input ?? '');
+    if (providedInput !== expectedInput) {
+      return { ok: false, error: 'Тесты не пройдены' };
+    }
+    const runtimeError = String(providedResult.error ?? '').trim();
+    if (runtimeError) {
+      return { ok: false, error: `Ошибка выполнения кода на тесте ${index + 1}` };
+    }
+    const expectedOutput = normalizeOutputValue(expectedTest.output ?? '');
+    const providedOutput = normalizeOutputValue(providedResult.output ?? '');
+    if (providedOutput !== expectedOutput) {
+      return { ok: false, error: 'Тесты не пройдены' };
+    }
+  }
+  return { ok: true };
+};
+
 const sanitizeTestsDbForStudent = (testsDb) => {
   if (!testsDb || typeof testsDb !== 'object') return {};
   const sanitizedDb = {};
@@ -3972,21 +4010,25 @@ app.patch('/api/progress', (req, res) => {
 
 app.post('/api/progress/solve', async (req, res) => {
   try {
-  if (!isStudentRole(req.auth)) return forbid(res);
   const {
     studentId,
     taskNumber,
     levelId,
     questionId,
     code,
+    pythonResults,
     localDay
   } = req.body || {};
   if (!taskNumber || !levelId || !questionId) {
     return res.status(400).json({ error: 'Некорректные параметры' });
   }
   const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
-  if (requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
-  const student = ensureStudentAccess(req, res, req.auth.id);
+  const effectiveStudentId = isStudentRole(req.auth)
+    ? req.auth.id
+    : requestedStudentId;
+  if (!effectiveStudentId) return res.status(400).json({ error: 'studentId required' });
+  if (isStudentRole(req.auth) && requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
+  const student = ensureStudentAccess(req, res, effectiveStudentId);
   if (!student) return;
   const taskNum = Number(taskNumber);
   if (!Number.isFinite(taskNum)) {
@@ -4016,7 +4058,12 @@ app.post('/api/progress/solve', async (req, res) => {
     if (typeof code !== 'string' || !code.trim()) {
       return res.status(400).json({ error: 'Добавьте код решения' });
     }
-    const validation = await validatePythonSolveResults(questionEntry, code);
+    let validation = null;
+    const providedValidation = validatePythonSolveResultsFromProvided(questionEntry, pythonResults);
+    if (providedValidation.ok) validation = providedValidation;
+    if (!validation) {
+      validation = await validatePythonSolveResults(questionEntry, code);
+    }
     if (!validation.ok) {
       return res.status(400).json({ error: validation.error || 'Тесты не пройдены' });
     }

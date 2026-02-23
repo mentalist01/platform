@@ -52,6 +52,15 @@ const PythonReviewModal = ({
   studentId,
   testDb,
   PYTHON_LEVEL_ID,
+  ensurePyodideReady,
+  mergeRuntimeErrorText,
+  createPyodideWorker,
+  normalizeOutput,
+  normalizeOutputForComparison,
+  normalizeRuntimeErrorForCheck,
+  PYODIDE_RUN_TIMEOUT_MS,
+  ALLOW_MAIN_THREAD_PYTHON_FALLBACK,
+  getLocalDayKey,
   isGoogleDocEmbedUrl,
   buildGoogleDocFullUrl,
   codeSyncRoomId = '',
@@ -76,6 +85,13 @@ const PythonReviewModal = ({
     summary: '',
     ts: null,
   });
+  const [runnerLoading, setRunnerLoading] = useState(false);
+  const [runnerError, setRunnerError] = useState('');
+  const [testResults, setTestResults] = useState([]);
+  const [expandedTestIndex, setExpandedTestIndex] = useState(null);
+  const isMobileViewport = typeof window !== 'undefined'
+    ? window.matchMedia('(max-width: 767px)').matches
+    : false;
 
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
@@ -86,6 +102,9 @@ const PythonReviewModal = ({
   const collabYTextRef = useRef(null);
   const collabStateMapRef = useRef(null);
   const collabRunMapRef = useRef(null);
+  const runnerWorkerRef = useRef(null);
+  const runnerPendingRef = useRef(new Map());
+  const runnerWarmupStartedRef = useRef(false);
 
   const questionCodeByIdRef = useRef({});
   const questionCodeLoadingByIdRef = useRef({});
@@ -377,6 +396,36 @@ const PythonReviewModal = ({
     });
   }, []);
 
+  const publishSharedRunState = useCallback((payload) => {
+    const runMap = collabRunMapRef.current;
+    const doc = collabDocRef.current;
+    if (!runMap || !doc) {
+      setSharedRunState((prev) => ({
+        status: Object.prototype.hasOwnProperty.call(payload, 'status') ? String(payload.status || 'idle') : prev.status,
+        author: Object.prototype.hasOwnProperty.call(payload, 'author') ? String(payload.author || '') : prev.author,
+        summary: Object.prototype.hasOwnProperty.call(payload, 'summary') ? String(payload.summary || '') : prev.summary,
+        ts: Object.prototype.hasOwnProperty.call(payload, 'ts')
+          ? (Number.isFinite(Number(payload.ts)) ? Number(payload.ts) : null)
+          : prev.ts,
+      }));
+      return;
+    }
+    doc.transact(() => {
+      if (Object.prototype.hasOwnProperty.call(payload, 'status')) {
+        runMap.set('status', String(payload.status || 'idle'));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'author')) {
+        runMap.set('author', String(payload.author || ''));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'summary')) {
+        runMap.set('summary', String(payload.summary || ''));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'ts')) {
+        runMap.set('ts', Number.isFinite(Number(payload.ts)) ? Number(payload.ts) : null);
+      }
+    });
+  }, []);
+
   const setInputInCollab = useCallback((nextInput) => {
     const stateMap = collabStateMapRef.current;
     const doc = collabDocRef.current;
@@ -416,6 +465,9 @@ const PythonReviewModal = ({
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
+    setTestResults([]);
+    setRunnerError('');
+    setExpandedTestIndex(null);
     if (studentId) {
       api.getSolvedQuestions(studentId, task.number, PYTHON_LEVEL_ID, { includeCode: true })
         .then((payload) => {
@@ -625,11 +677,321 @@ const PythonReviewModal = ({
     const currentId = String(currentQuestion?.id ?? currentIndex).trim();
     if (!currentId) return;
     loadQuestionCode(currentQuestion, currentId).catch(() => {});
+    setTestResults([]);
+    setRunnerError('');
+    setExpandedTestIndex(null);
   }, [studentId, task?.number, questions, currentIndex, solvedCodeById]);
 
   useEffect(() => {
     setEditorReady(false);
   }, [collabRoomId]);
+
+  const mergeRuntimeErrors = useCallback((primary, secondary) => {
+    if (typeof mergeRuntimeErrorText === 'function') {
+      return mergeRuntimeErrorText(primary, secondary);
+    }
+    const head = String(primary || '').trim();
+    const tail = String(secondary || '').trim();
+    if (!head) return tail;
+    if (!tail) return head;
+    return `${head}\n${tail}`;
+  }, [mergeRuntimeErrorText]);
+
+  const resolvePendingRuns = (message) => {
+    runnerPendingRef.current.forEach((entry) => {
+      clearTimeout(entry.timer);
+      const output = typeof entry.output === 'string' ? entry.output : '';
+      const error = mergeRuntimeErrors(entry.error, message);
+      if (typeof entry.onProgress === 'function') {
+        entry.onProgress({ output, error, done: true });
+      }
+      entry.resolve({ output, error });
+    });
+    runnerPendingRef.current.clear();
+  };
+
+  const disposeRunnerWorker = (message) => {
+    if (runnerWorkerRef.current) {
+      runnerWorkerRef.current.terminate();
+      runnerWorkerRef.current = null;
+    }
+    if (message) resolvePendingRuns(message);
+  };
+
+  const ensureRunnerWorker = () => {
+    if (typeof Worker === 'undefined' || typeof createPyodideWorker !== 'function') return null;
+    if (runnerWorkerRef.current) return runnerWorkerRef.current;
+    try {
+      const worker = createPyodideWorker();
+      worker.onmessage = (event) => {
+        const data = event.data || {};
+        const pending = runnerPendingRef.current.get(data.id);
+        if (!pending) return;
+        const messageType = typeof data.type === 'string' ? data.type : 'result';
+        if (messageType === 'stdout' || messageType === 'stderr') {
+          const chunk = typeof data.chunk === 'string' ? data.chunk : String(data.chunk ?? '');
+          if (!chunk) return;
+          if (messageType === 'stdout') pending.output = `${pending.output || ''}${chunk}`;
+          else pending.error = `${pending.error || ''}${chunk}`;
+          if (typeof pending.onProgress === 'function') {
+            pending.onProgress({
+              output: pending.output || '',
+              error: pending.error || '',
+              done: false,
+            });
+          }
+          return;
+        }
+        clearTimeout(pending.timer);
+        runnerPendingRef.current.delete(data.id);
+        const output = typeof data.output === 'string'
+          ? data.output
+          : (data.output ? String(data.output) : (pending.output || ''));
+        const error = typeof data.error === 'string'
+          ? data.error
+          : (data.error ? String(data.error) : (pending.error || ''));
+        if (typeof pending.onProgress === 'function') {
+          pending.onProgress({ output, error, done: true });
+        }
+        pending.resolve({ output, error });
+      };
+      worker.onerror = () => disposeRunnerWorker('Ошибка выполнения Python.');
+      worker.onmessageerror = () => disposeRunnerWorker('Ошибка выполнения Python.');
+      runnerWorkerRef.current = worker;
+      return worker;
+    } catch {
+      return null;
+    }
+  };
+
+  useEffect(() => () => disposeRunnerWorker('Python runner stopped.'), []);
+
+  const runPythonInMainThread = async (source, inputValue) => {
+    if (typeof ensurePyodideReady !== 'function') {
+      return { output: '', error: 'Pyodide недоступен.' };
+    }
+    const pyodide = await ensurePyodideReady();
+    const wrapped = [
+      'import sys, io, traceback',
+      `_input = ${JSON.stringify(String(inputValue ?? ''))}`,
+      '_stdout = io.StringIO()',
+      '_stderr = io.StringIO()',
+      'sys.stdin = io.StringIO(_input)',
+      'sys.stdout = _stdout',
+      'sys.stderr = _stderr',
+      '_globals = {}',
+      'try:',
+      `    exec(${JSON.stringify(String(source ?? ''))}, _globals, _globals)`,
+      'except Exception:',
+      '    traceback.print_exc()',
+      '__output = _stdout.getvalue()',
+      '__error = _stderr.getvalue()',
+    ].join('\n');
+    await pyodide.runPythonAsync(wrapped);
+    const output = pyodide.globals.get('__output') || '';
+    const error = pyodide.globals.get('__error') || '';
+    pyodide.globals.delete('__output');
+    pyodide.globals.delete('__error');
+    return { output: String(output), error: String(error) };
+  };
+
+  const runPythonCode = async (source, inputValue, onProgress = null) => {
+    const worker = ensureRunnerWorker();
+    if (worker) {
+      const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      return new Promise((resolve) => {
+        const timeoutMs = Number(PYODIDE_RUN_TIMEOUT_MS) || 15000;
+        const timer = setTimeout(() => {
+          const pending = runnerPendingRef.current.get(id);
+          if (!pending) return;
+          runnerPendingRef.current.delete(id);
+          const timeoutMessage = `Превышено время выполнения (${Math.round(timeoutMs / 1000)} сек).`;
+          const output = pending.output || '';
+          const error = mergeRuntimeErrors(pending.error, timeoutMessage);
+          if (typeof pending.onProgress === 'function') {
+            pending.onProgress({ output, error, done: true });
+          }
+          resolve({ output, error });
+          disposeRunnerWorker('Превышено время выполнения.');
+        }, timeoutMs);
+        runnerPendingRef.current.set(id, {
+          resolve,
+          timer,
+          output: '',
+          error: '',
+          onProgress: typeof onProgress === 'function' ? onProgress : null,
+        });
+        worker.postMessage({ id, source, input: inputValue });
+      });
+    }
+    if (!ALLOW_MAIN_THREAD_PYTHON_FALLBACK) {
+      return {
+        output: '',
+        error: 'Не удалось запустить Python в изолированном режиме. Перезагрузите страницу.'
+      };
+    }
+    return runPythonInMainThread(source, inputValue);
+  };
+
+  useEffect(() => {
+    if (runnerWarmupStartedRef.current) return;
+    runnerWarmupStartedRef.current = true;
+    runPythonCode('pass', '').catch(() => {});
+  }, []);
+
+  const handleRunTests = async () => {
+    const currentQuestion = questions[currentIndex];
+    if (!currentQuestion) return;
+    const currentId = String(currentQuestion?.id ?? currentIndex).trim();
+    const entry = getQuestionCodeEntry(currentId, questionCodeById);
+    const fallbackSolvedCode = typeof solvedCodeById?.[currentId] === 'string' ? solvedCodeById[currentId] : '';
+    const fallbackStarterCode = typeof currentQuestion?.starterCode === 'string' ? currentQuestion.starterCode : '';
+    const currentCode = entry.loaded ? entry.code : (fallbackSolvedCode || fallbackStarterCode);
+    if (!String(currentCode || '').trim()) return;
+
+    flushScheduledQuestionSave();
+    if (currentId) {
+      await saveQuestionCode(currentId).catch(() => {});
+    }
+
+    setRunnerLoading(true);
+    setRunnerError('');
+    publishSharedRunState({
+      status: 'running',
+      author: localCollabName,
+      summary: 'Запуск тестов...',
+      ts: Date.now(),
+    });
+
+    const rawTests = Array.isArray(currentQuestion.tests)
+      ? currentQuestion.tests
+      : (currentQuestion.answer ? [{ input: '', output: currentQuestion.answer }] : []);
+    const hasExpectedOutputs = rawTests.every((test) => (
+      Object.prototype.hasOwnProperty.call(test || {}, 'output')
+    ));
+    const sanitizedTests = rawTests.map((test) => ({
+      input: String(test?.input ?? ''),
+      output: hasExpectedOutputs ? String(test?.output ?? '') : '',
+    }));
+
+    if (sanitizedTests.length === 0) {
+      setRunnerLoading(false);
+      setRunnerError('Для этой задачи пока нет тестов.');
+      setTestResults([]);
+      publishSharedRunState({
+        status: 'error',
+        author: localCollabName,
+        summary: 'Тесты для задачи не настроены.',
+        ts: Date.now(),
+      });
+      return;
+    }
+
+    const normalizeOutputForComparisonSafe = typeof normalizeOutputForComparison === 'function'
+      ? normalizeOutputForComparison
+      : (value) => String(value ?? '').replace(/\r\n/g, '\n').trim();
+    const normalizeRuntimeErrorForCheckSafe = typeof normalizeRuntimeErrorForCheck === 'function'
+      ? normalizeRuntimeErrorForCheck
+      : (value) => String(value ?? '').trim();
+
+    try {
+      const resultsList = [];
+      for (const test of sanitizedTests) {
+        const res = await runPythonCode(currentCode, test.input);
+        const normalizedOut = normalizeOutputForComparisonSafe(res.output);
+        const normalizedExpected = normalizeOutputForComparisonSafe(test.output);
+        const runtimeErrorText = normalizeRuntimeErrorForCheckSafe(res.error);
+        const hasRuntimeError = runtimeErrorText.length > 0;
+        const failReason = hasRuntimeError
+          ? 'runtime'
+          : (normalizedOut === normalizedExpected ? '' : 'mismatch');
+        const passed = hasExpectedOutputs
+          ? failReason === ''
+          : undefined;
+        resultsList.push({
+          input: test.input,
+          expected: test.output,
+          output: res.output,
+          error: runtimeErrorText,
+          passed,
+          failReason,
+        });
+      }
+
+      setTestResults(resultsList);
+      const passedCount = resultsList.filter((item) => item.passed === true).length;
+      const runtimeErrorCount = resultsList.filter((item) => String(item.error || '').trim().length > 0).length;
+      const baseSummary = hasExpectedOutputs
+        ? `${passedCount}/${resultsList.length} тестов пройдено`
+        : `Запуск завершен (${resultsList.length} проверок)`;
+      const runSummary = runtimeErrorCount > 0
+        ? `${baseSummary}, ошибок выполнения: ${runtimeErrorCount}`
+        : baseSummary;
+
+      publishSharedRunState({
+        status: 'done',
+        author: localCollabName,
+        summary: runSummary,
+        ts: Date.now(),
+      });
+
+      const allPassed = hasExpectedOutputs
+        && resultsList.length > 0
+        && resultsList.every((item) => item.passed === true);
+      const canSubmitWithoutExpected = !hasExpectedOutputs
+        && resultsList.length > 0
+        && resultsList.every((item) => !String(item.error ?? '').trim());
+      const shouldSubmit = allPassed || canSubmitWithoutExpected;
+
+      if (shouldSubmit && studentId) {
+        try {
+          await api.solveQuestion({
+            studentId,
+            taskNumber: task.number,
+            levelId: PYTHON_LEVEL_ID,
+            questionId: currentQuestion.id,
+            totalQuestions: questions.length,
+            levelMax: 100,
+            levelTotals: { [PYTHON_LEVEL_ID]: questions.length },
+            code: currentCode,
+            localDay: typeof getLocalDayKey === 'function' ? getLocalDayKey() : undefined,
+            pythonResults: resultsList.map((item) => ({
+              input: String(item?.input ?? ''),
+              output: String(item?.output ?? ''),
+              error: String(item?.error ?? ''),
+            })),
+          });
+          setSolvedIds((prev) => {
+            const next = new Set(prev);
+            next.add(currentId);
+            return next;
+          });
+          setSolvedCodeById((prev) => ({ ...prev, [currentId]: currentCode }));
+        } catch (err) {
+          const message = String(err?.message || err || 'Не удалось сохранить результат');
+          setRunnerError(message);
+          publishSharedRunState({
+            status: 'error',
+            author: localCollabName,
+            summary: message,
+            ts: Date.now(),
+          });
+          return;
+        }
+      }
+    } catch (err) {
+      const message = String(err?.message || err || 'Ошибка запуска');
+      setRunnerError(message);
+      publishSharedRunState({
+        status: 'error',
+        author: localCollabName,
+        summary: message,
+        ts: Date.now(),
+      });
+    } finally {
+      setRunnerLoading(false);
+    }
+  };
 
 
   if (!task) return null;
@@ -681,6 +1043,17 @@ const PythonReviewModal = ({
   const updatedAtLabel = questionCodeEntry.updatedAt
     ? new Date(questionCodeEntry.updatedAt).toLocaleString('ru-RU')
     : '';
+  const rawTests = Array.isArray(currentQuestion?.tests)
+    ? currentQuestion.tests
+    : (currentQuestion?.answer ? [{ input: '', output: currentQuestion.answer }] : []);
+  const testsToShow = rawTests.map((test) => ({
+    input: String(test?.input ?? ''),
+    output: String(test?.output ?? ''),
+  }));
+  const solvedAllTests = isSolved && testResults.length === 0;
+  const formatOutput = typeof normalizeOutput === 'function'
+    ? normalizeOutput
+    : (value) => String(value ?? '');
   const theory = testDb?.[task.number]?.pythonTheory || null;
   const theoryFullUrl = theory?.type === 'gdoc' ? buildGoogleDocFullUrl(theory.content) : '';
   const editorOptions = {
@@ -859,6 +1232,89 @@ const PythonReviewModal = ({
             </div>
 
             {questionCodeError && <div className="text-xs text-red-500">{questionCodeError}</div>}
+
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="text-xs font-bold text-gray-400 uppercase">{'Тесты'}</div>
+                <Button
+                  onClick={handleRunTests}
+                  disabled={runnerLoading || questionCodeLoading || !String(code || '').trim()}
+                  className="w-full sm:w-auto"
+                >
+                  {runnerLoading ? 'Запуск...' : 'Запустить тесты'}
+                </Button>
+              </div>
+
+              {runnerError && (
+                <div className="text-sm text-red-500">{runnerError}</div>
+              )}
+
+              {testsToShow.length === 0 ? (
+                <div className="text-sm text-gray-500">Тесты для этой задачи не добавлены.</div>
+              ) : (
+                <div className="space-y-2">
+                  {testsToShow.map((item, idx) => {
+                    const result = testResults[idx];
+                    const passed = result?.passed ?? (solvedAllTests ? true : undefined);
+                    const showDetails = !isMobileViewport || Boolean(result) || expandedTestIndex === idx;
+                    return (
+                      <div
+                        key={`${idx}-${item.input}`}
+                        className={`rounded-2xl border p-2.5 text-xs sm:text-sm ${
+                          passed === undefined
+                            ? 'border-gray-200 bg-gray-50'
+                            : (passed ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50')
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold">Тест {idx + 1}</span>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[11px] font-bold ${
+                              passed === undefined ? 'text-gray-400' : (passed ? 'text-emerald-700' : 'text-red-600')
+                            }`}>
+                              {passed === undefined ? '—' : (passed ? 'OK' : 'Ошибка')}
+                            </span>
+                            {isMobileViewport && !result && (
+                              <button
+                                type="button"
+                                onClick={() => setExpandedTestIndex((prev) => (prev === idx ? null : idx))}
+                                className="text-[11px] font-semibold text-purple-600"
+                              >
+                                {showDetails ? 'Скрыть' : 'Детали'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {showDetails && (
+                          <div className="mt-1.5 text-[11px] text-gray-600">
+                            <div>
+                              <span className="font-semibold">Вход:</span>
+                              <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-[11px]">{item.input || '—'}</pre>
+                            </div>
+                            <div>
+                              <span className="font-semibold">Ожидалось:</span>
+                              <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-[11px]">{item.output || '—'}</pre>
+                            </div>
+                            {result && (
+                              <>
+                                <div>
+                                  <span className="font-semibold">Вывод:</span>
+                                  <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-[11px]">{formatOutput(result.output) || '—'}</pre>
+                                </div>
+                                {result.error && <div className="text-red-600 mt-1">{result.error}</div>}
+                                {!result.error && result.passed === false && result.failReason === 'mismatch' && (
+                                  <div className="text-red-600 mt-1">Вывод отличается от ожидаемого из-за скрытых символов/форматирования.</div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           {!isSolved && (
