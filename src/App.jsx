@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
+﻿import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-python';
@@ -13,7 +13,7 @@ import {
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   ChevronsLeft, ChevronsRight,
-  Bell, BellOff, MousePointer2, Code2, MoreHorizontal
+  Bell, BellOff, MousePointer2, Code2, MoreHorizontal, MessageSquare
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
 import mascotDisapproval from './assets/mascot/disapproval.png';
@@ -39,6 +39,7 @@ import PythonSection from './components/PythonSection';
 import ScheduleSection from './components/ScheduleSection';
 import StudentLeaderboardSection from './components/StudentLeaderboardSection';
 import StudentTour from './components/StudentTour';
+import SignupGuestChat from './components/SignupGuestChat';
 import TeacherPanel from './components/TeacherPanel';
 import ThemeToggleButton from './components/ThemeToggleButton';
 import { Button, Card, ProgressBar } from './components/ui';
@@ -69,9 +70,9 @@ const leagueBlank = optionalLeagueIcons['./assets/leagues/blank.png'] || null;
  */
 
 const LEVELS = {
-  BASIC: { id: 'basic', label: 'Обязательный', maxScore: 70, color: 'bg-blue-100 text-blue-700 border-blue-200' },
-  ADVANCED: { id: 'advanced', label: 'Продвинутый', maxScore: 90, color: 'bg-purple-100 text-purple-700 border-purple-200' },
-  EXPERT: { id: 'expert', label: 'Чтоб наверняка', maxScore: 100, color: 'bg-red-100 text-red-700 border-red-200' }
+  BASIC: { id: 'basic', label: 'РћР±СЏР·Р°С‚РµР»СЊРЅС‹Р№', maxScore: 70, color: 'bg-blue-100 text-blue-700 border-blue-200' },
+  ADVANCED: { id: 'advanced', label: 'РџСЂРѕРґРІРёРЅСѓС‚С‹Р№', maxScore: 90, color: 'bg-purple-100 text-purple-700 border-purple-200' },
+  EXPERT: { id: 'expert', label: 'Р§С‚РѕР± РЅР°РІРµСЂРЅСЏРєР°', maxScore: 100, color: 'bg-red-100 text-red-700 border-red-200' }
 };
 const LEVEL_WEIGHTS = {
   basic: 70,
@@ -85,15 +86,15 @@ const GOAL_TYPE_TASK = 'task';
 const GOAL_TYPE_MOCK = 'mock';
 const XP_PER_LEVEL = 1000;
 const LEAGUE_TIERS = [
-  { id: 'celestial', label: 'Целестиал', minXp: 80000, icon: leagueCelestial },
-  { id: 'absolute', label: 'Абсолют', minXp: 40000, icon: leagueAbsolute },
-  { id: 'ruby', label: 'Рубиновая лига', minXp: 25000, icon: leagueRuby },
-  { id: 'diamond', label: 'Алмазная лига', minXp: 20000, icon: leagueDiamond },
-  { id: 'gold', label: 'Золотая лига', minXp: 15000, icon: leagueGold },
-  { id: 'silver', label: 'Серебряная лига', minXp: 10000, icon: leagueSilver },
-  { id: 'bronze', label: 'Бронзовая лига', minXp: 5000, icon: leagueBronze },
+  { id: 'celestial', label: 'Р¦РµР»РµСЃС‚РёР°Р»', minXp: 80000, icon: leagueCelestial },
+  { id: 'absolute', label: 'РђР±СЃРѕР»СЋС‚', minXp: 40000, icon: leagueAbsolute },
+  { id: 'ruby', label: 'Р СѓР±РёРЅРѕРІР°СЏ Р»РёРіР°', minXp: 25000, icon: leagueRuby },
+  { id: 'diamond', label: 'РђР»РјР°Р·РЅР°СЏ Р»РёРіР°', minXp: 20000, icon: leagueDiamond },
+  { id: 'gold', label: 'Р—РѕР»РѕС‚Р°СЏ Р»РёРіР°', minXp: 15000, icon: leagueGold },
+  { id: 'silver', label: 'РЎРµСЂРµР±СЂСЏРЅР°СЏ Р»РёРіР°', minXp: 10000, icon: leagueSilver },
+  { id: 'bronze', label: 'Р‘СЂРѕРЅР·РѕРІР°СЏ Р»РёРіР°', minXp: 5000, icon: leagueBronze },
 ];
-const BLANK_LEAGUE = { id: 'blank', label: 'Без лиги', minXp: 0, icon: leagueBlank };
+const BLANK_LEAGUE = { id: 'blank', label: 'Р‘РµР· Р»РёРіРё', minXp: 0, icon: leagueBlank };
 const COLLAB_COLORS = ['#7c3aed', '#2563eb', '#0ea5e9', '#10b981', '#f97316', '#ef4444'];
 const BOARD_COLORS = ['#0f172a', '#7c3aed', '#2563eb', '#0ea5e9', '#10b981', '#f97316', '#ef4444'];
 const BOARD_STROKE_WIDTH = 2.6;
@@ -122,22 +123,22 @@ const BOARD_VIEWPORT_SAVE_DEBOUNCE_MS = 160;
 const COLLAB_SNIPPETS = [
   {
     prefix: 'for',
-    description: 'Цикл for по range',
+    description: 'Р¦РёРєР» for РїРѕ range',
     snippet: 'for ${1:i} in range(${2:n}):\n    ${0:pass}',
   },
   {
     prefix: 'if',
-    description: 'Условный блок if',
+    description: 'РЈСЃР»РѕРІРЅС‹Р№ Р±Р»РѕРє if',
     snippet: 'if ${1:condition}:\n    ${0:pass}',
   },
   {
     prefix: 'def',
-    description: 'Шаблон функции',
+    description: 'РЁР°Р±Р»РѕРЅ С„СѓРЅРєС†РёРё',
     snippet: 'def ${1:solve}(${2}) -> ${3:None}:\n    ${0:pass}',
   },
   {
     prefix: 'while',
-    description: 'Цикл while',
+    description: 'Р¦РёРєР» while',
     snippet: 'while ${1:condition}:\n    ${0:pass}',
   },
 ];
@@ -849,6 +850,34 @@ const DESKTOP_NAV_COLLAPSED_KEY = 'ege_desktop_nav_collapsed_v1';
 const PACE_FORECAST_SESSION_KEY_PREFIX = 'ege_pace_forecast_dismissed_v1';
 const PACE_FORECAST_LAST_SHOWN_KEY_PREFIX = 'ege_pace_forecast_last_shown_v1';
 const PACE_FORECAST_REMINDER_INTERVAL_MS = 48 * 60 * 60 * 1000;
+const TEACHER_SIGNUP_NOTIFY_PREF_KEY = 'ege_teacher_signup_notify_enabled';
+
+const isBrowserNotificationsSupported = () => (
+  typeof window !== 'undefined'
+  && typeof Notification !== 'undefined'
+);
+
+const getBrowserNotificationPermission = () => (
+  isBrowserNotificationsSupported() ? (Notification.permission || 'default') : 'default'
+);
+
+const readTeacherSignupNotifyPreference = () => {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    return localStorage.getItem(TEACHER_SIGNUP_NOTIFY_PREF_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+
+const writeTeacherSignupNotifyPreference = (enabled) => {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(TEACHER_SIGNUP_NOTIFY_PREF_KEY, enabled ? '1' : '0');
+  } catch {
+    // ignore storage errors
+  }
+};
 
 const buildUserLocationKey = (user) => {
   if (!user) return '';
@@ -967,19 +996,19 @@ const normalizeStoredOpenTask = (entry) => {
   };
 };
 
-// Заглушка списка заданий
+// Р—Р°РіР»СѓС€РєР° СЃРїРёСЃРєР° Р·Р°РґР°РЅРёР№
 const RAW_TASKS = Array.from({ length: 27 }, (_, i) => ({
   id: i + 1,
   number: i + 1,
   title: [
-    "Анализ информационных моделей", "Таблицы истинности", "Поиск в БД", "Кодирование (Фано)", 
-    "Анализ алгоритмов", "Циклы", "Изображения/Звук", "Комбинаторика", "Excel", "Word", 
-    "Вычисление информации", "Исполнители", "Графы", "Системы счисления", "Алгебра логики", 
-    "Рекурсия", "Последовательности", "Робот (ДП)", "Теория игр (1)", "Теория игр (2)", 
-    "Теория игр (3)", "Многопроцессорные", "Динамика (Исполнитель)", "Строки", "Маски чисел", 
-    "Жадные алгоритмы", "Анализ данных (Сложная)"
-  ][i] || `Задание ${i + 1}`,
-  topic: "Тема задания",
+    "РђРЅР°Р»РёР· РёРЅС„РѕСЂРјР°С†РёРѕРЅРЅС‹С… РјРѕРґРµР»РµР№", "РўР°Р±Р»РёС†С‹ РёСЃС‚РёРЅРЅРѕСЃС‚Рё", "РџРѕРёСЃРє РІ Р‘Р”", "РљРѕРґРёСЂРѕРІР°РЅРёРµ (Р¤Р°РЅРѕ)", 
+    "РђРЅР°Р»РёР· Р°Р»РіРѕСЂРёС‚РјРѕРІ", "Р¦РёРєР»С‹", "РР·РѕР±СЂР°Р¶РµРЅРёСЏ/Р—РІСѓРє", "РљРѕРјР±РёРЅР°С‚РѕСЂРёРєР°", "Excel", "Word", 
+    "Р’С‹С‡РёСЃР»РµРЅРёРµ РёРЅС„РѕСЂРјР°С†РёРё", "РСЃРїРѕР»РЅРёС‚РµР»Рё", "Р“СЂР°С„С‹", "РЎРёСЃС‚РµРјС‹ СЃС‡РёСЃР»РµРЅРёСЏ", "РђР»РіРµР±СЂР° Р»РѕРіРёРєРё", 
+    "Р РµРєСѓСЂСЃРёСЏ", "РџРѕСЃР»РµРґРѕРІР°С‚РµР»СЊРЅРѕСЃС‚Рё", "Р РѕР±РѕС‚ (Р”Рџ)", "РўРµРѕСЂРёСЏ РёРіСЂ (1)", "РўРµРѕСЂРёСЏ РёРіСЂ (2)", 
+    "РўРµРѕСЂРёСЏ РёРіСЂ (3)", "РњРЅРѕРіРѕРїСЂРѕС†РµСЃСЃРѕСЂРЅС‹Рµ", "Р”РёРЅР°РјРёРєР° (РСЃРїРѕР»РЅРёС‚РµР»СЊ)", "РЎС‚СЂРѕРєРё", "РњР°СЃРєРё С‡РёСЃРµР»", 
+    "Р–Р°РґРЅС‹Рµ Р°Р»РіРѕСЂРёС‚РјС‹", "РђРЅР°Р»РёР· РґР°РЅРЅС‹С… (РЎР»РѕР¶РЅР°СЏ)"
+  ][i] || `Р—Р°РґР°РЅРёРµ ${i + 1}`,
+  topic: "РўРµРјР° Р·Р°РґР°РЅРёСЏ",
   mastery: 0
 }));
 
@@ -989,26 +1018,26 @@ const MOCK_TASKS = RAW_TASKS
     if (task.number === GAME_THEORY_TASK) {
       return {
         ...task,
-        title: '19-21 - Теория Игр',
+        title: '19-21 - РўРµРѕСЂРёСЏ РРіСЂ',
         displayNumber: '19-21',
       };
     }
     return task;
   });
 
-// Начальная база вопросов
+// РќР°С‡Р°Р»СЊРЅР°СЏ Р±Р°Р·Р° РІРѕРїСЂРѕСЃРѕРІ
 const PYTHON_TASKS = [
-  { id: 101, number: 101, title: 'Ввод и вывод данных', displayNumber: '1.0' },
-  { id: 102, number: 102, title: 'Переменные', displayNumber: '1.1' },
-  { id: 103, number: 103, title: 'Условия', displayNumber: '2' },
-  { id: 104, number: 104, title: 'Вычисления', displayNumber: '3' },
-  { id: 105, number: 105, title: 'Цикл for', displayNumber: '4' },
-  { id: 106, number: 106, title: 'Строки', displayNumber: '5' },
-  { id: 107, number: 107, title: 'Цикл while', displayNumber: '6' },
-  { id: 108, number: 108, title: 'Списки', displayNumber: '7.0' },
-  { id: 109, number: 109, title: 'Кортежи', displayNumber: '7.1' },
-  { id: 110, number: 110, title: 'Функции и рекурсия', displayNumber: '8' },
-  { id: 111, number: 111, title: 'Двумерные массивы', displayNumber: '9' }
+  { id: 101, number: 101, title: 'Р’РІРѕРґ Рё РІС‹РІРѕРґ РґР°РЅРЅС‹С…', displayNumber: '1.0' },
+  { id: 102, number: 102, title: 'РџРµСЂРµРјРµРЅРЅС‹Рµ', displayNumber: '1.1' },
+  { id: 103, number: 103, title: 'РЈСЃР»РѕРІРёСЏ', displayNumber: '2' },
+  { id: 104, number: 104, title: 'Р’С‹С‡РёСЃР»РµРЅРёСЏ', displayNumber: '3' },
+  { id: 105, number: 105, title: 'Р¦РёРєР» for', displayNumber: '4' },
+  { id: 106, number: 106, title: 'РЎС‚СЂРѕРєРё', displayNumber: '5' },
+  { id: 107, number: 107, title: 'Р¦РёРєР» while', displayNumber: '6' },
+  { id: 108, number: 108, title: 'РЎРїРёСЃРєРё', displayNumber: '7.0' },
+  { id: 109, number: 109, title: 'РљРѕСЂС‚РµР¶Рё', displayNumber: '7.1' },
+  { id: 110, number: 110, title: 'Р¤СѓРЅРєС†РёРё Рё СЂРµРєСѓСЂСЃРёСЏ', displayNumber: '8' },
+  { id: 111, number: 111, title: 'Р”РІСѓРјРµСЂРЅС‹Рµ РјР°СЃСЃРёРІС‹', displayNumber: '9' }
 ];
 
 const PYTHON_TASK_MAP = new Map(PYTHON_TASKS.map((task) => [Number(task.number), task]));
@@ -1023,7 +1052,7 @@ const ensurePyodideReady = (() => {
     if (pyodidePromise) return pyodidePromise;
     pyodidePromise = new Promise((resolve, reject) => {
       if (typeof window === 'undefined') {
-        reject(new Error('Pyodide доступен только в браузере.'));
+        reject(new Error('Pyodide РґРѕСЃС‚СѓРїРµРЅ С‚РѕР»СЊРєРѕ РІ Р±СЂР°СѓР·РµСЂРµ.'));
         return;
       }
       if (window.loadPyodide) {
@@ -1037,14 +1066,14 @@ const ensurePyodideReady = (() => {
       script.async = true;
       script.onload = () => {
         if (!window.loadPyodide) {
-          reject(new Error('Не удалось загрузить Pyodide.'));
+          reject(new Error('РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ Pyodide.'));
           return;
         }
         window.loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/' })
           .then(resolve)
           .catch(reject);
       };
-      script.onerror = () => reject(new Error('Ошибка загрузки Pyodide.'));
+      script.onerror = () => reject(new Error('РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё Pyodide.'));
       document.body.appendChild(script);
     });
     return pyodidePromise;
@@ -1219,9 +1248,9 @@ const normalizeDebugTrace = (value) => {
   });
 };
 
-const PY_IDLE_STDIN_HEADER = '[Ввод]';
-const PY_IDLE_STDOUT_HEADER = '[Вывод]';
-const PY_IDLE_STDERR_HEADER = '[Ошибки]';
+const PY_IDLE_STDIN_HEADER = '[Р’РІРѕРґ]';
+const PY_IDLE_STDOUT_HEADER = '[Р’С‹РІРѕРґ]';
+const PY_IDLE_STDERR_HEADER = '[РћС€РёР±РєРё]';
 
 const normalizeIdleConsoleText = (value) => String(value ?? '').replace(/\r\n/g, '\n');
 
@@ -1230,14 +1259,14 @@ const buildIdleConsoleText = (inputValue, outputValue, errorValue) => {
   const output = normalizeIdleConsoleText(outputValue);
   const error = normalizeIdleConsoleText(errorValue);
   return [
-    `${PY_IDLE_STDIN_HEADER} Введите данные для input():`,
+    `${PY_IDLE_STDIN_HEADER} Р’РІРµРґРёС‚Рµ РґР°РЅРЅС‹Рµ РґР»СЏ input():`,
     input,
     '',
     PY_IDLE_STDOUT_HEADER,
-    output || 'Вывод пуст',
+    output || 'Р’С‹РІРѕРґ РїСѓСЃС‚',
     '',
     PY_IDLE_STDERR_HEADER,
-    error || 'Ошибок нет',
+    error || 'РћС€РёР±РѕРє РЅРµС‚',
   ].join('\n');
 };
 
@@ -1496,12 +1525,12 @@ const createPyodideWorker = () => {
         '                _tb = _tb.tb_next',
         '            _line_no = int(getattr(_tb, "tb_lineno", 0) or 0)',
         '            if _line_no > 0:',
-        '                print(f"\\\\n[DEBUG] Ошибка на строке: {_line_no}")',
+        '                print(f"\\\\n[DEBUG] РћС€РёР±РєР° РЅР° СЃС‚СЂРѕРєРµ: {_line_no}")',
         '                if _line_no <= len(_source_lines):',
-        '                    print(f"[DEBUG] Код: {_source_lines[_line_no - 1]}")',
+        '                    print(f"[DEBUG] РљРѕРґ: {_source_lines[_line_no - 1]}")',
         '            _locals_items = list(getattr(_tb.tb_frame, "f_locals", {}).items())',
         '            if _locals_items:',
-        '                print("[DEBUG] Локальные переменные:")',
+        '                print("[DEBUG] Р›РѕРєР°Р»СЊРЅС‹Рµ РїРµСЂРµРјРµРЅРЅС‹Рµ:")',
         '                for _idx, (_name, _value) in enumerate(_locals_items):',
         '                    if _idx >= 50:',
         '                        print("  ...")',
@@ -1607,8 +1636,8 @@ const createPyodideWorker = () => {
 const INITIAL_TEST_DB = {
   1: {
     basic: [
-      { id: 1, question: "Базовый вопрос №1 для задания 1: Найдите длину пути А-Д.", options: ["10", "12", "14", "15"], correctIndex: 1 },
-      { id: 2, question: "Базовый вопрос №2 для задания 1: Сколько путей из А в Г?", options: ["3", "4", "5", "6"], correctIndex: 2 }
+      { id: 1, question: "Р‘Р°Р·РѕРІС‹Р№ РІРѕРїСЂРѕСЃ в„–1 РґР»СЏ Р·Р°РґР°РЅРёСЏ 1: РќР°Р№РґРёС‚Рµ РґР»РёРЅСѓ РїСѓС‚Рё Рђ-Р”.", options: ["10", "12", "14", "15"], correctIndex: 1 },
+      { id: 2, question: "Р‘Р°Р·РѕРІС‹Р№ РІРѕРїСЂРѕСЃ в„–2 РґР»СЏ Р·Р°РґР°РЅРёСЏ 1: РЎРєРѕР»СЊРєРѕ РїСѓС‚РµР№ РёР· Рђ РІ Р“?", options: ["3", "4", "5", "6"], correctIndex: 2 }
     ],
     advanced: [],
     expert: []
@@ -1630,6 +1659,12 @@ const sanitizeAuthUserPayload = (value) => {
     const teacherId = value.teacherId;
     safe.teacherId = teacherId ? String(teacherId) : null;
   }
+  if (role === 'lead') {
+    const chatId = typeof value.chatId === 'string' ? value.chatId.trim() : '';
+    if (!chatId) return null;
+    safe.chatId = chatId;
+    safe.teacherId = value.teacherId ? String(value.teacherId) : null;
+  }
   return safe;
 };
 
@@ -1637,8 +1672,8 @@ const MAX_TASK_BYTES = 200 * 1024 * 1024;
 const HOMEWORK_POPUP_BG = '/homework-quest.png';
 
 const formatBytes = (bytes) => {
-  if (!Number.isFinite(bytes)) return '0 МБ';
-  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+  if (!Number.isFinite(bytes)) return '0 РњР‘';
+  return `${(bytes / (1024 * 1024)).toFixed(1)} РњР‘`;
 };
 
 const parseSizeString = (value) => {
@@ -1687,24 +1722,24 @@ const MASCOT_IMAGES = {
 const STUDENT_TOUR_STEPS = [
   {
     id: 'welcome',
-    title: 'Добро пожаловать!',
-    text: 'Покажу основные разделы и где искать материалы.',
+    title: 'Р”РѕР±СЂРѕ РїРѕР¶Р°Р»РѕРІР°С‚СЊ!',
+    text: 'РџРѕРєР°Р¶Сѓ РѕСЃРЅРѕРІРЅС‹Рµ СЂР°Р·РґРµР»С‹ Рё РіРґРµ РёСЃРєР°С‚СЊ РјР°С‚РµСЂРёР°Р»С‹.',
     emotion: 'greetings',
     target: '[data-tour="main"]',
     menu: 'close'
   },
   {
     id: 'nav',
-    title: 'Навигация',
-    text: 'На телефоне разделы переключаются внизу, на компьютере — в меню слева.',
+    title: 'РќР°РІРёРіР°С†РёСЏ',
+    text: 'РќР° С‚РµР»РµС„РѕРЅРµ СЂР°Р·РґРµР»С‹ РїРµСЂРµРєР»СЋС‡Р°СЋС‚СЃСЏ РІРЅРёР·Сѓ, РЅР° РєРѕРјРїСЊСЋС‚РµСЂРµ вЂ” РІ РјРµРЅСЋ СЃР»РµРІР°.',
     emotion: 'peeking',
     target: '[data-tour="nav"]',
     menu: 'close'
   },
   {
     id: 'schedule',
-    title: 'Расписание',
-    text: 'Здесь домашка и ссылки к следующему занятию.',
+    title: 'Р Р°СЃРїРёСЃР°РЅРёРµ',
+    text: 'Р—РґРµСЃСЊ РґРѕРјР°С€РєР° Рё СЃСЃС‹Р»РєРё Рє СЃР»РµРґСѓСЋС‰РµРјСѓ Р·Р°РЅСЏС‚РёСЋ.',
     emotion: 'approval',
     target: '[data-tour="schedule"]',
     view: 'schedule',
@@ -1712,8 +1747,8 @@ const STUDENT_TOUR_STEPS = [
   },
   {
     id: 'progress',
-    title: 'Успеваемость',
-    text: 'Следи за прогрессом по заданиям и пробным.',
+    title: 'РЈСЃРїРµРІР°РµРјРѕСЃС‚СЊ',
+    text: 'РЎР»РµРґРё Р·Р° РїСЂРѕРіСЂРµСЃСЃРѕРј РїРѕ Р·Р°РґР°РЅРёСЏРј Рё РїСЂРѕР±РЅС‹Рј.',
     emotion: 'pondering',
     target: '[data-tour="progress"]',
     view: 'progress',
@@ -1721,8 +1756,8 @@ const STUDENT_TOUR_STEPS = [
   },
   {
     id: 'notes',
-    title: 'Конспекты',
-    text: 'Здесь материалы по заданиям и твои файлы.',
+    title: 'РљРѕРЅСЃРїРµРєС‚С‹',
+    text: 'Р—РґРµСЃСЊ РјР°С‚РµСЂРёР°Р»С‹ РїРѕ Р·Р°РґР°РЅРёСЏРј Рё С‚РІРѕРё С„Р°Р№Р»С‹.',
     emotion: 'peeking',
     target: '[data-tour="notes"]',
     view: 'notes',
@@ -1730,8 +1765,8 @@ const STUDENT_TOUR_STEPS = [
   },
   {
     id: 'files',
-    title: 'Конспекты',
-    text: 'Выбери задание и категорию, затем загружай файлы сюда.',
+    title: 'РљРѕРЅСЃРїРµРєС‚С‹',
+    text: 'Р’С‹Р±РµСЂРё Р·Р°РґР°РЅРёРµ Рё РєР°С‚РµРіРѕСЂРёСЋ, Р·Р°С‚РµРј Р·Р°РіСЂСѓР¶Р°Р№ С„Р°Р№Р»С‹ СЃСЋРґР°.',
     emotion: 'approval',
     target: '[data-tour="files"]',
     fallback: '[data-tour="notes"]',
@@ -1740,8 +1775,8 @@ const STUDENT_TOUR_STEPS = [
   },
   {
     id: 'done',
-    title: 'Готово',
-    text: 'Если потеряешься — просто открой нужный раздел слева.',
+    title: 'Р“РѕС‚РѕРІРѕ',
+    text: 'Р•СЃР»Рё РїРѕС‚РµСЂСЏРµС€СЊСЃСЏ вЂ” РїСЂРѕСЃС‚Рѕ РѕС‚РєСЂРѕР№ РЅСѓР¶РЅС‹Р№ СЂР°Р·РґРµР» СЃР»РµРІР°.',
     emotion: 'approval',
     menu: 'close'
   }
@@ -1815,7 +1850,7 @@ const CollabSection = ({
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
   const roomId = effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null;
   const wsUrl = useMemo(() => getCollabWsUrl(), []);
-  const localName = userName || (isTeacher ? 'Учитель' : 'Ученик');
+  const localName = userName || (isTeacher ? 'РЈС‡РёС‚РµР»СЊ' : 'РЈС‡РµРЅРёРє');
   const localColor = useMemo(
     () => pickCollabColor(isTeacher ? `teacher-${teacherId}` : `student-${userId}`),
     [isTeacher, teacherId, userId]
@@ -1962,7 +1997,7 @@ const CollabSection = ({
       range: new monaco.Range(line, 1, line, 1),
       options: {
         glyphMarginClassName: 'collab-debug-breakpoint-glyph',
-        glyphMarginHoverMessage: [{ value: `Точка останова: строка ${line}` }],
+        glyphMarginHoverMessage: [{ value: `РўРѕС‡РєР° РѕСЃС‚Р°РЅРѕРІР°: СЃС‚СЂРѕРєР° ${line}` }],
       },
     }));
     debugBreakpointDecorationsRef.current = editor.deltaDecorations(
@@ -1988,7 +2023,7 @@ const CollabSection = ({
         isWholeLine: true,
         className: 'collab-debug-active-line',
         glyphMarginClassName: 'collab-debug-active-glyph',
-        glyphMarginHoverMessage: [{ value: `Текущая строка: ${safeLine}` }],
+        glyphMarginHoverMessage: [{ value: `РўРµРєСѓС‰Р°СЏ СЃС‚СЂРѕРєР°: ${safeLine}` }],
       },
     }]);
     editor.revealLineInCenterIfOutsideViewport?.(safeLine);
@@ -2061,7 +2096,7 @@ const CollabSection = ({
             label: ` ${hint.text}`,
             paddingLeft: true,
             paddingRight: false,
-            tooltip: 'Значение переменной в текущем шаге дебага',
+            tooltip: 'Р—РЅР°С‡РµРЅРёРµ РїРµСЂРµРјРµРЅРЅРѕР№ РІ С‚РµРєСѓС‰РµРј С€Р°РіРµ РґРµР±Р°РіР°',
           }));
         return { hints: hintsInRange, dispose: () => {} };
       },
@@ -2294,7 +2329,7 @@ const CollabSection = ({
               label: item.prefix,
               kind: monaco.languages.CompletionItemKind.Snippet,
               documentation: item.description,
-              detail: 'Сниппет',
+              detail: 'РЎРЅРёРїРїРµС‚',
               insertText: item.snippet,
               insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
               range,
@@ -2567,7 +2602,7 @@ const CollabSection = ({
       .catch((err) => {
         if (cancelled) return;
         setFolders([]);
-        setFoldersError(err?.message || 'Не удалось загрузить папки.');
+        setFoldersError(err?.message || 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РїР°РїРєРё.');
       })
       .finally(() => {
         if (!cancelled) setFoldersLoading(false);
@@ -2728,7 +2763,7 @@ const CollabSection = ({
   const handleCreateFolder = async () => {
     const name = newFolderName.trim();
     if (!name) {
-      setFoldersError('Введите название папки.');
+      setFoldersError('Р’РІРµРґРёС‚Рµ РЅР°Р·РІР°РЅРёРµ РїР°РїРєРё.');
       return;
     }
     if (!effectiveStudentId || !saveTaskNumber || !saveCategory) return;
@@ -2752,26 +2787,26 @@ const CollabSection = ({
     setSaveSuccess('');
     setSaveNameError(false);
     if (!effectiveStudentId) {
-      setSaveError('Сначала выберите ученика.');
+      setSaveError('РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°.');
       return;
     }
     if (!saveTaskNumber || !saveCategory) {
-      setSaveError('Выберите задание и категорию.');
+      setSaveError('Р’С‹Р±РµСЂРёС‚Рµ Р·Р°РґР°РЅРёРµ Рё РєР°С‚РµРіРѕСЂРёСЋ.');
       return;
     }
     const code = editorRef.current?.getValue?.() ?? '';
     if (!code.trim()) {
-      setSaveError('Код пустой.');
+      setSaveError('РљРѕРґ РїСѓСЃС‚РѕР№.');
       return;
     }
     const baseName = normalizeFileName(saveFileName);
     if (!baseName) {
-      setSaveError('Введите название файла.');
+      setSaveError('Р’РІРµРґРёС‚Рµ РЅР°Р·РІР°РЅРёРµ С„Р°Р№Р»Р°.');
       setSaveNameError(true);
       return;
     }
     let safeName = baseName;
-    const prefix = 'конспект-';
+    const prefix = 'РєРѕРЅСЃРїРµРєС‚-';
     if (!safeName.toLowerCase().startsWith(prefix)) {
       safeName = `${prefix}${safeName}`;
     }
@@ -2782,7 +2817,7 @@ const CollabSection = ({
     setSaveBusy(true);
     try {
       await api.uploadFile(file, Number(saveTaskNumber), saveCategory, saveFolderId || null, effectiveStudentId);
-      setSaveSuccess('Сохранено в конспекты.');
+      setSaveSuccess('РЎРѕС…СЂР°РЅРµРЅРѕ РІ РєРѕРЅСЃРїРµРєС‚С‹.');
     } catch (err) {
       setSaveError(err?.message || err);
     } finally {
@@ -3054,8 +3089,8 @@ const CollabSection = ({
         }
         pending.resolve({ output, error, debugTrace, debugTraceTruncated });
       };
-      worker.onerror = () => disposeRunWorker('Ошибка выполнения Python.');
-      worker.onmessageerror = () => disposeRunWorker('Ошибка выполнения Python.');
+      worker.onerror = () => disposeRunWorker('РћС€РёР±РєР° РІС‹РїРѕР»РЅРµРЅРёСЏ Python.');
+      worker.onmessageerror = () => disposeRunWorker('РћС€РёР±РєР° РІС‹РїРѕР»РЅРµРЅРёСЏ Python.');
       runWorkerRef.current = worker;
       return worker;
     } catch {
@@ -3105,8 +3140,8 @@ const CollabSection = ({
           if (!pending) return;
           runPendingRef.current.delete(id);
           const timeoutMessage = debugMode
-            ? `Превышено время отладки (${Math.round(timeoutMs / 1000)} сек).`
-            : `Превышено время выполнения (${Math.round(timeoutMs / 1000)} сек).`;
+            ? `РџСЂРµРІС‹С€РµРЅРѕ РІСЂРµРјСЏ РѕС‚Р»Р°РґРєРё (${Math.round(timeoutMs / 1000)} СЃРµРє).`
+            : `РџСЂРµРІС‹С€РµРЅРѕ РІСЂРµРјСЏ РІС‹РїРѕР»РЅРµРЅРёСЏ (${Math.round(timeoutMs / 1000)} СЃРµРє).`;
           const output = pending.output || '';
           const error = mergeRuntimeErrorText(pending.error, timeoutMessage);
           const debugTrace = Array.isArray(pending.debugTrace) ? pending.debugTrace : [];
@@ -3115,7 +3150,7 @@ const CollabSection = ({
             pending.onProgress({ output, error, done: true });
           }
           resolve({ output, error, debugTrace, debugTraceTruncated });
-          disposeRunWorker(debugMode ? 'Превышено время отладки.' : 'Превышено время выполнения.');
+          disposeRunWorker(debugMode ? 'РџСЂРµРІС‹С€РµРЅРѕ РІСЂРµРјСЏ РѕС‚Р»Р°РґРєРё.' : 'РџСЂРµРІС‹С€РµРЅРѕ РІСЂРµРјСЏ РІС‹РїРѕР»РЅРµРЅРёСЏ.');
         }, timeoutMs);
         runPendingRef.current.set(id, {
           resolve,
@@ -3132,7 +3167,7 @@ const CollabSection = ({
     if (!ALLOW_MAIN_THREAD_PYTHON_FALLBACK) {
       return {
         output: '',
-        error: 'Не удалось запустить Python в изолированном режиме. Перезагрузите страницу.'
+        error: 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РїСѓСЃС‚РёС‚СЊ Python РІ РёР·РѕР»РёСЂРѕРІР°РЅРЅРѕРј СЂРµР¶РёРјРµ. РџРµСЂРµР·Р°РіСЂСѓР·РёС‚Рµ СЃС‚СЂР°РЅРёС†Сѓ.'
       };
     }
     return runPythonInMainThread(source, inputValue, runtimeFiles);
@@ -3207,7 +3242,7 @@ const CollabSection = ({
     const { code, mode: resolvedMode } = resolveRunnableCode(mode);
     if (!code.trim()) {
       setRunOutput('');
-      setRunError(resolvedMode === 'selection' ? 'Сначала выделите код для запуска.' : 'Код пустой.');
+      setRunError(resolvedMode === 'selection' ? 'РЎРЅР°С‡Р°Р»Р° РІС‹РґРµР»РёС‚Рµ РєРѕРґ РґР»СЏ Р·Р°РїСѓСЃРєР°.' : 'РљРѕРґ РїСѓСЃС‚РѕР№.');
       return;
     }
     if (runLoading) return;
@@ -3325,7 +3360,7 @@ const CollabSection = ({
             debugSource: code,
           });
         } else {
-          // Если ни одна точка останова не достигнута, завершаем как обычный запуск.
+          // Р•СЃР»Рё РЅРё РѕРґРЅР° С‚РѕС‡РєР° РѕСЃС‚Р°РЅРѕРІР° РЅРµ РґРѕСЃС‚РёРіРЅСѓС‚Р°, Р·Р°РІРµСЂС€Р°РµРј РєР°Рє РѕР±С‹С‡РЅС‹Р№ Р·Р°РїСѓСЃРє.
           setDebugTrace([]);
           debugTraceRef.current = [];
           setDebugTraceTruncated(false);
@@ -3370,7 +3405,7 @@ const CollabSection = ({
       publishRunState({
         status: 'done',
         output: '',
-        error: normalizeRunText(err?.message || 'Ошибка выполнения Python.'),
+        error: normalizeRunText(err?.message || 'РћС€РёР±РєР° РІС‹РїРѕР»РЅРµРЅРёСЏ Python.'),
         author: localName,
         ts: Date.now(),
         input: inputSnapshot,
@@ -3392,14 +3427,14 @@ const CollabSection = ({
       runStreamTimerRef.current = null;
     }
     runStreamPendingRef.current = null;
-    disposeRunWorker('Прервано пользователем.');
+    disposeRunWorker('РџСЂРµСЂРІР°РЅРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»РµРј.');
     setRunLoading(false);
     setRunStatus('stopped');
-    setRunError('Прервано пользователем (Ctrl+C).');
+    setRunError('РџСЂРµСЂРІР°РЅРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»РµРј (Ctrl+C).');
     publishRunState({
       status: 'stopped',
       output: normalizeRunText(runOutputRef.current || ''),
-      error: normalizeRunText('Прервано пользователем (Ctrl+C).'),
+      error: normalizeRunText('РџСЂРµСЂРІР°РЅРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»РµРј (Ctrl+C).'),
       author: localName,
       ts: Date.now(),
       input: runInputRef.current || '',
@@ -3437,7 +3472,7 @@ const CollabSection = ({
       if (!event.ctrlKey && !event.metaKey) return;
       const key = String(event.key || '').toLowerCase();
       const code = event.code;
-      const isStopKey = code === 'KeyC' || key === 'c' || key === 'с' || key === 'я';
+      const isStopKey = code === 'KeyC' || key === 'c' || key === 'СЃ' || key === 'СЏ';
       if (!isStopKey) return;
       if (isEditableTarget(event.target)) return;
       const selectionText = typeof window !== 'undefined' ? window.getSelection?.()?.toString?.() : '';
@@ -3569,17 +3604,17 @@ const CollabSection = ({
   }, [roomId, editorReady, wsUrl, localName, localColor, clearDebugSession, editorMountVersion]);
 
   const statusLabel = status === 'connected'
-    ? 'Подключено'
-    : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено');
+    ? 'РџРѕРґРєР»СЋС‡РµРЅРѕ'
+    : (status === 'connecting' ? 'РЎРѕРµРґРёРЅСЏРµРјСЃСЏ...' : 'РќРµ РїРѕРґРєР»СЋС‡РµРЅРѕ');
   const statusClass = status === 'connected'
     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
     : 'border-amber-200 bg-amber-50 text-amber-700';
   const isSplitCollabLayout = (isCollabFullscreen || isDesktopCollabCompact) && !isMobileViewport;
   const sessionLabel = roomId
     ? (isTeacher
-      ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
-      : 'Учитель + ученик')
-    : 'Не выбрана';
+      ? `РЈС‡РёС‚РµР»СЊ + ${selectedStudent ? getStudentLabel(selectedStudent) : 'СѓС‡РµРЅРёРє'}`
+      : 'РЈС‡РёС‚РµР»СЊ + СѓС‡РµРЅРёРє')
+    : 'РќРµ РІС‹Р±СЂР°РЅР°';
   const handleSplitResizeStart = useCallback((event) => {
     if (!isSplitCollabLayout) return;
     event.preventDefault();
@@ -3628,7 +3663,7 @@ const CollabSection = ({
       }`}>
         <span className={`font-semibold uppercase tracking-widest text-purple-500 ${
           isCollabFullscreen || isDesktopCollabCompact ? 'text-[10px]' : 'text-[11px]'
-        }`}>Ученик</span>
+        }`}>РЈС‡РµРЅРёРє</span>
         <select
           value={activeStudentId || ''}
           onChange={(e) => {
@@ -3642,7 +3677,7 @@ const CollabSection = ({
               : 'sm:min-w-[180px] px-3 py-1.5 text-sm'
           }`}
         >
-          <option value="" disabled>Выберите ученика</option>
+          <option value="" disabled>Р’С‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°</option>
           {(students || []).map((student) => (
             <option key={student.id} value={student.id}>
               {getStudentLabel(student)}
@@ -3659,19 +3694,19 @@ const CollabSection = ({
         <button
           onClick={() => setSaveModalOpen(false)}
           className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"
-          aria-label="Закрыть"
+          aria-label="Р—Р°РєСЂС‹С‚СЊ"
         >
           <X size={18} />
         </button>
         <div className="pr-8">
-          <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сохранение</div>
-          <h3 className="mt-1 text-xl font-bold text-gray-900">Сохранить в конспекты</h3>
-          <p className="mt-1 text-xs text-gray-500">Файл появится в разделе «Конспекты» выбранного ученика.</p>
+          <div className="text-xs font-bold uppercase tracking-widest text-purple-500">РЎРѕС…СЂР°РЅРµРЅРёРµ</div>
+          <h3 className="mt-1 text-xl font-bold text-gray-900">РЎРѕС…СЂР°РЅРёС‚СЊ РІ РєРѕРЅСЃРїРµРєС‚С‹</h3>
+          <p className="mt-1 text-xs text-gray-500">Р¤Р°Р№Р» РїРѕСЏРІРёС‚СЃСЏ РІ СЂР°Р·РґРµР»Рµ В«РљРѕРЅСЃРїРµРєС‚С‹В» РІС‹Р±СЂР°РЅРЅРѕРіРѕ СѓС‡РµРЅРёРєР°.</p>
         </div>
 
         <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Задание</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Р—Р°РґР°РЅРёРµ</label>
             <select
               value={saveTaskNumber}
               onChange={(e) => setSaveTaskNumber(e.target.value)}
@@ -3679,42 +3714,42 @@ const CollabSection = ({
             >
               {taskOptions.map((task) => (
                 <option key={task.id} value={task.number}>
-                  {`Задание ${getTaskDisplayNumber(task)}: ${task.title}`}
+                  {`Р—Р°РґР°РЅРёРµ ${getTaskDisplayNumber(task)}: ${task.title}`}
                 </option>
               ))}
             </select>
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Категория</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">РљР°С‚РµРіРѕСЂРёСЏ</label>
             <select
               value={saveCategory}
               onChange={(e) => setSaveCategory(e.target.value)}
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
             >
-              <option value="class">На уроке</option>
-              <option value="home">Домашка</option>
+              <option value="class">РќР° СѓСЂРѕРєРµ</option>
+              <option value="home">Р”РѕРјР°С€РєР°</option>
             </select>
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Папка</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">РџР°РїРєР°</label>
             <select
               value={saveFolderId}
               onChange={(e) => setSaveFolderId(e.target.value)}
               disabled={!effectiveStudentId || foldersLoading}
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
             >
-              <option value="">Без папки</option>
+              <option value="">Р‘РµР· РїР°РїРєРё</option>
               {folders.map((folder) => (
                 <option key={folder.id} value={folder.id}>{folder.name}</option>
               ))}
             </select>
-            {foldersLoading && <div className="text-[11px] text-gray-400">Загрузка папок...</div>}
+            {foldersLoading && <div className="text-[11px] text-gray-400">Р—Р°РіСЂСѓР·РєР° РїР°РїРѕРє...</div>}
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Имя файла</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">РРјСЏ С„Р°Р№Р»Р°</label>
             <input
               type="text"
               value={saveFileName}
@@ -3725,7 +3760,7 @@ const CollabSection = ({
                   setSaveError('');
                 }
               }}
-              placeholder="конспект-..."
+              placeholder="РєРѕРЅСЃРїРµРєС‚-..."
               className={`w-full rounded-xl px-3 py-2 text-sm outline-none ${
                 saveNameError
                   ? 'border border-red-300 bg-red-50 text-red-700 focus:border-red-500'
@@ -3740,7 +3775,7 @@ const CollabSection = ({
             type="text"
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
-            placeholder="Новая папка"
+            placeholder="РќРѕРІР°СЏ РїР°РїРєР°"
             className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
           />
           <Button
@@ -3750,7 +3785,7 @@ const CollabSection = ({
             className="flex items-center justify-center gap-2"
           >
             <FolderPlus size={16} />
-            {creatingFolder ? 'Создаём...' : 'Создать папку'}
+            {creatingFolder ? 'РЎРѕР·РґР°С‘Рј...' : 'РЎРѕР·РґР°С‚СЊ РїР°РїРєСѓ'}
           </Button>
         </div>
 
@@ -3759,14 +3794,14 @@ const CollabSection = ({
         {saveSuccess && <div className="mt-2 text-xs text-emerald-700">{saveSuccess}</div>}
 
         <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2">
-          <Button variant="secondary" onClick={() => setSaveModalOpen(false)}>Отмена</Button>
+          <Button variant="secondary" onClick={() => setSaveModalOpen(false)}>РћС‚РјРµРЅР°</Button>
           <Button
             onClick={handleSaveToNotes}
             disabled={saveBusy || !effectiveStudentId || !saveTaskNumber || !saveCategory}
             className="flex items-center justify-center gap-2"
           >
             <Save size={16} />
-            {saveBusy ? 'Сохраняем...' : 'Сохранить'}
+            {saveBusy ? 'РЎРѕС…СЂР°РЅСЏРµРј...' : 'РЎРѕС…СЂР°РЅРёС‚СЊ'}
           </Button>
         </div>
       </div>
@@ -3777,7 +3812,7 @@ const CollabSection = ({
     <div className={`rounded-2xl overflow-hidden border relative ${isSplitCollabLayout ? 'h-full' : ''} ${isCollabFullscreen ? 'border-slate-700/80 bg-slate-950/60 shadow-[0_0_32px_rgba(99,102,241,0.25)]' : 'border-gray-800'}`}>
       {!roomId && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
-          Выберите ученика, чтобы открыть совместный документ.
+          Р’С‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°, С‡С‚РѕР±С‹ РѕС‚РєСЂС‹С‚СЊ СЃРѕРІРјРµСЃС‚РЅС‹Р№ РґРѕРєСѓРјРµРЅС‚.
         </div>
       )}
       <Editor
@@ -3787,19 +3822,19 @@ const CollabSection = ({
         defaultValue=""
         onMount={handleEditorMount}
         options={editorOptions}
-        loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+        loading={<div className="p-4 text-sm text-gray-400">Р—Р°РіСЂСѓР·РєР° СЂРµРґР°РєС‚РѕСЂР°...</div>}
       />
     </div>
   );
 
   const inputPane = (
     <div className={isSplitCollabLayout ? 'space-y-1' : 'space-y-2'}>
-      <div className={`${isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>Ввод (stdin)</div>
+      <div className={`${isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>Р’РІРѕРґ (stdin)</div>
       <textarea
         value={runInput}
         onChange={(e) => setRunInput(e.target.value)}
         rows={isSplitCollabLayout ? 2 : (isCollabFullscreen ? (isMobileViewport ? 3 : 4) : (isMobileViewport ? 4 : 6))}
-        placeholder="Если нужен ввод, вставьте его сюда."
+        placeholder="Р•СЃР»Рё РЅСѓР¶РµРЅ РІРІРѕРґ, РІСЃС‚Р°РІСЊС‚Рµ РµРіРѕ СЃСЋРґР°."
         className={`w-full rounded-2xl border outline-none ${
           isSplitCollabLayout ? 'px-2.5 py-1.5 text-[11px]' : 'px-3 py-2 text-xs'
         } ${
@@ -3815,7 +3850,7 @@ const CollabSection = ({
       }`}>
         <div className="flex items-center justify-between gap-2">
           <div className={`${isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>
-            Файлы задания для open()
+            Р¤Р°Р№Р»С‹ Р·Р°РґР°РЅРёСЏ РґР»СЏ open()
           </div>
           <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
             isCollabFullscreen
@@ -3840,7 +3875,7 @@ const CollabSection = ({
           >
             {taskOptions.map((task) => (
               <option key={task.id} value={task.number}>
-                {`Задание ${getTaskDisplayNumber(task)}`}
+                {`Р—Р°РґР°РЅРёРµ ${getTaskDisplayNumber(task)}`}
               </option>
             ))}
           </select>
@@ -3856,8 +3891,8 @@ const CollabSection = ({
                 : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
             }`}
           >
-            <option value="class">На уроке</option>
-            <option value="home">Домашка</option>
+            <option value="class">РќР° СѓСЂРѕРєРµ</option>
+            <option value="home">Р”РѕРјР°С€РєР°</option>
           </select>
           <div className="flex items-center gap-1">
             <input
@@ -3882,7 +3917,7 @@ const CollabSection = ({
               }`}
             >
               <Upload size={13} />
-              {taskFileUploadBusy ? 'Загрузка...' : 'Загрузить файл'}
+              {taskFileUploadBusy ? 'Р—Р°РіСЂСѓР·РєР°...' : 'Р—Р°РіСЂСѓР·РёС‚СЊ С„Р°Р№Р»'}
             </button>
           </div>
         </div>
@@ -3900,13 +3935,13 @@ const CollabSection = ({
         }`}>
           {taskFilesLoading ? (
             <div className={`px-2 py-1.5 text-[11px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
-              Загружаем файлы...
+              Р—Р°РіСЂСѓР¶Р°РµРј С„Р°Р№Р»С‹...
             </div>
           ) : (
             <>
               {!filteredTaskFiles.length ? (
                 <div className={`px-2 py-1.5 text-[11px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
-                  Файлы не найдены.
+                  Р¤Р°Р№Р»С‹ РЅРµ РЅР°Р№РґРµРЅС‹.
                 </div>
               ) : (
                 filteredTaskFiles.map((file) => (
@@ -3932,7 +3967,7 @@ const CollabSection = ({
           )}
         </div>
         <div className={`text-[10px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
-          Выбранные файлы доступны в Python как обычные файлы.
+          Р’С‹Р±СЂР°РЅРЅС‹Рµ С„Р°Р№Р»С‹ РґРѕСЃС‚СѓРїРЅС‹ РІ Python РєР°Рє РѕР±С‹С‡РЅС‹Рµ С„Р°Р№Р»С‹.
         </div>
       </div>
     </div>
@@ -3940,11 +3975,11 @@ const CollabSection = ({
   const resultHeader = (
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
       <div>
-        <div className={`text-[11px] font-semibold uppercase tracking-widest ${collabHintClass}`}>Результат</div>
+        <div className={`text-[11px] font-semibold uppercase tracking-widest ${collabHintClass}`}>Р РµР·СѓР»СЊС‚Р°С‚</div>
         {(runAuthor || runTimestamp) && (
           <div className={`text-[11px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
-            {runAuthor ? `Запустил: ${runAuthor}` : 'Запуск'}
-            {runTimestamp ? ` • ${new Date(runTimestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
+            {runAuthor ? `Р—Р°РїСѓСЃС‚РёР»: ${runAuthor}` : 'Р—Р°РїСѓСЃРє'}
+            {runTimestamp ? ` вЂў ${new Date(runTimestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
           </div>
         )}
       </div>
@@ -3964,15 +3999,15 @@ const CollabSection = ({
       {runStatus === 'running' && (
         <div className="mb-2 flex items-center gap-2 text-[11px] text-amber-300">
           <span className="inline-flex h-2 w-2 rounded-full bg-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.9)] animate-pulse" />
-          Выполняется...
+          Р’С‹РїРѕР»РЅСЏРµС‚СЃСЏ...
         </div>
       )}
       {runStatus === 'stopped' && (
-        <div className="mb-2 text-[11px] text-rose-300">Остановлено пользователем</div>
+        <div className="mb-2 text-[11px] text-rose-300">РћСЃС‚Р°РЅРѕРІР»РµРЅРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»РµРј</div>
       )}
       {lastRunInput && (
         <div className="mb-3">
-          <div className="text-[10px] uppercase tracking-widest text-slate-400">Ввод</div>
+          <div className="text-[10px] uppercase tracking-widest text-slate-400">Р’РІРѕРґ</div>
           <pre className="mt-1 whitespace-pre-wrap break-words text-slate-200">{lastRunInput}</pre>
         </div>
       )}
@@ -3986,7 +4021,7 @@ const CollabSection = ({
           )}
         </>
       ) : (
-        <div className="text-slate-400">Здесь появится вывод программы.</div>
+        <div className="text-slate-400">Р—РґРµСЃСЊ РїРѕСЏРІРёС‚СЃСЏ РІС‹РІРѕРґ РїСЂРѕРіСЂР°РјРјС‹.</div>
       )}
     </div>
   );
@@ -3999,12 +4034,12 @@ const CollabSection = ({
     } ${isSplitCollabLayout ? 'max-h-[24vh] overflow-auto' : ''}`}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-widest text-violet-400">Пошаговый дебаг</div>
+          <div className="text-[11px] font-semibold uppercase tracking-widest text-violet-400">РџРѕС€Р°РіРѕРІС‹Р№ РґРµР±Р°Рі</div>
           <div className="mt-1 text-[12px]">
-            {`Шаг ${Math.max(0, debugStepIndex + 1)} из ${debugTrace.length}`}
-            {debugTraceTruncated ? ' • Трасса ограничена по размеру' : ''}
+            {`РЁР°Рі ${Math.max(0, debugStepIndex + 1)} РёР· ${debugTrace.length}`}
+            {debugTraceTruncated ? ' вЂў РўСЂР°СЃСЃР° РѕРіСЂР°РЅРёС‡РµРЅР° РїРѕ СЂР°Р·РјРµСЂСѓ' : ''}
           </div>
-          <div className="mt-1 text-[10px] text-slate-400">F10 шаг • F8 продолжить • F7 назад • Esc выйти • точка останова: клик по номеру строки</div>
+          <div className="mt-1 text-[10px] text-slate-400">F10 С€Р°Рі вЂў F8 РїСЂРѕРґРѕР»Р¶РёС‚СЊ вЂў F7 РЅР°Р·Р°Рґ вЂў Esc РІС‹Р№С‚Рё вЂў С‚РѕС‡РєР° РѕСЃС‚Р°РЅРѕРІР°: РєР»РёРє РїРѕ РЅРѕРјРµСЂСѓ СЃС‚СЂРѕРєРё</div>
         </div>
       </div>
 
@@ -4015,9 +4050,9 @@ const CollabSection = ({
             : 'border-violet-200/80 bg-white'
         }`}>
           <div className="flex flex-wrap items-center gap-2 text-[11px]">
-            <span className="font-semibold text-violet-400">{`Строка ${currentDebugStep.line || '?'}`}</span>
-            <span className={isCollabFullscreen ? 'text-slate-400' : 'text-slate-500'}>{`Событие: ${currentDebugStep.event || 'line'}`}</span>
-            <span className={isCollabFullscreen ? 'text-slate-400' : 'text-slate-500'}>{`Функция: ${currentDebugStep.func || '<module>'}`}</span>
+            <span className="font-semibold text-violet-400">{`РЎС‚СЂРѕРєР° ${currentDebugStep.line || '?'}`}</span>
+            <span className={isCollabFullscreen ? 'text-slate-400' : 'text-slate-500'}>{`РЎРѕР±С‹С‚РёРµ: ${currentDebugStep.event || 'line'}`}</span>
+            <span className={isCollabFullscreen ? 'text-slate-400' : 'text-slate-500'}>{`Р¤СѓРЅРєС†РёСЏ: ${currentDebugStep.func || '<module>'}`}</span>
           </div>
           {currentDebugLineText && (
             <pre className={`mt-2 whitespace-pre-wrap break-words rounded-lg px-2 py-1 text-[11px] ${
@@ -4027,7 +4062,7 @@ const CollabSection = ({
           {currentDebugStep.exception && (
             <div className="mt-2 text-[11px] text-rose-400">{currentDebugStep.exception}</div>
           )}
-          <div className="mt-2 text-[10px] uppercase tracking-widest text-slate-400">Локальные переменные</div>
+          <div className="mt-2 text-[10px] uppercase tracking-widest text-slate-400">Р›РѕРєР°Р»СЊРЅС‹Рµ РїРµСЂРµРјРµРЅРЅС‹Рµ</div>
           {currentDebugLocals.length > 0 ? (
             <div className="mt-1 max-h-44 overflow-auto space-y-1 pr-1">
               {currentDebugLocals.map((local, idx) => (
@@ -4036,12 +4071,12 @@ const CollabSection = ({
                 }`}>
                   <span className="text-violet-400">{local.name || '?'}</span>
                   {local.type ? <span className="ml-1 text-slate-400">{`(${local.type})`}</span> : null}
-                  <span className="ml-2">{local.value || '—'}</span>
+                  <span className="ml-2">{local.value || 'вЂ”'}</span>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="mt-1 text-[11px] text-slate-400">Нет локальных переменных на этом шаге.</div>
+            <div className="mt-1 text-[11px] text-slate-400">РќРµС‚ Р»РѕРєР°Р»СЊРЅС‹С… РїРµСЂРµРјРµРЅРЅС‹С… РЅР° СЌС‚РѕРј С€Р°РіРµ.</div>
           )}
         </div>
       )}
@@ -4060,10 +4095,10 @@ const CollabSection = ({
             isCollabFullscreen ? 'text-lg sm:text-xl' : (isDesktopCollabCompact ? 'text-xl' : 'text-2xl')
           } ${collabTitleClass}`}>
             <Pencil size={isCollabFullscreen || isDesktopCollabCompact ? 18 : 24} className={collabLabelClass} />
-            Совместный код
+            РЎРѕРІРјРµСЃС‚РЅС‹Р№ РєРѕРґ
           </h2>
           <p className={`${collabSubtitleClass} ${isCollabFullscreen || isDesktopCollabCompact ? 'text-xs' : ''}`}>
-            Живой документ: изменения видны сразу.
+            Р–РёРІРѕР№ РґРѕРєСѓРјРµРЅС‚: РёР·РјРµРЅРµРЅРёСЏ РІРёРґРЅС‹ СЃСЂР°Р·Сѓ.
           </p>
         </div>
         <div className={`flex flex-wrap items-center ${isCollabFullscreen || isDesktopCollabCompact ? 'gap-1.5' : 'gap-2'}`}>
@@ -4076,7 +4111,7 @@ const CollabSection = ({
             }`}
           >
             <Save size={16} />
-            Сохранить в конспекты
+            РЎРѕС…СЂР°РЅРёС‚СЊ РІ РєРѕРЅСЃРїРµРєС‚С‹
           </Button>
           <button
             type="button"
@@ -4088,10 +4123,10 @@ const CollabSection = ({
                 ? 'border-violet-500/70 bg-violet-500/20 text-violet-100 hover:bg-violet-500/30'
                 : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
             }`}
-            title={isCollabFullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'}
+            title={isCollabFullscreen ? 'Р’С‹Р№С‚Рё РёР· РїРѕР»РЅРѕСЌРєСЂР°РЅРЅРѕРіРѕ СЂРµР¶РёРјР°' : 'Р’Рѕ РІРµСЃСЊ СЌРєСЂР°РЅ'}
           >
             {isCollabFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
-            {isCollabFullscreen ? 'Свернуть' : 'На весь экран'}
+            {isCollabFullscreen ? 'РЎРІРµСЂРЅСѓС‚СЊ' : 'РќР° РІРµСЃСЊ СЌРєСЂР°РЅ'}
           </button>
           <span className={`inline-flex items-center rounded-full border font-semibold ${
             isCollabFullscreen || isDesktopCollabCompact ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
@@ -4102,7 +4137,7 @@ const CollabSection = ({
             <span className={`inline-flex items-center rounded-full border border-slate-200 bg-white font-semibold text-slate-600 ${
               isCollabFullscreen || isDesktopCollabCompact ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
             }`}>
-              Онлайн: {peerCount}
+              РћРЅР»Р°Р№РЅ: {peerCount}
             </span>
           )}
         </div>
@@ -4114,8 +4149,8 @@ const CollabSection = ({
         }`}>
           <AlertTriangle size={18} className="mt-0.5" />
           <div>
-            <div className="font-semibold">Сначала выберите ученика</div>
-            <div className="text-xs text-amber-700/80">Комната создаётся отдельно для каждого ученика.</div>
+            <div className="font-semibold">РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°</div>
+            <div className="text-xs text-amber-700/80">РљРѕРјРЅР°С‚Р° СЃРѕР·РґР°С‘С‚СЃСЏ РѕС‚РґРµР»СЊРЅРѕ РґР»СЏ РєР°Р¶РґРѕРіРѕ СѓС‡РµРЅРёРєР°.</div>
           </div>
         </div>
       )}
@@ -4124,7 +4159,7 @@ const CollabSection = ({
         {!isCollabFullscreen && !isDesktopCollabCompact && (
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
-              <div className={`text-xs font-bold uppercase tracking-widest ${collabLabelClass}`}>Сессия</div>
+              <div className={`text-xs font-bold uppercase tracking-widest ${collabLabelClass}`}>РЎРµСЃСЃРёСЏ</div>
               <div className={`text-sm font-semibold ${collabSessionTextClass}`}>{sessionLabel}</div>
             </div>
             <div className="flex flex-wrap items-center gap-2 md:justify-end">
@@ -4134,7 +4169,7 @@ const CollabSection = ({
                 disabled={!roomId}
                 className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
               >
-                Автоформат
+                РђРІС‚РѕС„РѕСЂРјР°С‚
               </button>
             </div>
           </div>
@@ -4146,7 +4181,7 @@ const CollabSection = ({
           } ${collabToolbarClass}`}>
             {(isCollabFullscreen || isDesktopCollabCompact) && (
               <>
-                <span className={`text-[10px] font-bold uppercase tracking-widest ${collabSessionLabelClass}`}>Сессия</span>
+                <span className={`text-[10px] font-bold uppercase tracking-widest ${collabSessionLabelClass}`}>РЎРµСЃСЃРёСЏ</span>
                 <span className={`max-w-[220px] truncate text-[11px] font-semibold ${collabSessionValueClass}`}>{sessionLabel}</span>
                 <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
               </>
@@ -4160,8 +4195,8 @@ const CollabSection = ({
                 ? collabIconButtonDisabled
                 : collabIconButtonPrimary
             }`}
-            title="Запустить код"
-            aria-label="Запустить код"
+            title="Р—Р°РїСѓСЃС‚РёС‚СЊ РєРѕРґ"
+            aria-label="Р—Р°РїСѓСЃС‚РёС‚СЊ РєРѕРґ"
           >
             <Play size={15} />
           </button>
@@ -4174,8 +4209,8 @@ const CollabSection = ({
                 ? collabIconButtonDisabled
                 : collabIconButtonNeutral
             }`}
-            title="Запустить выделенный фрагмент"
-            aria-label="Запустить выделение"
+            title="Р—Р°РїСѓСЃС‚РёС‚СЊ РІС‹РґРµР»РµРЅРЅС‹Р№ С„СЂР°РіРјРµРЅС‚"
+            aria-label="Р—Р°РїСѓСЃС‚РёС‚СЊ РІС‹РґРµР»РµРЅРёРµ"
           >
             <span className="relative inline-flex h-4 w-4 items-center justify-center">
               <MousePointer2 size={12} />
@@ -4193,8 +4228,8 @@ const CollabSection = ({
                   ? collabIconButtonPrimary
                   : collabIconButtonAccent)
             }`}
-            title="Дебаг (до первой точки остановки)"
-            aria-label="Дебаг"
+            title="Р”РµР±Р°Рі (РґРѕ РїРµСЂРІРѕР№ С‚РѕС‡РєРё РѕСЃС‚Р°РЅРѕРІРєРё)"
+            aria-label="Р”РµР±Р°Рі"
           >
             <Bug size={15} />
           </button>
@@ -4211,8 +4246,8 @@ const CollabSection = ({
                     ? collabIconButtonDisabled
                     : collabIconButtonNeutral
                 }`}
-                title="Шаг назад (F7)"
-                aria-label="Шаг назад"
+                title="РЁР°Рі РЅР°Р·Р°Рґ (F7)"
+                aria-label="РЁР°Рі РЅР°Р·Р°Рґ"
               >
                 <StepBack size={15} />
               </button>
@@ -4225,8 +4260,8 @@ const CollabSection = ({
                     ? collabIconButtonDisabled
                     : collabIconButtonNeutral
                 }`}
-                title="Шаг вперёд (F10)"
-                aria-label="Шаг вперёд"
+                title="РЁР°Рі РІРїРµСЂС‘Рґ (F10)"
+                aria-label="РЁР°Рі РІРїРµСЂС‘Рґ"
               >
                 <StepForward size={15} />
               </button>
@@ -4239,8 +4274,8 @@ const CollabSection = ({
                     ? collabIconButtonDisabled
                     : collabIconButtonPrimary
                 }`}
-                title="Продолжить (F8)"
-                aria-label="Продолжить"
+                title="РџСЂРѕРґРѕР»Р¶РёС‚СЊ (F8)"
+                aria-label="РџСЂРѕРґРѕР»Р¶РёС‚СЊ"
               >
                 <Play size={14} />
               </button>
@@ -4256,8 +4291,8 @@ const CollabSection = ({
                     ? collabIconButtonDisabled
                     : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
                 }`}
-                title="Пауза"
-                aria-label="Пауза"
+                title="РџР°СѓР·Р°"
+                aria-label="РџР°СѓР·Р°"
               >
                 <Pause size={14} />
               </button>
@@ -4274,8 +4309,8 @@ const CollabSection = ({
                 ? collabIconButtonDisabled
                 : collabIconButtonDanger
             }`}
-            title={runLoading ? 'Остановить выполнение (Ctrl+C)' : 'Выйти из дебага (Esc)'}
-            aria-label="Остановить"
+            title={runLoading ? 'РћСЃС‚Р°РЅРѕРІРёС‚СЊ РІС‹РїРѕР»РЅРµРЅРёРµ (Ctrl+C)' : 'Р’С‹Р№С‚Рё РёР· РґРµР±Р°РіР° (Esc)'}
+            aria-label="РћСЃС‚Р°РЅРѕРІРёС‚СЊ"
           >
             <Square size={14} />
           </button>
@@ -4288,8 +4323,8 @@ const CollabSection = ({
                 ? collabIconButtonDisabled
                 : collabIconButtonNeutral
             }`}
-            title="Очистить вывод"
-            aria-label="Очистить вывод"
+            title="РћС‡РёСЃС‚РёС‚СЊ РІС‹РІРѕРґ"
+            aria-label="РћС‡РёСЃС‚РёС‚СЊ РІС‹РІРѕРґ"
           >
             <Trash2 size={14} />
           </button>
@@ -4305,7 +4340,7 @@ const CollabSection = ({
                   : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
               }`}
             >
-              Автоформат
+              РђРІС‚РѕС„РѕСЂРјР°С‚
             </button>
           )}
         </div>
@@ -4326,7 +4361,7 @@ const CollabSection = ({
             </div>
             <div
               role="separator"
-              aria-label="Изменить ширину панелей"
+              aria-label="РР·РјРµРЅРёС‚СЊ С€РёСЂРёРЅСѓ РїР°РЅРµР»РµР№"
               aria-orientation="vertical"
               aria-valuemin={48}
               aria-valuemax={82}
@@ -4334,7 +4369,7 @@ const CollabSection = ({
               onPointerDown={handleSplitResizeStart}
               onDoubleClick={handleSplitResizeReset}
               className="group relative flex w-[10px] cursor-col-resize select-none items-center justify-center"
-              title="Перетащите, чтобы изменить ширину. Двойной клик — сброс."
+              title="РџРµСЂРµС‚Р°С‰РёС‚Рµ, С‡С‚РѕР±С‹ РёР·РјРµРЅРёС‚СЊ С€РёСЂРёРЅСѓ. Р”РІРѕР№РЅРѕР№ РєР»РёРє вЂ” СЃР±СЂРѕСЃ."
             >
               <div className={`h-full w-[2px] rounded-full transition ${
                 isCollabFullscreen
@@ -4398,7 +4433,7 @@ const BoardSection = ({
   const roomId = effectiveStudentId && teacherId ? `board-${teacherId}-${effectiveStudentId}` : null;
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const wsUrl = useMemo(() => getCollabWsUrl(), []);
-  const localName = userName || (isTeacher ? 'Учитель' : 'Ученик');
+  const localName = userName || (isTeacher ? 'РЈС‡РёС‚РµР»СЊ' : 'РЈС‡РµРЅРёРє');
   const localColor = useMemo(
     () => pickCollabColor(isTeacher ? `teacher-${teacherId}` : `student-${userId}`),
     [isTeacher, teacherId, userId]
@@ -4796,7 +4831,7 @@ const BoardSection = ({
       .catch((err) => {
         if (cancelled) return;
         setFolders([]);
-        setFoldersError(err?.message || 'Не удалось загрузить папки.');
+        setFoldersError(err?.message || 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РїР°РїРєРё.');
       })
       .finally(() => {
         if (!cancelled) setFoldersLoading(false);
@@ -4843,8 +4878,8 @@ const BoardSection = ({
       }
       const hasModifier = event.ctrlKey || event.metaKey;
       if (!hasModifier) return;
-      const isUndoKey = code === 'KeyZ' || key === 'z' || key === 'я';
-      const isRedoKey = code === 'KeyY' || key === 'y' || key === 'н' || (isUndoKey && event.shiftKey);
+      const isUndoKey = code === 'KeyZ' || key === 'z' || key === 'СЏ';
+      const isRedoKey = code === 'KeyY' || key === 'y' || key === 'РЅ' || (isUndoKey && event.shiftKey);
       if (!isUndoKey && !isRedoKey) return;
       if (isEditableTarget(event.target)) return;
       event.preventDefault();
@@ -4988,7 +5023,7 @@ const BoardSection = ({
   const handleCreateFolder = async () => {
     const name = newFolderName.trim();
     if (!name) {
-      setFoldersError('Введите название папки.');
+      setFoldersError('Р’РІРµРґРёС‚Рµ РЅР°Р·РІР°РЅРёРµ РїР°РїРєРё.');
       return;
     }
     if (!effectiveStudentId || !saveTaskNumber || !saveCategory) return;
@@ -5040,10 +5075,10 @@ const BoardSection = ({
 
   const renderBoardToBlob = async () => {
     if (typeof document === 'undefined') {
-      throw new Error('Нельзя сохранить доску в этом окружении.');
+      throw new Error('РќРµР»СЊР·СЏ СЃРѕС…СЂР°РЅРёС‚СЊ РґРѕСЃРєСѓ РІ СЌС‚РѕРј РѕРєСЂСѓР¶РµРЅРёРё.');
     }
     const bounds = getBoardBounds(boardItems);
-    if (!bounds) throw new Error('Доска пустая.');
+    if (!bounds) throw new Error('Р”РѕСЃРєР° РїСѓСЃС‚Р°СЏ.');
     const padding = BOARD_EXPORT_PADDING;
     const width = Math.max(1, bounds.maxX - bounds.minX + padding * 2);
     const height = Math.max(1, bounds.maxY - bounds.minY + padding * 2);
@@ -5053,7 +5088,7 @@ const BoardSection = ({
     canvas.width = Math.max(1, Math.ceil(width * scale));
     canvas.height = Math.max(1, Math.ceil(height * scale));
     const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Не удалось подготовить холст.');
+    if (!ctx) throw new Error('РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕРґРіРѕС‚РѕРІРёС‚СЊ С…РѕР»СЃС‚.');
 
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -5096,7 +5131,7 @@ const BoardSection = ({
 
     return new Promise((resolve, reject) => {
       canvas.toBlob((blob) => {
-        if (!blob) reject(new Error('Не удалось сформировать изображение.'));
+        if (!blob) reject(new Error('РќРµ СѓРґР°Р»РѕСЃСЊ СЃС„РѕСЂРјРёСЂРѕРІР°С‚СЊ РёР·РѕР±СЂР°Р¶РµРЅРёРµ.'));
         else resolve(blob);
       }, 'image/png');
     });
@@ -5107,32 +5142,32 @@ const BoardSection = ({
     setSaveSuccess('');
     setSaveNameError(false);
     if (!effectiveStudentId) {
-      setSaveError('Сначала выберите ученика.');
+      setSaveError('РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°.');
       return;
     }
     if (!saveTaskNumber || !saveCategory) {
-      setSaveError('Выберите задание и категорию.');
+      setSaveError('Р’С‹Р±РµСЂРёС‚Рµ Р·Р°РґР°РЅРёРµ Рё РєР°С‚РµРіРѕСЂРёСЋ.');
       return;
     }
     if (!boardItems.length) {
-      setSaveError('Доска пустая.');
+      setSaveError('Р”РѕСЃРєР° РїСѓСЃС‚Р°СЏ.');
       return;
     }
     setSaveBusy(true);
     try {
       const blob = await renderBoardToBlob();
       if (blob.size > 50 * 1024 * 1024) {
-        throw new Error('Файл слишком большой (максимум 50 МБ). Уменьшите размер доски.');
+        throw new Error('Р¤Р°Р№Р» СЃР»РёС€РєРѕРј Р±РѕР»СЊС€РѕР№ (РјР°РєСЃРёРјСѓРј 50 РњР‘). РЈРјРµРЅСЊС€РёС‚Рµ СЂР°Р·РјРµСЂ РґРѕСЃРєРё.');
       }
       const baseName = normalizeFileName(saveFileName);
       if (!baseName) {
-        setSaveError('Введите название файла.');
+        setSaveError('Р’РІРµРґРёС‚Рµ РЅР°Р·РІР°РЅРёРµ С„Р°Р№Р»Р°.');
         setSaveNameError(true);
         setSaveBusy(false);
         return;
       }
       let safeName = baseName;
-      const prefix = 'конспект-';
+      const prefix = 'РєРѕРЅСЃРїРµРєС‚-';
       if (!safeName.toLowerCase().startsWith(prefix)) {
         safeName = `${prefix}${safeName}`;
       }
@@ -5141,7 +5176,7 @@ const BoardSection = ({
       }
       const file = new File([blob], safeName, { type: 'image/png' });
       await api.uploadFile(file, Number(saveTaskNumber), saveCategory, saveFolderId || null, effectiveStudentId);
-      setSaveSuccess('Сохранено в конспекты.');
+      setSaveSuccess('РЎРѕС…СЂР°РЅРµРЅРѕ РІ РєРѕРЅСЃРїРµРєС‚С‹.');
     } catch (err) {
       setSaveError(err?.message || err);
     } finally {
@@ -5700,7 +5735,7 @@ const BoardSection = ({
     [boardItems, selectedImageId]
   );
   const selectedImageLabel = selectedImage
-    ? `${Math.round(selectedImage.width || 0)}×${Math.round(selectedImage.height || 0)}`
+    ? `${Math.round(selectedImage.width || 0)}Г—${Math.round(selectedImage.height || 0)}`
     : '';
 
   const renderOverlay = () => {
@@ -5873,7 +5908,7 @@ const BoardSection = ({
           const remoteUser = state?.user;
           const remoteName = typeof remoteUser?.name === 'string' && remoteUser.name.trim()
             ? remoteUser.name.trim()
-            : 'Участник';
+            : 'РЈС‡Р°СЃС‚РЅРёРє';
           const remoteColor = typeof remoteUser?.color === 'string' && remoteUser.color
             ? remoteUser.color
             : '#6366f1';
@@ -5955,7 +5990,7 @@ const BoardSection = ({
       const file = imageItem.getAsFile();
       if (!file) return;
       if (file.size > BOARD_MAX_IMAGE_BYTES) {
-        setPasteError('Слишком большой файл. Максимум 10 МБ.');
+        setPasteError('РЎР»РёС€РєРѕРј Р±РѕР»СЊС€РѕР№ С„Р°Р№Р». РњР°РєСЃРёРјСѓРј 10 РњР‘.');
         return;
       }
       event.preventDefault();
@@ -6337,7 +6372,7 @@ const BoardSection = ({
 
   const handleClearBoard = () => {
     if (!yItemsRef.current || !docRef.current) return;
-    if (!confirm('Очистить доску? Это удалит все элементы.')) return;
+    if (!confirm('РћС‡РёСЃС‚РёС‚СЊ РґРѕСЃРєСѓ? Р­С‚Рѕ СѓРґР°Р»РёС‚ РІСЃРµ СЌР»РµРјРµРЅС‚С‹.')) return;
     docRef.current.transact(() => {
       yItemsRef.current.delete(0, yItemsRef.current.length);
     }, localOriginRef.current);
@@ -6493,12 +6528,12 @@ const BoardSection = ({
   }, [remoteCursors, zoom, offset, boardSize.width, boardSize.height]);
   const sessionTitle = roomId
     ? (isTeacher
-      ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
-      : 'Учитель + ученик')
-    : 'Не выбрана';
+      ? `РЈС‡РёС‚РµР»СЊ + ${selectedStudent ? getStudentLabel(selectedStudent) : 'СѓС‡РµРЅРёРє'}`
+      : 'РЈС‡РёС‚РµР»СЊ + СѓС‡РµРЅРёРє')
+    : 'РќРµ РІС‹Р±СЂР°РЅР°';
   const statusLabel = status === 'connected'
-    ? 'Подключено'
-    : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено');
+    ? 'РџРѕРґРєР»СЋС‡РµРЅРѕ'
+    : (status === 'connecting' ? 'РЎРѕРµРґРёРЅСЏРµРјСЃСЏ...' : 'РќРµ РїРѕРґРєР»СЋС‡РµРЅРѕ');
   const statusClass = status === 'connected'
     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
     : 'border-amber-200 bg-amber-50 text-amber-700';
@@ -6511,7 +6546,7 @@ const BoardSection = ({
     : 'p-4 md:p-5 md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-hidden';
   const boardCanvasStyle = boardCanvasHeight ? { height: boardCanvasHeight } : undefined;
   const activeWidth = tool === 'line' ? lineWidth : penWidth;
-  const widthTargetLabel = tool === 'line' ? 'Линия' : 'Карандаш';
+  const widthTargetLabel = tool === 'line' ? 'Р›РёРЅРёСЏ' : 'РљР°СЂР°РЅРґР°С€';
   const showWidthControls = tool === 'pen' || tool === 'line';
   const zoomLabel = `${Math.round((zoom || 1) * 100)}%`;
   const formattedWidth = Number.isFinite(activeWidth)
@@ -6528,7 +6563,7 @@ const BoardSection = ({
     if (!isTeacher) return null;
     return (
       <div className="inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-purple-100/40">
-        <span className="text-[11px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-purple-500">РЈС‡РµРЅРёРє</span>
         <select
           value={activeStudentId || ''}
           onChange={(e) => {
@@ -6538,7 +6573,7 @@ const BoardSection = ({
           disabled={studentsLoading || (students || []).length === 0}
           className="w-full min-w-0 sm:min-w-[180px] rounded-xl border border-purple-100 bg-white px-3 py-1.5 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
         >
-          <option value="" disabled>Выберите ученика</option>
+          <option value="" disabled>Р’С‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°</option>
           {(students || []).map((student) => (
             <option key={student.id} value={student.id}>
               {getStudentLabel(student)}
@@ -6555,21 +6590,21 @@ const BoardSection = ({
         <button
           onClick={() => setSaveModalOpen(false)}
           className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"
-          aria-label="Закрыть"
+          aria-label="Р—Р°РєСЂС‹С‚СЊ"
         >
           <X size={18} />
         </button>
         <div className="pr-8">
-          <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сохранение</div>
-          <h3 className="mt-1 text-xl font-bold text-gray-900">Сохранить доску в конспекты</h3>
+          <div className="text-xs font-bold uppercase tracking-widest text-purple-500">РЎРѕС…СЂР°РЅРµРЅРёРµ</div>
+          <h3 className="mt-1 text-xl font-bold text-gray-900">РЎРѕС…СЂР°РЅРёС‚СЊ РґРѕСЃРєСѓ РІ РєРѕРЅСЃРїРµРєС‚С‹</h3>
           <p className="mt-1 text-xs text-gray-500">
-            Сохраняется PNG снимок всей доски и появится в разделе «Конспекты» выбранного ученика.
+            РЎРѕС…СЂР°РЅСЏРµС‚СЃСЏ PNG СЃРЅРёРјРѕРє РІСЃРµР№ РґРѕСЃРєРё Рё РїРѕСЏРІРёС‚СЃСЏ РІ СЂР°Р·РґРµР»Рµ В«РљРѕРЅСЃРїРµРєС‚С‹В» РІС‹Р±СЂР°РЅРЅРѕРіРѕ СѓС‡РµРЅРёРєР°.
           </p>
         </div>
 
         <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Задание</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Р—Р°РґР°РЅРёРµ</label>
             <select
               value={saveTaskNumber}
               onChange={(e) => setSaveTaskNumber(e.target.value)}
@@ -6577,42 +6612,42 @@ const BoardSection = ({
             >
               {taskOptions.map((task) => (
                 <option key={task.id} value={task.number}>
-                  {`Задание ${getTaskDisplayNumber(task)}: ${task.title}`}
+                  {`Р—Р°РґР°РЅРёРµ ${getTaskDisplayNumber(task)}: ${task.title}`}
                 </option>
               ))}
             </select>
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Категория</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">РљР°С‚РµРіРѕСЂРёСЏ</label>
             <select
               value={saveCategory}
               onChange={(e) => setSaveCategory(e.target.value)}
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
             >
-              <option value="class">На уроке</option>
-              <option value="home">Домашка</option>
+              <option value="class">РќР° СѓСЂРѕРєРµ</option>
+              <option value="home">Р”РѕРјР°С€РєР°</option>
             </select>
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Папка</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">РџР°РїРєР°</label>
             <select
               value={saveFolderId}
               onChange={(e) => setSaveFolderId(e.target.value)}
               disabled={!effectiveStudentId || foldersLoading}
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
             >
-              <option value="">Без папки</option>
+              <option value="">Р‘РµР· РїР°РїРєРё</option>
               {folders.map((folder) => (
                 <option key={folder.id} value={folder.id}>{folder.name}</option>
               ))}
             </select>
-            {foldersLoading && <div className="text-[11px] text-gray-400">Загрузка папок...</div>}
+            {foldersLoading && <div className="text-[11px] text-gray-400">Р—Р°РіСЂСѓР·РєР° РїР°РїРѕРє...</div>}
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Имя файла</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">РРјСЏ С„Р°Р№Р»Р°</label>
             <input
               type="text"
               value={saveFileName}
@@ -6623,7 +6658,7 @@ const BoardSection = ({
                   setSaveError('');
                 }
               }}
-              placeholder="конспект-..."
+              placeholder="РєРѕРЅСЃРїРµРєС‚-..."
               className={`w-full rounded-xl px-3 py-2 text-sm outline-none ${
                 saveNameError
                   ? 'border border-red-300 bg-red-50 text-red-700 focus:border-red-500'
@@ -6638,7 +6673,7 @@ const BoardSection = ({
             type="text"
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
-            placeholder="Новая папка"
+            placeholder="РќРѕРІР°СЏ РїР°РїРєР°"
             className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
           />
           <Button
@@ -6648,7 +6683,7 @@ const BoardSection = ({
             className="flex items-center justify-center gap-2"
           >
             <FolderPlus size={16} />
-            {creatingFolder ? 'Создаём...' : 'Создать папку'}
+            {creatingFolder ? 'РЎРѕР·РґР°С‘Рј...' : 'РЎРѕР·РґР°С‚СЊ РїР°РїРєСѓ'}
           </Button>
         </div>
 
@@ -6657,14 +6692,14 @@ const BoardSection = ({
         {saveSuccess && <div className="mt-2 text-xs text-emerald-700">{saveSuccess}</div>}
 
         <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2">
-          <Button variant="secondary" onClick={() => setSaveModalOpen(false)}>Отмена</Button>
+          <Button variant="secondary" onClick={() => setSaveModalOpen(false)}>РћС‚РјРµРЅР°</Button>
           <Button
             onClick={handleSaveBoardToNotes}
             disabled={saveBusy || !effectiveStudentId || !saveTaskNumber || !saveCategory}
             className="flex items-center justify-center gap-2"
           >
             <Save size={16} />
-            {saveBusy ? 'Сохраняем...' : 'Сохранить'}
+            {saveBusy ? 'РЎРѕС…СЂР°РЅСЏРµРј...' : 'РЎРѕС…СЂР°РЅРёС‚СЊ'}
           </Button>
         </div>
       </div>
@@ -6679,7 +6714,7 @@ const BoardSection = ({
         <div>
           <h2 className={`font-bold flex items-center gap-2 ${isFullscreen ? 'text-white text-xl' : 'text-gray-900 text-2xl'}`}>
             <Brush className={isFullscreen ? 'text-purple-300' : 'text-purple-600'} />
-            Онлайн-доска
+            РћРЅР»Р°Р№РЅ-РґРѕСЃРєР°
           </h2>
         </div>
         <div className={`flex flex-wrap items-center ${isFullscreen ? 'gap-1.5' : 'gap-2'}`}>
@@ -6691,7 +6726,7 @@ const BoardSection = ({
             disabled={!roomId}
           >
             <Save size={16} />
-            Сохранить в конспекты
+            РЎРѕС…СЂР°РЅРёС‚СЊ РІ РєРѕРЅСЃРїРµРєС‚С‹
           </Button>
           {isTeacher && (
             <button
@@ -6702,7 +6737,7 @@ const BoardSection = ({
                 isFullscreen ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
               }`}
             >
-              Призвать ко мне
+              РџСЂРёР·РІР°С‚СЊ РєРѕ РјРЅРµ
             </button>
           )}
           <span className={`inline-flex items-center rounded-full border font-semibold ${statusClass} ${
@@ -6714,7 +6749,7 @@ const BoardSection = ({
             <span className={`inline-flex items-center rounded-full border border-slate-200 bg-white font-semibold text-slate-600 ${
               isFullscreen ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
             }`}>
-              Онлайн: {peerCount}
+              РћРЅР»Р°Р№РЅ: {peerCount}
             </span>
           )}
         </div>
@@ -6724,8 +6759,8 @@ const BoardSection = ({
         <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 flex items-start gap-2">
           <AlertTriangle size={18} className="mt-0.5" />
           <div>
-            <div className="font-semibold">Сначала выберите ученика</div>
-            <div className="text-xs text-amber-700/80">Комната создаётся отдельно для каждого ученика.</div>
+            <div className="font-semibold">РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°</div>
+            <div className="text-xs text-amber-700/80">РљРѕРјРЅР°С‚Р° СЃРѕР·РґР°С‘С‚СЃСЏ РѕС‚РґРµР»СЊРЅРѕ РґР»СЏ РєР°Р¶РґРѕРіРѕ СѓС‡РµРЅРёРєР°.</div>
           </div>
         </div>
       )}
@@ -6734,11 +6769,11 @@ const BoardSection = ({
         {!isFullscreen && (
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сессия</div>
+              <div className="text-xs font-bold uppercase tracking-widest text-purple-500">РЎРµСЃСЃРёСЏ</div>
               <div className="text-sm font-semibold text-gray-800">{sessionTitle}</div>
             </div>
             <div className="text-xs text-gray-500">
-              Вставка картинки: Ctrl+V. Лимит 10 МБ. Панорамирование: удерживайте Space и тяните.
+              Р’СЃС‚Р°РІРєР° РєР°СЂС‚РёРЅРєРё: Ctrl+V. Р›РёРјРёС‚ 10 РњР‘. РџР°РЅРѕСЂР°РјРёСЂРѕРІР°РЅРёРµ: СѓРґРµСЂР¶РёРІР°Р№С‚Рµ Space Рё С‚СЏРЅРёС‚Рµ.
             </div>
           </div>
         )}
@@ -6756,8 +6791,8 @@ const BoardSection = ({
             className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
               tool === 'pen' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
-            aria-label="Карандаш"
-            title="Карандаш"
+            aria-label="РљР°СЂР°РЅРґР°С€"
+            title="РљР°СЂР°РЅРґР°С€"
           >
             <Pencil size={14} />
           </button>
@@ -6768,8 +6803,8 @@ const BoardSection = ({
             className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
               tool === 'line' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
-            aria-label="Линия"
-            title="Линия"
+            aria-label="Р›РёРЅРёСЏ"
+            title="Р›РёРЅРёСЏ"
           >
             <Minus size={14} />
           </button>
@@ -6780,8 +6815,8 @@ const BoardSection = ({
             className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
               tool === 'select' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
-            aria-label="Выделение"
-            title="Выделение"
+            aria-label="Р’С‹РґРµР»РµРЅРёРµ"
+            title="Р’С‹РґРµР»РµРЅРёРµ"
           >
             <MousePointer2 size={14} />
           </button>
@@ -6792,8 +6827,8 @@ const BoardSection = ({
             className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
               tool === 'move' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
-            aria-label="Перемещение"
-            title="Перемещение"
+            aria-label="РџРµСЂРµРјРµС‰РµРЅРёРµ"
+            title="РџРµСЂРµРјРµС‰РµРЅРёРµ"
           >
             <Hand size={14} />
           </button>
@@ -6804,8 +6839,8 @@ const BoardSection = ({
             className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
               tool === 'eraser' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
-            aria-label="Ластик"
-            title="Ластик"
+            aria-label="Р›Р°СЃС‚РёРє"
+            title="Р›Р°СЃС‚РёРє"
           >
             <Eraser size={14} />
           </button>
@@ -6816,8 +6851,8 @@ const BoardSection = ({
               onClick={handleUndo}
               disabled={!canUndo}
               className="inline-flex items-center justify-center rounded-lg px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-              aria-label="Отменить"
-              title="Отменить"
+              aria-label="РћС‚РјРµРЅРёС‚СЊ"
+              title="РћС‚РјРµРЅРёС‚СЊ"
             >
               <Undo2 size={14} />
             </button>
@@ -6826,8 +6861,8 @@ const BoardSection = ({
               onClick={handleRedo}
               disabled={!canRedo}
               className="inline-flex items-center justify-center rounded-lg px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-              aria-label="Вернуть"
-              title="Вернуть"
+              aria-label="Р’РµСЂРЅСѓС‚СЊ"
+              title="Р’РµСЂРЅСѓС‚СЊ"
             >
               <RefreshCcw size={14} />
             </button>
@@ -6836,8 +6871,8 @@ const BoardSection = ({
               onClick={handleClearBoard}
               disabled={!canClear}
               className="inline-flex items-center justify-center rounded-lg px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-              aria-label="Очистить доску"
-              title="Очистить доску"
+              aria-label="РћС‡РёСЃС‚РёС‚СЊ РґРѕСЃРєСѓ"
+              title="РћС‡РёСЃС‚РёС‚СЊ РґРѕСЃРєСѓ"
             >
               <Trash2 size={14} />
             </button>
@@ -6850,7 +6885,7 @@ const BoardSection = ({
               className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
             >
               <Settings size={14} />
-              Цвет и размер
+              Р¦РІРµС‚ Рё СЂР°Р·РјРµСЂ
               <span
                 className="ml-1 inline-flex h-2.5 w-2.5 rounded-full border border-white/80"
                 style={{ backgroundColor: color }}
@@ -6860,7 +6895,7 @@ const BoardSection = ({
               <div className="absolute right-0 z-30 mt-2 w-72 rounded-2xl border border-gray-200 bg-white p-3 shadow-lg">
                 <div className="space-y-3">
                   <div>
-                    <div className="text-[11px] uppercase tracking-wide text-gray-500">{`Толщина (${widthTargetLabel})`}</div>
+                    <div className="text-[11px] uppercase tracking-wide text-gray-500">{`РўРѕР»С‰РёРЅР° (${widthTargetLabel})`}</div>
                     <div className="mt-1 flex items-center gap-2">
                       <input
                         type="range"
@@ -6876,7 +6911,7 @@ const BoardSection = ({
                     </div>
                   </div>
                   <div>
-                    <div className="text-[11px] uppercase tracking-wide text-gray-500">Цвет</div>
+                    <div className="text-[11px] uppercase tracking-wide text-gray-500">Р¦РІРµС‚</div>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       {BOARD_COLORS.map((swatch) => (
                         <button
@@ -6887,7 +6922,7 @@ const BoardSection = ({
                             color === swatch ? 'border-gray-900 scale-110' : 'border-white/80'
                           }`}
                           style={{ backgroundColor: swatch }}
-                          aria-label={`Цвет ${swatch}`}
+                          aria-label={`Р¦РІРµС‚ ${swatch}`}
                         />
                       ))}
                     </div>
@@ -6900,7 +6935,7 @@ const BoardSection = ({
                         onChange={(event) => setShareMyCursor(event.target.checked)}
                         className="h-4 w-4 accent-purple-600"
                       />
-                      Показывать мой курсор
+                      РџРѕРєР°Р·С‹РІР°С‚СЊ РјРѕР№ РєСѓСЂСЃРѕСЂ
                     </label>
                   </div>
                   <div className="border-t border-gray-100 pt-3">
@@ -6911,15 +6946,15 @@ const BoardSection = ({
                         onChange={(event) => setLowBandwidthMode(event.target.checked)}
                         className="h-4 w-4 accent-purple-600"
                       />
-                      Режим слабого интернета
+                      Р РµР¶РёРј СЃР»Р°Р±РѕРіРѕ РёРЅС‚РµСЂРЅРµС‚Р°
                     </label>
                     <div className="mt-1 text-[11px] text-gray-400">
-                      Реже отправляет курсор и превью линий, чтобы снизить трафик.
+                      Р РµР¶Рµ РѕС‚РїСЂР°РІР»СЏРµС‚ РєСѓСЂСЃРѕСЂ Рё РїСЂРµРІСЊСЋ Р»РёРЅРёР№, С‡С‚РѕР±С‹ СЃРЅРёР·РёС‚СЊ С‚СЂР°С„РёРє.
                     </div>
                   </div>
                   {tool === 'move' && selectedImage && (
                     <div className="border-t border-gray-100 pt-3">
-                      <div className="text-[11px] uppercase tracking-wide text-gray-500">Изображение</div>
+                      <div className="text-[11px] uppercase tracking-wide text-gray-500">РР·РѕР±СЂР°Р¶РµРЅРёРµ</div>
                       <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
                         <span>{selectedImageLabel}</span>
                         <div className="flex items-center gap-1">
@@ -6950,8 +6985,8 @@ const BoardSection = ({
             type="button"
             onClick={() => zoomBy(1 / 1.12)}
             className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-            aria-label="Отдалить"
-            title="Отдалить"
+            aria-label="РћС‚РґР°Р»РёС‚СЊ"
+            title="РћС‚РґР°Р»РёС‚СЊ"
           >
             <Minus size={14} />
           </button>
@@ -6964,8 +6999,8 @@ const BoardSection = ({
             type="button"
             onClick={() => zoomBy(1.12)}
             className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-            aria-label="Приблизить"
-            title="Приблизить"
+            aria-label="РџСЂРёР±Р»РёР·РёС‚СЊ"
+            title="РџСЂРёР±Р»РёР·РёС‚СЊ"
           >
             <Plus size={14} />
           </button>
@@ -6974,18 +7009,18 @@ const BoardSection = ({
             type="button"
             onClick={resetView}
             className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-            aria-label="Сброс масштаба"
-            title="Сброс масштаба"
+            aria-label="РЎР±СЂРѕСЃ РјР°СЃС€С‚Р°Р±Р°"
+            title="РЎР±СЂРѕСЃ РјР°СЃС€С‚Р°Р±Р°"
           >
-            Сброс
+            РЎР±СЂРѕСЃ
           </button>
 
           <button
             type="button"
             onClick={toggleFullscreen}
             className="ml-auto inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-            aria-label={isFullscreen ? 'Обычный экран' : 'Полный экран'}
-            title={isFullscreen ? 'Обычный экран' : 'Полный экран'}
+            aria-label={isFullscreen ? 'РћР±С‹С‡РЅС‹Р№ СЌРєСЂР°РЅ' : 'РџРѕР»РЅС‹Р№ СЌРєСЂР°РЅ'}
+            title={isFullscreen ? 'РћР±С‹С‡РЅС‹Р№ СЌРєСЂР°РЅ' : 'РџРѕР»РЅС‹Р№ СЌРєСЂР°РЅ'}
           >
             {isFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
           </button>
@@ -7004,12 +7039,12 @@ const BoardSection = ({
         >
           {!roomId && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
-              Выберите ученика, чтобы открыть доску.
+              Р’С‹Р±РµСЂРёС‚Рµ СѓС‡РµРЅРёРєР°, С‡С‚РѕР±С‹ РѕС‚РєСЂС‹С‚СЊ РґРѕСЃРєСѓ.
             </div>
           )}
           {!isTeacher && summonNotice && (
             <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border border-amber-200 bg-amber-50 px-4 py-1.5 text-xs font-semibold text-amber-700 shadow-sm">
-              Учитель переместил вас к себе
+              РЈС‡РёС‚РµР»СЊ РїРµСЂРµРјРµСЃС‚РёР» РІР°СЃ Рє СЃРµР±Рµ
             </div>
           )}
           <canvas
@@ -7077,7 +7112,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const allowedViews = user.role === 'admin'
     ? ['admin']
     : user.role === 'teacher'
-      ? ['schedule', 'progress', 'python', 'rating', 'collab', 'call', 'board', 'teacher', 'notes']
+      ? ['schedule', 'progress', 'python', 'rating', 'collab', 'call', 'board', 'teacher', 'signup-chats', 'notes']
       : [
         'schedule',
         'progress',
@@ -7191,7 +7226,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [isDesktopWide, setIsDesktopWide] = useState(
     typeof window !== 'undefined' ? window.innerWidth > 1000 : true
   );
-  const [teacherNotifs, setTeacherNotifs] = useState([]);
+  const [teacherSolvedNotifs, setTeacherSolvedNotifs] = useState([]);
+  const [teacherSignupNotifs, setTeacherSignupNotifs] = useState([]);
+  const dismissedSignupNotifsRef = useRef(new Map());
+  const teacherSignupUnreadSnapshotRef = useRef(new Map());
+  const teacherSignupNotifyBootstrappedRef = useRef(false);
+  const [teacherSignupNotifySupported, setTeacherSignupNotifySupported] = useState(isBrowserNotificationsSupported());
+  const [teacherSignupNotifyPermission, setTeacherSignupNotifyPermission] = useState(getBrowserNotificationPermission());
+  const [teacherSignupNotifyEnabled, setTeacherSignupNotifyEnabled] = useState(() => readTeacherSignupNotifyPreference());
+  const [teacherSignupNotifyError, setTeacherSignupNotifyError] = useState('');
   const [taskTitles, setTaskTitles] = useState({});
   const [students, setStudents] = useState([]);
   const [studentsLoading, setStudentsLoading] = useState(false);
@@ -7233,6 +7276,24 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     () => applyTaskTitles(MOCK_TASKS, taskTitles),
     [taskTitles]
   );
+  const teacherNotifs = useMemo(() => {
+    const solved = (Array.isArray(teacherSolvedNotifs) ? teacherSolvedNotifs : []).map((note) => ({
+      ...note,
+      type: 'solved',
+      timestampMs: Number.isFinite(Number(note?.timestampMs))
+        ? Number(note.timestampMs)
+        : (Number.isFinite(Date.parse(note?.solvedAt || '')) ? Date.parse(note.solvedAt) : 0),
+    }));
+    const signup = (Array.isArray(teacherSignupNotifs) ? teacherSignupNotifs : []).map((note) => ({
+      ...note,
+      type: 'signup',
+      timestampMs: Number.isFinite(Number(note?.timestampMs))
+        ? Number(note.timestampMs)
+        : (Number.isFinite(Date.parse(note?.lastMessageAt || '')) ? Date.parse(note.lastMessageAt) : 0),
+    }));
+    return [...solved, ...signup]
+      .sort((left, right) => (Number(right?.timestampMs) || 0) - (Number(left?.timestampMs) || 0));
+  }, [teacherSignupNotifs, teacherSolvedNotifs]);
 
   useEffect(() => {
     updateUserLocation(user, { view });
@@ -7264,29 +7325,30 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const nav = user.role === 'admin'
     ? [
-      { id: 'admin', label: 'Админка', icon: Settings }
+      { id: 'admin', label: 'РђРґРјРёРЅРєР°', icon: Settings }
     ]
     : user.role === 'teacher'
       ? [
-        { id: 'schedule', label: 'Моё расписание', icon: Calendar },
-        { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
-        { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
-        { id: 'rating', label: 'Рейтинг', icon: Trophy },
-        { id: 'collab', label: 'Совместный код', icon: Code2 },
+        { id: 'schedule', label: 'РњРѕС‘ СЂР°СЃРїРёСЃР°РЅРёРµ', icon: Calendar },
+        { id: 'progress', label: 'РЈСЃРїРµРІР°РµРјРѕСЃС‚СЊ', icon: BarChart2 },
+        { id: 'python', label: 'РР·СѓС‡РµРЅРёРµ Python', icon: PythonLogoIcon },
+        { id: 'rating', label: 'Р РµР№С‚РёРЅРі', icon: Trophy },
+        { id: 'collab', label: 'РЎРѕРІРјРµСЃС‚РЅС‹Р№ РєРѕРґ', icon: Code2 },
         { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
-        { id: 'board', label: 'Доска', icon: Brush },
-        { id: 'teacher', label: 'Управление тестами', icon: Settings },
-        { id: 'notes', label: 'Конспекты', icon: Folder }
+        { id: 'board', label: 'Р”РѕСЃРєР°', icon: Brush },
+        { id: 'teacher', label: 'РЈРїСЂР°РІР»РµРЅРёРµ С‚РµСЃС‚Р°РјРё', icon: Settings },
+        { id: 'signup-chats', label: 'Р§Р°С‚С‹ Р·Р°СЏРІРѕРє', icon: MessageSquare },
+        { id: 'notes', label: 'РљРѕРЅСЃРїРµРєС‚С‹', icon: Folder }
       ]
       : [
-        { id: 'schedule', label: 'Моё расписание', icon: Calendar },
-        { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
-        { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
-        { id: 'rating', label: 'Рейтинг', icon: Trophy },
-        { id: 'collab', label: 'Совместный код', icon: Code2 },
+        { id: 'schedule', label: 'РњРѕС‘ СЂР°СЃРїРёСЃР°РЅРёРµ', icon: Calendar },
+        { id: 'progress', label: 'РЈСЃРїРµРІР°РµРјРѕСЃС‚СЊ', icon: BarChart2 },
+        { id: 'python', label: 'РР·СѓС‡РµРЅРёРµ Python', icon: PythonLogoIcon },
+        { id: 'rating', label: 'Р РµР№С‚РёРЅРі', icon: Trophy },
+        { id: 'collab', label: 'РЎРѕРІРјРµСЃС‚РЅС‹Р№ РєРѕРґ', icon: Code2 },
         { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
-        { id: 'board', label: 'Доска', icon: Brush },
-        { id: 'notes', label: 'Конспекты', icon: BookOpen }
+        { id: 'board', label: 'Р”РѕСЃРєР°', icon: Brush },
+        { id: 'notes', label: 'РљРѕРЅСЃРїРµРєС‚С‹', icon: BookOpen }
       ];
   const visibleNav = (user.role === 'student' && !STUDENT_CALL_SECTION_ENABLED)
     ? nav.filter((item) => item.id !== 'call')
@@ -7334,7 +7396,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       teacherLessonNavItem,
-      ...['teacher', 'notes']
+      ...['teacher', 'signup-chats', 'notes']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean)
     ]
@@ -7351,19 +7413,64 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ]
     : desktopPrimaryNav;
   const mobileNavLabels = {
-    schedule: 'График',
-    progress: 'Тесты',
+    schedule: 'Р“СЂР°С„РёРє',
+    progress: 'РўРµСЃС‚С‹',
     lesson: '\u0423\u0440\u043e\u043a',
-    rating: 'Рейтинг',
+    rating: 'Р РµР№С‚РёРЅРі',
     python: 'Python',
-    collab: 'Код',
+    collab: 'РљРѕРґ',
     call: '\u0417\u0432\u043e\u043d\u043e\u043a',
-    board: 'Доска',
-    teacher: 'Управ.',
-    notes: 'Консп.',
-    admin: 'Админка',
+    board: 'Р”РѕСЃРєР°',
+    teacher: 'РЈРїСЂР°РІ.',
+    'signup-chats': 'Р—Р°СЏРІРєРё',
+    notes: 'РљРѕРЅСЃРї.',
+    admin: 'РђРґРјРёРЅРєР°',
     more: '\u0415\u0449\u0435',
   };
+  const teacherSignupNotifyStatusText = useMemo(() => {
+    if (!teacherSignupNotifySupported) return 'Браузер не поддерживает уведомления.';
+    if (teacherSignupNotifyPermission === 'denied') return 'Уведомления заблокированы в настройках браузера.';
+    if (teacherSignupNotifyEnabled && teacherSignupNotifyPermission === 'granted') {
+      return 'Браузерные уведомления о новых сообщениях в заявках включены.';
+    }
+    return 'Включите уведомления, чтобы не пропускать новые сообщения в чатах заявок.';
+  }, [teacherSignupNotifyEnabled, teacherSignupNotifyPermission, teacherSignupNotifySupported]);
+  const handleToggleTeacherSignupNotify = useCallback(async () => {
+    if (user.role !== 'teacher') return;
+    if (!teacherSignupNotifySupported) {
+      setTeacherSignupNotifyError('Этот браузер не поддерживает уведомления.');
+      return;
+    }
+
+    setTeacherSignupNotifyError('');
+    if (teacherSignupNotifyEnabled) {
+      setTeacherSignupNotifyEnabled(false);
+      writeTeacherSignupNotifyPreference(false);
+      return;
+    }
+
+    let permission = teacherSignupNotifyPermission;
+    if (permission !== 'granted') {
+      try {
+        permission = await Notification.requestPermission();
+      } catch {
+        permission = 'denied';
+      }
+      setTeacherSignupNotifyPermission(permission || 'default');
+    }
+
+    if (permission === 'granted') {
+      setTeacherSignupNotifyEnabled(true);
+      writeTeacherSignupNotifyPreference(true);
+      return;
+    }
+
+    setTeacherSignupNotifyEnabled(false);
+    writeTeacherSignupNotifyPreference(false);
+    if (permission === 'denied') {
+      setTeacherSignupNotifyError('Разрешите уведомления для сайта в настройках браузера.');
+    }
+  }, [teacherSignupNotifyEnabled, teacherSignupNotifyPermission, teacherSignupNotifySupported, user.role]);
   useEffect(() => {
     if (user.role !== 'student') {
       setDesktopStudentMoreOpen(false);
@@ -7380,7 +7487,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setPushSubscribed(false);
       setPushReady(true);
       if (!silent) {
-        setPushError('Этот браузер не поддерживает push-уведомления.');
+        setPushError('Р­С‚РѕС‚ Р±СЂР°СѓР·РµСЂ РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚ push-СѓРІРµРґРѕРјР»РµРЅРёСЏ.');
       }
       return;
     }
@@ -7404,7 +7511,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setPushSubscribed(subscribed);
     } catch (error) {
       if (!silent) {
-        setPushError(normalizePushErrorMessage(error, 'Не удалось проверить статус push-уведомлений.'));
+        setPushError(normalizePushErrorMessage(error, 'РќРµ СѓРґР°Р»РѕСЃСЊ РїСЂРѕРІРµСЂРёС‚СЊ СЃС‚Р°С‚СѓСЃ push-СѓРІРµРґРѕРјР»РµРЅРёР№.'));
       }
     } finally {
       setPushPermission(getPushPermission());
@@ -7417,7 +7524,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const supported = isPushFeatureSupported();
     setPushSupported(supported);
     if (!supported) {
-      setPushError('Этот браузер не поддерживает push-уведомления.');
+      setPushError('Р­С‚РѕС‚ Р±СЂР°СѓР·РµСЂ РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚ push-СѓРІРµРґРѕРјР»РµРЅРёСЏ.');
       return;
     }
 
@@ -7427,7 +7534,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       const permissionBefore = getPushPermission();
       setPushPermission(permissionBefore);
       if (permissionBefore === 'denied') {
-        throw new Error('Разрешение на уведомления отключено в браузере.');
+        throw new Error('Р Р°Р·СЂРµС€РµРЅРёРµ РЅР° СѓРІРµРґРѕРјР»РµРЅРёСЏ РѕС‚РєР»СЋС‡РµРЅРѕ РІ Р±СЂР°СѓР·РµСЂРµ.');
       }
 
       let permission = permissionBefore;
@@ -7436,13 +7543,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         setPushPermission(permission);
       }
       if (permission !== 'granted') {
-        throw new Error('Разрешение на уведомления не выдано.');
+        throw new Error('Р Р°Р·СЂРµС€РµРЅРёРµ РЅР° СѓРІРµРґРѕРјР»РµРЅРёСЏ РЅРµ РІС‹РґР°РЅРѕ.');
       }
 
       const keyPayload = await api.getPushPublicKey();
       const publicKey = String(keyPayload?.publicKey || '').trim();
       if (!publicKey) {
-        throw new Error('Push не настроен на сервере.');
+        throw new Error('Push РЅРµ РЅР°СЃС‚СЂРѕРµРЅ РЅР° СЃРµСЂРІРµСЂРµ.');
       }
 
       const registration = await getPushServiceWorkerRegistration();
@@ -7481,7 +7588,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setPushSubscribed(false);
       setPushReady(true);
     } catch (error) {
-      setPushError(normalizePushErrorMessage(error, 'Не удалось отключить push-уведомления.'));
+      setPushError(normalizePushErrorMessage(error, 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РєР»СЋС‡РёС‚СЊ push-СѓРІРµРґРѕРјР»РµРЅРёСЏ.'));
     } finally {
       setPushBusy(false);
       setPushPermission(getPushPermission());
@@ -7496,15 +7603,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     handleEnablePush();
   }, [handleDisablePush, handleEnablePush, pushBusy, pushSubscribed, pushSyncing]);
   const pushStatusText = (() => {
-    if (pushSyncing) return 'Проверяем статус push...';
-    if (!pushSupported) return 'Push не поддерживается в этом браузере.';
-    if (pushPermission === 'denied') return 'Уведомления заблокированы в настройках браузера.';
-    if (pushSubscribed) return 'Push о новой домашке включены.';
-    return 'Включите push, чтобы получать уведомления о новой домашке.';
+    if (pushSyncing) return 'РџСЂРѕРІРµСЂСЏРµРј СЃС‚Р°С‚СѓСЃ push...';
+    if (!pushSupported) return 'Push РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚СЃСЏ РІ СЌС‚РѕРј Р±СЂР°СѓР·РµСЂРµ.';
+    if (pushPermission === 'denied') return 'РЈРІРµРґРѕРјР»РµРЅРёСЏ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅС‹ РІ РЅР°СЃС‚СЂРѕР№РєР°С… Р±СЂР°СѓР·РµСЂР°.';
+    if (pushSubscribed) return 'Push Рѕ РЅРѕРІРѕР№ РґРѕРјР°С€РєРµ РІРєР»СЋС‡РµРЅС‹.';
+    return 'Р’РєР»СЋС‡РёС‚Рµ push, С‡С‚РѕР±С‹ РїРѕР»СѓС‡Р°С‚СЊ СѓРІРµРґРѕРјР»РµРЅРёСЏ Рѕ РЅРѕРІРѕР№ РґРѕРјР°С€РєРµ.';
   })();
   const pushButtonLabel = pushBusy
-    ? 'Сохраняем...'
-    : (pushSubscribed ? 'Отключить push' : 'Включить push');
+    ? 'РЎРѕС…СЂР°РЅСЏРµРј...'
+    : (pushSubscribed ? 'РћС‚РєР»СЋС‡РёС‚СЊ push' : 'Р’РєР»СЋС‡РёС‚СЊ push');
   const PushButtonIcon = pushSubscribed ? BellOff : Bell;
   const renderPushControl = ({ mobile = false } = {}) => {
     if (user.role !== 'student') return null;
@@ -7555,6 +7662,51 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     setPushPermission(getPushPermission());
     syncPushSubscriptionState({ silent: true });
   }, [syncPushSubscriptionState, user.role, user.id]);
+
+  useEffect(() => {
+    const supported = isBrowserNotificationsSupported();
+    const permission = getBrowserNotificationPermission();
+    setTeacherSignupNotifySupported(supported);
+    setTeacherSignupNotifyPermission(permission);
+    setTeacherSignupNotifyError('');
+
+    const preferred = readTeacherSignupNotifyPreference();
+    const enabled = user.role === 'teacher' && supported && permission === 'granted' && preferred;
+    setTeacherSignupNotifyEnabled(enabled);
+    if (preferred && !enabled) {
+      writeTeacherSignupNotifyPreference(false);
+    }
+  }, [user.role, user.id]);
+
+  useEffect(() => {
+    if (user.role !== 'teacher' || !teacherSignupNotifySupported) return undefined;
+    const syncPermission = () => {
+      setTeacherSignupNotifyPermission(getBrowserNotificationPermission());
+    };
+    syncPermission();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', syncPermission);
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', syncPermission);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', syncPermission);
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', syncPermission);
+      }
+    };
+  }, [teacherSignupNotifySupported, user.role]);
+
+  useEffect(() => {
+    if (user.role !== 'teacher') return;
+    if (teacherSignupNotifyPermission === 'granted') return;
+    if (!teacherSignupNotifyEnabled) return;
+    setTeacherSignupNotifyEnabled(false);
+    writeTeacherSignupNotifyPreference(false);
+  }, [teacherSignupNotifyEnabled, teacherSignupNotifyPermission, user.role]);
 
   const stopXpGainAnimation = useCallback(({ keepDock = false } = {}) => {
     xpAnimTokenRef.current += 1;
@@ -7878,14 +8030,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     return 0;
   })();
   const streakStatusText = (() => {
-    if (!lastActiveKey) return 'Начните решать, чтобы запустить серию.';
-    if (diffDays === 0) return 'Сегодняшняя активность засчитана.';
-    if (diffDays === 1) return 'Решите сегодня, чтобы сохранить серию.';
+    if (!lastActiveKey) return 'РќР°С‡РЅРёС‚Рµ СЂРµС€Р°С‚СЊ, С‡С‚РѕР±С‹ Р·Р°РїСѓСЃС‚РёС‚СЊ СЃРµСЂРёСЋ.';
+    if (diffDays === 0) return 'РЎРµРіРѕРґРЅСЏС€РЅСЏСЏ Р°РєС‚РёРІРЅРѕСЃС‚СЊ Р·Р°СЃС‡РёС‚Р°РЅР°.';
+    if (diffDays === 1) return 'Р РµС€РёС‚Рµ СЃРµРіРѕРґРЅСЏ, С‡С‚РѕР±С‹ СЃРѕС…СЂР°РЅРёС‚СЊ СЃРµСЂРёСЋ.';
     if (diffDays === 2) {
-      return freezeAvailable ? 'Заморозка сохранит серию — решите сегодня.' : 'Серия сброшена.';
+      return freezeAvailable ? 'Р—Р°РјРѕСЂРѕР·РєР° СЃРѕС…СЂР°РЅРёС‚ СЃРµСЂРёСЋ вЂ” СЂРµС€РёС‚Рµ СЃРµРіРѕРґРЅСЏ.' : 'РЎРµСЂРёСЏ СЃР±СЂРѕС€РµРЅР°.';
     }
-    if (Number.isFinite(diffDays) && diffDays > 2) return 'Серия сброшена.';
-    return 'Продолжайте решать задачи.';
+    if (Number.isFinite(diffDays) && diffDays > 2) return 'РЎРµСЂРёСЏ СЃР±СЂРѕС€РµРЅР°.';
+    return 'РџСЂРѕРґРѕР»Р¶Р°Р№С‚Рµ СЂРµС€Р°С‚СЊ Р·Р°РґР°С‡Рё.';
   })();
   const streakWeek = (() => {
     if (!Number.isFinite(todayNum)) return [];
@@ -8340,10 +8492,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   useEffect(() => {
     if (user.role !== 'teacher') {
-      setTeacherNotifs([]);
+      setTeacherSolvedNotifs([]);
+      setTeacherSignupNotifs([]);
+      dismissedSignupNotifsRef.current.clear();
+      teacherSignupUnreadSnapshotRef.current.clear();
+      teacherSignupNotifyBootstrappedRef.current = false;
       return;
     }
-    setTeacherNotifs([]);
+    setTeacherSolvedNotifs([]);
+    setTeacherSignupNotifs([]);
+    dismissedSignupNotifsRef.current.clear();
+    teacherSignupUnreadSnapshotRef.current.clear();
+    teacherSignupNotifyBootstrappedRef.current = false;
   }, [user.role, user.id]);
 
   useEffect(() => {
@@ -8360,10 +8520,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           const eventId = typeof event?.id === 'string' ? event.id.trim() : '';
           if (!eventId || seenIds.has(eventId)) return;
           seenIds.add(eventId);
-          unique.push({ ...event, id: eventId });
+          const solvedAtMs = Date.parse(event?.solvedAt || '');
+          unique.push({
+            ...event,
+            id: eventId,
+            type: 'solved',
+            timestampMs: Number.isFinite(solvedAtMs) ? solvedAtMs : 0,
+          });
         });
-        const sorted = unique.sort((a, b) => new Date(b.solvedAt) - new Date(a.solvedAt));
-        setTeacherNotifs(sorted);
+        const sorted = unique.sort((a, b) => (Number(b.timestampMs) || 0) - (Number(a.timestampMs) || 0));
+        setTeacherSolvedNotifs(sorted);
       } catch {
         // ignore
       }
@@ -8376,6 +8542,121 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       clearInterval(interval);
     };
   }, [user.role, user.id]);
+
+  useEffect(() => {
+    if (user.role !== 'teacher') return;
+    let cancelled = false;
+
+    const fetchSignupUnread = async () => {
+      try {
+        const chats = await api.getSignupChats();
+        if (cancelled) return;
+        const mutedByChat = dismissedSignupNotifsRef.current;
+        const previousUnreadByChat = teacherSignupUnreadSnapshotRef.current;
+        const nextUnreadByChat = new Map();
+        let latestIncrease = null;
+        const existingChatIds = new Set();
+        const nextNotifs = [];
+
+        (Array.isArray(chats) ? chats : []).forEach((chat) => {
+          const chatId = typeof chat?.id === 'string' ? chat.id.trim() : '';
+          if (!chatId) return;
+          existingChatIds.add(chatId);
+
+          const unreadForTeacher = Number(chat?.unreadForTeacher) || 0;
+          nextUnreadByChat.set(chatId, unreadForTeacher);
+          const lastMessageAt = String(chat?.lastMessageAt || chat?.updatedAt || chat?.createdAt || '').trim();
+          const ts = Date.parse(lastMessageAt);
+          const messagePreview = String(chat?.lastMessagePreview || '').replace(/\s+/g, ' ').trim();
+          const guestName = String(chat?.guestName || '').trim() || 'Гость';
+
+          if (teacherSignupNotifyBootstrappedRef.current) {
+            const previousUnread = Number(previousUnreadByChat.get(chatId)) || 0;
+            if (unreadForTeacher > previousUnread) {
+              if (!latestIncrease || (Number(latestIncrease.timestampMs) || 0) <= (Number.isFinite(ts) ? ts : 0)) {
+                latestIncrease = {
+                  chatId,
+                  guestName,
+                  preview: messagePreview,
+                  unreadCount: unreadForTeacher,
+                  delta: unreadForTeacher - previousUnread,
+                  timestampMs: Number.isFinite(ts) ? ts : 0,
+                };
+              }
+            }
+          }
+
+          if (unreadForTeacher <= 0) {
+            mutedByChat.delete(chatId);
+            return;
+          }
+
+          const mutedAtUnread = Number(mutedByChat.get(chatId)) || 0;
+          if (mutedAtUnread > 0 && unreadForTeacher <= mutedAtUnread) return;
+
+          nextNotifs.push({
+            id: `signup-${chatId}`,
+            type: 'signup',
+            chatId,
+            guestName,
+            unreadCount: unreadForTeacher,
+            preview: messagePreview,
+            lastMessageAt,
+            timestampMs: Number.isFinite(ts) ? ts : 0,
+          });
+        });
+
+        [...mutedByChat.keys()].forEach((chatId) => {
+          if (!existingChatIds.has(chatId)) mutedByChat.delete(chatId);
+        });
+        [...previousUnreadByChat.keys()].forEach((chatId) => {
+          if (!existingChatIds.has(chatId)) nextUnreadByChat.delete(chatId);
+        });
+        teacherSignupUnreadSnapshotRef.current = nextUnreadByChat;
+
+        nextNotifs.sort((a, b) => (Number(b.timestampMs) || 0) - (Number(a.timestampMs) || 0));
+        setTeacherSignupNotifs(nextNotifs);
+
+        if (!teacherSignupNotifyBootstrappedRef.current) {
+          teacherSignupNotifyBootstrappedRef.current = true;
+          return;
+        }
+
+        if (!latestIncrease) return;
+        if (!teacherSignupNotifySupported || !teacherSignupNotifyEnabled || teacherSignupNotifyPermission !== 'granted') return;
+        const canShowNotification = typeof document === 'undefined'
+          ? true
+          : (document.visibilityState !== 'visible'
+              || (typeof document.hasFocus === 'function' ? !document.hasFocus() : true));
+        if (!canShowNotification) return;
+
+        const title = latestIncrease.delta > 1
+          ? `Новых сообщений: ${latestIncrease.delta}`
+          : `Новое сообщение от ${latestIncrease.guestName}`;
+        const body = latestIncrease.preview
+          ? latestIncrease.preview.slice(0, 180)
+          : `Непрочитано: ${latestIncrease.unreadCount}`;
+
+        try {
+          new Notification(title, {
+            body,
+            tag: `teacher-signup-chat-${latestIncrease.chatId}`,
+          });
+        } catch {
+          // ignore notification failures
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    fetchSignupUnread();
+    const interval = setInterval(fetchSignupUnread, 9000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [teacherSignupNotifyEnabled, teacherSignupNotifyPermission, teacherSignupNotifySupported, user.role, user.id]);
 
   const handleStudentCreated = (student) => {
     if (!student) return;
@@ -8512,17 +8793,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const value = Number(days) || 0;
     const mod10 = value % 10;
     const mod100 = value % 100;
-    if (mod10 === 1 && mod100 !== 11) return `${value} день`;
-    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} дня`;
-    return `${value} дней`;
+    if (mod10 === 1 && mod100 !== 11) return `${value} РґРµРЅСЊ`;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} РґРЅСЏ`;
+    return `${value} РґРЅРµР№`;
   };
   const formatMonthsText = (months) => {
     const value = Number(months) || 0;
     const mod10 = value % 10;
     const mod100 = value % 100;
-    if (mod10 === 1 && mod100 !== 11) return `${value} месяц`;
-    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} месяца`;
-    return `${value} месяцев`;
+    if (mod10 === 1 && mod100 !== 11) return `${value} РјРµСЃСЏС†`;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} РјРµСЃСЏС†Р°`;
+    return `${value} РјРµСЃСЏС†РµРІ`;
   };
   const formatMonthsAndDaysText = (days) => {
     const totalDays = Math.max(0, Math.ceil(Number(days) || 0));
@@ -8555,13 +8836,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   })();
   const testingForecastText = (() => {
     if (testingForecast.total <= 0) {
-      return 'Пока нет данных о заданиях в разделе тестирования.';
+      return 'РџРѕРєР° РЅРµС‚ РґР°РЅРЅС‹С… Рѕ Р·Р°РґР°РЅРёСЏС… РІ СЂР°Р·РґРµР»Рµ С‚РµСЃС‚РёСЂРѕРІР°РЅРёСЏ.';
     }
     if (testingForecast.remaining <= 0) {
-      return 'Все задания в тестированиях уже решены.';
+      return 'Р’СЃРµ Р·Р°РґР°РЅРёСЏ РІ С‚РµСЃС‚РёСЂРѕРІР°РЅРёСЏС… СѓР¶Рµ СЂРµС€РµРЅС‹.';
     }
     if (!hasForecastDuration) {
-      return 'Пока недостаточно решений, чтобы оценить срок завершения.';
+      return 'РџРѕРєР° РЅРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ СЂРµС€РµРЅРёР№, С‡С‚РѕР±С‹ РѕС†РµРЅРёС‚СЊ СЃСЂРѕРє Р·Р°РІРµСЂС€РµРЅРёСЏ.';
     }
     return '';
   })();
@@ -8599,14 +8880,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       return {
         level: 'ok',
         className: 'border-emerald-200 text-emerald-600',
-        title: `В среднем ${averageSolvedPerDayLabel} задания/день за ${solvedPerDayStats.periodDays || 0} дн.`
+        title: `Р’ СЃСЂРµРґРЅРµРј ${averageSolvedPerDayLabel} Р·Р°РґР°РЅРёСЏ/РґРµРЅСЊ Р·Р° ${solvedPerDayStats.periodDays || 0} РґРЅ.`
       };
     }
     if (egeDeadlineStats.isOnTrack) {
       return {
         level: 'ok',
         className: 'border-emerald-200 text-emerald-600',
-        title: `Вы успеваете к дедлайну. Запас: +${egeDeadlineStats.bufferPerDayLabel} задания/день.`
+        title: `Р’С‹ СѓСЃРїРµРІР°РµС‚Рµ Рє РґРµРґР»Р°Р№РЅСѓ. Р—Р°РїР°СЃ: +${egeDeadlineStats.bufferPerDayLabel} Р·Р°РґР°РЅРёСЏ/РґРµРЅСЊ.`
       };
     }
     const extra = Number(egeDeadlineStats.extraPerDay) || 0;
@@ -8617,13 +8898,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       return {
         level: 'danger',
         className: 'border-rose-200 text-rose-600',
-        title: `Сильное отставание: нужно добавить +${egeDeadlineStats.extraPerDayLabel} задания/день.`
+        title: `РЎРёР»СЊРЅРѕРµ РѕС‚СЃС‚Р°РІР°РЅРёРµ: РЅСѓР¶РЅРѕ РґРѕР±Р°РІРёС‚СЊ +${egeDeadlineStats.extraPerDayLabel} Р·Р°РґР°РЅРёСЏ/РґРµРЅСЊ.`
       };
     }
     return {
       level: 'warn',
       className: 'border-amber-200 text-amber-600',
-      title: `Небольшое отставание: нужно добавить +${egeDeadlineStats.extraPerDayLabel} задания/день.`
+      title: `РќРµР±РѕР»СЊС€РѕРµ РѕС‚СЃС‚Р°РІР°РЅРёРµ: РЅСѓР¶РЅРѕ РґРѕР±Р°РІРёС‚СЊ +${egeDeadlineStats.extraPerDayLabel} Р·Р°РґР°РЅРёСЏ/РґРµРЅСЊ.`
     };
   }, [averageSolvedPerDayLabel, egeDeadlineStats, shouldShowEgeDeadlineHint, solvedPerDayStats.periodDays]);
 
@@ -8746,7 +9027,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           return {
             type: GOAL_TYPE_MOCK,
             mockExamId,
-            mockExamTitle: mockExam?.title || 'Пробник',
+            mockExamTitle: mockExam?.title || 'РџСЂРѕР±РЅРёРє',
             taskStatus: mockProgress.taskStatus,
             solvedCount: mockProgress.solvedCount,
             totalCount: mockProgress.totalCount,
@@ -8780,7 +9061,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         const taskInfo = !isPythonGoal
           ? tasksWithTitles.find((task) => Number(task.number) === Number(taskNumber))
           : null;
-        const taskTitle = pythonTask?.title || taskInfo?.title || `Задание ${formatTaskNumber(taskNumber) || taskNumber}`;
+        const taskTitle = pythonTask?.title || taskInfo?.title || `Р—Р°РґР°РЅРёРµ ${formatTaskNumber(taskNumber) || taskNumber}`;
         const levelLabel = isPythonGoal
           ? 'Python'
           : (LEVELS[levelId?.toUpperCase()]?.label || levelId);
@@ -9023,11 +9304,20 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     stopGoalFlyAnimation();
   }, [stopGoalFlyAnimation]);
 
-  const dismissTeacherNotif = async (eventId) => {
-    if (!eventId) return;
-    setTeacherNotifs((prev) => prev.filter((note) => note.id !== eventId));
+  const dismissTeacherNotif = async (note) => {
+    const noteId = typeof note?.id === 'string' ? note.id.trim() : '';
+    if (!noteId) return;
+    if (note?.type === 'signup') {
+      const chatId = typeof note?.chatId === 'string' ? note.chatId.trim() : '';
+      if (chatId) {
+        dismissedSignupNotifsRef.current.set(chatId, Number(note?.unreadCount) || 0);
+      }
+      setTeacherSignupNotifs((prev) => prev.filter((item) => item.id !== noteId));
+      return;
+    }
+    setTeacherSolvedNotifs((prev) => prev.filter((item) => item.id !== noteId));
     try {
-      await api.markTeacherSolvedEventsRead(user.id, [eventId]);
+      await api.markTeacherSolvedEventsRead(user.id, [noteId]);
     } catch { /* no-op */ }
   };
 
@@ -9040,23 +9330,40 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               ? 'Python'
               : (LEVELS[note.levelId?.toUpperCase()]?.label || note.levelId || '');
             const questionPart = note.questionNumber ? ` · вопрос ${note.questionNumber}` : '';
+            const signupUnreadLabel = note.unreadCount > 1
+              ? `Новых сообщений: ${note.unreadCount}`
+              : 'Новое сообщение';
             return (
               <div key={note.id} className="surface-panel toast-enter rounded-2xl px-4 py-3 text-sm text-slate-700 relative">
                 <button
                   type="button"
-                  onClick={() => dismissTeacherNotif(note.id)}
+                  onClick={() => dismissTeacherNotif(note)}
                   className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
                   aria-label="Закрыть уведомление"
                 >
                   <X size={16} />
                 </button>
-                <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Новая отметка</div>
-                <div className="mt-1 font-semibold text-gray-900 truncate">
-                  {note.studentName || 'Ученик'}
-                </div>
-                <div className="text-xs text-gray-500">
-                  {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
-                </div>
+                {note.type === 'signup' ? (
+                  <>
+                    <div className="text-xs font-bold uppercase tracking-widest text-indigo-500">Новое сообщение</div>
+                    <div className="mt-1 font-semibold text-gray-900 truncate">
+                      {note.guestName || 'Новая заявка'}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {note.preview ? `${signupUnreadLabel}: ${note.preview}` : signupUnreadLabel}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Новая отметка</div>
+                    <div className="mt-1 font-semibold text-gray-900 truncate">
+                      {note.studentName || 'Ученик'}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
+                    </div>
+                  </>
+                )}
               </div>
             );
           })}
@@ -9115,23 +9422,23 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-full bg-purple-100 streak-mascot">
-                <img src={mascotApproval} alt="Маскот" className="h-16 w-16 object-contain" />
+                <img src={mascotApproval} alt="РњР°СЃРєРѕС‚" className="h-16 w-16 object-contain" />
               </div>
               <div className="text-5xl font-extrabold text-purple-600">{streakPopup.current}</div>
               <div className="mt-1 text-sm font-semibold text-purple-600">
-                {`${formatDaysText(streakPopup.current)} подряд`}
+                {`${formatDaysText(streakPopup.current)} РїРѕРґСЂСЏРґ`}
               </div>
               <div className="mt-4 rounded-2xl border border-purple-100 bg-purple-50 px-4 py-2 text-[11px] text-purple-700 shadow-sm">
                 {streakPopup.isNewRecord
-                  ? `Новый рекорд! ${formatDaysText(streakPopup.current)} подряд.`
-                  : `Отлично! Серия ${formatDaysText(streakPopup.current)} подряд.`}
+                  ? `РќРѕРІС‹Р№ СЂРµРєРѕСЂРґ! ${formatDaysText(streakPopup.current)} РїРѕРґСЂСЏРґ.`
+                  : `РћС‚Р»РёС‡РЅРѕ! РЎРµСЂРёСЏ ${formatDaysText(streakPopup.current)} РїРѕРґСЂСЏРґ.`}
               </div>
               <button
                 type="button"
                 onClick={() => setStreakPopup((prev) => ({ ...prev, open: false }))}
                 className="mt-4 w-full rounded-xl border border-purple-200 bg-white px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-50"
               >
-                Ок
+                РћРє
               </button>
             </div>
           </div>
@@ -9177,8 +9484,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               <div className="levelup-badge-glow" />
             </div>
             <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-fuchsia-700">Level Up</div>
-            <div className="mt-1 text-3xl font-extrabold text-slate-900">{`Уровень ${levelUpPopup.to}`}</div>
-            <div className="mt-2 text-xs font-semibold text-slate-500">{`Было ${levelUpPopup.from} • стало ${levelUpPopup.to}`}</div>
+            <div className="mt-1 text-3xl font-extrabold text-slate-900">{`РЈСЂРѕРІРµРЅСЊ ${levelUpPopup.to}`}</div>
+            <div className="mt-2 text-xs font-semibold text-slate-500">{`Р‘С‹Р»Рѕ ${levelUpPopup.from} вЂў СЃС‚Р°Р»Рѕ ${levelUpPopup.to}`}</div>
             <div className="mt-3 inline-flex items-center rounded-full border border-violet-200 bg-white/85 px-3 py-1 text-xs font-semibold text-violet-700">
               {`${(Number(levelUpPopup.totalXp) || totalXp).toLocaleString('ru-RU')} XP`}
             </div>
@@ -9187,7 +9494,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onClick={() => setLevelUpPopup((prev) => ({ ...prev, open: false }))}
               className="mt-5 w-full rounded-xl border border-violet-200 bg-white px-4 py-2.5 text-sm font-semibold text-violet-700 transition hover:bg-violet-50"
             >
-              Круто!
+              РљСЂСѓС‚Рѕ!
             </button>
           </div>
         </div>
@@ -9204,16 +9511,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">
-                  Прогноз подготовки
+                  РџСЂРѕРіРЅРѕР· РїРѕРґРіРѕС‚РѕРІРєРё
                 </div>
-                <div className="mt-2 text-base font-bold text-slate-900 sm:text-xl">Когда прорешаем все задания</div>
-                <div className="mt-1 text-xs text-slate-500">Расчёт по текущему темпу решений</div>
+                <div className="mt-2 text-base font-bold text-slate-900 sm:text-xl">РљРѕРіРґР° РїСЂРѕСЂРµС€Р°РµРј РІСЃРµ Р·Р°РґР°РЅРёСЏ</div>
+                <div className="mt-1 text-xs text-slate-500">Р Р°СЃС‡С‘С‚ РїРѕ С‚РµРєСѓС‰РµРјСѓ С‚РµРјРїСѓ СЂРµС€РµРЅРёР№</div>
               </div>
               <button
                 type="button"
                 onClick={closePaceForecastPopup}
                 className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-500 hover:bg-slate-50"
-                aria-label="Закрыть"
+                aria-label="Р—Р°РєСЂС‹С‚СЊ"
               >
                 <X size={14} />
               </button>
@@ -9221,7 +9528,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
             <div className="mt-4 rounded-2xl border border-slate-200 bg-white/90 px-3 py-3">
               <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:text-[11px]">
-                <span>Прогресс</span>
+                <span>РџСЂРѕРіСЂРµСЃСЃ</span>
                 <span>{`${testingCompletionPercent}%`}</span>
               </div>
               <div className="mt-2 h-2 rounded-full bg-slate-100 overflow-hidden">
@@ -9234,15 +9541,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
             <div className="mt-4 grid grid-cols-3 gap-1.5 text-center sm:gap-2">
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2.5">
-                <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-500 sm:text-[10px]">Всего</div>
+                <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-500 sm:text-[10px]">Р’СЃРµРіРѕ</div>
                 <div className="mt-1 text-[15px] font-bold text-slate-900 sm:text-base">{testingForecast.total}</div>
               </div>
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2.5">
-                <div className="text-[9px] font-semibold uppercase tracking-wide text-emerald-600 sm:text-[10px]">Решено</div>
+                <div className="text-[9px] font-semibold uppercase tracking-wide text-emerald-600 sm:text-[10px]">Р РµС€РµРЅРѕ</div>
                 <div className="mt-1 text-[15px] font-bold text-emerald-700 sm:text-base">{testingForecast.solved}</div>
               </div>
               <div className="rounded-xl border border-purple-200 bg-purple-50 px-2 py-2.5">
-                <div className="text-[9px] font-semibold uppercase tracking-wide text-purple-600 sm:text-[10px]">Осталось</div>
+                <div className="text-[9px] font-semibold uppercase tracking-wide text-purple-600 sm:text-[10px]">РћСЃС‚Р°Р»РѕСЃСЊ</div>
                 <div className="mt-1 text-[15px] font-bold text-purple-700 sm:text-base">{testingForecast.remaining}</div>
               </div>
             </div>
@@ -9251,7 +9558,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               {hasForecastDuration ? (
                 <div className="space-y-2">
                   <div className="text-[13px] font-semibold text-rose-700 sm:text-sm">
-                    При таком темпе подготовимся к ЕГЭ полностью примерно через
+                    РџСЂРё С‚Р°РєРѕРј С‚РµРјРїРµ РїРѕРґРіРѕС‚РѕРІРёРјСЃСЏ Рє Р•Р“Р­ РїРѕР»РЅРѕСЃС‚СЊСЋ РїСЂРёРјРµСЂРЅРѕ С‡РµСЂРµР·
                   </div>
                   <div className="rounded-xl border border-rose-300 bg-white px-3 py-3 text-center">
                     <div className="text-[30px] font-extrabold leading-none text-rose-700 sm:text-4xl">
@@ -9259,10 +9566,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     </div>
                     <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[11px] font-semibold text-rose-500">
                       <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1">
-                        {`до ${testingForecastFinishDateLabel}`}
+                        {`РґРѕ ${testingForecastFinishDateLabel}`}
                       </span>
                       <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1">
-                        {`≈ ${formatDaysText(testingForecast.daysToFinish)}`}
+                        {`в‰€ ${formatDaysText(testingForecast.daysToFinish)}`}
                       </span>
                     </div>
                   </div>
@@ -9273,8 +9580,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </div>
 
             <div className="mt-3 text-[11px] text-slate-500 sm:text-xs">
-              {`Текущий темп: ${averageSolvedPerDayLabel} задания/день.`}
-              {solvedPerDayStats.periodDays > 0 ? ` Период расчёта: ${formatDaysText(solvedPerDayStats.periodDays)}.` : ''}
+              {`РўРµРєСѓС‰РёР№ С‚РµРјРї: ${averageSolvedPerDayLabel} Р·Р°РґР°РЅРёСЏ/РґРµРЅСЊ.`}
+              {solvedPerDayStats.periodDays > 0 ? ` РџРµСЂРёРѕРґ СЂР°СЃС‡С‘С‚Р°: ${formatDaysText(solvedPerDayStats.periodDays)}.` : ''}
             </div>
             {shouldShowEgeDeadlineHint && (
               <div className={`mt-3 rounded-xl border px-3 py-2.5 ${
@@ -9286,14 +9593,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   <div className={`text-[11px] font-semibold ${
                     egeDeadlineStats.isOnTrack ? 'text-emerald-700' : 'text-amber-700'
                   }`}>
-                    {`Цель: успеть до ${egeDeadlineStats.deadlineLabel}`}
+                    {`Р¦РµР»СЊ: СѓСЃРїРµС‚СЊ РґРѕ ${egeDeadlineStats.deadlineLabel}`}
                   </div>
                   <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
                     egeDeadlineStats.isOnTrack
                       ? 'border-emerald-300 bg-emerald-100 text-emerald-700'
                       : 'border-amber-300 bg-amber-100 text-amber-700'
                   }`}>
-                    {egeDeadlineStats.isOnTrack ? 'Успеваешь' : 'Нужно ускориться'}
+                    {egeDeadlineStats.isOnTrack ? 'РЈСЃРїРµРІР°РµС€СЊ' : 'РќСѓР¶РЅРѕ СѓСЃРєРѕСЂРёС‚СЊСЃСЏ'}
                   </span>
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-center">
@@ -9304,7 +9611,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   }`}>
                     <div className={`text-[10px] uppercase tracking-wide ${
                       egeDeadlineStats.isOnTrack ? 'text-emerald-600' : 'text-amber-600'
-                    }`}>Нужно в день</div>
+                    }`}>РќСѓР¶РЅРѕ РІ РґРµРЅСЊ</div>
                     <div className={`mt-0.5 text-sm font-extrabold ${
                       egeDeadlineStats.isOnTrack ? 'text-emerald-800' : 'text-amber-800'
                     }`}>{`${egeDeadlineStats.requiredPerDayLabel}`}</div>
@@ -9316,7 +9623,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   }`}>
                     <div className={`text-[10px] uppercase tracking-wide ${
                       egeDeadlineStats.isOnTrack ? 'text-emerald-600' : 'text-amber-600'
-                    }`}>Осталось дней</div>
+                    }`}>РћСЃС‚Р°Р»РѕСЃСЊ РґРЅРµР№</div>
                     <div className={`mt-0.5 text-sm font-extrabold ${
                       egeDeadlineStats.isOnTrack ? 'text-emerald-800' : 'text-amber-800'
                     }`}>{egeDeadlineStats.daysAvailable}</div>
@@ -9326,8 +9633,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   egeDeadlineStats.isOnTrack ? 'text-emerald-900' : 'text-amber-900'
                 }`}>
                   {egeDeadlineStats.isOnTrack
-                    ? `Запас по темпу: +${egeDeadlineStats.bufferPerDayLabel} задания/день.`
-                    : `Нужно добавить: +${egeDeadlineStats.extraPerDayLabel} задания/день.`}
+                    ? `Р—Р°РїР°СЃ РїРѕ С‚РµРјРїСѓ: +${egeDeadlineStats.bufferPerDayLabel} Р·Р°РґР°РЅРёСЏ/РґРµРЅСЊ.`
+                    : `РќСѓР¶РЅРѕ РґРѕР±Р°РІРёС‚СЊ: +${egeDeadlineStats.extraPerDayLabel} Р·Р°РґР°РЅРёСЏ/РґРµРЅСЊ.`}
                 </div>
               </div>
             )}
@@ -9338,14 +9645,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 onClick={handleOpenProgressFromForecast}
                 className="rounded-xl bg-purple-600 px-3 py-3 text-sm font-semibold text-white shadow-sm hover:bg-purple-700"
               >
-                Перейти к тестам
+                РџРµСЂРµР№С‚Рё Рє С‚РµСЃС‚Р°Рј
               </button>
               <button
                 type="button"
                 onClick={closePaceForecastPopup}
                 className="rounded-xl border border-purple-200 bg-white px-3 py-3 text-sm font-semibold text-purple-700 hover:bg-purple-50"
               >
-                Закрыть
+                Р—Р°РєСЂС‹С‚СЊ
               </button>
             </div>
           </div>
@@ -9365,8 +9672,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         onFinish={() => checkHomeworkPopup()}
       />
       {/*
-        Временно скрыто окно "квеста" (домашки).
-        Вернуть можно, раскомментировав блок ниже.
+        Р’СЂРµРјРµРЅРЅРѕ СЃРєСЂС‹С‚Рѕ РѕРєРЅРѕ "РєРІРµСЃС‚Р°" (РґРѕРјР°С€РєРё).
+        Р’РµСЂРЅСѓС‚СЊ РјРѕР¶РЅРѕ, СЂР°СЃРєРѕРјРјРµРЅС‚РёСЂРѕРІР°РІ Р±Р»РѕРє РЅРёР¶Рµ.
       */}
       {/*
         {user.role === 'student' && isDesktopWide && homeworkPopupOpen && homeworkPopupEntry && (
@@ -9418,23 +9725,23 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   <span className="sidebar-brand-dot absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-white/90" />
                 </div>
                 <div className="min-w-0">
-                  <div className="sidebar-brand-title font-display text-xl font-bold text-slate-900">Иван на сотку</div>
-                  <div className="sidebar-brand-subtitle text-xs font-semibold uppercase tracking-[0.17em] text-purple-700/80">Личный профиль</div>
+                  <div className="sidebar-brand-title font-display text-xl font-bold text-slate-900">РРІР°РЅ РЅР° СЃРѕС‚РєСѓ</div>
+                  <div className="sidebar-brand-subtitle text-xs font-semibold uppercase tracking-[0.17em] text-purple-700/80">Р›РёС‡РЅС‹Р№ РїСЂРѕС„РёР»СЊ</div>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setDesktopNavCollapsed(true)}
                 className="sidebar-collapse-btn absolute right-4 top-1/2 -translate-y-1/2"
-                aria-label="Свернуть панель навигации"
-                title="Свернуть панель"
+                aria-label="РЎРІРµСЂРЅСѓС‚СЊ РїР°РЅРµР»СЊ РЅР°РІРёРіР°С†РёРё"
+                title="РЎРІРµСЂРЅСѓС‚СЊ РїР°РЅРµР»СЊ"
               >
                 <ChevronsLeft size={16} />
               </button>
             </div>
             <nav className="flex-1 px-4 pb-7 pr-2 pt-5 overflow-y-auto sidebar-nav" data-tour="nav">
               <div className="sidebar-nav-title mb-3 px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500/85">
-                Навигация
+                РќР°РІРёРіР°С†РёСЏ
               </div>
               <div className="space-y-2.5 sidebar-nav-stack">
                 {desktopPrimaryNav.map((n, idx) => {
@@ -9558,7 +9865,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   <div className="min-w-0">
                     <p className="text-base font-semibold text-slate-900 truncate">{user.name}</p>
                     <div className="mt-1 inline-flex items-center rounded-lg border border-purple-100 bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2.5 py-1 text-[11px] font-semibold text-purple-700">
-                      {user.role === 'admin' ? 'Администратор' : (user.role === 'teacher' ? 'Преподаватель' : 'Ученик')}
+                      {user.role === 'admin' ? 'РђРґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ' : (user.role === 'teacher' ? 'РџСЂРµРїРѕРґР°РІР°С‚РµР»СЊ' : 'РЈС‡РµРЅРёРє')}
                     </div>
                   </div>
                 </div>
@@ -9568,7 +9875,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 onClick={onLogout}
                 className="sidebar-logout mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/75 bg-white/85 px-4 py-2.5 text-sm font-semibold text-rose-600 transition hover:-translate-y-[1px] hover:border-rose-300 hover:bg-rose-50 hover:shadow-sm"
               >
-                <LogOut size={16} /> Выйти
+                <LogOut size={16} /> Р’С‹Р№С‚Рё
               </button>
             </div>
           </div>
@@ -9579,8 +9886,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           type="button"
           onClick={() => setDesktopNavCollapsed(false)}
           className="desktop-nav-fab__toggle"
-          aria-label="Развернуть панель навигации"
-          title="Развернуть панель"
+          aria-label="Р Р°Р·РІРµСЂРЅСѓС‚СЊ РїР°РЅРµР»СЊ РЅР°РІРёРіР°С†РёРё"
+          title="Р Р°Р·РІРµСЂРЅСѓС‚СЊ РїР°РЅРµР»СЊ"
         >
           <ChevronsRight size={22} />
         </button>
@@ -9630,12 +9937,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               type="button"
               onClick={() => setMenuOpen(true)}
               className="flex h-10 min-w-[40px] items-center gap-2 rounded-xl border border-purple-200/70 bg-white px-2 text-purple-700 shadow-sm"
-              aria-label="Открыть профиль"
+              aria-label="РћС‚РєСЂС‹С‚СЊ РїСЂРѕС„РёР»СЊ"
             >
               <span className="grid h-6 w-6 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 text-[11px] font-bold text-white">
                 {String(user?.name || '?').slice(0, 1).toUpperCase()}
               </span>
-              <span className="text-xs font-semibold">Профиль</span>
+              <span className="text-xs font-semibold">РџСЂРѕС„РёР»СЊ</span>
             </button>
           </div>
         </header>
@@ -9650,8 +9957,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               <div className="flex items-center gap-1.5 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-2">
                 <div
                   className="level-progress-card min-w-0 flex-1 px-2 py-1.5 text-sm font-semibold md:min-w-[255px] md:flex-none md:px-2.5 md:py-2"
-                  aria-label={`Уровень ${currentLevel}. Опыт: ${totalXpLabel}`}
-                  title={`Всего опыта: ${totalXpLabel} XP`}
+                  aria-label={`РЈСЂРѕРІРµРЅСЊ ${currentLevel}. РћРїС‹С‚: ${totalXpLabel}`}
+                  title={`Р’СЃРµРіРѕ РѕРїС‹С‚Р°: ${totalXpLabel} XP`}
                 >
                   <div className="level-progress-main">
                     <div className="level-progress-badge">
@@ -9659,7 +9966,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="level-progress-head">
-                        <span className="level-progress-title">{`Уровень ${currentLevel}`}</span>
+                        <span className="level-progress-title">{`РЈСЂРѕРІРµРЅСЊ ${currentLevel}`}</span>
                         <span className="level-progress-total">{`${totalXpLabel} XP`}</span>
                       </div>
                       <div
@@ -9685,19 +9992,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     type="button"
                     onClick={openPaceForecastPopup}
                     className={`flex items-center justify-center gap-1 rounded-full border bg-white px-2.5 py-1.5 text-[13px] font-semibold shadow-sm transition hover:bg-slate-50 active:scale-[0.99] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 md:gap-2 md:px-3.5 md:py-2 md:text-sm ${paceBadgeState.className}`}
-                    aria-label={`Среднее в день: ${averageSolvedPerDayLabel}`}
-                    title={`${paceBadgeState.title} Нажмите, чтобы открыть прогноз.`}
+                    aria-label={`РЎСЂРµРґРЅРµРµ РІ РґРµРЅСЊ: ${averageSolvedPerDayLabel}`}
+                    title={`${paceBadgeState.title} РќР°Р¶РјРёС‚Рµ, С‡С‚РѕР±С‹ РѕС‚РєСЂС‹С‚СЊ РїСЂРѕРіРЅРѕР·.`}
                   >
                     {paceBadgeState.level === 'ok' && <CheckCircle size={14} />}
                     {paceBadgeState.level === 'warn' && <AlertTriangle size={14} />}
                     {paceBadgeState.level === 'danger' && <AlertCircle size={14} />}
                     <span className="text-gray-900 whitespace-nowrap">{averageSolvedPerDayLabel}</span>
-                    <span className="hidden whitespace-nowrap text-[11px] font-semibold text-gray-500 sm:inline">/день</span>
+                    <span className="hidden whitespace-nowrap text-[11px] font-semibold text-gray-500 sm:inline">/РґРµРЅСЊ</span>
                   </button>
                   <div className="relative group shrink-0">
                     <div
                       className={`flex h-full items-center justify-center gap-1.5 rounded-full border border-purple-200 bg-white px-2.5 py-1.5 text-[13px] font-semibold text-purple-600 shadow-sm cursor-default streak-badge md:gap-2 md:px-3.5 md:py-2 md:text-sm ${displayStreakCurrent > 0 ? 'streak-badge--active' : ''}`}
-                      aria-label={`Серия: ${displayStreakCurrent}`}
+                      aria-label={`РЎРµСЂРёСЏ: ${displayStreakCurrent}`}
                     >
                       <Flame
                         size={16}
@@ -9714,13 +10021,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                           <Flame size={22} />
                         </div>
                         <div>
-                          <div className="text-sm font-semibold text-purple-700">Серия</div>
-                          <div className="text-xs text-gray-500">Решайте каждый день, чтобы поддерживать серию.</div>
+                          <div className="text-sm font-semibold text-purple-700">РЎРµСЂРёСЏ</div>
+                          <div className="text-xs text-gray-500">Р РµС€Р°Р№С‚Рµ РєР°Р¶РґС‹Р№ РґРµРЅСЊ, С‡С‚РѕР±С‹ РїРѕРґРґРµСЂР¶РёРІР°С‚СЊ СЃРµСЂРёСЋ.</div>
                         </div>
                       </div>
                       <div className="mt-3 flex items-end gap-2">
                         <div className="text-3xl font-bold text-gray-900">{displayStreakCurrent}</div>
-                        <div className="text-xs text-gray-500">дней подряд</div>
+                        <div className="text-xs text-gray-500">РґРЅРµР№ РїРѕРґСЂСЏРґ</div>
                       </div>
                       <div className="mt-1 text-xs text-gray-500">{streakStatusText}</div>
                       <div className="mt-3 grid grid-cols-7 gap-2 text-[10px] text-gray-400">
@@ -9742,11 +10049,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                         ))}
                       </div>
                       <div className="mt-3 flex items-center justify-between text-[11px] text-gray-500">
-                        <span>{`Рекорд: ${streak.best}`}</span>
-                        <span>{`Заморозка: ${freezeAvailable ? 'доступна' : 'использована'}`}</span>
+                        <span>{`Р РµРєРѕСЂРґ: ${streak.best}`}</span>
+                        <span>{`Р—Р°РјРѕСЂРѕР·РєР°: ${freezeAvailable ? 'РґРѕСЃС‚СѓРїРЅР°' : 'РёСЃРїРѕР»СЊР·РѕРІР°РЅР°'}`}</span>
                       </div>
                       {lastActiveLabel && (
-                        <div className="mt-1 text-[11px] text-gray-400">{`Последняя активность: ${lastActiveLabel}`}</div>
+                        <div className="mt-1 text-[11px] text-gray-400">{`РџРѕСЃР»РµРґРЅСЏСЏ Р°РєС‚РёРІРЅРѕСЃС‚СЊ: ${lastActiveLabel}`}</div>
                       )}
                     </div>
                   </div>
@@ -9787,10 +10094,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               {goalCollapsed ? (
                 <div className={`surface-panel rounded-2xl border border-purple-200/80 bg-gradient-to-r from-violet-50 via-white to-fuchsia-50 px-3 py-2 text-sm text-gray-700 shadow-soft flex items-center justify-between gap-1.5 sm:gap-2 sm:px-4 sm:py-2.5 ${goalPanelAnimClass === 'goal-collapse' ? 'goal-collapse' : ''}`}>
                   <div className="min-w-0 flex-1 flex items-center gap-1.5 sm:gap-2">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-purple-600 shrink-0">домашка</div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-purple-600 shrink-0">РґРѕРјР°С€РєР°</div>
                     <div className="min-w-0 truncate text-[13px] font-semibold text-gray-900 sm:text-sm">
-                      <span className="sm:hidden">{`${formatDaysText(goalState.entry?.daysToComplete || 7)} · ${goalCompletedCount}/${goalGoals.length}`}</span>
-                      <span className="hidden sm:inline">{`За ${formatDaysText(goalState.entry?.daysToComplete || 7)} выполнить ${goalCompletedCount}/${goalGoals.length} целей`}</span>
+                      <span className="sm:hidden">{`${formatDaysText(goalState.entry?.daysToComplete || 7)} В· ${goalCompletedCount}/${goalGoals.length}`}</span>
+                      <span className="hidden sm:inline">{`Р—Р° ${formatDaysText(goalState.entry?.daysToComplete || 7)} РІС‹РїРѕР»РЅРёС‚СЊ ${goalCompletedCount}/${goalGoals.length} С†РµР»РµР№`}</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -9806,7 +10113,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                         }}
                         className="px-2.5 py-1 rounded-lg bg-purple-600 text-white text-[11px] font-semibold hover:bg-purple-700 shadow-sm sm:px-3 sm:py-1.5 sm:text-xs"
                       >
-                        К цели
+                        Рљ С†РµР»Рё
                       </button>
                     )}
                     <button
@@ -9814,7 +10121,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       onClick={handleExpandGoalBlock}
                       className="px-2.5 py-1 rounded-lg border border-purple-200 text-[11px] font-semibold text-purple-700 hover:bg-purple-50 sm:px-3 sm:py-1.5 sm:text-xs"
                     >
-                      Развернуть
+                      Р Р°Р·РІРµСЂРЅСѓС‚СЊ
                     </button>
                   </div>
                 </div>
@@ -9822,12 +10129,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 <div className={`rounded-[24px] border border-purple-200/90 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50/80 px-4 py-3.5 text-sm text-gray-700 shadow-soft sm:px-5 ${goalPanelAnimClass === 'goal-expand' ? 'goal-expand' : ''}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-purple-600">домашка</div>
+                      <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-purple-600">РґРѕРјР°С€РєР°</div>
                       <div className="mt-1 text-base font-semibold text-gray-900">
-                        {`За ${formatDaysText(goalState.entry?.daysToComplete || 7)} выполнить эти цели`}
+                        {`Р—Р° ${formatDaysText(goalState.entry?.daysToComplete || 7)} РІС‹РїРѕР»РЅРёС‚СЊ СЌС‚Рё С†РµР»Рё`}
                       </div>
                       <div className="mt-1 text-xs text-purple-700/90">
-                        {`Выполнено ${goalCompletedCount}/${goalGoals.length}`}
+                        {`Р’С‹РїРѕР»РЅРµРЅРѕ ${goalCompletedCount}/${goalGoals.length}`}
                       </div>
                     </div>
                     <button
@@ -9835,7 +10142,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       onClick={() => setGoalCollapsed(true)}
                       className="px-3 py-1.5 rounded-lg border border-purple-200 text-xs font-semibold text-purple-700 hover:bg-purple-50"
                     >
-                      Свернуть
+                      РЎРІРµСЂРЅСѓС‚СЊ
                     </button>
                   </div>
 
@@ -9849,11 +10156,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                             <div className="flex flex-wrap items-start justify-between gap-2">
                               <div className="min-w-0">
                                 <div className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-purple-600">
-                                  Пробник
+                                  РџСЂРѕР±РЅРёРє
                                 </div>
-                                <div className="mt-1 text-sm font-semibold text-gray-900 truncate">{goal.mockExamTitle || 'Пробник'}</div>
+                                <div className="mt-1 text-sm font-semibold text-gray-900 truncate">{goal.mockExamTitle || 'РџСЂРѕР±РЅРёРє'}</div>
                                 <div className="mt-1 text-[11px] text-gray-600">
-                                  {totalCount > 0 ? `Выполнено ${solvedCount}/${totalCount}` : 'В пробнике пока нет заданий'}
+                                  {totalCount > 0 ? `Р’С‹РїРѕР»РЅРµРЅРѕ ${solvedCount}/${totalCount}` : 'Р’ РїСЂРѕР±РЅРёРєРµ РїРѕРєР° РЅРµС‚ Р·Р°РґР°РЅРёР№'}
                                 </div>
                               </div>
                               <button
@@ -9861,7 +10168,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                 onClick={() => handleOpenMockGoal(goal.mockExamId)}
                                 className="px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 shadow-sm"
                               >
-                                Перейти
+                                РџРµСЂРµР№С‚Рё
                               </button>
                             </div>
                           </div>
@@ -9875,8 +10182,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                         : null;
                       const taskDisplay = pythonTask?.displayNumber || formatTaskNumber(goal.taskNumber) || goal.taskNumber;
                       const goalHeading = isPythonGoal
-                        ? `Python ${goal.taskTitle || pythonTask?.title || (goal.taskNumber ? `тема ${goal.taskNumber}` : 'тема')}`
-                        : `Задание ${taskDisplay} · ${goal.levelLabel}`;
+                        ? `Python ${goal.taskTitle || pythonTask?.title || (goal.taskNumber ? `С‚РµРјР° ${goal.taskNumber}` : 'С‚РµРјР°')}`
+                        : `Р—Р°РґР°РЅРёРµ ${taskDisplay} В· ${goal.levelLabel}`;
                       const targetTotal = Array.isArray(goal.targetStatus) ? goal.targetStatus.length : 0;
                       const targetSolved = Array.isArray(goal.targetStatus)
                         ? goal.targetStatus.filter((item) => item.solved).length
@@ -9890,7 +10197,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                 <div className="text-sm font-semibold text-gray-900">{goalHeading}</div>
                               ) : (
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="text-sm font-semibold text-gray-900">{`Задание ${taskDisplay}`}</span>
+                                  <span className="text-sm font-semibold text-gray-900">{`Р—Р°РґР°РЅРёРµ ${taskDisplay}`}</span>
                                   {goal.levelLabel && (
                                     <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700">
                                       {goal.levelLabel}
@@ -9900,7 +10207,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                               )}
                               {!isPythonGoal && (
                                 <div className="text-xs text-gray-500 truncate">
-                                  {`Тема: ${goal.taskTitle || '—'}`}
+                                  {`РўРµРјР°: ${goal.taskTitle || 'вЂ”'}`}
                                 </div>
                               )}
                             </div>
@@ -9909,13 +10216,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                               onClick={() => handleOpenTask(goal.taskNumber, goal.levelId, goal.targetNumbers)}
                               className="shrink-0 px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 shadow-sm"
                             >
-                              Перейти
+                              РџРµСЂРµР№С‚Рё
                             </button>
                           </div>
 
                           {hasTargets && (
                             <div className="mt-2 rounded-xl border border-purple-100/90 bg-purple-50/60 px-2.5 py-2">
-                              <div className="text-[10px] font-semibold uppercase tracking-wide text-purple-700">Цель</div>
+                              <div className="text-[10px] font-semibold uppercase tracking-wide text-purple-700">Р¦РµР»СЊ</div>
                               {goal.targetNumbers?.length > 0 ? (
                                 <>
                                   <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -9928,18 +10235,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                             : 'border-slate-200 bg-white text-slate-700'
                                         }`}
                                       >
-                                        №{item.num}{item.solved ? ' ✓' : ''}
+                                        в„–{item.num}{item.solved ? ' вњ“' : ''}
                                       </span>
                                     ))}
                                   </div>
                                   <div className="mt-2 flex items-center justify-between text-[11px] text-gray-600">
-                                    <span>Выполнено</span>
+                                    <span>Р’С‹РїРѕР»РЅРµРЅРѕ</span>
                                     <span className="font-semibold text-gray-800">{`${targetSolved}/${targetTotal}`}</span>
                                   </div>
                                 </>
                               ) : (
                                 <div className="mt-1 text-[11px] text-purple-700">
-                                  Все задания этого уровня
+                                  Р’СЃРµ Р·Р°РґР°РЅРёСЏ СЌС‚РѕРіРѕ СѓСЂРѕРІРЅСЏ
                                 </div>
                               )}
                             </div>
@@ -10182,6 +10489,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           )}
           {view === 'teacher' && (
             <TeacherPanel
+              mode="tests"
               role={user.role}
               students={studentsWithNicknames}
               studentsLoading={studentsLoading}
@@ -10208,6 +10516,49 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               XP_PER_LEVEL={XP_PER_LEVEL}
               GAME_THEORY_TASK={GAME_THEORY_TASK}
               withUploadsAuthToken={withUploadsAuthToken}
+              teacherSignupNotifySupported={teacherSignupNotifySupported}
+              teacherSignupNotifyPermission={teacherSignupNotifyPermission}
+              teacherSignupNotifyEnabled={teacherSignupNotifyEnabled}
+              teacherSignupNotifyStatusText={teacherSignupNotifyStatusText}
+              teacherSignupNotifyError={teacherSignupNotifyError}
+              onToggleTeacherSignupNotify={handleToggleTeacherSignupNotify}
+            />
+          )}
+          {view === 'signup-chats' && (
+            <TeacherPanel
+              mode="signup-chats"
+              role={user.role}
+              students={studentsWithNicknames}
+              studentsLoading={studentsLoading}
+              studentsError={studentsError}
+              deletedStudents={deletedStudents}
+              deletedStudentsLoading={deletedStudentsLoading}
+              deletedStudentsError={deletedStudentsError}
+              tasks={tasksWithTitles}
+              activeStudentId={activeStudentId}
+              onSelectStudent={setActiveStudentId}
+              onStudentCreated={handleStudentCreated}
+              onStudentDeleted={handleStudentDeleted}
+              onStudentRestored={handleStudentRestored}
+              onStudentUpdated={handleStudentUpdated}
+              teacherId={user.role === 'teacher' ? user.id : null}
+              SOFT_DELETE_DAYS={SOFT_DELETE_DAYS}
+              MOCK_TASKS={MOCK_TASKS}
+              LEVELS={LEVELS}
+              getTaskDisplayNumber={getTaskDisplayNumber}
+              getAnswerCountForTask={getAnswerCountForTask}
+              getExpectedAnswers={getExpectedAnswers}
+              allowsPartialAnswers={allowsPartialAnswers}
+              normalizeXpTotal={normalizeXpTotal}
+              XP_PER_LEVEL={XP_PER_LEVEL}
+              GAME_THEORY_TASK={GAME_THEORY_TASK}
+              withUploadsAuthToken={withUploadsAuthToken}
+              teacherSignupNotifySupported={teacherSignupNotifySupported}
+              teacherSignupNotifyPermission={teacherSignupNotifyPermission}
+              teacherSignupNotifyEnabled={teacherSignupNotifyEnabled}
+              teacherSignupNotifyStatusText={teacherSignupNotifyStatusText}
+              teacherSignupNotifyError={teacherSignupNotifyError}
+              onToggleTeacherSignupNotify={handleToggleTeacherSignupNotify}
             />
           )}
           {view === 'admin' && (
@@ -10230,7 +10581,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             type="button"
             className="absolute inset-0 bg-slate-900/35 backdrop-blur-[1px]"
             onClick={() => setMenuOpen(false)}
-            aria-label="Закрыть профиль"
+            aria-label="Р—Р°РєСЂС‹С‚СЊ РїСЂРѕС„РёР»СЊ"
           />
           <div className={`absolute inset-x-0 bottom-0 transition-transform duration-300 ease-out ${menuOpen ? 'translate-y-0' : 'translate-y-full'}`}>
             <div className="surface-card rounded-t-3xl border border-purple-100/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 shadow-[0_-14px_30px_rgba(15,23,42,0.22)]">
@@ -10243,7 +10594,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   <div className="min-w-0">
                     <p className="text-base font-semibold text-slate-900 truncate">{user.name}</p>
                     <div className="mt-1 inline-flex items-center rounded-md bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2.5 py-1 text-xs font-semibold text-purple-700">
-                      {user.role === 'admin' ? 'Администратор' : (user.role === 'teacher' ? 'Преподаватель' : 'Ученик')}
+                      {user.role === 'admin' ? 'РђРґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ' : (user.role === 'teacher' ? 'РџСЂРµРїРѕРґР°РІР°С‚РµР»СЊ' : 'РЈС‡РµРЅРёРє')}
                     </div>
                   </div>
                 </div>
@@ -10284,7 +10635,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 onClick={onLogout}
                 className="mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/70 bg-white/90 px-4 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 hover:shadow-sm"
               >
-                <LogOut size={16} /> Выйти
+                <LogOut size={16} /> Р’С‹Р№С‚Рё
               </button>
             </div>
           </div>
@@ -10437,7 +10788,7 @@ const App = () => {
     if (!user || user.role !== 'student') return;
     setProgress((prev) => ({ ...prev, [taskId]: val }));
     if (options?.skipServer) return;
-    // Прогресс ученика сохраняется через /api/progress/solve после проверки ответа.
+    // РџСЂРѕРіСЂРµСЃСЃ СѓС‡РµРЅРёРєР° СЃРѕС…СЂР°РЅСЏРµС‚СЃСЏ С‡РµСЂРµР· /api/progress/solve РїРѕСЃР»Рµ РїСЂРѕРІРµСЂРєРё РѕС‚РІРµС‚Р°.
   };
 
   const handleThemeToggle = () => {
@@ -10448,6 +10799,15 @@ const App = () => {
     return (
       <>
         <LoginPage onLogin={handleLogin} />
+        <ThemeToggleButton theme={theme} onToggle={handleThemeToggle} />
+      </>
+    );
+  }
+
+  if (user.role === 'lead') {
+    return (
+      <>
+        <SignupGuestChat user={user} onLogout={handleLogout} />
         <ThemeToggleButton theme={theme} onToggle={handleThemeToggle} />
       </>
     );
@@ -10469,6 +10829,4 @@ const App = () => {
 };
 
 export default App;
-
-
 

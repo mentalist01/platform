@@ -55,6 +55,7 @@ const progressFile = path.join(dataDir, 'progress.json');
 const testsFile = path.join(dataDir, 'tests.json');
 const mockExamsFile = path.join(dataDir, 'mock-exams.json');
 const taskTitlesFile = path.join(dataDir, 'task-titles.json');
+const signupChatsFile = path.join(dataDir, 'signup-chats.json');
 const authFile = path.join(dataDir, 'auth.json');
 const authSessionsFile = path.join(dataDir, 'auth-sessions.json');
 const usageFile = path.join(dataDir, 'usage.json');
@@ -80,6 +81,13 @@ const ADMIN_CODE = process.env.ADMIN_CODE || 'admin-7264';
 const ADMIN_NAME = process.env.ADMIN_NAME || 'Администратор';
 const TEACHER_CODE = process.env.TEACHER_CODE || 'admin100';
 const TEACHER_NAME = process.env.TEACHER_NAME || '\u0423\u0447\u0438\u0442\u0435\u043b\u044c';
+const SIGNUP_DEFAULT_TEACHER_ID = String(
+  process.env.SIGNUP_TEACHER_ID || process.env.DEFAULT_SIGNUP_TEACHER_ID || ''
+).trim();
+const SIGNUP_GUEST_NAME_MAX_LENGTH = 80;
+const SIGNUP_GUEST_KEY_MAX_LENGTH = 120;
+const SIGNUP_MESSAGE_MAX_LENGTH = 2000;
+const SIGNUP_LAST_MESSAGE_PREVIEW_MAX_LENGTH = 160;
 const STUDENT_TRAFFIC_LIMIT_BYTES = (() => {
   const bytesRaw = Number(process.env.STUDENT_TRAFFIC_LIMIT_BYTES);
   if (Number.isFinite(bytesRaw) && bytesRaw > 0) return bytesRaw;
@@ -136,7 +144,7 @@ const LEADERBOARD_ALIAS_MIN_LENGTH = 2;
 const LEADERBOARD_ALIAS_MAX_LENGTH = 60;
 const LEADERBOARD_PSEUDONYM_MIN_LENGTH = 2;
 const LEADERBOARD_PSEUDONYM_MAX_LENGTH = 6;
-const LEADERBOARD_PSEUDONYM_REGEX = /^[А-Яа-яЁё]+$/;
+const LEADERBOARD_PSEUDONYM_REGEX = /^[\u0410-\u042F\u0430-\u044F\u0401\u0451]+$/;
 const LEADERBOARD_BLOCKED_WORD_PATTERNS = [
   /хуй/,
   /хуе/,
@@ -827,6 +835,160 @@ const writeMockExamsDb = (data) => {
   fs.writeFileSync(mockExamsFile, JSON.stringify(data, null, 2), 'utf8');
 };
 
+const normalizeSignupGuestName = (name) => {
+  if (typeof name !== 'string') return '';
+  return name.trim();
+};
+
+const normalizeSignupGuestKey = (value) => {
+  if (typeof value !== 'string') return '';
+  const normalized = value.trim().slice(0, SIGNUP_GUEST_KEY_MAX_LENGTH);
+  if (!normalized) return '';
+  return /^[A-Za-z0-9_-]+$/.test(normalized) ? normalized : '';
+};
+
+const normalizeSignupMessageText = (value) => {
+  if (typeof value !== 'string') return '';
+  const normalized = value.replace(/\r\n/g, '\n').trim();
+  if (!normalized) return '';
+  return normalized.slice(0, SIGNUP_MESSAGE_MAX_LENGTH);
+};
+
+const normalizeIsoTimestamp = (value, fallback = '') => {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) return fallback;
+  const parsed = Date.parse(normalized);
+  if (!Number.isFinite(parsed)) return fallback;
+  return new Date(parsed).toISOString();
+};
+
+const normalizeSignupMessage = (value) => {
+  if (!value || typeof value !== 'object') return null;
+  const id = typeof value.id === 'string' ? value.id.trim() : '';
+  const senderRole = value.senderRole === 'teacher' ? 'teacher' : 'lead';
+  const senderId = typeof value.senderId === 'string' ? value.senderId.trim() : '';
+  const senderNameRaw = typeof value.senderName === 'string' ? value.senderName.trim() : '';
+  const text = normalizeSignupMessageText(value.text);
+  const createdAt = normalizeIsoTimestamp(value.createdAt, '');
+  if (!id || !senderId || !text || !createdAt) return null;
+  const senderName = senderNameRaw || (senderRole === 'teacher' ? 'Преподаватель' : 'Гость');
+  return {
+    id,
+    senderRole,
+    senderId,
+    senderName,
+    text,
+    createdAt,
+  };
+};
+
+const normalizeSignupChat = (value) => {
+  if (!value || typeof value !== 'object') return null;
+  const id = typeof value.id === 'string' ? value.id.trim() : '';
+  const teacherId = typeof value.teacherId === 'string' ? value.teacherId.trim() : '';
+  const guestUserId = typeof value.guestUserId === 'string' ? value.guestUserId.trim() : '';
+  const guestKey = normalizeSignupGuestKey(value.guestKey);
+  const guestName = normalizeSignupGuestName(value.guestName);
+  if (!id || !teacherId || !guestUserId || !guestName) return null;
+
+  const messages = Array.isArray(value.messages)
+    ? value.messages.map((item) => normalizeSignupMessage(item)).filter(Boolean)
+    : [];
+  const lastMessage = messages[messages.length - 1] || null;
+  const createdAt = normalizeIsoTimestamp(value.createdAt, lastMessage?.createdAt || new Date().toISOString());
+  const updatedAt = normalizeIsoTimestamp(value.updatedAt, lastMessage?.createdAt || createdAt);
+  const lastMessageAt = normalizeIsoTimestamp(value.lastMessageAt, lastMessage?.createdAt || updatedAt);
+  const lastMessagePreviewRaw = typeof value.lastMessagePreview === 'string'
+    ? value.lastMessagePreview.replace(/\s+/g, ' ').trim()
+    : '';
+  const lastMessagePreview = (lastMessagePreviewRaw || lastMessage?.text || '').slice(0, SIGNUP_LAST_MESSAGE_PREVIEW_MAX_LENGTH);
+  const lastMessageSenderRole = value.lastMessageSenderRole === 'teacher' || value.lastMessageSenderRole === 'lead'
+    ? value.lastMessageSenderRole
+    : (lastMessage?.senderRole || '');
+  const lastReadByTeacherAt = normalizeIsoTimestamp(value.lastReadByTeacherAt, '') || null;
+  const lastReadByLeadAt = normalizeIsoTimestamp(value.lastReadByLeadAt, '') || null;
+
+  return {
+    id,
+    teacherId,
+    guestUserId,
+    guestKey,
+    guestName,
+    createdAt,
+    updatedAt,
+    lastMessageAt,
+    lastMessagePreview,
+    lastMessageSenderRole,
+    lastReadByTeacherAt,
+    lastReadByLeadAt,
+    messages,
+  };
+};
+
+const readSignupChatsDb = () => {
+  try {
+    const raw = fs.readFileSync(signupChatsFile, 'utf8');
+    const data = JSON.parse(raw);
+    if (!Array.isArray(data)) return [];
+    return data.map((entry) => normalizeSignupChat(entry)).filter(Boolean);
+  } catch {
+    return [];
+  }
+};
+
+const writeSignupChatsDb = (data) => {
+  const safeData = Array.isArray(data)
+    ? data.map((entry) => normalizeSignupChat(entry)).filter(Boolean)
+    : [];
+  fs.writeFileSync(signupChatsFile, JSON.stringify(safeData, null, 2), 'utf8');
+};
+
+const getSignupChatSortTimestamp = (chat) => {
+  const raw = chat?.lastMessageAt || chat?.updatedAt || chat?.createdAt || '';
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getSignupUnreadForTeacher = (chat) => {
+  if (!chat || !Array.isArray(chat.messages) || chat.messages.length === 0) return 0;
+  const lastReadRaw = chat.lastReadByTeacherAt || '';
+  const lastReadAt = Date.parse(lastReadRaw);
+  return chat.messages.reduce((count, message) => {
+    if (!message || message.senderRole !== 'lead') return count;
+    if (!Number.isFinite(lastReadAt)) return count + 1;
+    const messageAt = Date.parse(message.createdAt || '');
+    if (!Number.isFinite(messageAt)) return count + 1;
+    return messageAt > lastReadAt ? count + 1 : count;
+  }, 0);
+};
+
+const getSignupUnreadForLead = (chat) => {
+  if (!chat || !Array.isArray(chat.messages) || chat.messages.length === 0) return 0;
+  const lastReadRaw = chat.lastReadByLeadAt || '';
+  const lastReadAt = Date.parse(lastReadRaw);
+  return chat.messages.reduce((count, message) => {
+    if (!message || message.senderRole !== 'teacher') return count;
+    if (!Number.isFinite(lastReadAt)) return count + 1;
+    const messageAt = Date.parse(message.createdAt || '');
+    if (!Number.isFinite(messageAt)) return count + 1;
+    return messageAt > lastReadAt ? count + 1 : count;
+  }, 0);
+};
+
+const buildSignupChatSummary = (chat) => ({
+  id: chat.id,
+  teacherId: chat.teacherId,
+  guestName: chat.guestName,
+  guestUserId: chat.guestUserId,
+  createdAt: chat.createdAt,
+  updatedAt: chat.updatedAt,
+  lastMessageAt: chat.lastMessageAt,
+  lastMessagePreview: chat.lastMessagePreview || '',
+  lastMessageSenderRole: chat.lastMessageSenderRole || '',
+  unreadForTeacher: getSignupUnreadForTeacher(chat),
+  messageCount: Array.isArray(chat.messages) ? chat.messages.length : 0,
+});
+
 const normalizeMockExamAccess = (access, fallbackAll = true) => {
   if (!access || typeof access !== 'object') {
     return { all: fallbackAll, students: [] };
@@ -1009,9 +1171,15 @@ const buildSessionUser = (user) => {
   const role = String(user.role || '');
   const id = String(user.id || '');
   const name = typeof user.name === 'string' ? user.name : '';
-  if (!['admin', 'teacher', 'student'].includes(role) || !id || !name) return null;
+  if (!['admin', 'teacher', 'student', 'lead'].includes(role) || !id || !name) return null;
   const payload = { id, name, role };
   if (role === 'student') {
+    payload.teacherId = user.teacherId ? String(user.teacherId) : null;
+  }
+  if (role === 'lead') {
+    const chatId = typeof user.chatId === 'string' ? user.chatId.trim() : '';
+    if (!chatId) return null;
+    payload.chatId = chatId;
     payload.teacherId = user.teacherId ? String(user.teacherId) : null;
   }
   return payload;
@@ -1100,6 +1268,20 @@ const resolveSessionUser = (sessionUser) => {
       name: student.name,
       role: 'student',
       teacherId: student.teacherId || null,
+    };
+  }
+  if (role === 'lead') {
+    const chatId = typeof sessionUser?.chatId === 'string' ? sessionUser.chatId.trim() : '';
+    const leadId = String(sessionUser?.id || '').trim();
+    if (!chatId || !leadId) return null;
+    const chat = readSignupChatsDb().find((entry) => entry.id === chatId && entry.guestUserId === leadId);
+    if (!chat) return null;
+    return {
+      id: chat.guestUserId,
+      name: chat.guestName,
+      role: 'lead',
+      chatId: chat.id,
+      teacherId: chat.teacherId || null,
     };
   }
   return null;
@@ -1281,6 +1463,8 @@ const getAuthTokenFromRequest = (req) => {
 const isAdminRole = (auth) => auth?.role === 'admin';
 const isTeacherRole = (auth) => auth?.role === 'teacher';
 const isStudentRole = (auth) => auth?.role === 'student';
+const isLeadRole = (auth) => auth?.role === 'lead';
+const isStaffRole = (auth) => isAdminRole(auth) || isTeacherRole(auth);
 
 const findTeacherById = (teacherId) => {
   if (!teacherId) return null;
@@ -1296,6 +1480,141 @@ const findStudentById = (studentId, options = {}) => {
   if (!student) return null;
   if (!allowDeleted && student.deletedAt) return null;
   return student;
+};
+
+const resolveSignupTeacher = (requestedTeacherId = '') => {
+  const teachers = readTeachersDb();
+  if (teachers.length === 0) return null;
+
+  const requestedId = String(requestedTeacherId || '').trim();
+  if (requestedId) {
+    const requested = teachers.find((teacher) => teacher.id === requestedId);
+    if (requested) return requested;
+  }
+
+  if (SIGNUP_DEFAULT_TEACHER_ID) {
+    const configured = teachers.find((teacher) => teacher.id === SIGNUP_DEFAULT_TEACHER_ID);
+    if (configured) return configured;
+  }
+
+  if (teachers.length === 1) return teachers[0];
+
+  const activeStudents = readStudentsDb().filter((student) => student && !student.deletedAt);
+  const studentsByTeacherId = activeStudents.reduce((acc, student) => {
+    const teacherId = typeof student.teacherId === 'string' ? student.teacherId.trim() : '';
+    if (!teacherId) return acc;
+    acc.set(teacherId, (acc.get(teacherId) || 0) + 1);
+    return acc;
+  }, new Map());
+
+  const ranked = [...teachers].sort((left, right) => {
+    const leftStudents = studentsByTeacherId.get(left.id) || 0;
+    const rightStudents = studentsByTeacherId.get(right.id) || 0;
+    if (leftStudents !== rightStudents) return rightStudents - leftStudents;
+    const leftCreated = Date.parse(left?.createdAt || '');
+    const rightCreated = Date.parse(right?.createdAt || '');
+    if (Number.isFinite(leftCreated) && Number.isFinite(rightCreated) && leftCreated !== rightCreated) {
+      return leftCreated - rightCreated;
+    }
+    return String(left?.name || '').localeCompare(String(right?.name || ''), 'ru');
+  });
+
+  return ranked[0] || null;
+};
+
+const getSignupChatAccessError = (auth, chat) => {
+  if (!auth || !chat) return 'Недостаточно прав';
+  if (isAdminRole(auth)) return '';
+  if (isTeacherRole(auth)) {
+    return chat.teacherId === auth.id ? '' : 'Недостаточно прав';
+  }
+  if (isLeadRole(auth)) {
+    const authChatId = typeof auth.chatId === 'string' ? auth.chatId.trim() : '';
+    const authLeadId = typeof auth.id === 'string' ? auth.id.trim() : '';
+    if (!authChatId || !authLeadId) return 'Недостаточно прав';
+    return (authChatId === chat.id && authLeadId === chat.guestUserId) ? '' : 'Недостаточно прав';
+  }
+  return 'Недостаточно прав';
+};
+
+const ensureSignupChatAccess = (req, res, chatId, options = {}) => {
+  const required = options.required !== false;
+  const id = String(chatId || '').trim();
+  if (!id) {
+    if (required) res.status(400).json({ error: 'chatId required' });
+    return null;
+  }
+  const chats = Array.isArray(options.chats) ? options.chats : readSignupChatsDb();
+  const index = chats.findIndex((entry) => entry?.id === id);
+  if (index === -1) {
+    res.status(404).json({ error: 'Чат не найден' });
+    return null;
+  }
+  const chat = chats[index];
+  const accessError = getSignupChatAccessError(req.auth, chat);
+  if (accessError) {
+    res.status(403).json({ error: accessError });
+    return null;
+  }
+  return { chat, chats, index };
+};
+
+const createSignupChatMessage = ({ senderRole, senderId, senderName, text }) => ({
+  id: crypto.randomUUID(),
+  senderRole: senderRole === 'teacher' ? 'teacher' : 'lead',
+  senderId: String(senderId || '').trim(),
+  senderName: String(senderName || '').trim(),
+  text: normalizeSignupMessageText(text),
+  createdAt: new Date().toISOString(),
+});
+
+const appendSignupChatMessage = (chat, message) => {
+  if (!chat || !message || !message.text || !message.senderId) return chat;
+  const nextMessages = [...(Array.isArray(chat.messages) ? chat.messages : []), message];
+  const preview = message.text.replace(/\s+/g, ' ').trim().slice(0, SIGNUP_LAST_MESSAGE_PREVIEW_MAX_LENGTH);
+  const next = {
+    ...chat,
+    messages: nextMessages,
+    updatedAt: message.createdAt,
+    lastMessageAt: message.createdAt,
+    lastMessagePreview: preview,
+    lastMessageSenderRole: message.senderRole,
+  };
+  if (message.senderRole === 'teacher') {
+    next.lastReadByTeacherAt = message.createdAt;
+  }
+  if (message.senderRole === 'lead') {
+    next.lastReadByLeadAt = message.createdAt;
+  }
+  return next;
+};
+
+const markSignupChatReadByTeacher = (chat) => {
+  if (!chat) return { chat, changed: false };
+  if (getSignupUnreadForTeacher(chat) <= 0) return { chat, changed: false };
+  const nowIso = new Date().toISOString();
+  return {
+    changed: true,
+    chat: { ...chat, lastReadByTeacherAt: nowIso },
+  };
+};
+
+const markSignupChatReadByLead = (chat) => {
+  if (!chat) return { chat, changed: false };
+  if (getSignupUnreadForLead(chat) <= 0) return { chat, changed: false };
+  const nowIso = new Date().toISOString();
+  return {
+    changed: true,
+    chat: { ...chat, lastReadByLeadAt: nowIso },
+  };
+};
+
+const isLeadAllowedApiRequest = (req) => {
+  const method = String(req?.method || '').toUpperCase();
+  const apiPath = String(req?.path || '').trim();
+  if (!apiPath) return false;
+  if (apiPath === '/signup-chat/messages') return method === 'GET' || method === 'POST';
+  return false;
 };
 
 const canAccessStudentByRole = (auth, student, options = {}) => {
@@ -1412,7 +1731,7 @@ const markTeacherSolvedEventsRead = (teacherId, eventIds = []) => {
 
 const forbid = (res) => res.status(403).json({ error: 'Недостаточно прав' });
 const ensureStaffWriteAccess = (req, res) => {
-  if (isStudentRole(req.auth)) {
+  if (!isStaffRole(req.auth)) {
     forbid(res);
     return false;
   }
@@ -1521,7 +1840,7 @@ const normalizeLeaderboardAlias = (value) => {
   if (!normalized) return '';
   if (normalized.length < LEADERBOARD_ALIAS_MIN_LENGTH) return '';
   if (normalized.length > LEADERBOARD_ALIAS_MAX_LENGTH) return '';
-  if (!/^[A-Za-zА-Яа-яЁё0-9_.\-\s]+$/.test(normalized)) return '';
+  if (!/^[A-Za-z\u0410-\u042F\u0430-\u044F\u0401\u04510-9_.\-\s]+$/.test(normalized)) return '';
   return normalized;
 };
 
@@ -1536,7 +1855,7 @@ const normalizeLeaderboardPseudonym = (value) => {
 };
 
 const containsBlockedLeaderboardWord = (value) => {
-  const normalized = String(value || '').toLowerCase().replace(/ё/g, 'е');
+  const normalized = String(value || '').toLowerCase().replace(/\u0451/g, '\u0435');
   if (!normalized) return false;
   return LEADERBOARD_BLOCKED_WORD_PATTERNS.some((pattern) => pattern.test(normalized));
 };
@@ -3066,6 +3385,9 @@ const handleUploadRequest = (req, res) => {
     return res.status(401).send('Требуется авторизация');
   }
   req.auth = session.user;
+  if (isLeadRole(req.auth)) {
+    return res.status(403).send('Недостаточно прав');
+  }
 
   const rawName = req.params.storageName || '';
   const safeName = path.basename(rawName);
@@ -3190,6 +3512,84 @@ app.post('/api/login', (req, res) => {
   return respondWithSession(res, session);
 });
 
+app.post('/api/signup/login', (req, res) => {
+  const rawGuestName = normalizeSignupGuestName(req.body?.name);
+  const guestKey = normalizeSignupGuestKey(req.body?.guestKey);
+  const chats = readSignupChatsDb();
+  const nowIso = new Date().toISOString();
+  let chat = null;
+
+  if (guestKey) {
+    const existingIdx = chats.findIndex((entry) => entry.guestKey && entry.guestKey === guestKey);
+    if (existingIdx >= 0) {
+      const existing = chats[existingIdx];
+      let guestName = existing.guestName;
+      if (rawGuestName) {
+        if (rawGuestName.length > SIGNUP_GUEST_NAME_MAX_LENGTH) {
+          return res.status(400).json({ error: `Имя слишком длинное (до ${SIGNUP_GUEST_NAME_MAX_LENGTH} символов)` });
+        }
+        if (/[/\\]/.test(rawGuestName)) return res.status(400).json({ error: 'Недопустимые символы в имени' });
+        guestName = rawGuestName;
+      }
+      const restored = normalizeSignupChat({
+        ...existing,
+        guestName,
+        updatedAt: nowIso,
+        lastReadByLeadAt: nowIso,
+      });
+      if (restored) {
+        chats[existingIdx] = restored;
+        writeSignupChatsDb(chats);
+        chat = restored;
+      }
+    }
+  }
+
+  if (!chat) {
+    const guestName = rawGuestName;
+    if (!guestName) return res.status(400).json({ error: 'Введите имя' });
+    if (guestName.length > SIGNUP_GUEST_NAME_MAX_LENGTH) {
+      return res.status(400).json({ error: `Имя слишком длинное (до ${SIGNUP_GUEST_NAME_MAX_LENGTH} символов)` });
+    }
+    if (/[/\\]/.test(guestName)) return res.status(400).json({ error: 'Недопустимые символы в имени' });
+
+    const requestedTeacherId = typeof req.body?.teacherId === 'string' ? req.body.teacherId.trim() : '';
+    const teacher = resolveSignupTeacher(requestedTeacherId);
+    if (!teacher) {
+      return res.status(503).json({ error: 'Пока нет преподавателя для записи. Попробуйте позже.' });
+    }
+
+    chat = normalizeSignupChat({
+      id: crypto.randomUUID(),
+      teacherId: teacher.id,
+      guestUserId: crypto.randomUUID(),
+      guestKey,
+      guestName,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      lastMessageAt: nowIso,
+      lastMessagePreview: '',
+      lastMessageSenderRole: '',
+      lastReadByTeacherAt: null,
+      lastReadByLeadAt: nowIso,
+      messages: [],
+    });
+    if (!chat) return res.status(500).json({ error: 'Не удалось создать чат' });
+
+    chats.unshift(chat);
+    writeSignupChatsDb(chats);
+  }
+
+  const session = createAuthSession({
+    id: chat.guestUserId,
+    name: chat.guestName,
+    role: 'lead',
+    chatId: chat.id,
+    teacherId: chat.teacherId,
+  });
+  return respondWithSession(res, session);
+});
+
 app.post('/api/logout', (req, res) => {
   const token = getAuthTokenFromRequest(req);
   if (token) deleteAuthSession(token);
@@ -3207,6 +3607,9 @@ app.use('/api', (req, res, next) => {
   req.auth = session.user;
   req.authToken = session.token;
   setAuthSessionCookie(res, session);
+  if (isLeadRole(req.auth) && !isLeadAllowedApiRequest(req)) {
+    return forbid(res);
+  }
   return next();
 });
 
@@ -3227,6 +3630,154 @@ app.get('/api/rtc/presence', (req, res) => {
     roomId: roomMeta.roomId,
     participants,
     count: participants.length,
+  });
+});
+
+app.get('/api/signup-chat/messages', (req, res) => {
+  if (!isLeadRole(req.auth)) return forbid(res);
+  const chats = readSignupChatsDb();
+  const access = ensureSignupChatAccess(req, res, req.auth?.chatId, { chats });
+  if (!access) return;
+  const { index } = access;
+  let chat = access.chat;
+
+  const markResult = markSignupChatReadByLead(chat);
+  if (markResult.changed) {
+    chats[index] = normalizeSignupChat(markResult.chat) || markResult.chat;
+    writeSignupChatsDb(chats);
+    chat = chats[index];
+  }
+
+  const teacherName = findTeacherById(chat.teacherId)?.name || 'Преподаватель';
+  return res.json({
+    chat: {
+      ...buildSignupChatSummary(chat),
+      teacherName,
+    },
+    messages: Array.isArray(chat.messages) ? chat.messages : [],
+  });
+});
+
+app.post('/api/signup-chat/messages', (req, res) => {
+  if (!isLeadRole(req.auth)) return forbid(res);
+  const text = normalizeSignupMessageText(req.body?.text);
+  if (!text) return res.status(400).json({ error: 'Введите сообщение' });
+
+  const chats = readSignupChatsDb();
+  const access = ensureSignupChatAccess(req, res, req.auth?.chatId, { chats });
+  if (!access) return;
+  const { index } = access;
+  const chat = access.chat;
+
+  const message = createSignupChatMessage({
+    senderRole: 'lead',
+    senderId: req.auth.id,
+    senderName: chat.guestName,
+    text,
+  });
+  if (!message.text || !message.senderId) {
+    return res.status(400).json({ error: 'Некорректное сообщение' });
+  }
+
+  chats[index] = normalizeSignupChat(appendSignupChatMessage(chat, message)) || chat;
+  writeSignupChatsDb(chats);
+  const updatedChat = chats[index];
+  const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
+  return res.json({
+    ok: true,
+    message,
+    chat: {
+      ...buildSignupChatSummary(updatedChat),
+      teacherName,
+    },
+  });
+});
+
+app.get('/api/signup-chats', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  let chats = readSignupChatsDb();
+  if (isTeacherRole(req.auth)) {
+    chats = chats.filter((chat) => chat.teacherId === req.auth.id);
+  }
+  chats.sort((left, right) => getSignupChatSortTimestamp(right) - getSignupChatSortTimestamp(left));
+  return res.json(chats.map((chat) => ({
+    ...buildSignupChatSummary(chat),
+    teacherName: findTeacherById(chat.teacherId)?.name || 'Преподаватель',
+  })));
+});
+
+app.get('/api/signup-chats/:chatId/messages', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const chats = readSignupChatsDb();
+  const access = ensureSignupChatAccess(req, res, req.params.chatId, { chats });
+  if (!access) return;
+  const { index } = access;
+  let chat = access.chat;
+
+  const markResult = markSignupChatReadByTeacher(chat);
+  if (markResult.changed) {
+    chats[index] = normalizeSignupChat(markResult.chat) || markResult.chat;
+    writeSignupChatsDb(chats);
+    chat = chats[index];
+  }
+
+  const teacherName = findTeacherById(chat.teacherId)?.name || 'Преподаватель';
+  return res.json({
+    chat: {
+      ...buildSignupChatSummary(chat),
+      teacherName,
+    },
+    messages: Array.isArray(chat.messages) ? chat.messages : [],
+  });
+});
+
+app.post('/api/signup-chats/:chatId/messages', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const text = normalizeSignupMessageText(req.body?.text);
+  if (!text) return res.status(400).json({ error: 'Введите сообщение' });
+
+  const chats = readSignupChatsDb();
+  const access = ensureSignupChatAccess(req, res, req.params.chatId, { chats });
+  if (!access) return;
+  const { index } = access;
+  const chat = access.chat;
+
+  const senderName = String(req.auth?.name || '').trim() || (findTeacherById(chat.teacherId)?.name || 'Преподаватель');
+  const message = createSignupChatMessage({
+    senderRole: 'teacher',
+    senderId: req.auth.id,
+    senderName,
+    text,
+  });
+  if (!message.text || !message.senderId) {
+    return res.status(400).json({ error: 'Некорректное сообщение' });
+  }
+
+  chats[index] = normalizeSignupChat(appendSignupChatMessage(chat, message)) || chat;
+  writeSignupChatsDb(chats);
+  const updatedChat = chats[index];
+  const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
+  return res.json({
+    ok: true,
+    message,
+    chat: {
+      ...buildSignupChatSummary(updatedChat),
+      teacherName,
+    },
+  });
+});
+
+app.delete('/api/signup-chats/:chatId', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const chats = readSignupChatsDb();
+  const access = ensureSignupChatAccess(req, res, req.params.chatId, { chats });
+  if (!access) return;
+  const { index, chat } = access;
+  chats.splice(index, 1);
+  writeSignupChatsDb(chats);
+  return res.json({
+    ok: true,
+    chatId: chat.id,
   });
 });
 
@@ -3497,7 +4048,7 @@ app.post('/api/students', (req, res) => {
   const studentName = normalizeStudentName(name);
   if (!studentName) return res.status(400).json({ error: 'Введите имя ученика' });
   if (studentName.length > 60) return res.status(400).json({ error: 'Имя слишком длинное' });
-  if (/[\/\\]/.test(studentName)) return res.status(400).json({ error: 'Недопустимые символы' });
+  if (/[/\\]/.test(studentName)) return res.status(400).json({ error: 'Недопустимые символы' });
 
   const teachers = readTeachersDb();
   const requestedTeacherId = typeof teacherId === 'string' ? teacherId.trim() : '';
@@ -3644,7 +4195,7 @@ app.post('/api/teachers', (req, res) => {
   const teacherName = normalizeTeacherName(name);
   if (!teacherName) return res.status(400).json({ error: 'Введите имя учителя' });
   if (teacherName.length > 60) return res.status(400).json({ error: 'Имя слишком длинное' });
-  if (/[\/\\]/.test(teacherName)) return res.status(400).json({ error: 'Недопустимые символы' });
+  if (/[/\\]/.test(teacherName)) return res.status(400).json({ error: 'Недопустимые символы' });
 
   const teachers = readTeachersDb();
   const students = readStudentsDb();
@@ -3669,7 +4220,7 @@ app.patch('/api/teachers/:id', (req, res) => {
   const teacherName = normalizeTeacherName(name);
   if (!teacherName) return res.status(400).json({ error: 'Введите имя учителя' });
   if (teacherName.length > 60) return res.status(400).json({ error: 'Имя слишком длинное' });
-  if (/[\/\\]/.test(teacherName)) return res.status(400).json({ error: 'Недопустимые символы' });
+  if (/[/\\]/.test(teacherName)) return res.status(400).json({ error: 'Недопустимые символы' });
 
   const teachers = readTeachersDb();
   const idx = teachers.findIndex((t) => t.id === id);
@@ -3738,14 +4289,14 @@ app.patch('/api/students/:id', (req, res) => {
     studentName = normalizeStudentName(name);
     if (!studentName) return res.status(400).json({ error: 'Введите имя ученика' });
     if (studentName.length > 60) return res.status(400).json({ error: 'Имя слишком длинное' });
-    if (/[\/\\]/.test(studentName)) return res.status(400).json({ error: 'Недопустимые символы' });
+    if (/[/\\]/.test(studentName)) return res.status(400).json({ error: 'Недопустимые символы' });
   }
 
   let studentNickname = null;
   if (hasNickname) {
     studentNickname = normalizeStudentNickname(nickname);
     if (studentNickname.length > 60) return res.status(400).json({ error: 'Прозвище слишком длинное' });
-    if (/[\/\\]/.test(studentNickname)) return res.status(400).json({ error: 'Недопустимые символы' });
+    if (/[/\\]/.test(studentNickname)) return res.status(400).json({ error: 'Недопустимые символы' });
   }
 
   let studentLeaderboardAlias = null;

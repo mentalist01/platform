@@ -1,5 +1,5 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
-import { Download, Pencil, Plus, RefreshCcw, Save, Settings, Trash2 } from 'lucide-react';
+﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Bell, BellOff, Download, MessageSquare, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
 const TeacherPanel = ({
@@ -29,7 +29,16 @@ const TeacherPanel = ({
   XP_PER_LEVEL,
   GAME_THEORY_TASK,
   withUploadsAuthToken,
+  teacherSignupNotifySupported = false,
+  teacherSignupNotifyPermission = 'default',
+  teacherSignupNotifyEnabled = false,
+  teacherSignupNotifyStatusText = '',
+  teacherSignupNotifyError = '',
+  onToggleTeacherSignupNotify = null,
+  mode = 'tests',
 }) => {
+  const isSignupChatsMode = mode === 'signup-chats';
+  const isTestsMode = !isSignupChatsMode;
   const [testDb, setTestDb] = useState(null);
   const [testsLoading, setTestsLoading] = useState(false);
   const [testsError, setTestsError] = useState('');
@@ -65,6 +74,18 @@ const TeacherPanel = ({
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const screenshotsRef = useRef(null);
   const filesRef = useRef(null);
+  const [signupChats, setSignupChats] = useState([]);
+  const [signupChatsLoading, setSignupChatsLoading] = useState(false);
+  const [signupChatsError, setSignupChatsError] = useState('');
+  const [selectedSignupChatId, setSelectedSignupChatId] = useState('');
+  const [signupChatDetails, setSignupChatDetails] = useState(null);
+  const [signupMessages, setSignupMessages] = useState([]);
+  const [signupMessagesLoading, setSignupMessagesLoading] = useState(false);
+  const [signupMessagesError, setSignupMessagesError] = useState('');
+  const [signupMessageText, setSignupMessageText] = useState('');
+  const [signupMessageSending, setSignupMessageSending] = useState(false);
+  const [signupChatDeletingId, setSignupChatDeletingId] = useState('');
+  const signupMessagesRef = useRef(null);
 
   useEffect(() => {
     const previews = questionScreenshots.map((file) => ({
@@ -78,6 +99,7 @@ const TeacherPanel = ({
   }, [questionScreenshots]);
 
   useEffect(() => {
+    if (!isTestsMode) return undefined;
     let cancelled = false;
     setTestsLoading(true);
     api.getTests()
@@ -95,7 +117,7 @@ const TeacherPanel = ({
         if (!cancelled) setTestsLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [isTestsMode]);
   
   // Form state
   const [question, setQuestion] = useState("");
@@ -356,6 +378,171 @@ const TeacherPanel = ({
     const daysPassed = Math.floor((Date.now() - deletedAt) / (1000 * 60 * 60 * 24));
     return Math.max(0, SOFT_DELETE_DAYS - daysPassed);
   };
+  const formatSignupDateTime = (iso) => {
+    if (!iso) return '';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+  const getSignupChatSortValue = useCallback((chat) => {
+    const value = chat?.lastMessageAt || chat?.updatedAt || chat?.createdAt || '';
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }, []);
+  const sortSignupChats = useCallback(
+    (items) => [...items].sort((left, right) => getSignupChatSortValue(right) - getSignupChatSortValue(left)),
+    [getSignupChatSortValue]
+  );
+
+  const fetchSignupChatMessages = useCallback(async (chatId, options = {}) => {
+    const { silent = false } = options;
+    const normalizedChatId = typeof chatId === 'string' ? chatId.trim() : '';
+    if (!normalizedChatId) {
+      setSignupChatDetails(null);
+      setSignupMessages([]);
+      setSignupMessagesError('');
+      return null;
+    }
+    if (!silent) setSignupMessagesLoading(true);
+    try {
+      const payload = await api.getSignupChatMessagesForTeacher(normalizedChatId);
+      setSignupChatDetails(payload?.chat || null);
+      setSignupMessages(Array.isArray(payload?.messages) ? payload.messages : []);
+      setSignupMessagesError('');
+      return payload;
+    } catch (err) {
+      if (!silent) {
+        setSignupMessagesError(err?.message || String(err));
+      }
+      return null;
+    } finally {
+      if (!silent) setSignupMessagesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isSignupChatsMode) return undefined;
+    if (role !== 'teacher' && role !== 'admin') return undefined;
+    let cancelled = false;
+    const loadChats = async ({ silent = false } = {}) => {
+      if (!silent) setSignupChatsLoading(true);
+      try {
+        const payload = await api.getSignupChats();
+        if (cancelled) return;
+        const list = sortSignupChats(Array.isArray(payload) ? payload : []);
+        setSignupChats(list);
+        setSignupChatsError('');
+        setSelectedSignupChatId((prev) => {
+          if (prev && list.some((item) => item.id === prev)) return prev;
+          return list[0]?.id || '';
+        });
+      } catch (err) {
+        if (cancelled) return;
+        if (!silent) {
+          setSignupChatsError(err?.message || String(err));
+        }
+      } finally {
+        if (!silent && !cancelled) setSignupChatsLoading(false);
+      }
+    };
+
+    loadChats();
+    const timerId = setInterval(() => {
+      loadChats({ silent: true });
+    }, 6000);
+    return () => {
+      cancelled = true;
+      clearInterval(timerId);
+    };
+  }, [isSignupChatsMode, role, sortSignupChats, teacherId]);
+
+  useEffect(() => {
+    if (!isSignupChatsMode) return undefined;
+    if (!selectedSignupChatId) {
+      setSignupChatDetails(null);
+      setSignupMessages([]);
+      setSignupMessagesError('');
+      return undefined;
+    }
+
+    let cancelled = false;
+    const loadMessages = async ({ silent = false } = {}) => {
+      if (cancelled) return;
+      await fetchSignupChatMessages(selectedSignupChatId, { silent });
+    };
+
+    loadMessages();
+    const timerId = setInterval(() => {
+      loadMessages({ silent: true });
+    }, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timerId);
+    };
+  }, [fetchSignupChatMessages, isSignupChatsMode, selectedSignupChatId]);
+
+  useEffect(() => {
+    if (!isSignupChatsMode) return;
+    const node = signupMessagesRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [isSignupChatsMode, selectedSignupChatId, signupMessages.length]);
+
+  const handleSendSignupMessage = async () => {
+    const text = signupMessageText.trim();
+    if (!selectedSignupChatId || !text || signupMessageSending) return;
+    setSignupMessageSending(true);
+    try {
+      await api.sendSignupChatMessageForTeacher(selectedSignupChatId, text);
+      setSignupMessageText('');
+      await fetchSignupChatMessages(selectedSignupChatId, { silent: true });
+      const chatsPayload = await api.getSignupChats();
+      setSignupChats(sortSignupChats(Array.isArray(chatsPayload) ? chatsPayload : []));
+      setSignupChatsError('');
+    } catch (err) {
+      setSignupMessagesError(err?.message || String(err));
+    } finally {
+      setSignupMessageSending(false);
+    }
+  };
+
+  const handleDeleteSignupChat = async () => {
+    const chatId = typeof selectedSignupChatId === 'string' ? selectedSignupChatId.trim() : '';
+    if (!chatId) return;
+    if (signupChatDeletingId === chatId) return;
+    const targetChat = signupChats.find((chat) => chat.id === chatId);
+    const guestName = targetChat?.guestName || 'Гость';
+    if (!confirm(`Удалить чат с "${guestName}"? Это действие нельзя отменить.`)) return;
+
+    setSignupChatDeletingId(chatId);
+    try {
+      await api.deleteSignupChat(chatId);
+      setSignupMessagesError('');
+      setSignupMessageText('');
+      setSignupChatDetails((prev) => (prev?.id === chatId ? null : prev));
+      if (selectedSignupChatId === chatId) {
+        setSignupMessages([]);
+      }
+
+      const chatsPayload = await api.getSignupChats();
+      const list = sortSignupChats(Array.isArray(chatsPayload) ? chatsPayload : []);
+      setSignupChats(list);
+      setSignupChatsError('');
+      setSelectedSignupChatId((prev) => {
+        if (prev && prev !== chatId && list.some((item) => item.id === prev)) return prev;
+        return list[0]?.id || '';
+      });
+    } catch (err) {
+      setSignupMessagesError(err?.message || String(err));
+    } finally {
+      setSignupChatDeletingId('');
+    }
+  };
 
   const addScreenshotFiles = (fileList) => {
     const incoming = Array.from(fileList || []).filter((file) => file.type?.startsWith('image/'));
@@ -532,7 +719,7 @@ const TeacherPanel = ({
       setEditStudentError('Имя слишком длинное');
       return;
     }
-    if (/[\/\\]/.test(nextName)) {
+    if (/[/\\]/.test(nextName)) {
       setEditStudentError('Недопустимые символы');
       return;
     }
@@ -588,20 +775,227 @@ const TeacherPanel = ({
       setTeacherCodeSaving(false);
     }
   };
+  const selectedSignupChatSummary = signupChats.find((chat) => chat.id === selectedSignupChatId) || null;
+  const selectedSignupChat = signupChatDetails?.id === selectedSignupChatId
+    ? signupChatDetails
+    : selectedSignupChatSummary;
+  const isDeletingSelectedSignupChat = Boolean(selectedSignupChatId && signupChatDeletingId === selectedSignupChatId);
+  const canToggleTeacherSignupNotify = typeof onToggleTeacherSignupNotify === 'function';
+  const resolvedTeacherSignupNotifyStatus = teacherSignupNotifyStatusText
+    || (teacherSignupNotifyPermission === 'denied'
+      ? 'Уведомления заблокированы в настройках браузера.'
+      : 'Включите уведомления, чтобы не пропускать новые сообщения.');
 
 
   return (
     <div className="animate-fadeIn pb-10">
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          <Settings className="text-purple-600" />
-          Панель учителя
+          {isSignupChatsMode ? <MessageSquare className="text-purple-600" /> : <Settings className="text-purple-600" />}
+          {isSignupChatsMode ? 'Чаты с записывающимися' : 'Панель учителя'}
         </h2>
-        <p className="text-gray-500">Добавление и редактирование заданий для тестов</p>
-        {testsLoading && <p className="text-xs text-gray-400 mt-2">Загрузка базы тестов...</p>}
-        {testsError && <p className="text-xs text-red-500 mt-2">{testsError}</p>}
+        <p className="text-gray-500">
+          {isSignupChatsMode
+            ? 'Сообщения от людей, которые нажали "Я хочу записаться"'
+            : 'Добавление и редактирование заданий для тестов'}
+        </p>
+        {isTestsMode && testsLoading && <p className="text-xs text-gray-400 mt-2">Загрузка базы тестов...</p>}
+        {isTestsMode && testsError && <p className="text-xs text-red-500 mt-2">{testsError}</p>}
       </div>
 
+      {isSignupChatsMode && (
+      <Card className="mb-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+              <MessageSquare size={20} className="text-purple-600" />
+              Чаты с записывающимися
+            </h3>
+            <p className="text-xs text-gray-500">
+              Сообщения от людей, которые нажали "Я хочу записаться"
+            </p>
+          </div>
+          <span className="text-xs text-gray-500">Всего чатов: {signupChats.length}</span>
+        </div>
+
+        <div className="mb-3 rounded-xl border border-purple-200/80 bg-gradient-to-r from-purple-50 via-white to-fuchsia-50 px-3 py-2.5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-purple-600">
+                Уведомления
+              </div>
+              <div className="mt-1 text-xs text-slate-600">
+                {resolvedTeacherSignupNotifyStatus}
+              </div>
+              {teacherSignupNotifyError && (
+                <div className="mt-1 text-xs text-red-500">{teacherSignupNotifyError}</div>
+              )}
+            </div>
+            <Button
+              type="button"
+              variant={teacherSignupNotifyEnabled ? 'secondary' : 'primary'}
+              onClick={() => onToggleTeacherSignupNotify?.()}
+              disabled={!canToggleTeacherSignupNotify || (!teacherSignupNotifySupported && !teacherSignupNotifyEnabled)}
+              className="sm:ml-3"
+            >
+              {teacherSignupNotifyEnabled ? <BellOff size={16} /> : <Bell size={16} />}
+              {teacherSignupNotifyEnabled ? 'Отключить уведомления' : 'Включить уведомления'}
+            </Button>
+          </div>
+        </div>
+
+        {signupChatsError && <p className="mb-3 text-xs text-red-500">{signupChatsError}</p>}
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
+          <div className="max-h-[430px] space-y-2 overflow-y-auto pr-1">
+            {signupChatsLoading && signupChats.length === 0 ? (
+              <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500">
+                Загружаем чаты...
+              </div>
+            ) : signupChats.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500">
+                Пока нет новых заявок.
+              </div>
+            ) : (
+              signupChats.map((chat) => {
+                const isActive = chat.id === selectedSignupChatId;
+                const unread = Number(chat?.unreadForTeacher) || 0;
+                return (
+                  <button
+                    key={chat.id}
+                    type="button"
+                    onClick={() => setSelectedSignupChatId(chat.id)}
+                    className={`w-full rounded-xl border px-3 py-2 text-left transition-colors ${
+                      isActive
+                        ? 'border-purple-300 bg-purple-50'
+                        : 'border-gray-200 bg-white hover:border-purple-200'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-gray-800">{chat.guestName || 'Гость'}</p>
+                        <p className="mt-0.5 line-clamp-2 text-xs text-gray-500">
+                          {chat.lastMessagePreview || 'Новый чат без сообщений'}
+                        </p>
+                      </div>
+                      {unread > 0 && (
+                        <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-purple-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                          {unread}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1 text-[11px] text-gray-400">
+                      {formatSignupDateTime(chat.lastMessageAt || chat.createdAt)}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-gray-200 bg-gray-50/70 p-3">
+            {!selectedSignupChatId ? (
+              <div className="flex min-h-[260px] items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white text-sm text-gray-500">
+                Выберите чат слева.
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white bg-white px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-gray-800">
+                      {selectedSignupChat?.guestName || 'Гость'}
+                    </p>
+                    <p className="text-[11px] text-gray-500">
+                      Создан: {formatSignupDateTime(selectedSignupChat?.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-gray-500">
+                      {selectedSignupChat?.messageCount || 0} сообщений
+                    </span>
+                    <Button
+                      type="button"
+                      variant="danger"
+                      onClick={handleDeleteSignupChat}
+                      disabled={isDeletingSelectedSignupChat}
+                      className="h-8 min-w-[122px] px-3 text-xs"
+                    >
+                      <Trash2 size={14} />
+                      {isDeletingSelectedSignupChat ? 'Удаление...' : 'Удалить чат'}
+                    </Button>
+                  </div>
+                </div>
+
+                <div
+                  ref={signupMessagesRef}
+                  className="mt-3 max-h-[320px] min-h-[220px] space-y-2 overflow-y-auto rounded-xl border border-gray-200 bg-white p-3"
+                >
+                  {signupMessagesLoading ? (
+                    <div className="text-sm text-gray-500">Загружаем переписку...</div>
+                  ) : signupMessages.length === 0 ? (
+                    <div className="text-sm text-gray-500">Пока сообщений нет.</div>
+                  ) : (
+                    signupMessages.map((message) => {
+                      const isTeacherMessage = message?.senderRole === 'teacher';
+                      return (
+                        <div key={message.id} className={`flex ${isTeacherMessage ? 'justify-end' : 'justify-start'}`}>
+                          <div
+                            className={`max-w-[88%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                              isTeacherMessage
+                                ? 'bg-purple-600 text-white'
+                                : 'border border-gray-200 bg-gray-50 text-gray-800'
+                            }`}
+                          >
+                            {!isTeacherMessage && (
+                              <div className="mb-1 text-[11px] font-semibold text-purple-600">
+                                {message?.senderName || selectedSignupChat?.guestName || 'Гость'}
+                              </div>
+                            )}
+                            <div className="whitespace-pre-wrap break-words">{message?.text || ''}</div>
+                            <div className={`mt-1 text-[10px] ${isTeacherMessage ? 'text-purple-100' : 'text-gray-400'}`}>
+                              {formatSignupDateTime(message?.createdAt)}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <textarea
+                    value={signupMessageText}
+                    onChange={(event) => setSignupMessageText(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault();
+                        handleSendSignupMessage();
+                      }
+                    }}
+                    rows={3}
+                    placeholder="Ответить в чат..."
+                    className="w-full resize-none rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-purple-500"
+                  />
+                  <Button
+                    type="button"
+                    onClick={handleSendSignupMessage}
+                    disabled={signupMessageSending || isDeletingSelectedSignupChat || !signupMessageText.trim() || !selectedSignupChatId}
+                    className="h-[46px] min-w-[136px] self-end sm:self-stretch"
+                  >
+                    <SendHorizontal size={16} />
+                    {signupMessageSending ? 'Отправка...' : 'Отправить'}
+                  </Button>
+                </div>
+                {signupMessagesError && <p className="mt-2 text-xs text-red-500">{signupMessagesError}</p>}
+              </>
+            )}
+          </div>
+        </div>
+      </Card>
+      )}
+
+      {isTestsMode && (
+      <>
       <Card className="mb-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
@@ -1390,11 +1784,9 @@ const TeacherPanel = ({
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 };
-
-
-
 export default TeacherPanel;
-

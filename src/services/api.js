@@ -57,8 +57,68 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
+  signupLogin: async (name, teacherId = '', guestKey = '') => {
+    const payload = { name };
+    const normalizedTeacherId = typeof teacherId === 'string' ? teacherId.trim() : '';
+    if (normalizedTeacherId) payload.teacherId = normalizedTeacherId;
+    const normalizedGuestKey = typeof guestKey === 'string' ? guestKey.trim() : '';
+    if (normalizedGuestKey) payload.guestKey = normalizedGuestKey;
+    const res = await apiFetch('/api/signup/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   logout: async () => {
     const res = await apiFetch('/api/logout', { method: 'POST' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getSignupChatMessages: async () => {
+    const res = await apiFetch('/api/signup-chat/messages');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  sendSignupChatMessage: async (text) => {
+    const res = await apiFetch('/api/signup-chat/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getSignupChats: async () => {
+    const res = await apiFetch('/api/signup-chats');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getSignupChatMessagesForTeacher: async (chatId) => {
+    const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
+    if (!id) return { chat: null, messages: [] };
+    const res = await apiFetch(`/api/signup-chats/${encodeURIComponent(id)}/messages`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  sendSignupChatMessageForTeacher: async (chatId, text) => {
+    const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
+    if (!id) throw new Error('chatId required');
+    const res = await apiFetch(`/api/signup-chats/${encodeURIComponent(id)}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  deleteSignupChat: async (chatId) => {
+    const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
+    if (!id) throw new Error('chatId required');
+    const res = await apiFetch(`/api/signup-chats/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
