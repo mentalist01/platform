@@ -1064,6 +1064,62 @@
   50% { transform: translate3d(10%, -8px, 0) rotate(-2deg) scaleX(1.06); opacity: 0.26; }
   100% { transform: translate3d(28%, -14px, 0) rotate(4deg) scaleX(0.96); opacity: 0.1; }
 }
+@keyframes callSceneSweep {
+  0% {
+    opacity: 0;
+    transform: translate3d(-34%, 0, 0) skewX(-12deg);
+  }
+  24% {
+    opacity: 0.44;
+  }
+  62% {
+    opacity: 0.18;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(36%, 0, 0) skewX(-12deg);
+  }
+}
+@keyframes callWaveDrift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.2; }
+  50% { transform: translate3d(10px, -6px, 0) scale(1.08); opacity: 0.42; }
+}
+@keyframes callVideoScan {
+  0% {
+    transform: translate3d(-16%, -10%, 0) rotate(0.001deg);
+    opacity: 0.08;
+  }
+  40% {
+    transform: translate3d(8%, 4%, 0) rotate(0.001deg);
+    opacity: 0.2;
+  }
+  100% {
+    transform: translate3d(20%, 12%, 0) rotate(0.001deg);
+    opacity: 0.1;
+  }
+}
+@keyframes callVideoGlowPulse {
+  0%, 100% {
+    opacity: 0.3;
+    box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.34), inset 0 -18px 24px rgba(16, 185, 129, 0.06);
+  }
+  50% {
+    opacity: 0.9;
+    box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.58), inset 0 -28px 34px rgba(16, 185, 129, 0.16), 0 0 0 4px rgba(16, 185, 129, 0.08);
+  }
+}
+@keyframes callAvatarOrbit {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes callControlLiveBeat {
+  0%, 100% { opacity: 0.38; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.08); }
+}
+@keyframes callControlIconLift {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-1px) scale(1.07); }
+}
 @keyframes callVoiceBarsIdle {
   0%, 100% { transform: scaleY(0.28); opacity: 0.35; }
   50% { transform: scaleY(0.52); opacity: 0.7; }
@@ -1279,8 +1335,14 @@
   animation: callPanelIn 0.52s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .call-scene-shell {
+  --call-scene-surface-start: rgba(255, 255, 255, 0.96);
+  --call-scene-surface-end: rgba(248, 250, 252, 0.94);
   --call-scene-accent: rgba(56, 189, 248, 0.28);
   --call-scene-accent-strong: rgba(14, 165, 233, 0.34);
+  background:
+    radial-gradient(circle at 8% -10%, rgba(255, 255, 255, 0.56), transparent 42%),
+    linear-gradient(156deg, var(--call-scene-surface-start), var(--call-scene-surface-end));
+  transition: background 0.35s ease, border-color 0.3s ease, box-shadow 0.35s ease;
   animation: callPanelIn 0.52s cubic-bezier(0.16, 1, 0.3, 1) both, callSceneBreath 8.4s ease-in-out infinite;
 }
 .call-scene-shell::before {
@@ -1311,22 +1373,32 @@
   opacity: 0.55;
 }
 .call-scene--connected {
+  --call-scene-surface-start: rgba(236, 253, 245, 0.97);
+  --call-scene-surface-end: rgba(220, 252, 231, 0.93);
   --call-scene-accent: rgba(16, 185, 129, 0.28);
   --call-scene-accent-strong: rgba(16, 185, 129, 0.44);
 }
 .call-scene--waiting {
+  --call-scene-surface-start: rgba(239, 246, 255, 0.97);
+  --call-scene-surface-end: rgba(224, 242, 254, 0.92);
   --call-scene-accent: rgba(56, 189, 248, 0.3);
   --call-scene-accent-strong: rgba(56, 189, 248, 0.42);
 }
 .call-scene--connecting {
-  --call-scene-accent: rgba(245, 158, 11, 0.3);
-  --call-scene-accent-strong: rgba(245, 158, 11, 0.42);
+  --call-scene-surface-start: rgba(255, 253, 246, 0.97);
+  --call-scene-surface-end: rgba(255, 247, 232, 0.93);
+  --call-scene-accent: rgba(245, 158, 11, 0.19);
+  --call-scene-accent-strong: rgba(245, 158, 11, 0.31);
 }
 .call-scene--problem {
+  --call-scene-surface-start: rgba(255, 241, 242, 0.97);
+  --call-scene-surface-end: rgba(255, 228, 230, 0.9);
   --call-scene-accent: rgba(239, 68, 68, 0.28);
   --call-scene-accent-strong: rgba(244, 63, 94, 0.42);
 }
 .call-scene--idle {
+  --call-scene-surface-start: rgba(255, 255, 255, 0.96);
+  --call-scene-surface-end: rgba(241, 245, 249, 0.94);
   --call-scene-accent: rgba(148, 163, 184, 0.24);
   --call-scene-accent-strong: rgba(148, 163, 184, 0.36);
 }
@@ -1440,6 +1512,57 @@
   background: linear-gradient(90deg, rgba(16, 185, 129, 0.16), rgba(99, 102, 241, 0.28), rgba(56, 189, 248, 0.12));
   animation-duration: 21s;
   animation-delay: -6.5s;
+}
+.call-scene-sweep {
+  pointer-events: none;
+  position: absolute;
+  inset: -20% -8%;
+  background:
+    linear-gradient(110deg, transparent 24%, rgba(255, 255, 255, 0.34) 42%, rgba(56, 189, 248, 0.22) 52%, transparent 66%),
+    linear-gradient(128deg, transparent 44%, rgba(16, 185, 129, 0.18) 58%, transparent 76%);
+  mix-blend-mode: screen;
+  opacity: 0.22;
+  transform: translate3d(-34%, 0, 0) skewX(-12deg);
+  animation: callSceneSweep 13.5s ease-in-out infinite;
+}
+.call-scene--connected .call-scene-sweep {
+  background:
+    linear-gradient(110deg, transparent 24%, rgba(255, 255, 255, 0.34) 42%, rgba(16, 185, 129, 0.24) 52%, transparent 66%),
+    linear-gradient(128deg, transparent 44%, rgba(52, 211, 153, 0.2) 58%, transparent 76%);
+}
+.call-scene--connecting .call-scene-sweep {
+  background:
+    linear-gradient(110deg, transparent 24%, rgba(255, 255, 255, 0.34) 42%, rgba(245, 158, 11, 0.17) 52%, transparent 66%),
+    linear-gradient(128deg, transparent 44%, rgba(251, 191, 36, 0.12) 58%, transparent 76%);
+}
+.call-scene--problem .call-scene-sweep {
+  background:
+    linear-gradient(110deg, transparent 24%, rgba(255, 255, 255, 0.3) 42%, rgba(244, 63, 94, 0.24) 52%, transparent 66%),
+    linear-gradient(128deg, transparent 44%, rgba(239, 68, 68, 0.16) 58%, transparent 76%);
+}
+.call-energy-wave {
+  pointer-events: none;
+  position: absolute;
+  width: clamp(180px, 26vw, 360px);
+  height: clamp(180px, 26vw, 360px);
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--call-scene-accent-strong, rgba(56, 189, 248, 0.34)) 56%, rgba(255, 255, 255, 0.18));
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--call-scene-accent, rgba(56, 189, 248, 0.2)) 82%, rgba(255, 255, 255, 0.06)) 0%, transparent 68%);
+  mix-blend-mode: screen;
+  opacity: 0.24;
+  filter: blur(0.2px);
+  animation: callWaveDrift 8.5s ease-in-out infinite;
+}
+.call-energy-wave--one {
+  left: -94px;
+  top: -84px;
+}
+.call-energy-wave--two {
+  right: -112px;
+  bottom: -96px;
+  animation-duration: 10.2s;
+  animation-direction: reverse;
 }
 .call-status-chip {
   position: relative;
@@ -1611,6 +1734,38 @@
 .call-media-tile[data-speaking='true'] {
   box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.36), 0 18px 36px rgba(16, 185, 129, 0.2);
 }
+.call-video-frame-glow {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  box-shadow: inset 0 -20px 24px rgba(15, 23, 42, 0.08);
+  opacity: 0.44;
+  transition: opacity 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.call-video-frame-glow.is-speaking {
+  border-color: rgba(52, 211, 153, 0.42);
+  animation: callVideoGlowPulse 1.9s ease-in-out infinite;
+}
+.call-video-scan {
+  pointer-events: none;
+  position: absolute;
+  inset: -25%;
+  z-index: 2;
+  background:
+    linear-gradient(120deg, transparent 34%, rgba(255, 255, 255, 0.2) 48%, transparent 62%),
+    repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 3px);
+  mix-blend-mode: screen;
+  opacity: 0.12;
+  transform: translate3d(-16%, -10%, 0);
+  animation: callVideoScan 8.8s linear infinite;
+}
+.call-video-scan.is-speaking {
+  opacity: 0.26;
+  animation-duration: 5.1s;
+}
 .call-audio-badge {
   pointer-events: none;
   position: absolute;
@@ -1697,6 +1852,11 @@
 .call-media-tile--fullscreen-static .call-media-overlay {
   transition: none !important;
 }
+.call-media-tile--fullscreen-static .call-video-frame-glow,
+.call-media-tile--fullscreen-static .call-video-scan {
+  animation: none !important;
+  opacity: 0 !important;
+}
 .call-media-overlay {
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
@@ -1708,6 +1868,27 @@
 .call-media-compact-card,
 .call-avatar-card {
   transition: transform 0.26s ease, box-shadow 0.3s ease, filter 0.28s ease;
+}
+.call-avatar-card {
+  isolation: isolate;
+}
+.call-avatar-card::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(from 10deg, rgba(56, 189, 248, 0.42), rgba(16, 185, 129, 0.3), rgba(99, 102, 241, 0.34), rgba(56, 189, 248, 0.42));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.28;
+  animation: callAvatarOrbit 8.8s linear infinite;
+}
+.call-participant-entry[data-speaking='true'] .call-avatar-card::before {
+  opacity: 0.78;
+  animation-duration: 3.2s;
 }
 .call-participant-entry:hover .call-media-compact-card,
 .call-participant-entry:hover .call-avatar-card {
@@ -1781,26 +1962,32 @@
 .call-controls-wrap {
   position: relative;
   overflow: hidden;
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 }
 .call-controls-rail {
   animation: callControlsBreathe 7.2s ease-in-out infinite;
 }
+.call-controls-wrap.call-scene--connected {
+  background: linear-gradient(150deg, rgba(236, 253, 245, 0.78), rgba(209, 250, 229, 0.74));
+}
+.call-controls-wrap.call-scene--waiting {
+  background: linear-gradient(150deg, rgba(239, 246, 255, 0.8), rgba(224, 242, 254, 0.72));
+}
+.call-controls-wrap.call-scene--connecting {
+  background: linear-gradient(150deg, rgba(255, 253, 247, 0.88), rgba(254, 246, 226, 0.76));
+}
+.call-controls-wrap.call-scene--problem {
+  background: linear-gradient(150deg, rgba(255, 241, 242, 0.82), rgba(255, 228, 230, 0.72));
+}
+.call-controls-wrap.call-scene--idle {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.88), rgba(248, 250, 252, 0.76));
+}
 .call-controls-wrap::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(112deg, rgba(255, 255, 255, 0.24), transparent 33%, rgba(255, 255, 255, 0.14) 52%, transparent 72%);
-  opacity: 0.42;
+  content: none;
 }
 .call-controls-rail::after {
-  content: "";
-  pointer-events: none;
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(112deg, transparent 28%, rgba(255, 255, 255, 0.48) 46%, transparent 70%);
-  opacity: 0;
-  animation: callControlsSweep 7.6s ease-in-out infinite;
+  content: none;
+  animation: none;
 }
 .call-control-btn {
   position: relative;
@@ -1808,6 +1995,11 @@
   transform-style: preserve-3d;
   will-change: transform;
   transition: transform 0.2s ease, box-shadow 0.24s ease, filter 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+.call-control-btn svg {
+  position: relative;
+  z-index: 1;
+  transition: transform 0.24s ease, filter 0.24s ease;
 }
 .call-control-btn::before {
   content: "";
@@ -1828,6 +2020,14 @@
   transform: translateX(-125%);
   opacity: 0;
   transition: transform 0.55s ease, opacity 0.34s ease;
+}
+.call-control-btn[data-live='true']::before {
+  animation: callControlLiveBeat 2.2s ease-in-out infinite;
+  opacity: 0.68;
+}
+.call-control-btn[data-live='true'] svg {
+  animation: callControlIconLift 1.8s ease-in-out infinite;
+  filter: saturate(1.12);
 }
 .call-control-btn:hover:not(:disabled) {
   transform: translateY(-1px) scale(1.02);
@@ -2449,6 +2649,8 @@
   .call-orbit-ring,
   .call-particle-field span,
   .call-light-ribbon,
+  .call-scene-sweep,
+  .call-energy-wave,
   .call-status-chip::after,
   .call-status-dot--connected,
   .call-status-dot--waiting,
@@ -2458,8 +2660,13 @@
   .call-audio-badge span,
   .call-avatar-voice span,
   .call-media-video,
+  .call-video-scan,
+  .call-video-frame-glow.is-speaking,
+  .call-avatar-card::before,
   .call-controls-rail,
   .call-controls-rail::after,
+  .call-control-btn[data-live='true']::before,
+  .call-control-btn[data-live='true'] svg,
   .call-control-btn--active,
   .call-stats-grid .call-stat-card,
   .call-connection-hint,
@@ -2603,13 +2810,52 @@ html[data-theme='dark'] .call-control-btn:hover:not(:disabled) {
 }
 
 html[data-theme='dark'] .call-scene-shell {
+  --call-scene-surface-start: rgba(15, 23, 42, 0.9);
+  --call-scene-surface-end: rgba(2, 6, 23, 0.9);
+  background:
+    radial-gradient(circle at 8% -10%, rgba(186, 230, 253, 0.14), transparent 42%),
+    linear-gradient(156deg, var(--call-scene-surface-start), var(--call-scene-surface-end));
   box-shadow: 0 34px 88px rgba(2, 6, 23, 0.62), inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+html[data-theme='dark'] .call-scene--connected {
+  --call-scene-surface-start: rgba(6, 78, 59, 0.62);
+  --call-scene-surface-end: rgba(2, 44, 34, 0.74);
+}
+
+html[data-theme='dark'] .call-scene--waiting {
+  --call-scene-surface-start: rgba(8, 47, 73, 0.64);
+  --call-scene-surface-end: rgba(8, 47, 73, 0.82);
+}
+
+html[data-theme='dark'] .call-scene--connecting {
+  --call-scene-surface-start: rgba(58, 39, 23, 0.56);
+  --call-scene-surface-end: rgba(35, 28, 24, 0.82);
+}
+
+html[data-theme='dark'] .call-scene--problem {
+  --call-scene-surface-start: rgba(127, 29, 29, 0.62);
+  --call-scene-surface-end: rgba(69, 10, 10, 0.82);
+}
+
+html[data-theme='dark'] .call-scene--idle {
+  --call-scene-surface-start: rgba(15, 23, 42, 0.9);
+  --call-scene-surface-end: rgba(2, 6, 23, 0.9);
 }
 
 html[data-theme='dark'] .call-scene-shell::before {
   background:
     linear-gradient(120deg, rgba(148, 163, 184, 0.2), transparent 36%, rgba(56, 189, 248, 0.3), transparent 72%, rgba(148, 163, 184, 0.12)),
     radial-gradient(circle at 18% -10%, rgba(186, 230, 253, 0.3), transparent 42%);
+}
+
+html[data-theme='dark'] .call-scene-sweep {
+  opacity: 0.34;
+}
+
+html[data-theme='dark'] .call-energy-wave {
+  opacity: 0.34;
+  border-color: color-mix(in srgb, var(--call-scene-accent-strong, rgba(56, 189, 248, 0.42)) 66%, rgba(148, 163, 184, 0.3));
 }
 
 html[data-theme='dark'] .call-grid-overlay {
@@ -2642,12 +2888,57 @@ html[data-theme='dark'] .call-controls-rail::after {
   background: linear-gradient(116deg, transparent 24%, rgba(186, 230, 253, 0.34) 46%, transparent 72%);
 }
 
+html[data-theme='dark'] .call-controls-wrap.call-scene--connected {
+  background: linear-gradient(150deg, rgba(6, 78, 59, 0.58), rgba(4, 120, 87, 0.44));
+}
+
+html[data-theme='dark'] .call-controls-wrap.call-scene--waiting {
+  background: linear-gradient(150deg, rgba(8, 47, 73, 0.58), rgba(3, 105, 161, 0.38));
+}
+
+html[data-theme='dark'] .call-controls-wrap.call-scene--connecting {
+  background: linear-gradient(150deg, rgba(101, 61, 30, 0.44), rgba(66, 46, 33, 0.54));
+}
+
+html[data-theme='dark'] .call-controls-wrap.call-scene--problem {
+  background: linear-gradient(150deg, rgba(127, 29, 29, 0.58), rgba(159, 18, 57, 0.34));
+}
+
+html[data-theme='dark'] .call-controls-wrap.call-scene--idle {
+  background: linear-gradient(150deg, rgba(15, 23, 42, 0.84), rgba(30, 41, 59, 0.76));
+}
+
 html[data-theme='dark'] .call-control-btn::before {
   background: radial-gradient(circle at 25% 20%, rgba(186, 230, 253, 0.24), transparent 58%);
 }
 
+html[data-theme='dark'] .call-control-btn[data-live='true']::before {
+  opacity: 0.62;
+}
+
+html[data-theme='dark'] .call-video-scan {
+  opacity: 0.16;
+}
+
+html[data-theme='dark'] .call-video-scan.is-speaking {
+  opacity: 0.34;
+}
+
+html[data-theme='dark'] .call-video-frame-glow {
+  border-color: rgba(148, 163, 184, 0.28);
+  box-shadow: inset 0 -20px 24px rgba(2, 6, 23, 0.28);
+}
+
+html[data-theme='dark'] .call-video-frame-glow.is-speaking {
+  border-color: rgba(110, 231, 183, 0.58);
+}
+
 html[data-theme='dark'] .call-participant-entry[data-speaking='true'] .call-avatar-name {
   color: rgb(110 231 183);
+}
+
+html[data-theme='dark'] .call-avatar-card::before {
+  opacity: 0.36;
 }
 
 html[data-theme='dark'] .call-light-ribbon {

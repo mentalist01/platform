@@ -694,6 +694,12 @@ const MediaTile = ({
             className={videoFillClass}
           />
           {!isStaticFullscreen && (
+            <>
+              <div className={`call-video-frame-glow ${isSpeaking ? 'is-speaking' : ''}`} aria-hidden="true" />
+              <div className={`call-video-scan ${isSpeaking ? 'is-speaking' : ''}`} aria-hidden="true" />
+            </>
+          )}
+          {!isStaticFullscreen && (
             <div
               className={`call-audio-badge call-audio-badge--compact ${isSpeaking ? 'is-speaking' : ''}`}
               aria-hidden="true"
@@ -758,6 +764,12 @@ const MediaTile = ({
         playsInline
         className={`call-media-video w-full ${isDarkTheme ? 'bg-slate-950' : 'bg-slate-100'} object-cover ${isFullscreen ? 'h-screen' : (isCompact ? 'h-24 md:h-28' : 'h-72 md:h-80')}`}
       />
+      {!isStaticFullscreen && (
+        <>
+          <div className={`call-video-frame-glow ${isSpeaking ? 'is-speaking' : ''}`} aria-hidden="true" />
+          <div className={`call-video-scan ${isSpeaking ? 'is-speaking' : ''}`} aria-hidden="true" />
+        </>
+      )}
       {!isStaticFullscreen && (
         <div className={`call-audio-badge ${isSpeaking ? 'is-speaking' : ''}`} aria-hidden="true">
           <span />
@@ -4080,6 +4092,9 @@ const CallSection = ({
         </div>
         <div className="call-light-ribbon call-light-ribbon--one" aria-hidden="true" />
         <div className="call-light-ribbon call-light-ribbon--two" aria-hidden="true" />
+        <div className="call-scene-sweep" aria-hidden="true" />
+        <div className="call-energy-wave call-energy-wave--one" aria-hidden="true" />
+        <div className="call-energy-wave call-energy-wave--two" aria-hidden="true" />
 
         <div className="relative z-10">
           {isFloatingUi && (
@@ -4327,6 +4342,7 @@ const CallSection = ({
               type="button"
               onClick={startCall}
               disabled={!canStart}
+              data-live={isConnecting ? 'true' : 'false'}
               className={`${baseControlButtonClass} call-control-btn--start border border-emerald-300/60 bg-emerald-400 text-slate-950 hover:bg-emerald-300`}
               aria-label={isConnecting ? 'Подключение...' : 'Подключиться'}
               title={isConnecting ? 'Подключение...' : 'Подключиться'}
@@ -4348,6 +4364,7 @@ const CallSection = ({
                 type="button"
                 onClick={toggleMic}
                 disabled={!canToggleMic}
+                data-live={micEnabled ? 'true' : 'false'}
                 className={`${baseControlButtonClass} call-control-btn--mic ${micEnabled ? 'call-control-btn--active' : ''} border ${
                   micEnabled
                     ? micOnControlClass
@@ -4382,6 +4399,7 @@ const CallSection = ({
               type="button"
               onClick={toggleCamera}
               disabled={!canToggleCamera}
+              data-live={cameraEnabled ? 'true' : 'false'}
               className={`${baseControlButtonClass} call-control-btn--camera ${cameraEnabled ? 'call-control-btn--active' : ''} border ${
                 cameraEnabled
                   ? cameraOnControlClass
@@ -4396,6 +4414,7 @@ const CallSection = ({
               type="button"
               onClick={toggleScreenShare}
               disabled={!canToggleScreen}
+              data-live={screenSharing ? 'true' : 'false'}
               className={`${baseControlButtonClass} call-control-btn--screen ${screenSharing ? 'call-control-btn--active' : ''} border ${
                 screenSharing
                   ? screenOnControlClass
