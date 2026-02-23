@@ -1005,6 +1005,7 @@ const CallSection = ({
   const highVideoLoadRef = useRef(false);
   const statsTimerRef = useRef(null);
   const lastInboundAudioRef = useRef(new Map());
+  const remoteScreenShareStateRef = useRef(new Map());
   const normalizedUiMode = ['full', 'floating', 'collapsed', 'hidden'].includes(uiMode)
     ? uiMode
     : 'full';
@@ -1358,6 +1359,24 @@ const CallSection = ({
     next.sort((a, b) => a.title.localeCompare(b.title, 'ru'));
     setRemotePeers(next);
   }, []);
+
+  useEffect(() => {
+    const previousStateByPeer = remoteScreenShareStateRef.current;
+    const nextStateByPeer = new Map();
+
+    remotePeers.forEach((peer) => {
+      const peerId = typeof peer?.peerId === 'string' ? peer.peerId.trim() : '';
+      if (!peerId || !peer?.hasMediaState) return;
+      const isScreenSharing = Boolean(peer.isScreenSharing);
+      const previousState = previousStateByPeer.get(peerId);
+      if (typeof previousState === 'boolean' && previousState !== isScreenSharing) {
+        void playAlertSound(isScreenSharing ? 'screenOn' : 'screenOff');
+      }
+      nextStateByPeer.set(peerId, isScreenSharing);
+    });
+
+    remoteScreenShareStateRef.current = nextStateByPeer;
+  }, [playAlertSound, remotePeers]);
 
   const sendWs = useCallback((payload) => {
     const ws = wsRef.current;
