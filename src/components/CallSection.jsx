@@ -80,7 +80,7 @@ const RTC_ALERT_SOUND_SOURCES = Object.freeze({
   screenOn: '/sounds/demonstration on.MP3',
   screenOff: '/sounds/demonstration off.MP3',
 });
-const RTC_ALERT_SOUND_VOLUME = 0.6;
+const RTC_ALERT_SOUND_VOLUME = 0.2;
 const CALL_BACKGROUND_PARTICLE_COUNT = 14;
 
 const normalizePeerVolume = (value) => {
