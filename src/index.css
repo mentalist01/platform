@@ -2800,6 +2800,117 @@ html[data-theme='dark'] .surface-panel {
   border-color: rgba(100, 116, 139, 0.36);
 }
 
+html[data-theme='dark'] .teacher-signup-card {
+  background:
+    radial-gradient(circle at 12% -14%, rgba(56, 189, 248, 0.14), transparent 42%),
+    radial-gradient(circle at 92% -18%, rgba(167, 139, 250, 0.16), transparent 46%),
+    linear-gradient(168deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.84));
+  border-color: rgba(100, 116, 139, 0.44);
+  box-shadow: 0 18px 44px rgba(2, 6, 23, 0.5), inset 0 1px 0 rgba(148, 163, 184, 0.14);
+}
+
+html[data-theme='dark'] .teacher-signup-title {
+  color: rgb(241, 245, 249) !important;
+}
+
+html[data-theme='dark'] .teacher-signup-subtitle,
+html[data-theme='dark'] .teacher-signup-count {
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .teacher-signup-notify {
+  border-color: rgba(129, 140, 248, 0.42);
+  background:
+    linear-gradient(122deg, rgba(30, 41, 59, 0.84), rgba(30, 41, 59, 0.7)),
+    radial-gradient(circle at 85% 10%, rgba(129, 140, 248, 0.18), transparent 52%);
+}
+
+html[data-theme='dark'] .teacher-signup-list-state {
+  border-color: rgba(100, 116, 139, 0.38) !important;
+  background: rgba(15, 23, 42, 0.72) !important;
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .teacher-signup-item {
+  border-color: rgba(71, 85, 105, 0.52) !important;
+  background:
+    linear-gradient(164deg, rgba(15, 23, 42, 0.88), rgba(17, 24, 39, 0.84)) !important;
+}
+
+html[data-theme='dark'] .teacher-signup-item:hover {
+  border-color: rgba(99, 102, 241, 0.5) !important;
+  background:
+    linear-gradient(164deg, rgba(30, 41, 59, 0.92), rgba(30, 41, 59, 0.82)) !important;
+}
+
+html[data-theme='dark'] .teacher-signup-item--active {
+  border-color: rgba(129, 140, 248, 0.74) !important;
+  background:
+    linear-gradient(156deg, rgba(49, 46, 129, 0.44), rgba(30, 41, 59, 0.86)) !important;
+  box-shadow:
+    0 10px 26px rgba(30, 27, 75, 0.38),
+    inset 0 1px 0 rgba(199, 210, 254, 0.16);
+}
+
+html[data-theme='dark'] .teacher-signup-item .text-gray-800 {
+  color: rgb(226, 232, 240) !important;
+}
+
+html[data-theme='dark'] .teacher-signup-item .text-gray-500 {
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .teacher-signup-item .text-gray-400 {
+  color: rgb(125, 142, 166) !important;
+}
+
+html[data-theme='dark'] .teacher-signup-thread {
+  border-color: rgba(71, 85, 105, 0.54);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.82), rgba(15, 23, 42, 0.68)),
+    radial-gradient(circle at 12% -8%, rgba(56, 189, 248, 0.12), transparent 52%);
+}
+
+html[data-theme='dark'] .teacher-signup-empty,
+html[data-theme='dark'] .teacher-signup-thread-header,
+html[data-theme='dark'] .teacher-signup-messages,
+html[data-theme='dark'] .teacher-signup-textarea {
+  border-color: rgba(71, 85, 105, 0.55) !important;
+  background: rgba(15, 23, 42, 0.86) !important;
+}
+
+html[data-theme='dark'] .teacher-signup-empty,
+html[data-theme='dark'] .teacher-signup-thread .text-gray-500 {
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .teacher-signup-thread .text-gray-800 {
+  color: rgb(241, 245, 249) !important;
+}
+
+html[data-theme='dark'] .teacher-signup-bubble--guest {
+  border-color: rgba(71, 85, 105, 0.58) !important;
+  background: linear-gradient(158deg, rgba(15, 23, 42, 0.95), rgba(17, 24, 39, 0.9)) !important;
+  color: rgb(226, 232, 240) !important;
+}
+
+html[data-theme='dark'] .teacher-signup-bubble--teacher {
+  background: linear-gradient(145deg, rgba(147, 51, 234, 0.95), rgba(99, 102, 241, 0.95)) !important;
+  box-shadow: 0 10px 20px rgba(76, 29, 149, 0.36);
+}
+
+html[data-theme='dark'] .teacher-signup-textarea {
+  color: rgb(226, 232, 240);
+}
+
+html[data-theme='dark'] .teacher-signup-textarea::placeholder {
+  color: rgba(148, 163, 184, 0.82);
+}
+
+html[data-theme='dark'] .teacher-signup-send {
+  box-shadow: 0 12px 24px rgba(76, 29, 149, 0.28);
+}
+
 html[data-theme='dark'] .call-controls-wrap::before {
   background: linear-gradient(118deg, rgba(148, 163, 184, 0.12), transparent 35%, rgba(56, 189, 248, 0.12) 56%, transparent 74%);
   opacity: 0.3;

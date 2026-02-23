@@ -1,8 +1,9 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, BellOff, LogOut, Send } from 'lucide-react';
+import { Bell, LogOut, Send } from 'lucide-react';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
 import { LogoMark } from './Identity';
+import LinkifiedText from './LinkifiedText';
 import {
   getBrowserPushSubscription,
   getPushPermission,
@@ -259,48 +260,48 @@ const SignupGuestChat = ({ user, onLogout }) => {
   }, [notifyEnabled, notifyPermission, notifySupported, notifySyncing]);
 
   return (
-    <div className="app-min-h app-shell relative overflow-hidden p-4 md:p-6">
-      <div className="mx-auto max-w-4xl">
-        <Card className="mb-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-purple-600">Гостевой чат</div>
-              <h1 className="text-xl font-bold text-slate-900">
+    <div className="app-h app-shell relative overflow-hidden px-2 pb-[calc(env(safe-area-inset-bottom)+0.3rem)] pt-[calc(env(safe-area-inset-top)+0.3rem)] sm:p-4 md:p-6">
+      <div className="mx-auto flex h-full w-full max-w-4xl flex-col gap-2.5 sm:gap-4">
+        <Card className="shrink-0 p-2.5 sm:p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-purple-600 sm:text-xs">Гостевой чат</div>
+              <h1 className="mt-1 text-lg font-bold leading-tight text-slate-900 sm:text-xl">
                 <LogoMark />
               </h1>
-              <p className="text-sm text-slate-500">
-                Вы общаетесь с {teacherName}. Представьтесь и задайте вопрос по занятиям.
+              <p className="mt-1 text-xs leading-relaxed text-slate-500 sm:text-sm">
+                Чат с {teacherName}. Представьтесь и задайте вопрос.
               </p>
             </div>
-            <div className="ml-auto flex flex-wrap items-center justify-end gap-2 self-start">
-              <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700">
-                {user?.name || 'Гость'}
-              </span>
-              <Button variant="secondary" onClick={onLogout}>
-                <LogOut size={16} />
-                Выйти
-              </Button>
-            </div>
+            <Button
+              variant="secondary"
+              onClick={onLogout}
+              className="h-9 shrink-0 px-3 text-xs sm:h-auto sm:px-4 sm:text-sm"
+              title="Выйти из гостевого чата"
+            >
+              <LogOut size={16} />
+              <span className="hidden sm:inline">Выйти</span>
+            </Button>
           </div>
         </Card>
 
-        <Card>
+        <Card className="flex min-h-0 flex-1 flex-col p-2.5 sm:p-4">
           <div
             ref={listRef}
-            className="max-h-[56vh] min-h-[320px] overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50/80 p-3"
+            className="min-h-[140px] flex-1 overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-slate-50/80 p-2.5 sm:min-h-[320px] sm:p-3"
           >
             {loading ? (
               <div className="p-3 text-sm text-slate-500">Загрузка переписки...</div>
             ) : messages.length === 0 ? (
               <div className="p-3 text-sm text-slate-500">Чат создан. Напишите первое сообщение.</div>
             ) : (
-              <div className="space-y-2.5">
+              <div className="space-y-2 sm:space-y-2.5">
                 {messages.map((message) => {
                   const isMine = message?.senderRole === 'lead' || message?.senderId === user?.id;
                   return (
                     <div key={message.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
                       <div
-                        className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                        className={`max-w-[92%] rounded-2xl px-3 py-2 text-[13px] shadow-sm sm:max-w-[85%] sm:text-sm ${
                           isMine
                             ? 'bg-purple-600 text-white'
                             : 'border border-slate-200 bg-white text-slate-800'
@@ -311,7 +312,11 @@ const SignupGuestChat = ({ user, onLogout }) => {
                             {message?.senderName || 'Преподаватель'}
                           </div>
                         )}
-                        <div className="whitespace-pre-wrap break-words leading-relaxed">{message?.text || ''}</div>
+                        <LinkifiedText
+                          text={message?.text || ''}
+                          className="whitespace-pre-wrap break-words leading-relaxed"
+                          linkClassName={isMine ? 'underline decoration-white/70 underline-offset-2' : 'text-purple-700 underline decoration-purple-400 underline-offset-2'}
+                        />
                         <div className={`mt-1 text-[10px] ${isMine ? 'text-purple-100' : 'text-slate-400'}`}>
                           {formatMessageTime(message?.createdAt)}
                         </div>
@@ -323,55 +328,58 @@ const SignupGuestChat = ({ user, onLogout }) => {
             )}
           </div>
 
-          <div className="mt-3 rounded-2xl border border-purple-200/80 bg-gradient-to-r from-purple-50 via-white to-fuchsia-50 p-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="text-sm font-semibold text-slate-900">
-                  Не пропустите ответ преподавателя
+          {!notifyEnabled && (
+            <div className="mt-2 rounded-xl border border-purple-200/80 bg-purple-50/80 p-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-900">
+                    <Bell size={14} className="text-purple-600" />
+                    Не пропустите ответ преподавателя
+                  </div>
+                  <div className="mt-0.5 text-[11px] leading-snug text-slate-600">
+                    {notificationStatusText}
+                  </div>
+                  {notifyError && <div className="mt-1 text-[11px] text-red-500">{notifyError}</div>}
                 </div>
-                <div className="text-xs text-slate-600">
-                  {notificationStatusText}
-                </div>
-                {notifyError && <div className="mt-1 text-xs text-red-500">{notifyError}</div>}
+                <Button
+                  variant="primary"
+                  type="button"
+                  onClick={handleToggleNotifications}
+                  disabled={(notifyBusy || notifySyncing || !notifyReady) || (!notifySupported && !notifyEnabled)}
+                  className="h-9 shrink-0 px-3 text-xs"
+                  title={notifySupported ? 'Push-уведомления о новых сообщениях' : 'Браузер не поддерживает push-уведомления'}
+                >
+                  <Bell size={16} />
+                  {notifyBusy || notifySyncing ? 'Сохраняем...' : 'Включить'}
+                </Button>
               </div>
+            </div>
+          )}
+
+          <div className="mt-2 border-t border-slate-100 pt-2.5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <textarea
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    handleSend();
+                  }
+                }}
+                rows={2}
+                placeholder="Напишите сообщение..."
+                className="max-h-[26svh] min-h-[72px] w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm leading-relaxed outline-none focus:border-purple-500 sm:max-h-[38svh] sm:min-h-[104px] sm:py-2.5"
+              />
               <Button
-                variant={notifyEnabled ? 'secondary' : 'primary'}
-                type="button"
-                onClick={handleToggleNotifications}
-                disabled={(notifyBusy || notifySyncing || !notifyReady) || (!notifySupported && !notifyEnabled)}
-                className="sm:ml-3"
-                title={notifySupported ? 'Push-уведомления о новых сообщениях' : 'Браузер не поддерживает push-уведомления'}
+                onClick={handleSend}
+                disabled={sending || !text.trim()}
+                className="h-10 w-full sm:h-[46px] sm:min-w-[130px] sm:w-auto sm:self-stretch"
               >
-                {notifyEnabled ? <BellOff size={16} /> : <Bell size={16} />}
-                {notifyBusy || notifySyncing
-                  ? 'Сохраняем...'
-                  : (notifyEnabled ? 'Отключить уведомления' : 'Включить уведомления')}
+                <Send size={16} />
+                {sending ? 'Отправка...' : 'Отправить'}
               </Button>
             </div>
-          </div>
-
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-            <textarea
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault();
-                  handleSend();
-                }
-              }}
-              rows={3}
-              placeholder="Напишите сообщение..."
-              className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-purple-500"
-            />
-            <Button
-              onClick={handleSend}
-              disabled={sending || !text.trim()}
-              className="h-[46px] min-w-[130px] self-end sm:self-stretch"
-            >
-              <Send size={16} />
-              {sending ? 'Отправка...' : 'Отправить'}
-            </Button>
           </div>
           {error && <div className="mt-2 text-xs text-red-500">{error}</div>}
         </Card>

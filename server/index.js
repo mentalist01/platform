@@ -894,6 +894,7 @@ const normalizeSignupMessage = (value) => {
   const senderNameRaw = typeof value.senderName === 'string' ? value.senderName.trim() : '';
   const text = normalizeSignupMessageText(value.text);
   const createdAt = normalizeIsoTimestamp(value.createdAt, '');
+  const editedAt = normalizeIsoTimestamp(value.editedAt, '') || null;
   if (!id || !senderId || !text || !createdAt) return null;
   const senderName = senderNameRaw || (senderRole === 'teacher' ? 'Преподаватель' : 'Гость');
   return {
@@ -903,6 +904,7 @@ const normalizeSignupMessage = (value) => {
     senderName,
     text,
     createdAt,
+    editedAt,
   };
 };
 
@@ -1590,6 +1592,7 @@ const createSignupChatMessage = ({ senderRole, senderId, senderName, text }) => 
   senderName: String(senderName || '').trim(),
   text: normalizeSignupMessageText(text),
   createdAt: new Date().toISOString(),
+  editedAt: null,
 });
 
 const appendSignupChatMessage = (chat, message) => {
@@ -1611,6 +1614,40 @@ const appendSignupChatMessage = (chat, message) => {
     next.lastReadByLeadAt = message.createdAt;
   }
   return next;
+};
+
+const rebuildSignupChatAfterMessageMutation = (chat, nextMessages, options = {}) => {
+  if (!chat) return chat;
+  const mutationAt = normalizeIsoTimestamp(options.mutationAt, new Date().toISOString());
+  const messages = Array.isArray(nextMessages)
+    ? nextMessages.map((item) => normalizeSignupMessage(item)).filter(Boolean)
+    : [];
+  const lastMessage = messages[messages.length - 1] || null;
+  const fallbackLastMessageAt = normalizeIsoTimestamp(chat.createdAt, mutationAt);
+  const lastMessageAt = lastMessage?.createdAt || fallbackLastMessageAt;
+  const lastMessagePreview = lastMessage
+    ? lastMessage.text.replace(/\s+/g, ' ').trim().slice(0, SIGNUP_LAST_MESSAGE_PREVIEW_MAX_LENGTH)
+    : '';
+  return {
+    ...chat,
+    messages,
+    updatedAt: mutationAt,
+    lastMessageAt,
+    lastMessagePreview,
+    lastMessageSenderRole: lastMessage?.senderRole || '',
+  };
+};
+
+const canModifySignupChatMessage = (auth, chat, message) => {
+  if (!auth || !chat || !message) return false;
+  if (message.senderRole !== 'teacher') return false;
+  if (isAdminRole(auth)) return true;
+  if (isTeacherRole(auth)) {
+    if (chat.teacherId !== auth.id) return false;
+    const senderId = String(message.senderId || '').trim();
+    return senderId === auth.id;
+  }
+  return false;
 };
 
 const markSignupChatReadByTeacher = (chat) => {
@@ -3817,7 +3854,14 @@ app.get('/api/signup-chats', (req, res) => {
   if (isTeacherRole(req.auth)) {
     chats = chats.filter((chat) => chat.teacherId === req.auth.id);
   }
-  chats.sort((left, right) => getSignupChatSortTimestamp(right) - getSignupChatSortTimestamp(left));
+  chats = chats
+    .map((chat, index) => ({ chat, index }))
+    .sort((left, right) => {
+      const diff = getSignupChatSortTimestamp(right.chat) - getSignupChatSortTimestamp(left.chat);
+      if (diff !== 0) return diff;
+      return right.index - left.index;
+    })
+    .map((entry) => entry.chat);
   return res.json(chats.map((chat) => ({
     ...buildSignupChatSummary(chat),
     teacherName: findTeacherById(chat.teacherId)?.name || 'Преподаватель',
@@ -3888,6 +3932,102 @@ app.post('/api/signup-chats/:chatId/messages', (req, res) => {
   return res.json({
     ok: true,
     message,
+    chat: {
+      ...buildSignupChatSummary(updatedChat),
+      teacherName,
+    },
+  });
+});
+
+app.patch('/api/signup-chats/:chatId/messages/:messageId', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const text = normalizeSignupMessageText(req.body?.text);
+  if (!text) return res.status(400).json({ error: 'Введите сообщение' });
+
+  const messageId = typeof req.params?.messageId === 'string' ? req.params.messageId.trim() : '';
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+
+  const chats = readSignupChatsDb();
+  const access = ensureSignupChatAccess(req, res, req.params.chatId, { chats });
+  if (!access) return;
+  const { index } = access;
+  const chat = access.chat;
+  const messages = Array.isArray(chat.messages) ? [...chat.messages] : [];
+  const messageIndex = messages.findIndex((message) => message?.id === messageId);
+  if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
+
+  const targetMessage = messages[messageIndex];
+  if (!canModifySignupChatMessage(req.auth, chat, targetMessage)) {
+    return res.status(403).json({ error: 'Недостаточно прав' });
+  }
+
+  if (targetMessage.text === text) {
+    const teacherName = findTeacherById(chat.teacherId)?.name || 'Преподаватель';
+    return res.json({
+      ok: true,
+      message: targetMessage,
+      chat: {
+        ...buildSignupChatSummary(chat),
+        teacherName,
+      },
+    });
+  }
+
+  const editedMessage = normalizeSignupMessage({
+    ...targetMessage,
+    text,
+    editedAt: new Date().toISOString(),
+  });
+  if (!editedMessage) return res.status(400).json({ error: 'Некорректное сообщение' });
+
+  messages[messageIndex] = editedMessage;
+  chats[index] = normalizeSignupChat(
+    rebuildSignupChatAfterMessageMutation(chat, messages)
+  ) || chat;
+  writeSignupChatsDb(chats);
+
+  const updatedChat = chats[index];
+  const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
+  return res.json({
+    ok: true,
+    message: editedMessage,
+    chat: {
+      ...buildSignupChatSummary(updatedChat),
+      teacherName,
+    },
+  });
+});
+
+app.delete('/api/signup-chats/:chatId/messages/:messageId', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const messageId = typeof req.params?.messageId === 'string' ? req.params.messageId.trim() : '';
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+
+  const chats = readSignupChatsDb();
+  const access = ensureSignupChatAccess(req, res, req.params.chatId, { chats });
+  if (!access) return;
+  const { index } = access;
+  const chat = access.chat;
+  const messages = Array.isArray(chat.messages) ? [...chat.messages] : [];
+  const messageIndex = messages.findIndex((message) => message?.id === messageId);
+  if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
+
+  const targetMessage = messages[messageIndex];
+  if (!canModifySignupChatMessage(req.auth, chat, targetMessage)) {
+    return res.status(403).json({ error: 'Недостаточно прав' });
+  }
+
+  messages.splice(messageIndex, 1);
+  chats[index] = normalizeSignupChat(
+    rebuildSignupChatAfterMessageMutation(chat, messages)
+  ) || chat;
+  writeSignupChatsDb(chats);
+
+  const updatedChat = chats[index];
+  const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
+  return res.json({
+    ok: true,
+    messageId,
     chat: {
       ...buildSignupChatSummary(updatedChat),
       teacherName,

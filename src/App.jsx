@@ -10821,12 +10821,7 @@ const App = () => {
   }
 
   if (user.role === 'lead') {
-    return (
-      <>
-        <SignupGuestChat user={user} onLogout={handleLogout} />
-        <ThemeToggleButton theme={theme} onToggle={handleThemeToggle} />
-      </>
-    );
+    return <SignupGuestChat user={user} onLogout={handleLogout} />;
   }
 
   return (
