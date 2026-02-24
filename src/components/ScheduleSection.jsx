@@ -1,7 +1,9 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BookOpen, Calendar, CheckCircle, ChevronRight, RefreshCcw, Save } from 'lucide-react';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
+
+const AUTO_REFRESH_INTERVAL_MS = 5000;
 const ScheduleSection = ({
   role,
   studentId,
@@ -39,6 +41,7 @@ const ScheduleSection = ({
   const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '', daysToComplete: 7, issuedAt: '', taskNumber: null, levelId: null, targetQuestions: [], goals: [] });
   const [form, setForm] = useState({ homeWork: DEFAULT_HOMEWORK, lessonLink: '', boardLink: '', daysToComplete: 7, goals: [{ ...DEFAULT_GOAL }] });
   const [loading, setLoading] = useState(false);
+  const [refreshingData, setRefreshingData] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [testsDb, setTestsDb] = useState(null);
@@ -116,6 +119,47 @@ const ScheduleSection = ({
   useEffect(() => {
     loadNextLesson();
   }, [effectiveStudentId]);
+
+  const handleRefreshData = useCallback(async () => {
+    if (!effectiveStudentId || refreshingData) return;
+    setRefreshingData(true);
+    try {
+      const data = await api.getStudentNextLesson(effectiveStudentId);
+      const list = Array.isArray(data?.homeworks) ? data.homeworks : [];
+      const latest = data?.latest && typeof data.latest === 'object' ? data.latest : {};
+      const safeData = buildNextLessonData(latest);
+      setHomeworks(list);
+      setNextLesson(safeData);
+      setError('');
+    } catch (err) {
+      setError(err?.message || err);
+    } finally {
+      setRefreshingData(false);
+    }
+  }, [effectiveStudentId, refreshingData]);
+
+  useEffect(() => {
+    if (!effectiveStudentId) return;
+    const poll = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      handleRefreshData();
+    };
+    const intervalId = setInterval(poll, AUTO_REFRESH_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        handleRefreshData();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange);
+    }
+    return () => {
+      clearInterval(intervalId);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+      }
+    };
+  }, [effectiveStudentId, handleRefreshData]);
 
   useEffect(() => {
     let cancelled = false;

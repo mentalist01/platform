@@ -37,7 +37,12 @@ export const setUnauthorizedHandler = (handler) => {
 };
 
 const apiFetch = async (input, init = {}) => {
-  const res = await fetch(input, init);
+  const method = String(init?.method || 'GET').toUpperCase();
+  const requestInit = { ...init };
+  if (method === 'GET' && !Object.prototype.hasOwnProperty.call(requestInit, 'cache')) {
+    requestInit.cache = 'no-store';
+  }
+  const res = await fetch(input, requestInit);
   if (res.status === 401) {
     clearStoredSession();
     try {
@@ -565,6 +570,7 @@ export const api = {
   getStudentNextLesson: async (studentId) => {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);
+    params.append('_ts', String(Date.now()));
     const qs = params.toString();
     const res = await apiFetch(qs ? `/api/student-next-lesson?${qs}` : '/api/student-next-lesson');
     if (!res.ok) throw new Error(await parseApiError(res));
@@ -582,6 +588,7 @@ export const api = {
   getFiles: async (studentId) => {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);
+    params.append('_ts', String(Date.now()));
     const qs = params.toString();
     const res = await apiFetch(qs ? `/api/files?${qs}` : '/api/files');
     if (!res.ok) throw new Error(await parseApiError(res));
@@ -592,6 +599,7 @@ export const api = {
     if (taskNumber) params.append('taskNumber', String(taskNumber));
     if (category) params.append('category', category);
     if (studentId) params.append('studentId', studentId);
+    params.append('_ts', String(Date.now()));
     const qs = params.toString();
     const res = await apiFetch(qs ? `/api/folders?${qs}` : '/api/folders');
     if (!res.ok) throw new Error(await parseApiError(res));

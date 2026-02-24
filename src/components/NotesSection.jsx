@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   BookOpen,
@@ -19,6 +19,20 @@ import Editor from '@monaco-editor/react';
 import ImageViewer from './ImageViewer';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
+
+const mergeFolderLists = (lists) => {
+  const merged = [];
+  const seen = new Set();
+  for (const list of lists || []) {
+    for (const folder of list || []) {
+      if (!folder?.id || seen.has(folder.id)) continue;
+      seen.add(folder.id);
+      merged.push(folder);
+    }
+  }
+  return merged;
+};
+const AUTO_REFRESH_INTERVAL_MS = 5000;
 
 const NotesSection = ({
   role,
@@ -53,6 +67,7 @@ const NotesSection = ({
   const [currentCategory, setCurrentCategory] = useState(null);
   const [files, setFiles] = useState([]);
   const [filesError, setFilesError] = useState('');
+  const [isRefreshingData, setIsRefreshingData] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [folders, setFolders] = useState([]);
@@ -307,16 +322,7 @@ const NotesSection = ({
     Promise.all(taskNumbers.map((taskNumber) => api.getFolders(taskNumber, currentCategory, effectiveStudentId)))
       .then((lists) => {
         if (cancelled) return;
-        const merged = [];
-        const seen = new Set();
-        for (const list of lists) {
-          for (const folder of list || []) {
-            if (!folder?.id || seen.has(folder.id)) continue;
-            seen.add(folder.id);
-            merged.push(folder);
-          }
-        }
-        setFolders(merged);
+        setFolders(mergeFolderLists(lists));
         setFoldersError('');
       })
       .catch((err) => {
@@ -1316,6 +1322,65 @@ const NotesSection = ({
       setIsRenaming(false);
     }
   };
+
+  const handleRefreshData = useCallback(async () => {
+    if (!effectiveStudentId || isRefreshingData) return;
+    setIsRefreshingData(true);
+    try {
+      const taskNumbers = Number.isFinite(normalizedCurrentTask)
+        ? (normalizedCurrentTask === GAME_THEORY_TASK ? [19, 20, 21] : [normalizedCurrentTask])
+        : [];
+      const [filesData, folderLists] = await Promise.all([
+        api.getFiles(effectiveStudentId),
+        (taskNumbers.length > 0 && currentCategory)
+          ? Promise.all(taskNumbers.map((taskNumber) => api.getFolders(taskNumber, currentCategory, effectiveStudentId)))
+          : Promise.resolve(null),
+      ]);
+      setFiles(Array.isArray(filesData) ? filesData : []);
+      setFilesError('');
+      if (folderLists) {
+        setFolders(mergeFolderLists(folderLists));
+        setFoldersError('');
+      }
+    } catch (err) {
+      console.error(err);
+      setFilesError('Не удалось обновить файлы. Проверьте, что сервер запущен.');
+      if (Number.isFinite(normalizedCurrentTask) && currentCategory) {
+        setFoldersError('Не удалось обновить папки.');
+      }
+    } finally {
+      setIsRefreshingData(false);
+    }
+  }, [
+    currentCategory,
+    effectiveStudentId,
+    isRefreshingData,
+    normalizedCurrentTask,
+    GAME_THEORY_TASK,
+  ]);
+
+  useEffect(() => {
+    if (!effectiveStudentId) return;
+    const poll = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      handleRefreshData();
+    };
+    const intervalId = setInterval(poll, AUTO_REFRESH_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        handleRefreshData();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange);
+    }
+    return () => {
+      clearInterval(intervalId);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+      }
+    };
+  }, [effectiveStudentId, handleRefreshData]);
 
   const renderStudentPicker = () => {
     if (role !== 'teacher') return null;
