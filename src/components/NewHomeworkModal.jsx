@@ -1,6 +1,7 @@
 ﻿import React from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from './ui';
+import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
 const NewHomeworkModal = ({
   entry,
   open,
@@ -24,6 +25,8 @@ const NewHomeworkModal = ({
   const homeWorkText = typeof entry.homeWork === 'string' ? entry.homeWork.trim() : '';
   const lessonLink = typeof entry.lessonLink === 'string' ? entry.lessonLink.trim() : '';
   const boardLink = typeof entry.boardLink === 'string' ? entry.boardLink.trim() : '';
+  const lessonHref = normalizeHttpUrl(lessonLink);
+  const boardHref = normalizeHttpUrl(boardLink);
   const issuedAt = entry.issuedAt ? new Date(entry.issuedAt) : null;
   const issuedLabel = issuedAt && !Number.isNaN(issuedAt.getTime())
     ? issuedAt.toLocaleDateString('ru-RU')
@@ -143,6 +146,30 @@ const NewHomeworkModal = ({
     if (parts.length <= 1) return { title: label, level: '' };
     return { title: parts[0], level: parts.slice(1).join(' \u00b7 ') };
   };
+  const renderLinkedText = (text, keyPrefix = 'homework') => {
+    const parts = splitTextWithUrls(text);
+    if (parts.length === 0) return String(text || '');
+    return parts.map((part, index) => {
+      if (part.type === 'link') {
+        return (
+          <a
+            key={`${keyPrefix}-link-${index}`}
+            href={part.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline decoration-dotted underline-offset-2 break-all hover:text-white"
+          >
+            {part.value}
+          </a>
+        );
+      }
+      return (
+        <React.Fragment key={`${keyPrefix}-text-${index}`}>
+          {part.value}
+        </React.Fragment>
+      );
+    });
+  };
 
   const modal = (
     <div className="fixed inset-0 z-[1600] flex items-center justify-center p-4">
@@ -158,7 +185,7 @@ const NewHomeworkModal = ({
             <div className="mt-3 text-[16px] font-semibold tracking-[0.35em] uppercase text-purple-50/90">{'\u0426\u0415\u041b\u042c'}</div>
             {headline && (
               <div className="mt-3 w-full max-w-[420px] text-[16px] leading-snug text-purple-50/95">
-                {headline}
+                {renderLinkedText(headline, 'headline')}
               </div>
             )}
             <div className="mt-4 w-full max-w-[420px] space-y-3 text-[16px] text-purple-50/90 mx-auto text-left">
@@ -168,8 +195,12 @@ const NewHomeworkModal = ({
                   return (
                     <div key={`${idx}-${item.label.slice(0, 24)}`} className="grid grid-cols-[1fr_auto] items-start gap-4">
                       <div className="leading-snug">
-                        <div>{title}</div>
-                        {level && <div className="text-[15px] text-purple-100/80">{level}</div>}
+                        <div>{renderLinkedText(title, `item-${idx}-title`)}</div>
+                        {level && (
+                          <div className="text-[15px] text-purple-100/80">
+                            {renderLinkedText(level, `item-${idx}-level`)}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 pt-0.5">
                         {item.progressLabel && (
@@ -196,13 +227,13 @@ const NewHomeworkModal = ({
                 {issuedLabel && (
                   <span>{'\u0412\u044b\u0434\u0430\u043d\u043e: '}{issuedLabel}</span>
                 )}
-                {lessonLink && (
-                  <a href={lessonLink} target="_blank" rel="noopener noreferrer" className="underline decoration-dotted">
+                {lessonHref && (
+                  <a href={lessonHref} target="_blank" rel="noopener noreferrer" className="underline decoration-dotted">
                     {'\u0423\u0440\u043e\u043a'}
                   </a>
                 )}
-                {boardLink && (
-                  <a href={boardLink} target="_blank" rel="noopener noreferrer" className="underline decoration-dotted">
+                {boardHref && (
+                  <a href={boardHref} target="_blank" rel="noopener noreferrer" className="underline decoration-dotted">
                     {'\u0414\u043e\u0441\u043a\u0430'}
                   </a>
                 )}

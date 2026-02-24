@@ -2,6 +2,7 @@
 import { BookOpen, Calendar, CheckCircle, ChevronRight, RefreshCcw, Save } from 'lucide-react';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
+import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
 
 const AUTO_REFRESH_INTERVAL_MS = 5000;
 const ScheduleSection = ({
@@ -35,7 +36,7 @@ const ScheduleSection = ({
   PYTHON_LEVEL_ID,
   LEVELS,
 }) => {
-  const DEFAULT_HOMEWORK = '🟢\n🟢\n🟢';
+  const DEFAULT_HOMEWORK = '';
   const DEFAULT_GOAL = { type: GOAL_TYPE_TASK, taskNumber: '', levelId: 'basic', targetInput: '', includeAll: false, mockExamId: '' };
   const [homeworks, setHomeworks] = useState([]);
   const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '', daysToComplete: 7, issuedAt: '', taskNumber: null, levelId: null, targetQuestions: [], goals: [] });
@@ -319,12 +320,6 @@ const ScheduleSection = ({
     );
   };
 
-  const normalizeUrl = (url) => {
-    const raw = String(url || '').trim();
-    if (!raw) return '';
-    return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-  };
-
   const parseTargetInput = (input, maxCount) => {
     const parts = String(input || '').split(/[\s,;]+/).filter(Boolean);
     const numbers = parts
@@ -422,6 +417,31 @@ const ScheduleSection = ({
     if (mod10 === 1 && mod100 !== 11) return `${value} день`;
     if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} дня`;
     return `${value} дней`;
+  };
+
+  const renderLinkedText = (text, keyPrefix = 'homework') => {
+    const parts = splitTextWithUrls(text);
+    if (parts.length === 0) return String(text || '');
+    return parts.map((part, index) => {
+      if (part.type === 'link') {
+        return (
+          <a
+            key={`${keyPrefix}-link-${index}`}
+            href={part.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline decoration-dotted underline-offset-2 break-all hover:text-purple-700"
+          >
+            {part.value}
+          </a>
+        );
+      }
+      return (
+        <React.Fragment key={`${keyPrefix}-text-${index}`}>
+          {part.value}
+        </React.Fragment>
+      );
+    });
   };
 
   const sortedHomeworks = useMemo(() => {
@@ -599,6 +619,8 @@ const ScheduleSection = ({
       .filter(Boolean);
     const visibleChecklistLines = scheduleCompactMode ? checklistLines.slice(0, 4) : checklistLines;
     const hiddenChecklistCount = Math.max(checklistLines.length - visibleChecklistLines.length, 0);
+    const lessonUrl = normalizeHttpUrl(entry?.lessonLink);
+    const boardUrl = normalizeHttpUrl(entry?.boardLink);
 
     const openGoal = (goalView) => {
       if (!goalView) return;
@@ -937,7 +959,9 @@ const ScheduleSection = ({
               {visibleChecklistLines.map((line, index) => (
                 <div key={`${line}-${index}`} className="flex items-start gap-2 text-[13px] md:text-sm text-gray-700 leading-relaxed">
                   <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-purple-400" />
-                  <span className="whitespace-pre-wrap">{line}</span>
+                  <span className="whitespace-pre-wrap break-words">
+                    {renderLinkedText(line, `${section}-${entry?.id || key || 'entry'}-${index}`)}
+                  </span>
                 </div>
               ))}
               {hiddenChecklistCount > 0 && (
@@ -954,9 +978,9 @@ const ScheduleSection = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 md:gap-3">
-          {entry?.lessonLink ? (
+          {lessonUrl ? (
             <a
-              href={normalizeUrl(entry.lessonLink)}
+              href={lessonUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="group flex items-center justify-between gap-3 rounded-xl border border-purple-200 bg-purple-50/80 px-3.5 py-2.5 md:px-4 md:py-3 text-[13px] md:text-sm font-semibold text-purple-700 hover:border-purple-400 hover:bg-white"
@@ -973,9 +997,9 @@ const ScheduleSection = ({
               Ссылка на занятие не указана
             </div>
           )}
-          {entry?.boardLink ? (
+          {boardUrl ? (
             <a
-              href={normalizeUrl(entry.boardLink)}
+              href={boardUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="group flex items-center justify-between gap-3 rounded-xl border border-purple-200 bg-purple-50/80 px-3.5 py-2.5 md:px-4 md:py-3 text-[13px] md:text-sm font-semibold text-purple-700 hover:border-purple-400 hover:bg-white"
@@ -992,7 +1016,7 @@ const ScheduleSection = ({
               Ссылка на доску не указана
             </div>
           )}
-          {!entry?.lessonLink && !entry?.boardLink && (
+          {!lessonUrl && !boardUrl && (
             <div className="md:hidden rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-3 py-2 text-[11px] text-slate-500">
               Ссылки к занятию появятся здесь.
             </div>
