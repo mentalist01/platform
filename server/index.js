@@ -6260,17 +6260,40 @@ app.patch('/api/files/:id', (req, res) => {
   }
 
   if (Object.prototype.hasOwnProperty.call(req.body || {}, 'folderId')) {
-    const folderId = req.body.folderId;
+    const folderIdRaw = req.body.folderId;
+    const folderId = typeof folderIdRaw === 'string' ? folderIdRaw.trim() : '';
     if (isCurrentLessonShared) {
       return res.status(400).json({ error: `Файл из папки "${LESSON_SHARED_FOLDER_NAME}" нельзя перемещать` });
     }
     if (!folderId) {
       updated.folderId = null;
       updated.folderName = null;
-    } else {
-      if (isLessonSharedFolderIdForTeacher(folderId, ownerTeacherId, updated.taskNumber)) {
-        return res.status(400).json({ error: `В папку "${LESSON_SHARED_FOLDER_NAME}" можно загружать только напрямую` });
+    } else if (isLessonSharedFolderIdForTeacher(folderId, ownerTeacherId, updated.taskNumber)) {
+      if (!canWriteLessonSharedByTeacher(req.auth, ownerTeacherId)) return forbid(res);
+      const movingSizeBytes = getEntrySizeBytes(db[idx]);
+      const sharedFolderId = buildLessonSharedFolderId(ownerTeacherId, updated.taskNumber);
+      const currentFolderTotal = getFolderTotalBytes(db, sharedFolderId, id);
+      if (currentFolderTotal + movingSizeBytes > MAX_FOLDER_BYTES) {
+        return res.status(413).json({ error: 'Превышен лимит 30 МБ для этой папки' });
       }
+      const sharedTaskTotal = db
+        .filter((file) => (
+          file.id !== id
+          && file.taskNumber === updated.taskNumber
+          && isLessonSharedFile(file)
+          && normalizeTeacherId(file.teacherId) === ownerTeacherId
+        ))
+        .reduce((sum, file) => sum + getEntrySizeBytes(file), 0);
+      if (sharedTaskTotal + movingSizeBytes > MAX_TASK_BYTES) {
+        return res.status(413).json({ error: 'Превышен лимит 200 МБ для этого задания' });
+      }
+      updated.folderId = sharedFolderId;
+      updated.folderName = LESSON_SHARED_FOLDER_NAME;
+      updated.studentId = buildLessonSharedStudentId(ownerTeacherId);
+      updated.teacherId = ownerTeacherId;
+      updated.sharedScope = LESSON_SHARED_SCOPE;
+      updated.isLessonShared = true;
+    } else {
       const folders = readFoldersDb();
       const folderRef = folders.find(
         (f) =>

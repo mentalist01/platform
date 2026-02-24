@@ -703,9 +703,11 @@ const NotesSection = ({
     if (folderId) {
       const folder = folders.find((item) => item.id === folderId);
       if (folder && isLessonSharedFolder(folder)) {
-        alert(`В папку "${LESSON_SHARED_FOLDER_NAME}" можно загружать только напрямую.`);
-        setDragOverFolderId(null);
-        return;
+        if (role === 'student') {
+          alert(`В папку "${LESSON_SHARED_FOLDER_NAME}" может перемещать файлы только учитель.`);
+          setDragOverFolderId(null);
+          return;
+        }
       }
       const fileTask = Number(file?.taskNumber);
       const folderTask = Number(folder?.taskNumber);
@@ -717,7 +719,7 @@ const NotesSection = ({
     }
     try {
       const updated = await api.moveFile(fileId, folderId);
-      setFiles((prev) => prev.map((f) => (f.id === updated.id ? { ...f, folderId: updated.folderId, folderName: updated.folderName } : f)));
+      setFiles((prev) => prev.map((f) => (f.id === updated.id ? { ...f, ...updated } : f)));
       setDraggingFileId(null);
     } catch (err) {
       alert(err?.message || err);
