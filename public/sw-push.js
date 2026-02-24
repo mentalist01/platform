@@ -28,7 +28,22 @@ self.addEventListener('notificationclick', (event) => {
   const payload = event.notification && event.notification.data && typeof event.notification.data === 'object'
     ? event.notification.data
     : {};
-  const targetUrl = typeof payload.url === 'string' && payload.url.trim() ? payload.url : '/';
+  let targetUrl = typeof payload.url === 'string' && payload.url.trim() ? payload.url : '/';
+  const requestedView = typeof payload.view === 'string' ? payload.view.trim() : '';
+  const requestedChatId = typeof payload.chatId === 'string' ? payload.chatId.trim() : '';
+
+  try {
+    const next = new URL(targetUrl, self.location.origin);
+    if (requestedView && !next.searchParams.get('view')) {
+      next.searchParams.set('view', requestedView);
+    }
+    if (requestedChatId && !next.searchParams.get('chatId')) {
+      next.searchParams.set('chatId', requestedChatId);
+    }
+    targetUrl = next.toString();
+  } catch {
+    // Ignore malformed URLs and use the raw target.
+  }
 
   event.waitUntil((async () => {
     const target = new URL(targetUrl, self.location.origin);

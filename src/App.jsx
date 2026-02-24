@@ -38,9 +38,11 @@ import ProgressSection from './components/ProgressSection';
 import PythonSection from './components/PythonSection';
 import ScheduleSection from './components/ScheduleSection';
 import StudentLeaderboardSection from './components/StudentLeaderboardSection';
+import StudentChatSection from './components/StudentChatSection';
 import StudentTour from './components/StudentTour';
 import SignupGuestChat from './components/SignupGuestChat';
 import TeacherPanel from './components/TeacherPanel';
+import TeacherStudentChatsSection from './components/TeacherStudentChatsSection';
 import ThemeToggleButton from './components/ThemeToggleButton';
 import { Button, Card, ProgressBar } from './components/ui';
 import {
@@ -7084,7 +7086,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const allowedViews = user.role === 'admin'
     ? ['admin']
     : user.role === 'teacher'
-      ? ['schedule', 'progress', 'python', 'rating', 'collab', 'call', 'board', 'teacher', 'signup-chats', 'notes']
+      ? ['schedule', 'progress', 'python', 'rating', 'collab', 'call', 'board', 'teacher', 'signup-chats', 'student-chats', 'notes']
       : [
         'schedule',
         'progress',
@@ -7093,12 +7095,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         'collab',
         ...(STUDENT_CALL_SECTION_ENABLED ? ['call'] : []),
         'board',
+        'chat',
         'notes'
       ];
   const isCallViewAvailable = allowedViews.includes('call');
   const defaultView = user.role === 'teacher' ? 'teacher' : (user.role === 'admin' ? 'admin' : 'progress');
   const storedLocation = readUserLocation(user);
   const storedView = storedLocation?.view;
+  const urlParams = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search)
+    : null;
+  const urlRequestedView = String(urlParams?.get('view') || '').trim();
+  const urlRequestedChatId = String(urlParams?.get('chatId') || '').trim();
   const storedPythonLocation = storedLocation?.pythonLocation && typeof storedLocation.pythonLocation === 'object'
     ? storedLocation.pythonLocation
     : null;
@@ -7114,9 +7122,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         || (storedView === 'python' ? fallbackPythonOpenTask : null))
     : null;
   const storedActiveStudentId = storedLocation?.activeStudentId ? String(storedLocation.activeStudentId) : null;
-  const initialView = (restoredOpenTask?.section && allowedViews.includes(restoredOpenTask.section))
+  const initialView = (urlRequestedView && allowedViews.includes(urlRequestedView))
+    ? urlRequestedView
+    : (restoredOpenTask?.section && allowedViews.includes(restoredOpenTask.section))
     ? restoredOpenTask.section
     : (allowedViews.includes(storedView) ? storedView : defaultView);
+  const initialTeacherChatId = (user.role === 'teacher' || user.role === 'admin')
+    ? urlRequestedChatId
+    : '';
   const initialProgressSection = ['progress', 'notes', 'mocks'].includes(storedLocation?.progressSection)
     ? storedLocation.progressSection
     : 'progress';
@@ -7269,6 +7282,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [teacherSignupNotifs, teacherSolvedNotifs]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const currentUrl = new URL(window.location.href);
+    const hasView = currentUrl.searchParams.has('view');
+    const hasChatId = currentUrl.searchParams.has('chatId');
+    if (!hasView && !hasChatId) return;
+    currentUrl.searchParams.delete('view');
+    currentUrl.searchParams.delete('chatId');
+    const nextSearch = currentUrl.searchParams.toString();
+    const nextUrl = `${currentUrl.pathname}${nextSearch ? `?${nextSearch}` : ''}${currentUrl.hash || ''}`;
+    window.history.replaceState(window.history.state, '', nextUrl);
+  }, []);
+
+  useEffect(() => {
     updateUserLocation(user, { view });
     if (view !== 'progress' && view !== 'python') {
       updateUserLocation(user, { openTask: null });
@@ -7311,6 +7337,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'board', label: 'Доска', icon: Brush },
         { id: 'teacher', label: 'Управление тестами', icon: Settings },
         { id: 'signup-chats', label: 'Чаты заявок', icon: MessageSquare },
+        { id: 'student-chats', label: 'Чаты с учениками', icon: MessageSquare },
         { id: 'notes', label: 'Конспекты', icon: Folder }
       ]
       : [
@@ -7321,6 +7348,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'collab', label: 'Совместный код', icon: Code2 },
         { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
         { id: 'board', label: 'Доска', icon: Brush },
+        { id: 'chat', label: 'Чат с учителем', icon: MessageSquare },
         { id: 'notes', label: 'Конспекты', icon: BookOpen }
       ];
   const visibleNav = (user.role === 'student' && !STUDENT_CALL_SECTION_ENABLED)
@@ -7369,7 +7397,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       teacherLessonNavItem,
-      ...['teacher', 'signup-chats', 'notes']
+      ...['teacher', 'signup-chats', 'student-chats', 'notes']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean)
     ]
@@ -7394,8 +7422,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     collab: 'Код',
     call: '\u0417\u0432\u043e\u043d\u043e\u043a',
     board: 'Доска',
+    chat: 'Чат',
     teacher: 'Управ.',
     'signup-chats': 'Заявки',
+    'student-chats': 'Чаты',
     notes: 'Консп.',
     admin: 'Админка',
     more: '\u0415\u0449\u0435',
@@ -7538,8 +7568,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     if (teacherSignupNotifySyncing) return 'Проверяем статус push...';
     if (!teacherSignupNotifySupported) return 'Push не поддерживается в этом браузере.';
     if (teacherSignupNotifyPermission === 'denied') return 'Уведомления заблокированы в настройках браузера.';
-    if (teacherSignupNotifyEnabled) return 'Push-уведомления о новых сообщениях в заявках включены.';
-    return 'Включите push, чтобы получать браузерные уведомления о новых сообщениях.';
+    if (teacherSignupNotifyEnabled) return 'Push-уведомления о новых сообщениях включены.';
+    return 'Включите push, чтобы получать браузерные уведомления о новых сообщениях учеников и заявок.';
   }, [
     teacherSignupNotifyEnabled,
     teacherSignupNotifyPermission,
@@ -7681,8 +7711,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     if (pushSyncing) return 'Проверяем статус push...';
     if (!pushSupported) return 'Push не поддерживается в этом браузере.';
     if (pushPermission === 'denied') return 'Уведомления заблокированы в настройках браузера.';
-    if (pushSubscribed) return 'Push о новой домашке включены.';
-    return 'Включите push, чтобы получать уведомления о новой домашке.';
+    if (pushSubscribed) return 'Push-уведомления включены.';
+    return 'Включите push, чтобы получать уведомления о домашке и новых сообщениях.';
   })();
   const pushButtonLabel = pushBusy
     ? 'Сохраняем...'
@@ -10497,6 +10527,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               highlightPython={highlightPython}
             />
           )}
+          {view === 'chat' && (
+            <StudentChatSection
+              user={user}
+              pushSupported={pushSupported}
+              pushPermission={pushPermission}
+              pushEnabled={pushSubscribed}
+              pushSyncing={pushSyncing}
+              pushBusy={pushBusy}
+              pushReady={pushReady}
+              pushError={pushError}
+              onTogglePush={handleTogglePush}
+            />
+          )}
           {view === 'teacher' && (
             <TeacherPanel
               mode="tests"
@@ -10535,6 +10578,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               teacherSignupNotifyStatusText={teacherSignupNotifyStatusText}
               teacherSignupNotifyError={teacherSignupNotifyError}
               onToggleTeacherSignupNotify={handleToggleTeacherSignupNotify}
+            />
+          )}
+          {view === 'student-chats' && (
+            <TeacherStudentChatsSection
+              role={user.role}
+              initialChatId={initialTeacherChatId}
+              notifySupported={teacherSignupNotifySupported}
+              notifyPermission={teacherSignupNotifyPermission}
+              notifyEnabled={teacherSignupNotifyEnabled}
+              notifyBusy={teacherSignupNotifyBusy}
+              notifySyncing={teacherSignupNotifySyncing}
+              notifyReady={teacherSignupNotifyReady}
+              notifyStatusText={teacherSignupNotifyStatusText}
+              notifyError={teacherSignupNotifyError}
+              onToggleNotify={handleToggleTeacherSignupNotify}
             />
           )}
           {view === 'signup-chats' && (

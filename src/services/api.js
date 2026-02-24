@@ -151,6 +151,43 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getStudentChatMessages: async () => {
+    const res = await apiFetch('/api/student-chat/messages');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  sendStudentChatMessage: async (text) => {
+    const res = await apiFetch('/api/student-chat/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getStudentChats: async () => {
+    const res = await apiFetch('/api/student-chats');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getStudentChatMessagesForTeacher: async (chatId) => {
+    const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
+    if (!id) return { chat: null, messages: [] };
+    const res = await apiFetch(`/api/student-chats/${encodeURIComponent(id)}/messages`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  sendStudentChatMessageForTeacher: async (chatId, text) => {
+    const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
+    if (!id) throw new Error('chatId required');
+    const res = await apiFetch(`/api/student-chats/${encodeURIComponent(id)}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getPushPublicKey: async () => {
     const res = await apiFetch('/api/push/public-key');
     if (!res.ok) throw new Error(await parseApiError(res));

@@ -56,6 +56,7 @@ const testsFile = path.join(dataDir, 'tests.json');
 const mockExamsFile = path.join(dataDir, 'mock-exams.json');
 const taskTitlesFile = path.join(dataDir, 'task-titles.json');
 const signupChatsFile = path.join(dataDir, 'signup-chats.json');
+const studentChatsFile = path.join(dataDir, 'student-chats.json');
 const authFile = path.join(dataDir, 'auth.json');
 const authSessionsFile = path.join(dataDir, 'auth-sessions.json');
 const usageFile = path.join(dataDir, 'usage.json');
@@ -91,6 +92,8 @@ const SIGNUP_GUEST_NAME_MAX_LENGTH = 80;
 const SIGNUP_GUEST_KEY_MAX_LENGTH = 120;
 const SIGNUP_MESSAGE_MAX_LENGTH = 2000;
 const SIGNUP_LAST_MESSAGE_PREVIEW_MAX_LENGTH = 160;
+const STUDENT_CHAT_MESSAGE_MAX_LENGTH = 2000;
+const STUDENT_CHAT_LAST_MESSAGE_PREVIEW_MAX_LENGTH = 160;
 const STUDENT_TRAFFIC_LIMIT_BYTES = (() => {
   const bytesRaw = Number(process.env.STUDENT_TRAFFIC_LIMIT_BYTES);
   if (Number.isFinite(bytesRaw) && bytesRaw > 0) return bytesRaw;
@@ -810,6 +813,7 @@ const hardDeleteStudentData = (studentIds = []) => {
   if (usageChanged) writeUsageDb(usageDb);
 
   purgePushDataForStudents(ids);
+  purgeStudentTeacherChatsForStudents(ids);
 };
 
 const purgeExpiredDeletedStudents = (students = []) => {
@@ -1017,6 +1021,275 @@ const buildSignupChatSummary = (chat) => ({
   unreadForTeacher: getSignupUnreadForTeacher(chat),
   messageCount: Array.isArray(chat.messages) ? chat.messages.length : 0,
 });
+
+const normalizeStudentChatMessageText = (value) => {
+  if (typeof value !== 'string') return '';
+  const normalized = value.replace(/\r\n/g, '\n').trim();
+  if (!normalized) return '';
+  return normalized.slice(0, STUDENT_CHAT_MESSAGE_MAX_LENGTH);
+};
+
+const buildStudentTeacherChatId = (studentId) => {
+  const id = String(studentId || '').trim();
+  if (!id) return '';
+  return `student-${id}`;
+};
+
+const getStudentIdFromStudentTeacherChatId = (chatId) => {
+  const id = String(chatId || '').trim();
+  if (!id) return '';
+  if (id.startsWith('student-')) return id.slice('student-'.length).trim();
+  return id;
+};
+
+const normalizeStudentTeacherChatMessage = (value) => {
+  if (!value || typeof value !== 'object') return null;
+  const id = typeof value.id === 'string' ? value.id.trim() : '';
+  const senderRole = value.senderRole === 'teacher' ? 'teacher' : 'student';
+  const senderId = typeof value.senderId === 'string' ? value.senderId.trim() : '';
+  const senderNameRaw = typeof value.senderName === 'string' ? value.senderName.trim() : '';
+  const text = normalizeStudentChatMessageText(value.text);
+  const createdAt = normalizeIsoTimestamp(value.createdAt, '');
+  if (!id || !senderId || !text || !createdAt) return null;
+  const senderName = senderNameRaw || (senderRole === 'teacher' ? 'Преподаватель' : 'Ученик');
+  return {
+    id,
+    senderRole,
+    senderId,
+    senderName,
+    text,
+    createdAt,
+  };
+};
+
+const normalizeStudentTeacherChat = (value) => {
+  if (!value || typeof value !== 'object') return null;
+  const rawStudentId = typeof value.studentId === 'string' ? value.studentId.trim() : '';
+  const rawId = typeof value.id === 'string' ? value.id.trim() : '';
+  const studentId = rawStudentId || getStudentIdFromStudentTeacherChatId(rawId);
+  const id = rawId || buildStudentTeacherChatId(studentId);
+  const teacherId = typeof value.teacherId === 'string' ? value.teacherId.trim() : '';
+  if (!id || !studentId || !teacherId) return null;
+
+  const messages = Array.isArray(value.messages)
+    ? value.messages.map((item) => normalizeStudentTeacherChatMessage(item)).filter(Boolean)
+    : [];
+  const lastMessage = messages[messages.length - 1] || null;
+  const createdAt = normalizeIsoTimestamp(value.createdAt, lastMessage?.createdAt || new Date().toISOString());
+  const updatedAt = normalizeIsoTimestamp(value.updatedAt, lastMessage?.createdAt || createdAt);
+  const lastMessageAt = normalizeIsoTimestamp(value.lastMessageAt, lastMessage?.createdAt || updatedAt);
+  const lastMessagePreviewRaw = typeof value.lastMessagePreview === 'string'
+    ? value.lastMessagePreview.replace(/\s+/g, ' ').trim()
+    : '';
+  const lastMessagePreview = (lastMessagePreviewRaw || lastMessage?.text || '').slice(0, STUDENT_CHAT_LAST_MESSAGE_PREVIEW_MAX_LENGTH);
+  const lastMessageSenderRole = value.lastMessageSenderRole === 'teacher' || value.lastMessageSenderRole === 'student'
+    ? value.lastMessageSenderRole
+    : (lastMessage?.senderRole || '');
+  const lastReadByTeacherAt = normalizeIsoTimestamp(value.lastReadByTeacherAt, '') || null;
+  const lastReadByStudentAt = normalizeIsoTimestamp(value.lastReadByStudentAt, '') || null;
+
+  return {
+    id,
+    studentId,
+    teacherId,
+    createdAt,
+    updatedAt,
+    lastMessageAt,
+    lastMessagePreview,
+    lastMessageSenderRole,
+    lastReadByTeacherAt,
+    lastReadByStudentAt,
+    messages,
+  };
+};
+
+const readStudentChatsDb = () => {
+  try {
+    const raw = fs.readFileSync(studentChatsFile, 'utf8');
+    const data = JSON.parse(raw);
+    if (!Array.isArray(data)) return [];
+    return data.map((entry) => normalizeStudentTeacherChat(entry)).filter(Boolean);
+  } catch {
+    return [];
+  }
+};
+
+const writeStudentChatsDb = (data) => {
+  const safeData = Array.isArray(data)
+    ? data.map((entry) => normalizeStudentTeacherChat(entry)).filter(Boolean)
+    : [];
+  fs.writeFileSync(studentChatsFile, JSON.stringify(safeData, null, 2), 'utf8');
+};
+
+const getStudentTeacherChatSortTimestamp = (chat) => {
+  const raw = chat?.lastMessageAt || chat?.updatedAt || chat?.createdAt || '';
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getStudentTeacherChatUnreadForTeacher = (chat) => {
+  if (!chat || !Array.isArray(chat.messages) || chat.messages.length === 0) return 0;
+  const lastReadRaw = chat.lastReadByTeacherAt || '';
+  const lastReadAt = Date.parse(lastReadRaw);
+  return chat.messages.reduce((count, message) => {
+    if (!message || message.senderRole !== 'student') return count;
+    if (!Number.isFinite(lastReadAt)) return count + 1;
+    const messageAt = Date.parse(message.createdAt || '');
+    if (!Number.isFinite(messageAt)) return count + 1;
+    return messageAt > lastReadAt ? count + 1 : count;
+  }, 0);
+};
+
+const getStudentTeacherChatUnreadForStudent = (chat) => {
+  if (!chat || !Array.isArray(chat.messages) || chat.messages.length === 0) return 0;
+  const lastReadRaw = chat.lastReadByStudentAt || '';
+  const lastReadAt = Date.parse(lastReadRaw);
+  return chat.messages.reduce((count, message) => {
+    if (!message || message.senderRole !== 'teacher') return count;
+    if (!Number.isFinite(lastReadAt)) return count + 1;
+    const messageAt = Date.parse(message.createdAt || '');
+    if (!Number.isFinite(messageAt)) return count + 1;
+    return messageAt > lastReadAt ? count + 1 : count;
+  }, 0);
+};
+
+const buildStudentTeacherChatSummary = (chat, student = null) => ({
+  id: chat.id,
+  studentId: chat.studentId,
+  teacherId: chat.teacherId,
+  studentName: String(student?.name || '').trim(),
+  createdAt: chat.createdAt,
+  updatedAt: chat.updatedAt,
+  lastMessageAt: chat.lastMessageAt,
+  lastMessagePreview: chat.lastMessagePreview || '',
+  lastMessageSenderRole: chat.lastMessageSenderRole || '',
+  unreadForTeacher: getStudentTeacherChatUnreadForTeacher(chat),
+  unreadForStudent: getStudentTeacherChatUnreadForStudent(chat),
+  messageCount: Array.isArray(chat.messages) ? chat.messages.length : 0,
+});
+
+const createStudentTeacherChatForStudent = (student) => {
+  const studentId = String(student?.id || '').trim();
+  const teacherId = String(student?.teacherId || '').trim();
+  if (!studentId || !teacherId) return null;
+  const nowIso = new Date().toISOString();
+  return {
+    id: buildStudentTeacherChatId(studentId),
+    studentId,
+    teacherId,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    lastMessageAt: '',
+    lastMessagePreview: '',
+    lastMessageSenderRole: '',
+    lastReadByTeacherAt: nowIso,
+    lastReadByStudentAt: nowIso,
+    messages: [],
+  };
+};
+
+const appendStudentTeacherChatMessage = (chat, message) => {
+  if (!chat || !message || !message.text || !message.senderId) return chat;
+  const nextMessages = [...(Array.isArray(chat.messages) ? chat.messages : []), message];
+  const preview = message.text.replace(/\s+/g, ' ').trim().slice(0, STUDENT_CHAT_LAST_MESSAGE_PREVIEW_MAX_LENGTH);
+  const next = {
+    ...chat,
+    messages: nextMessages,
+    updatedAt: message.createdAt,
+    lastMessageAt: message.createdAt,
+    lastMessagePreview: preview,
+    lastMessageSenderRole: message.senderRole,
+  };
+  if (message.senderRole === 'teacher') {
+    next.lastReadByTeacherAt = message.createdAt;
+  }
+  if (message.senderRole === 'student') {
+    next.lastReadByStudentAt = message.createdAt;
+  }
+  return next;
+};
+
+const markStudentTeacherChatReadByTeacher = (chat) => {
+  if (!chat) return { chat, changed: false };
+  if (getStudentTeacherChatUnreadForTeacher(chat) <= 0) return { chat, changed: false };
+  const nowIso = new Date().toISOString();
+  return {
+    changed: true,
+    chat: { ...chat, lastReadByTeacherAt: nowIso },
+  };
+};
+
+const markStudentTeacherChatReadByStudent = (chat) => {
+  if (!chat) return { chat, changed: false };
+  if (getStudentTeacherChatUnreadForStudent(chat) <= 0) return { chat, changed: false };
+  const nowIso = new Date().toISOString();
+  return {
+    changed: true,
+    chat: { ...chat, lastReadByStudentAt: nowIso },
+  };
+};
+
+const _ensureStudentTeacherChatForStudent = (student, options = {}) => {
+  const persist = options.persist !== false;
+  const studentId = String(student?.id || '').trim();
+  const teacherId = String(student?.teacherId || '').trim();
+  if (!studentId || !teacherId) return null;
+  const expectedId = buildStudentTeacherChatId(studentId);
+  const chats = Array.isArray(options.chats) ? options.chats : readStudentChatsDb();
+  const index = chats.findIndex((entry) => entry?.studentId === studentId || entry?.id === expectedId);
+
+  if (index === -1) {
+    const created = createStudentTeacherChatForStudent(student);
+    if (!created) return null;
+    if (persist) {
+      chats.unshift(created);
+      writeStudentChatsDb(chats);
+    }
+    return {
+      chat: created,
+      chats,
+      index: persist ? 0 : -1,
+      created: true,
+      changed: Boolean(persist),
+    };
+  }
+
+  const current = chats[index];
+  let changed = false;
+  let next = current;
+  if (current.id !== expectedId || current.studentId !== studentId || current.teacherId !== teacherId) {
+    changed = true;
+    next = {
+      ...current,
+      id: expectedId,
+      studentId,
+      teacherId,
+    };
+  }
+  const normalized = normalizeStudentTeacherChat(next) || next;
+  if (changed) {
+    chats[index] = normalized;
+    if (persist) writeStudentChatsDb(chats);
+  }
+  return {
+    chat: normalized,
+    chats,
+    index,
+    created: false,
+    changed,
+  };
+};
+
+const purgeStudentTeacherChatsForStudents = (studentIds = []) => {
+  const ids = Array.isArray(studentIds) ? studentIds.map((id) => String(id || '').trim()).filter(Boolean) : [];
+  if (ids.length === 0) return;
+  const idSet = new Set(ids);
+  const chats = readStudentChatsDb();
+  const filtered = chats.filter((chat) => !idSet.has(String(chat?.studentId || '').trim()));
+  if (filtered.length !== chats.length) {
+    writeStudentChatsDb(filtered);
+  }
+};
 
 const normalizeMockExamAccess = (access, fallbackAll = true) => {
   if (!access || typeof access !== 'object') {
@@ -1672,6 +1945,115 @@ const markSignupChatReadByLead = (chat) => {
     chat: { ...chat, lastReadByLeadAt: nowIso },
   };
 };
+
+const getStudentTeacherChatAccessError = (auth, chat) => {
+  if (!auth || !chat) return 'Недостаточно прав';
+  if (isAdminRole(auth)) return '';
+  if (isTeacherRole(auth)) {
+    return chat.teacherId === auth.id ? '' : 'Недостаточно прав';
+  }
+  if (isStudentRole(auth)) {
+    return chat.studentId === auth.id ? '' : 'Недостаточно прав';
+  }
+  return 'Недостаточно прав';
+};
+
+const ensureStudentTeacherChatAccess = (req, res, chatId, options = {}) => {
+  const required = options.required !== false;
+  const createIfMissing = options.createIfMissing === true;
+  const persist = options.persist !== false;
+  const id = String(chatId || '').trim();
+  const studentId = getStudentIdFromStudentTeacherChatId(id);
+  if (!studentId) {
+    if (required) res.status(400).json({ error: 'chatId required' });
+    return null;
+  }
+
+  const student = findStudentById(studentId);
+  if (!student) {
+    res.status(404).json({ error: 'Ученик не найден' });
+    return null;
+  }
+
+  if (isTeacherRole(req.auth) && student.teacherId !== req.auth.id) {
+    res.status(403).json({ error: 'Недостаточно прав' });
+    return null;
+  }
+  if (isStudentRole(req.auth) && student.id !== req.auth.id) {
+    res.status(403).json({ error: 'Недостаточно прав' });
+    return null;
+  }
+  if (!isAdminRole(req.auth) && !isTeacherRole(req.auth) && !isStudentRole(req.auth)) {
+    res.status(403).json({ error: 'Недостаточно прав' });
+    return null;
+  }
+
+  const chats = Array.isArray(options.chats) ? options.chats : readStudentChatsDb();
+  const expectedId = buildStudentTeacherChatId(student.id);
+  const chatIndex = chats.findIndex((entry) => entry?.studentId === student.id || entry?.id === expectedId);
+  let index = chatIndex;
+  let chat = index >= 0 ? chats[index] : null;
+  let changed = false;
+  let created = false;
+
+  if (!chat) {
+    if (!createIfMissing) {
+      res.status(404).json({ error: 'Чат не найден' });
+      return null;
+    }
+    const createdChat = createStudentTeacherChatForStudent(student);
+    if (!createdChat) {
+      res.status(400).json({ error: 'Не удалось создать чат' });
+      return null;
+    }
+    chats.unshift(createdChat);
+    index = 0;
+    chat = createdChat;
+    changed = true;
+    created = true;
+  }
+
+  if (chat.id !== expectedId || chat.studentId !== student.id || chat.teacherId !== student.teacherId) {
+    chat = {
+      ...chat,
+      id: expectedId,
+      studentId: student.id,
+      teacherId: student.teacherId,
+    };
+    chats[index] = chat;
+    changed = true;
+  }
+
+  const normalized = normalizeStudentTeacherChat(chat) || chat;
+  const accessError = getStudentTeacherChatAccessError(req.auth, normalized);
+  if (accessError) {
+    res.status(403).json({ error: accessError });
+    return null;
+  }
+
+  if (changed) {
+    chats[index] = normalized;
+    if (persist) writeStudentChatsDb(chats);
+  }
+
+  return {
+    chat: normalized,
+    chats,
+    index,
+    student,
+    changed,
+    created,
+  };
+};
+
+const createStudentTeacherChatMessage = ({ senderRole, senderId, senderName, text }) => ({
+  id: crypto.randomUUID(),
+  senderRole: senderRole === 'teacher' ? 'teacher' : 'student',
+  senderId: String(senderId || '').trim(),
+  senderName: String(senderName || '').trim(),
+  text: normalizeStudentChatMessageText(text),
+  createdAt: new Date().toISOString(),
+});
 
 const isLeadAllowedApiRequest = (req) => {
   const method = String(req?.method || '').toUpperCase();
@@ -2818,6 +3200,84 @@ const buildSignupLeadPushPayload = (chat, message) => {
       chatId: String(chat?.id || '').trim() || null,
     },
   };
+};
+
+const buildStudentTeacherPushPayloadForTeacher = (chat, message, student) => {
+  const studentName = String(student?.name || message?.senderName || 'Ученик').trim() || 'Ученик';
+  const text = trimPushBodyText(message?.text || '');
+  return {
+    title: `Новое сообщение от ${studentName}`,
+    body: text || 'Откройте чаты учеников, чтобы прочитать сообщение.',
+    icon: '/favicon.ico',
+    badge: '/favicon.ico',
+    tag: `student-chat-teacher-${String(chat?.id || student?.id || '').trim() || 'chat'}`,
+    renotify: true,
+    data: {
+      type: 'student-chat-teacher',
+      url: '/',
+      view: 'student-chats',
+      chatId: String(chat?.id || '').trim() || null,
+      studentId: String(student?.id || '').trim() || null,
+      studentName,
+    },
+  };
+};
+
+const buildStudentTeacherPushPayloadForStudent = (chat, message, teacher) => {
+  const teacherName = String(teacher?.name || message?.senderName || 'Преподаватель').trim() || 'Преподаватель';
+  const text = trimPushBodyText(message?.text || '');
+  return {
+    title: `Ответ от ${teacherName}`,
+    body: text || 'Откройте чат с преподавателем, чтобы прочитать сообщение.',
+    icon: '/favicon.ico',
+    badge: '/favicon.ico',
+    tag: `student-chat-student-${String(chat?.id || chat?.studentId || '').trim() || 'chat'}`,
+    renotify: true,
+    data: {
+      type: 'student-chat-student',
+      url: '/',
+      view: 'chat',
+      chatId: String(chat?.id || '').trim() || null,
+      teacherId: String(teacher?.id || '').trim() || null,
+      teacherName,
+    },
+  };
+};
+
+const sendPushNotificationToStudentId = async (studentId, payload, options = {}) => {
+  const id = String(studentId || '').trim();
+  if (!id || !payload || typeof payload !== 'object') {
+    return { successCount: 0, staleEndpoints: [] };
+  }
+  if (!pushRuntimeEnabled) {
+    const runtime = ensurePushRuntimeConfigured();
+    if (!runtime.enabled) return { successCount: 0, staleEndpoints: [] };
+  }
+
+  const pushDb = readPushDb();
+  const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
+  const remindersByStudent = normalizePushRemindersByStudent(pushDb.remindersByStudent);
+  const subscriptions = Array.isArray(subscriptionsByStudent[id]) ? subscriptionsByStudent[id] : [];
+  if (subscriptions.length === 0) return { successCount: 0, staleEndpoints: [] };
+
+  const logTarget = options?.logTarget ? String(options.logTarget) : id;
+  const result = await sendPushNotificationToSubscriptions(subscriptions, payload, logTarget);
+  if (result.staleEndpoints.length > 0) {
+    const staleSet = new Set(result.staleEndpoints);
+    const next = subscriptions.filter((entry) => !staleSet.has(entry.endpoint));
+    if (next.length > 0) {
+      subscriptionsByStudent[id] = next;
+    } else {
+      delete subscriptionsByStudent[id];
+      if (remindersByStudent[id]) delete remindersByStudent[id];
+    }
+    writePushDb({
+      ...pushDb,
+      subscriptionsByStudent,
+      remindersByStudent,
+    });
+  }
+  return result;
 };
 
 const sendPushNotificationToUserKey = async (userKey, payload, options = {}) => {
@@ -4135,6 +4595,237 @@ app.delete('/api/signup-chats/:chatId', (req, res) => {
   return res.json({
     ok: true,
     chatId: chat.id,
+  });
+});
+
+app.get('/api/student-chat/messages', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const chats = readStudentChatsDb();
+  const access = ensureStudentTeacherChatAccess(
+    req,
+    res,
+    buildStudentTeacherChatId(req.auth?.id),
+    { chats, createIfMissing: true }
+  );
+  if (!access) return;
+  const { index, student } = access;
+  let chat = access.chat;
+
+  const markResult = markStudentTeacherChatReadByStudent(chat);
+  if (markResult.changed) {
+    chats[index] = normalizeStudentTeacherChat(markResult.chat) || markResult.chat;
+    writeStudentChatsDb(chats);
+    chat = chats[index];
+  }
+
+  const teacherName = findTeacherById(chat.teacherId)?.name || 'Преподаватель';
+  return res.json({
+    chat: {
+      ...buildStudentTeacherChatSummary(chat, student),
+      teacherName,
+      studentName: student?.name || 'Ученик',
+    },
+    messages: Array.isArray(chat.messages) ? chat.messages : [],
+  });
+});
+
+app.post('/api/student-chat/messages', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const text = normalizeStudentChatMessageText(req.body?.text);
+  if (!text) return res.status(400).json({ error: 'Введите сообщение' });
+
+  const chats = readStudentChatsDb();
+  const access = ensureStudentTeacherChatAccess(
+    req,
+    res,
+    buildStudentTeacherChatId(req.auth?.id),
+    { chats, createIfMissing: true }
+  );
+  if (!access) return;
+  const { index, student } = access;
+  const chat = access.chat;
+
+  const message = createStudentTeacherChatMessage({
+    senderRole: 'student',
+    senderId: req.auth.id,
+    senderName: student?.name || req.auth.name || 'Ученик',
+    text,
+  });
+  if (!message.text || !message.senderId) {
+    return res.status(400).json({ error: 'Некорректное сообщение' });
+  }
+
+  chats[index] = normalizeStudentTeacherChat(appendStudentTeacherChatMessage(chat, message)) || chat;
+  writeStudentChatsDb(chats);
+  const updatedChat = chats[index];
+
+  const teacherPushKey = String(updatedChat?.teacherId || '').trim()
+    ? `teacher:${String(updatedChat.teacherId).trim()}`
+    : '';
+  if (teacherPushKey) {
+    const teacherPushPayload = buildStudentTeacherPushPayloadForTeacher(updatedChat, message, student);
+    sendPushNotificationToUserKey(teacherPushKey, teacherPushPayload, { logTarget: teacherPushKey })
+      .catch((error) => {
+        console.error('[push] failed to send student chat message notification to teacher:', error);
+      });
+  }
+
+  const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
+  return res.json({
+    ok: true,
+    message,
+    chat: {
+      ...buildStudentTeacherChatSummary(updatedChat, student),
+      teacherName,
+      studentName: student?.name || 'Ученик',
+    },
+  });
+});
+
+app.get('/api/student-chats', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const students = readStudentsDb()
+    .filter(isActiveStudent)
+    .filter((student) => {
+      if (!isTeacherRole(req.auth)) return true;
+      return student.teacherId === req.auth.id;
+    });
+  const studentsById = new Map(students.map((student) => [student.id, student]));
+  const chats = readStudentChatsDb();
+
+  let changed = false;
+  const normalizedChats = chats.map((chat) => {
+    const student = studentsById.get(chat.studentId) || findStudentById(chat.studentId);
+    if (!student?.id || !student?.teacherId) return chat;
+    const expectedId = buildStudentTeacherChatId(student.id);
+    if (chat.id === expectedId && chat.studentId === student.id && chat.teacherId === student.teacherId) {
+      return chat;
+    }
+    changed = true;
+    return normalizeStudentTeacherChat({
+      ...chat,
+      id: expectedId,
+      studentId: student.id,
+      teacherId: student.teacherId,
+    }) || chat;
+  });
+  if (changed) writeStudentChatsDb(normalizedChats);
+
+  const chatByStudentId = new Map(
+    normalizedChats.map((chat) => [String(chat?.studentId || '').trim(), chat]).filter((entry) => entry[0])
+  );
+  const items = students.map((student, index) => {
+    const existing = chatByStudentId.get(student.id);
+    const chat = existing || createStudentTeacherChatForStudent(student) || {
+      id: buildStudentTeacherChatId(student.id),
+      studentId: student.id,
+      teacherId: student.teacherId,
+      createdAt: student.createdAt || '',
+      updatedAt: student.createdAt || '',
+      lastMessageAt: '',
+      lastMessagePreview: '',
+      lastMessageSenderRole: '',
+      lastReadByTeacherAt: null,
+      lastReadByStudentAt: null,
+      messages: [],
+    };
+    return {
+      ...buildStudentTeacherChatSummary(chat, student),
+      teacherName: findTeacherById(chat.teacherId)?.name || 'Преподаватель',
+      sortIndex: index,
+    };
+  });
+
+  const sorted = items
+    .sort((left, right) => {
+      const diff = getStudentTeacherChatSortTimestamp(right) - getStudentTeacherChatSortTimestamp(left);
+      if (diff !== 0) return diff;
+      const leftName = String(left?.studentName || '').trim();
+      const rightName = String(right?.studentName || '').trim();
+      if (leftName && rightName) {
+        const byName = leftName.localeCompare(rightName, 'ru');
+        if (byName !== 0) return byName;
+      }
+      return (left.sortIndex || 0) - (right.sortIndex || 0);
+    })
+    .map(({ sortIndex, ...rest }) => rest);
+
+  return res.json(sorted);
+});
+
+app.get('/api/student-chats/:chatId/messages', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const chats = readStudentChatsDb();
+  const access = ensureStudentTeacherChatAccess(req, res, req.params.chatId, { chats, createIfMissing: true });
+  if (!access) return;
+  const { index, student } = access;
+  let chat = access.chat;
+
+  if (isTeacherRole(req.auth)) {
+    const markResult = markStudentTeacherChatReadByTeacher(chat);
+    if (markResult.changed) {
+      chats[index] = normalizeStudentTeacherChat(markResult.chat) || markResult.chat;
+      writeStudentChatsDb(chats);
+      chat = chats[index];
+    }
+  }
+
+  const teacherName = findTeacherById(chat.teacherId)?.name || 'Преподаватель';
+  return res.json({
+    chat: {
+      ...buildStudentTeacherChatSummary(chat, student),
+      teacherName,
+      studentName: student?.name || 'Ученик',
+    },
+    messages: Array.isArray(chat.messages) ? chat.messages : [],
+  });
+});
+
+app.post('/api/student-chats/:chatId/messages', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const text = normalizeStudentChatMessageText(req.body?.text);
+  if (!text) return res.status(400).json({ error: 'Введите сообщение' });
+
+  const chats = readStudentChatsDb();
+  const access = ensureStudentTeacherChatAccess(req, res, req.params.chatId, { chats, createIfMissing: true });
+  if (!access) return;
+  const { index, student } = access;
+  const chat = access.chat;
+
+  const teacher = findTeacherById(chat.teacherId);
+  const senderId = isTeacherRole(req.auth)
+    ? req.auth.id
+    : (teacher?.id || chat.teacherId || req.auth.id);
+  const senderName = String(teacher?.name || req.auth?.name || 'Преподаватель').trim() || 'Преподаватель';
+  const message = createStudentTeacherChatMessage({
+    senderRole: 'teacher',
+    senderId,
+    senderName,
+    text,
+  });
+  if (!message.text || !message.senderId) {
+    return res.status(400).json({ error: 'Некорректное сообщение' });
+  }
+
+  chats[index] = normalizeStudentTeacherChat(appendStudentTeacherChatMessage(chat, message)) || chat;
+  writeStudentChatsDb(chats);
+  const updatedChat = chats[index];
+
+  const studentPushPayload = buildStudentTeacherPushPayloadForStudent(updatedChat, message, teacher);
+  sendPushNotificationToStudentId(student.id, studentPushPayload, { logTarget: `student:${student.id}` })
+    .catch((error) => {
+      console.error('[push] failed to send student chat message notification to student:', error);
+    });
+
+  const teacherName = findTeacherById(updatedChat.teacherId)?.name || senderName;
+  return res.json({
+    ok: true,
+    message,
+    chat: {
+      ...buildStudentTeacherChatSummary(updatedChat, student),
+      teacherName,
+      studentName: student?.name || 'Ученик',
+    },
   });
 });
 
