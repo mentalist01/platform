@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { X } from 'lucide-react';
+import { Download, X } from 'lucide-react';
 import { api } from '../services/api';
 import { Button } from './ui';
 const ProgressReviewModal = ({
