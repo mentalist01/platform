@@ -64,6 +64,9 @@ const rtcPresenceDir = path.join(dataDir, 'rtc-presence');
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
 const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_FOLDER_BYTES = 30 * 1024 * 1024;
+const LESSON_SHARED_SCOPE = 'lesson-files';
+const LESSON_SHARED_FOLDER_NAME = 'файлы к уроку';
+const LESSON_SHARED_STUDENT_ID_PREFIX = 'lesson-shared';
 const JSON_BODY_LIMIT = '20mb';
 const LOGIN_LIMIT = 8;
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
@@ -1741,6 +1744,76 @@ const ensureTeacherAccess = (req, res, teacherId, options = {}) => {
   if (isTeacherRole(req.auth) && req.auth.id === id) return teacher;
   res.status(403).json({ error: 'Недостаточно прав' });
   return null;
+};
+
+const normalizeTeacherId = (value) => {
+  if (typeof value === 'string') return value.trim();
+  return String(value || '').trim();
+};
+
+const normalizeTaskNumber = (value) => {
+  const taskNumber = Number(value);
+  if (!Number.isFinite(taskNumber)) return NaN;
+  return taskNumber;
+};
+
+const isLessonSharedCategory = (value) => String(value || '').trim() === 'class';
+
+const buildLessonSharedFolderId = (teacherId, taskNumber) => {
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  const normalizedTaskNumber = normalizeTaskNumber(taskNumber);
+  if (!normalizedTeacherId || !Number.isFinite(normalizedTaskNumber)) return '';
+  return `${LESSON_SHARED_STUDENT_ID_PREFIX}:${normalizedTeacherId}:${normalizedTaskNumber}`;
+};
+
+const buildLessonSharedStudentId = (teacherId) => {
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  if (!normalizedTeacherId) return '';
+  return `${LESSON_SHARED_STUDENT_ID_PREFIX}:${normalizedTeacherId}`;
+};
+
+const createLessonSharedFolderEntry = (teacherId, taskNumber) => {
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  const normalizedTaskNumber = normalizeTaskNumber(taskNumber);
+  if (!normalizedTeacherId || !Number.isFinite(normalizedTaskNumber)) return null;
+  return {
+    id: buildLessonSharedFolderId(normalizedTeacherId, normalizedTaskNumber),
+    studentId: buildLessonSharedStudentId(normalizedTeacherId),
+    teacherId: normalizedTeacherId,
+    taskNumber: normalizedTaskNumber,
+    category: 'class',
+    name: LESSON_SHARED_FOLDER_NAME,
+    date: '',
+    isLessonShared: true,
+    isSystem: true,
+  };
+};
+
+const isLessonSharedFile = (entry) => (
+  entry?.sharedScope === LESSON_SHARED_SCOPE
+);
+
+const canReadLessonSharedByTeacher = (auth, teacherId) => {
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  if (!normalizedTeacherId || !auth) return false;
+  if (isAdminRole(auth)) return true;
+  if (isTeacherRole(auth)) return String(auth.id || '').trim() === normalizedTeacherId;
+  if (isStudentRole(auth)) return String(auth.teacherId || '').trim() === normalizedTeacherId;
+  return false;
+};
+
+const canWriteLessonSharedByTeacher = (auth, teacherId) => {
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  if (!normalizedTeacherId || !auth) return false;
+  if (isAdminRole(auth)) return true;
+  if (isTeacherRole(auth)) return String(auth.id || '').trim() === normalizedTeacherId;
+  return false;
+};
+
+const isLessonSharedFolderIdForTeacher = (folderId, teacherId, taskNumber) => {
+  const expectedId = buildLessonSharedFolderId(teacherId, taskNumber);
+  if (!expectedId) return false;
+  return String(folderId || '').trim() === expectedId;
 };
 
 const normalizeTeacherSolvedEventIds = (value) => {
@@ -3542,24 +3615,40 @@ const handleUploadRequest = (req, res) => {
   if (!fs.existsSync(filePath)) return res.status(404).send('Файл не найден');
 
   const ownedFile = readFilesDb().find((entry) => entry?.storageName === safeName);
-  const ownerStudentId = typeof ownedFile?.studentId === 'string' ? ownedFile.studentId.trim() : '';
-  if (ownedFile?.studentId) {
-    const ownerStudent = findStudentById(ownedFile.studentId, { allowDeleted: true });
-    if (!ownerStudent) return res.status(404).send('Файл не найден');
-    if (!canAccessStudentByRole(req.auth, ownerStudent, { allowDeleted: true })) {
-      return res.status(403).send('Недостаточно прав');
+  let ownerStudentId = '';
+  let ownerTeacherId = '';
+  const ownerIsLessonShared = Boolean(ownedFile && isLessonSharedFile(ownedFile));
+  if (ownedFile) {
+    if (ownerIsLessonShared) {
+      ownerTeacherId = normalizeTeacherId(ownedFile.teacherId);
+      if (!ownerTeacherId || !canReadLessonSharedByTeacher(req.auth, ownerTeacherId)) {
+        return res.status(403).send('Недостаточно прав');
+      }
+    } else if (ownedFile.studentId) {
+      const ownerStudent = findStudentById(ownedFile.studentId, { allowDeleted: true });
+      if (!ownerStudent) return res.status(404).send('Файл не найден');
+      if (!canAccessStudentByRole(req.auth, ownerStudent, { allowDeleted: true })) {
+        return res.status(403).send('Недостаточно прав');
+      }
+      ownerStudentId = ownerStudent.id;
+      ownerTeacherId = normalizeTeacherId(ownerStudent.teacherId);
     }
   }
 
   const stat = fs.statSync(filePath);
   const queryStudentId = typeof req.query.studentId === 'string' ? req.query.studentId.trim() : '';
   if (queryStudentId) {
-    if (ownerStudentId && queryStudentId !== ownerStudentId) {
-      return res.status(400).send('Некорректный studentId');
-    }
     const student = findStudentById(queryStudentId);
     if (!student) return res.status(404).send('Ученик не найден');
     if (!canAccessStudentByRole(req.auth, student)) return res.status(403).send('Недостаточно прав');
+    if (ownerIsLessonShared) {
+      const studentTeacherId = normalizeTeacherId(student.teacherId);
+      if (ownerTeacherId && studentTeacherId !== ownerTeacherId) {
+        return res.status(400).send('Некорректный studentId');
+      }
+    } else if (ownerStudentId && queryStudentId !== ownerStudentId) {
+      return res.status(400).send('Некорректный studentId');
+    }
   }
 
   const usageStudentId = (() => {
@@ -5844,20 +5933,31 @@ app.get('/api/folders', (req, res) => {
   if (!effectiveStudentId && !isAdminRole(req.auth)) {
     return res.status(400).json({ error: 'studentId required' });
   }
+  let effectiveStudent = null;
   if (effectiveStudentId) {
-    const student = ensureStudentAccess(req, res, effectiveStudentId);
-    if (!student) return;
+    effectiveStudent = ensureStudentAccess(req, res, effectiveStudentId);
+    if (!effectiveStudent) return;
   }
   let folders = readFoldersDb();
   if (effectiveStudentId) {
     folders = folders.filter((f) => f.studentId === effectiveStudentId);
   }
+  const taskNum = Number(taskNumber);
   if (taskNumber) {
-    const taskNum = Number(taskNumber);
     folders = folders.filter((f) => f.taskNumber === taskNum);
   }
   if (category) {
     folders = folders.filter((f) => f.category === category);
+  }
+  if (
+    effectiveStudent
+    && isLessonSharedCategory(category)
+    && Number.isFinite(taskNum)
+  ) {
+    const sharedFolder = createLessonSharedFolderEntry(effectiveStudent.teacherId, taskNum);
+    if (sharedFolder && !folders.some((folder) => folder?.id === sharedFolder.id)) {
+      folders.unshift(sharedFolder);
+    }
   }
   res.json(folders);
 });
@@ -5865,9 +5965,10 @@ app.get('/api/folders', (req, res) => {
 app.post('/api/folders', (req, res) => {
   const { taskNumber, category, name, studentId } = req.body || {};
   const taskNum = Number(taskNumber);
+  const normalizedCategory = String(category || '').trim();
   const folderName = normalizeFolderName(name);
 
-  if (!Number.isFinite(taskNum) || !category || !folderName) {
+  if (!Number.isFinite(taskNum) || !normalizedCategory || !folderName) {
     return res.status(400).json({ error: 'Некорректные параметры' });
   }
   const student = ensureStudentAccess(req, res, studentId);
@@ -5878,13 +5979,16 @@ app.post('/api/folders', (req, res) => {
   if (/[/\\]/.test(folderName)) {
     return res.status(400).json({ error: 'Недопустимые символы' });
   }
+  if (isLessonSharedCategory(normalizedCategory) && folderName.toLowerCase() === LESSON_SHARED_FOLDER_NAME.toLowerCase()) {
+    return res.status(409).json({ error: 'Папка с таким названием уже создана системой' });
+  }
 
   const folders = readFoldersDb();
   const exists = folders.some(
     (f) =>
       f.studentId === student.id &&
       f.taskNumber === taskNum &&
-      f.category === category &&
+      f.category === normalizedCategory &&
       f.name?.toLowerCase() === folderName.toLowerCase()
   );
   if (exists) {
@@ -5895,7 +5999,7 @@ app.post('/api/folders', (req, res) => {
     id: crypto.randomUUID(),
     studentId: student.id,
     taskNumber: taskNum,
-    category,
+    category: normalizedCategory,
     name: folderName,
     date: new Date().toLocaleDateString('ru-RU'),
   };
@@ -5922,6 +6026,9 @@ app.patch('/api/folders/:id', (req, res) => {
 
   const current = folders[idx];
   if (!ensureStudentAccess(req, res, current.studentId, { allowDeleted: true })) return;
+  if (isLessonSharedCategory(current.category) && folderName.toLowerCase() === LESSON_SHARED_FOLDER_NAME.toLowerCase()) {
+    return res.status(409).json({ error: 'Папка с таким названием уже создана системой' });
+  }
   const exists = folders.some(
     (f) =>
       f.id !== id &&
@@ -5959,16 +6066,24 @@ app.get('/api/files', (req, res) => {
   if (!effectiveStudentId && !isAdminRole(req.auth)) {
     return res.status(400).json({ error: 'studentId required' });
   }
+  let effectiveStudent = null;
   if (effectiveStudentId) {
-    const student = ensureStudentAccess(req, res, effectiveStudentId);
-    if (!student) return;
+    effectiveStudent = ensureStudentAccess(req, res, effectiveStudentId);
+    if (!effectiveStudent) return;
   }
   let files = readFilesDb();
   if (effectiveStudentId) {
-    files = files.filter((f) => f.studentId === effectiveStudentId);
+    const teacherId = normalizeTeacherId(effectiveStudent?.teacherId);
+    files = files.filter((entry) => {
+      const fileStudentId = typeof entry?.studentId === 'string' ? entry.studentId.trim() : '';
+      if (fileStudentId === effectiveStudentId) return true;
+      if (!isLessonSharedFile(entry)) return false;
+      const fileTeacherId = normalizeTeacherId(entry?.teacherId);
+      return Boolean(teacherId && fileTeacherId === teacherId);
+    });
   }
+  const taskNum = Number(taskNumber);
   if (taskNumber) {
-    const taskNum = Number(taskNumber);
     files = files.filter((f) => f.taskNumber === taskNum);
   }
   if (category) {
@@ -5982,7 +6097,8 @@ app.post('/api/files', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не найден' });
 
   const taskNum = Number(taskNumber);
-  if (!Number.isFinite(taskNum) || !category) {
+  const normalizedCategory = String(category || '').trim();
+  if (!Number.isFinite(taskNum) || !normalizedCategory) {
     try {
       fs.unlinkSync(req.file.path);
     } catch {}
@@ -5996,29 +6112,56 @@ app.post('/api/files', upload.single('file'), (req, res) => {
     return;
   }
 
+  const studentTeacherId = normalizeTeacherId(student.teacherId);
+  const normalizedFolderId = typeof folderId === 'string' ? folderId.trim() : '';
   let folderName = null;
   let folderRef = null;
-  if (folderId) {
-    const folders = readFoldersDb();
-    folderRef = folders.find(
-      (f) =>
-        f.id === folderId &&
-        f.studentId === student.id &&
-        f.taskNumber === taskNum &&
-        f.category === category
-    );
-    if (!folderRef) {
-      try {
-        fs.unlinkSync(req.file.path);
-      } catch {}
-      return res.status(400).json({ error: 'Папка не найдена' });
+  let isLessonSharedUpload = false;
+  if (normalizedFolderId) {
+    if (isLessonSharedCategory(normalizedCategory) && isLessonSharedFolderIdForTeacher(normalizedFolderId, studentTeacherId, taskNum)) {
+      if (!canWriteLessonSharedByTeacher(req.auth, studentTeacherId)) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch {}
+        return res.status(403).json({ error: `В папку "${LESSON_SHARED_FOLDER_NAME}" может загружать только учитель` });
+      }
+      folderRef = createLessonSharedFolderEntry(studentTeacherId, taskNum);
+      if (!folderRef) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch {}
+        return res.status(400).json({ error: 'Папка не найдена' });
+      }
+      folderName = folderRef.name;
+      isLessonSharedUpload = true;
+    } else {
+      const folders = readFoldersDb();
+      folderRef = folders.find(
+        (f) =>
+          f.id === normalizedFolderId &&
+          f.studentId === student.id &&
+          f.taskNumber === taskNum &&
+          f.category === normalizedCategory
+      );
+      if (!folderRef) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch {}
+        return res.status(400).json({ error: 'Папка не найдена' });
+      }
+      folderName = folderRef.name;
     }
-    folderName = folderRef.name;
   }
 
   const db = readFilesDb();
   const currentTotal = db
-    .filter((f) => f.taskNumber === taskNum && f.studentId === student.id)
+    .filter((entry) => {
+      if (entry?.taskNumber !== taskNum) return false;
+      if (isLessonSharedUpload) {
+        return isLessonSharedFile(entry) && normalizeTeacherId(entry?.teacherId) === studentTeacherId;
+      }
+      return entry?.studentId === student.id;
+    })
     .reduce((sum, f) => sum + getEntrySizeBytes(f), 0);
   if (currentTotal + req.file.size > MAX_TASK_BYTES) {
     try {
@@ -6039,9 +6182,9 @@ app.post('/api/files', upload.single('file'), (req, res) => {
   const id = req.fileId || crypto.randomUUID();
   const entry = {
     id,
-    studentId: student.id,
+    studentId: isLessonSharedUpload ? buildLessonSharedStudentId(studentTeacherId) : student.id,
     taskNumber: taskNum,
-    category,
+    category: normalizedCategory,
     folderId: folderRef?.id || null,
     folderName,
     name: normalizeFileName(req.file.originalname),
@@ -6050,6 +6193,11 @@ app.post('/api/files', upload.single('file'), (req, res) => {
     date: new Date().toLocaleDateString('ru-RU'),
     url: `/uploads/${req.file.filename}`,
     storageName: req.file.filename,
+    ...(isLessonSharedUpload ? {
+      teacherId: studentTeacherId,
+      sharedScope: LESSON_SHARED_SCOPE,
+      isLessonShared: true,
+    } : {}),
   };
 
   db.unshift(entry);
@@ -6063,7 +6211,12 @@ app.delete('/api/files/:id', (req, res) => {
   const db = readFilesDb();
   const idx = db.findIndex((f) => f.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Файл не найден' });
-  if (!ensureStudentAccess(req, res, db[idx]?.studentId, { allowDeleted: true })) return;
+  const target = db[idx];
+  if (isLessonSharedFile(target)) {
+    if (!canWriteLessonSharedByTeacher(req.auth, target.teacherId)) return forbid(res);
+  } else if (!ensureStudentAccess(req, res, target?.studentId, { allowDeleted: true })) {
+    return;
+  }
 
   const [removed] = db.splice(idx, 1);
   writeFilesDb(db);
@@ -6085,9 +6238,19 @@ app.patch('/api/files/:id', (req, res) => {
   const db = readFilesDb();
   const idx = db.findIndex((f) => f.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Файл не найден' });
-  if (!ensureStudentAccess(req, res, db[idx]?.studentId, { allowDeleted: true })) return;
+  const current = db[idx];
+  const isCurrentLessonShared = isLessonSharedFile(current);
+  if (isCurrentLessonShared) {
+    if (!canWriteLessonSharedByTeacher(req.auth, current?.teacherId)) return forbid(res);
+  } else if (!ensureStudentAccess(req, res, current?.studentId, { allowDeleted: true })) {
+    return;
+  }
+  const ownerStudent = isCurrentLessonShared ? null : findStudentById(current?.studentId, { allowDeleted: true });
+  const ownerTeacherId = isCurrentLessonShared
+    ? normalizeTeacherId(current?.teacherId)
+    : normalizeTeacherId(ownerStudent?.teacherId);
 
-  let updated = { ...db[idx] };
+  let updated = { ...current };
 
   if (typeof name !== 'undefined') {
     const newName = normalizeFolderName(name);
@@ -6098,10 +6261,16 @@ app.patch('/api/files/:id', (req, res) => {
 
   if (Object.prototype.hasOwnProperty.call(req.body || {}, 'folderId')) {
     const folderId = req.body.folderId;
+    if (isCurrentLessonShared) {
+      return res.status(400).json({ error: `Файл из папки "${LESSON_SHARED_FOLDER_NAME}" нельзя перемещать` });
+    }
     if (!folderId) {
       updated.folderId = null;
       updated.folderName = null;
     } else {
+      if (isLessonSharedFolderIdForTeacher(folderId, ownerTeacherId, updated.taskNumber)) {
+        return res.status(400).json({ error: `В папку "${LESSON_SHARED_FOLDER_NAME}" можно загружать только напрямую` });
+      }
       const folders = readFoldersDb();
       const folderRef = folders.find(
         (f) =>
@@ -6137,8 +6306,16 @@ app.patch('/api/files/:id', (req, res) => {
       return res.status(404).json({ error: 'Файл на диске не найден' });
     }
     const nextSizeBytes = Buffer.byteLength(content, 'utf8');
+    const updatedIsLessonShared = isLessonSharedFile(updated);
+    const updatedTeacherId = normalizeTeacherId(updated?.teacherId);
     const currentTotal = db
-      .filter((file) => file.id !== id && file.studentId === updated.studentId && file.taskNumber === updated.taskNumber)
+      .filter((file) => {
+        if (file.id === id || file.taskNumber !== updated.taskNumber) return false;
+        if (updatedIsLessonShared) {
+          return isLessonSharedFile(file) && normalizeTeacherId(file?.teacherId) === updatedTeacherId;
+        }
+        return file.studentId === updated.studentId;
+      })
       .reduce((sum, file) => sum + getEntrySizeBytes(file), 0);
     if (currentTotal + nextSizeBytes > MAX_TASK_BYTES) {
       return res.status(413).json({ error: 'Превышен лимит 200 МБ для этого задания' });

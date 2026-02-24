@@ -104,12 +104,22 @@ const NotesSection = ({
 
   const taskOptions = MOCK_TASKS;
   const normalizedCurrentTask = normalizeTaskNumber(currentTask);
+  const LESSON_SHARED_SCOPE = 'lesson-files';
+  const LESSON_SHARED_FOLDER_NAME = 'файлы к уроку';
   const getNotesTaskNumber = (value) => normalizeTaskNumber(value);
   const getNotesTaskNumbers = (value) => {
     const normalized = normalizeTaskNumber(value);
     if (!Number.isFinite(normalized)) return [];
     if (normalized === GAME_THEORY_TASK) return [19, 20, 21];
     return [normalized];
+  };
+  const isLessonSharedFile = (entry) => (
+    entry?.sharedScope === LESSON_SHARED_SCOPE || entry?.isLessonShared === true
+  );
+  const isLessonSharedFolder = (entry) => {
+    if (!entry || typeof entry !== 'object') return false;
+    if (entry.isLessonShared === true) return true;
+    return String(entry.name || '').trim().toLowerCase() === LESSON_SHARED_FOLDER_NAME;
   };
 
   useEffect(() => {
@@ -158,6 +168,18 @@ const NotesSection = ({
   const taskUsageByNumber = useMemo(() => {
     const map = new Map();
     for (const f of files) {
+      if (isLessonSharedFile(f)) continue;
+      const taskNum = Number(f?.taskNumber);
+      if (!Number.isFinite(taskNum)) continue;
+      map.set(taskNum, (map.get(taskNum) || 0) + getEntrySizeBytes(f));
+    }
+    return map;
+  }, [files]);
+
+  const sharedTaskUsageByNumber = useMemo(() => {
+    const map = new Map();
+    for (const f of files) {
+      if (!isLessonSharedFile(f)) continue;
       const taskNum = Number(f?.taskNumber);
       if (!Number.isFinite(taskNum)) continue;
       map.set(taskNum, (map.get(taskNum) || 0) + getEntrySizeBytes(f));
@@ -219,18 +241,27 @@ const NotesSection = ({
     return { root, map };
   }, [files, normalizedCurrentTask, currentCategory]);
 
+  const currentFolder = useMemo(
+    () => folders.find((folder) => folder.id === currentFolderId) || null,
+    [folders, currentFolderId]
+  );
+  const isCurrentFolderLessonShared = Boolean(currentFolder && isLessonSharedFolder(currentFolder));
+  const canUploadToCurrentFolder = !(role === 'student' && isCurrentFolderLessonShared);
+  const canManageFile = (file) => !(role === 'student' && isLessonSharedFile(file));
+  const activeUsageByNumber = isCurrentFolderLessonShared ? sharedTaskUsageByNumber : taskUsageByNumber;
+
   const taskUsageBytes = useMemo(() => {
     if (!Number.isFinite(normalizedCurrentTask)) return 0;
     const folderTaskNumber = getFolderTaskNumber(currentFolderId);
     if (Number.isFinite(folderTaskNumber)) {
-      return taskUsageByNumber.get(folderTaskNumber) || 0;
+      return activeUsageByNumber.get(folderTaskNumber) || 0;
     }
     if (normalizedCurrentTask === GAME_THEORY_TASK) {
       return getNotesTaskNumbers(normalizedCurrentTask)
-        .reduce((sum, taskNumber) => sum + (taskUsageByNumber.get(taskNumber) || 0), 0);
+        .reduce((sum, taskNumber) => sum + (activeUsageByNumber.get(taskNumber) || 0), 0);
     }
-    return taskUsageByNumber.get(normalizedCurrentTask) || 0;
-  }, [normalizedCurrentTask, currentFolderId, taskUsageByNumber, folders]);
+    return activeUsageByNumber.get(normalizedCurrentTask) || 0;
+  }, [normalizedCurrentTask, currentFolderId, activeUsageByNumber, folders]);
 
   const totalLimitBytes = useMemo(() => {
     if (!Number.isFinite(normalizedCurrentTask)) return MAX_TASK_BYTES;
@@ -487,6 +518,10 @@ const NotesSection = ({
       alert('Сначала выберите ученика.');
       return;
     }
+    if (!canUploadToCurrentFolder) {
+      alert(`В папку "${LESSON_SHARED_FOLDER_NAME}" может загружать только учитель.`);
+      return;
+    }
     const candidates = getUploadCandidates();
     if (!candidates.length) {
       alert('Сначала выберите задание и категорию.');
@@ -494,7 +529,7 @@ const NotesSection = ({
     }
     if (isUploading) return;
     setIsUploading(true);
-    const usageByTask = new Map(taskUsageByNumber);
+    const usageByTask = new Map(activeUsageByNumber);
     let skipped = 0;
 
     for (const file of filesToUpload) {
@@ -552,6 +587,7 @@ const NotesSection = ({
     const onPaste = (event) => {
       if (!effectiveStudentId || !Number.isFinite(normalizedCurrentTask) || !currentCategory) return;
       if (isUploading) return;
+      if (!canUploadToCurrentFolder) return;
       const imageFiles = getClipboardImageFiles(event.clipboardData);
       if (!imageFiles.length) return;
       event.preventDefault();
@@ -565,6 +601,7 @@ const NotesSection = ({
     normalizedCurrentTask,
     currentCategory,
     isUploading,
+    canUploadToCurrentFolder,
     handleUploadFiles
   ]);
 
@@ -589,6 +626,7 @@ const NotesSection = ({
   };
 
   const startRenameFolder = (folder) => {
+    if (isLessonSharedFolder(folder)) return;
     setRenamingFolderId(folder.id);
     setRenameFolderValue(folder.name || '');
   };
@@ -601,6 +639,10 @@ const NotesSection = ({
 
   const saveRenameFolder = async (folder, nameOverride) => {
     if (!folder?.id) return;
+    if (isLessonSharedFolder(folder)) {
+      cancelRenameFolder();
+      return;
+    }
     const name = (nameOverride ?? renameFolderValue).trim();
     if (!name || name === folder.name) {
       cancelRenameFolder();
@@ -646,9 +688,25 @@ const NotesSection = ({
     e.preventDefault();
     const fileId = e.dataTransfer.getData('text/plain');
     if (!fileId) return;
+    const file = files.find((item) => item.id === fileId);
+    if (!file) return;
+    if (!canManageFile(file)) {
+      alert('Недостаточно прав для изменения этого файла.');
+      setDragOverFolderId(null);
+      return;
+    }
+    if (isLessonSharedFile(file)) {
+      alert(`Файлы из папки "${LESSON_SHARED_FOLDER_NAME}" нельзя перемещать.`);
+      setDragOverFolderId(null);
+      return;
+    }
     if (folderId) {
-      const file = files.find((item) => item.id === fileId);
       const folder = folders.find((item) => item.id === folderId);
+      if (folder && isLessonSharedFolder(folder)) {
+        alert(`В папку "${LESSON_SHARED_FOLDER_NAME}" можно загружать только напрямую.`);
+        setDragOverFolderId(null);
+        return;
+      }
       const fileTask = Number(file?.taskNumber);
       const folderTask = Number(folder?.taskNumber);
       if (Number.isFinite(fileTask) && Number.isFinite(folderTask) && fileTask !== folderTask) {
@@ -714,7 +772,11 @@ const NotesSection = ({
     }
     const code = String(pyDraftCode ?? '');
     const sizeBytes = getPyDraftSize(code);
-    const usageByTask = new Map(taskUsageByNumber);
+    if (!canUploadToCurrentFolder) {
+      setPyDraftError(`В папку "${LESSON_SHARED_FOLDER_NAME}" может загружать только учитель.`);
+      return;
+    }
+    const usageByTask = new Map(activeUsageByNumber);
     const uploadTaskNumber = selectUploadTaskNumber(sizeBytes, usageByTask);
     if (!Number.isFinite(uploadTaskNumber)) {
       setPyDraftError('Недостаточно места для сохранения файла в этом задании.');
@@ -1058,6 +1120,10 @@ const NotesSection = ({
 
   const startEditingPyFile = async (file) => {
     if (!isPyFile(file?.name)) return;
+    if (!canManageFile(file)) {
+      alert('Недостаточно прав для изменения этого файла.');
+      return;
+    }
     if (pyEditSaving) return;
     if (!expandedPyIds[file.id]) {
       setExpandedPyIds((prev) => ({ ...prev, [file.id]: true }));
@@ -1089,6 +1155,7 @@ const NotesSection = ({
 
   const saveEditingPyFile = async (file) => {
     if (!isPyFile(file?.name) || !file?.id) return;
+    if (!canManageFile(file)) return;
     if (editingPyId !== file.id || pyEditSaving) return;
     setPyEditSaving(true);
     setPyEditError('');
@@ -1135,6 +1202,10 @@ const NotesSection = ({
   };
 
   const handleDelete = async (file) => {
+    if (!canManageFile(file)) {
+      alert('Недостаточно прав для удаления этого файла.');
+      return;
+    }
     if (!confirm('Удалить файл?')) return;
     try {
       await api.deleteFile(file.id);
@@ -1177,6 +1248,7 @@ const NotesSection = ({
   };
 
   const startRename = (file) => {
+    if (!canManageFile(file)) return;
     setRenamingId(file.id);
     const { base, ext } = splitFileName(file?.name || '');
     setRenameBase(base);
@@ -1192,6 +1264,7 @@ const NotesSection = ({
 
   const saveRename = async (file, nameOverride) => {
     if (!file?.id) return;
+    if (!canManageFile(file)) return;
     const base = (nameOverride ?? renameBase).trim();
     if (!base) {
       cancelRename();
@@ -1462,8 +1535,8 @@ const NotesSection = ({
     f.category === currentCategory &&
     (currentFolderId ? f.folderId === currentFolderId : !f.folderId)
   );
-  const currentFolderLabel = currentFolderId
-    ? (folders.find((f) => f.id === currentFolderId)?.name || 'Папка')
+  const currentFolderLabel = currentFolder
+    ? (currentFolder.name || 'Папка')
     : 'Без папки';
   const pyEditorOptions = {
     minimap: { enabled: false },
@@ -1483,6 +1556,10 @@ const NotesSection = ({
   const imagePreviewMaxHeight = isMobileViewport ? '56vh' : '72vh';
   const currentTaskLabel = formatTaskNumber(currentTask) || currentTask;
   const currentCategoryLabel = currentCategory === 'class' ? 'На уроке' : 'Домашка';
+  const uploadBlockedByRole = !canUploadToCurrentFolder;
+  const uploadButtonLabel = isUploading
+    ? 'Загрузка...'
+    : (uploadBlockedByRole ? 'Только учитель' : 'Загрузить');
 
   return (
     <div className="animate-fadeIn space-y-4 md:space-y-5" data-tour="notes">
@@ -1544,9 +1621,9 @@ const NotesSection = ({
               </div>
             </div>
             <div className="flex gap-2 w-full sm:w-auto">
-              <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} multiple />
-              <Button onClick={() => fileRef.current.click()} disabled={isUploading} className="w-full sm:w-auto min-w-[128px]">
-                <Upload size={18} /> {isUploading ? 'Загрузка...' : 'Загрузить'}
+              <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} multiple disabled={uploadBlockedByRole} />
+              <Button onClick={() => fileRef.current?.click()} disabled={isUploading || uploadBlockedByRole} className="w-full sm:w-auto min-w-[128px]">
+                <Upload size={18} /> {uploadButtonLabel}
               </Button>
             </div>
           </div>
@@ -1596,7 +1673,7 @@ const NotesSection = ({
             <h3 className="font-bold text-gray-800">Python файл</h3>
             <p className="text-xs text-slate-500">Создайте .py файл сразу в текущей папке</p>
           </div>
-          <Button variant="secondary" onClick={() => setShowPyCreator((v) => !v)}>
+          <Button variant="secondary" onClick={() => setShowPyCreator((v) => !v)} disabled={uploadBlockedByRole}>
             <Plus size={16} /> {showPyCreator ? 'Скрыть' : 'Создать'}
           </Button>
         </div>
@@ -1610,7 +1687,7 @@ const NotesSection = ({
                 placeholder="Название файла (без .py)"
                 className="flex-1 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
               />
-              <Button onClick={handleCreatePyFile} disabled={pyDraftSaving || !pyDraftName.trim()} className="w-full md:w-auto">
+              <Button onClick={handleCreatePyFile} disabled={pyDraftSaving || !pyDraftName.trim() || uploadBlockedByRole} className="w-full md:w-auto">
                 {pyDraftSaving ? 'Сохранение...' : 'Сохранить файл'}
               </Button>
             </div>
@@ -1681,64 +1758,84 @@ const NotesSection = ({
             Без папки
             <span className="ml-2 text-xs opacity-70">{folderCounts.root}</span>
           </button>
-          {folders.map((folder) => (
-            <button
-              key={folder.id}
-              onClick={() => {
-                if (renamingFolderId !== folder.id) setCurrentFolderId(folder.id);
-              }}
-              onDoubleClick={() => startRenameFolder(folder)}
-              onDragOver={(e) => handleFolderDragOver(e, folder.id)}
-              onDragLeave={(e) => handleFolderDragLeave(e, folder.id)}
-              onDrop={(e) => handleFolderDrop(e, folder.id)}
-              className={`px-3 py-2 rounded-xl border text-sm font-medium transition-all ${
-                dragOverFolderId === folder.id
-                  ? 'border-purple-500 bg-purple-50 text-purple-700 ring-2 ring-purple-200'
-                  : currentFolderId === folder.id
-                    ? 'border-purple-500 bg-purple-50 text-purple-700'
-                    : 'border-gray-200 text-gray-600 hover:border-purple-300'
-              }`}
-            >
-              {renamingFolderId === folder.id ? (
-                <input
-                  value={renameFolderValue}
-                  onChange={(e) => setRenameFolderValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') saveRenameFolder(folder);
-                    if (e.key === 'Escape') cancelRenameFolder();
-                  }}
-                  onBlur={() => {
-                    if (!isRenamingFolder) saveRenameFolder(folder);
-                  }}
-                  className="px-2 py-1 rounded-lg bg-white border border-purple-100 focus:border-purple-500 outline-none text-sm"
-                  autoFocus
-                />
-              ) : (
-                <>
-                  {folder.name}
-                  <span className="ml-2 text-xs opacity-70">{folderCounts.map.get(folder.id) || 0}</span>
-                </>
-              )}
-            </button>
-          ))}
+          {folders.map((folder) => {
+            const sharedFolder = isLessonSharedFolder(folder);
+            return (
+              <button
+                key={folder.id}
+                onClick={() => {
+                  if (renamingFolderId !== folder.id) setCurrentFolderId(folder.id);
+                }}
+                onDoubleClick={() => {
+                  if (!sharedFolder) startRenameFolder(folder);
+                }}
+                onDragOver={(e) => {
+                  if (!sharedFolder) handleFolderDragOver(e, folder.id);
+                }}
+                onDragLeave={(e) => {
+                  if (!sharedFolder) handleFolderDragLeave(e, folder.id);
+                }}
+                onDrop={(e) => handleFolderDrop(e, folder.id)}
+                className={`px-3 py-2 rounded-xl border text-sm font-medium transition-all ${
+                  dragOverFolderId === folder.id
+                    ? 'border-purple-500 bg-purple-50 text-purple-700 ring-2 ring-purple-200'
+                    : currentFolderId === folder.id
+                      ? 'border-purple-500 bg-purple-50 text-purple-700'
+                      : sharedFolder
+                        ? 'border-amber-200 bg-amber-50 text-amber-700'
+                        : 'border-gray-200 text-gray-600 hover:border-purple-300'
+                }`}
+              >
+                {renamingFolderId === folder.id && !sharedFolder ? (
+                  <input
+                    value={renameFolderValue}
+                    onChange={(e) => setRenameFolderValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') saveRenameFolder(folder);
+                      if (e.key === 'Escape') cancelRenameFolder();
+                    }}
+                    onBlur={() => {
+                      if (!isRenamingFolder) saveRenameFolder(folder);
+                    }}
+                    className="px-2 py-1 rounded-lg bg-white border border-purple-100 focus:border-purple-500 outline-none text-sm"
+                    autoFocus
+                  />
+                ) : (
+                  <>
+                    {folder.name}
+                    {sharedFolder && <span className="ml-2 text-[10px] uppercase tracking-wide opacity-70">общая</span>}
+                    <span className="ml-2 text-xs opacity-70">{folderCounts.map.get(folder.id) || 0}</span>
+                  </>
+                )}
+              </button>
+            );
+          })}
         </div>
         {foldersError && <p className="text-xs text-red-500 mt-2">{foldersError}</p>}
       </Card>
 
       <div
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
+        onDrop={uploadBlockedByRole ? undefined : handleDrop}
+        onDragOver={uploadBlockedByRole ? undefined : handleDragOver}
+        onDragLeave={uploadBlockedByRole ? undefined : handleDragLeave}
         data-tour="files"
         className={`rounded-3xl border-2 border-dashed p-3.5 md:p-5 transition-all ${
-          isDragging
+          uploadBlockedByRole
+            ? 'border-slate-200 bg-slate-50/70'
+            : isDragging
             ? 'border-purple-400 bg-gradient-to-br from-purple-50 via-white to-fuchsia-50/40'
             : 'border-slate-200 bg-gradient-to-br from-white via-white to-slate-50/70'
         }`}
       >
         <div className="mb-3 md:mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
-          <span className="hidden md:inline">Перетащите файл сюда или вставьте изображение через Ctrl+V</span>
-          <span className="md:hidden">Загрузите файл или вставьте изображение</span>
+          {uploadBlockedByRole ? (
+            <span>Загрузка в эту папку доступна только учителю</span>
+          ) : (
+            <>
+              <span className="hidden md:inline">Перетащите файл сюда или вставьте изображение через Ctrl+V</span>
+              <span className="md:hidden">Загрузите файл или вставьте изображение</span>
+            </>
+          )}
           <span className="text-[11px] md:text-xs text-slate-400">
             Папка: {currentFolderLabel} • Осталось {formatBytes(remainingBytes)}
           </span>
@@ -1751,14 +1848,19 @@ const NotesSection = ({
           </div>
         ) : (
           <div className="space-y-3">
-            {filtered.map(f => (
+            {filtered.map((f) => {
+              const manageable = canManageFile(f);
+              return (
               <div key={f.id} className="space-y-2">
                 <div
                 className={`flex items-start justify-between rounded-2xl border border-slate-200 bg-white/90 p-3 md:p-4 shadow-sm transition-all ${
                   draggingFileId === f.id ? 'opacity-60' : 'hover:border-purple-200 hover:shadow-md'
                 }`}
-                draggable={renamingId !== f.id}
-                onDragStart={(e) => handleDragStartFile(e, f)}
+                draggable={renamingId !== f.id && manageable}
+                onDragStart={(e) => {
+                  if (!manageable) return;
+                  handleDragStartFile(e, f);
+                }}
                 onDragEnd={handleDragEndFile}
                 onClick={() => toggleFilePreview(f)}
                 role={(isPyFile(f.name) || isPdfFile(f.name) || isImageFile(f)) ? 'button' : undefined}
@@ -1793,7 +1895,7 @@ const NotesSection = ({
                             <span className="text-sm text-gray-500 select-none">.{renameExt}</span>
                           ) : null}
                         </div>
-                      ) : (
+                      ) : manageable ? (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1804,6 +1906,10 @@ const NotesSection = ({
                         >
                           {f.name}
                         </button>
+                      ) : (
+                        <span className="font-medium text-sm md:text-base text-gray-800 truncate text-left">
+                          {f.name}
+                        </span>
                       )}
                       <p className="text-xs text-gray-500">
                         {f.size}
@@ -1823,7 +1929,9 @@ const NotesSection = ({
                             <Download size={17}/>
                           </button>
                         )}
-                        <button onClick={(e) => { e.stopPropagation(); handleDelete(f); }} className="p-1.5 md:p-2 hover:bg-red-50 rounded text-red-500"><Trash2 size={17}/></button>
+                        {manageable && (
+                          <button onClick={(e) => { e.stopPropagation(); handleDelete(f); }} className="p-1.5 md:p-2 hover:bg-red-50 rounded text-red-500"><Trash2 size={17}/></button>
+                        )}
                       </>
                     )}
                   </div>
@@ -1870,7 +1978,7 @@ const NotesSection = ({
                               e.stopPropagation();
                               startEditingPyFile(f);
                             }}
-                            disabled={pyLoadingId === f.id || Boolean(pyError[f.id])}
+                            disabled={pyLoadingId === f.id || Boolean(pyError[f.id]) || !manageable}
                             className="w-full sm:w-auto"
                           >
                             Редактировать
@@ -1975,7 +2083,8 @@ const NotesSection = ({
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
