@@ -373,6 +373,20 @@ const TeacherPanel = ({
   const studentsList = students || [];
   const deletedStudentsList = deletedStudents || [];
   const tasksList = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
+  const normalizeStorageBytes = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) && num > 0 ? num : 0;
+  };
+  const formatStorageBytes = (value) => {
+    const bytes = normalizeStorageBytes(value);
+    if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} ГБ`;
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
+    return `${bytes} Б`;
+  };
+  const totalNotesUsageBytes = studentsList.reduce((sum, student) => {
+    return sum + normalizeStorageBytes(student?.notesUsageBytes);
+  }, 0);
   const formatDeletedDate = (iso) => {
     if (!iso) return '';
     const date = new Date(iso);
@@ -1185,7 +1199,9 @@ const TeacherPanel = ({
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
             <h3 className="text-lg font-bold text-gray-800">Ученики</h3>
-            <p className="text-xs text-gray-500">Всего: {studentsList.length}</p>
+            <p className="text-xs text-gray-500">
+              {`Всего: ${studentsList.length} • Конспекты: ${formatStorageBytes(totalNotesUsageBytes)}`}
+            </p>
           </div>
           {studentsError && <span className="text-xs text-red-500">{studentsError}</span>}
         </div>
@@ -1229,6 +1245,7 @@ const TeacherPanel = ({
           ) : (
             studentsList.map((student) => {
               const studentXpTotal = normalizeXpTotal(student?.xpTotal);
+              const studentNotesUsageBytes = normalizeStorageBytes(student?.notesUsageBytes);
               const rawStudentLevel = Number(student?.level);
               const studentLevel = Number.isFinite(rawStudentLevel) && rawStudentLevel > 0
                 ? Math.floor(rawStudentLevel)
@@ -1298,6 +1315,9 @@ const TeacherPanel = ({
                           </span>
                           <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                             {`${studentXpLabel} XP`}
+                          </span>
+                          <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                            {`Конспекты: ${formatStorageBytes(studentNotesUsageBytes)}`}
                           </span>
                         </div>
                         <p className="text-xs text-gray-500 truncate">

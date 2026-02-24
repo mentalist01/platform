@@ -4321,6 +4321,16 @@ app.get('/api/students', (req, res) => {
   } else if (!includeDeletedFlag) {
     students = students.filter(isActiveStudent);
   }
+  const notesUsageByStudentId = new Map();
+  const filesDb = readFilesDb();
+  filesDb.forEach((entry) => {
+    if (!entry || isLessonSharedFile(entry)) return;
+    const studentId = typeof entry.studentId === 'string' ? entry.studentId.trim() : '';
+    if (!studentId) return;
+    const sizeBytes = getEntrySizeBytes(entry);
+    if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) return;
+    notesUsageByStudentId.set(studentId, (notesUsageByStudentId.get(studentId) || 0) + sizeBytes);
+  });
   const sanitized = students.map(({ codeHash, code, ...rest }) => {
     const data = getStudentData(rest.id);
     const xpTotal = normalizeXpTotal(data?.xpTotal);
@@ -4330,6 +4340,7 @@ app.get('/api/students', (req, res) => {
       leaderboardAlias: normalizeLeaderboardAlias(data?.leaderboardAlias),
       xpTotal,
       level,
+      notesUsageBytes: notesUsageByStudentId.get(rest.id) || 0,
     };
   });
   res.json(sanitized);
