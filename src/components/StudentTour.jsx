@@ -122,7 +122,7 @@ const StudentTour = ({
 
   return createPortal(
     <div className="fixed inset-0 z-[2000]">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/40" />
       {highlightRect && (
         <div
           className="absolute rounded-3xl ring-2 ring-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] pointer-events-none"
