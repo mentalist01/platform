@@ -1771,12 +1771,8 @@ const NotesSection = ({
                 onDoubleClick={() => {
                   if (!sharedFolder) startRenameFolder(folder);
                 }}
-                onDragOver={(e) => {
-                  if (!sharedFolder) handleFolderDragOver(e, folder.id);
-                }}
-                onDragLeave={(e) => {
-                  if (!sharedFolder) handleFolderDragLeave(e, folder.id);
-                }}
+                onDragOver={(e) => handleFolderDragOver(e, folder.id)}
+                onDragLeave={(e) => handleFolderDragLeave(e, folder.id)}
                 onDrop={(e) => handleFolderDrop(e, folder.id)}
                 className={`px-3 py-2 rounded-xl border text-sm font-medium transition-all ${
                   dragOverFolderId === folder.id
