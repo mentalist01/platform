@@ -1944,6 +1944,11 @@ const CollabSection = ({
   const [taskFilesError, setTaskFilesError] = useState('');
   const [taskFileUploadBusy, setTaskFileUploadBusy] = useState(false);
   const [selectedTaskFileIds, setSelectedTaskFileIds] = useState([]);
+  const [taskFilesPanelOpen, setTaskFilesPanelOpen] = useState(false);
+  const [notesPdfPanelOpen, setNotesPdfPanelOpen] = useState(false);
+  const [notesPdfFolderKey, setNotesPdfFolderKey] = useState('');
+  const [notesPdfFileId, setNotesPdfFileId] = useState('');
+  const [notesPdfPanelHeight, setNotesPdfPanelHeight] = useState(190);
 
   const isMobileViewport = typeof window !== 'undefined'
     ? window.matchMedia('(max-width: 767px)').matches
@@ -1961,6 +1966,10 @@ const CollabSection = ({
   const collabRootRef = useRef(null);
   const splitLayoutRef = useRef(null);
   const splitDragCleanupRef = useRef(null);
+  const notesPdfResizeCleanupRef = useRef(null);
+  const notesPdfPreviewRef = useRef(null);
+  const notesPdfPanelHeightRef = useRef(notesPdfPanelHeight);
+  const notesPdfDragHeightRef = useRef(notesPdfPanelHeight);
   const collabDocRef = useRef(null);
   const runMapRef = useRef(null);
   const collabAwarenessRef = useRef(null);
@@ -2012,7 +2021,72 @@ const CollabSection = ({
     const selectedSet = new Set(selectedTaskFileIds);
     return filteredTaskFiles.filter((file) => selectedSet.has(file.id));
   }, [filteredTaskFiles, selectedTaskFileIds]);
+  const notesPdfFiles = useMemo(() => {
+    const files = Array.isArray(taskFiles) ? taskFiles : [];
+    return files
+      .filter((file) => String(file?.name || '').toLowerCase().endsWith('.pdf'))
+      .sort((a, b) => {
+        const aTask = Number(a?.taskNumber);
+        const bTask = Number(b?.taskNumber);
+        if (Number.isFinite(aTask) && Number.isFinite(bTask) && aTask !== bTask) return aTask - bTask;
+        if (Number.isFinite(aTask) && !Number.isFinite(bTask)) return -1;
+        if (!Number.isFinite(aTask) && Number.isFinite(bTask)) return 1;
+        const categoryWeight = (value) => (value === 'class' ? 0 : (value === 'home' ? 1 : 2));
+        const categoryDiff = categoryWeight(a?.category) - categoryWeight(b?.category);
+        if (categoryDiff !== 0) return categoryDiff;
+        const folderDiff = String(a?.folderName || '').localeCompare(String(b?.folderName || ''), 'ru');
+        if (folderDiff !== 0) return folderDiff;
+        return String(a?.name || '').localeCompare(String(b?.name || ''), 'ru');
+      });
+  }, [taskFiles]);
+  const getNotesPdfFolderKey = useCallback((file) => {
+    const taskNumber = Number(file?.taskNumber);
+    const taskPart = Number.isFinite(taskNumber) ? String(taskNumber) : '';
+    const categoryPart = String(file?.category || '');
+    const folderIdPart = String(file?.folderId || '');
+    const folderNamePart = String(file?.folderName || '');
+    return `${taskPart}::${categoryPart}::${folderIdPart}::${folderNamePart}`;
+  }, []);
+  const notesPdfFolders = useMemo(() => {
+    const unique = new Map();
+    notesPdfFiles.forEach((file) => {
+      const key = getNotesPdfFolderKey(file);
+      if (unique.has(key)) return;
+      const taskLabel = Number.isFinite(Number(file?.taskNumber))
+        ? `№${formatTaskNumber(file.taskNumber) || file.taskNumber}`
+        : 'Без задания';
+      const categoryLabel = file?.category === 'class'
+        ? 'урок'
+        : (file?.category === 'home' ? 'домашка' : 'файл');
+      const folderLabel = String(file?.folderName || '').trim() || 'Без папки';
+      unique.set(key, {
+        key,
+        label: `${taskLabel} • ${categoryLabel} • ${folderLabel}`,
+      });
+    });
+    return Array.from(unique.values());
+  }, [notesPdfFiles, getNotesPdfFolderKey]);
+  const selectedNotesPdfFolderKey = useMemo(() => {
+    if (!notesPdfFolders.length) return '';
+    return notesPdfFolders.some((folder) => folder.key === notesPdfFolderKey)
+      ? notesPdfFolderKey
+      : notesPdfFolders[0].key;
+  }, [notesPdfFolders, notesPdfFolderKey]);
+  const notesPdfFilesInSelectedFolder = useMemo(() => {
+    if (!selectedNotesPdfFolderKey) return [];
+    return notesPdfFiles.filter((file) => getNotesPdfFolderKey(file) === selectedNotesPdfFolderKey);
+  }, [notesPdfFiles, selectedNotesPdfFolderKey, getNotesPdfFolderKey]);
   const getTaskFileUrl = useCallback((file) => withStudentId(file?.url, effectiveStudentId), [withStudentId, effectiveStudentId]);
+  const selectedNotesPdfFile = useMemo(
+    () => notesPdfFilesInSelectedFolder.find((file) => file.id === notesPdfFileId) || null,
+    [notesPdfFilesInSelectedFolder, notesPdfFileId]
+  );
+  const selectedNotesPdfUrl = selectedNotesPdfFile ? getTaskFileUrl(selectedNotesPdfFile) : '';
+  const selectedNotesPdfEmbedUrl = useMemo(() => {
+    if (!selectedNotesPdfUrl) return '';
+    const joiner = selectedNotesPdfUrl.includes('#') ? '&' : '#';
+    return `${selectedNotesPdfUrl}${joiner}toolbar=0&navpanes=0&scrollbar=1&view=FitH`;
+  }, [selectedNotesPdfUrl]);
   const editorOptions = useMemo(() => ({
     minimap: { enabled: false },
     fontSize: editorFontSize,
@@ -2044,6 +2118,14 @@ const CollabSection = ({
   const editorHeight = isCollabFullscreen
     ? (isMobileViewport ? '60vh' : '82vh')
     : (isMobileViewport ? '50vh' : (isDesktopCollabCompact ? '100%' : '65vh'));
+  const notesPdfMinHeight = isMobileViewport ? 90 : 120;
+  const notesPdfMaxHeight = isCollabFullscreen
+    ? (isMobileViewport ? 520 : 760)
+    : (isDesktopCollabCompact ? 380 : 560);
+  const clampNotesPdfHeight = useCallback(
+    (value) => Math.max(notesPdfMinHeight, Math.min(notesPdfMaxHeight, Math.round(value))),
+    [notesPdfMinHeight, notesPdfMaxHeight]
+  );
   const clampFontSize = (value) => Math.min(36, Math.max(12, Math.round(value)));
   const collabShellClass = isCollabFullscreen
     ? 'animate-fadeIn min-h-screen w-screen bg-[radial-gradient(circle_at_top,_rgba(124,58,237,0.22),_rgba(15,23,42,0.85)_55%,_rgba(3,7,18,1)_100%)] text-slate-100 px-2 pt-2 pb-1 sm:px-3 sm:pt-3 sm:pb-1.5 md:px-4 md:pt-4 md:pb-2 overflow-auto'
@@ -2542,6 +2624,40 @@ const CollabSection = ({
   }, [filteredTaskFiles]);
 
   useEffect(() => {
+    if (!notesPdfFolders.length) {
+      setNotesPdfFolderKey('');
+      return;
+    }
+    setNotesPdfFolderKey((prev) => {
+      if (prev && notesPdfFolders.some((folder) => folder.key === prev)) return prev;
+      return notesPdfFolders[0].key;
+    });
+  }, [notesPdfFolders]);
+
+  useEffect(() => {
+    if (!notesPdfFilesInSelectedFolder.length) {
+      setNotesPdfFileId('');
+      return;
+    }
+    setNotesPdfFileId((prev) => {
+      if (prev && notesPdfFilesInSelectedFolder.some((file) => file.id === prev)) return prev;
+      return notesPdfFilesInSelectedFolder[0].id;
+    });
+  }, [notesPdfFilesInSelectedFolder]);
+
+  useEffect(() => {
+    setNotesPdfPanelHeight((prev) => clampNotesPdfHeight(prev));
+  }, [clampNotesPdfHeight]);
+
+  useEffect(() => {
+    notesPdfPanelHeightRef.current = notesPdfPanelHeight;
+    notesPdfDragHeightRef.current = notesPdfPanelHeight;
+    if (notesPdfPreviewRef.current) {
+      notesPdfPreviewRef.current.style.height = `${notesPdfPanelHeight}px`;
+    }
+  }, [notesPdfPanelHeight]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
     const clampLocalFontSize = (value) => Math.min(36, Math.max(12, Math.round(value)));
     const forcedFontSize = clampLocalFontSize(23);
@@ -2583,6 +2699,10 @@ const CollabSection = ({
 
   useEffect(() => () => {
     splitDragCleanupRef.current?.();
+  }, []);
+
+  useEffect(() => () => {
+    notesPdfResizeCleanupRef.current?.();
   }, []);
 
   useEffect(() => {
@@ -2947,6 +3067,9 @@ const CollabSection = ({
       setDebugPlaying(false);
       setDebugSourceSnapshot('');
       setDebugStep(-1);
+      setNotesPdfPanelOpen(false);
+      setNotesPdfFolderKey('');
+      setNotesPdfFileId('');
       return;
     }
     const output = typeof runMap.get('output') === 'string' ? runMap.get('output') : String(runMap.get('output') ?? '');
@@ -2989,6 +3112,22 @@ const CollabSection = ({
       suppressBreakpointSyncRef.current = true;
       debugBreakpointsRef.current = nextBreakpoints;
       setDebugBreakpoints(nextBreakpoints);
+    }
+
+    if (runMap.has('notesPdfOpen')) {
+      setNotesPdfPanelOpen(Boolean(runMap.get('notesPdfOpen')));
+    }
+    if (runMap.has('notesPdfFolderKey')) {
+      const nextFolderKey = typeof runMap.get('notesPdfFolderKey') === 'string'
+        ? runMap.get('notesPdfFolderKey')
+        : String(runMap.get('notesPdfFolderKey') ?? '');
+      setNotesPdfFolderKey(nextFolderKey);
+    }
+    if (runMap.has('notesPdfFileId')) {
+      const nextFileId = typeof runMap.get('notesPdfFileId') === 'string'
+        ? runMap.get('notesPdfFileId')
+        : String(runMap.get('notesPdfFileId') ?? '');
+      setNotesPdfFileId(nextFileId);
     }
   };
 
@@ -3042,6 +3181,15 @@ const CollabSection = ({
           setDebugBreakpoints(nextBreakpoints);
         }
       }
+      if (Object.prototype.hasOwnProperty.call(payload, 'notesPdfOpen')) {
+        setNotesPdfPanelOpen(Boolean(payload.notesPdfOpen));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'notesPdfFolderKey')) {
+        setNotesPdfFolderKey(String(payload.notesPdfFolderKey || ''));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'notesPdfFileId')) {
+        setNotesPdfFileId(String(payload.notesPdfFileId || ''));
+      }
       return;
     }
     doc.transact(() => {
@@ -3084,6 +3232,15 @@ const CollabSection = ({
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'debugBreakpoints')) {
         runMap.set('debugBreakpoints', normalizeDebugBreakpoints(payload.debugBreakpoints));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'notesPdfOpen')) {
+        runMap.set('notesPdfOpen', Boolean(payload.notesPdfOpen));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'notesPdfFolderKey')) {
+        runMap.set('notesPdfFolderKey', String(payload.notesPdfFolderKey || ''));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'notesPdfFileId')) {
+        runMap.set('notesPdfFileId', String(payload.notesPdfFileId || ''));
       }
     });
   };
@@ -3755,6 +3912,55 @@ const CollabSection = ({
   const handleSplitResizeReset = useCallback(() => {
     setSplitLeftWidth(68);
   }, []);
+  const handleNotesPdfResizeStart = useCallback((event) => {
+    if (!notesPdfPanelOpen || !selectedNotesPdfFile) return;
+    event.preventDefault();
+    const handleNode = event.currentTarget;
+    const pointerId = event.pointerId;
+    const startY = event.clientY;
+    const startHeight = notesPdfPanelHeightRef.current;
+    notesPdfDragHeightRef.current = startHeight;
+    const applyHeight = (rawHeight) => {
+      const nextHeight = clampNotesPdfHeight(rawHeight);
+      notesPdfDragHeightRef.current = nextHeight;
+      if (notesPdfPreviewRef.current) {
+        notesPdfPreviewRef.current.style.height = `${nextHeight}px`;
+      }
+    };
+    const handlePointerMove = (moveEvent) => {
+      const delta = moveEvent.clientY - startY;
+      applyHeight(startHeight + delta);
+    };
+    const stopDragging = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopDragging);
+      window.removeEventListener('pointercancel', stopDragging);
+      try {
+        handleNode?.releasePointerCapture?.(pointerId);
+      } catch {}
+      if (typeof document !== 'undefined') {
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+      notesPdfResizeCleanupRef.current = null;
+      setNotesPdfPanelHeight(notesPdfDragHeightRef.current);
+    };
+    notesPdfResizeCleanupRef.current?.();
+    notesPdfResizeCleanupRef.current = stopDragging;
+    try {
+      handleNode?.setPointerCapture?.(pointerId);
+    } catch {}
+    if (typeof document !== 'undefined') {
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+    }
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopDragging);
+    window.addEventListener('pointercancel', stopDragging);
+  }, [notesPdfPanelOpen, selectedNotesPdfFile, clampNotesPdfHeight]);
+  const handleNotesPdfResizeReset = useCallback(() => {
+    setNotesPdfPanelHeight(clampNotesPdfHeight(isMobileViewport ? 150 : 190));
+  }, [clampNotesPdfHeight, isMobileViewport]);
 
   const renderStudentPicker = () => {
     if (!isTeacher) return null;
@@ -3953,124 +4159,369 @@ const CollabSection = ({
           <div className={`${isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>
             Файлы задания для open()
           </div>
-          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+          <div className="flex items-center gap-1">
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+              isCollabFullscreen
+                ? 'border-slate-600 text-slate-200'
+                : 'border-purple-200 text-purple-700'
+            }`}>
+              {selectedTaskFiles.length}
+            </span>
+            <button
+              type="button"
+              onClick={() => setTaskFilesPanelOpen((prev) => !prev)}
+              aria-expanded={taskFilesPanelOpen}
+              className={`inline-flex items-center rounded-xl border transition ${
+                isSplitCollabLayout ? 'gap-0.5 px-2 py-0.5 text-[10px]' : 'gap-1 px-2 py-1 text-[11px]'
+              } ${
+                isCollabFullscreen
+                  ? 'border-slate-600 text-slate-100 hover:border-violet-400'
+                  : 'border-purple-200 text-purple-700 hover:border-purple-300 hover:bg-purple-50'
+              }`}
+            >
+              <ChevronRight
+                size={12}
+                className={`transition-transform duration-200 ${taskFilesPanelOpen ? 'rotate-90' : ''}`}
+              />
+              {taskFilesPanelOpen ? 'Скрыть' : 'Показать'}
+            </button>
+          </div>
+        </div>
+        {taskFilesPanelOpen && (
+          <>
+            <div className={`grid grid-cols-1 ${isSplitCollabLayout ? 'gap-1' : 'gap-2'} md:grid-cols-3`}>
+              <select
+                value={runTaskNumber}
+                onChange={(e) => setRunTaskNumber(e.target.value)}
+                disabled={!effectiveStudentId || taskFileUploadBusy}
+                className={`rounded-xl border outline-none ${
+                  isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
+                } ${
+                  isCollabFullscreen
+                    ? 'border-slate-700 bg-slate-950 text-slate-100 focus:border-violet-400'
+                    : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
+                }`}
+              >
+                {taskOptions.map((task) => (
+                  <option key={task.id} value={task.number}>
+                    {`Задание ${getTaskDisplayNumber(task)}`}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={runTaskCategory}
+                onChange={(e) => setRunTaskCategory(e.target.value)}
+                disabled={!effectiveStudentId || taskFileUploadBusy}
+                className={`rounded-xl border outline-none ${
+                  isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
+                } ${
+                  isCollabFullscreen
+                    ? 'border-slate-700 bg-slate-950 text-slate-100 focus:border-violet-400'
+                    : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
+                }`}
+              >
+                <option value="class">На уроке</option>
+                <option value="home">Домашка</option>
+              </select>
+              <div className="flex items-center gap-1">
+                <input
+                  ref={taskFileInputRef}
+                  type="file"
+                  className="hidden"
+                  multiple
+                  onChange={(event) => handleUploadTaskFiles(event.target.files)}
+                />
+                <button
+                  type="button"
+                  onClick={() => taskFileInputRef.current?.click()}
+                  disabled={!effectiveStudentId || taskFileUploadBusy}
+                  className={`inline-flex w-full items-center justify-center gap-1 rounded-xl border transition ${
+                    isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
+                  } ${
+                    !effectiveStudentId || taskFileUploadBusy
+                      ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : (isCollabFullscreen
+                        ? 'border-slate-600 bg-slate-950 text-slate-100 hover:border-violet-400'
+                        : 'border-purple-200 bg-white text-purple-700 hover:border-purple-300 hover:bg-purple-50')
+                  }`}
+                >
+                  <Upload size={13} />
+                  {taskFileUploadBusy ? 'Загрузка...' : 'Загрузить файл'}
+                </button>
+              </div>
+            </div>
+            {taskFilesError && (
+              <div className={`text-[11px] ${isCollabFullscreen ? 'text-rose-300' : 'text-rose-600'}`}>
+                {taskFilesError}
+              </div>
+            )}
+            <div className={`rounded-xl border ${
+              isSplitCollabLayout ? 'max-h-20' : 'max-h-28'
+            } overflow-auto ${
+              isCollabFullscreen
+                ? 'border-slate-700/80 bg-slate-950/60'
+                : 'border-gray-200 bg-gray-50'
+            }`}>
+              {taskFilesLoading ? (
+                <div className={`px-2 py-1.5 text-[11px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
+                  Загружаем файлы...
+                </div>
+              ) : (
+                <>
+                  {!filteredTaskFiles.length ? (
+                    <div className={`px-2 py-1.5 text-[11px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
+                      Файлы не найдены.
+                    </div>
+                  ) : (
+                    filteredTaskFiles.map((file) => (
+                      <label
+                        key={file.id}
+                        className={`flex cursor-pointer items-start gap-2 border-b px-2 py-1.5 text-[11px] last:border-b-0 ${
+                          isCollabFullscreen
+                            ? 'border-slate-800 text-slate-100'
+                            : 'border-gray-200 text-gray-700'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedTaskFileIds.includes(file.id)}
+                          onChange={() => handleToggleTaskFile(file.id)}
+                          className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300"
+                        />
+                        <span className="min-w-0 flex-1 truncate">{file.name || 'file'}</span>
+                      </label>
+                    ))
+                  )}
+                </>
+              )}
+            </div>
+            <div className={`text-[10px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
+              Выбранные файлы доступны в Python как обычные файлы.
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+  const notesPdfPane = (
+    <div className={`rounded-xl border px-1.5 py-1 ${isSplitCollabLayout ? 'space-y-0.5' : 'space-y-1'} ${
+      isCollabFullscreen
+        ? 'border-slate-700/80 bg-slate-900/70'
+        : 'border-gray-200 bg-white'
+    }`}>
+      <div className="flex items-center justify-between gap-1.5">
+        <div className={`flex min-w-0 items-center gap-1 ${isSplitCollabLayout ? 'text-[9px]' : 'text-[10px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>
+          <FileText size={11} />
+          <span className="truncate">PDF из конспектов</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-semibold ${
             isCollabFullscreen
               ? 'border-slate-600 text-slate-200'
               : 'border-purple-200 text-purple-700'
           }`}>
-            {selectedTaskFiles.length}
+            {notesPdfFiles.length}
           </span>
-        </div>
-        <div className={`grid grid-cols-1 ${isSplitCollabLayout ? 'gap-1' : 'gap-2'} md:grid-cols-3`}>
-          <select
-            value={runTaskNumber}
-            onChange={(e) => setRunTaskNumber(e.target.value)}
-            disabled={!effectiveStudentId || taskFileUploadBusy}
-            className={`rounded-xl border outline-none ${
-              isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
+          <button
+            type="button"
+            onClick={() => {
+              const nextOpen = !notesPdfPanelOpen;
+              setNotesPdfPanelOpen(nextOpen);
+              publishRunStateRef.current?.({
+                notesPdfOpen: nextOpen,
+                notesPdfFolderKey: selectedNotesPdfFolderKey || '',
+                notesPdfFileId: notesPdfFileId || selectedNotesPdfFile?.id || '',
+              });
+            }}
+            aria-expanded={notesPdfPanelOpen}
+            className={`inline-flex items-center rounded-xl border transition ${
+              isSplitCollabLayout ? 'gap-0.5 px-1.5 py-0.5 text-[9px]' : 'gap-0.5 px-1.5 py-0.5 text-[10px]'
             } ${
               isCollabFullscreen
-                ? 'border-slate-700 bg-slate-950 text-slate-100 focus:border-violet-400'
-                : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
+                ? 'border-slate-600 text-slate-100 hover:border-violet-400'
+                : 'border-purple-200 text-purple-700 hover:border-purple-300 hover:bg-purple-50'
             }`}
           >
-            {taskOptions.map((task) => (
-              <option key={task.id} value={task.number}>
-                {`Задание ${getTaskDisplayNumber(task)}`}
-              </option>
-            ))}
-          </select>
-          <select
-            value={runTaskCategory}
-            onChange={(e) => setRunTaskCategory(e.target.value)}
-            disabled={!effectiveStudentId || taskFileUploadBusy}
-            className={`rounded-xl border outline-none ${
-              isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
-            } ${
-              isCollabFullscreen
-                ? 'border-slate-700 bg-slate-950 text-slate-100 focus:border-violet-400'
-                : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
-            }`}
-          >
-            <option value="class">На уроке</option>
-            <option value="home">Домашка</option>
-          </select>
-          <div className="flex items-center gap-1">
-            <input
-              ref={taskFileInputRef}
-              type="file"
-              className="hidden"
-              multiple
-              onChange={(event) => handleUploadTaskFiles(event.target.files)}
+            <ChevronRight
+              size={12}
+              className={`transition-transform duration-200 ${notesPdfPanelOpen ? 'rotate-90' : ''}`}
             />
-            <button
-              type="button"
-              onClick={() => taskFileInputRef.current?.click()}
-              disabled={!effectiveStudentId || taskFileUploadBusy}
-              className={`inline-flex w-full items-center justify-center gap-1 rounded-xl border transition ${
-                isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
-              } ${
-                !effectiveStudentId || taskFileUploadBusy
-                  ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
-                  : (isCollabFullscreen
-                    ? 'border-slate-600 bg-slate-950 text-slate-100 hover:border-violet-400'
-                    : 'border-purple-200 bg-white text-purple-700 hover:border-purple-300 hover:bg-purple-50')
-              }`}
-            >
-              <Upload size={13} />
-              {taskFileUploadBusy ? 'Загрузка...' : 'Загрузить файл'}
-            </button>
-          </div>
-        </div>
-        {taskFilesError && (
-          <div className={`text-[11px] ${isCollabFullscreen ? 'text-rose-300' : 'text-rose-600'}`}>
-            {taskFilesError}
-          </div>
-        )}
-        <div className={`rounded-xl border ${
-          isSplitCollabLayout ? 'max-h-20' : 'max-h-28'
-        } overflow-auto ${
-          isCollabFullscreen
-            ? 'border-slate-700/80 bg-slate-950/60'
-            : 'border-gray-200 bg-gray-50'
-        }`}>
-          {taskFilesLoading ? (
-            <div className={`px-2 py-1.5 text-[11px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
-              Загружаем файлы...
-            </div>
-          ) : (
-            <>
-              {!filteredTaskFiles.length ? (
-                <div className={`px-2 py-1.5 text-[11px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
-                  Файлы не найдены.
-                </div>
-              ) : (
-                filteredTaskFiles.map((file) => (
-                  <label
-                    key={file.id}
-                    className={`flex cursor-pointer items-start gap-2 border-b px-2 py-1.5 text-[11px] last:border-b-0 ${
-                      isCollabFullscreen
-                        ? 'border-slate-800 text-slate-100'
-                        : 'border-gray-200 text-gray-700'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedTaskFileIds.includes(file.id)}
-                      onChange={() => handleToggleTaskFile(file.id)}
-                      className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300"
-                    />
-                    <span className="min-w-0 flex-1 truncate">{file.name || 'file'}</span>
-                  </label>
-                ))
-              )}
-            </>
-          )}
-        </div>
-        <div className={`text-[10px] ${isCollabFullscreen ? 'text-slate-400' : 'text-gray-500'}`}>
-          Выбранные файлы доступны в Python как обычные файлы.
+            {notesPdfPanelOpen ? 'Скрыть' : 'Показать'}
+          </button>
         </div>
       </div>
+      {notesPdfPanelOpen && (
+        <>
+          <div className="flex min-w-0 items-center gap-1">
+            <select
+              value={selectedNotesPdfFolderKey}
+              onChange={(e) => {
+                const nextFolderKey = e.target.value;
+                const folderFiles = notesPdfFiles.filter((file) => getNotesPdfFolderKey(file) === nextFolderKey);
+                const nextFileId = folderFiles.some((file) => file.id === notesPdfFileId)
+                  ? notesPdfFileId
+                  : String(folderFiles[0]?.id || '');
+                setNotesPdfFolderKey(nextFolderKey);
+                setNotesPdfFileId(nextFileId);
+                publishRunStateRef.current?.({
+                  notesPdfOpen: true,
+                  notesPdfFolderKey: nextFolderKey,
+                  notesPdfFileId: nextFileId,
+                });
+              }}
+              disabled={!notesPdfFolders.length}
+              className={`min-w-0 flex-[1.05] rounded-xl border outline-none ${
+                isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2 py-1 text-[11px]'
+              } ${
+                isCollabFullscreen
+                  ? 'border-slate-700 bg-slate-950 text-slate-100 focus:border-violet-400 disabled:opacity-60'
+                  : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500 disabled:opacity-60'
+              }`}
+            >
+              {!notesPdfFolders.length ? (
+                <option value="">Папки не найдены</option>
+              ) : (
+                notesPdfFolders.map((folder) => (
+                  <option key={folder.key} value={folder.key}>
+                    {folder.label}
+                  </option>
+                ))
+              )}
+            </select>
+            <select
+              value={notesPdfFileId}
+              onChange={(e) => {
+                const nextFileId = e.target.value;
+                setNotesPdfFileId(nextFileId);
+                publishRunStateRef.current?.({
+                  notesPdfOpen: true,
+                  notesPdfFolderKey: selectedNotesPdfFolderKey || '',
+                  notesPdfFileId: nextFileId,
+                });
+              }}
+              disabled={!notesPdfFilesInSelectedFolder.length}
+              className={`min-w-0 flex-[1.35] rounded-xl border outline-none ${
+                isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2 py-1 text-[11px]'
+              } ${
+                isCollabFullscreen
+                  ? 'border-slate-700 bg-slate-950 text-slate-100 focus:border-violet-400 disabled:opacity-60'
+                  : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500 disabled:opacity-60'
+              }`}
+            >
+              {!notesPdfFilesInSelectedFolder.length ? (
+                <option value="">Файлы в папке не найдены</option>
+              ) : (
+                notesPdfFilesInSelectedFolder.map((file) => (
+                  <option key={file.id} value={file.id}>
+                    {file.name || 'pdf'}
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                if (!selectedNotesPdfUrl || typeof window === 'undefined') return;
+                window.open(selectedNotesPdfUrl, '_blank', 'noopener,noreferrer');
+              }}
+              disabled={!selectedNotesPdfUrl}
+              className={`shrink-0 inline-flex items-center justify-center rounded-xl border transition ${
+                isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2 py-1 text-[11px]'
+              } ${
+                selectedNotesPdfUrl
+                  ? (isCollabFullscreen
+                    ? 'border-slate-600 bg-slate-950 text-slate-100 hover:border-violet-400'
+                    : 'border-purple-200 bg-white text-purple-700 hover:border-purple-300 hover:bg-purple-50')
+                  : 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              Открыть отдельно
+            </button>
+            <div className={`shrink-0 inline-flex items-center rounded-xl border ${
+              isSplitCollabLayout ? 'gap-0.5 px-1 py-0.5 text-[10px]' : 'gap-1 px-1.5 py-0.5 text-[10px]'
+            } ${
+              isCollabFullscreen
+                ? 'border-slate-700 bg-slate-950 text-slate-200'
+                : 'border-gray-200 bg-gray-50 text-gray-700'
+            }`}>
+              <button
+                type="button"
+                onClick={() => setNotesPdfPanelHeight((prev) => clampNotesPdfHeight(prev - 40))}
+                disabled={!selectedNotesPdfFile}
+                className={`inline-flex h-4 w-4 items-center justify-center rounded border transition ${
+                  selectedNotesPdfFile
+                    ? (isCollabFullscreen
+                      ? 'border-slate-600 hover:border-violet-400'
+                      : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50')
+                    : 'border-gray-200 text-gray-400 cursor-not-allowed'
+                }`}
+                title="Уменьшить высоту"
+                aria-label="Уменьшить высоту PDF"
+              >
+                <Minus size={12} />
+              </button>
+              <span className="tabular-nums">{notesPdfPanelHeight}px</span>
+              <button
+                type="button"
+                onClick={() => setNotesPdfPanelHeight((prev) => clampNotesPdfHeight(prev + 40))}
+                disabled={!selectedNotesPdfFile}
+                className={`inline-flex h-4 w-4 items-center justify-center rounded border transition ${
+                  selectedNotesPdfFile
+                    ? (isCollabFullscreen
+                      ? 'border-slate-600 hover:border-violet-400'
+                      : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50')
+                    : 'border-gray-200 text-gray-400 cursor-not-allowed'
+                }`}
+                title="Увеличить высоту"
+                aria-label="Увеличить высоту PDF"
+              >
+                <Plus size={12} />
+              </button>
+            </div>
+          </div>
+          {selectedNotesPdfFile && selectedNotesPdfEmbedUrl ? (
+            <>
+              <div className={`overflow-hidden rounded-lg border ${
+                isCollabFullscreen
+                  ? 'border-slate-700/80 bg-slate-950/60'
+                  : 'border-gray-200 bg-gray-50'
+              }`} style={{ height: `${notesPdfPanelHeight}px` }} ref={notesPdfPreviewRef}>
+                <iframe
+                  title={selectedNotesPdfFile.name || 'PDF из конспектов'}
+                  src={selectedNotesPdfEmbedUrl}
+                  className="h-full w-full"
+                />
+              </div>
+              <div
+                role="separator"
+                aria-label="Изменить высоту PDF"
+                aria-orientation="horizontal"
+                aria-valuemin={notesPdfMinHeight}
+                aria-valuemax={notesPdfMaxHeight}
+                aria-valuenow={Math.round(notesPdfPanelHeight)}
+                onPointerDown={handleNotesPdfResizeStart}
+                onDoubleClick={handleNotesPdfResizeReset}
+                className="group -mt-0.5 flex h-3 cursor-row-resize select-none touch-none items-center justify-center"
+                title="Тяните за нижний край, чтобы изменить высоту. Двойной клик — сброс."
+              >
+                <div className={`h-[2px] w-full rounded-full transition ${
+                  isCollabFullscreen
+                    ? 'bg-slate-700/80 group-hover:bg-violet-400/80'
+                    : 'bg-gray-300 group-hover:bg-purple-400'
+                }`} />
+              </div>
+            </>
+          ) : (
+            <div className={`rounded-lg border px-2 py-1.5 text-[10px] ${
+              isCollabFullscreen
+                ? 'border-slate-700 text-slate-400'
+                : 'border-gray-200 bg-gray-50 text-gray-500'
+            }`}>
+              PDF в конспектах пока нет.
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
   const resultHeader = (
@@ -4276,7 +4727,11 @@ const CollabSection = ({
           </div>
         )}
 
-        <div className={`${isCollabFullscreen || isDesktopCollabCompact ? 'mt-0 flex items-center justify-between gap-2' : ''}`}>
+        <div className={isCollabFullscreen || isDesktopCollabCompact ? 'mt-1' : 'mt-2'}>
+          {notesPdfPane}
+        </div>
+
+        <div className={`${isCollabFullscreen || isDesktopCollabCompact ? 'mt-1.5 flex items-center justify-between gap-2' : ''}`}>
           <div className={`inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-xl border ${
             isCollabFullscreen ? 'mt-0 px-1.5 py-1' : (isDesktopCollabCompact ? 'mt-2 px-1.5 py-1' : 'mt-3 px-2 py-1.5')
           } ${collabToolbarClass}`}>
