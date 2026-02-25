@@ -3893,16 +3893,20 @@ const CallSection = ({
   const hangupButtonClass = isDarkTheme
     ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-400/40 bg-rose-500/15 text-rose-100 transition hover:bg-rose-500/25'
     : 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-rose-100';
-  const titleClass = isDarkTheme ? 'call-main-title text-xl font-bold text-white md:text-2xl' : 'call-main-title text-xl font-bold text-slate-900 md:text-2xl';
-  const subtitleClass = isDarkTheme ? 'call-main-subtitle mt-1 text-sm text-slate-300' : 'call-main-subtitle mt-1 text-sm text-slate-600';
+  const headerMetaListClass = isDarkTheme
+    ? 'mt-2 flex w-full flex-wrap items-center gap-1.5 text-[11px] text-slate-300'
+    : 'mt-2 flex w-full flex-wrap items-center gap-1.5 text-[11px] text-slate-600';
+  const headerMetaChipClass = isDarkTheme
+    ? 'inline-flex h-7 items-center gap-1.5 rounded-full border border-white/15 bg-slate-900/75 px-2.5'
+    : 'inline-flex h-7 items-center gap-1.5 rounded-full border border-slate-200 bg-white/85 px-2.5';
   const teacherCardClass = isDarkTheme
-    ? 'mt-4 rounded-2xl border border-white/10 bg-slate-900/70 p-3 backdrop-blur'
-    : 'mt-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3 backdrop-blur';
-  const teacherLabelClass = isDarkTheme ? 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-300' : 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600';
+    ? 'mt-3 rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2.5 backdrop-blur'
+    : 'mt-3 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-3 py-2.5 backdrop-blur';
+  const teacherLabelClass = isDarkTheme ? 'text-[11px] font-semibold uppercase tracking-wide text-slate-300' : 'text-[11px] font-semibold uppercase tracking-wide text-slate-600';
   const teacherSelectClass = isDarkTheme
-    ? 'w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-violet-400'
-    : 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-violet-400';
-  const mutedTextClass = isDarkTheme ? 'mt-2 text-xs text-slate-400' : 'mt-2 text-xs text-slate-500';
+    ? 'h-9 w-full rounded-xl border border-white/15 bg-slate-900 px-3 text-sm text-slate-100 outline-none transition focus:border-violet-400'
+    : 'h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-violet-400';
+  const mutedTextClass = isDarkTheme ? 'text-xs text-slate-400 md:text-right' : 'text-xs text-slate-500 md:text-right';
   const errorBoxClass = isDarkTheme
     ? 'mt-4 flex items-start gap-2 rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100'
     : 'mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700';
@@ -3910,15 +3914,12 @@ const CallSection = ({
     ? 'call-media-stage rounded-2xl border border-white/10 bg-slate-900/70 p-4 md:p-6'
     : 'call-media-stage rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 md:p-6';
   const peersSectionClass = isDarkTheme
-    ? 'call-peers-stage rounded-2xl border border-white/10 bg-slate-900/70 p-2.5'
-    : 'call-peers-stage rounded-2xl border border-slate-200/80 bg-slate-50/70 p-2.5';
-  const peersHeadingClass = isDarkTheme ? 'text-xs font-semibold uppercase tracking-wide text-slate-200' : 'text-xs font-semibold uppercase tracking-wide text-slate-700';
-  const peersCountClass = isDarkTheme
-    ? 'rounded-full border border-white/15 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-200'
-    : 'rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700';
+    ? 'call-peers-stage rounded-2xl border border-white/10 bg-slate-900/70 p-3 md:p-4'
+    : 'call-peers-stage rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3 md:p-4';
   const emptyPeersClass = isDarkTheme
-    ? 'flex min-h-16 items-center justify-center rounded-xl border border-dashed border-white/15 bg-slate-900/55 px-3 text-center text-xs text-slate-300'
-    : 'flex min-h-16 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white/70 px-3 text-center text-xs text-slate-500';
+    ? 'flex min-h-[104px] flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-white/15 bg-slate-900/55 px-4 text-center text-xs text-slate-300'
+    : 'flex min-h-[104px] flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-200 bg-white/70 px-4 text-center text-xs text-slate-500';
+  const emptyPeersHintClass = isDarkTheme ? 'text-[11px] text-slate-400' : 'text-[11px] text-slate-500';
   const statsGridTextClass = isDarkTheme ? 'call-stats-grid mt-4 grid gap-2 text-xs text-slate-200 sm:grid-cols-2 xl:grid-cols-5' : 'call-stats-grid mt-4 grid gap-2 text-xs text-slate-700 sm:grid-cols-2 xl:grid-cols-5';
   const statCardClass = isDarkTheme
     ? 'call-stat-card rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2'
@@ -4120,37 +4121,45 @@ const CallSection = ({
               </button>
             </div>
           )}
-          <header className="call-main-header flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className={titleClass}>Онлайн-созвон</h2>
-              <p className={subtitleClass}>Голос и демонстрация экрана в реальном времени.</p>
+          <header className="call-main-header">
+            <div className={headerMetaListClass}>
+              <span className={headerMetaChipClass}>
+                <Users size={12} />
+                <span>{participantCount}</span>
+              </span>
+              <span className={headerMetaChipClass}>
+                <Signal size={12} />
+                <span>{qualityText}</span>
+              </span>
+              <span className={`call-status-chip call-status-chip--${statusTone} ml-auto inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusChipClass}`}>
+                <span className={`call-status-dot call-status-dot--${statusTone}`} aria-hidden="true" />
+                <span>{statusText}</span>
+              </span>
             </div>
-            <span className={`call-status-chip call-status-chip--${statusTone} inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusChipClass}`}>
-              <span className={`call-status-dot call-status-dot--${statusTone}`} aria-hidden="true" />
-              <span>{statusText}</span>
-            </span>
           </header>
 
           {isTeacher && (
             <div className={teacherCardClass}>
-              <label className={teacherLabelClass} htmlFor="call-student-select">
-                Ученик
-              </label>
-              <select
-                id="call-student-select"
-                className={teacherSelectClass}
-                value={activeStudentId || ''}
-                onChange={(event) => onSelectStudent?.(event.target.value || null)}
-                disabled={studentsLoading}
-              >
-                <option value="">Выбери ученика</option>
-                {(students || []).map((student) => (
-                  <option key={student.id} value={student.id}>
-                    {student.name}
-                  </option>
-                ))}
-              </select>
-              <p className={mutedTextClass}>Текущий: {selectedStudentName}</p>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-[auto_minmax(240px,1fr)_minmax(0,1fr)] md:items-center">
+                <label className={teacherLabelClass} htmlFor="call-student-select">
+                  Ученик
+                </label>
+                <select
+                  id="call-student-select"
+                  className={teacherSelectClass}
+                  value={activeStudentId || ''}
+                  onChange={(event) => onSelectStudent?.(event.target.value || null)}
+                  disabled={studentsLoading}
+                >
+                  <option value="">Выбери ученика</option>
+                  {(students || []).map((student) => (
+                    <option key={student.id} value={student.id}>
+                      {student.name}
+                    </option>
+                  ))}
+                </select>
+                <p className={`${mutedTextClass} min-w-0 truncate`}>Текущий: {selectedStudentName}</p>
+              </div>
             </div>
           )}
 
@@ -4161,7 +4170,7 @@ const CallSection = ({
             </div>
           )}
 
-          <div className="mt-4 space-y-3">
+          <div className="mt-3 space-y-3 md:space-y-4">
             {isConnected && remotePeers.map((peer) => (
               <RemoteAudioPlayer
                 key={`audio:${peer.peerId}`}
@@ -4265,15 +4274,11 @@ const CallSection = ({
               </section>
             ) : (
               <section className={peersSectionClass}>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <h3 className={peersHeadingClass}>Участники созвона</h3>
-                  <span className={peersCountClass}>
-                    {visiblePeers.length}
-                  </span>
-                </div>
                 {visiblePeers.length === 0 ? (
                   <div className={emptyPeersClass}>
-                    В созвоне никого
+                    <Users size={16} />
+                    <p>В созвоне никого</p>
+                    <p className={emptyPeersHintClass}>Подключитесь кнопкой ниже, чтобы начать.</p>
                   </div>
                 ) : (
                   <div className="call-peers-grid flex flex-wrap items-start justify-center gap-5 md:gap-8">
