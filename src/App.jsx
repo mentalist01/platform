@@ -852,6 +852,7 @@ const DESKTOP_NAV_COLLAPSED_KEY = 'ege_desktop_nav_collapsed_v1';
 const PACE_FORECAST_SESSION_KEY_PREFIX = 'ege_pace_forecast_dismissed_v1';
 const PACE_FORECAST_LAST_SHOWN_KEY_PREFIX = 'ege_pace_forecast_last_shown_v1';
 const PACE_FORECAST_REMINDER_INTERVAL_MS = 48 * 60 * 60 * 1000;
+const TEACHER_NOTIF_HISTORY_KEY_PREFIX = 'ege_teacher_notif_history_v1';
 
 const buildUserLocationKey = (user) => {
   if (!user) return '';
@@ -951,6 +952,132 @@ const isPaceForecastReminderDue = (userId) => {
   const lastShownAt = readPaceForecastLastShownAt(userId);
   if (!Number.isFinite(lastShownAt)) return true;
   return (Date.now() - lastShownAt) >= PACE_FORECAST_REMINDER_INTERVAL_MS;
+};
+
+const getTeacherNotifHistoryKey = (teacherId) => {
+  const normalizedId = String(teacherId ?? '').trim();
+  if (!normalizedId) return '';
+  return `${TEACHER_NOTIF_HISTORY_KEY_PREFIX}:${normalizedId}`;
+};
+
+const getTeacherNotifTimestampMs = (entry) => {
+  const directTs = Number(entry?.timestampMs);
+  if (Number.isFinite(directTs) && directTs > 0) return Math.floor(directTs);
+  const solvedTs = Date.parse(String(entry?.solvedAt || '').trim());
+  if (Number.isFinite(solvedTs) && solvedTs > 0) return solvedTs;
+  const messageTs = Date.parse(String(entry?.lastMessageAt || '').trim());
+  if (Number.isFinite(messageTs) && messageTs > 0) return messageTs;
+  return 0;
+};
+
+const buildTeacherNotifArchiveId = (entry) => {
+  const type = String(entry?.type || '').trim();
+  const id = String(entry?.id || '').trim();
+  if (!type || !id) return '';
+  if (type === 'solved') return `${type}:${id}`;
+  const ts = getTeacherNotifTimestampMs(entry);
+  const unreadCount = Math.max(0, Math.floor(Number(entry?.unreadCount) || 0));
+  return `${type}:${id}:${ts}:${unreadCount}`;
+};
+
+const normalizeTeacherNotifHistoryEntry = (entry) => {
+  if (!entry || typeof entry !== 'object') return null;
+  const typeRaw = String(entry?.type || '').trim();
+  const type = typeRaw === 'signup' ? 'signup' : (typeRaw === 'solved' ? 'solved' : '');
+  if (!type) return null;
+  const id = String(entry?.id || '').trim();
+  if (!id) return null;
+  const timestampMs = getTeacherNotifTimestampMs(entry);
+  const archiveIdRaw = String(entry?.archiveId || '').trim();
+  const archiveId = archiveIdRaw || buildTeacherNotifArchiveId({ ...entry, type, id, timestampMs });
+  if (!archiveId) return null;
+  const archivedAtMsRaw = Number(entry?.archivedAtMs);
+  const archivedAtMs = Number.isFinite(archivedAtMsRaw) && archivedAtMsRaw > 0
+    ? Math.floor(archivedAtMsRaw)
+    : Date.now();
+
+  if (type === 'signup') {
+    const unreadCountRaw = Number(entry?.unreadCount);
+    const unreadCount = Number.isFinite(unreadCountRaw) && unreadCountRaw > 0
+      ? Math.floor(unreadCountRaw)
+      : 0;
+    return {
+      archiveId,
+      id,
+      type,
+      timestampMs,
+      archivedAtMs,
+      guestName: String(entry?.guestName || '').trim(),
+      preview: String(entry?.preview || '').trim(),
+      unreadCount,
+      lastMessageAt: String(entry?.lastMessageAt || '').trim(),
+    };
+  }
+
+  const questionNumberRaw = Number(entry?.questionNumber);
+  const questionNumber = Number.isFinite(questionNumberRaw) && questionNumberRaw > 0
+    ? Math.floor(questionNumberRaw)
+    : null;
+  return {
+    archiveId,
+    id,
+    type,
+    timestampMs,
+    archivedAtMs,
+    studentName: String(entry?.studentName || '').trim(),
+    taskNumber: entry?.taskNumber,
+    levelId: String(entry?.levelId || '').trim(),
+    questionNumber,
+    solvedAt: String(entry?.solvedAt || '').trim(),
+  };
+};
+
+const normalizeTeacherNotifHistoryList = (value) => {
+  const list = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  const normalized = [];
+  list.forEach((entry) => {
+    const safeEntry = normalizeTeacherNotifHistoryEntry(entry);
+    if (!safeEntry) return;
+    if (seen.has(safeEntry.archiveId)) return;
+    seen.add(safeEntry.archiveId);
+    normalized.push(safeEntry);
+  });
+  normalized.sort((left, right) => (Number(right?.timestampMs) || 0) - (Number(left?.timestampMs) || 0));
+  return normalized;
+};
+
+const loadTeacherNotifHistory = (teacherId) => {
+  const key = getTeacherNotifHistoryKey(teacherId);
+  if (!key || typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return normalizeTeacherNotifHistoryList(parsed);
+  } catch {
+    return [];
+  }
+};
+
+const saveTeacherNotifHistory = (teacherId, value) => {
+  const key = getTeacherNotifHistoryKey(teacherId);
+  if (!key || typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(key, JSON.stringify(normalizeTeacherNotifHistoryList(value)));
+  } catch { /* no-op */ }
+};
+
+const formatTeacherNotifTimestamp = (value) => {
+  const ts = Number(value);
+  if (!Number.isFinite(ts) || ts <= 0) return '';
+  const dt = new Date(ts);
+  if (Number.isNaN(dt.getTime())) return '';
+  return dt.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 };
 
 const normalizeStoredOpenTask = (entry) => {
@@ -7086,7 +7213,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const allowedViews = user.role === 'admin'
     ? ['admin']
     : user.role === 'teacher'
-      ? ['schedule', 'progress', 'python', 'rating', 'collab', 'call', 'board', 'teacher', 'signup-chats', 'student-chats', 'notes']
+      ? ['schedule', 'progress', 'python', 'rating', 'collab', 'call', 'board', 'teacher', 'signup-chats', 'student-chats', 'notifications', 'notes']
       : [
         'schedule',
         'progress',
@@ -7214,6 +7341,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [teacherSolvedNotifs, setTeacherSolvedNotifs] = useState([]);
   const [teacherSignupNotifs, setTeacherSignupNotifs] = useState([]);
   const [teacherSolvedBulkReadBusy, setTeacherSolvedBulkReadBusy] = useState(false);
+  const [teacherNotifHistory, setTeacherNotifHistory] = useState([]);
   const dismissedSignupNotifsRef = useRef(new Map());
   const [teacherSignupNotifySupported, setTeacherSignupNotifySupported] = useState(isPushFeatureSupported());
   const [teacherSignupNotifyPermission, setTeacherSignupNotifyPermission] = useState(getPushPermission());
@@ -7281,6 +7409,38 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     return [...solved, ...signup]
       .sort((left, right) => (Number(right?.timestampMs) || 0) - (Number(left?.timestampMs) || 0));
   }, [teacherSignupNotifs, teacherSolvedNotifs]);
+  const appendTeacherNotifHistory = useCallback((notes) => {
+    const source = Array.isArray(notes) ? notes : [notes];
+    const prepared = source
+      .map((note) => {
+        if (!note || typeof note !== 'object') return null;
+        const type = note?.type === 'signup' ? 'signup' : (note?.type === 'solved' ? 'solved' : '');
+        if (!type) return null;
+        const id = typeof note?.id === 'string' ? note.id.trim() : '';
+        if (!id) return null;
+        const timestampMs = getTeacherNotifTimestampMs(note);
+        const unreadCount = Math.max(0, Math.floor(Number(note?.unreadCount) || 0));
+        return normalizeTeacherNotifHistoryEntry({
+          archiveId: buildTeacherNotifArchiveId({ ...note, type, id, timestampMs, unreadCount }),
+          id,
+          type,
+          timestampMs,
+          archivedAtMs: Date.now(),
+          studentName: note?.studentName,
+          taskNumber: note?.taskNumber,
+          levelId: note?.levelId,
+          questionNumber: note?.questionNumber,
+          solvedAt: note?.solvedAt,
+          guestName: note?.guestName,
+          preview: note?.preview,
+          unreadCount,
+          lastMessageAt: note?.lastMessageAt,
+        });
+      })
+      .filter(Boolean);
+    if (prepared.length <= 0) return;
+    setTeacherNotifHistory((prev) => normalizeTeacherNotifHistoryList([...prepared, ...(Array.isArray(prev) ? prev : [])]));
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -7339,6 +7499,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'teacher', label: 'Управление тестами', icon: Settings },
         { id: 'signup-chats', label: 'Чаты заявок', icon: MessageSquare },
         { id: 'student-chats', label: 'Чаты с учениками', icon: MessageSquare },
+        { id: 'notifications', label: 'Уведомления', icon: Bell },
         { id: 'notes', label: 'Конспекты', icon: Folder }
       ]
       : [
@@ -7398,7 +7559,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       teacherLessonNavItem,
-      ...['teacher', 'signup-chats', 'student-chats', 'notes']
+      ...['teacher', 'signup-chats', 'student-chats', 'notifications', 'notes']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean)
     ]
@@ -7427,6 +7588,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     teacher: 'Управ.',
     'signup-chats': 'Заявки',
     'student-chats': 'Чаты',
+    notifications: 'Увед.',
     notes: 'Консп.',
     admin: 'Админка',
     more: '\u0415\u0449\u0435',
@@ -8609,6 +8771,25 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [user.role, user.id]);
 
   useEffect(() => {
+    if (user.role !== 'teacher') {
+      setTeacherNotifHistory([]);
+      return;
+    }
+    setTeacherNotifHistory(loadTeacherNotifHistory(user.id));
+  }, [user.role, user.id]);
+
+  useEffect(() => {
+    if (user.role !== 'teacher') return;
+    saveTeacherNotifHistory(user.id, teacherNotifHistory);
+  }, [teacherNotifHistory, user.role, user.id]);
+
+  useEffect(() => {
+    if (user.role !== 'teacher') return;
+    if (!Array.isArray(teacherNotifs) || teacherNotifs.length <= 0) return;
+    appendTeacherNotifHistory(teacherNotifs);
+  }, [appendTeacherNotifHistory, teacherNotifs, user.role, user.id]);
+
+  useEffect(() => {
     if (user.role !== 'teacher') return;
     let cancelled = false;
 
@@ -9357,6 +9538,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const noteId = typeof note?.id === 'string' ? note.id.trim() : '';
     if (!noteId) return;
     if (note?.type === 'signup') {
+      appendTeacherNotifHistory(note);
       const chatId = typeof note?.chatId === 'string' ? note.chatId.trim() : '';
       if (chatId) {
         dismissedSignupNotifsRef.current.set(chatId, Number(note?.unreadCount) || 0);
@@ -9364,6 +9546,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setTeacherSignupNotifs((prev) => prev.filter((item) => item.id !== noteId));
       return;
     }
+    appendTeacherNotifHistory(note);
     setTeacherSolvedNotifs((prev) => prev.filter((item) => item.id !== noteId));
     try {
       await api.markTeacherSolvedEventsRead(user.id, [noteId]);
@@ -9373,6 +9556,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const dismissAllTeacherSolvedNotifs = async () => {
     if (user.role !== 'teacher') return;
     if (teacherSolvedBulkReadBusy) return;
+    const solvedSnapshot = (Array.isArray(teacherSolvedNotifs) ? teacherSolvedNotifs : []).map((note) => ({
+      ...note,
+      type: 'solved',
+    }));
+    if (solvedSnapshot.length > 0) {
+      appendTeacherNotifHistory(solvedSnapshot);
+    }
     setTeacherSolvedBulkReadBusy(true);
     setTeacherSolvedNotifs([]);
     try {
@@ -9386,62 +9576,77 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   return (
     <div className="app-min-h app-shell flex font-sans text-slate-900">
-      {user.role === 'teacher' && teacherNotifs.length > 0 && (
-        <div className="fixed left-2 right-2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-[1200] space-y-3 sm:left-auto sm:right-4 sm:top-4 sm:w-full sm:max-w-[320px]">
-          {teacherSolvedNotifs.length > 0 && (
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={dismissAllTeacherSolvedNotifs}
-                disabled={teacherSolvedBulkReadBusy}
-                className="rounded-xl border border-purple-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-purple-700 shadow-sm hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                {teacherSolvedBulkReadBusy ? 'Закрываю...' : 'Закрыть все решения'}
-              </button>
-            </div>
-          )}
-          {teacherNotifs.map((note) => {
-            const levelLabel = note.levelId === PYTHON_LEVEL_ID
-              ? 'Python'
-              : (LEVELS[note.levelId?.toUpperCase()]?.label || note.levelId || '');
-            const questionPart = note.questionNumber ? ` · вопрос ${note.questionNumber}` : '';
-            const signupUnreadLabel = note.unreadCount > 1
-              ? `Новых сообщений: ${note.unreadCount}`
-              : 'Новое сообщение';
-            return (
-              <div key={note.id} className="surface-panel toast-enter rounded-2xl px-4 py-3 text-sm text-slate-700 relative">
+      {user.role === 'teacher' && view !== 'notifications' && teacherNotifs.length > 0 && (
+        <div className="fixed left-2 right-2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-[1200] sm:left-auto sm:right-4 sm:top-4 sm:w-full sm:max-w-[360px]">
+          <div className="surface-panel rounded-2xl px-3 py-3 text-sm text-slate-700 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs font-bold uppercase tracking-widest text-slate-500">Новые уведомления</div>
+                <div className="text-[11px] text-slate-500">{`Сейчас: ${teacherNotifs.length}`}</div>
+              </div>
+              {teacherSolvedNotifs.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => dismissTeacherNotif(note)}
-                  className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
-                  aria-label="Закрыть уведомление"
+                  onClick={dismissAllTeacherSolvedNotifs}
+                  disabled={teacherSolvedBulkReadBusy}
+                  className="rounded-xl border border-purple-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-purple-700 shadow-sm hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  <X size={16} />
+                  {teacherSolvedBulkReadBusy ? 'Закрываю...' : 'Закрыть все решения'}
                 </button>
-                {note.type === 'signup' ? (
-                  <>
-                    <div className="text-xs font-bold uppercase tracking-widest text-indigo-500">Новое сообщение</div>
-                    <div className="mt-1 font-semibold text-gray-900 truncate">
-                      {note.guestName || 'Новая заявка'}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {note.preview ? `${signupUnreadLabel}: ${note.preview}` : signupUnreadLabel}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Новая отметка</div>
-                    <div className="mt-1 font-semibold text-gray-900 truncate">
-                      {note.studentName || 'Ученик'}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })}
+              )}
+            </div>
+            <div className="mt-3 max-h-[40vh] space-y-2 overflow-y-auto pr-1">
+              {teacherNotifs.map((note) => {
+                const levelLabel = note.levelId === PYTHON_LEVEL_ID
+                  ? 'Python'
+                  : (LEVELS[note.levelId?.toUpperCase()]?.label || note.levelId || '');
+                const questionPart = note.questionNumber ? ` · вопрос ${note.questionNumber}` : '';
+                const signupUnreadLabel = note.unreadCount > 1
+                  ? `Новых сообщений: ${note.unreadCount}`
+                  : 'Новое сообщение';
+                const timestampLabel = formatTeacherNotifTimestamp(note.timestampMs);
+                return (
+                  <div key={note.id} className="toast-enter relative rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                    <button
+                      type="button"
+                      onClick={() => dismissTeacherNotif(note)}
+                      className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
+                      aria-label="Закрыть уведомление"
+                    >
+                      <X size={16} />
+                    </button>
+                    {note.type === 'signup' ? (
+                      <>
+                        <div className="text-xs font-bold uppercase tracking-widest text-indigo-500">Новое сообщение</div>
+                        <div className="mt-1 font-semibold text-gray-900 truncate">
+                          {note.guestName || 'Новая заявка'}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {note.preview ? `${signupUnreadLabel}: ${note.preview}` : signupUnreadLabel}
+                        </div>
+                        {timestampLabel && (
+                          <div className="mt-1 text-[11px] text-gray-400">{timestampLabel}</div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Новая отметка</div>
+                        <div className="mt-1 font-semibold text-gray-900 truncate">
+                          {note.studentName || 'Ученик'}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
+                        </div>
+                        {timestampLabel && (
+                          <div className="mt-1 text-[11px] text-gray-400">{timestampLabel}</div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
       {user.role === 'student' && xpDockVisible && (
@@ -10669,6 +10874,130 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               teacherSignupNotifyError={teacherSignupNotifyError}
               onToggleTeacherSignupNotify={handleToggleTeacherSignupNotify}
             />
+          )}
+          {view === 'notifications' && (
+            <div className="space-y-4">
+              <div className="surface-panel rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-widest text-slate-500">Новые уведомления</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900">{`Сейчас: ${teacherNotifs.length}`}</div>
+                  </div>
+                  {teacherSolvedNotifs.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={dismissAllTeacherSolvedNotifs}
+                      disabled={teacherSolvedBulkReadBusy}
+                      className="rounded-xl border border-purple-200 bg-white px-3 py-1.5 text-xs font-semibold text-purple-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {teacherSolvedBulkReadBusy ? 'Закрываю...' : 'Закрыть все решения'}
+                    </button>
+                  )}
+                </div>
+                <div className="mt-3 max-h-[48vh] space-y-2 overflow-y-auto pr-1">
+                  {teacherNotifs.length > 0 ? (
+                    teacherNotifs.map((note) => {
+                      const levelLabel = note.levelId === PYTHON_LEVEL_ID
+                        ? 'Python'
+                        : (LEVELS[note.levelId?.toUpperCase()]?.label || note.levelId || '');
+                      const questionPart = note.questionNumber ? ` · вопрос ${note.questionNumber}` : '';
+                      const signupUnreadLabel = note.unreadCount > 1
+                        ? `Новых сообщений: ${note.unreadCount}`
+                        : 'Новое сообщение';
+                      const timestampLabel = formatTeacherNotifTimestamp(note.timestampMs);
+                      return (
+                        <div key={`notif-view-live-${note.id}`} className="relative rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                          <button
+                            type="button"
+                            onClick={() => dismissTeacherNotif(note)}
+                            className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
+                            aria-label="Закрыть уведомление"
+                          >
+                            <X size={16} />
+                          </button>
+                          {note.type === 'signup' ? (
+                            <>
+                              <div className="text-xs font-bold uppercase tracking-widest text-indigo-500">Новое сообщение</div>
+                              <div className="mt-1 font-semibold text-gray-900 truncate">
+                                {note.guestName || 'Новая заявка'}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {note.preview ? `${signupUnreadLabel}: ${note.preview}` : signupUnreadLabel}
+                              </div>
+                              {timestampLabel && <div className="mt-1 text-[11px] text-gray-400">{timestampLabel}</div>}
+                            </>
+                          ) : (
+                            <>
+                              <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Новая отметка</div>
+                              <div className="mt-1 font-semibold text-gray-900 truncate">
+                                {note.studentName || 'Ученик'}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
+                              </div>
+                              {timestampLabel && <div className="mt-1 text-[11px] text-gray-400">{timestampLabel}</div>}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-3 py-3 text-xs text-slate-500">
+                      Новых уведомлений пока нет.
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="surface-panel rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="text-xs font-bold uppercase tracking-widest text-slate-500">История уведомлений</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{`Всего: ${teacherNotifHistory.length}`}</div>
+                <div className="mt-3 max-h-[55vh] space-y-2 overflow-y-auto pr-1">
+                  {teacherNotifHistory.length > 0 ? (
+                    teacherNotifHistory.map((note) => {
+                      const levelLabel = note.levelId === PYTHON_LEVEL_ID
+                        ? 'Python'
+                        : (LEVELS[note.levelId?.toUpperCase()]?.label || note.levelId || '');
+                      const questionPart = note.questionNumber ? ` · вопрос ${note.questionNumber}` : '';
+                      const signupUnreadLabel = note.unreadCount > 1
+                        ? `Новых сообщений: ${note.unreadCount}`
+                        : 'Новое сообщение';
+                      const timestampLabel = formatTeacherNotifTimestamp(note.timestampMs);
+                      return (
+                        <div key={note.archiveId} className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
+                          {note.type === 'signup' ? (
+                            <>
+                              <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Сообщение</div>
+                              <div className="mt-1 font-semibold text-slate-800 truncate">
+                                {note.guestName || 'Новая заявка'}
+                              </div>
+                              <div className="text-xs text-slate-500">
+                                {note.preview ? `${signupUnreadLabel}: ${note.preview}` : signupUnreadLabel}
+                              </div>
+                              {timestampLabel && <div className="mt-1 text-[11px] text-slate-400">{timestampLabel}</div>}
+                            </>
+                          ) : (
+                            <>
+                              <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Отметка</div>
+                              <div className="mt-1 font-semibold text-slate-800 truncate">
+                                {note.studentName || 'Ученик'}
+                              </div>
+                              <div className="text-xs text-slate-500">
+                                {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
+                              </div>
+                              {timestampLabel && <div className="mt-1 text-[11px] text-slate-400">{timestampLabel}</div>}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-3 py-3 text-xs text-slate-500">
+                      История пока пуста.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
           {view === 'admin' && (
             <AdminPanel
