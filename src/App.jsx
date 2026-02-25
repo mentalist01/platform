@@ -7213,6 +7213,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   );
   const [teacherSolvedNotifs, setTeacherSolvedNotifs] = useState([]);
   const [teacherSignupNotifs, setTeacherSignupNotifs] = useState([]);
+  const [teacherSolvedBulkReadBusy, setTeacherSolvedBulkReadBusy] = useState(false);
   const dismissedSignupNotifsRef = useRef(new Map());
   const [teacherSignupNotifySupported, setTeacherSignupNotifySupported] = useState(isPushFeatureSupported());
   const [teacherSignupNotifyPermission, setTeacherSignupNotifyPermission] = useState(getPushPermission());
@@ -8597,11 +8598,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     if (user.role !== 'teacher') {
       setTeacherSolvedNotifs([]);
       setTeacherSignupNotifs([]);
+      setTeacherSolvedBulkReadBusy(false);
       dismissedSignupNotifsRef.current.clear();
       return;
     }
     setTeacherSolvedNotifs([]);
     setTeacherSignupNotifs([]);
+    setTeacherSolvedBulkReadBusy(false);
     dismissedSignupNotifsRef.current.clear();
   }, [user.role, user.id]);
 
@@ -9367,10 +9370,36 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     } catch { /* no-op */ }
   };
 
+  const dismissAllTeacherSolvedNotifs = async () => {
+    if (user.role !== 'teacher') return;
+    if (teacherSolvedBulkReadBusy) return;
+    setTeacherSolvedBulkReadBusy(true);
+    setTeacherSolvedNotifs([]);
+    try {
+      await api.markAllTeacherSolvedEventsRead(user.id);
+    } catch {
+      // no-op
+    } finally {
+      setTeacherSolvedBulkReadBusy(false);
+    }
+  };
+
   return (
     <div className="app-min-h app-shell flex font-sans text-slate-900">
       {user.role === 'teacher' && teacherNotifs.length > 0 && (
         <div className="fixed left-2 right-2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-[1200] space-y-3 sm:left-auto sm:right-4 sm:top-4 sm:w-full sm:max-w-[320px]">
+          {teacherSolvedNotifs.length > 0 && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={dismissAllTeacherSolvedNotifs}
+                disabled={teacherSolvedBulkReadBusy}
+                className="rounded-xl border border-purple-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-purple-700 shadow-sm hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {teacherSolvedBulkReadBusy ? 'Закрываю...' : 'Закрыть все решения'}
+              </button>
+            </div>
+          )}
           {teacherNotifs.map((note) => {
             const levelLabel = note.levelId === PYTHON_LEVEL_ID
               ? 'Python'

@@ -461,6 +461,21 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  markAllTeacherSolvedEventsRead: async (teacherId, before = null) => {
+    const id = typeof teacherId === 'string' ? teacherId.trim() : String(teacherId || '').trim();
+    if (!id) return { ok: true };
+    const payload = { teacherId: id, markAll: true };
+    if (before !== null && typeof before !== 'undefined') {
+      payload.before = before;
+    }
+    const res = await apiFetch('/api/teacher-solved-events/read', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   updateStudentHomework: async (studentId, homeworkId, payload) => {
     const res = await apiFetch(`/api/student-next-lesson/${homeworkId}`, {
       method: 'PATCH',
