@@ -401,9 +401,9 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 2.2rem;
-    height: 2.2rem;
-    border-radius: 0.75rem;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.7rem;
     border: 1px solid rgba(167, 139, 250, 0.34);
     background: rgba(255, 255, 255, 0.9);
     color: rgba(109, 40, 217, 0.95);

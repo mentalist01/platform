@@ -7721,33 +7721,39 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const renderPushControl = ({ mobile = false } = {}) => {
     if (user.role !== 'student') return null;
     return (
-      <div className={mobile ? 'mt-3' : 'mt-3'}>
-        <div className={`rounded-xl border px-3 py-2.5 ${
+      <div className={mobile ? 'mt-3' : 'mt-2'}>
+        <div className={`rounded-xl border ${
+          mobile ? 'px-3 py-2.5' : 'px-2.5 py-2'
+        } ${
           pushSupported
             ? 'border-purple-200/80 bg-white/85'
             : 'border-slate-200 bg-slate-50'
         }`}>
-          <div className="flex items-start justify-between gap-3">
+          <div className={`flex items-start justify-between ${mobile ? 'gap-3' : 'gap-2'}`}>
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-[0.17em] text-purple-600">Push</p>
-              <p className="mt-1 text-[11px] text-slate-600">{pushStatusText}</p>
+              <p className={mobile ? 'text-[10px] font-bold uppercase tracking-[0.17em] text-purple-600' : 'text-[9px] font-bold uppercase tracking-[0.14em] text-purple-600'}>
+                Push
+              </p>
+              <p className={mobile ? 'mt-1 text-[11px] text-slate-600' : 'mt-0.5 truncate text-[10px] leading-tight text-slate-600'}>{pushStatusText}</p>
             </div>
             <button
               type="button"
               onClick={handleTogglePush}
               disabled={!pushSupported || pushBusy || pushSyncing || !pushReady}
-              className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+              className={`inline-flex shrink-0 items-center ${
+                mobile ? 'gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px]' : 'gap-1 rounded-md px-2 py-1 text-[10px] leading-none'
+              } border font-semibold transition ${
                 pushSubscribed
                   ? 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100'
                   : 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
               } disabled:cursor-not-allowed disabled:opacity-60`}
             >
-              <PushButtonIcon size={13} />
+              <PushButtonIcon size={mobile ? 13 : 11} />
               {pushButtonLabel}
             </button>
           </div>
           {pushError && (
-            <p className="mt-2 text-[11px] text-rose-600">{pushError}</p>
+            <p className={mobile ? 'mt-2 text-[11px] text-rose-600' : 'mt-1 text-[10px] leading-tight text-rose-600'}>{pushError}</p>
           )}
         </div>
       </div>
@@ -9758,21 +9764,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               <div className="sidebar-aurora sidebar-aurora--bottom" />
               <div className="sidebar-grid" />
             </div>
-            <div className="sidebar-top relative px-6 py-7 border-b border-white/65 bg-white/55 backdrop-blur-xl">
-              <div className="hidden md:flex items-center gap-4">
-                <div className="sidebar-brand-mark relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-purple-600 to-fuchsia-500 text-white shadow-lg shadow-purple-300/40 ring-1 ring-white/70 font-display text-lg font-bold tracking-tight">
+            <div className="sidebar-top relative px-5 py-4 border-b border-white/65 bg-white/55 backdrop-blur-xl">
+              <div className="hidden md:flex items-center gap-3 pr-12">
+                <div className="sidebar-brand-mark relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 via-purple-600 to-fuchsia-500 text-white shadow-lg shadow-purple-300/40 ring-1 ring-white/70 font-display text-base font-bold tracking-tight">
                   100
-                  <span className="sidebar-brand-dot absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-white/90" />
+                  <span className="sidebar-brand-dot absolute -right-1 -top-1 h-2 w-2 rounded-full bg-emerald-400 ring-2 ring-white/90" />
                 </div>
                 <div className="min-w-0">
-                  <div className="sidebar-brand-title font-display text-xl font-bold text-slate-900">Иван на сотку</div>
-                  <div className="sidebar-brand-subtitle text-xs font-semibold uppercase tracking-[0.17em] text-purple-700/80">Личный профиль</div>
+                  <div className="sidebar-brand-title font-display text-lg font-bold text-slate-900">Иван на сотку</div>
+                  <div className="sidebar-brand-subtitle text-[10px] font-semibold uppercase tracking-[0.14em] text-purple-700/80">Личный профиль</div>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setDesktopNavCollapsed(true)}
-                className="sidebar-collapse-btn absolute right-4 top-1/2 -translate-y-1/2"
+                className="sidebar-collapse-btn absolute right-3 top-1/2 -translate-y-1/2"
                 aria-label="Свернуть панель навигации"
                 title="Свернуть панель"
               >
@@ -9896,15 +9902,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 )}
               </div>
             </nav>
-            <div className="sidebar-footer p-5 border-t border-white/70 bg-white/55 backdrop-blur-xl shrink-0">
-              <div className="sidebar-profile-card rounded-2xl border border-white/70 bg-gradient-to-br from-white to-purple-50/75 p-4 shadow-[0_10px_24px_rgba(148,163,184,0.24)]">
-                <div className="flex items-center gap-3">
-                  <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white flex items-center justify-center font-bold shadow-md shadow-purple-300/40 ring-1 ring-white/70">
+            <div className="sidebar-footer p-3 border-t border-white/70 bg-white/55 backdrop-blur-xl shrink-0">
+              <div className="sidebar-profile-card rounded-2xl border border-white/70 bg-gradient-to-br from-white to-purple-50/75 p-3 shadow-[0_8px_18px_rgba(148,163,184,0.2)]">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 text-white text-sm flex items-center justify-center font-bold shadow-md shadow-purple-300/40 ring-1 ring-white/70">
                     {user.name[0]}
                   </div>
                   <div className="min-w-0">
-                    <p className="text-base font-semibold text-slate-900 truncate">{user.name}</p>
-                    <div className="mt-1 inline-flex items-center rounded-lg border border-purple-100 bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2.5 py-1 text-[11px] font-semibold text-purple-700">
+                    <p className="text-sm font-semibold text-slate-900 truncate">{user.name}</p>
+                    <div className="mt-0.5 inline-flex items-center rounded-md border border-purple-100 bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2 py-0.5 text-[10px] font-semibold text-purple-700">
                       {user.role === 'admin' ? 'Администратор' : (user.role === 'teacher' ? 'Преподаватель' : 'Ученик')}
                     </div>
                   </div>
@@ -9913,9 +9919,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               {renderPushControl()}
               <button
                 onClick={onLogout}
-                className="sidebar-logout mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/75 bg-white/85 px-4 py-2.5 text-sm font-semibold text-rose-600 transition hover:-translate-y-[1px] hover:border-rose-300 hover:bg-rose-50 hover:shadow-sm"
+                className="sidebar-logout mt-2.5 w-full flex items-center justify-center gap-1.5 rounded-xl border border-rose-200/75 bg-white/85 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:-translate-y-[1px] hover:border-rose-300 hover:bg-rose-50 hover:shadow-sm"
               >
-                <LogOut size={16} /> Выйти
+                <LogOut size={14} /> Выйти
               </button>
             </div>
           </div>
