@@ -3965,8 +3965,8 @@ const CollabSection = ({
   const renderStudentPicker = () => {
     if (!isTeacher) return null;
     return (
-      <div className={`inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 shadow-sm shadow-purple-100/40 ${
-        isCollabFullscreen || isDesktopCollabCompact ? 'px-2.5 py-1.5' : 'px-3 py-2'
+      <div className={`inline-flex w-full sm:w-auto items-center rounded-2xl border border-purple-200/80 bg-white/90 shadow-sm shadow-purple-100/40 ${
+        isCollabFullscreen || isDesktopCollabCompact ? 'h-8 gap-1.5 px-2 py-0' : 'gap-2 px-3 py-2'
       }`}>
         <span className={`font-semibold uppercase tracking-widest text-purple-500 ${
           isCollabFullscreen || isDesktopCollabCompact ? 'text-[10px]' : 'text-[11px]'
@@ -3980,7 +3980,7 @@ const CollabSection = ({
           disabled={studentsLoading || (students || []).length === 0}
           className={`w-full min-w-0 rounded-xl border border-purple-100 bg-white text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70 ${
             isCollabFullscreen || isDesktopCollabCompact
-              ? 'sm:min-w-[170px] px-2.5 py-1 text-[13px]'
+              ? 'h-7 sm:min-w-[170px] px-2.5 py-0 text-[13px]'
               : 'sm:min-w-[180px] px-3 py-1.5 text-sm'
           }`}
         >
@@ -4635,65 +4635,77 @@ const CollabSection = ({
     </div>
   ) : null;
 
+  const mergeHeaderIntoToolbar = isDesktopCollabCompact;
+  const collabTopActions = (
+    <div className={`flex flex-wrap items-center ${isCollabFullscreen || isDesktopCollabCompact ? 'gap-1.5' : 'gap-2'}`}>
+      {renderStudentPicker()}
+      <Button
+        variant="secondary"
+        onClick={() => setSaveModalOpen(true)}
+        className={`flex items-center ${
+          isCollabFullscreen || isDesktopCollabCompact
+            ? 'gap-1.5 !h-8 !min-h-[2rem] !px-2.5 !py-0 !text-[11px] sm:!text-[11px]'
+            : 'gap-2'
+        }`}
+      >
+        <Save size={16} />
+        Сохранить в конспекты
+      </Button>
+      <span className={`inline-flex items-center rounded-full border font-semibold ${
+        isCollabFullscreen || isDesktopCollabCompact ? 'h-8 px-2.5 text-[11px]' : 'px-3 py-1 text-xs'
+      } ${statusClass}`}>
+        {statusLabel}
+      </span>
+      {roomId && (
+        <span className={`inline-flex items-center rounded-full border border-slate-200 bg-white font-semibold text-slate-600 ${
+          isCollabFullscreen || isDesktopCollabCompact ? 'h-8 px-2.5 text-[11px]' : 'px-3 py-1 text-xs'
+        }`}>
+          Онлайн: {peerCount}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={toggleCollabFullscreen}
+        className={`inline-flex items-center rounded-full border font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/70 focus-visible:ring-offset-1 ${
+          isDesktopCollabCompact
+            ? 'h-8 w-8 justify-center rounded-xl p-0 text-[11px]'
+            : (isCollabFullscreen ? 'h-8 gap-1.5 px-2.5 text-[11px]' : 'gap-2 px-3 py-1 text-xs')
+        } ${
+          isCollabFullscreen
+            ? 'border-violet-300/80 bg-violet-500 text-white shadow-[0_0_0_2px_rgba(167,139,250,0.35)] hover:bg-violet-400'
+            : 'border-purple-500 bg-gradient-to-br from-purple-500 to-violet-600 text-white shadow-[0_4px_16px_rgba(124,58,237,0.35)] hover:from-purple-600 hover:to-violet-700'
+        }`}
+        title={isCollabFullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'}
+        aria-label={isCollabFullscreen ? 'Свернуть' : 'На весь экран'}
+      >
+        {isCollabFullscreen ? <Minimize2 size={isDesktopCollabCompact ? 16 : 14} /> : <Expand size={isDesktopCollabCompact ? 16 : 14} />}
+        {!isDesktopCollabCompact && (isCollabFullscreen ? 'Свернуть' : 'На весь экран')}
+      </button>
+    </div>
+  );
+
   return (
     <div ref={collabRootRef} className={collabShellClass} style={collabShellStyle}>
-      <div className={`flex flex-col md:flex-row md:items-center md:justify-between ${
-        isCollabFullscreen
-          ? 'mb-3 gap-2 rounded-2xl border border-slate-800/70 bg-slate-950/60 px-2.5 py-2 sm:px-3 sm:py-2.5 backdrop-blur'
-          : (isDesktopCollabCompact ? 'mb-3 gap-2' : 'mb-6 gap-3')
-      }`}>
-        <div>
-          <h2 className={`font-bold flex items-center gap-2 ${
-            isCollabFullscreen ? 'text-lg sm:text-xl' : (isDesktopCollabCompact ? 'text-xl' : 'text-2xl')
-          } ${collabTitleClass}`}>
-            <Pencil size={isCollabFullscreen || isDesktopCollabCompact ? 18 : 24} className={collabLabelClass} />
-            Совместный код
-          </h2>
-          <p className={`${collabSubtitleClass} ${isCollabFullscreen || isDesktopCollabCompact ? 'text-xs' : ''}`}>
-            Живой документ: изменения видны сразу.
-          </p>
+      {!mergeHeaderIntoToolbar && (
+        <div className={`flex flex-col md:flex-row md:items-center md:justify-between ${
+          isCollabFullscreen
+            ? 'mb-3 gap-2 rounded-2xl border border-slate-800/70 bg-slate-950/60 px-2.5 py-2 sm:px-3 sm:py-2.5 backdrop-blur'
+            : 'mb-6 gap-3'
+        }`}>
+          <div>
+            <h2 className={`font-bold flex items-center gap-2 ${
+              isCollabFullscreen ? 'text-lg sm:text-xl' : 'text-2xl'
+            } ${collabTitleClass}`}>
+              <Pencil size={isCollabFullscreen ? 18 : 24} className={collabLabelClass} />
+              Совместный код
+            </h2>
+            <p className={`${collabSubtitleClass} ${isCollabFullscreen ? 'text-xs' : ''}`}>
+              Живой документ: изменения видны сразу.
+            </p>
+          </div>
+          {collabTopActions}
         </div>
-        <div className={`flex flex-wrap items-center ${isCollabFullscreen || isDesktopCollabCompact ? 'gap-1.5' : 'gap-2'}`}>
-          {renderStudentPicker()}
-          <Button
-            variant="secondary"
-            onClick={() => setSaveModalOpen(true)}
-            className={`flex items-center ${
-              isCollabFullscreen || isDesktopCollabCompact ? 'gap-1.5 px-2.5 py-1.5 text-xs' : 'gap-2'
-            }`}
-          >
-            <Save size={16} />
-            Сохранить в конспекты
-          </Button>
-          <button
-            type="button"
-            onClick={toggleCollabFullscreen}
-            className={`inline-flex items-center rounded-full border font-semibold transition ${
-              isCollabFullscreen || isDesktopCollabCompact ? 'gap-1.5 px-2.5 py-0.5 text-[11px]' : 'gap-2 px-3 py-1 text-xs'
-            } ${
-              isCollabFullscreen
-                ? 'border-violet-500/70 bg-violet-500/20 text-violet-100 hover:bg-violet-500/30'
-                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-            }`}
-            title={isCollabFullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'}
-          >
-            {isCollabFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
-            {isCollabFullscreen ? 'Свернуть' : 'На весь экран'}
-          </button>
-          <span className={`inline-flex items-center rounded-full border font-semibold ${
-            isCollabFullscreen || isDesktopCollabCompact ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
-          } ${statusClass}`}>
-            {statusLabel}
-          </span>
-          {roomId && (
-            <span className={`inline-flex items-center rounded-full border border-slate-200 bg-white font-semibold text-slate-600 ${
-              isCollabFullscreen || isDesktopCollabCompact ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
-            }`}>
-              Онлайн: {peerCount}
-            </span>
-          )}
-        </div>
-      </div>
+      )}
 
       {isTeacher && !activeStudentId && (
         <div className={`rounded-2xl border border-amber-200 bg-amber-50 text-amber-700 flex items-start gap-2 ${
@@ -4731,9 +4743,9 @@ const CollabSection = ({
           {notesPdfPane}
         </div>
 
-        <div className={`${isCollabFullscreen || isDesktopCollabCompact ? 'mt-1.5 flex items-center justify-between gap-2' : ''}`}>
+        <div className={`${isCollabFullscreen || isDesktopCollabCompact ? 'mt-1.5 flex flex-wrap items-center gap-1.5' : ''}`}>
           <div className={`inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-xl border ${
-            isCollabFullscreen ? 'mt-0 px-1.5 py-1' : (isDesktopCollabCompact ? 'mt-2 px-1.5 py-1' : 'mt-3 px-2 py-1.5')
+            isCollabFullscreen || isDesktopCollabCompact ? 'mt-0 px-1.5 py-1' : 'mt-3 px-2 py-1.5'
           } ${collabToolbarClass}`}>
             {(isCollabFullscreen || isDesktopCollabCompact) && (
               <>
@@ -4886,18 +4898,23 @@ const CollabSection = ({
           </button>
           </div>
           {(isCollabFullscreen || isDesktopCollabCompact) && (
-            <button
-              type="button"
-              onClick={handleFormatCode}
-              disabled={!roomId}
-              className={`inline-flex items-center rounded-lg border px-2 py-1 text-[11px] font-semibold transition disabled:opacity-50 ${
-                isCollabFullscreen
-                  ? 'border-slate-700 bg-slate-900/70 text-slate-200 hover:bg-slate-800'
-                  : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              Автоформат
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={handleFormatCode}
+                disabled={!roomId}
+                className={`inline-flex h-8 items-center rounded-lg border px-2.5 py-0 text-[11px] font-semibold transition disabled:opacity-50 ${
+                  isCollabFullscreen
+                    ? 'border-slate-700 bg-slate-900/70 text-slate-200 hover:bg-slate-800'
+                    : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Автоформат
+              </button>
+              <div className="ml-auto flex flex-wrap items-center gap-1.5">
+                {mergeHeaderIntoToolbar && collabTopActions}
+              </div>
+            </>
           )}
         </div>
 
@@ -4968,7 +4985,9 @@ const CollabSection = ({
           </>
         )}
       </Card>
-      {typeof document !== 'undefined' ? createPortal(saveModal, document.body) : null}
+      {isCollabFullscreen
+        ? saveModal
+        : (typeof document !== 'undefined' ? createPortal(saveModal, document.body) : null)}
     </div>
   );
 };
@@ -7665,10 +7684,23 @@ const BoardSection = ({
 
 const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, onThemeToggle }) => {
   const STUDENT_CALL_SECTION_ENABLED = true;
+  const TEACHER_COMMS_VIEW = 'teacher-comms';
+  const TEACHER_COMMS_TABS = ['signup-chats', 'student-chats', 'notifications'];
+  const resolveTeacherCommsTab = (value) => {
+    const normalized = String(value || '').trim();
+    return TEACHER_COMMS_TABS.includes(normalized) ? normalized : 'signup-chats';
+  };
+  const normalizeTeacherView = (value) => {
+    const normalized = String(value || '').trim();
+    if (user.role === 'teacher' && TEACHER_COMMS_TABS.includes(normalized)) {
+      return TEACHER_COMMS_VIEW;
+    }
+    return normalized;
+  };
   const allowedViews = user.role === 'admin'
     ? ['admin']
     : user.role === 'teacher'
-      ? ['schedule', 'progress', 'python', 'rating', 'collab', 'call', 'board', 'teacher', 'signup-chats', 'student-chats', 'notifications', 'notes']
+      ? ['schedule', 'progress', 'python', 'rating', 'collab', 'call', 'board', 'teacher', TEACHER_COMMS_VIEW, 'notes']
       : [
         'schedule',
         'progress',
@@ -7689,6 +7721,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : null;
   const urlRequestedView = String(urlParams?.get('view') || '').trim();
   const urlRequestedChatId = String(urlParams?.get('chatId') || '').trim();
+  const normalizedUrlRequestedView = normalizeTeacherView(urlRequestedView);
+  const normalizedStoredView = normalizeTeacherView(storedView);
   const storedPythonLocation = storedLocation?.pythonLocation && typeof storedLocation.pythonLocation === 'object'
     ? storedLocation.pythonLocation
     : null;
@@ -7704,11 +7738,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         || (storedView === 'python' ? fallbackPythonOpenTask : null))
     : null;
   const storedActiveStudentId = storedLocation?.activeStudentId ? String(storedLocation.activeStudentId) : null;
-  const initialView = (urlRequestedView && allowedViews.includes(urlRequestedView))
-    ? urlRequestedView
+  const initialView = (normalizedUrlRequestedView && allowedViews.includes(normalizedUrlRequestedView))
+    ? normalizedUrlRequestedView
     : (restoredOpenTask?.section && allowedViews.includes(restoredOpenTask.section))
     ? restoredOpenTask.section
-    : (allowedViews.includes(storedView) ? storedView : defaultView);
+    : (allowedViews.includes(normalizedStoredView) ? normalizedStoredView : defaultView);
+  const initialTeacherCommsTab = user.role === 'teacher'
+    ? resolveTeacherCommsTab(urlRequestedView || storedView)
+    : 'signup-chats';
   const initialTeacherChatId = (user.role === 'teacher' || user.role === 'admin')
     ? urlRequestedChatId
     : '';
@@ -7721,6 +7758,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : null;
 
   const [view, setView] = useState(initialView);
+  const [teacherCommsTab, setTeacherCommsTab] = useState(initialTeacherCommsTab);
   const [callSessionStatus, setCallSessionStatus] = useState('idle');
   const [callPanelExpanded, setCallPanelExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -7952,9 +7990,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
         { id: 'board', label: 'Доска', icon: Brush },
         { id: 'teacher', label: 'Управление тестами', icon: Settings },
-        { id: 'signup-chats', label: 'Чаты заявок', icon: MessageSquare },
-        { id: 'student-chats', label: 'Чаты с учениками', icon: MessageSquare },
-        { id: 'notifications', label: 'Уведомления', icon: Bell },
+        { id: TEACHER_COMMS_VIEW, label: 'Чаты и уведомления', icon: MessageSquare },
         { id: 'notes', label: 'Конспекты', icon: Folder }
       ]
       : [
@@ -8014,7 +8050,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       teacherLessonNavItem,
-      ...['teacher', 'signup-chats', 'student-chats', 'notifications', 'notes']
+      ...['teacher', TEACHER_COMMS_VIEW, 'notes']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean)
     ]
@@ -8041,6 +8077,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     board: 'Доска',
     chat: 'Чат',
     teacher: 'Управ.',
+    'teacher-comms': 'Чаты',
     'signup-chats': 'Заявки',
     'student-chats': 'Чаты',
     notifications: 'Увед.',
@@ -10028,10 +10065,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setTeacherSolvedBulkReadBusy(false);
     }
   };
+  const isTeacherCommsView = user.role === 'teacher'
+    && (view === TEACHER_COMMS_VIEW || TEACHER_COMMS_TABS.includes(view));
+  const activeTeacherCommsTab = isTeacherCommsView
+    ? (view === TEACHER_COMMS_VIEW ? resolveTeacherCommsTab(teacherCommsTab) : resolveTeacherCommsTab(view))
+    : resolveTeacherCommsTab(teacherCommsTab);
+  const isTeacherNotificationsTabOpen = isTeacherCommsView && activeTeacherCommsTab === 'notifications';
 
   return (
     <div className="app-min-h app-shell flex font-sans text-slate-900">
-      {user.role === 'teacher' && view !== 'notifications' && teacherNotifs.length > 0 && (
+      {user.role === 'teacher' && !isTeacherNotificationsTabOpen && teacherNotifs.length > 0 && (
         <div className="fixed left-2 right-2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-[1200] sm:left-auto sm:right-4 sm:top-4 sm:w-full sm:max-w-[360px]">
           <div className="surface-panel rounded-2xl px-3 py-3 text-sm text-slate-700 shadow-xl">
             <div className="flex items-start justify-between gap-3">
@@ -11275,183 +11318,245 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onToggleTeacherSignupNotify={handleToggleTeacherSignupNotify}
             />
           )}
-          {view === 'student-chats' && (
-            <TeacherStudentChatsSection
-              role={user.role}
-              initialChatId={initialTeacherChatId}
-              notifySupported={teacherSignupNotifySupported}
-              notifyPermission={teacherSignupNotifyPermission}
-              notifyEnabled={teacherSignupNotifyEnabled}
-              notifyBusy={teacherSignupNotifyBusy}
-              notifySyncing={teacherSignupNotifySyncing}
-              notifyReady={teacherSignupNotifyReady}
-              notifyStatusText={teacherSignupNotifyStatusText}
-              notifyError={teacherSignupNotifyError}
-              onToggleNotify={handleToggleTeacherSignupNotify}
-            />
-          )}
-          {view === 'signup-chats' && (
-            <TeacherPanel
-              mode="signup-chats"
-              role={user.role}
-              students={studentsWithNicknames}
-              studentsLoading={studentsLoading}
-              studentsError={studentsError}
-              deletedStudents={deletedStudents}
-              deletedStudentsLoading={deletedStudentsLoading}
-              deletedStudentsError={deletedStudentsError}
-              tasks={tasksWithTitles}
-              activeStudentId={activeStudentId}
-              onSelectStudent={setActiveStudentId}
-              onStudentCreated={handleStudentCreated}
-              onStudentDeleted={handleStudentDeleted}
-              onStudentRestored={handleStudentRestored}
-              onStudentUpdated={handleStudentUpdated}
-              teacherId={user.role === 'teacher' ? user.id : null}
-              SOFT_DELETE_DAYS={SOFT_DELETE_DAYS}
-              MOCK_TASKS={MOCK_TASKS}
-              LEVELS={LEVELS}
-              getTaskDisplayNumber={getTaskDisplayNumber}
-              getAnswerCountForTask={getAnswerCountForTask}
-              getExpectedAnswers={getExpectedAnswers}
-              allowsPartialAnswers={allowsPartialAnswers}
-              normalizeXpTotal={normalizeXpTotal}
-              XP_PER_LEVEL={XP_PER_LEVEL}
-              GAME_THEORY_TASK={GAME_THEORY_TASK}
-              withUploadsAuthToken={withUploadsAuthToken}
-              teacherSignupNotifySupported={teacherSignupNotifySupported}
-              teacherSignupNotifyPermission={teacherSignupNotifyPermission}
-              teacherSignupNotifyEnabled={teacherSignupNotifyEnabled}
-              teacherSignupNotifyBusy={teacherSignupNotifyBusy}
-              teacherSignupNotifySyncing={teacherSignupNotifySyncing}
-              teacherSignupNotifyReady={teacherSignupNotifyReady}
-              teacherSignupNotifyStatusText={teacherSignupNotifyStatusText}
-              teacherSignupNotifyError={teacherSignupNotifyError}
-              onToggleTeacherSignupNotify={handleToggleTeacherSignupNotify}
-            />
-          )}
-          {view === 'notifications' && (
+          {isTeacherCommsView && (
             <div className="space-y-4">
-              <div className="surface-panel rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-bold uppercase tracking-widest text-slate-500">Новые уведомления</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-900">{`Сейчас: ${teacherNotifs.length}`}</div>
+              <div className="surface-panel rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm sm:p-3">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTeacherCommsTab('signup-chats')}
+                    className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                      activeTeacherCommsTab === 'signup-chats'
+                        ? 'border-purple-500 bg-purple-600 text-white'
+                        : 'border-purple-200 bg-white text-purple-700 hover:bg-purple-50'
+                    }`}
+                  >
+                    Чаты заявок
+                    {teacherSignupNotifs.length > 0 && (
+                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                        activeTeacherCommsTab === 'signup-chats'
+                          ? 'bg-white/20 text-white'
+                          : 'bg-purple-100 text-purple-700'
+                      }`}>
+                        {teacherSignupNotifs.length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTeacherCommsTab('student-chats')}
+                    className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                      activeTeacherCommsTab === 'student-chats'
+                        ? 'border-purple-500 bg-purple-600 text-white'
+                        : 'border-purple-200 bg-white text-purple-700 hover:bg-purple-50'
+                    }`}
+                  >
+                    Чаты с учениками
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTeacherCommsTab('notifications')}
+                    className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                      activeTeacherCommsTab === 'notifications'
+                        ? 'border-purple-500 bg-purple-600 text-white'
+                        : 'border-purple-200 bg-white text-purple-700 hover:bg-purple-50'
+                    }`}
+                  >
+                    Уведомления
+                    {teacherNotifs.length > 0 && (
+                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                        activeTeacherCommsTab === 'notifications'
+                          ? 'bg-white/20 text-white'
+                          : 'bg-purple-100 text-purple-700'
+                      }`}>
+                        {teacherNotifs.length}
+                      </span>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {activeTeacherCommsTab === 'student-chats' && (
+                <TeacherStudentChatsSection
+                  role={user.role}
+                  initialChatId={initialTeacherChatId}
+                  notifySupported={teacherSignupNotifySupported}
+                  notifyPermission={teacherSignupNotifyPermission}
+                  notifyEnabled={teacherSignupNotifyEnabled}
+                  notifyBusy={teacherSignupNotifyBusy}
+                  notifySyncing={teacherSignupNotifySyncing}
+                  notifyReady={teacherSignupNotifyReady}
+                  notifyStatusText={teacherSignupNotifyStatusText}
+                  notifyError={teacherSignupNotifyError}
+                  onToggleNotify={handleToggleTeacherSignupNotify}
+                />
+              )}
+
+              {activeTeacherCommsTab === 'signup-chats' && (
+                <TeacherPanel
+                  mode="signup-chats"
+                  role={user.role}
+                  students={studentsWithNicknames}
+                  studentsLoading={studentsLoading}
+                  studentsError={studentsError}
+                  deletedStudents={deletedStudents}
+                  deletedStudentsLoading={deletedStudentsLoading}
+                  deletedStudentsError={deletedStudentsError}
+                  tasks={tasksWithTitles}
+                  activeStudentId={activeStudentId}
+                  onSelectStudent={setActiveStudentId}
+                  onStudentCreated={handleStudentCreated}
+                  onStudentDeleted={handleStudentDeleted}
+                  onStudentRestored={handleStudentRestored}
+                  onStudentUpdated={handleStudentUpdated}
+                  teacherId={user.role === 'teacher' ? user.id : null}
+                  SOFT_DELETE_DAYS={SOFT_DELETE_DAYS}
+                  MOCK_TASKS={MOCK_TASKS}
+                  LEVELS={LEVELS}
+                  getTaskDisplayNumber={getTaskDisplayNumber}
+                  getAnswerCountForTask={getAnswerCountForTask}
+                  getExpectedAnswers={getExpectedAnswers}
+                  allowsPartialAnswers={allowsPartialAnswers}
+                  normalizeXpTotal={normalizeXpTotal}
+                  XP_PER_LEVEL={XP_PER_LEVEL}
+                  GAME_THEORY_TASK={GAME_THEORY_TASK}
+                  withUploadsAuthToken={withUploadsAuthToken}
+                  teacherSignupNotifySupported={teacherSignupNotifySupported}
+                  teacherSignupNotifyPermission={teacherSignupNotifyPermission}
+                  teacherSignupNotifyEnabled={teacherSignupNotifyEnabled}
+                  teacherSignupNotifyBusy={teacherSignupNotifyBusy}
+                  teacherSignupNotifySyncing={teacherSignupNotifySyncing}
+                  teacherSignupNotifyReady={teacherSignupNotifyReady}
+                  teacherSignupNotifyStatusText={teacherSignupNotifyStatusText}
+                  teacherSignupNotifyError={teacherSignupNotifyError}
+                  onToggleTeacherSignupNotify={handleToggleTeacherSignupNotify}
+                />
+              )}
+
+              {activeTeacherCommsTab === 'notifications' && (
+                <div className="space-y-4">
+                  <div className="surface-panel rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-bold uppercase tracking-widest text-slate-500">Новые уведомления</div>
+                        <div className="mt-1 text-sm font-semibold text-slate-900">{`Сейчас: ${teacherNotifs.length}`}</div>
+                      </div>
+                      {teacherSolvedNotifs.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={dismissAllTeacherSolvedNotifs}
+                          disabled={teacherSolvedBulkReadBusy}
+                          className="rounded-xl border border-purple-200 bg-white px-3 py-1.5 text-xs font-semibold text-purple-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-70"
+                        >
+                          {teacherSolvedBulkReadBusy ? 'Закрываю...' : 'Закрыть все решения'}
+                        </button>
+                      )}
+                    </div>
+                    <div className="mt-3 max-h-[48vh] space-y-2 overflow-y-auto pr-1">
+                      {teacherNotifs.length > 0 ? (
+                        teacherNotifs.map((note) => {
+                          const levelLabel = note.levelId === PYTHON_LEVEL_ID
+                            ? 'Python'
+                            : (LEVELS[note.levelId?.toUpperCase()]?.label || note.levelId || '');
+                          const questionPart = note.questionNumber ? ` · вопрос ${note.questionNumber}` : '';
+                          const signupUnreadLabel = note.unreadCount > 1
+                            ? `Новых сообщений: ${note.unreadCount}`
+                            : 'Новое сообщение';
+                          const timestampLabel = formatTeacherNotifTimestamp(note.timestampMs);
+                          return (
+                            <div key={`notif-view-live-${note.id}`} className="relative rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                              <button
+                                type="button"
+                                onClick={() => dismissTeacherNotif(note)}
+                                className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
+                                aria-label="Закрыть уведомление"
+                              >
+                                <X size={16} />
+                              </button>
+                              {note.type === 'signup' ? (
+                                <>
+                                  <div className="text-xs font-bold uppercase tracking-widest text-indigo-500">Новое сообщение</div>
+                                  <div className="mt-1 font-semibold text-gray-900 truncate">
+                                    {note.guestName || 'Новая заявка'}
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    {note.preview ? `${signupUnreadLabel}: ${note.preview}` : signupUnreadLabel}
+                                  </div>
+                                  {timestampLabel && <div className="mt-1 text-[11px] text-gray-400">{timestampLabel}</div>}
+                                </>
+                              ) : (
+                                <>
+                                  <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Новая отметка</div>
+                                  <div className="mt-1 font-semibold text-gray-900 truncate">
+                                    {note.studentName || 'Ученик'}
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
+                                  </div>
+                                  {timestampLabel && <div className="mt-1 text-[11px] text-gray-400">{timestampLabel}</div>}
+                                </>
+                              )}
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-3 py-3 text-xs text-slate-500">
+                          Новых уведомлений пока нет.
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  {teacherSolvedNotifs.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={dismissAllTeacherSolvedNotifs}
-                      disabled={teacherSolvedBulkReadBusy}
-                      className="rounded-xl border border-purple-200 bg-white px-3 py-1.5 text-xs font-semibold text-purple-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-70"
-                    >
-                      {teacherSolvedBulkReadBusy ? 'Закрываю...' : 'Закрыть все решения'}
-                    </button>
-                  )}
-                </div>
-                <div className="mt-3 max-h-[48vh] space-y-2 overflow-y-auto pr-1">
-                  {teacherNotifs.length > 0 ? (
-                    teacherNotifs.map((note) => {
-                      const levelLabel = note.levelId === PYTHON_LEVEL_ID
-                        ? 'Python'
-                        : (LEVELS[note.levelId?.toUpperCase()]?.label || note.levelId || '');
-                      const questionPart = note.questionNumber ? ` · вопрос ${note.questionNumber}` : '';
-                      const signupUnreadLabel = note.unreadCount > 1
-                        ? `Новых сообщений: ${note.unreadCount}`
-                        : 'Новое сообщение';
-                      const timestampLabel = formatTeacherNotifTimestamp(note.timestampMs);
-                      return (
-                        <div key={`notif-view-live-${note.id}`} className="relative rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-                          <button
-                            type="button"
-                            onClick={() => dismissTeacherNotif(note)}
-                            className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
-                            aria-label="Закрыть уведомление"
-                          >
-                            <X size={16} />
-                          </button>
-                          {note.type === 'signup' ? (
-                            <>
-                              <div className="text-xs font-bold uppercase tracking-widest text-indigo-500">Новое сообщение</div>
-                              <div className="mt-1 font-semibold text-gray-900 truncate">
-                                {note.guestName || 'Новая заявка'}
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                {note.preview ? `${signupUnreadLabel}: ${note.preview}` : signupUnreadLabel}
-                              </div>
-                              {timestampLabel && <div className="mt-1 text-[11px] text-gray-400">{timestampLabel}</div>}
-                            </>
-                          ) : (
-                            <>
-                              <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Новая отметка</div>
-                              <div className="mt-1 font-semibold text-gray-900 truncate">
-                                {note.studentName || 'Ученик'}
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
-                              </div>
-                              {timestampLabel && <div className="mt-1 text-[11px] text-gray-400">{timestampLabel}</div>}
-                            </>
-                          )}
+                  <div className="surface-panel rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="text-xs font-bold uppercase tracking-widest text-slate-500">История уведомлений</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900">{`Всего: ${teacherNotifHistory.length}`}</div>
+                    <div className="mt-3 max-h-[55vh] space-y-2 overflow-y-auto pr-1">
+                      {teacherNotifHistory.length > 0 ? (
+                        teacherNotifHistory.map((note) => {
+                          const levelLabel = note.levelId === PYTHON_LEVEL_ID
+                            ? 'Python'
+                            : (LEVELS[note.levelId?.toUpperCase()]?.label || note.levelId || '');
+                          const questionPart = note.questionNumber ? ` · вопрос ${note.questionNumber}` : '';
+                          const signupUnreadLabel = note.unreadCount > 1
+                            ? `Новых сообщений: ${note.unreadCount}`
+                            : 'Новое сообщение';
+                          const timestampLabel = formatTeacherNotifTimestamp(note.timestampMs);
+                          return (
+                            <div key={note.archiveId} className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
+                              {note.type === 'signup' ? (
+                                <>
+                                  <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Сообщение</div>
+                                  <div className="mt-1 font-semibold text-slate-800 truncate">
+                                    {note.guestName || 'Новая заявка'}
+                                  </div>
+                                  <div className="text-xs text-slate-500">
+                                    {note.preview ? `${signupUnreadLabel}: ${note.preview}` : signupUnreadLabel}
+                                  </div>
+                                  {timestampLabel && <div className="mt-1 text-[11px] text-slate-400">{timestampLabel}</div>}
+                                </>
+                              ) : (
+                                <>
+                                  <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Отметка</div>
+                                  <div className="mt-1 font-semibold text-slate-800 truncate">
+                                    {note.studentName || 'Ученик'}
+                                  </div>
+                                  <div className="text-xs text-slate-500">
+                                    {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
+                                  </div>
+                                  {timestampLabel && <div className="mt-1 text-[11px] text-slate-400">{timestampLabel}</div>}
+                                </>
+                              )}
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-3 py-3 text-xs text-slate-500">
+                          История пока пуста.
                         </div>
-                      );
-                    })
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-3 py-3 text-xs text-slate-500">
-                      Новых уведомлений пока нет.
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
-              </div>
-              <div className="surface-panel rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="text-xs font-bold uppercase tracking-widest text-slate-500">История уведомлений</div>
-                <div className="mt-1 text-sm font-semibold text-slate-900">{`Всего: ${teacherNotifHistory.length}`}</div>
-                <div className="mt-3 max-h-[55vh] space-y-2 overflow-y-auto pr-1">
-                  {teacherNotifHistory.length > 0 ? (
-                    teacherNotifHistory.map((note) => {
-                      const levelLabel = note.levelId === PYTHON_LEVEL_ID
-                        ? 'Python'
-                        : (LEVELS[note.levelId?.toUpperCase()]?.label || note.levelId || '');
-                      const questionPart = note.questionNumber ? ` · вопрос ${note.questionNumber}` : '';
-                      const signupUnreadLabel = note.unreadCount > 1
-                        ? `Новых сообщений: ${note.unreadCount}`
-                        : 'Новое сообщение';
-                      const timestampLabel = formatTeacherNotifTimestamp(note.timestampMs);
-                      return (
-                        <div key={note.archiveId} className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
-                          {note.type === 'signup' ? (
-                            <>
-                              <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Сообщение</div>
-                              <div className="mt-1 font-semibold text-slate-800 truncate">
-                                {note.guestName || 'Новая заявка'}
-                              </div>
-                              <div className="text-xs text-slate-500">
-                                {note.preview ? `${signupUnreadLabel}: ${note.preview}` : signupUnreadLabel}
-                              </div>
-                              {timestampLabel && <div className="mt-1 text-[11px] text-slate-400">{timestampLabel}</div>}
-                            </>
-                          ) : (
-                            <>
-                              <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Отметка</div>
-                              <div className="mt-1 font-semibold text-slate-800 truncate">
-                                {note.studentName || 'Ученик'}
-                              </div>
-                              <div className="text-xs text-slate-500">
-                                {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
-                              </div>
-                              {timestampLabel && <div className="mt-1 text-[11px] text-slate-400">{timestampLabel}</div>}
-                            </>
-                          )}
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-3 py-3 text-xs text-slate-500">
-                      История пока пуста.
-                    </div>
-                  )}
-                </div>
-              </div>
+              )}
             </div>
           )}
           {view === 'admin' && (
