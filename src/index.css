@@ -2077,6 +2077,61 @@
 .call-waiting-hint {
   animation: callHintBreath 2.7s ease-in-out infinite;
 }
+@keyframes callLessonChatReveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+    filter: saturate(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: saturate(1);
+  }
+}
+.call-lesson-chat {
+  animation: callLessonChatReveal 0.5s cubic-bezier(0.2, 1, 0.36, 1) both;
+}
+.call-lesson-chat-list {
+  position: relative;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  scrollbar-color: transparent transparent;
+  overflow-x: hidden;
+}
+.call-lesson-chat-list::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+.call-lesson-chat-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: transparent;
+}
+.call-lesson-chat:hover .call-lesson-chat-list,
+.call-lesson-chat:focus-within .call-lesson-chat-list {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, rgba(56, 189, 248, 0.34) 46%, rgba(168, 85, 247, 0.34)) transparent;
+}
+.call-lesson-chat:hover .call-lesson-chat-list::-webkit-scrollbar,
+.call-lesson-chat:focus-within .call-lesson-chat-list::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.call-lesson-chat:hover .call-lesson-chat-list::-webkit-scrollbar-thumb,
+.call-lesson-chat:focus-within .call-lesson-chat-list::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, rgba(56, 189, 248, 0.34) 46%, rgba(168, 85, 247, 0.34));
+}
+.call-lesson-chat-bubble {
+  will-change: transform, opacity;
+  overflow: hidden;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+}
+.call-lesson-chat-empty {
+  opacity: 0.9;
+}
+.call-lesson-chat-input {
+  transform-origin: top center;
+}
 .goal-expand { animation: goalExpand 0.28s ease-out both; transform-origin: top center; }
 .goal-collapse { animation: goalCollapse 0.22s ease-out both; transform-origin: top center; }
 .logo-glow { text-shadow: 0 2px 8px rgba(126, 34, 206, 0.35); }
@@ -2668,6 +2723,8 @@
   .call-control-btn[data-live='true']::before,
   .call-control-btn[data-live='true'] svg,
   .call-control-btn--active,
+  .call-lesson-chat,
+  .call-lesson-chat-bubble,
   .call-stats-grid .call-stat-card,
   .call-connection-hint,
   .call-speaking-ring,
@@ -2976,6 +3033,20 @@ html[data-theme='dark'] .call-grid-overlay {
 
 html[data-theme='dark'] .call-noise-overlay {
   opacity: 0.2;
+}
+
+html[data-theme='dark'] .call-lesson-chat-bubble {
+  box-shadow: 0 12px 26px rgba(2, 6, 23, 0.36);
+}
+
+html[data-theme='dark'] .call-lesson-chat:hover .call-lesson-chat-list,
+html[data-theme='dark'] .call-lesson-chat:focus-within .call-lesson-chat-list {
+  scrollbar-color: color-mix(in srgb, rgba(56, 189, 248, 0.44) 48%, rgba(167, 139, 250, 0.44)) transparent;
+}
+
+html[data-theme='dark'] .call-lesson-chat:hover .call-lesson-chat-list::-webkit-scrollbar-thumb,
+html[data-theme='dark'] .call-lesson-chat:focus-within .call-lesson-chat-list::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, rgba(56, 189, 248, 0.44) 48%, rgba(167, 139, 250, 0.44));
 }
 
 html[data-theme='dark'] .call-status-chip::after {

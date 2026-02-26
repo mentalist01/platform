@@ -1,11 +1,31 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, BellOff, MessageSquare, SendHorizontal } from 'lucide-react';
+import { Bell, BellOff, ImagePlus, MessageSquare, SendHorizontal, X } from 'lucide-react';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
 import LinkifiedText from './LinkifiedText';
 
 const CHATS_POLL_MS = 6000;
 const MESSAGES_POLL_MS = 5000;
+const CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const CHAT_ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
+
+const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+  if (!file) {
+    reject(new Error('Файл не выбран'));
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const result = typeof reader.result === 'string' ? reader.result : '';
+    if (!result) {
+      reject(new Error('Не удалось прочитать файл'));
+      return;
+    }
+    resolve(result);
+  };
+  reader.onerror = () => reject(new Error('Не удалось прочитать файл'));
+  reader.readAsDataURL(file);
+});
 
 const formatDateTime = (iso) => {
   if (!iso) return '';
@@ -41,10 +61,42 @@ const TeacherStudentChatsSection = ({
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesError, setMessagesError] = useState('');
   const [messageText, setMessageText] = useState('');
+  const [messageImageDataUrl, setMessageImageDataUrl] = useState('');
+  const [messageImageName, setMessageImageName] = useState('');
   const [messageSending, setMessageSending] = useState(false);
   const messagesRef = useRef(null);
+  const messageImageInputRef = useRef(null);
   const prevChatsSnapshotRef = useRef(new Map());
   const chatOrderRef = useRef(new Map());
+
+  const clearMessageImage = useCallback(() => {
+    setMessageImageDataUrl('');
+    setMessageImageName('');
+    if (messageImageInputRef.current) messageImageInputRef.current.value = '';
+  }, []);
+
+  const handleMessageImageSelect = useCallback(async (file) => {
+    if (!file) return;
+    const mimeType = String(file.type || '').toLowerCase();
+    if (!mimeType || !CHAT_ALLOWED_IMAGE_TYPES.has(mimeType)) {
+      setMessagesError('Можно отправлять только изображения: PNG, JPG, WEBP, GIF.');
+      return;
+    }
+    if (Number(file.size) > CHAT_IMAGE_MAX_BYTES) {
+      setMessagesError('Изображение должно быть не больше 5 МБ.');
+      return;
+    }
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setMessageImageDataUrl(dataUrl);
+      setMessageImageName(String(file.name || '').trim());
+      setMessagesError('');
+    } catch (err) {
+      setMessagesError(err?.message || String(err));
+    } finally {
+      if (messageImageInputRef.current) messageImageInputRef.current.value = '';
+    }
+  }, []);
 
   const getChatSortValue = useCallback((chat) => {
     const value = chat?.lastMessageAt || chat?.updatedAt || chat?.createdAt || '';
@@ -218,13 +270,24 @@ const TeacherStudentChatsSection = ({
     node.scrollTop = node.scrollHeight;
   }, [selectedChatId, messages.length]);
 
+  useEffect(() => {
+    clearMessageImage();
+  }, [clearMessageImage, selectedChatId]);
+
   const handleSendMessage = async () => {
     const text = messageText.trim();
-    if (!selectedChatId || !text || messageSending) return;
+    const imageDataUrl = String(messageImageDataUrl || '').trim();
+    const imageName = String(messageImageName || '').trim();
+    if (!selectedChatId || (!text && !imageDataUrl) || messageSending) return;
     setMessageSending(true);
     try {
-      await api.sendStudentChatMessageForTeacher(selectedChatId, text);
+      await api.sendStudentChatMessageForTeacher(selectedChatId, {
+        text,
+        imageDataUrl,
+        imageName,
+      });
       setMessageText('');
+      clearMessageImage();
       await fetchMessages(selectedChatId, { silent: true });
       await refreshChats();
       setMessagesError('');
@@ -372,6 +435,9 @@ const TeacherStudentChatsSection = ({
                   ) : (
                     messages.map((message) => {
                       const isTeacherMessage = message?.senderRole === 'teacher';
+                      const messageText = String(message?.text || '');
+                      const messageImageDataUrl = String(message?.imageDataUrl || '').trim();
+                      const messageImageName = String(message?.imageName || '').trim();
                       return (
                         <div key={message.id} className={`flex ${isTeacherMessage ? 'justify-end' : 'justify-start'}`}>
                           <div
@@ -386,11 +452,29 @@ const TeacherStudentChatsSection = ({
                                 {message?.senderName || selectedChat?.studentName || 'Ученик'}
                               </div>
                             )}
-                            <LinkifiedText
-                              text={message?.text || ''}
-                              className="whitespace-pre-wrap break-words"
-                              linkClassName={isTeacherMessage ? 'underline decoration-white/70 underline-offset-2' : 'text-purple-700 underline decoration-purple-400 underline-offset-2'}
-                            />
+                            {messageImageDataUrl && (
+                              <a
+                                href={messageImageDataUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mb-2 block overflow-hidden rounded-lg border border-white/20"
+                                title={messageImageName || 'Открыть изображение'}
+                              >
+                                <img
+                                  src={messageImageDataUrl}
+                                  alt={messageImageName || 'Изображение'}
+                                  className="max-h-[260px] w-full object-contain bg-black/10"
+                                  loading="lazy"
+                                />
+                              </a>
+                            )}
+                            {messageText && (
+                              <LinkifiedText
+                                text={messageText}
+                                className="whitespace-pre-wrap break-words"
+                                linkClassName={isTeacherMessage ? 'underline decoration-white/70 underline-offset-2' : 'text-purple-700 underline decoration-purple-400 underline-offset-2'}
+                              />
+                            )}
                             <div className={`mt-1 text-[10px] ${isTeacherMessage ? 'text-purple-100' : 'text-gray-400'}`}>
                               {formatDateTime(message?.createdAt)}
                             </div>
@@ -401,29 +485,82 @@ const TeacherStudentChatsSection = ({
                   )}
                 </div>
 
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                  <textarea
-                    value={messageText}
-                    onChange={(event) => setMessageText(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && !event.shiftKey) {
-                        event.preventDefault();
-                        handleSendMessage();
-                      }
+                <div className="mt-3">
+                  <input
+                    ref={messageImageInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) handleMessageImageSelect(file);
                     }}
-                    rows={3}
-                    placeholder="Ответить ученику..."
-                    className="w-full resize-none rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-purple-500"
                   />
-                  <Button
-                    type="button"
-                    onClick={handleSendMessage}
-                    disabled={messageSending || !messageText.trim() || !selectedChatId}
-                    className="h-[46px] min-w-[136px] self-end sm:self-stretch"
-                  >
-                    <SendHorizontal size={16} />
-                    {messageSending ? 'Отправка...' : 'Отправить'}
-                  </Button>
+                  {messageImageDataUrl && (
+                    <div className="mb-2 flex items-start gap-2 rounded-xl border border-gray-200 bg-white px-2 py-2">
+                      <img
+                        src={messageImageDataUrl}
+                        alt={messageImageName || 'Изображение'}
+                        className="h-12 w-12 rounded-md object-cover"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs text-gray-700">{messageImageName || 'Изображение'}</p>
+                        <p className="text-[11px] text-gray-500">До 5 МБ</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-100"
+                        onClick={clearMessageImage}
+                        aria-label="Убрать изображение"
+                        title="Убрать изображение"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <textarea
+                      value={messageText}
+                      onChange={(event) => setMessageText(event.target.value)}
+                      onPaste={(event) => {
+                        const items = Array.from(event.clipboardData?.items || []);
+                        const imageItem = items.find((item) => item.kind === 'file' && String(item.type || '').toLowerCase().startsWith('image/'));
+                        if (!imageItem) return;
+                        const file = imageItem.getAsFile?.();
+                        if (!file) return;
+                        event.preventDefault();
+                        handleMessageImageSelect(file);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && !event.shiftKey) {
+                          event.preventDefault();
+                          handleSendMessage();
+                        }
+                      }}
+                      rows={3}
+                      placeholder="Ответить ученику..."
+                      className="w-full resize-none rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-purple-500"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => messageImageInputRef.current?.click()}
+                      disabled={messageSending || !selectedChatId}
+                      className="h-[46px] min-w-[48px] self-end px-0 sm:self-stretch"
+                      title="Добавить изображение (до 5 МБ)"
+                    >
+                      <ImagePlus size={16} />
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={handleSendMessage}
+                      disabled={messageSending || (!messageText.trim() && !messageImageDataUrl) || !selectedChatId}
+                      className="h-[46px] min-w-[136px] self-end sm:self-stretch"
+                    >
+                      <SendHorizontal size={16} />
+                      {messageSending ? 'Отправка...' : 'Отправить'}
+                    </Button>
+                  </div>
                 </div>
                 {messagesError && <p className="mt-2 text-xs text-red-500">{messagesError}</p>}
               </>

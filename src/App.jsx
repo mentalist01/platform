@@ -7863,18 +7863,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [pushReady, setPushReady] = useState(false);
   const isCallSessionActive = callSessionStatus === 'connected' || callSessionStatus === 'connecting';
   const isBoardView = view === 'board';
+  const isCallView = view === 'call';
   const callUiMode = !isCallViewAvailable
     ? 'hidden'
-    : view === 'call'
+    : isCallView
       ? 'full'
       : isCallSessionActive
         ? (callPanelExpanded ? 'floating' : 'collapsed')
         : 'hidden';
-  const mainLayoutClass = isBoardView
+  const mainLayoutClass = (isBoardView || isCallView)
     ? 'flex-1 overflow-hidden px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-4 sm:pt-4 sm:pb-4 md:px-5 md:pt-8 md:pb-5 lg:px-6 lg:pb-6'
     : 'flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8';
   const mainContentShellClass = `main-content-shell animate-soft${
-    isBoardView ? ' h-full min-h-0 flex flex-col overflow-hidden' : ''
+    (isBoardView || isCallView) ? ' h-full min-h-0 flex flex-col overflow-hidden' : ''
   }`;
   const studentsWithNicknames = useMemo(
     () => students,

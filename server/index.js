@@ -94,6 +94,16 @@ const SIGNUP_MESSAGE_MAX_LENGTH = 2000;
 const SIGNUP_LAST_MESSAGE_PREVIEW_MAX_LENGTH = 160;
 const STUDENT_CHAT_MESSAGE_MAX_LENGTH = 2000;
 const STUDENT_CHAT_LAST_MESSAGE_PREVIEW_MAX_LENGTH = 160;
+const STUDENT_CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const STUDENT_CHAT_IMAGE_NAME_MAX_LENGTH = 180;
+const STUDENT_CHAT_IMAGE_PREVIEW_TEXT = '[Изображение]';
+const STUDENT_CHAT_ALLOWED_IMAGE_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
+  'image/gif',
+]);
 const STUDENT_TRAFFIC_LIMIT_BYTES = (() => {
   const bytesRaw = Number(process.env.STUDENT_TRAFFIC_LIMIT_BYTES);
   if (Number.isFinite(bytesRaw) && bytesRaw > 0) return bytesRaw;
@@ -1043,6 +1053,56 @@ const normalizeStudentChatMessageText = (value) => {
   return normalized.slice(0, STUDENT_CHAT_MESSAGE_MAX_LENGTH);
 };
 
+const normalizeStudentChatImageName = (value) => {
+  if (typeof value !== 'string') return '';
+  const normalized = normalizeFileName(value).trim();
+  if (!normalized) return '';
+  return normalized.slice(0, STUDENT_CHAT_IMAGE_NAME_MAX_LENGTH);
+};
+
+const getBase64PayloadSizeBytes = (base64Value) => {
+  const normalized = typeof base64Value === 'string'
+    ? base64Value.replace(/\s+/g, '').trim()
+    : '';
+  if (!normalized) return 0;
+  const padding = normalized.endsWith('==') ? 2 : (normalized.endsWith('=') ? 1 : 0);
+  return Math.max(0, Math.floor((normalized.length * 3) / 4) - padding);
+};
+
+const normalizeStudentChatImageDataUrl = (value) => {
+  if (typeof value !== 'string') return '';
+  const normalized = value.trim();
+  if (!normalized) return '';
+  const match = normalized.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) return '';
+  const mimeRaw = String(match[1] || '').trim().toLowerCase();
+  const mime = mimeRaw === 'image/jpg' ? 'image/jpeg' : mimeRaw;
+  if (!STUDENT_CHAT_ALLOWED_IMAGE_MIME_TYPES.has(mime)) return '';
+  const base64 = String(match[2] || '').replace(/\s+/g, '');
+  if (!base64) return '';
+  const sizeBytes = getBase64PayloadSizeBytes(base64);
+  if (!sizeBytes || sizeBytes > STUDENT_CHAT_IMAGE_MAX_BYTES) return '';
+  return `data:${mime};base64,${base64}`;
+};
+
+const hasStudentTeacherChatMessageContent = (message) => {
+  if (!message || typeof message !== 'object') return false;
+  const text = normalizeStudentChatMessageText(message.text);
+  const imageDataUrl = normalizeStudentChatImageDataUrl(message.imageDataUrl);
+  return Boolean(text || imageDataUrl);
+};
+
+const buildStudentTeacherChatMessagePreview = (message) => {
+  if (!message || typeof message !== 'object') return '';
+  const text = normalizeStudentChatMessageText(message.text);
+  if (text) {
+    return text.replace(/\s+/g, ' ').trim().slice(0, STUDENT_CHAT_LAST_MESSAGE_PREVIEW_MAX_LENGTH);
+  }
+  const imageDataUrl = normalizeStudentChatImageDataUrl(message.imageDataUrl);
+  if (imageDataUrl) return STUDENT_CHAT_IMAGE_PREVIEW_TEXT;
+  return '';
+};
+
 const buildStudentTeacherChatId = (studentId) => {
   const id = String(studentId || '').trim();
   if (!id) return '';
@@ -1063,10 +1123,12 @@ const normalizeStudentTeacherChatMessage = (value) => {
   const senderId = typeof value.senderId === 'string' ? value.senderId.trim() : '';
   const senderNameRaw = typeof value.senderName === 'string' ? value.senderName.trim() : '';
   const text = normalizeStudentChatMessageText(value.text);
+  const imageDataUrl = normalizeStudentChatImageDataUrl(value.imageDataUrl);
+  const imageName = normalizeStudentChatImageName(value.imageName);
   const createdAt = normalizeIsoTimestamp(value.createdAt, '');
-  if (!id || !senderId || !text || !createdAt) return null;
+  if (!id || !senderId || (!text && !imageDataUrl) || !createdAt) return null;
   const senderName = senderNameRaw || (senderRole === 'teacher' ? 'Преподаватель' : 'Ученик');
-  return {
+  const message = {
     id,
     senderRole,
     senderId,
@@ -1074,6 +1136,11 @@ const normalizeStudentTeacherChatMessage = (value) => {
     text,
     createdAt,
   };
+  if (imageDataUrl) {
+    message.imageDataUrl = imageDataUrl;
+    if (imageName) message.imageName = imageName;
+  }
+  return message;
 };
 
 const normalizeStudentTeacherChat = (value) => {
@@ -1095,7 +1162,8 @@ const normalizeStudentTeacherChat = (value) => {
   const lastMessagePreviewRaw = typeof value.lastMessagePreview === 'string'
     ? value.lastMessagePreview.replace(/\s+/g, ' ').trim()
     : '';
-  const lastMessagePreview = (lastMessagePreviewRaw || lastMessage?.text || '').slice(0, STUDENT_CHAT_LAST_MESSAGE_PREVIEW_MAX_LENGTH);
+  const fallbackPreview = buildStudentTeacherChatMessagePreview(lastMessage);
+  const lastMessagePreview = (lastMessagePreviewRaw || fallbackPreview).slice(0, STUDENT_CHAT_LAST_MESSAGE_PREVIEW_MAX_LENGTH);
   const lastMessageSenderRole = value.lastMessageSenderRole === 'teacher' || value.lastMessageSenderRole === 'student'
     ? value.lastMessageSenderRole
     : (lastMessage?.senderRole || '');
@@ -1203,9 +1271,9 @@ const createStudentTeacherChatForStudent = (student) => {
 };
 
 const appendStudentTeacherChatMessage = (chat, message) => {
-  if (!chat || !message || !message.text || !message.senderId) return chat;
+  if (!chat || !message || !hasStudentTeacherChatMessageContent(message) || !message.senderId) return chat;
   const nextMessages = [...(Array.isArray(chat.messages) ? chat.messages : []), message];
-  const preview = message.text.replace(/\s+/g, ' ').trim().slice(0, STUDENT_CHAT_LAST_MESSAGE_PREVIEW_MAX_LENGTH);
+  const preview = buildStudentTeacherChatMessagePreview(message);
   const next = {
     ...chat,
     messages: nextMessages,
@@ -2060,14 +2128,24 @@ const ensureStudentTeacherChatAccess = (req, res, chatId, options = {}) => {
   };
 };
 
-const createStudentTeacherChatMessage = ({ senderRole, senderId, senderName, text }) => ({
-  id: crypto.randomUUID(),
-  senderRole: senderRole === 'teacher' ? 'teacher' : 'student',
-  senderId: String(senderId || '').trim(),
-  senderName: String(senderName || '').trim(),
-  text: normalizeStudentChatMessageText(text),
-  createdAt: new Date().toISOString(),
-});
+const createStudentTeacherChatMessage = ({ senderRole, senderId, senderName, text, imageDataUrl, imageName }) => {
+  const normalizedText = normalizeStudentChatMessageText(text);
+  const normalizedImageDataUrl = normalizeStudentChatImageDataUrl(imageDataUrl);
+  const normalizedImageName = normalizeStudentChatImageName(imageName);
+  const message = {
+    id: crypto.randomUUID(),
+    senderRole: senderRole === 'teacher' ? 'teacher' : 'student',
+    senderId: String(senderId || '').trim(),
+    senderName: String(senderName || '').trim(),
+    text: normalizedText,
+    createdAt: new Date().toISOString(),
+  };
+  if (normalizedImageDataUrl) {
+    message.imageDataUrl = normalizedImageDataUrl;
+    if (normalizedImageName) message.imageName = normalizedImageName;
+  }
+  return message;
+};
 
 const isLeadAllowedApiRequest = (req) => {
   const method = String(req?.method || '').toUpperCase();
@@ -3302,7 +3380,7 @@ const buildSignupLeadPushPayload = (chat, message) => {
 
 const buildStudentTeacherPushPayloadForTeacher = (chat, message, student) => {
   const studentName = String(student?.name || message?.senderName || 'Ученик').trim() || 'Ученик';
-  const text = trimPushBodyText(message?.text || '');
+  const text = trimPushBodyText(message?.text || (message?.imageDataUrl ? 'Изображение' : ''));
   return {
     title: `Новое сообщение от ${studentName}`,
     body: text || 'Откройте чаты учеников, чтобы прочитать сообщение.',
@@ -3323,7 +3401,7 @@ const buildStudentTeacherPushPayloadForTeacher = (chat, message, student) => {
 
 const buildStudentTeacherPushPayloadForStudent = (chat, message, teacher) => {
   const teacherName = String(teacher?.name || message?.senderName || 'Преподаватель').trim() || 'Преподаватель';
-  const text = trimPushBodyText(message?.text || '');
+  const text = trimPushBodyText(message?.text || (message?.imageDataUrl ? 'Изображение' : ''));
   return {
     title: `Ответ от ${teacherName}`,
     body: text || 'Откройте чат с преподавателем, чтобы прочитать сообщение.',
@@ -4730,7 +4808,9 @@ app.get('/api/student-chat/messages', (req, res) => {
 app.post('/api/student-chat/messages', (req, res) => {
   if (!isStudentRole(req.auth)) return forbid(res);
   const text = normalizeStudentChatMessageText(req.body?.text);
-  if (!text) return res.status(400).json({ error: 'Введите сообщение' });
+  const imageDataUrl = normalizeStudentChatImageDataUrl(req.body?.imageDataUrl);
+  const imageName = normalizeStudentChatImageName(req.body?.imageName);
+  if (!text && !imageDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте изображение' });
 
   const chats = readStudentChatsDb();
   const access = ensureStudentTeacherChatAccess(
@@ -4748,8 +4828,10 @@ app.post('/api/student-chat/messages', (req, res) => {
     senderId: req.auth.id,
     senderName: student?.name || req.auth.name || 'Ученик',
     text,
+    imageDataUrl,
+    imageName,
   });
-  if (!message.text || !message.senderId) {
+  if (!hasStudentTeacherChatMessageContent(message) || !message.senderId) {
     return res.status(400).json({ error: 'Некорректное сообщение' });
   }
 
@@ -4882,7 +4964,9 @@ app.get('/api/student-chats/:chatId/messages', (req, res) => {
 app.post('/api/student-chats/:chatId/messages', (req, res) => {
   if (!isStaffRole(req.auth)) return forbid(res);
   const text = normalizeStudentChatMessageText(req.body?.text);
-  if (!text) return res.status(400).json({ error: 'Введите сообщение' });
+  const imageDataUrl = normalizeStudentChatImageDataUrl(req.body?.imageDataUrl);
+  const imageName = normalizeStudentChatImageName(req.body?.imageName);
+  if (!text && !imageDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте изображение' });
 
   const chats = readStudentChatsDb();
   const access = ensureStudentTeacherChatAccess(req, res, req.params.chatId, { chats, createIfMissing: true });
@@ -4900,8 +4984,10 @@ app.post('/api/student-chats/:chatId/messages', (req, res) => {
     senderId,
     senderName,
     text,
+    imageDataUrl,
+    imageName,
   });
-  if (!message.text || !message.senderId) {
+  if (!hasStudentTeacherChatMessageContent(message) || !message.senderId) {
     return res.status(400).json({ error: 'Некорректное сообщение' });
   }
 

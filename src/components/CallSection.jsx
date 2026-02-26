@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, Camera, CameraOff, Loader2, Maximize2, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Move, Phone, PhoneOff, Settings, Signal, Users } from 'lucide-react';
+import { AlertCircle, Camera, CameraOff, ImagePlus, Loader2, Maximize2, MessageSquare, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Move, Phone, PhoneOff, SendHorizontal, Settings, Signal, Users, X } from 'lucide-react';
+import { api } from '../services/api';
+import LinkifiedText from './LinkifiedText';
 
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
@@ -82,6 +84,43 @@ const RTC_ALERT_SOUND_SOURCES = Object.freeze({
 });
 const RTC_ALERT_SOUND_VOLUME = 0.2;
 const CALL_BACKGROUND_PARTICLE_COUNT = 14;
+const CALL_CHAT_POLL_INTERVAL_MS = 4500;
+const INLINE_PANEL_BOTTOM_GAP_PX = 2;
+const LESSON_CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const LESSON_CHAT_ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
+
+const formatChatDateTime = (iso) => {
+  const parsed = Date.parse(String(iso || '').trim());
+  if (!Number.isFinite(parsed)) return '';
+  try {
+    return new Date(parsed).toLocaleString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+};
+
+const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+  if (!file) {
+    reject(new Error('Файл не выбран'));
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const result = typeof reader.result === 'string' ? reader.result : '';
+    if (!result) {
+      reject(new Error('Не удалось прочитать файл'));
+      return;
+    }
+    resolve(result);
+  };
+  reader.onerror = () => reject(new Error('Не удалось прочитать файл'));
+  reader.readAsDataURL(file);
+});
 
 const normalizePeerVolume = (value) => {
   if (!Number.isFinite(value)) return DEFAULT_PEER_VOLUME;
@@ -947,6 +986,7 @@ const CallSection = ({
   const [volumePopup, setVolumePopup] = useState(null);
   const [collapsedPanelPosition, setCollapsedPanelPosition] = useState(null);
   const [floatingPanelPosition, setFloatingPanelPosition] = useState(null);
+  const [inlinePanelMinHeightPx, setInlinePanelMinHeightPx] = useState(0);
   const [selfSpeaking, setSelfSpeaking] = useState(false);
   const [peerConnectionSummary, setPeerConnectionSummary] = useState({
     total: 0,
@@ -962,6 +1002,17 @@ const CallSection = ({
     jitterMs: 0,
     rttMs: 0,
   });
+  const [lessonChatId, setLessonChatId] = useState('');
+  const [lessonChatMeta, setLessonChatMeta] = useState(null);
+  const [lessonChatMessages, setLessonChatMessages] = useState([]);
+  const [lessonChatLoading, setLessonChatLoading] = useState(false);
+  const [lessonChatError, setLessonChatError] = useState('');
+  const [lessonChatText, setLessonChatText] = useState('');
+  const [lessonChatSending, setLessonChatSending] = useState(false);
+  const [lessonChatImageDataUrl, setLessonChatImageDataUrl] = useState('');
+  const [lessonChatImageName, setLessonChatImageName] = useState('');
+  const [lessonChatPreviewImage, setLessonChatPreviewImage] = useState(null);
+  const [lessonChatExpanded, setLessonChatExpanded] = useState(false);
 
   const wsRef = useRef(null);
   const presenceWsRef = useRef(null);
@@ -971,6 +1022,7 @@ const CallSection = ({
   const volumePopupRef = useRef(null);
   const collapsedPanelRef = useRef(null);
   const floatingPanelRef = useRef(null);
+  const inlinePanelRef = useRef(null);
   const panelDragStateRef = useRef(null);
   const activeRoomRef = useRef('');
   const manualCloseRef = useRef(false);
@@ -994,6 +1046,9 @@ const CallSection = ({
   const localSelfSpeakingObserverCleanupRef = useRef(null);
   const alertAudioTemplatesRef = useRef(new Map());
   const alertAudioActiveRef = useRef(new Set());
+  const lessonChatListRef = useRef(null);
+  const lessonChatImageInputRef = useRef(null);
+  const lessonChatPrevCountRef = useRef(0);
   const previousStatusRef = useRef(status);
   const micTriggerThresholdRmsRef = useRef(micTriggerThresholdPercentToRmsThreshold(DEFAULT_MIC_TRIGGER_THRESHOLD_PERCENT));
   const localCameraTrackRef = useRef(null);
@@ -1024,6 +1079,7 @@ const CallSection = ({
   const isFloatingUi = normalizedUiMode === 'floating';
   const isCollapsedUi = normalizedUiMode === 'collapsed';
   const isHiddenUi = normalizedUiMode === 'hidden';
+  const showInlineLessonChat = normalizedUiMode === 'full';
   const isDarkTheme = String(theme || '').trim().toLowerCase() === 'dark';
 
   useEffect(() => {
@@ -1080,6 +1136,240 @@ const CallSection = ({
   useEffect(() => {
     onStatusChange?.(status);
   }, [onStatusChange, status]);
+
+  useEffect(() => {
+    if (!showInlineLessonChat) return undefined;
+    let cancelled = false;
+
+    if (!isTeacher) {
+      setLessonChatId('');
+      return undefined;
+    }
+
+    if (!effectiveStudentId) {
+      setLessonChatId('');
+      setLessonChatMeta(null);
+      setLessonChatMessages([]);
+      return undefined;
+    }
+
+    const resolveLessonChatId = async () => {
+      try {
+        const chats = await api.getStudentChats();
+        if (cancelled) return;
+        const matchedChat = (Array.isArray(chats) ? chats : []).find((chat) => String(chat?.studentId || '').trim() === effectiveStudentId);
+        setLessonChatId(String(matchedChat?.id || '').trim());
+      } catch (chatIdError) {
+        if (cancelled) return;
+        setLessonChatId('');
+        setLessonChatError(chatIdError?.message || String(chatIdError));
+      }
+    };
+
+    resolveLessonChatId();
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveStudentId, isTeacher, showInlineLessonChat]);
+
+  const loadLessonChatMessages = useCallback(async ({ silent = false } = {}) => {
+    if (!showInlineLessonChat) return;
+    if (isTeacher && !effectiveStudentId) {
+      setLessonChatMeta(null);
+      setLessonChatMessages([]);
+      setLessonChatError('');
+      setLessonChatLoading(false);
+      return;
+    }
+    if (isTeacher && !lessonChatId) {
+      setLessonChatMeta(null);
+      setLessonChatMessages([]);
+      setLessonChatLoading(false);
+      return;
+    }
+    if (!silent) setLessonChatLoading(true);
+    try {
+      const payload = isTeacher
+        ? await api.getStudentChatMessagesForTeacher(lessonChatId)
+        : await api.getStudentChatMessages();
+      setLessonChatMeta(payload?.chat || null);
+      setLessonChatMessages(Array.isArray(payload?.messages) ? payload.messages : []);
+      setLessonChatError('');
+    } catch (chatLoadError) {
+      if (!silent) setLessonChatError(chatLoadError?.message || String(chatLoadError));
+    } finally {
+      if (!silent) setLessonChatLoading(false);
+    }
+  }, [effectiveStudentId, isTeacher, lessonChatId, showInlineLessonChat]);
+
+  useEffect(() => {
+    if (!showInlineLessonChat) return undefined;
+    let cancelled = false;
+    const load = async ({ silent = false } = {}) => {
+      if (cancelled) return;
+      await loadLessonChatMessages({ silent });
+    };
+    load();
+    const timerId = setInterval(() => {
+      load({ silent: true });
+    }, CALL_CHAT_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timerId);
+    };
+  }, [loadLessonChatMessages, showInlineLessonChat]);
+
+  useEffect(() => {
+    if (showInlineLessonChat) return;
+    setLessonChatExpanded(false);
+    setLessonChatImageDataUrl('');
+    setLessonChatImageName('');
+  }, [showInlineLessonChat]);
+
+  useEffect(() => {
+    if (!showInlineLessonChat) return;
+    const node = lessonChatListRef.current;
+    if (!node) return;
+    const hasNewMessage = lessonChatMessages.length > lessonChatPrevCountRef.current;
+    if (hasNewMessage || lessonChatPrevCountRef.current === 0) {
+      node.scrollTop = node.scrollHeight;
+    }
+    lessonChatPrevCountRef.current = lessonChatMessages.length;
+  }, [lessonChatMessages, showInlineLessonChat]);
+
+  useEffect(() => {
+    if (!showInlineLessonChat || !lessonChatExpanded) return;
+    const scrollToBottom = () => {
+      const node = lessonChatListRef.current;
+      if (!node) return;
+      node.scrollTop = node.scrollHeight;
+    };
+    requestAnimationFrame(scrollToBottom);
+  }, [lessonChatExpanded, showInlineLessonChat]);
+
+  useEffect(() => {
+    if (!showInlineLessonChat || isFloatingUi || typeof window === 'undefined') {
+      setInlinePanelMinHeightPx(0);
+      return undefined;
+    }
+    const recalculateInlinePanelMinHeight = () => {
+      const node = inlinePanelRef.current;
+      if (!node) return;
+      const rect = node.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const availableHeight = Math.max(0, viewportHeight - Math.max(rect.top, 0) - INLINE_PANEL_BOTTOM_GAP_PX);
+      const nextHeight = Math.floor(availableHeight);
+      setInlinePanelMinHeightPx((prev) => (Math.abs(prev - nextHeight) > 1 ? nextHeight : prev));
+    };
+    recalculateInlinePanelMinHeight();
+    window.addEventListener('resize', recalculateInlinePanelMinHeight);
+    window.addEventListener('scroll', recalculateInlinePanelMinHeight, { passive: true });
+    return () => {
+      window.removeEventListener('resize', recalculateInlinePanelMinHeight);
+      window.removeEventListener('scroll', recalculateInlinePanelMinHeight);
+    };
+  }, [isFloatingUi, showInlineLessonChat]);
+
+  useEffect(() => {
+    if (!lessonChatPreviewImage || typeof window === 'undefined') return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setLessonChatPreviewImage(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [lessonChatPreviewImage]);
+
+  useEffect(() => {
+    if (!lessonChatPreviewImage || typeof document === 'undefined') return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [lessonChatPreviewImage]);
+
+  const clearLessonChatImage = useCallback(() => {
+    setLessonChatImageDataUrl('');
+    setLessonChatImageName('');
+    if (lessonChatImageInputRef.current) {
+      lessonChatImageInputRef.current.value = '';
+    }
+  }, []);
+
+  const handleLessonChatImageSelect = useCallback(async (file) => {
+    if (!file) return;
+    const mimeType = String(file.type || '').toLowerCase();
+    if (!mimeType || !LESSON_CHAT_ALLOWED_IMAGE_TYPES.has(mimeType)) {
+      setLessonChatError('Можно отправлять только изображения: PNG, JPG, WEBP, GIF.');
+      return;
+    }
+    if (Number(file.size) > LESSON_CHAT_IMAGE_MAX_BYTES) {
+      setLessonChatError('Изображение должно быть не больше 5 МБ.');
+      return;
+    }
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setLessonChatImageDataUrl(dataUrl);
+      setLessonChatImageName(String(file.name || '').trim());
+      setLessonChatError('');
+      if (lessonChatImageInputRef.current) {
+        lessonChatImageInputRef.current.value = '';
+      }
+      if (lessonChatExpanded) {
+        requestAnimationFrame(() => {
+          const node = lessonChatListRef.current;
+          if (node) node.scrollTop = node.scrollHeight;
+        });
+      }
+    } catch (imageError) {
+      setLessonChatError(imageError?.message || 'Не удалось прочитать изображение.');
+    }
+  }, [lessonChatExpanded]);
+
+  const handleLessonChatSend = useCallback(async () => {
+    const nextText = String(lessonChatText || '').trim();
+    const nextImageDataUrl = String(lessonChatImageDataUrl || '').trim();
+    const nextImageName = String(lessonChatImageName || '').trim();
+    if ((!nextText && !nextImageDataUrl) || lessonChatSending) return;
+    if (isTeacher && !lessonChatId) {
+      setLessonChatError('Сначала выберите ученика для чата.');
+      return;
+    }
+    setLessonChatSending(true);
+    setLessonChatError('');
+    const payload = {
+      text: nextText,
+      imageDataUrl: nextImageDataUrl,
+      imageName: nextImageName,
+    };
+    try {
+      if (isTeacher) {
+        await api.sendStudentChatMessageForTeacher(lessonChatId, payload);
+      } else {
+        await api.sendStudentChatMessage(payload);
+      }
+      setLessonChatText('');
+      clearLessonChatImage();
+      await loadLessonChatMessages({ silent: true });
+    } catch (chatSendError) {
+      setLessonChatError(chatSendError?.message || String(chatSendError));
+    } finally {
+      setLessonChatSending(false);
+    }
+  }, [
+    clearLessonChatImage,
+    isTeacher,
+    lessonChatId,
+    lessonChatImageDataUrl,
+    lessonChatImageName,
+    lessonChatSending,
+    lessonChatText,
+    loadLessonChatMessages,
+  ]);
 
   const applyStatus = useCallback((nextStatus) => {
     statusRef.current = nextStatus;
@@ -3857,6 +4147,13 @@ const CallSection = ({
         ? 'плохо'
         : 'нет данных';
 
+  const lessonChatTitle = isTeacher ? 'Чат с учеником' : 'Чат с учителем';
+  const lessonChatPeerName = isTeacher
+    ? (lessonChatMeta?.studentName || selectedStudent?.name || 'Ученик')
+    : (lessonChatMeta?.teacherName || 'Преподаватель');
+  const lessonChatPlaceholder = isTeacher ? 'Напишите ученику...' : 'Напишите учителю...';
+  const lessonChatDisabled = Boolean(isTeacher && !effectiveStudentId);
+
   const normalizedMicInputLevelPercent = clampToRange(Math.round(Number(micInputLevelPercent) || 0), 0, 100);
   const micTriggerThresholdMeterPercent = rmsToMicLevelPercent(
     micTriggerThresholdPercentToRmsThreshold(micTriggerThresholdPercent)
@@ -3991,6 +4288,46 @@ const CallSection = ({
   const modalOverlayClass = isDarkTheme ? 'fixed inset-0 z-50' : 'fixed inset-0 z-50 bg-slate-900/10';
   const popupRangeClass = isDarkTheme ? 'h-2 flex-1 accent-emerald-300' : 'h-2 flex-1 accent-emerald-500';
   const popupToneClass = isDarkTheme ? 'text-slate-200' : 'text-slate-700';
+  const lessonChatSectionClass = showInlineLessonChat && lessonChatExpanded
+    ? 'call-lesson-chat group/lesson mt-3 flex min-h-0 flex-1 flex-col px-1'
+    : (showInlineLessonChat
+      ? 'call-lesson-chat group/lesson mt-3 px-1'
+      : 'call-lesson-chat group/lesson mt-3 px-1');
+  const lessonChatToggleClass = isDarkTheme
+    ? 'mb-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-white/20 bg-slate-900/40 px-3 text-xs font-semibold text-slate-100 transition hover:bg-slate-800/60'
+    : 'mb-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-300/80 bg-white/60 px-3 text-xs font-semibold text-slate-700 transition hover:bg-white';
+  const lessonChatBodyClass = showInlineLessonChat
+    ? 'flex min-h-0 flex-1 flex-col'
+    : '';
+  const lessonChatListClass = showInlineLessonChat
+    ? 'call-lesson-chat-list flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-1 pb-2'
+    : 'call-lesson-chat-list max-h-[260px] min-h-[88px] overflow-y-auto space-y-1.5 pr-1 pb-2';
+  const lessonChatBubbleBaseClass = isDarkTheme
+    ? 'call-lesson-chat-bubble relative rounded-2xl border px-3 py-2 text-[13px] text-slate-100 backdrop-blur-sm transition-all duration-300'
+    : 'call-lesson-chat-bubble relative rounded-2xl border px-3 py-2 text-[13px] text-slate-700 backdrop-blur-sm transition-all duration-300';
+  const lessonChatMineClass = isDarkTheme
+    ? 'border-violet-300/35 bg-violet-400/16 text-violet-50'
+    : 'border-violet-200/80 bg-violet-500/12 text-violet-900';
+  const lessonChatPeerClass = isDarkTheme
+    ? 'border-cyan-300/28 bg-cyan-400/12'
+    : 'border-sky-200/80 bg-sky-500/10';
+  const lessonChatMetaClass = isDarkTheme ? 'mt-1 text-[10px] text-slate-300/80' : 'mt-1 text-[10px] text-slate-500';
+  const lessonChatEmptyClass = isDarkTheme
+    ? 'call-lesson-chat-empty flex min-h-[88px] flex-col items-center justify-center gap-1.5 text-center text-xs text-slate-300/80'
+    : 'call-lesson-chat-empty flex min-h-[88px] flex-col items-center justify-center gap-1.5 text-center text-xs text-slate-500';
+  const lessonChatInputWrapClass = isDarkTheme
+    ? 'call-lesson-chat-input mt-1 flex max-h-0 translate-y-2 items-end gap-2 overflow-hidden opacity-0 pointer-events-none transition-all duration-400 group-hover/lesson:max-h-48 group-hover/lesson:translate-y-0 group-hover/lesson:opacity-100 group-hover/lesson:pointer-events-auto group-focus-within/lesson:max-h-48 group-focus-within/lesson:translate-y-0 group-focus-within/lesson:opacity-100 group-focus-within/lesson:pointer-events-auto'
+    : 'call-lesson-chat-input mt-1 flex max-h-0 translate-y-2 items-end gap-2 overflow-hidden opacity-0 pointer-events-none transition-all duration-400 group-hover/lesson:max-h-48 group-hover/lesson:translate-y-0 group-hover/lesson:opacity-100 group-hover/lesson:pointer-events-auto group-focus-within/lesson:max-h-48 group-focus-within/lesson:translate-y-0 group-focus-within/lesson:opacity-100 group-focus-within/lesson:pointer-events-auto';
+  const lessonChatTextareaClass = isDarkTheme
+    ? 'w-full resize-none rounded-xl border border-white/15 bg-slate-900/45 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-violet-300/70'
+    : 'w-full resize-none rounded-xl border border-slate-300/70 bg-white/45 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-violet-400';
+  const lessonChatAttachClass = isDarkTheme
+    ? 'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-slate-900/45 text-slate-200 transition hover:bg-slate-800/60'
+    : 'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-300/70 bg-white/70 text-slate-700 transition hover:bg-white';
+  const lessonChatSendClass = isDarkTheme
+    ? 'inline-flex self-stretch min-w-[128px] items-center justify-center gap-2 rounded-xl border border-violet-300/45 bg-violet-500/30 px-3 text-sm font-semibold text-violet-50 transition hover:bg-violet-400/40 disabled:opacity-45 disabled:cursor-not-allowed'
+    : 'inline-flex self-stretch min-w-[128px] items-center justify-center gap-2 rounded-xl border border-violet-300 bg-violet-500/20 px-3 text-sm font-semibold text-violet-700 transition hover:bg-violet-500/30 disabled:opacity-45 disabled:cursor-not-allowed';
+  const lessonChatErrorClass = isDarkTheme ? 'mt-2 text-xs text-rose-300' : 'mt-2 text-xs text-rose-600';
 
   const collapsedPanelStyle = collapsedPanelPosition
     ? { left: `${collapsedPanelPosition.x}px`, top: `${collapsedPanelPosition.y}px`, transform: 'none' }
@@ -4001,6 +4338,13 @@ const CallSection = ({
       top: `${floatingPanelPosition.y}px`,
       right: 'auto',
       width: Number.isFinite(floatingPanelPosition.width) ? `${floatingPanelPosition.width}px` : undefined,
+    }
+    : undefined;
+  const inlinePanelHeightPx = Math.max(0, Math.floor(Number(inlinePanelMinHeightPx) || 0));
+  const inlinePanelStyle = showInlineLessonChat && inlinePanelHeightPx > 0
+    ? {
+      height: `${inlinePanelHeightPx}px`,
+      maxHeight: `${inlinePanelHeightPx}px`,
     }
     : undefined;
 
@@ -4072,11 +4416,11 @@ const CallSection = ({
 
   const panelNode = (
     <div
-      ref={isFloatingUi ? floatingPanelRef : null}
+      ref={isFloatingUi ? floatingPanelRef : inlinePanelRef}
       className={isFloatingUi
         ? 'call-panel-root call-panel-root--floating fixed inset-x-2 top-2 z-50 max-h-[calc(100vh-1rem)] overflow-y-auto md:inset-x-auto md:right-4 md:top-4 md:w-[min(980px,calc(100vw-2rem))]'
-        : 'call-panel-root animate-fadeIn pb-10'}
-      style={isFloatingUi ? floatingPanelStyle : undefined}
+        : `call-panel-root animate-fadeIn ${showInlineLessonChat ? 'flex min-h-0 flex-col overflow-hidden pb-2' : 'pb-10'}`}
+      style={isFloatingUi ? floatingPanelStyle : inlinePanelStyle}
       data-tour="call"
     >
       <section className={sectionShellClass}>
@@ -4593,6 +4937,218 @@ const CallSection = ({
 
         </div>
       </section>
+
+      {showInlineLessonChat && (
+        <section className={lessonChatSectionClass} aria-label={lessonChatTitle}>
+          <div className="mb-1 flex items-center justify-end">
+            <button
+              type="button"
+              className={lessonChatToggleClass}
+              onClick={() => setLessonChatExpanded((prev) => !prev)}
+              aria-expanded={lessonChatExpanded}
+            >
+              {lessonChatExpanded ? 'Скрыть чат' : `Показать чат${lessonChatMessages.length > 0 ? ` (${lessonChatMessages.length})` : ''}`}
+            </button>
+          </div>
+
+          {lessonChatExpanded && (
+            <div className={lessonChatBodyClass}>
+              <div ref={lessonChatListRef} className={lessonChatListClass}>
+                {lessonChatLoading ? (
+                  <div className={lessonChatEmptyClass}>Загружаем сообщения...</div>
+                ) : lessonChatMessages.length === 0 ? (
+                  <div className={lessonChatEmptyClass}>
+                    <MessageSquare size={16} />
+                    <p>Пока сообщений нет.</p>
+                    <p className={emptyPeersHintClass}>Начните диалог прямо во время урока.</p>
+                  </div>
+                ) : (
+                  lessonChatMessages.map((message, index) => {
+                    const senderRole = String(message?.senderRole || '').trim();
+                    const senderId = String(message?.senderId || '').trim();
+                    const localId = String(userId || '').trim();
+                    const isMine = senderRole === (isTeacher ? 'teacher' : 'student') || (localId && senderId === localId);
+                    const messageText = String(message?.text || '');
+                    const messageImageDataUrl = String(message?.imageDataUrl || '').trim();
+                    const messageImageName = String(message?.imageName || '').trim();
+                    return (
+                      <div
+                        key={message?.id || `${senderId}-${message?.createdAt || index}`}
+                        className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={`${lessonChatBubbleBaseClass} ${isMine ? lessonChatMineClass : lessonChatPeerClass} max-w-[min(82%,740px)] opacity-45 group-hover/lesson:opacity-100 group-focus-within/lesson:opacity-100`}
+                        >
+                          {!isMine && (
+                            <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] opacity-80">
+                              {message?.senderName || lessonChatPeerName}
+                            </div>
+                          )}
+                          {messageImageDataUrl && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLessonChatPreviewImage({
+                                  src: messageImageDataUrl,
+                                  name: messageImageName,
+                                });
+                              }}
+                              className="mb-2 block overflow-hidden rounded-lg border border-white/15"
+                              title={messageImageName || 'Открыть изображение'}
+                              aria-label={messageImageName || 'Открыть изображение'}
+                            >
+                              <img
+                                src={messageImageDataUrl}
+                                alt={messageImageName || 'Изображение из чата'}
+                                className="max-h-[220px] w-full object-contain bg-black/25"
+                                loading="lazy"
+                              />
+                            </button>
+                          )}
+                          {messageText && (
+                            <LinkifiedText
+                              text={messageText}
+                              className="whitespace-pre-wrap break-words"
+                              linkClassName={isMine ? 'underline decoration-white/70 underline-offset-2' : 'underline decoration-current/70 underline-offset-2'}
+                            />
+                          )}
+                          <div className={lessonChatMetaClass}>
+                            {formatChatDateTime(message?.createdAt)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className={lessonChatInputWrapClass}>
+                <input
+                  ref={lessonChatImageInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) {
+                      handleLessonChatImageSelect(file);
+                    }
+                  }}
+                />
+                <div className="flex-1 space-y-2">
+                  {lessonChatImageDataUrl && (
+                    <div className={isDarkTheme ? 'flex items-start gap-2 rounded-lg border border-white/15 bg-slate-900/40 px-2 py-2' : 'flex items-start gap-2 rounded-lg border border-slate-300/70 bg-white/70 px-2 py-2'}>
+                      <img
+                        src={lessonChatImageDataUrl}
+                        alt={lessonChatImageName || '\u0418\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u0435'}
+                        className="h-12 w-12 rounded-md object-cover"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className={isDarkTheme ? 'truncate text-xs text-slate-200' : 'truncate text-xs text-slate-700'}>
+                          {lessonChatImageName || '\u0418\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u0435'}
+                        </p>
+                        <p className={isDarkTheme ? 'text-[11px] text-slate-400' : 'text-[11px] text-slate-500'}>
+                          {'\u0414\u043e 5 \u041c\u0411'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className={isDarkTheme ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/20 text-slate-200 hover:bg-slate-800/70' : 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-100'}
+                        onClick={clearLessonChatImage}
+                        aria-label={'\u0423\u0431\u0440\u0430\u0442\u044c \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u0435'}
+                        title={'\u0423\u0431\u0440\u0430\u0442\u044c \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u0435'}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+                  <textarea
+                    value={lessonChatText}
+                    onChange={(event) => setLessonChatText(event.target.value)}
+                    onPaste={(event) => {
+                      const items = Array.from(event.clipboardData?.items || []);
+                      const imageItem = items.find((item) => item.kind === 'file' && String(item.type || '').toLowerCase().startsWith('image/'));
+                      if (!imageItem) return;
+                      const file = imageItem.getAsFile?.();
+                      if (!file) return;
+                      event.preventDefault();
+                      handleLessonChatImageSelect(file);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault();
+                        handleLessonChatSend();
+                      }
+                    }}
+                    rows={2}
+                    disabled={lessonChatDisabled}
+                    placeholder={lessonChatDisabled ? '\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0443\u0447\u0435\u043d\u0438\u043a\u0430, \u0447\u0442\u043e\u0431\u044b \u043e\u0442\u043a\u0440\u044b\u0442\u044c \u0447\u0430\u0442...' : `${lessonChatPlaceholder} (\u043c\u043e\u0436\u043d\u043e \u0432\u0441\u0442\u0430\u0432\u0438\u0442\u044c \u043a\u0430\u0440\u0442\u0438\u043d\u043a\u0443 Ctrl+V)`}
+                    className={lessonChatTextareaClass}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => lessonChatImageInputRef.current?.click()}
+                  disabled={lessonChatDisabled || lessonChatSending}
+                  className={lessonChatAttachClass}
+                  aria-label={'\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u0435'}
+                  title={'\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u0435 (\u0434\u043e 5 \u041c\u0411)'}
+                >
+                  <ImagePlus size={17} />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLessonChatSend}
+                  disabled={lessonChatSending || (!String(lessonChatText || '').trim() && !lessonChatImageDataUrl) || lessonChatDisabled}
+                  className={lessonChatSendClass}
+                >
+                  <SendHorizontal size={15} />
+                  {lessonChatSending ? '\u041e\u0442\u043f\u0440\u0430\u0432\u043a\u0430...' : '\u041e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c'}
+                </button>
+              </div>
+              {lessonChatError && <div className={lessonChatErrorClass}>{lessonChatError}</div>}
+            </div>
+          )}
+        </section>
+      )}
+
+      {lessonChatPreviewImage && typeof document !== 'undefined' && createPortal(
+        <div
+          className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm"
+          onMouseDown={() => setLessonChatPreviewImage(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Просмотр изображения"
+        >
+          <button
+            type="button"
+            className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/30 text-white transition hover:bg-black/55"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={() => setLessonChatPreviewImage(null)}
+            aria-label="Закрыть просмотр изображения"
+            title="Закрыть"
+          >
+            <X size={18} />
+          </button>
+          <div
+            className="relative max-h-[92vh] max-w-[96vw]"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <img
+              src={String(lessonChatPreviewImage.src || '')}
+              alt={String(lessonChatPreviewImage.name || 'Изображение из чата')}
+              className="max-h-[88vh] max-w-[96vw] rounded-xl object-contain shadow-[0_18px_48px_rgba(0,0,0,0.45)]"
+              loading="eager"
+            />
+            {lessonChatPreviewImage.name && (
+              <div className="mt-2 rounded-lg border border-white/15 bg-black/35 px-3 py-1.5 text-center text-xs text-white/90">
+                {lessonChatPreviewImage.name}
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
   if (isFloatingUi && typeof document !== 'undefined') {
@@ -4602,5 +5158,3 @@ const CallSection = ({
 };
 
 export default CallSection;
-
-

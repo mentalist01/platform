@@ -52,6 +52,21 @@ const apiFetch = async (input, init = {}) => {
   return res;
 };
 
+const normalizeStudentChatMessagePayload = (payloadOrText) => {
+  if (payloadOrText && typeof payloadOrText === 'object' && !Array.isArray(payloadOrText)) {
+    return {
+      text: typeof payloadOrText.text === 'string' ? payloadOrText.text : '',
+      imageDataUrl: typeof payloadOrText.imageDataUrl === 'string' ? payloadOrText.imageDataUrl : '',
+      imageName: typeof payloadOrText.imageName === 'string' ? payloadOrText.imageName : '',
+    };
+  }
+  return {
+    text: typeof payloadOrText === 'string' ? payloadOrText : '',
+    imageDataUrl: '',
+    imageName: '',
+  };
+};
+
 export const api = {
   login: async (code) => {
     const res = await apiFetch('/api/login', {
@@ -156,11 +171,12 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  sendStudentChatMessage: async (text) => {
+  sendStudentChatMessage: async (payloadOrText) => {
+    const payload = normalizeStudentChatMessagePayload(payloadOrText);
     const res = await apiFetch('/api/student-chat/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
@@ -177,13 +193,14 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  sendStudentChatMessageForTeacher: async (chatId, text) => {
+  sendStudentChatMessageForTeacher: async (chatId, payloadOrText) => {
     const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
     if (!id) throw new Error('chatId required');
+    const payload = normalizeStudentChatMessagePayload(payloadOrText);
     const res = await apiFetch(`/api/student-chats/${encodeURIComponent(id)}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
