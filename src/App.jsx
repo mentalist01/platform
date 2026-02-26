@@ -1192,6 +1192,9 @@ const COLLAB_DEBUG_TRACE_LIMIT = 2500;
 const COLLAB_DEBUG_AUTOPLAY_MS = 75;
 const COLLAB_DEBUG_INLINE_HINT_MAX_CHARS = 90;
 const COLLAB_DEBUG_INLINE_HINT_LINES_MAX = 120;
+const COLLAB_EDITOR_CURSOR_SYNC_MS = 45;
+const COLLAB_EDITOR_CURSOR_STALE_MS = 6500;
+const COLLAB_EDITOR_CURSOR_IDLE_CLEAR_MS = 1200;
 
 const getCollabWsUrl = () => {
   if (typeof window === 'undefined') return '';
@@ -1903,7 +1906,9 @@ const CollabSection = ({
   const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
   const [status, setStatus] = useState('disconnected');
   const [peerCount, setPeerCount] = useState(0);
+  const [remoteEditorCursors, setRemoteEditorCursors] = useState([]);
   const [editorReady, setEditorReady] = useState(false);
+  const [editorViewportVersion, setEditorViewportVersion] = useState(0);
   const [editorMountVersion, setEditorMountVersion] = useState(0);
   const editorRef = useRef(null);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
@@ -1999,6 +2004,16 @@ const CollabSection = ({
   const debugGutterDisposableRef = useRef(null);
   const suppressBreakpointSyncRef = useRef(false);
   const collabSnippetProviderRef = useRef(null);
+  const collabCursorMoveDisposableRef = useRef(null);
+  const collabCursorLeaveDisposableRef = useRef(null);
+  const collabCursorBlurDisposableRef = useRef(null);
+  const collabCursorLayoutDisposableRef = useRef(null);
+  const collabCursorDragMouseDownDisposableRef = useRef(null);
+  const collabCursorWindowStopRef = useRef(null);
+  const collabCursorClearTimerRef = useRef(null);
+  const collabCursorSyncTimerRef = useRef(null);
+  const collabCursorPendingRef = useRef(null);
+  const collabCursorLastSyncAtRef = useRef(0);
   const selectedStudent = useMemo(
     () => (students || []).find((student) => student.id === activeStudentId),
     [students, activeStudentId]
@@ -2133,8 +2148,8 @@ const CollabSection = ({
   const isFullscreenLight = isCollabFullscreen && !isDarkTheme;
   const collabShellClass = isCollabFullscreen
     ? (isFullscreenDark
-      ? 'animate-fadeIn relative flex h-screen w-screen flex-col overflow-x-hidden overflow-y-auto bg-[radial-gradient(circle_at_0%_0%,_rgba(56,189,248,0.24),_transparent_38%),radial-gradient(circle_at_100%_0%,_rgba(168,85,247,0.28),_transparent_42%),linear-gradient(180deg,_rgba(2,6,23,1)_0%,_rgba(10,15,31,1)_52%,_rgba(2,6,23,1)_100%)] text-slate-100 px-2 py-2 sm:px-3 sm:py-3 md:px-4 md:py-4'
-      : 'animate-fadeIn relative flex h-screen w-screen flex-col overflow-x-hidden overflow-y-auto bg-[radial-gradient(circle_at_0%_0%,_rgba(56,189,248,0.14),_transparent_38%),radial-gradient(circle_at_100%_0%,_rgba(147,51,234,0.14),_transparent_42%),linear-gradient(180deg,_rgba(248,250,252,1)_0%,_rgba(238,242,255,0.95)_52%,_rgba(248,250,252,1)_100%)] text-slate-900 px-2 py-2 sm:px-3 sm:py-3 md:px-4 md:py-4')
+      ? 'animate-fadeIn relative isolate flex h-screen w-screen flex-col overflow-x-hidden overflow-y-auto bg-[radial-gradient(circle_at_0%_0%,_rgba(56,189,248,0.26),_transparent_36%),radial-gradient(circle_at_100%_0%,_rgba(168,85,247,0.28),_transparent_40%),radial-gradient(circle_at_52%_120%,_rgba(14,116,144,0.28),_transparent_46%),linear-gradient(180deg,_rgba(2,6,23,1)_0%,_rgba(9,13,28,1)_48%,_rgba(2,6,23,1)_100%)] text-slate-100 px-2 py-2 sm:px-3 sm:py-3 md:px-4 md:py-4'
+      : 'animate-fadeIn relative isolate flex h-screen w-screen flex-col overflow-x-hidden overflow-y-auto bg-[radial-gradient(circle_at_0%_0%,_rgba(56,189,248,0.16),_transparent_36%),radial-gradient(circle_at_100%_0%,_rgba(147,51,234,0.16),_transparent_40%),radial-gradient(circle_at_56%_115%,_rgba(56,189,248,0.14),_transparent_46%),linear-gradient(180deg,_rgba(248,250,252,1)_0%,_rgba(237,242,255,0.96)_50%,_rgba(248,250,252,1)_100%)] text-slate-900 px-2 py-2 sm:px-3 sm:py-3 md:px-4 md:py-4')
     : (isDesktopCollabCompact
       ? 'animate-fadeIn md:flex md:min-h-0 md:flex-col md:overflow-hidden'
       : 'animate-fadeIn pb-10');
@@ -2142,11 +2157,11 @@ const CollabSection = ({
     ? { height: compactCollabHeight, maxHeight: compactCollabHeight }
     : undefined;
   const collabCardClass = isCollabFullscreen
-    ? `relative flex min-h-0 flex-1 flex-col ${isMobileViewport ? 'overflow-visible' : 'overflow-hidden'} border ${
+    ? `relative z-[1] flex min-h-0 flex-1 flex-col ${isMobileViewport ? 'overflow-visible' : 'overflow-hidden'} border ring-1 ${
       isFullscreenDark
-        ? 'border-slate-700/75 bg-slate-950/58 shadow-[0_24px_64px_rgba(2,6,23,0.6)]'
-        : 'border-slate-200/90 bg-white/86 shadow-[0_24px_64px_rgba(15,23,42,0.12)]'
-    } p-2.5 sm:p-3 md:p-4 backdrop-blur`
+        ? 'border-slate-700/75 ring-cyan-300/10 bg-slate-950/54 shadow-[0_30px_72px_rgba(2,6,23,0.62)]'
+        : 'border-slate-200/90 ring-violet-200/80 bg-white/82 shadow-[0_30px_72px_rgba(15,23,42,0.14)]'
+    } p-2.5 sm:p-3 md:p-4 backdrop-blur-xl`
     : (isDesktopCollabCompact
       ? 'p-3 md:p-4 flex min-h-0 flex-1 flex-col overflow-hidden'
       : 'p-4 md:p-6');
@@ -2157,41 +2172,41 @@ const CollabSection = ({
   const collabHintClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-400/90' : 'text-slate-500') : 'text-gray-400';
   const collabToolbarClass = isCollabFullscreen
     ? (isFullscreenDark
-      ? 'border-slate-700/80 bg-slate-900/78 text-slate-100 shadow-[inset_0_1px_0_rgba(148,163,184,0.14)] backdrop-blur'
-      : 'border-slate-200/90 bg-white/92 text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] backdrop-blur')
+      ? 'border-slate-700/80 bg-slate-900/74 text-slate-100 shadow-[0_14px_34px_rgba(2,6,23,0.36),inset_0_1px_0_rgba(148,163,184,0.16)] backdrop-blur-xl'
+      : 'border-slate-200/90 bg-white/90 text-slate-800 shadow-[0_12px_30px_rgba(148,163,184,0.2),inset_0_1px_0_rgba(255,255,255,0.9)] backdrop-blur-xl')
     : 'border-purple-100 bg-purple-50/70';
-  const collabToolbarDividerClass = isCollabFullscreen ? (isFullscreenDark ? 'bg-slate-600/80' : 'bg-slate-300') : 'bg-purple-200';
-  const collabSessionLabelClass = isCollabFullscreen ? (isFullscreenDark ? 'text-cyan-300' : 'text-violet-600') : collabLabelClass;
-  const collabSessionValueClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-100' : 'text-slate-800') : collabSessionTextClass;
-  const collabIconButtonBase = `inline-flex ${isCollabFullscreen ? 'h-8 w-8' : (isDesktopCollabCompact ? 'h-7 w-7' : 'h-8 w-8')} items-center justify-center rounded-xl border transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 ${
+  const collabToolbarDividerClass = isCollabFullscreen ? (isFullscreenDark ? 'bg-slate-500/70' : 'bg-slate-300/80') : 'bg-purple-200';
+  const collabSessionLabelClass = isCollabFullscreen ? (isFullscreenDark ? 'text-cyan-200' : 'text-violet-600') : collabLabelClass;
+  const collabSessionValueClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-50' : 'text-slate-800') : collabSessionTextClass;
+  const collabIconButtonBase = `inline-flex ${isCollabFullscreen ? 'h-9 w-9' : (isDesktopCollabCompact ? 'h-7 w-7' : 'h-8 w-8')} items-center justify-center rounded-xl border transition-all duration-200 hover:-translate-y-[1px] active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 ${
     isFullscreenDark
       ? 'focus-visible:ring-cyan-300/70 focus-visible:ring-offset-slate-950'
       : 'focus-visible:ring-purple-400/70 focus-visible:ring-offset-white'
   } focus-visible:ring-offset-1`;
   const collabIconButtonDisabled = isCollabFullscreen
     ? (isFullscreenDark
-      ? 'border-slate-700 bg-slate-900/70 text-slate-500 cursor-not-allowed'
-      : 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed')
+      ? 'border-slate-700 bg-slate-900/70 text-slate-500 cursor-not-allowed shadow-none'
+      : 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed shadow-none')
     : 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed';
   const collabIconButtonNeutral = isCollabFullscreen
     ? (isFullscreenDark
-      ? 'border-slate-600/80 bg-slate-900/78 text-slate-100 hover:border-cyan-400/80 hover:bg-slate-800/90'
-      : 'border-slate-200 bg-white text-slate-700 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700')
+      ? 'border-slate-600/80 bg-slate-900/78 text-slate-100 hover:border-cyan-300/80 hover:bg-slate-800/92 hover:shadow-[0_8px_20px_rgba(8,47,73,0.28)]'
+      : 'border-slate-200 bg-white text-slate-700 shadow-[0_6px_14px_rgba(148,163,184,0.18)] hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700')
     : 'border-gray-200 bg-white text-gray-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700';
   const collabIconButtonPrimary = isCollabFullscreen
     ? (isFullscreenDark
-      ? 'border-cyan-400/75 bg-cyan-400/20 text-cyan-100 shadow-[0_8px_22px_rgba(14,116,144,0.25)] hover:bg-cyan-400/28'
-      : 'border-violet-500 bg-violet-600 text-white shadow-sm shadow-violet-200/80 hover:bg-violet-700')
+      ? 'border-cyan-300/80 bg-cyan-400/20 text-cyan-100 shadow-[0_10px_24px_rgba(8,145,178,0.34)] hover:border-cyan-200 hover:bg-cyan-400/32'
+      : 'border-violet-500 bg-violet-600 text-white shadow-[0_8px_20px_rgba(124,58,237,0.28)] hover:bg-violet-700')
     : 'border-purple-500 bg-purple-600 text-white shadow-sm shadow-purple-200/70 hover:bg-purple-700';
   const collabIconButtonAccent = isCollabFullscreen
     ? (isFullscreenDark
-      ? 'border-violet-400/75 bg-violet-500/18 text-violet-100 hover:bg-violet-500/30'
-      : 'border-violet-200 bg-white text-violet-700 hover:border-violet-300 hover:bg-violet-50')
+      ? 'border-violet-300/75 bg-violet-500/20 text-violet-100 shadow-[0_8px_20px_rgba(91,33,182,0.26)] hover:bg-violet-500/32'
+      : 'border-violet-200 bg-white text-violet-700 shadow-[0_8px_18px_rgba(167,139,250,0.22)] hover:border-violet-300 hover:bg-violet-50')
     : 'border-purple-200 bg-white text-purple-700 hover:border-purple-300 hover:bg-purple-50';
   const collabIconButtonDanger = isCollabFullscreen
     ? (isFullscreenDark
-      ? 'border-rose-400/75 bg-rose-500/18 text-rose-100 hover:bg-rose-500/30'
-      : 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100')
+      ? 'border-rose-300/75 bg-rose-500/20 text-rose-100 shadow-[0_8px_20px_rgba(190,24,93,0.28)] hover:bg-rose-500/34'
+      : 'border-rose-200 bg-rose-50 text-rose-600 shadow-[0_8px_16px_rgba(251,113,133,0.16)] hover:bg-rose-100')
     : 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100';
 
   const stopDebugPlayback = useCallback(() => {
@@ -2524,6 +2539,58 @@ const CollabSection = ({
     node.style.setProperty('--collab-glyph-margin-width', `${glyphMarginWidth}px`);
   }, [editorFontSize]);
 
+  const scheduleCollabEditorCursor = useCallback((nextCursor, immediate = false) => {
+    const awareness = collabAwarenessRef.current;
+    if (!awareness) return;
+    const normalizedCursor = nextCursor
+      && Number.isFinite(Number(nextCursor?.x))
+      && Number.isFinite(Number(nextCursor?.y))
+      ? {
+        x: Math.max(0, Math.min(1, Number(nextCursor.x))),
+        y: Math.max(0, Math.min(1, Number(nextCursor.y))),
+        ts: Number.isFinite(Number(nextCursor?.ts)) ? Number(nextCursor.ts) : Date.now(),
+      }
+      : null;
+    if (immediate) {
+      if (collabCursorSyncTimerRef.current) {
+        clearTimeout(collabCursorSyncTimerRef.current);
+        collabCursorSyncTimerRef.current = null;
+      }
+      collabCursorPendingRef.current = null;
+      collabCursorLastSyncAtRef.current = Date.now();
+      awareness.setLocalStateField('editorCursor', normalizedCursor);
+      return;
+    }
+    collabCursorPendingRef.current = normalizedCursor;
+    if (collabCursorSyncTimerRef.current) return;
+    const now = Date.now();
+    const elapsed = now - collabCursorLastSyncAtRef.current;
+    const waitMs = Math.max(0, COLLAB_EDITOR_CURSOR_SYNC_MS - elapsed);
+    collabCursorSyncTimerRef.current = setTimeout(() => {
+      collabCursorSyncTimerRef.current = null;
+      const liveAwareness = collabAwarenessRef.current;
+      if (!liveAwareness) return;
+      const cursorPayload = collabCursorPendingRef.current;
+      collabCursorPendingRef.current = null;
+      collabCursorLastSyncAtRef.current = Date.now();
+      liveAwareness.setLocalStateField('editorCursor', cursorPayload || null);
+    }, waitMs);
+  }, []);
+
+  const clearCollabCursorClearTimer = useCallback(() => {
+    if (!collabCursorClearTimerRef.current) return;
+    clearTimeout(collabCursorClearTimerRef.current);
+    collabCursorClearTimerRef.current = null;
+  }, []);
+
+  const queueCollabEditorCursorClear = useCallback((delayMs = COLLAB_EDITOR_CURSOR_IDLE_CLEAR_MS) => {
+    clearCollabCursorClearTimer();
+    collabCursorClearTimerRef.current = setTimeout(() => {
+      collabCursorClearTimerRef.current = null;
+      scheduleCollabEditorCursor(null, true);
+    }, Math.max(0, Number(delayMs) || 0));
+  }, [clearCollabCursorClearTimer, scheduleCollabEditorCursor]);
+
   const handleEditorMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
@@ -2589,9 +2656,77 @@ const CollabSection = ({
         });
       });
     }
+    const publishCursorFromClientPoint = (clientX, clientY) => {
+      if (!collabAwarenessRef.current) return false;
+      const nextClientX = Number(clientX);
+      const nextClientY = Number(clientY);
+      if (!Number.isFinite(nextClientX) || !Number.isFinite(nextClientY)) return false;
+      const node = editor.getDomNode?.();
+      const rect = node?.getBoundingClientRect?.();
+      if (!rect || !rect.width || !rect.height) return false;
+      const x = (nextClientX - rect.left) / rect.width;
+      const y = (nextClientY - rect.top) / rect.height;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+      scheduleCollabEditorCursor({
+        x,
+        y,
+        ts: Date.now(),
+      });
+      queueCollabEditorCursorClear();
+      return true;
+    };
+    collabCursorWindowStopRef.current?.();
+    collabCursorWindowStopRef.current = null;
+    collabCursorMoveDisposableRef.current?.dispose?.();
+    collabCursorMoveDisposableRef.current = editor.onMouseMove((event) => {
+      const browserEvent = event?.event?.browserEvent;
+      if (!browserEvent) return;
+      publishCursorFromClientPoint(browserEvent.clientX, browserEvent.clientY);
+    });
+    collabCursorDragMouseDownDisposableRef.current?.dispose?.();
+    collabCursorDragMouseDownDisposableRef.current = editor.onMouseDown((event) => {
+      const browserEvent = event?.event?.browserEvent;
+      if (!browserEvent) return;
+      publishCursorFromClientPoint(browserEvent.clientX, browserEvent.clientY);
+      if (event?.event?.leftButton !== true) return;
+      if (typeof window === 'undefined') return;
+      const handleWindowMouseMove = (moveEvent) => {
+        publishCursorFromClientPoint(moveEvent?.clientX, moveEvent?.clientY);
+      };
+      const stopWindowCursorTracking = () => {
+        window.removeEventListener('mousemove', handleWindowMouseMove);
+        window.removeEventListener('mouseup', stopWindowCursorTracking);
+        window.removeEventListener('blur', stopWindowCursorTracking);
+        if (collabCursorWindowStopRef.current === stopWindowCursorTracking) {
+          collabCursorWindowStopRef.current = null;
+        }
+      };
+      collabCursorWindowStopRef.current?.();
+      collabCursorWindowStopRef.current = stopWindowCursorTracking;
+      window.addEventListener('mousemove', handleWindowMouseMove);
+      window.addEventListener('mouseup', stopWindowCursorTracking);
+      window.addEventListener('blur', stopWindowCursorTracking);
+    });
+    collabCursorLeaveDisposableRef.current?.dispose?.();
+    collabCursorLeaveDisposableRef.current = editor.onMouseLeave(() => {
+      queueCollabEditorCursorClear();
+    });
+    collabCursorBlurDisposableRef.current?.dispose?.();
+    collabCursorBlurDisposableRef.current = editor.onDidBlurEditorWidget(() => {
+      queueCollabEditorCursorClear(260);
+      collabCursorWindowStopRef.current?.();
+    });
+    collabCursorLayoutDisposableRef.current?.dispose?.();
+    collabCursorLayoutDisposableRef.current = editor.onDidLayoutChange(() => {
+      setEditorViewportVersion((prev) => prev + 1);
+    });
     setEditorReady(true);
     setEditorMountVersion((prev) => prev + 1);
-  }, [applyDebugGlyphScale]);
+  }, [
+    applyDebugGlyphScale,
+    queueCollabEditorCursorClear,
+    scheduleCollabEditorCursor,
+  ]);
 
   useEffect(() => () => {
     collabSnippetProviderRef.current?.dispose?.();
@@ -2600,6 +2735,27 @@ const CollabSection = ({
     debugGutterDisposableRef.current = null;
     debugInlayProviderRef.current?.dispose?.();
     debugInlayProviderRef.current = null;
+    collabCursorMoveDisposableRef.current?.dispose?.();
+    collabCursorMoveDisposableRef.current = null;
+    collabCursorDragMouseDownDisposableRef.current?.dispose?.();
+    collabCursorDragMouseDownDisposableRef.current = null;
+    collabCursorLeaveDisposableRef.current?.dispose?.();
+    collabCursorLeaveDisposableRef.current = null;
+    collabCursorBlurDisposableRef.current?.dispose?.();
+    collabCursorBlurDisposableRef.current = null;
+    collabCursorLayoutDisposableRef.current?.dispose?.();
+    collabCursorLayoutDisposableRef.current = null;
+    collabCursorWindowStopRef.current?.();
+    collabCursorWindowStopRef.current = null;
+    if (collabCursorClearTimerRef.current) {
+      clearTimeout(collabCursorClearTimerRef.current);
+      collabCursorClearTimerRef.current = null;
+    }
+    if (collabCursorSyncTimerRef.current) {
+      clearTimeout(collabCursorSyncTimerRef.current);
+      collabCursorSyncTimerRef.current = null;
+    }
+    collabCursorPendingRef.current = null;
     if (debugPlaybackTimerRef.current) {
       clearInterval(debugPlaybackTimerRef.current);
       debugPlaybackTimerRef.current = null;
@@ -3837,6 +3993,19 @@ const CollabSection = ({
     if (!roomId || !editorReady || !wsUrl) {
       setStatus('disconnected');
       setPeerCount(0);
+      setRemoteEditorCursors([]);
+      collabAwarenessRef.current?.setLocalStateField?.('editorCursor', null);
+      collabCursorWindowStopRef.current?.();
+      collabCursorWindowStopRef.current = null;
+      if (collabCursorClearTimerRef.current) {
+        clearTimeout(collabCursorClearTimerRef.current);
+        collabCursorClearTimerRef.current = null;
+      }
+      if (collabCursorSyncTimerRef.current) {
+        clearTimeout(collabCursorSyncTimerRef.current);
+        collabCursorSyncTimerRef.current = null;
+      }
+      collabCursorPendingRef.current = null;
       collabDocRef.current = null;
       collabAwarenessRef.current = null;
       runMapRef.current = null;
@@ -3856,12 +4025,16 @@ const CollabSection = ({
       doc.destroy();
       collabDocRef.current = null;
       collabAwarenessRef.current = null;
+      collabCursorWindowStopRef.current?.();
+      collabCursorWindowStopRef.current = null;
+      setRemoteEditorCursors([]);
       return;
     }
 
     const ytext = doc.getText('monaco');
     const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]), provider.awareness);
     provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
+    provider.awareness.setLocalStateField('editorCursor', null);
 
     const runMap = doc.getMap('collabRun');
     runMapRef.current = runMap;
@@ -3875,7 +4048,35 @@ const CollabSection = ({
     const handleAwareness = () => {
       const states = provider.awareness.getStates();
       const total = states.size;
+      const now = Date.now();
+      const cursors = [];
+      states.forEach((state, clientId) => {
+        if (clientId === provider.awareness.clientID) return;
+        const cursor = state?.editorCursor;
+        const cursorX = Number(cursor?.x);
+        const cursorY = Number(cursor?.y);
+        if (!Number.isFinite(cursorX) || !Number.isFinite(cursorY)) return;
+        const cursorTsRaw = Number(cursor?.ts);
+        const cursorTs = Number.isFinite(cursorTsRaw) ? cursorTsRaw : now;
+        if ((now - cursorTs) > COLLAB_EDITOR_CURSOR_STALE_MS) return;
+        const remoteUser = state?.user;
+        const remoteName = typeof remoteUser?.name === 'string' && remoteUser.name.trim()
+          ? remoteUser.name.trim()
+          : 'Участник';
+        const remoteColor = typeof remoteUser?.color === 'string' && remoteUser.color
+          ? remoteUser.color
+          : '#6366f1';
+        cursors.push({
+          id: String(clientId),
+          x: Math.max(0, Math.min(1, cursorX)),
+          y: Math.max(0, Math.min(1, cursorY)),
+          ts: cursorTs,
+          name: remoteName,
+          color: remoteColor,
+        });
+      });
       setPeerCount(Math.max(0, total - 1));
+      setRemoteEditorCursors(cursors);
     };
 
     provider.on('status', handleStatus);
@@ -3885,6 +4086,13 @@ const CollabSection = ({
     return () => {
       provider.awareness.off('change', handleAwareness);
       provider.off('status', handleStatus);
+      provider.awareness.setLocalStateField('editorCursor', null);
+      collabCursorWindowStopRef.current?.();
+      collabCursorWindowStopRef.current = null;
+      if (collabCursorClearTimerRef.current) {
+        clearTimeout(collabCursorClearTimerRef.current);
+        collabCursorClearTimerRef.current = null;
+      }
       runMap.unobserve(handleRunMapChange);
       binding.destroy();
       provider.destroy();
@@ -3892,6 +4100,7 @@ const CollabSection = ({
       runMapRef.current = null;
       collabDocRef.current = null;
       collabAwarenessRef.current = null;
+      setRemoteEditorCursors([]);
       clearDebugSession(false);
       updateRunStateFromMap(null);
     };
@@ -3903,13 +4112,13 @@ const CollabSection = ({
   const statusClass = status === 'connected'
     ? (isCollabFullscreen
       ? (isFullscreenDark
-        ? 'border-emerald-400/45 bg-emerald-500/18 text-emerald-100'
-        : 'border-emerald-200 bg-emerald-50 text-emerald-700')
+        ? 'border-emerald-300/45 bg-emerald-500/16 text-emerald-100 shadow-[0_6px_16px_rgba(5,150,105,0.2)]'
+        : 'border-emerald-200 bg-emerald-50/95 text-emerald-700 shadow-[0_6px_14px_rgba(110,231,183,0.24)]')
       : 'border-emerald-200 bg-emerald-50 text-emerald-700')
     : (isCollabFullscreen
       ? (isFullscreenDark
-        ? 'border-amber-400/45 bg-amber-500/20 text-amber-100'
-        : 'border-amber-200 bg-amber-50 text-amber-700')
+        ? 'border-amber-300/45 bg-amber-500/18 text-amber-100 shadow-[0_6px_16px_rgba(217,119,6,0.2)]'
+        : 'border-amber-200 bg-amber-50/95 text-amber-700 shadow-[0_6px_14px_rgba(252,211,77,0.22)]')
       : 'border-amber-200 bg-amber-50 text-amber-700');
   const isSplitCollabLayout = (isCollabFullscreen || isDesktopCollabCompact) && !isMobileViewport;
   const sessionLabel = roomId
@@ -3917,6 +4126,29 @@ const CollabSection = ({
       ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
       : 'Учитель + ученик')
     : 'Не выбрана';
+  const remoteEditorCursorMarkers = useMemo(() => {
+    const layoutVersion = editorViewportVersion;
+    if (layoutVersion < 0) return [];
+    const editor = editorRef.current;
+    if (!editor || !remoteEditorCursors.length) return [];
+    const layout = editor.getLayoutInfo?.() || null;
+    const width = Number(layout?.width) || Number(editor.getDomNode?.()?.clientWidth) || 0;
+    const height = Number(layout?.height) || Number(editor.getDomNode?.()?.clientHeight) || 0;
+    if (!width || !height) return [];
+    return remoteEditorCursors
+      .map((cursor) => {
+        const left = Number(cursor?.x) * width;
+        const top = Number(cursor?.y) * height;
+        if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
+        if (left < -24 || left > width + 24 || top < -24 || top > height + 24) return null;
+        return {
+          ...cursor,
+          left,
+          top,
+        };
+      })
+      .filter(Boolean);
+  }, [remoteEditorCursors, editorViewportVersion]);
   const handleSplitResizeStart = useCallback((event) => {
     if (!isSplitCollabLayout) return;
     event.preventDefault();
@@ -4177,8 +4409,8 @@ const CollabSection = ({
     <div className={`relative overflow-hidden rounded-2xl border ${isSplitCollabLayout ? 'h-full' : ''} ${
       isCollabFullscreen
         ? (isFullscreenDark
-          ? 'border-slate-700/90 bg-slate-950/82 shadow-[0_24px_46px_rgba(2,6,23,0.52)]'
-          : 'border-slate-200/90 bg-slate-950 shadow-[0_18px_36px_rgba(148,163,184,0.2)]')
+          ? 'border-slate-700/90 ring-1 ring-cyan-400/10 bg-slate-950/82 shadow-[0_24px_46px_rgba(2,6,23,0.52)]'
+          : 'border-slate-300/80 ring-1 ring-slate-200/70 bg-slate-950 shadow-[0_20px_44px_rgba(71,85,105,0.3)]')
         : 'border-gray-800'
     }`}>
       {!roomId && (
@@ -4199,6 +4431,27 @@ const CollabSection = ({
         options={editorOptions}
         loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
       />
+      {remoteEditorCursorMarkers.map((cursor) => (
+        <div
+          key={cursor.id}
+          className="pointer-events-none absolute z-[15] select-none"
+          style={{
+            left: `${cursor.left}px`,
+            top: `${cursor.top}px`,
+            transform: 'translate(-1px, -1px)',
+          }}
+        >
+          <svg width="15" height="20" viewBox="0 0 15 20" fill="none" aria-hidden>
+            <path
+              d="M1 1L7.2 16L9.6 10.9L14 9.3L1 1Z"
+              fill={cursor.color}
+              stroke="white"
+              strokeWidth="1.15"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
+      ))}
     </div>
   );
 
@@ -4725,7 +4978,7 @@ const CollabSection = ({
   const collabTopActions = (
     <div className={`flex flex-wrap items-center ${
       isCollabFullscreen
-        ? 'gap-2 md:justify-end'
+        ? 'gap-2.5 md:justify-end'
         : (isDesktopCollabCompact ? 'gap-1.5' : 'gap-2')
     }`}>
       {(!isCollabFullscreen || !activeStudentId) && renderStudentPicker()}
@@ -4734,13 +4987,13 @@ const CollabSection = ({
         onClick={() => setSaveModalOpen(true)}
         className={`flex items-center ${
           isCollabFullscreen || isDesktopCollabCompact
-            ? 'gap-1.5 !h-8 !min-h-[2rem] !px-2.5 !py-0 !text-[11px] sm:!text-[11px]'
+            ? 'gap-1.5 !h-9 !min-h-[2.25rem] !px-3 !py-0 !text-[11px] sm:!text-[11px]'
             : 'gap-2'
         } ${
           isCollabFullscreen
             ? (isFullscreenDark
-              ? '!border-slate-600/80 !bg-slate-900/78 !text-slate-100 hover:!bg-slate-800 !focus-visible:ring-cyan-300/70 !focus-visible:ring-offset-slate-950'
-              : '!border-slate-200 !bg-white !text-slate-700 hover:!bg-violet-50 !focus-visible:ring-violet-400/70 !focus-visible:ring-offset-white')
+              ? '!border-slate-600/80 !bg-slate-900/76 !text-slate-100 !shadow-[0_8px_22px_rgba(2,6,23,0.26)] hover:!border-cyan-300/70 hover:!bg-slate-800 !focus-visible:ring-cyan-300/70 !focus-visible:ring-offset-slate-950'
+              : '!border-slate-200 !bg-white/95 !text-slate-700 !shadow-[0_8px_20px_rgba(148,163,184,0.2)] hover:!border-violet-300 hover:!bg-violet-50 !focus-visible:ring-violet-400/70 !focus-visible:ring-offset-white')
             : ''
         }`}
       >
@@ -4748,18 +5001,18 @@ const CollabSection = ({
         Сохранить в конспекты
       </Button>
       <span className={`inline-flex items-center rounded-full border font-semibold ${
-        isCollabFullscreen || isDesktopCollabCompact ? 'h-8 px-2.5 text-[11px]' : 'px-3 py-1 text-xs'
+        isCollabFullscreen || isDesktopCollabCompact ? 'h-9 px-3 text-[11px]' : 'px-3 py-1 text-xs'
       } ${statusClass}`}>
         {statusLabel}
       </span>
       {roomId && (
         <span className={`inline-flex items-center rounded-full border font-semibold ${
-          isCollabFullscreen || isDesktopCollabCompact ? 'h-8 px-2.5 text-[11px]' : 'px-3 py-1 text-xs'
+          isCollabFullscreen || isDesktopCollabCompact ? 'h-9 px-3 text-[11px]' : 'px-3 py-1 text-xs'
         } ${
           isCollabFullscreen
             ? (isFullscreenDark
-              ? 'border-slate-600/80 bg-slate-900/82 text-slate-200'
-              : 'border-slate-200 bg-white text-slate-700')
+              ? 'border-slate-600/80 bg-slate-900/82 text-slate-200 shadow-[0_6px_16px_rgba(2,6,23,0.24)]'
+              : 'border-slate-200 bg-white/95 text-slate-700 shadow-[0_6px_14px_rgba(148,163,184,0.16)]')
             : 'border-slate-200 bg-white text-slate-600'
         }`}>
           Онлайн: {peerCount}
@@ -4768,15 +5021,15 @@ const CollabSection = ({
       <button
         type="button"
         onClick={toggleCollabFullscreen}
-        className={`inline-flex items-center rounded-full border font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${
+        className={`inline-flex items-center rounded-full border font-semibold transition-all duration-200 hover:-translate-y-[1px] active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${
           isDesktopCollabCompact
             ? 'h-8 w-8 justify-center rounded-xl p-0 text-[11px]'
-            : (isCollabFullscreen ? 'h-9 gap-1.5 px-3 text-[11px]' : 'gap-2 px-3 py-1 text-xs')
+            : (isCollabFullscreen ? 'h-9 gap-1.5 px-3.5 text-[11px]' : 'gap-2 px-3 py-1 text-xs')
         } ${
           isCollabFullscreen
             ? (isFullscreenDark
-              ? 'border-cyan-400/80 bg-cyan-400/20 text-cyan-100 shadow-[0_10px_22px_rgba(6,182,212,0.18)] hover:bg-cyan-400/30 focus-visible:ring-cyan-300/70 focus-visible:ring-offset-slate-950'
-              : 'border-violet-500 bg-violet-600 text-white shadow-[0_10px_20px_rgba(124,58,237,0.24)] hover:bg-violet-700 focus-visible:ring-violet-400/70 focus-visible:ring-offset-white')
+              ? 'border-cyan-300/80 bg-cyan-400/20 text-cyan-100 shadow-[0_10px_24px_rgba(6,182,212,0.24)] hover:border-cyan-200 hover:bg-cyan-400/32 focus-visible:ring-cyan-300/70 focus-visible:ring-offset-slate-950'
+              : 'border-violet-500 bg-violet-600 text-white shadow-[0_10px_22px_rgba(124,58,237,0.26)] hover:bg-violet-700 focus-visible:ring-violet-400/70 focus-visible:ring-offset-white')
             : 'border-purple-500 bg-gradient-to-br from-purple-500 to-violet-600 text-white shadow-[0_4px_16px_rgba(124,58,237,0.35)] hover:from-purple-600 hover:to-violet-700 focus-visible:ring-purple-400/70'
         }`}
         title={isCollabFullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'}
@@ -4798,14 +5051,19 @@ const CollabSection = ({
           <div className={`pointer-events-none absolute -right-24 top-[-100px] h-[300px] w-[300px] rounded-full blur-3xl ${
             isFullscreenDark ? 'bg-violet-500/16' : 'bg-violet-300/20'
           }`} />
+          <div className={`pointer-events-none absolute inset-0 opacity-[0.2] ${
+            isFullscreenDark
+              ? 'bg-[linear-gradient(to_right,rgba(148,163,184,0.08)_1px,transparent_1px),linear-gradient(to_bottom,rgba(148,163,184,0.07)_1px,transparent_1px)] [background-size:36px_36px]'
+              : 'bg-[linear-gradient(to_right,rgba(148,163,184,0.1)_1px,transparent_1px),linear-gradient(to_bottom,rgba(148,163,184,0.08)_1px,transparent_1px)] [background-size:40px_40px]'
+          }`} />
         </>
       )}
       {!mergeHeaderIntoToolbar && (
         <div className={`flex flex-col md:flex-row md:items-center md:justify-between ${
           isCollabFullscreen
             ? (isFullscreenDark
-              ? 'sticky top-0 z-20 mb-2 gap-3 rounded-2xl border border-slate-700/75 bg-slate-950/72 px-2.5 py-2 sm:px-3 sm:py-2.5 backdrop-blur'
-              : 'sticky top-0 z-20 mb-2 gap-3 rounded-2xl border border-slate-200/90 bg-white/88 px-2.5 py-2 sm:px-3 sm:py-2.5 backdrop-blur')
+              ? 'sticky top-2 z-20 mb-2.5 gap-3 rounded-2xl border border-slate-700/75 bg-slate-950/72 px-2.5 py-2 sm:px-3 sm:py-2.5 shadow-[0_10px_26px_rgba(2,6,23,0.35)] backdrop-blur-xl'
+              : 'sticky top-2 z-20 mb-2.5 gap-3 rounded-2xl border border-slate-200/90 bg-white/88 px-2.5 py-2 sm:px-3 sm:py-2.5 shadow-[0_10px_26px_rgba(148,163,184,0.2)] backdrop-blur-xl')
             : 'mb-6 gap-3'
         }`}>
           <div>
@@ -4865,16 +5123,16 @@ const CollabSection = ({
           {notesPdfPane}
         </div>
 
-        <div className={`${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-1.5 flex flex-wrap items-center gap-1.5' : 'mt-1.5 flex flex-wrap items-center gap-1.5') : ''}`}>
-          <div className={`max-w-full flex flex-wrap items-center gap-1.5 rounded-xl border ${
+        <div className={`${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-2 flex flex-wrap items-center gap-2' : 'mt-1.5 flex flex-wrap items-center gap-1.5') : ''}`}>
+          <div className={`max-w-full flex flex-wrap items-center gap-2 rounded-xl border ${
             isCollabFullscreen
-              ? 'min-w-0 flex-1 px-2 py-1.5'
+              ? 'min-w-0 flex-1 rounded-2xl px-2.5 py-1.5 sm:px-3 sm:py-2'
               : (isDesktopCollabCompact ? 'mt-0 px-1.5 py-1' : 'mt-3 inline-flex px-2 py-1.5')
           } ${collabToolbarClass}`}>
             {(isCollabFullscreen || isDesktopCollabCompact) && (
               <>
                 <span className={`text-[10px] font-bold uppercase tracking-widest ${collabSessionLabelClass}`}>Сессия</span>
-                <span className={`${isCollabFullscreen ? 'max-w-[280px]' : 'max-w-[220px]'} truncate text-[11px] font-semibold ${collabSessionValueClass}`}>{sessionLabel}</span>
+                <span className={`${isCollabFullscreen ? 'max-w-[360px]' : 'max-w-[220px]'} truncate text-[11px] font-semibold ${collabSessionValueClass}`}>{sessionLabel}</span>
                 <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
               </>
             )}
@@ -5076,7 +5334,7 @@ const CollabSection = ({
               aria-valuenow={Math.round(splitLeftWidth)}
               onPointerDown={handleSplitResizeStart}
               onDoubleClick={handleSplitResizeReset}
-              className={`group relative flex ${isCollabFullscreen ? 'w-[12px]' : 'w-[10px]'} cursor-col-resize select-none items-center justify-center`}
+              className={`group relative flex ${isCollabFullscreen ? 'w-[14px]' : 'w-[10px]'} cursor-col-resize select-none touch-none items-center justify-center`}
               title="Перетащите, чтобы изменить ширину. Двойной клик — сброс."
             >
               <div className={`${isCollabFullscreen ? 'h-full w-[3px]' : 'h-full w-[2px]'} rounded-full transition ${
@@ -5084,14 +5342,27 @@ const CollabSection = ({
                   ? (isFullscreenDark ? 'bg-slate-700/75 group-hover:bg-cyan-400/90' : 'bg-slate-300 group-hover:bg-violet-400/90')
                   : 'bg-gray-300 group-hover:bg-purple-400'
               }`} />
+              <div className={`pointer-events-none absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border backdrop-blur ${
+                isCollabFullscreen
+                  ? (isFullscreenDark
+                    ? 'h-10 w-6 border-slate-500/70 bg-slate-900/76 shadow-[0_8px_18px_rgba(2,6,23,0.45)]'
+                    : 'h-10 w-6 border-slate-300 bg-white/92 shadow-[0_8px_16px_rgba(148,163,184,0.22)]')
+                  : 'h-8 w-5 border-slate-300 bg-white/90 shadow-[0_6px_12px_rgba(148,163,184,0.2)]'
+              }`}>
+                <div className={`rounded-full ${isCollabFullscreen ? 'h-4 w-1.5' : 'h-3 w-1'} ${
+                  isCollabFullscreen
+                    ? (isFullscreenDark ? 'bg-slate-400/90' : 'bg-slate-400')
+                    : 'bg-slate-400'
+                }`} />
+              </div>
             </div>
             <div className="min-h-0 min-w-0">
               <div className={`flex min-h-0 flex-col ${isCollabFullscreen ? 'gap-2' : 'gap-1.5'}`} style={{ height: isCollabFullscreen ? '100%' : editorHeight }}>
                 <div className={`min-h-0 flex flex-1 flex-col rounded-2xl border ${isCollabFullscreen ? 'p-2.5' : 'p-2'} ${
                   isCollabFullscreen
                     ? (isFullscreenDark
-                      ? 'border-slate-700/85 bg-slate-950/72 shadow-[inset_0_1px_0_rgba(148,163,184,0.12)]'
-                      : 'border-slate-200 bg-white/92 shadow-[0_10px_28px_rgba(148,163,184,0.16)]')
+                      ? 'border-slate-700/85 ring-1 ring-cyan-400/10 bg-slate-950/72 shadow-[0_16px_34px_rgba(2,6,23,0.4),inset_0_1px_0_rgba(148,163,184,0.12)]'
+                      : 'border-slate-200 ring-1 ring-violet-200/80 bg-white/92 shadow-[0_14px_30px_rgba(148,163,184,0.2)]')
                     : 'border-gray-200 bg-white'
                 }`}>
                   {resultHeader}
