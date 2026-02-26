@@ -3031,7 +3031,7 @@ const CollabSection = ({
   }, [saveTaskNumber, saveCategory, effectiveStudentId]);
 
   const normalizeFileName = (value) => {
-    const trimmed = String(value || '').trim();
+    const trimmed = String(value || '').replace(/\./g, '').trim();
     if (!trimmed) return '';
     return trimmed.replace(/[\\/]+/g, '').replace(/\0/g, '');
   };
@@ -4351,8 +4351,9 @@ const CollabSection = ({
               type="text"
               value={saveFileName}
               onChange={(e) => {
-                setSaveFileName(e.target.value);
-                if (saveNameError && e.target.value.trim()) {
+                const nextValue = String(e.target.value || '').replace(/\./g, '');
+                setSaveFileName(nextValue);
+                if (saveNameError && nextValue.trim()) {
                   setSaveNameError(false);
                   setSaveError('');
                 }
@@ -5998,7 +5999,7 @@ const BoardSection = ({
   };
 
   const normalizeFileName = (value) => {
-    const trimmed = String(value || '').trim();
+    const trimmed = String(value || '').replace(/\./g, '').trim();
     if (!trimmed) return '';
     return trimmed.replace(/[\\/]+/g, '').replace(/\0/g, '');
   };
@@ -7635,8 +7636,9 @@ const BoardSection = ({
               type="text"
               value={saveFileName}
               onChange={(e) => {
-                setSaveFileName(e.target.value);
-                if (saveNameError && e.target.value.trim()) {
+                const nextValue = String(e.target.value || '').replace(/\./g, '');
+                setSaveFileName(nextValue);
+                if (saveNameError && nextValue.trim()) {
                   setSaveNameError(false);
                   setSaveError('');
                 }
