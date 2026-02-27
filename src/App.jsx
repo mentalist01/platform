@@ -1192,6 +1192,7 @@ const COLLAB_DEBUG_TRACE_LIMIT = 2500;
 const COLLAB_DEBUG_AUTOPLAY_MS = 75;
 const COLLAB_DEBUG_INLINE_HINT_MAX_CHARS = 90;
 const COLLAB_DEBUG_INLINE_HINT_LINES_MAX = 120;
+const COLLAB_EDITOR_CURSOR_ENABLED = false;
 const COLLAB_EDITOR_CURSOR_SYNC_MS = 45;
 const COLLAB_EDITOR_CURSOR_STALE_MS = 6500;
 const COLLAB_EDITOR_CURSOR_IDLE_CLEAR_MS = 1200;
@@ -1943,7 +1944,7 @@ const CollabSection = ({
   const [debugSourceSnapshot, setDebugSourceSnapshot] = useState('');
   const [editorFontSize, setEditorFontSize] = useState(23);
   const [isCollabFullscreen, setIsCollabFullscreen] = useState(false);
-  const [splitLeftWidth, setSplitLeftWidth] = useState(68);
+  const [splitLeftWidth, setSplitLeftWidth] = useState(80);
   const [runTaskNumber, setRunTaskNumber] = useState(() => String(taskOptions[0]?.number || ''));
   const [runTaskCategory, setRunTaskCategory] = useState('class');
   const [taskFiles, setTaskFiles] = useState([]);
@@ -2008,6 +2009,7 @@ const CollabSection = ({
   const collabCursorLeaveDisposableRef = useRef(null);
   const collabCursorBlurDisposableRef = useRef(null);
   const collabCursorLayoutDisposableRef = useRef(null);
+  const collabCursorScrollDisposableRef = useRef(null);
   const collabCursorDragMouseDownDisposableRef = useRef(null);
   const collabCursorWindowStopRef = useRef(null);
   const collabCursorClearTimerRef = useRef(null);
@@ -2131,7 +2133,7 @@ const CollabSection = ({
     readOnly: !roomId,
   }), [roomId, editorFontSize, isCollabFullscreen]);
   const isDesktopCollabCompact = !isMobileViewport && !isCollabFullscreen;
-  const compactCollabHeight = 'calc((var(--app-vh, 1vh) * 100) - 10.5rem)';
+  const compactCollabHeight = '100%';
   const editorHeight = isCollabFullscreen
     ? (isMobileViewport ? '60vh' : '82vh')
     : (isMobileViewport ? '50vh' : (isDesktopCollabCompact ? '100%' : '65vh'));
@@ -2148,10 +2150,10 @@ const CollabSection = ({
   const isFullscreenLight = isCollabFullscreen && !isDarkTheme;
   const collabShellClass = isCollabFullscreen
     ? (isFullscreenDark
-      ? 'animate-fadeIn relative isolate flex h-screen w-screen flex-col overflow-x-hidden overflow-y-auto bg-[radial-gradient(circle_at_0%_0%,_rgba(56,189,248,0.26),_transparent_36%),radial-gradient(circle_at_100%_0%,_rgba(168,85,247,0.28),_transparent_40%),radial-gradient(circle_at_52%_120%,_rgba(14,116,144,0.28),_transparent_46%),linear-gradient(180deg,_rgba(2,6,23,1)_0%,_rgba(9,13,28,1)_48%,_rgba(2,6,23,1)_100%)] text-slate-100 px-2 py-2 sm:px-3 sm:py-3 md:px-4 md:py-4'
-      : 'animate-fadeIn relative isolate flex h-screen w-screen flex-col overflow-x-hidden overflow-y-auto bg-[radial-gradient(circle_at_0%_0%,_rgba(56,189,248,0.16),_transparent_36%),radial-gradient(circle_at_100%_0%,_rgba(147,51,234,0.16),_transparent_40%),radial-gradient(circle_at_56%_115%,_rgba(56,189,248,0.14),_transparent_46%),linear-gradient(180deg,_rgba(248,250,252,1)_0%,_rgba(237,242,255,0.96)_50%,_rgba(248,250,252,1)_100%)] text-slate-900 px-2 py-2 sm:px-3 sm:py-3 md:px-4 md:py-4')
+      ? 'animate-fadeIn relative isolate flex h-screen h-[100dvh] w-screen w-[100dvw] flex-col overflow-hidden bg-[radial-gradient(circle_at_0%_0%,_rgba(56,189,248,0.26),_transparent_36%),radial-gradient(circle_at_100%_0%,_rgba(168,85,247,0.28),_transparent_40%),radial-gradient(circle_at_52%_120%,_rgba(14,116,144,0.28),_transparent_46%),linear-gradient(180deg,_rgba(2,6,23,1)_0%,_rgba(9,13,28,1)_48%,_rgba(2,6,23,1)_100%)] text-slate-100 px-0.5 py-0.5 sm:px-1 sm:py-1 md:px-1.5 md:py-1.5'
+      : 'animate-fadeIn relative isolate flex h-screen h-[100dvh] w-screen w-[100dvw] flex-col overflow-hidden bg-[radial-gradient(circle_at_0%_0%,_rgba(56,189,248,0.16),_transparent_36%),radial-gradient(circle_at_100%_0%,_rgba(147,51,234,0.16),_transparent_40%),radial-gradient(circle_at_56%_115%,_rgba(56,189,248,0.14),_transparent_46%),linear-gradient(180deg,_rgba(248,250,252,1)_0%,_rgba(237,242,255,0.96)_50%,_rgba(248,250,252,1)_100%)] text-slate-900 px-0.5 py-0.5 sm:px-1 sm:py-1 md:px-1.5 md:py-1.5')
     : (isDesktopCollabCompact
-      ? 'animate-fadeIn md:flex md:min-h-0 md:flex-col md:overflow-hidden'
+      ? 'animate-fadeIn h-full md:flex md:min-h-0 md:flex-col md:overflow-hidden'
       : 'animate-fadeIn pb-10');
   const collabShellStyle = isDesktopCollabCompact
     ? { height: compactCollabHeight, maxHeight: compactCollabHeight }
@@ -2161,9 +2163,9 @@ const CollabSection = ({
       isFullscreenDark
         ? 'border-slate-700/75 ring-cyan-300/10 bg-slate-950/54 shadow-[0_30px_72px_rgba(2,6,23,0.62)]'
         : 'border-slate-200/90 ring-violet-200/80 bg-white/82 shadow-[0_30px_72px_rgba(15,23,42,0.14)]'
-    } p-2.5 sm:p-3 md:p-4 backdrop-blur-xl`
+    } p-1 sm:p-1.5 md:p-2 backdrop-blur-xl`
     : (isDesktopCollabCompact
-      ? 'p-3 md:p-4 flex min-h-0 flex-1 flex-col overflow-hidden'
+      ? 'p-2 md:p-2.5 flex min-h-0 flex-1 flex-col overflow-hidden'
       : 'p-4 md:p-6');
   const collabTitleClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-50' : 'text-slate-900') : 'text-gray-900';
   const collabSubtitleClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-300/90' : 'text-slate-600') : 'text-gray-500';
@@ -2178,7 +2180,7 @@ const CollabSection = ({
   const collabToolbarDividerClass = isCollabFullscreen ? (isFullscreenDark ? 'bg-slate-500/70' : 'bg-slate-300/80') : 'bg-purple-200';
   const collabSessionLabelClass = isCollabFullscreen ? (isFullscreenDark ? 'text-cyan-200' : 'text-violet-600') : collabLabelClass;
   const collabSessionValueClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-50' : 'text-slate-800') : collabSessionTextClass;
-  const collabIconButtonBase = `inline-flex ${isCollabFullscreen ? 'h-9 w-9' : (isDesktopCollabCompact ? 'h-7 w-7' : 'h-8 w-8')} items-center justify-center rounded-xl border transition-all duration-200 hover:-translate-y-[1px] active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 ${
+  const collabIconButtonBase = `inline-flex ${isCollabFullscreen ? 'h-8 w-8' : (isDesktopCollabCompact ? 'h-7 w-7' : 'h-8 w-8')} items-center justify-center rounded-xl border transition-all duration-200 hover:-translate-y-[1px] active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 ${
     isFullscreenDark
       ? 'focus-visible:ring-cyan-300/70 focus-visible:ring-offset-slate-950'
       : 'focus-visible:ring-purple-400/70 focus-visible:ring-offset-white'
@@ -2540,8 +2542,13 @@ const CollabSection = ({
   }, [editorFontSize]);
 
   const scheduleCollabEditorCursor = useCallback((nextCursor, immediate = false) => {
+    if (!COLLAB_EDITOR_CURSOR_ENABLED) return;
     const awareness = collabAwarenessRef.current;
     if (!awareness) return;
+    const lineNumber = Number(nextCursor?.lineNumber);
+    const column = Number(nextCursor?.column);
+    const hasPosition = Number.isInteger(lineNumber) && lineNumber > 0
+      && Number.isInteger(column) && column > 0;
     const normalizedCursor = nextCursor
       && Number.isFinite(Number(nextCursor?.x))
       && Number.isFinite(Number(nextCursor?.y))
@@ -2549,6 +2556,7 @@ const CollabSection = ({
         x: Math.max(0, Math.min(1, Number(nextCursor.x))),
         y: Math.max(0, Math.min(1, Number(nextCursor.y))),
         ts: Number.isFinite(Number(nextCursor?.ts)) ? Number(nextCursor.ts) : Date.now(),
+        ...(hasPosition ? { lineNumber, column } : {}),
       }
       : null;
     if (immediate) {
@@ -2578,12 +2586,14 @@ const CollabSection = ({
   }, []);
 
   const clearCollabCursorClearTimer = useCallback(() => {
+    if (!COLLAB_EDITOR_CURSOR_ENABLED) return;
     if (!collabCursorClearTimerRef.current) return;
     clearTimeout(collabCursorClearTimerRef.current);
     collabCursorClearTimerRef.current = null;
   }, []);
 
   const queueCollabEditorCursorClear = useCallback((delayMs = COLLAB_EDITOR_CURSOR_IDLE_CLEAR_MS) => {
+    if (!COLLAB_EDITOR_CURSOR_ENABLED) return;
     clearCollabCursorClearTimer();
     collabCursorClearTimerRef.current = setTimeout(() => {
       collabCursorClearTimerRef.current = null;
@@ -2657,6 +2667,7 @@ const CollabSection = ({
       });
     }
     const publishCursorFromClientPoint = (clientX, clientY) => {
+      if (!COLLAB_EDITOR_CURSOR_ENABLED) return false;
       if (!collabAwarenessRef.current) return false;
       const nextClientX = Number(clientX);
       const nextClientY = Number(clientY);
@@ -2664,13 +2675,30 @@ const CollabSection = ({
       const node = editor.getDomNode?.();
       const rect = node?.getBoundingClientRect?.();
       if (!rect || !rect.width || !rect.height) return false;
-      const x = (nextClientX - rect.left) / rect.width;
+      const layout = editor.getLayoutInfo?.() || null;
+      const contentLeft = Number(layout?.contentLeft) || 0;
+      const contentWidth = Number(layout?.contentWidth) || Math.max(1, rect.width - contentLeft);
+      if (!contentWidth) return false;
+      const x = (nextClientX - rect.left - contentLeft) / contentWidth;
       const y = (nextClientY - rect.top) / rect.height;
       if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+      const resolvedTarget = editor.getTargetAtClientPoint?.(nextClientX, nextClientY);
+      const targetType = Number(resolvedTarget?.type);
+      const mouseTargetType = monaco?.editor?.MouseTargetType || null;
+      const isContentTarget = mouseTargetType
+        ? (
+          targetType === mouseTargetType.CONTENT_TEXT
+          || targetType === mouseTargetType.CONTENT_EMPTY
+          || targetType === mouseTargetType.CONTENT_VIEW_ZONE
+        )
+        : true;
+      const targetPosition = isContentTarget ? resolvedTarget?.position : null;
       scheduleCollabEditorCursor({
         x,
         y,
         ts: Date.now(),
+        lineNumber: Number(targetPosition?.lineNumber),
+        column: Number(targetPosition?.column),
       });
       queueCollabEditorCursorClear();
       return true;
@@ -2720,6 +2748,10 @@ const CollabSection = ({
     collabCursorLayoutDisposableRef.current = editor.onDidLayoutChange(() => {
       setEditorViewportVersion((prev) => prev + 1);
     });
+    collabCursorScrollDisposableRef.current?.dispose?.();
+    collabCursorScrollDisposableRef.current = editor.onDidScrollChange(() => {
+      setEditorViewportVersion((prev) => prev + 1);
+    });
     setEditorReady(true);
     setEditorMountVersion((prev) => prev + 1);
   }, [
@@ -2745,6 +2777,8 @@ const CollabSection = ({
     collabCursorBlurDisposableRef.current = null;
     collabCursorLayoutDisposableRef.current?.dispose?.();
     collabCursorLayoutDisposableRef.current = null;
+    collabCursorScrollDisposableRef.current?.dispose?.();
+    collabCursorScrollDisposableRef.current = null;
     collabCursorWindowStopRef.current?.();
     collabCursorWindowStopRef.current = null;
     if (collabCursorClearTimerRef.current) {
@@ -2880,7 +2914,7 @@ const CollabSection = ({
     const raw = window.localStorage.getItem(splitWidthStorageKey);
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) return;
-    const clamped = Math.max(48, Math.min(82, parsed));
+    const clamped = Math.max(56, Math.min(92, parsed));
     setSplitLeftWidth(clamped);
   }, [splitWidthStorageKey]);
 
@@ -3994,7 +4028,9 @@ const CollabSection = ({
       setStatus('disconnected');
       setPeerCount(0);
       setRemoteEditorCursors([]);
-      collabAwarenessRef.current?.setLocalStateField?.('editorCursor', null);
+      if (COLLAB_EDITOR_CURSOR_ENABLED) {
+        collabAwarenessRef.current?.setLocalStateField?.('editorCursor', null);
+      }
       collabCursorWindowStopRef.current?.();
       collabCursorWindowStopRef.current = null;
       if (collabCursorClearTimerRef.current) {
@@ -4034,7 +4070,9 @@ const CollabSection = ({
     const ytext = doc.getText('monaco');
     const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]), provider.awareness);
     provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
-    provider.awareness.setLocalStateField('editorCursor', null);
+    if (COLLAB_EDITOR_CURSOR_ENABLED) {
+      provider.awareness.setLocalStateField('editorCursor', null);
+    }
 
     const runMap = doc.getMap('collabRun');
     runMapRef.current = runMap;
@@ -4048,6 +4086,11 @@ const CollabSection = ({
     const handleAwareness = () => {
       const states = provider.awareness.getStates();
       const total = states.size;
+      setPeerCount(Math.max(0, total - 1));
+      if (!COLLAB_EDITOR_CURSOR_ENABLED) {
+        setRemoteEditorCursors([]);
+        return;
+      }
       const now = Date.now();
       const cursors = [];
       states.forEach((state, clientId) => {
@@ -4059,6 +4102,10 @@ const CollabSection = ({
         const cursorTsRaw = Number(cursor?.ts);
         const cursorTs = Number.isFinite(cursorTsRaw) ? cursorTsRaw : now;
         if ((now - cursorTs) > COLLAB_EDITOR_CURSOR_STALE_MS) return;
+        const cursorLineNumber = Number(cursor?.lineNumber);
+        const cursorColumn = Number(cursor?.column);
+        const hasCursorPosition = Number.isInteger(cursorLineNumber) && cursorLineNumber > 0
+          && Number.isInteger(cursorColumn) && cursorColumn > 0;
         const remoteUser = state?.user;
         const remoteName = typeof remoteUser?.name === 'string' && remoteUser.name.trim()
           ? remoteUser.name.trim()
@@ -4071,11 +4118,11 @@ const CollabSection = ({
           x: Math.max(0, Math.min(1, cursorX)),
           y: Math.max(0, Math.min(1, cursorY)),
           ts: cursorTs,
+          ...(hasCursorPosition ? { lineNumber: cursorLineNumber, column: cursorColumn } : {}),
           name: remoteName,
           color: remoteColor,
         });
       });
-      setPeerCount(Math.max(0, total - 1));
       setRemoteEditorCursors(cursors);
     };
 
@@ -4086,7 +4133,9 @@ const CollabSection = ({
     return () => {
       provider.awareness.off('change', handleAwareness);
       provider.off('status', handleStatus);
-      provider.awareness.setLocalStateField('editorCursor', null);
+      if (COLLAB_EDITOR_CURSOR_ENABLED) {
+        provider.awareness.setLocalStateField('editorCursor', null);
+      }
       collabCursorWindowStopRef.current?.();
       collabCursorWindowStopRef.current = null;
       if (collabCursorClearTimerRef.current) {
@@ -4127,6 +4176,7 @@ const CollabSection = ({
       : 'Учитель + ученик')
     : 'Не выбрана';
   const remoteEditorCursorMarkers = useMemo(() => {
+    if (!COLLAB_EDITOR_CURSOR_ENABLED) return [];
     const layoutVersion = editorViewportVersion;
     if (layoutVersion < 0) return [];
     const editor = editorRef.current;
@@ -4134,11 +4184,36 @@ const CollabSection = ({
     const layout = editor.getLayoutInfo?.() || null;
     const width = Number(layout?.width) || Number(editor.getDomNode?.()?.clientWidth) || 0;
     const height = Number(layout?.height) || Number(editor.getDomNode?.()?.clientHeight) || 0;
+    const contentLeft = Number(layout?.contentLeft) || 0;
+    const contentWidth = Number(layout?.contentWidth) || Math.max(1, width - contentLeft);
+    const scrollTop = Number(editor.getScrollTop?.()) || 0;
+    const scrollLeft = Number(editor.getScrollLeft?.()) || 0;
+    const monaco = monacoRef.current;
+    const lineHeightOption = monaco?.editor?.EditorOption?.lineHeight
+      ? Number(editor.getOption(monaco.editor.EditorOption.lineHeight))
+      : 0;
+    const lineHeight = Number.isFinite(lineHeightOption) && lineHeightOption > 0
+      ? lineHeightOption
+      : 20;
     if (!width || !height) return [];
     return remoteEditorCursors
       .map((cursor) => {
-        const left = Number(cursor?.x) * width;
-        const top = Number(cursor?.y) * height;
+        const fallbackLeft = contentLeft + (Number(cursor?.x) * contentWidth);
+        const fallbackTop = Number(cursor?.y) * height;
+        let left = fallbackLeft;
+        let top = fallbackTop;
+        const lineNumber = Number(cursor?.lineNumber);
+        const column = Number(cursor?.column);
+        const hasModelPosition = Number.isInteger(lineNumber) && lineNumber > 0
+          && Number.isInteger(column) && column > 0;
+        if (hasModelPosition) {
+          const lineTop = Number(editor.getTopForLineNumber?.(lineNumber));
+          const columnLeft = Number(editor.getOffsetForColumn?.(lineNumber, column));
+          if (Number.isFinite(lineTop) && Number.isFinite(columnLeft)) {
+            left = contentLeft + columnLeft - scrollLeft;
+            top = (lineTop - scrollTop) + Math.max(0, Math.round(lineHeight * 0.18));
+          }
+        }
         if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
         if (left < -24 || left > width + 24 || top < -24 || top > height + 24) return null;
         return {
@@ -4158,7 +4233,7 @@ const CollabSection = ({
       const rect = container.getBoundingClientRect();
       if (!rect.width) return;
       const relative = ((clientX - rect.left) / rect.width) * 100;
-      const clamped = Math.max(48, Math.min(82, relative));
+      const clamped = Math.max(56, Math.min(92, relative));
       setSplitLeftWidth(clamped);
     };
     const handlePointerMove = (moveEvent) => {
@@ -4186,7 +4261,7 @@ const CollabSection = ({
     window.addEventListener('pointercancel', stopDragging);
   }, [isSplitCollabLayout]);
   const handleSplitResizeReset = useCallback(() => {
-    setSplitLeftWidth(68);
+    setSplitLeftWidth(80);
   }, []);
   const handleNotesPdfResizeStart = useCallback((event) => {
     if (!notesPdfPanelOpen || !selectedNotesPdfFile) return;
@@ -4979,7 +5054,7 @@ const CollabSection = ({
   const collabTopActions = (
     <div className={`flex flex-wrap items-center ${
       isCollabFullscreen
-        ? 'gap-2.5 md:justify-end'
+        ? 'gap-1.5 md:justify-end'
         : (isDesktopCollabCompact ? 'gap-1.5' : 'gap-2')
     }`}>
       {(!isCollabFullscreen || !activeStudentId) && renderStudentPicker()}
@@ -4987,9 +5062,11 @@ const CollabSection = ({
         variant="secondary"
         onClick={() => setSaveModalOpen(true)}
         className={`flex items-center ${
-          isCollabFullscreen || isDesktopCollabCompact
-            ? 'gap-1.5 !h-9 !min-h-[2.25rem] !px-3 !py-0 !text-[11px] sm:!text-[11px]'
-            : 'gap-2'
+          isCollabFullscreen
+            ? 'gap-1 !h-8 !min-h-8 !px-2.5 !py-0 !text-[10px]'
+            : (isDesktopCollabCompact
+              ? 'gap-1.5 !h-9 !min-h-[2.25rem] !px-3 !py-0 !text-[11px] sm:!text-[11px]'
+              : 'gap-2')
         } ${
           isCollabFullscreen
             ? (isFullscreenDark
@@ -5002,13 +5079,17 @@ const CollabSection = ({
         Сохранить в конспекты
       </Button>
       <span className={`inline-flex items-center rounded-full border font-semibold ${
-        isCollabFullscreen || isDesktopCollabCompact ? 'h-9 px-3 text-[11px]' : 'px-3 py-1 text-xs'
+        isCollabFullscreen
+          ? 'h-8 px-2.5 text-[10px]'
+          : (isDesktopCollabCompact ? 'h-9 px-3 text-[11px]' : 'px-3 py-1 text-xs')
       } ${statusClass}`}>
         {statusLabel}
       </span>
       {roomId && (
         <span className={`inline-flex items-center rounded-full border font-semibold ${
-          isCollabFullscreen || isDesktopCollabCompact ? 'h-9 px-3 text-[11px]' : 'px-3 py-1 text-xs'
+          isCollabFullscreen
+            ? 'h-8 px-2.5 text-[10px]'
+            : (isDesktopCollabCompact ? 'h-9 px-3 text-[11px]' : 'px-3 py-1 text-xs')
         } ${
           isCollabFullscreen
             ? (isFullscreenDark
@@ -5023,9 +5104,9 @@ const CollabSection = ({
         type="button"
         onClick={toggleCollabFullscreen}
         className={`inline-flex items-center rounded-full border font-semibold transition-all duration-200 hover:-translate-y-[1px] active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${
-          isDesktopCollabCompact
+          isDesktopCollabCompact || isCollabFullscreen
             ? 'h-8 w-8 justify-center rounded-xl p-0 text-[11px]'
-            : (isCollabFullscreen ? 'h-9 gap-1.5 px-3.5 text-[11px]' : 'gap-2 px-3 py-1 text-xs')
+            : 'gap-2 px-3 py-1 text-xs'
         } ${
           isCollabFullscreen
             ? (isFullscreenDark
@@ -5037,7 +5118,7 @@ const CollabSection = ({
         aria-label={isCollabFullscreen ? 'Свернуть' : 'На весь экран'}
       >
         {isCollabFullscreen ? <Minimize2 size={isDesktopCollabCompact ? 16 : 15} /> : <Expand size={isDesktopCollabCompact ? 16 : 14} />}
-        {!isDesktopCollabCompact && (isCollabFullscreen ? 'Свернуть' : 'На весь экран')}
+        {!isDesktopCollabCompact && !isCollabFullscreen && 'На весь экран'}
       </button>
     </div>
   );
@@ -5124,10 +5205,10 @@ const CollabSection = ({
           {notesPdfPane}
         </div>
 
-        <div className={`${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-2 flex flex-wrap items-center gap-2' : 'mt-1.5 flex flex-wrap items-center gap-1.5') : ''}`}>
+        <div className={`${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-1 flex flex-wrap items-center gap-1.5' : 'mt-1.5 flex flex-wrap items-center gap-1.5') : ''}`}>
           <div className={`max-w-full flex flex-wrap items-center gap-2 rounded-xl border ${
             isCollabFullscreen
-              ? 'min-w-0 flex-1 rounded-2xl px-2.5 py-1.5 sm:px-3 sm:py-2'
+              ? 'min-w-0 flex-1 rounded-2xl px-2 py-1 sm:px-2.5 sm:py-1.5'
               : (isDesktopCollabCompact ? 'mt-0 px-1.5 py-1' : 'mt-3 inline-flex px-2 py-1.5')
           } ${collabToolbarClass}`}>
             {(isCollabFullscreen || isDesktopCollabCompact) && (
@@ -5311,14 +5392,14 @@ const CollabSection = ({
         {isSplitCollabLayout ? (
           <div
             ref={splitLayoutRef}
-            className={`${isDesktopCollabCompact ? 'mt-2 flex-1' : (isCollabFullscreen ? 'mt-2 flex-1' : 'mt-1')} grid min-h-0 items-stretch ${
+            className={`${isDesktopCollabCompact ? 'mt-2 flex-1' : (isCollabFullscreen ? 'mt-1 flex-1' : 'mt-1')} grid min-h-0 items-stretch ${
               isCollabFullscreen ? 'gap-2' : 'gap-0.5'
             }`}
             style={{
               gridTemplateColumns: isCollabFullscreen
-                ? `minmax(460px, ${splitLeftWidth}fr) 12px minmax(340px, ${100 - splitLeftWidth}fr)`
+                ? `minmax(520px, ${splitLeftWidth}fr) 12px minmax(220px, ${100 - splitLeftWidth}fr)`
                 : (isDesktopCollabCompact
-                  ? `minmax(360px, ${splitLeftWidth}fr) 10px minmax(280px, ${100 - splitLeftWidth}fr)`
+                  ? `minmax(420px, ${splitLeftWidth}fr) 10px minmax(240px, ${100 - splitLeftWidth}fr)`
                   : `minmax(420px, ${splitLeftWidth}fr) 10px minmax(300px, ${100 - splitLeftWidth}fr)`),
               height: (isCollabFullscreen || isDesktopCollabCompact) ? '100%' : undefined,
             }}
@@ -5330,8 +5411,8 @@ const CollabSection = ({
               role="separator"
               aria-label="Изменить ширину панелей"
               aria-orientation="vertical"
-              aria-valuemin={48}
-              aria-valuemax={82}
+              aria-valuemin={56}
+              aria-valuemax={92}
               aria-valuenow={Math.round(splitLeftWidth)}
               onPointerDown={handleSplitResizeStart}
               onDoubleClick={handleSplitResizeReset}
@@ -5358,8 +5439,8 @@ const CollabSection = ({
               </div>
             </div>
             <div className="min-h-0 min-w-0">
-              <div className={`flex min-h-0 flex-col ${isCollabFullscreen ? 'gap-2' : 'gap-1.5'}`} style={{ height: isCollabFullscreen ? '100%' : editorHeight }}>
-                <div className={`min-h-0 flex flex-1 flex-col rounded-2xl border ${isCollabFullscreen ? 'p-2.5' : 'p-2'} ${
+              <div className={`flex min-h-0 flex-col ${isCollabFullscreen ? 'gap-1.5' : 'gap-1.5'}`} style={{ height: isCollabFullscreen ? '100%' : editorHeight }}>
+                <div className={`min-h-0 flex flex-1 flex-col rounded-2xl border ${isCollabFullscreen ? 'p-1.5' : 'p-2'} ${
                   isCollabFullscreen
                     ? (isFullscreenDark
                       ? 'border-slate-700/85 ring-1 ring-cyan-400/10 bg-slate-950/72 shadow-[0_16px_34px_rgba(2,6,23,0.4),inset_0_1px_0_rgba(148,163,184,0.12)]'
@@ -7521,14 +7602,12 @@ const BoardSection = ({
   const statusClass = status === 'connected'
     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
     : 'border-amber-200 bg-amber-50 text-amber-700';
-  const boardCanvasHeight = isFullscreen ? 'calc(100vh - 200px)' : null;
   const boardShellClass = isFullscreen
-    ? 'animate-fadeIn pb-2'
-    : 'animate-fadeIn pb-4 md:pb-0 md:flex md:h-full md:min-h-0 md:flex-col md:overflow-hidden';
+    ? 'animate-fadeIn h-full min-h-0 flex flex-col overflow-hidden'
+    : 'animate-fadeIn pb-2 md:pb-0 md:flex md:flex-1 md:min-h-0 md:flex-col md:overflow-hidden';
   const boardCardClass = isFullscreen
-    ? 'p-3 md:p-3.5'
-    : 'p-4 md:p-5 md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-hidden';
-  const boardCanvasStyle = boardCanvasHeight ? { height: boardCanvasHeight } : undefined;
+    ? 'p-1 md:p-1.5 h-full min-h-0 flex flex-col overflow-hidden'
+    : 'p-2.5 md:p-3 md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-hidden';
   const activeWidth = tool === 'line' ? lineWidth : penWidth;
   const widthTargetLabel = tool === 'line' ? 'Линия' : 'Карандаш';
   const showWidthControls = tool === 'pen' || tool === 'line';
@@ -7542,12 +7621,13 @@ const BoardSection = ({
     if (tool === 'line') setLineWidth(nextValue);
     else setPenWidth(nextValue);
   };
-
   const renderStudentPicker = () => {
     if (!isTeacher) return null;
     return (
-      <div className="inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-purple-100/40">
-        <span className="text-[11px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
+      <div className={`inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 shadow-sm shadow-purple-100/40 ${
+        isFullscreen ? 'px-2 py-1' : 'px-2.5 py-1.5'
+      }`}>
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
         <select
           value={activeStudentId || ''}
           onChange={(e) => {
@@ -7555,7 +7635,9 @@ const BoardSection = ({
             onSelectStudent?.(value || null);
           }}
           disabled={studentsLoading || (students || []).length === 0}
-          className="w-full min-w-0 sm:min-w-[180px] rounded-xl border border-purple-100 bg-white px-3 py-1.5 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
+          className={`w-full min-w-0 rounded-xl border border-purple-100 bg-white px-3 py-1 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70 ${
+            isFullscreen ? 'sm:min-w-[150px]' : 'sm:min-w-[180px]'
+          }`}
         >
           <option value="" disabled>Выберите ученика</option>
           {(students || []).map((student) => (
@@ -7567,6 +7649,46 @@ const BoardSection = ({
       </div>
     );
   };
+  const boardSessionActions = (
+    <>
+      {renderStudentPicker()}
+      <Button
+        variant="secondary"
+        onClick={() => setSaveModalOpen(true)}
+        className={`flex items-center gap-2 text-xs ${
+          isFullscreen ? 'h-7 px-2 py-0.5' : 'h-8 px-2.5 py-1'
+        }`}
+        disabled={!roomId}
+      >
+        <Save size={16} />
+        Сохранить в конспекты
+      </Button>
+      {isTeacher && (
+        <button
+          type="button"
+          onClick={handleSummonStudent}
+          disabled={!roomId}
+          className={`inline-flex items-center gap-2 rounded-full border border-purple-200 bg-white text-[11px] font-semibold text-purple-700 hover:bg-purple-50 disabled:opacity-60 ${
+            isFullscreen ? 'px-2 py-0.5' : 'px-2.5 py-0.5'
+          }`}
+        >
+          Призвать ко мне
+        </button>
+      )}
+      <span className={`inline-flex items-center rounded-full border text-[11px] font-semibold ${statusClass} ${
+        isFullscreen ? 'px-2 py-0.5' : 'px-2.5 py-0.5'
+      }`}>
+        {statusLabel}
+      </span>
+      {roomId && (
+        <span className={`inline-flex items-center rounded-full border border-slate-200 bg-white text-[11px] font-semibold text-slate-600 ${
+          isFullscreen ? 'px-2 py-0.5' : 'px-2.5 py-0.5'
+        }`}>
+          Онлайн: {peerCount}
+        </span>
+      )}
+    </>
+  );
 
   const saveModal = saveModalOpen ? (
     <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
@@ -7693,55 +7815,8 @@ const BoardSection = ({
 
   return (
     <div ref={boardRootRef} className={boardShellClass}>
-      <div className={`flex flex-col md:flex-row md:items-center md:justify-between ${
-        isFullscreen ? 'mb-2 gap-2' : 'mb-6 gap-3'
-      }`}>
-        <div>
-          <h2 className={`font-bold flex items-center gap-2 ${isFullscreen ? 'text-white text-xl' : 'text-gray-900 text-2xl'}`}>
-            <Brush className={isFullscreen ? 'text-purple-300' : 'text-purple-600'} />
-            Онлайн-доска
-          </h2>
-        </div>
-        <div className={`flex flex-wrap items-center ${isFullscreen ? 'gap-1.5' : 'gap-2'}`}>
-          {renderStudentPicker()}
-          <Button
-            variant="secondary"
-            onClick={() => setSaveModalOpen(true)}
-            className={`flex items-center gap-2 ${isFullscreen ? 'h-9 px-3 py-1.5 text-xs' : ''}`}
-            disabled={!roomId}
-          >
-            <Save size={16} />
-            Сохранить в конспекты
-          </Button>
-          {isTeacher && (
-            <button
-              type="button"
-              onClick={handleSummonStudent}
-              disabled={!roomId}
-              className={`inline-flex items-center gap-2 rounded-full border border-purple-200 bg-white font-semibold text-purple-700 hover:bg-purple-50 disabled:opacity-60 ${
-                isFullscreen ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
-              }`}
-            >
-              Призвать ко мне
-            </button>
-          )}
-          <span className={`inline-flex items-center rounded-full border font-semibold ${statusClass} ${
-            isFullscreen ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
-          }`}>
-            {statusLabel}
-          </span>
-          {roomId && (
-            <span className={`inline-flex items-center rounded-full border border-slate-200 bg-white font-semibold text-slate-600 ${
-              isFullscreen ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
-            }`}>
-              Онлайн: {peerCount}
-            </span>
-          )}
-        </div>
-      </div>
-
       {isTeacher && !activeStudentId && (
-        <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 flex items-start gap-2">
+        <div className="mb-2.5 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 flex items-start gap-2">
           <AlertTriangle size={18} className="mt-0.5" />
           <div>
             <div className="font-semibold">Сначала выберите ученика</div>
@@ -7751,115 +7826,103 @@ const BoardSection = ({
       )}
 
       <Card className={boardCardClass}>
-        {!isFullscreen && (
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сессия</div>
-              <div className="text-sm font-semibold text-gray-800">{sessionTitle}</div>
+        <div className={`flex flex-wrap items-center ${isFullscreen ? 'mt-0 gap-1.5' : 'mt-0 gap-1'}`}>
+          {!isFullscreen && (
+            <div className="hidden xl:inline-flex max-w-full items-center gap-1 rounded-lg border border-purple-100 bg-purple-50/60 px-2 py-1 text-[10px] text-gray-700">
+              <span className="font-bold uppercase tracking-wide text-purple-600">Сессия</span>
+              <span className="max-w-[220px] truncate font-semibold text-gray-800 lg:max-w-[320px]">{sessionTitle}</span>
             </div>
-            <div className="text-xs text-gray-500">
-              Вставка картинки: Ctrl+V. Лимит 10 МБ. Панорамирование: удерживайте Space и тяните.
-            </div>
-          </div>
-        )}
-
-        {isFullscreen && (
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-            {sessionTitle}
-          </div>
-        )}
-
-        <div className={`flex flex-wrap items-center ${isFullscreen ? 'mt-2 gap-1.5' : 'mt-4 gap-2'}`}>
+          )}
           <button
             type="button"
             onClick={() => setTool('pen')}
-            className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
               tool === 'pen' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
             aria-label="Карандаш"
             title="Карандаш"
           >
-            <Pencil size={14} />
+            <Pencil size={13} />
           </button>
 
           <button
             type="button"
             onClick={() => setTool('line')}
-            className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
               tool === 'line' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
             aria-label="Линия"
             title="Линия"
           >
-            <Minus size={14} />
+            <Minus size={13} />
           </button>
 
           <button
             type="button"
             onClick={() => setTool('select')}
-            className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
               tool === 'select' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
             aria-label="Выделение"
             title="Выделение"
           >
-            <MousePointer2 size={14} />
+            <MousePointer2 size={13} />
           </button>
 
           <button
             type="button"
             onClick={() => setTool('move')}
-            className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
               tool === 'move' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
             aria-label="Перемещение"
             title="Перемещение"
           >
-            <Hand size={14} />
+            <Hand size={13} />
           </button>
 
           <button
             type="button"
             onClick={() => setTool('eraser')}
-            className={`inline-flex items-center justify-center rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
               tool === 'eraser' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
             }`}
             aria-label="Ластик"
             title="Ластик"
           >
-            <Eraser size={14} />
+            <Eraser size={13} />
           </button>
 
-          <div className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white p-1">
+          <div className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white p-0.5">
             <button
               type="button"
               onClick={handleUndo}
               disabled={!canUndo}
-              className="inline-flex items-center justify-center rounded-lg px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              className="inline-flex items-center justify-center rounded-lg px-1.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
               aria-label="Отменить"
               title="Отменить"
             >
-              <Undo2 size={14} />
+              <Undo2 size={13} />
             </button>
             <button
               type="button"
               onClick={handleRedo}
               disabled={!canRedo}
-              className="inline-flex items-center justify-center rounded-lg px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              className="inline-flex items-center justify-center rounded-lg px-1.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
               aria-label="Вернуть"
               title="Вернуть"
             >
-              <RefreshCcw size={14} />
+              <RefreshCcw size={13} />
             </button>
             <button
               type="button"
               onClick={handleClearBoard}
               disabled={!canClear}
-              className="inline-flex items-center justify-center rounded-lg px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+              className="inline-flex items-center justify-center rounded-lg px-1.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
               aria-label="Очистить доску"
               title="Очистить доску"
             >
-              <Trash2 size={14} />
+              <Trash2 size={13} />
             </button>
           </div>
 
@@ -7867,9 +7930,9 @@ const BoardSection = ({
             <button
               type="button"
               onClick={() => setIsSettingsOpen((prev) => !prev)}
-              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+              className="inline-flex h-8 items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
             >
-              <Settings size={14} />
+              <Settings size={13} />
               Цвет и размер
               <span
                 className="ml-1 inline-flex h-2.5 w-2.5 rounded-full border border-white/80"
@@ -7969,45 +8032,55 @@ const BoardSection = ({
           <button
             type="button"
             onClick={() => zoomBy(1 / 1.12)}
-            className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50"
             aria-label="Отдалить"
             title="Отдалить"
           >
-            <Minus size={14} />
+            <Minus size={13} />
           </button>
 
-          <div className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 min-w-[64px]">
+          <div className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 min-w-[56px]">
             {zoomLabel}
           </div>
 
           <button
             type="button"
             onClick={() => zoomBy(1.12)}
-            className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50"
             aria-label="Приблизить"
             title="Приблизить"
           >
-            <Plus size={14} />
+            <Plus size={13} />
           </button>
 
           <button
             type="button"
             onClick={resetView}
-            className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
             aria-label="Сброс масштаба"
             title="Сброс масштаба"
           >
             Сброс
           </button>
 
+          {!isFullscreen && (
+            <div className="ml-auto flex flex-wrap items-center gap-1.5">
+              {boardSessionActions}
+            </div>
+          )}
+          {isFullscreen && (
+            <div className="ml-auto flex flex-wrap items-center gap-1">
+              {boardSessionActions}
+            </div>
+          )}
           <button
             type="button"
             onClick={toggleFullscreen}
-            className="ml-auto inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-purple-500 bg-purple-600 text-xs font-semibold text-white hover:bg-purple-700"
             aria-label={isFullscreen ? 'Обычный экран' : 'Полный экран'}
             title={isFullscreen ? 'Обычный экран' : 'Полный экран'}
           >
-            {isFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
+            {isFullscreen ? <Minimize2 size={13} /> : <Expand size={13} />}
           </button>
         </div>
 
@@ -8017,10 +8090,10 @@ const BoardSection = ({
 
         <div
           ref={containerRef}
-          className={`mt-4 relative h-[62vh] w-full rounded-2xl border border-gray-200 bg-white overflow-hidden md:min-h-0 md:flex-1 md:h-auto ${
+          className={`${isFullscreen ? 'mt-1 flex-1 min-h-0 h-auto' : 'mt-2 h-[68vh] min-h-[320px] sm:min-h-[360px] md:h-auto md:min-h-[54vh] md:flex-1'} relative w-full rounded-2xl border border-gray-200 bg-white overflow-hidden ${
             summonNotice ? 'ring-2 ring-amber-400/70 ring-offset-2 ring-offset-white' : ''
           }`}
-          style={boardCanvasStyle}
+          title={!isFullscreen ? 'Вставка картинки: Ctrl+V. Лимит 10 МБ. Панорамирование: удерживайте Space и тяните.' : undefined}
         >
           {!roomId && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
@@ -8274,6 +8347,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const isCallSessionActive = callSessionStatus === 'connected' || callSessionStatus === 'connecting';
   const isBoardView = view === 'board';
   const isCallView = view === 'call';
+  const isCollabView = view === 'collab';
   const callUiMode = !isCallViewAvailable
     ? 'hidden'
     : isCallView
@@ -8281,11 +8355,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       : isCallSessionActive
         ? (callPanelExpanded ? 'floating' : 'collapsed')
         : 'hidden';
-  const mainLayoutClass = (isBoardView || isCallView)
-    ? 'flex-1 overflow-hidden px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-4 sm:pt-4 sm:pb-4 md:px-5 md:pt-8 md:pb-5 lg:px-6 lg:pb-6'
+  const mainLayoutClass = (isBoardView || isCallView || isCollabView)
+    ? 'flex-1 overflow-hidden px-3 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-3.5 sm:pt-3 sm:pb-4 md:px-5 md:pt-4 md:pb-4 lg:px-6 lg:pb-5'
     : 'flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8';
   const mainContentShellClass = `main-content-shell animate-soft${
-    (isBoardView || isCallView) ? ' h-full min-h-0 flex flex-col overflow-hidden' : ''
+    (isBoardView || isCallView || isCollabView) ? ' h-full min-h-0 flex flex-col overflow-hidden' : ''
   }`;
   const studentsWithNicknames = useMemo(
     () => students,
@@ -11251,9 +11325,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </div>
           )}
           {(user.role === 'student' || user.role === 'teacher') && lessonQuickNav.length > 1 && lessonQuickNavIds.includes(view) && (
-            <div className="mb-3 rounded-2xl border border-purple-200/70 bg-white/90 p-2 shadow-sm">
+            <div className="mb-2 rounded-2xl border border-purple-200/70 bg-white/90 p-1.5 shadow-sm">
               <div
-                className="grid gap-1.5"
+                className="grid gap-1"
                 style={{ gridTemplateColumns: `repeat(${Math.max(1, lessonQuickNav.length)}, minmax(0, 1fr))` }}
               >
                 {lessonQuickNav.map((item) => {
@@ -11264,13 +11338,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       key={`lesson-quick-${item.id}`}
                       type="button"
                       onClick={() => navigateToView(item.id)}
-                      className={`lesson-quick-nav__item flex h-14 min-w-0 items-center justify-center gap-2.5 rounded-xl px-3 text-base font-semibold transition-colors ${
+                      className={`lesson-quick-nav__item flex h-12 min-w-0 items-center justify-center gap-2 rounded-lg px-2.5 text-sm font-semibold transition-colors ${
                         isActive
                           ? 'bg-purple-600 text-white shadow-sm'
                           : 'border border-purple-100 bg-white text-slate-700 hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700'
                       }`}
                     >
-                      <Icon size={20} />
+                      <Icon size={18} />
                       <span className="truncate leading-none">{mobileNavLabels[item.id] || item.label}</span>
                     </button>
                   );
