@@ -1,8 +1,30 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { api } from '../services/api';
 import { Button } from './ui';
+
+const getAttachmentKey = (item) => String(item?.storageName || item?.id || item?.url || item?.name || '').trim();
+const buildAttachmentSignature = (items = []) => (
+  items
+    .map((item) => getAttachmentKey(item))
+    .filter(Boolean)
+    .sort()
+    .join('|')
+);
+const normalizeAnswerValues = (values, count) => (
+  Array.from({ length: count }, (_, idx) => String(values?.[idx] ?? '').trim())
+);
+const hasTaskContent = (entry, taskNumber, getMockAnswerCountForTask, getExpectedAnswers) => {
+  if (!entry || typeof entry !== 'object') return false;
+  const questionText = String(entry?.question || '').trim();
+  const screenshotsCount = Array.isArray(entry?.screenshots) ? entry.screenshots.length : 0;
+  const filesCount = Array.isArray(entry?.files) ? entry.files.length : 0;
+  const answerCount = getMockAnswerCountForTask(taskNumber);
+  const answers = normalizeAnswerValues(getExpectedAnswers(entry, answerCount), answerCount);
+  return Boolean(questionText || screenshotsCount > 0 || filesCount > 0 || answers.some(Boolean));
+};
+
 const MockExamEditorModal = ({
   exam,
   onClose,
@@ -13,7 +35,7 @@ const MockExamEditorModal = ({
   allowsPartialAnswers,
 }) => {
   const [title, setTitle] = useState(exam?.title || '');
-  const [selectedTask, setSelectedTask] = useState(MOCK_TASK_NUMBERS[0]);
+  const [selectedTask, setSelectedTask] = useState(MOCK_TASK_NUMBERS[0] || 1);
   const [question, setQuestion] = useState('');
   const [answerInputs, setAnswerInputs] = useState(['']);
   const [existingScreenshots, setExistingScreenshots] = useState([]);
@@ -35,8 +57,8 @@ const MockExamEditorModal = ({
   }, [exam?.id]);
 
   useEffect(() => {
-    setSelectedTask(MOCK_TASK_NUMBERS[0]);
-  }, [exam?.id]);
+    setSelectedTask(MOCK_TASK_NUMBERS[0] || 1);
+  }, [exam?.id, MOCK_TASK_NUMBERS]);
 
   useEffect(() => {
     const previews = newScreenshots.map((file) => ({ file, url: URL.createObjectURL(file) }));
@@ -44,9 +66,9 @@ const MockExamEditorModal = ({
     return () => previews.forEach((item) => URL.revokeObjectURL(item.url));
   }, [newScreenshots]);
 
-  const loadTask = (taskNumber) => {
+  const loadTask = (taskNumber, sourceExam = exam) => {
     const key = String(taskNumber);
-    const entry = exam?.tasks?.[key] || null;
+    const entry = sourceExam?.tasks?.[key] || null;
     const requiredCount = getMockAnswerCountForTask(taskNumber);
     setQuestion(entry?.question || '');
     setAnswerInputs(getExpectedAnswers(entry, requiredCount));
@@ -62,7 +84,45 @@ const MockExamEditorModal = ({
   useEffect(() => {
     if (!exam) return;
     loadTask(selectedTask);
-  }, [exam, selectedTask]);
+  }, [exam?.id, selectedTask]);
+
+  const currentTaskEntry = exam?.tasks?.[String(selectedTask)] || null;
+  const requiredAnswerCount = getMockAnswerCountForTask(selectedTask);
+  const initialAnswers = normalizeAnswerValues(
+    getExpectedAnswers(currentTaskEntry, requiredAnswerCount),
+    requiredAnswerCount
+  );
+  const currentAnswers = normalizeAnswerValues(answerInputs, requiredAnswerCount);
+
+  const questionDirty = String(question || '').trim() !== String(currentTaskEntry?.question || '').trim();
+  const answersDirty = currentAnswers.join('||') !== initialAnswers.join('||');
+  const existingScreensDirty = buildAttachmentSignature(existingScreenshots)
+    !== buildAttachmentSignature(Array.isArray(currentTaskEntry?.screenshots) ? currentTaskEntry.screenshots : []);
+  const existingFilesDirty = buildAttachmentSignature(existingFiles)
+    !== buildAttachmentSignature(Array.isArray(currentTaskEntry?.files) ? currentTaskEntry.files : []);
+  const uploadsQueued = newScreenshots.length > 0 || newFiles.length > 0;
+  const removedQueued = removedScreenshots.length > 0 || removedFiles.length > 0;
+  const taskDirty = questionDirty || answersDirty || existingScreensDirty || existingFilesDirty || uploadsQueued || removedQueued;
+  const titleDirty = String(title || '').trim() !== String(exam?.title || '').trim();
+  const hasUnsavedChanges = taskDirty || titleDirty;
+
+  const taskMeta = useMemo(
+    () => MOCK_TASK_NUMBERS.map((taskNumber) => {
+      const entry = exam?.tasks?.[String(taskNumber)] || null;
+      return {
+        taskNumber,
+        isFilled: hasTaskContent(entry, taskNumber, getMockAnswerCountForTask, getExpectedAnswers),
+      };
+    }),
+    [MOCK_TASK_NUMBERS, exam?.tasks, getMockAnswerCountForTask, getExpectedAnswers]
+  );
+
+  const filledTaskCount = taskMeta.filter((item) => item.isFilled).length;
+  const selectedTaskIndex = MOCK_TASK_NUMBERS.indexOf(selectedTask);
+  const prevTask = selectedTaskIndex > 0 ? MOCK_TASK_NUMBERS[selectedTaskIndex - 1] : null;
+  const nextTask = selectedTaskIndex >= 0 && selectedTaskIndex < MOCK_TASK_NUMBERS.length - 1
+    ? MOCK_TASK_NUMBERS[selectedTaskIndex + 1]
+    : null;
 
   const addScreenshotFiles = (files) => {
     if (!files || files.length === 0) return;
@@ -100,8 +160,19 @@ const MockExamEditorModal = ({
     addExtraFiles(e.dataTransfer?.files || []);
   };
 
+  const requestTaskChange = (taskNumber) => {
+    if (!Number.isFinite(taskNumber) || taskNumber === selectedTask) return;
+    if (taskDirty && !confirm('Есть несохранённые изменения в текущем задании. Перейти без сохранения?')) return;
+    setSelectedTask(taskNumber);
+  };
+
+  const handleRequestClose = () => {
+    if (hasUnsavedChanges && !confirm('Есть несохранённые изменения. Закрыть редактор без сохранения?')) return;
+    onClose();
+  };
+
   const handleSaveTask = async () => {
-    if (!exam) return;
+    if (!exam) return null;
     const requiredCount = getMockAnswerCountForTask(selectedTask);
     const trimmedAnswers = answerInputs.map((val) => String(val ?? '').trim());
     const answersSlice = trimmedAnswers.slice(0, requiredCount);
@@ -110,75 +181,82 @@ const MockExamEditorModal = ({
     if (requiredCount > 1 && allowsPartialAnswers(selectedTask)) {
       if (!hasAny) {
         setError('Введите хотя бы один правильный ответ');
-        return;
+        return null;
       }
     } else if (hasEmpty) {
       setError(requiredCount > 1 ? 'Введите все правильные ответы' : 'Введите правильный ответ');
-      return;
+      return null;
     }
     const hasAnyAttachments = existingScreenshots.length > 0 || existingFiles.length > 0 || newScreenshots.length > 0 || newFiles.length > 0;
     if (!question.trim() && !hasAnyAttachments) {
       setError('Добавьте текст вопроса или прикрепите файл/скриншот');
-      return;
+      return null;
     }
+
     setSaving(true);
     setError('');
-    let uploadedScreens = [];
-    let uploadedFiles = [];
     try {
-      if (newScreenshots.length > 0) {
-        uploadedScreens = await Promise.all(newScreenshots.map((file) => api.uploadTestFile(file)));
-      }
-      if (newFiles.length > 0) {
-        uploadedFiles = await Promise.all(newFiles.map((file) => api.uploadTestFile(file)));
-      }
-    } catch (err) {
-      setError(err?.message || err);
-      setSaving(false);
-      return;
-    }
+      const uploadedScreens = newScreenshots.length > 0
+        ? await Promise.all(newScreenshots.map((file) => api.uploadTestFile(file)))
+        : [];
+      const uploadedFiles = newFiles.length > 0
+        ? await Promise.all(newFiles.map((file) => api.uploadTestFile(file)))
+        : [];
 
-    const finalScreens = [...existingScreenshots, ...uploadedScreens];
-    const finalFiles = [...existingFiles, ...uploadedFiles];
-    const taskEntry = {
-      id: exam?.tasks?.[String(selectedTask)]?.id || Date.now(),
-      question: question.trim(),
-      screenshots: finalScreens,
-      files: finalFiles,
-      ...(requiredCount > 1
-        ? { answers: answersSlice }
-        : { answer: trimmedAnswers[0] })
-    };
+      const finalScreens = [...existingScreenshots, ...uploadedScreens];
+      const finalFiles = [...existingFiles, ...uploadedFiles];
+      const taskEntry = {
+        id: exam?.tasks?.[String(selectedTask)]?.id || Date.now(),
+        question: question.trim(),
+        screenshots: finalScreens,
+        files: finalFiles,
+        ...(requiredCount > 1
+          ? { answers: answersSlice }
+          : { answer: trimmedAnswers[0] })
+      };
 
-    const nextTasks = { ...(exam.tasks || {}) };
-    nextTasks[String(selectedTask)] = taskEntry;
-    const nextTitle = title.trim() || exam.title;
-    try {
+      const nextTasks = { ...(exam.tasks || {}) };
+      nextTasks[String(selectedTask)] = taskEntry;
+      const nextTitle = title.trim() || exam.title;
+
       const saved = await onSave({ ...exam, title: nextTitle, tasks: nextTasks });
-      const removed = [...removedScreenshots, ...removedFiles];
-      await Promise.all(removed.map((item) => api.deleteTestFile(item?.storageName)));
-      if (saved?.tasks) {
-        loadTask(selectedTask);
+      const removed = [...removedScreenshots, ...removedFiles].filter((item) => item?.storageName);
+      if (removed.length > 0) {
+        await Promise.all(removed.map((item) => api.deleteTestFile(item.storageName)));
       }
+      if (saved?.tasks) {
+        loadTask(selectedTask, saved);
+      }
+      return saved || null;
     } catch (err) {
       setError(err?.message || err);
+      return null;
     } finally {
       setSaving(false);
     }
   };
 
   const handleSaveTitle = async () => {
-    if (!exam) return;
+    if (!exam) return null;
     const nextTitle = title.trim() || exam.title;
     setSaving(true);
     setError('');
     try {
-      await onSave({ ...exam, title: nextTitle, tasks: exam.tasks || {} });
+      const saved = await onSave({ ...exam, title: nextTitle, tasks: exam.tasks || {} });
+      if (saved?.title) setTitle(saved.title);
+      return saved || null;
     } catch (err) {
       setError(err?.message || err);
+      return null;
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSaveAndOpenNext = async () => {
+    const saved = await handleSaveTask();
+    if (!saved || !nextTask) return;
+    setSelectedTask(nextTask);
   };
 
   const handleDeleteTask = async () => {
@@ -191,13 +269,19 @@ const MockExamEditorModal = ({
     setSaving(true);
     setError('');
     try {
-      await onSave({ ...exam, title: title.trim() || exam.title, tasks: nextTasks });
+      const saved = await onSave({ ...exam, title: title.trim() || exam.title, tasks: nextTasks });
       const toRemove = [
         ...(Array.isArray(current?.screenshots) ? current.screenshots : []),
         ...(Array.isArray(current?.files) ? current.files : [])
-      ];
-      await Promise.all(toRemove.map((item) => api.deleteTestFile(item?.storageName)));
-      loadTask(selectedTask);
+      ].filter((item) => item?.storageName);
+      if (toRemove.length > 0) {
+        await Promise.all(toRemove.map((item) => api.deleteTestFile(item.storageName)));
+      }
+      if (saved?.tasks) {
+        loadTask(selectedTask, saved);
+      } else {
+        loadTask(selectedTask);
+      }
     } catch (err) {
       setError(err?.message || err);
     } finally {
@@ -208,227 +292,357 @@ const MockExamEditorModal = ({
   if (!exam) return null;
 
   const modal = (
-    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) handleRequestClose();
+      }}
+    >
       <div className="surface-card modal-card rounded-3xl w-full max-w-5xl max-h-[90vh] p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
             <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Пробник</div>
             <h3 className="text-lg font-bold text-gray-900">Редактирование пробника</h3>
+            <div className={`mt-1 text-xs ${taskDirty ? 'text-amber-600' : 'text-gray-500'}`}>
+              {taskDirty ? 'Есть несохранённые изменения в задании' : 'Изменения задания сохранены'}
+            </div>
           </div>
-          <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
+          <button onClick={handleRequestClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200">
+            <X size={20} />
+          </button>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto pr-1">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="space-y-4">
-            <div>
-              <label className="text-xs font-semibold text-gray-500">Название пробника</label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="mt-1 w-full px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-                placeholder="Пробник"
-              />
-              <div className="mt-2">
-                <Button variant="secondary" onClick={handleSaveTitle} disabled={saving}>Сохранить название</Button>
+              <div>
+                <label className="text-xs font-semibold text-gray-500">Название пробника</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                  placeholder="Пробник"
+                />
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Button variant="secondary" onClick={handleSaveTitle} disabled={saving || !titleDirty}>
+                    {saving ? 'Сохранение...' : 'Сохранить название'}
+                  </Button>
+                  {titleDirty && <span className="text-[11px] text-amber-600">Название не сохранено</span>}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-xs font-semibold text-gray-500">Задание</label>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => requestTaskChange(prevTask)}
+                      disabled={!prevTask || saving}
+                      className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-600 disabled:opacity-40"
+                    >
+                      Назад
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => requestTaskChange(nextTask)}
+                      disabled={!nextTask || saving}
+                      className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-600 disabled:opacity-40"
+                    >
+                      Далее
+                    </button>
+                  </div>
+                </div>
+                <select
+                  value={selectedTask}
+                  onChange={(e) => requestTaskChange(Number(e.target.value))}
+                  className="mt-1 w-full px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                >
+                  {taskMeta.map((item) => (
+                    <option key={item.taskNumber} value={item.taskNumber}>
+                      {`Задание ${item.taskNumber}${item.isFilled ? ' • заполнено' : ''}`}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-2 rounded-2xl border border-gray-200 bg-gray-50 p-2.5">
+                  <div className="text-[11px] font-semibold text-gray-500">
+                    {`Заполнено заданий: ${filledTaskCount}/${MOCK_TASK_NUMBERS.length}`}
+                  </div>
+                  <div className="mt-2 grid grid-cols-6 gap-1.5 sm:grid-cols-9">
+                    {taskMeta.map((item) => {
+                      const isCurrent = item.taskNumber === selectedTask;
+                      return (
+                        <button
+                          key={item.taskNumber}
+                          type="button"
+                          onClick={() => requestTaskChange(item.taskNumber)}
+                          className={`rounded-md border px-1 py-1 text-[11px] font-semibold transition-colors ${
+                            isCurrent
+                              ? 'border-purple-500 bg-purple-600 text-white'
+                              : item.isFilled
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300'
+                                : 'border-gray-200 bg-white text-gray-500 hover:border-purple-200 hover:text-purple-700'
+                          }`}
+                        >
+                          {item.taskNumber}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-500">
+                Добавьте текст, фото, файлы и правильные ответы для задания {selectedTask}.
               </div>
             </div>
-            <div>
-              <label className="text-xs font-semibold text-gray-500">Задание</label>
-              <select
-                value={selectedTask}
-                onChange={(e) => setSelectedTask(Number(e.target.value))}
-                className="mt-1 w-full px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-              >
-                {MOCK_TASK_NUMBERS.map((num) => (
-                  <option key={num} value={num}>Задание {num}</option>
-                ))}
-              </select>
-            </div>
-            <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-500">
-              Добавьте текст, фото, файлы и правильные ответы для задания {selectedTask}.
-            </div>
-          </div>
 
             <div className="lg:col-span-2 space-y-4" onPaste={handlePasteImages}>
-            <div>
-              <label className="text-xs font-semibold text-gray-500">Текст задания</label>
-              <textarea
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                className="mt-1 w-full min-h-[120px] px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-                placeholder="Условие задания"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-semibold text-gray-500">Скриншоты</label>
-                <div
-                  onDrop={handleScreensDrop}
-                  onDragOver={(e) => { e.preventDefault(); setIsDraggingScreens(true); }}
-                  onDragLeave={() => setIsDraggingScreens(false)}
-                  className={`mt-1 rounded-2xl border-2 border-dashed p-3 transition-colors ${
-                    isDraggingScreens ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
-                  }`}
-                >
-                  <input
-                    ref={screenshotsRef}
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    onChange={(e) => addScreenshotFiles(e.target.files)}
-                    className="hidden"
-                  />
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
-                    <span>Перетащите изображения или вставьте Ctrl+V</span>
-                    <button
-                      type="button"
-                      onClick={() => screenshotsRef.current?.click()}
-                      className="px-3 py-1.5 rounded-lg border border-purple-200 text-purple-600 hover:bg-purple-50"
-                    >
-                      Выбрать
-                    </button>
+                <label className="text-xs font-semibold text-gray-500">Текст задания</label>
+                <textarea
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  className="mt-1 w-full min-h-[140px] px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+                  placeholder="Условие задания"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-gray-500">Скриншоты</label>
+                  <div
+                    onDrop={handleScreensDrop}
+                    onDragOver={(e) => { e.preventDefault(); setIsDraggingScreens(true); }}
+                    onDragLeave={() => setIsDraggingScreens(false)}
+                    className={`mt-1 rounded-2xl border-2 border-dashed p-3 transition-colors ${
+                      isDraggingScreens ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
+                    }`}
+                  >
+                    <input
+                      ref={screenshotsRef}
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={(e) => addScreenshotFiles(e.target.files)}
+                      className="hidden"
+                    />
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+                      <span>Перетащите изображения или вставьте Ctrl+V</span>
+                      <button
+                        type="button"
+                        onClick={() => screenshotsRef.current?.click()}
+                        className="px-3 py-1.5 rounded-lg border border-purple-200 text-purple-600 hover:bg-purple-50"
+                      >
+                        Выбрать
+                      </button>
+                    </div>
                   </div>
+                  {(existingScreenshots.length > 0 || previewScreens.length > 0) && (
+                    <div className="mt-2 space-y-2">
+                      {existingScreenshots.map((item, idx) => {
+                        const previewUrl = item?.url || (item?.storageName ? `/uploads/${item.storageName}` : '');
+                        return (
+                          <div key={item.storageName || item.id || idx} className="flex items-start justify-between gap-3 text-xs bg-white border border-gray-200 rounded-lg px-2 py-2">
+                            <div className="flex min-w-0 items-start gap-3">
+                              <button
+                                type="button"
+                                onClick={() => previewUrl && window.open(previewUrl, '_blank', 'noopener,noreferrer')}
+                                className="h-24 w-32 shrink-0 overflow-hidden rounded border border-gray-200 bg-gray-50"
+                                title="Открыть изображение"
+                              >
+                                {previewUrl ? (
+                                  <img
+                                    src={previewUrl}
+                                    alt={item.name || 'Скриншот'}
+                                    className="h-full w-full object-contain"
+                                  />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold text-gray-400">
+                                    IMG
+                                  </div>
+                                )}
+                              </button>
+                              <div className="min-w-0 pt-0.5">
+                                <div className="truncate text-[12px] text-gray-700">{item.name || 'Скриншот'}</div>
+                                {previewUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => window.open(previewUrl, '_blank', 'noopener,noreferrer')}
+                                    className="mt-1 text-[11px] text-purple-600 hover:text-purple-700"
+                                  >
+                                    Открыть крупно
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRemovedScreenshots((prev) => [...prev, item]);
+                                setExistingScreenshots((prev) => prev.filter((_, i) => i !== idx));
+                              }}
+                              className="text-red-500"
+                            >
+                              Удалить
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {previewScreens.map((item, idx) => (
+                        <div key={`new-${idx}`} className="flex items-start justify-between gap-3 text-xs bg-white border border-gray-200 rounded-lg px-2 py-2">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <button
+                              type="button"
+                              onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')}
+                              className="h-24 w-32 shrink-0 overflow-hidden rounded border border-gray-200 bg-gray-50"
+                              title="Открыть изображение"
+                            >
+                              <img
+                                src={item.url}
+                                alt={item.file.name || 'Скриншот'}
+                                className="h-full w-full object-contain"
+                              />
+                            </button>
+                            <div className="min-w-0 pt-0.5">
+                              <div className="truncate text-[12px] text-gray-700">{item.file.name}</div>
+                              <button
+                                type="button"
+                                onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')}
+                                className="mt-1 text-[11px] text-purple-600 hover:text-purple-700"
+                              >
+                                Открыть крупно
+                              </button>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setNewScreenshots((prev) => prev.filter((_, i) => i !== idx))}
+                            className="text-red-500"
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                {(existingScreenshots.length > 0 || previewScreens.length > 0) && (
-                  <div className="mt-2 space-y-2">
-                    {existingScreenshots.map((item, idx) => (
-                      <div key={item.storageName || item.id || idx} className="flex items-center justify-between gap-2 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1">
-                        <span className="truncate">{item.name || 'Скриншот'}</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRemovedScreenshots((prev) => [...prev, item]);
-                            setExistingScreenshots((prev) => prev.filter((_, i) => i !== idx));
-                          }}
-                          className="text-red-500"
-                        >
-                          Удалить
-                        </button>
-                      </div>
-                    ))}
-                    {previewScreens.map((item, idx) => (
-                      <div key={`new-${idx}`} className="flex items-center justify-between gap-2 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1">
-                        <span className="truncate">{item.file.name}</span>
-                        <button
-                          type="button"
-                          onClick={() => setNewScreenshots((prev) => prev.filter((_, i) => i !== idx))}
-                          className="text-red-500"
-                        >
-                          Удалить
-                        </button>
-                      </div>
-                    ))}
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-500">Доп. файлы</label>
+                  <div
+                    onDrop={handleFilesDrop}
+                    onDragOver={(e) => { e.preventDefault(); setIsDraggingFiles(true); }}
+                    onDragLeave={() => setIsDraggingFiles(false)}
+                    className={`mt-1 rounded-2xl border-2 border-dashed p-3 transition-colors ${
+                      isDraggingFiles ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
+                    }`}
+                  >
+                    <input
+                      ref={filesRef}
+                      type="file"
+                      multiple
+                      onChange={(e) => addExtraFiles(e.target.files)}
+                      className="hidden"
+                    />
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+                      <span>Перетащите файлы сюда</span>
+                      <button
+                        type="button"
+                        onClick={() => filesRef.current?.click()}
+                        className="px-3 py-1.5 rounded-lg border border-purple-200 text-purple-600 hover:bg-purple-50"
+                      >
+                        Выбрать
+                      </button>
+                    </div>
                   </div>
-                )}
+                  {(existingFiles.length > 0 || newFiles.length > 0) && (
+                    <div className="mt-2 space-y-2">
+                      {existingFiles.map((item, idx) => (
+                        <div key={item.storageName || item.id || idx} className="flex items-center justify-between gap-2 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1">
+                          <span className="truncate">{item.name || 'Файл'}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRemovedFiles((prev) => [...prev, item]);
+                              setExistingFiles((prev) => prev.filter((_, i) => i !== idx));
+                            }}
+                            className="text-red-500"
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                      ))}
+                      {newFiles.map((file, idx) => (
+                        <div key={`new-file-${idx}`} className="flex items-center justify-between gap-2 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1">
+                          <span className="truncate">{file.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => setNewFiles((prev) => prev.filter((_, i) => i !== idx))}
+                            className="text-red-500"
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-gray-500">Доп. файлы</label>
-                <div
-                  onDrop={handleFilesDrop}
-                  onDragOver={(e) => { e.preventDefault(); setIsDraggingFiles(true); }}
-                  onDragLeave={() => setIsDraggingFiles(false)}
-                  className={`mt-1 rounded-2xl border-2 border-dashed p-3 transition-colors ${
-                    isDraggingFiles ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
-                  }`}
-                >
-                  <input
-                    ref={filesRef}
-                    type="file"
-                    multiple
-                    onChange={(e) => addExtraFiles(e.target.files)}
-                    className="hidden"
-                  />
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
-                    <span>Перетащите файлы сюда</span>
-                    <button
-                      type="button"
-                      onClick={() => filesRef.current?.click()}
-                      className="px-3 py-1.5 rounded-lg border border-purple-200 text-purple-600 hover:bg-purple-50"
-                    >
-                      Выбрать
-                    </button>
-                  </div>
+                <label className="text-xs font-semibold text-gray-500">Правильные ответы</label>
+                <div className="mt-1 text-[11px] text-gray-500">
+                  {requiredAnswerCount > 1
+                    ? (allowsPartialAnswers(selectedTask)
+                      ? 'Можно оставить часть ответов пустыми, но минимум один ответ обязателен.'
+                      : `Нужно заполнить ${requiredAnswerCount} ответов.`)
+                    : 'Нужно заполнить один ответ.'}
                 </div>
-                {(existingFiles.length > 0 || newFiles.length > 0) && (
-                  <div className="mt-2 space-y-2">
-                    {existingFiles.map((item, idx) => (
-                      <div key={item.storageName || item.id || idx} className="flex items-center justify-between gap-2 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1">
-                        <span className="truncate">{item.name || 'Файл'}</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRemovedFiles((prev) => [...prev, item]);
-                            setExistingFiles((prev) => prev.filter((_, i) => i !== idx));
-                          }}
-                          className="text-red-500"
-                        >
-                          Удалить
-                        </button>
-                      </div>
-                    ))}
-                    {newFiles.map((file, idx) => (
-                      <div key={`new-file-${idx}`} className="flex items-center justify-between gap-2 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1">
-                        <span className="truncate">{file.name}</span>
-                        <button
-                          type="button"
-                          onClick={() => setNewFiles((prev) => prev.filter((_, i) => i !== idx))}
-                          className="text-red-500"
-                        >
-                          Удалить
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {Array.from({ length: requiredAnswerCount }).map((_, idx) => (
+                    <input
+                      key={idx}
+                      type="text"
+                      value={answerInputs[idx] ?? ''}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setAnswerInputs((prev) => {
+                          const next = [...prev];
+                          next[idx] = value;
+                          return next;
+                        });
+                      }}
+                      placeholder={`Ответ ${idx + 1}`}
+                      className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {error && <div className="text-xs text-red-500">{error}</div>}
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={handleDeleteTask}
+                  className="text-xs text-red-500 hover:text-red-600"
+                  disabled={saving}
+                >
+                  Удалить задание
+                </button>
+                <div className="flex items-center gap-2">
+                  <Button variant="secondary" onClick={handleRequestClose}>Закрыть</Button>
+                  <Button onClick={handleSaveTask} disabled={saving}>
+                    {saving ? 'Сохранение...' : 'Сохранить задание'}
+                  </Button>
+                  <Button variant="secondary" onClick={handleSaveAndOpenNext} disabled={saving || !nextTask}>
+                    Сохранить и далее
+                  </Button>
+                </div>
               </div>
             </div>
-
-            <div>
-              <label className="text-xs font-semibold text-gray-500">Правильные ответы</label>
-              <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-                {Array.from({ length: getMockAnswerCountForTask(selectedTask) }).map((_, idx) => (
-                  <input
-                    key={idx}
-                    type="text"
-                    value={answerInputs[idx] ?? ''}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setAnswerInputs((prev) => {
-                        const next = [...prev];
-                        next[idx] = value;
-                        return next;
-                      });
-                    }}
-                    placeholder={`Ответ ${idx + 1}`}
-                    className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
-                  />
-                ))}
-              </div>
-            </div>
-
-            {error && <div className="text-xs text-red-500">{error}</div>}
-
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-100">
-              <button
-                type="button"
-                onClick={handleDeleteTask}
-                className="text-xs text-red-500 hover:text-red-600"
-                disabled={saving}
-              >
-                Удалить задание
-              </button>
-              <div className="flex items-center gap-2">
-                <Button variant="secondary" onClick={onClose}>Закрыть</Button>
-                <Button onClick={handleSaveTask} disabled={saving}>
-                  {saving ? 'Сохранение...' : 'Сохранить задание'}
-                </Button>
-              </div>
-            </div>
-          </div>
           </div>
         </div>
       </div>
@@ -438,7 +652,4 @@ const MockExamEditorModal = ({
   return typeof document !== 'undefined' ? createPortal(modal, document.body) : null;
 };
 
-
-
 export default MockExamEditorModal;
-
