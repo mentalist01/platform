@@ -110,12 +110,16 @@ const MockExamModal = ({
     .map((img) => ({ ...img, url: withStudentId(img?.url, studentId) }));
   const files = (Array.isArray(currentQuestion?.files) ? currentQuestion.files : [])
     .map((file) => ({ ...file, url: withStudentId(file?.url, studentId) }));
+  const hasQuestionText = Boolean(String(currentQuestion?.question || '').trim());
+  const screenshotMaxHeightClass = hasQuestionText
+    ? 'max-h-[24vh] sm:max-h-[28vh] md:max-h-[32vh] lg:max-h-[36vh]'
+    : 'max-h-[30vh] sm:max-h-[34vh] md:max-h-[38vh] lg:max-h-[44vh]';
 
   if (!exam) return null;
 
   const modal = (
     <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="surface-card modal-card rounded-3xl w-full max-w-6xl max-h-[92vh] p-4 md:p-6 shadow-2xl relative flex flex-col overflow-hidden bg-gradient-to-br from-white via-white to-purple-50/60 border border-purple-100/60">
+      <div className="surface-card modal-card rounded-3xl w-full max-w-6xl max-h-[96vh] p-4 md:p-6 shadow-2xl relative flex flex-col overflow-hidden bg-gradient-to-br from-white via-white to-purple-50/60 border border-purple-100/60">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -157,9 +161,9 @@ const MockExamModal = ({
           <button onClick={onClose} className="p-2 bg-white/90 border border-gray-200 rounded-full hover:bg-gray-100"><X size={20}/></button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4 flex-1 overflow-hidden">
-          <div className="surface-panel rounded-2xl p-3 overflow-y-auto hidden sm:block">
-            <div className="rounded-2xl bg-gradient-to-br from-purple-600 via-purple-600 to-fuchsia-500 text-white p-4 shadow-sm relative overflow-hidden hidden sm:block">
+        <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4 flex-1 min-h-0 overflow-hidden">
+          <div className="surface-panel rounded-2xl p-3 overflow-y-auto hidden lg:block">
+            <div className="rounded-2xl bg-gradient-to-br from-purple-600 via-purple-600 to-fuchsia-500 text-white p-4 shadow-sm relative overflow-hidden">
               <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-purple-100">Прогресс</div>
               <div className="mt-2 text-2xl font-display font-bold">{secondaryScore} баллов</div>
               <div className="text-xs text-purple-100">{primaryScore} первичных</div>
@@ -208,13 +212,13 @@ const MockExamModal = ({
             </div>
           </div>
 
-          <div className="overflow-y-auto pr-1">
+          <div className="mock-exam-scroll min-h-0 overflow-y-auto pr-1">
             {!currentQuestion ? (
               <div className="rounded-2xl border border-dashed border-gray-200 p-6 text-gray-500 text-sm bg-white/70">
                 Задание {selectedTask} ещё не добавлено преподавателем.
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white/90 border border-purple-100/60 px-4 py-3 shadow-sm">
                   <div className="flex items-center gap-3">
                     <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-purple-500">Задание</span>
@@ -249,13 +253,13 @@ const MockExamModal = ({
                 )}
 
                 {screenshots.length > 0 && (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {screenshots.map((img) => (
                       <img
                         key={img.storageName || img.url}
                         src={img.url}
                         alt={img.name || 'Скриншот'}
-                        className="w-full max-h-[70vh] rounded-2xl border border-gray-200 object-contain bg-white cursor-pointer shadow-sm hover:shadow-lg transition-shadow"
+                        className={`mx-auto block w-auto max-w-full ${screenshotMaxHeightClass} rounded-2xl border border-gray-200 object-contain bg-white cursor-pointer shadow-sm hover:shadow-lg transition-shadow`}
                         onClick={() => setExpandedImage(img.url)}
                       />
                     ))}
@@ -279,7 +283,7 @@ const MockExamModal = ({
                   </div>
                 )}
 
-                <div className="rounded-2xl border border-purple-100/70 bg-white/95 p-4 shadow-sm">
+                <div className="rounded-2xl border border-purple-100/70 bg-white/95 p-3 shadow-sm">
                   <div className="text-xs font-bold text-gray-400 uppercase mb-2">Ответ ученика</div>
                   {answerCount > 1 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">

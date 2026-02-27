@@ -117,8 +117,23 @@ const ProgressSection = ({
   const prevEffectiveStudentIdRef = useRef(effectiveStudentId);
 
   const visibleMockExams = useMemo(() => {
-    if (role !== 'student') return mockExams || [];
-    return (mockExams || []).filter((exam) => isMockExamAccessible(exam, effectiveStudentId));
+    const baseList = role !== 'student'
+      ? [...(mockExams || [])]
+      : (mockExams || []).filter((exam) => isMockExamAccessible(exam, effectiveStudentId));
+
+    return baseList.sort((left, right) => {
+      const leftTitle = String(left?.title || '').trim();
+      const rightTitle = String(right?.title || '').trim();
+      const byTitle = leftTitle.localeCompare(rightTitle, 'ru', {
+        sensitivity: 'base',
+        numeric: true,
+      });
+      if (byTitle !== 0) return byTitle;
+      return String(left?.id || '').localeCompare(String(right?.id || ''), 'ru', {
+        sensitivity: 'base',
+        numeric: true,
+      });
+    });
   }, [mockExams, role, effectiveStudentId]);
 
   const getTaskCodeEntry = (taskNumber) => {
