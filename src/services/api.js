@@ -628,6 +628,15 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
+  updateScheduleEntry: async (studentId, id, payload) => {
+    const res = await apiFetch(`/api/student-schedule/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, ...payload }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
   deleteScheduleEntry: async (studentId, id) => {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);

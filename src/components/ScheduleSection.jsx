@@ -1,10 +1,93 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, Calendar, CheckCircle, ChevronRight, RefreshCcw, Save } from 'lucide-react';
+import { BookOpen, Calendar, CheckCircle, ChevronRight, Clock3, Pencil, RefreshCcw, Save, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
 
 const AUTO_REFRESH_INTERVAL_MS = 5000;
+const DEFAULT_SCHEDULE_SUBJECT = 'Занятие';
+const SCHEDULE_WEEKDAYS = [
+  { key: 'monday', label: 'Понедельник', order: 1 },
+  { key: 'tuesday', label: 'Вторник', order: 2 },
+  { key: 'wednesday', label: 'Среда', order: 3 },
+  { key: 'thursday', label: 'Четверг', order: 4 },
+  { key: 'friday', label: 'Пятница', order: 5 },
+  { key: 'saturday', label: 'Суббота', order: 6 },
+  { key: 'sunday', label: 'Воскресенье', order: 7 },
+];
+const SCHEDULE_WEEKDAY_BY_KEY = SCHEDULE_WEEKDAYS.reduce((acc, item) => {
+  acc[item.key] = item;
+  return acc;
+}, {});
+const SCHEDULE_WEEKDAY_KEY_BY_LABEL = SCHEDULE_WEEKDAYS.reduce((acc, item) => {
+  acc[item.label.toLowerCase()] = item.key;
+  return acc;
+}, {});
+const DEFAULT_SCHEDULE_FORM = {
+  weekdayKey: 'monday',
+  time: '',
+};
+
+const getScheduleWeekdayMetaFromDate = (value) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return null;
+  const date = new Date(`${normalized}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  const weekday = date.getDay();
+  const order = weekday === 0 ? 7 : weekday;
+  return SCHEDULE_WEEKDAYS.find((item) => item.order === order) || null;
+};
+
+const resolveScheduleWeekdayMeta = (entry) => {
+  const normalizedKey = String(entry?.weekdayKey || '').trim().toLowerCase();
+  if (normalizedKey && SCHEDULE_WEEKDAY_BY_KEY[normalizedKey]) {
+    return SCHEDULE_WEEKDAY_BY_KEY[normalizedKey];
+  }
+  const normalizedLabel = String(entry?.day || '').trim().toLowerCase();
+  if (normalizedLabel && SCHEDULE_WEEKDAY_KEY_BY_LABEL[normalizedLabel]) {
+    return SCHEDULE_WEEKDAY_BY_KEY[SCHEDULE_WEEKDAY_KEY_BY_LABEL[normalizedLabel]];
+  }
+  return getScheduleWeekdayMetaFromDate(entry?.date);
+};
+
+const normalizeScheduleEntry = (entry) => {
+  if (!entry || typeof entry !== 'object') return null;
+  const weekdayMeta = resolveScheduleWeekdayMeta(entry);
+  return {
+    ...entry,
+    weekdayKey: weekdayMeta?.key || '',
+    day: weekdayMeta?.label || String(entry?.day || '').trim(),
+    weekdayOrder: Number.isFinite(Number(entry?.weekdayOrder))
+      ? Number(entry.weekdayOrder)
+      : (weekdayMeta?.order || 99),
+    time: String(entry?.time || '').trim(),
+    subject: String(entry?.subject || '').trim() || DEFAULT_SCHEDULE_SUBJECT,
+    note: String(entry?.note || '').trim(),
+    createdByRole: String(entry?.createdByRole || '').trim(),
+    createdByName: String(entry?.createdByName || '').trim(),
+  };
+};
+
+const sortScheduleEntries = (entries = []) => (
+  entries
+    .map((entry) => normalizeScheduleEntry(entry))
+    .filter(Boolean)
+    .sort((left, right) => {
+      const orderDiff = (Number(left?.weekdayOrder) || 99) - (Number(right?.weekdayOrder) || 99);
+      if (orderDiff !== 0) return orderDiff;
+      const timeDiff = String(left?.time || '').localeCompare(String(right?.time || ''), 'ru');
+      if (timeDiff !== 0) return timeDiff;
+      return String(left?.createdAt || '').localeCompare(String(right?.createdAt || ''), 'ru');
+    })
+);
+
+const getScheduleFormFromEntry = (entry) => {
+  const normalized = normalizeScheduleEntry(entry);
+  return {
+    weekdayKey: normalized?.weekdayKey || DEFAULT_SCHEDULE_FORM.weekdayKey,
+    time: normalized?.time || '',
+  };
+};
 const ScheduleSection = ({
   role,
   studentId,
@@ -28,8 +111,6 @@ const ScheduleSection = ({
   getTaskDisplayNumber,
   formatTaskNumber,
   normalizeMockExamId,
-  normalizeMockExamAccess,
-  LEGACY_MOCK_EXAM_ACCESS,
   isMockExamAccessible,
   MOCK_TASKS,
   PYTHON_TASKS,
@@ -56,9 +137,19 @@ const ScheduleSection = ({
   const [deletingId, setDeletingId] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
   const [scheduleCompactMode, setScheduleCompactMode] = useState(true);
+  const [lessonSchedule, setLessonSchedule] = useState([]);
+  const [scheduleForm, setScheduleForm] = useState({ ...DEFAULT_SCHEDULE_FORM });
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [scheduleEditingId, setScheduleEditingId] = useState(null);
+  const [scheduleDeletingId, setScheduleDeletingId] = useState(null);
+  const [scheduleError, setScheduleError] = useState('');
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const mockAttemptStudentId = role === 'student' ? null : effectiveStudentId;
+  const selectedStudent = role === 'teacher'
+    ? studentsList.find((student) => student.id === effectiveStudentId) || null
+    : null;
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const pythonTaskOptions = PYTHON_TASKS;
   const mockExamById = useMemo(
@@ -117,23 +208,65 @@ const ScheduleSection = ({
     }
   };
 
+  const loadSchedule = useCallback(async () => {
+    if (!effectiveStudentId) {
+      setLessonSchedule([]);
+      setScheduleEditingId(null);
+      setScheduleForm({ ...DEFAULT_SCHEDULE_FORM });
+      return;
+    }
+    setScheduleLoading(true);
+    try {
+      const data = await api.getStudentSchedule(effectiveStudentId);
+      setLessonSchedule(sortScheduleEntries(Array.isArray(data) ? data : []));
+      setScheduleError('');
+    } catch (err) {
+      setLessonSchedule([]);
+      setScheduleError(err?.message || err);
+    } finally {
+      setScheduleLoading(false);
+    }
+  }, [effectiveStudentId]);
+
   useEffect(() => {
     loadNextLesson();
+  }, [effectiveStudentId]);
+
+  useEffect(() => {
+    loadSchedule();
+  }, [loadSchedule]);
+
+  useEffect(() => {
+    setScheduleEditingId(null);
+    setScheduleForm({ ...DEFAULT_SCHEDULE_FORM });
+    setScheduleError('');
   }, [effectiveStudentId]);
 
   const handleRefreshData = useCallback(async () => {
     if (!effectiveStudentId || refreshingData) return;
     setRefreshingData(true);
     try {
-      const data = await api.getStudentNextLesson(effectiveStudentId);
-      const list = Array.isArray(data?.homeworks) ? data.homeworks : [];
-      const latest = data?.latest && typeof data.latest === 'object' ? data.latest : {};
-      const safeData = buildNextLessonData(latest);
-      setHomeworks(list);
-      setNextLesson(safeData);
-      setError('');
-    } catch (err) {
-      setError(err?.message || err);
+      const [nextLessonResult, scheduleResult] = await Promise.allSettled([
+        api.getStudentNextLesson(effectiveStudentId),
+        api.getStudentSchedule(effectiveStudentId),
+      ]);
+      if (nextLessonResult.status === 'fulfilled') {
+        const data = nextLessonResult.value;
+        const list = Array.isArray(data?.homeworks) ? data.homeworks : [];
+        const latest = data?.latest && typeof data.latest === 'object' ? data.latest : {};
+        const safeData = buildNextLessonData(latest);
+        setHomeworks(list);
+        setNextLesson(safeData);
+        setError('');
+      } else {
+        setError(nextLessonResult.reason?.message || nextLessonResult.reason);
+      }
+      if (scheduleResult.status === 'fulfilled') {
+        setLessonSchedule(sortScheduleEntries(Array.isArray(scheduleResult.value) ? scheduleResult.value : []));
+        setScheduleError('');
+      } else {
+        setScheduleError(scheduleResult.reason?.message || scheduleResult.reason);
+      }
     } finally {
       setRefreshingData(false);
     }
@@ -245,7 +378,7 @@ const ScheduleSection = ({
           next[item.key] = new Set(list.map((val) => String(val)));
         });
         setSolvedByKey(next);
-      } catch (err) {
+      } catch {
         if (!cancelled) setSolvedByKey({});
       }
     };
@@ -318,6 +451,66 @@ const ScheduleSection = ({
         </select>
       </div>
     );
+  };
+
+  const resetScheduleForm = () => {
+    setScheduleEditingId(null);
+    setScheduleForm({ ...DEFAULT_SCHEDULE_FORM });
+  };
+
+  const startEditSchedule = (entry) => {
+    if (!entry?.id) return;
+    setScheduleEditingId(entry.id);
+    setScheduleForm(getScheduleFormFromEntry(entry));
+    setScheduleError('');
+  };
+
+  const handleSaveSchedule = async () => {
+    if (!effectiveStudentId) return;
+    if (!scheduleForm.weekdayKey || !scheduleForm.time) {
+      setScheduleError('Выберите день и время занятия.');
+      return;
+    }
+    setScheduleSaving(true);
+    try {
+      const payload = {
+        weekdayKey: scheduleForm.weekdayKey,
+        time: scheduleForm.time,
+        note: '',
+        subject: DEFAULT_SCHEDULE_SUBJECT,
+      };
+      const savedEntry = scheduleEditingId
+        ? await api.updateScheduleEntry(effectiveStudentId, scheduleEditingId, payload)
+        : await api.addScheduleEntry(effectiveStudentId, payload);
+      setLessonSchedule((prev) => sortScheduleEntries([
+        ...prev.filter((item) => item?.id !== savedEntry?.id),
+        savedEntry,
+      ]));
+      resetScheduleForm();
+      setScheduleError('');
+    } catch (err) {
+      setScheduleError(err?.message || err);
+    } finally {
+      setScheduleSaving(false);
+    }
+  };
+
+  const handleDeleteSchedule = async (entry) => {
+    if (!effectiveStudentId || !entry?.id) return;
+    if (!window.confirm('Удалить этот слот из расписания?')) return;
+    setScheduleDeletingId(entry.id);
+    try {
+      await api.deleteScheduleEntry(effectiveStudentId, entry.id);
+      setLessonSchedule((prev) => prev.filter((item) => item?.id !== entry.id));
+      if (scheduleEditingId === entry.id) {
+        resetScheduleForm();
+      }
+      setScheduleError('');
+    } catch (err) {
+      setScheduleError(err?.message || err);
+    } finally {
+      setScheduleDeletingId(null);
+    }
   };
 
   const parseTargetInput = (input, maxCount) => {
@@ -448,6 +641,7 @@ const ScheduleSection = ({
     const list = Array.isArray(homeworks) ? [...homeworks] : [];
     return list.sort((a, b) => new Date(b?.issuedAt || 0) - new Date(a?.issuedAt || 0));
   }, [homeworks]);
+  const sortedSchedule = useMemo(() => sortScheduleEntries(lessonSchedule), [lessonSchedule]);
 
   const nextHomeworkEntry = sortedHomeworks[0] || null;
   const previousHomeworkEntries = sortedHomeworks.slice(1);
@@ -1241,7 +1435,7 @@ const ScheduleSection = ({
         </div>
       </div>
 
-      {(error || testsDbError || mockExamsError) && (
+      {(error || testsDbError || mockExamsError || scheduleError) && (
         <div className="space-y-2">
           {error && (
             <div className="rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-2 text-xs font-medium text-rose-600">
@@ -1258,7 +1452,124 @@ const ScheduleSection = ({
               {mockExamsError}
             </div>
           )}
+          {scheduleError && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-2 text-xs font-medium text-rose-600">
+              {scheduleError}
+            </div>
+          )}
         </div>
+      )}
+
+      {(role === 'teacher' || role === 'student') && (
+        <Card className="space-y-4 border-sky-200/70 bg-gradient-to-br from-white via-sky-50/50 to-indigo-50/40">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="space-y-1">
+              <div className="text-lg font-bold text-slate-900">
+                {role === 'teacher' ? 'График занятий ученика' : 'График занятий'}
+              </div>
+              <p className="text-xs text-slate-500">
+                {role === 'teacher'
+                  ? `Задайте дни и время занятий${selectedStudent ? ` для ${getStudentLabel(selectedStudent)}` : ' для выбранного ученика'}.`
+                  : 'Здесь можно самому задать дни и время занятий. Преподаватель увидит их у себя в расписании.'}
+              </p>
+            </div>
+            <span className="rounded-full border border-sky-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
+              {`Слотов: ${sortedSchedule.length}`}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px]">
+            <select
+              value={scheduleForm.weekdayKey}
+              onChange={(e) => setScheduleForm((prev) => ({ ...prev, weekdayKey: e.target.value }))}
+              className="px-4 py-2 rounded-xl bg-white border border-sky-100 focus:border-sky-500 outline-none"
+            >
+              {SCHEDULE_WEEKDAYS.map((item) => (
+                <option key={item.key} value={item.key}>{item.label}</option>
+              ))}
+            </select>
+            <input
+              type="time"
+              value={scheduleForm.time}
+              onChange={(e) => setScheduleForm((prev) => ({ ...prev, time: e.target.value }))}
+              className="px-4 py-2 rounded-xl bg-white border border-sky-100 focus:border-sky-500 outline-none"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={handleSaveSchedule} disabled={scheduleSaving || !effectiveStudentId} className="md:px-5">
+              <Save size={16} /> {scheduleSaving ? 'Сохранение...' : (scheduleEditingId ? 'Сохранить слот' : 'Добавить слот')}
+            </Button>
+            {scheduleEditingId && (
+              <button
+                type="button"
+                onClick={resetScheduleForm}
+                className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Отменить
+              </button>
+            )}
+          </div>
+
+          {scheduleLoading && sortedSchedule.length === 0 ? (
+            <div className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-600">
+              <RefreshCcw size={14} className="animate-spin" />
+              Загружаем график...
+            </div>
+          ) : sortedSchedule.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-4 text-sm text-slate-500">
+              Слоты занятий пока не заданы.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {sortedSchedule.map((entry) => {
+                return (
+                  <div key={entry.id || `${entry.weekdayKey}-${entry.time}-${entry.createdAt || 'slot'}`} className="rounded-2xl border border-sky-100/80 bg-white/90 p-4 shadow-sm shadow-sky-100/40">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
+                            <Calendar size={13} />
+                            {entry.day || 'День не указан'}
+                          </span>
+                          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                            <Clock3 size={13} />
+                            {entry.time || 'Время не указано'}
+                          </span>
+                          {entry.date && (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500">
+                              {formatDate(entry.date)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startEditSchedule(entry)}
+                          disabled={scheduleDeletingId === entry.id}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                        >
+                          <Pencil size={13} />
+                          Изменить
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSchedule(entry)}
+                          disabled={scheduleDeletingId === entry.id}
+                          className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50/80 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
+                        >
+                          <Trash2 size={13} />
+                          {scheduleDeletingId === entry.id ? 'Удаление...' : 'Удалить'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
       )}
 
       {role === 'teacher' && (

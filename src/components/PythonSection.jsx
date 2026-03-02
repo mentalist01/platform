@@ -5,7 +5,48 @@ import ProgressReviewModal from './ProgressReviewModal';
 import PythonReviewModal from './PythonReviewModal';
 import PythonTestModal from './PythonTestModal';
 import StudentTestModal from './StudentTestModal';
+import TheoryRecordingEditor from './TheoryRecordingEditor';
 import { Button, Card, ProgressBar } from './ui';
+import {
+  buildPythonSubsectionModel,
+  createPythonSubsectionId,
+  getPythonTaskEntry,
+  PYTHON_DEFAULT_SUBSECTION_ID,
+} from '../utils/pythonSubsections';
+import {
+  estimateTheoryRecordingSizeBytes,
+  getTheoryRecordingStorageName,
+  normalizeTheoryRecording,
+  THEORY_RECORDING_MAX_JSON_BYTES,
+  THEORY_RECORDING_TYPE,
+} from '../utils/theoryRecording';
+
+const PYTHON_TASK_SECTION_META = {
+  topics: {
+    title: 'Темы Python',
+    description: 'Базовые темы курса и последовательное изучение синтаксиса.',
+  },
+  'exam-prep': {
+    title: 'Подготовка к заданиям',
+    description: 'Отдельные карточки для точечной тренировки задач ЕГЭ на Python.',
+  },
+};
+
+const normalizeSubsectionMetaList = (value) => (
+  (Array.isArray(value) ? value : [])
+    .map((item, index) => {
+      const id = String(item?.id || '').trim();
+      const title = String(item?.title || '').trim();
+      if (!id || !title) return null;
+      return {
+        id,
+        title,
+        order: Number.isFinite(Number(item?.order)) ? Number(item.order) : index,
+      };
+    })
+    .filter(Boolean)
+);
+
 const PythonSection = ({
   progress,
   onUpdateProgress,
@@ -42,7 +83,36 @@ const PythonSection = ({
   PYODIDE_RUN_TIMEOUT_MS,
   ALLOW_MAIN_THREAD_PYTHON_FALLBACK,
 }) => {
-  const taskList = PYTHON_TASKS;
+  const taskList = useMemo(() => (Array.isArray(PYTHON_TASKS) ? PYTHON_TASKS : []), [PYTHON_TASKS]);
+  const taskSections = useMemo(() => {
+    const sectionOrder = ['topics', 'exam-prep'];
+    const groups = new Map();
+    taskList.forEach((task) => {
+      const sectionId = String(task?.sectionId || 'topics');
+      if (!groups.has(sectionId)) {
+        const meta = PYTHON_TASK_SECTION_META[sectionId] || { title: 'Раздел Python', description: '' };
+        groups.set(sectionId, {
+          id: sectionId,
+          title: meta.title,
+          description: meta.description,
+          tasks: []
+        });
+      }
+      groups.get(sectionId).tasks.push(task);
+    });
+    return Array.from(groups.values()).sort((left, right) => {
+      const leftOrder = sectionOrder.indexOf(left.id);
+      const rightOrder = sectionOrder.indexOf(right.id);
+      if (leftOrder === -1 && rightOrder === -1) return left.title.localeCompare(right.title, 'ru');
+      if (leftOrder === -1) return 1;
+      if (rightOrder === -1) return -1;
+      return leftOrder - rightOrder;
+    });
+  }, [taskList]);
+  const pathTaskList = useMemo(() => {
+    const visibleTasks = taskList.filter((task) => task?.showInPath !== false);
+    return visibleTasks.length > 0 ? visibleTasks : taskList;
+  }, [taskList]);
   const [activeTask, setActiveTask] = useState(null);
   const [reviewTask, setReviewTask] = useState(null);
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(null);
@@ -59,9 +129,16 @@ const PythonSection = ({
   const [editingQuestionId, setEditingQuestionId] = useState(null);
   const [questionSaving, setQuestionSaving] = useState(false);
   const [questionError, setQuestionError] = useState('');
+  const [selectedSubsectionId, setSelectedSubsectionId] = useState(PYTHON_DEFAULT_SUBSECTION_ID);
+  const [newSubsectionTitle, setNewSubsectionTitle] = useState('');
+  const [editingSubsectionId, setEditingSubsectionId] = useState('');
+  const [editingSubsectionTitle, setEditingSubsectionTitle] = useState('');
+  const [subsectionSaving, setSubsectionSaving] = useState(false);
+  const [subsectionError, setSubsectionError] = useState('');
   const [theoryType, setTheoryType] = useState('text');
   const [theoryText, setTheoryText] = useState('');
   const [theoryUrl, setTheoryUrl] = useState('');
+  const [theoryRecordingDraft, setTheoryRecordingDraft] = useState(null);
   const [theorySaving, setTheorySaving] = useState(false);
   const [theoryError, setTheoryError] = useState('');
   const [showTeacherTaskToolsMobile, setShowTeacherTaskToolsMobile] = useState(false);
@@ -139,7 +216,7 @@ const PythonSection = ({
       setActiveQuestionIndex(null);
     }
     onOpenTaskHandled?.();
-  }, [openTask, role, taskList, onOpenTaskHandled]);
+  }, [isPythonTaskNumber, openTask, role, taskList, onOpenTaskHandled]);
 
   useEffect(() => {
     if (role !== 'student') return;
@@ -155,7 +232,7 @@ const PythonSection = ({
       section: 'python',
       questionIndex: Number.isFinite(activeQuestionIndex) ? activeQuestionIndex : null
     });
-  }, [activeTask, activeQuestionIndex, role, onTaskStateChange, openTask]);
+  }, [activeTask, activeQuestionIndex, role, PYTHON_LEVEL_ID, onTaskStateChange, openTask]);
 
   useEffect(() => {
     if (!taskList.length) return;
@@ -170,16 +247,25 @@ const PythonSection = ({
     setNewTests([{ input: '', output: '' }]);
     setTestsFileName('');
     setQuestionError('');
+    setSelectedSubsectionId(PYTHON_DEFAULT_SUBSECTION_ID);
+    setNewSubsectionTitle('');
+    setEditingSubsectionId('');
+    setEditingSubsectionTitle('');
+    setSubsectionError('');
     setTheoryError('');
+    setTheoryRecordingDraft(null);
   }, [taskList, manageTaskNumber]);
 
   useEffect(() => {
     if (!manageTaskNumber) return;
     const theory = testsDb?.[manageTaskNumber]?.pythonTheory || {};
-    const type = theory?.type === 'gdoc' ? 'gdoc' : 'text';
+    const type = theory?.type === 'gdoc'
+      ? 'gdoc'
+      : (theory?.type === THEORY_RECORDING_TYPE ? THEORY_RECORDING_TYPE : 'text');
     setTheoryType(type);
     setTheoryText(type === 'text' ? String(theory?.content || '') : '');
     setTheoryUrl(type === 'gdoc' ? String(theory?.content || '') : '');
+    setTheoryRecordingDraft(type === THEORY_RECORDING_TYPE ? normalizeTheoryRecording(theory?.content) : null);
     setTheoryError('');
   }, [testsDb, manageTaskNumber]);
 
@@ -208,11 +294,43 @@ const PythonSection = ({
     }
 
     return undefined;
-  }, [role, taskList.length]);
+  }, [role, pathTaskList.length]);
 
-  const progressMap = role === 'teacher'
-    ? (studentData.progress || {})
-    : (Object.keys(progress || {}).length ? progress : (studentData.progress || {}));
+  const progressMap = useMemo(() => (
+    role === 'teacher'
+      ? (studentData.progress || {})
+      : (Object.keys(progress || {}).length ? progress : (studentData.progress || {}))
+  ), [role, progress, studentData.progress]);
+  const manageTaskEntry = useMemo(
+    () => getPythonTaskEntry(testsDb, manageTaskNumber),
+    [testsDb, manageTaskNumber]
+  );
+  const savedTheoryRecording = useMemo(() => {
+    const theory = manageTaskEntry?.pythonTheory;
+    if (!theory || theory.type !== THEORY_RECORDING_TYPE) return null;
+    return normalizeTheoryRecording(theory.content);
+  }, [manageTaskEntry]);
+  const manageSubsectionModel = useMemo(
+    () => buildPythonSubsectionModel(manageTaskEntry, PYTHON_LEVEL_ID, {
+      includeEmptySections: true,
+      defaultSectionTitle: 'Без подраздела',
+    }),
+    [manageTaskEntry, PYTHON_LEVEL_ID]
+  );
+  const manageSubsections = useMemo(
+    () => manageSubsectionModel.subsections.filter((section) => !section.isDefault),
+    [manageSubsectionModel]
+  );
+  const manageQuestionGroups = useMemo(
+    () => manageSubsectionModel.subsections.filter((section) => section.count > 0),
+    [manageSubsectionModel]
+  );
+
+  useEffect(() => {
+    if (!selectedSubsectionId || selectedSubsectionId === PYTHON_DEFAULT_SUBSECTION_ID) return;
+    if (manageSubsections.some((section) => section.id === selectedSubsectionId)) return;
+    setSelectedSubsectionId(PYTHON_DEFAULT_SUBSECTION_ID);
+  }, [manageSubsections, selectedSubsectionId]);
 
   const manageQuestions = manageTaskNumber
     ? (testsDb?.[manageTaskNumber]?.[PYTHON_LEVEL_ID] || [])
@@ -240,30 +358,51 @@ const PythonSection = ({
     }
     const updatedDb = { ...(testsDb || {}) };
     if (!updatedDb[manageTaskNumber]) updatedDb[manageTaskNumber] = {};
+    const currentSubsections = normalizeSubsectionMetaList(updatedDb[manageTaskNumber]?.pythonSubsections);
+    const selectedSubsection = selectedSubsectionId && selectedSubsectionId !== PYTHON_DEFAULT_SUBSECTION_ID
+      ? manageSubsections.find((section) => section.id === selectedSubsectionId) || null
+      : null;
+    if (selectedSubsection && !currentSubsections.some((section) => section.id === selectedSubsection.id)) {
+      currentSubsections.push({
+        id: selectedSubsection.id,
+        title: selectedSubsection.title,
+        order: currentSubsections.length,
+      });
+    }
+    updatedDb[manageTaskNumber].pythonSubsections = currentSubsections;
     if (!Array.isArray(updatedDb[manageTaskNumber][PYTHON_LEVEL_ID])) {
       updatedDb[manageTaskNumber][PYTHON_LEVEL_ID] = [];
     }
     const list = updatedDb[manageTaskNumber][PYTHON_LEVEL_ID];
+    const taskPayload = {
+      title,
+      question,
+      starterCode,
+      tests: preparedTests,
+    };
+    if (selectedSubsection) {
+      taskPayload.subsectionId = selectedSubsection.id;
+      taskPayload.subsectionTitle = selectedSubsection.title;
+    }
     if (editingQuestionId) {
       const idx = list.findIndex((item) => item.id === editingQuestionId);
       if (idx === -1) {
         setQuestionError('Не удалось найти задачу для редактирования.');
         return;
       }
-      list[idx] = {
+      const updatedTask = {
         ...list[idx],
-        title,
-        question,
-        starterCode,
-        tests: preparedTests
+        ...taskPayload
       };
+      if (!selectedSubsection) {
+        delete updatedTask.subsectionId;
+        delete updatedTask.subsectionTitle;
+      }
+      list[idx] = updatedTask;
     } else {
       list.push({
         id: Date.now(),
-        title,
-        question,
-        starterCode,
-        tests: preparedTests
+        ...taskPayload
       });
     }
     setQuestionSaving(true);
@@ -277,6 +416,7 @@ const PythonSection = ({
       setQuestionError('');
       setEditingQuestionId(null);
       setTestsFileName('');
+      setSelectedSubsectionId(PYTHON_DEFAULT_SUBSECTION_ID);
     } catch (err) {
       setQuestionError(err?.message || err);
     } finally {
@@ -300,6 +440,7 @@ const PythonSection = ({
     } else {
       setNewTests([{ input: '', output: '' }]);
     }
+    setSelectedSubsectionId(String(task?.subsectionId || '').trim() || PYTHON_DEFAULT_SUBSECTION_ID);
     setQuestionError('');
     setTestsFileName('');
   };
@@ -311,7 +452,112 @@ const PythonSection = ({
     setNewStarterCode('');
     setNewTests([{ input: '', output: '' }]);
     setTestsFileName('');
+    setSelectedSubsectionId(PYTHON_DEFAULT_SUBSECTION_ID);
     setQuestionError('');
+  };
+
+  const handleSaveSubsection = async () => {
+    if (role !== 'teacher' || !manageTaskNumber) return;
+    const title = String(editingSubsectionId ? editingSubsectionTitle : newSubsectionTitle).trim();
+    if (!title) {
+      setSubsectionError('Введите название подраздела.');
+      return;
+    }
+    const updatedDb = { ...(testsDb || {}) };
+    if (!updatedDb[manageTaskNumber]) updatedDb[manageTaskNumber] = {};
+    const currentTaskEntry = updatedDb[manageTaskNumber];
+    const currentSubsections = normalizeSubsectionMetaList(currentTaskEntry?.pythonSubsections);
+    const nextId = editingSubsectionId || createPythonSubsectionId(title, currentSubsections.map((section) => section.id));
+    let updated = false;
+    const nextSubsections = currentSubsections.map((section, index) => {
+      if (section.id !== nextId) return { ...section, order: index };
+      updated = true;
+      return { id: nextId, title, order: index };
+    });
+    if (!updated) {
+      nextSubsections.push({ id: nextId, title, order: nextSubsections.length });
+    }
+    const currentQuestions = Array.isArray(currentTaskEntry?.[PYTHON_LEVEL_ID])
+      ? currentTaskEntry[PYTHON_LEVEL_ID]
+      : [];
+    updatedDb[manageTaskNumber] = {
+      ...currentTaskEntry,
+      pythonSubsections: nextSubsections,
+      [PYTHON_LEVEL_ID]: currentQuestions.map((item) => {
+        if (String(item?.subsectionId || '').trim() !== nextId) return item;
+        return { ...item, subsectionTitle: title };
+      })
+    };
+    setSubsectionSaving(true);
+    setTestsDb(updatedDb);
+    try {
+      await api.saveTests(updatedDb);
+      setSubsectionError('');
+      setNewSubsectionTitle('');
+      setEditingSubsectionId('');
+      setEditingSubsectionTitle('');
+      setSelectedSubsectionId(nextId);
+    } catch (err) {
+      setSubsectionError(err?.message || err);
+    } finally {
+      setSubsectionSaving(false);
+    }
+  };
+
+  const startEditSubsection = (subsection) => {
+    if (!subsection?.id || subsection.isDefault) return;
+    setEditingSubsectionId(subsection.id);
+    setEditingSubsectionTitle(subsection.title || '');
+    setSubsectionError('');
+  };
+
+  const cancelEditSubsection = () => {
+    setEditingSubsectionId('');
+    setEditingSubsectionTitle('');
+    setNewSubsectionTitle('');
+    setSubsectionError('');
+  };
+
+  const handleDeleteSubsection = async (subsection) => {
+    const subsectionId = String(subsection?.id || '').trim();
+    if (role !== 'teacher' || !manageTaskNumber || !subsectionId || subsectionId === PYTHON_DEFAULT_SUBSECTION_ID) return;
+    if (!confirm(`Удалить подраздел "${subsection.title}"? Задачи останутся, но выйдут из подраздела.`)) return;
+    const updatedDb = { ...(testsDb || {}) };
+    if (!updatedDb[manageTaskNumber]) return;
+    const currentTaskEntry = updatedDb[manageTaskNumber];
+    const currentSubsections = normalizeSubsectionMetaList(currentTaskEntry?.pythonSubsections)
+      .filter((section) => section.id !== subsectionId)
+      .map((section, index) => ({ ...section, order: index }));
+    const currentQuestions = Array.isArray(currentTaskEntry?.[PYTHON_LEVEL_ID])
+      ? currentTaskEntry[PYTHON_LEVEL_ID]
+      : [];
+    updatedDb[manageTaskNumber] = {
+      ...currentTaskEntry,
+      pythonSubsections: currentSubsections,
+      [PYTHON_LEVEL_ID]: currentQuestions.map((item) => {
+        if (String(item?.subsectionId || '').trim() !== subsectionId) return item;
+        const nextItem = { ...item };
+        delete nextItem.subsectionId;
+        delete nextItem.subsectionTitle;
+        return nextItem;
+      })
+    };
+    setSubsectionSaving(true);
+    setTestsDb(updatedDb);
+    try {
+      await api.saveTests(updatedDb);
+      setSubsectionError('');
+      if (selectedSubsectionId === subsectionId) {
+        setSelectedSubsectionId(PYTHON_DEFAULT_SUBSECTION_ID);
+      }
+      if (editingSubsectionId === subsectionId) {
+        cancelEditSubsection();
+      }
+    } catch (err) {
+      setSubsectionError(err?.message || err);
+    } finally {
+      setSubsectionSaving(false);
+    }
   };
 
   const handleTestsFileUpload = (file) => {
@@ -340,33 +586,128 @@ const PythonSection = ({
   const handleSavePythonTheory = async () => {
     if (role !== 'teacher') return;
     if (!manageTaskNumber) return;
-    const raw = theoryType === 'gdoc' ? theoryUrl.trim() : theoryText.trim();
-    if (!raw) {
-      setTheoryError('Добавьте текст теории или ссылку на Google Docs.');
-      return;
-    }
-    let content = raw;
-    if (theoryType === 'gdoc') {
-      const embedUrl = buildGoogleDocEmbedUrl(raw);
-      if (!embedUrl) {
-        setTheoryError('Нужна ссылка на Google Docs (поддерживаются ссылки на документ или iframe).');
+    const currentTheory = testsDb?.[manageTaskNumber]?.pythonTheory || null;
+    const previousRecordingStorageName = getTheoryRecordingStorageName(currentTheory);
+    let uploadedStorageName = '';
+    let nextRecordingStorageName = '';
+    let recordingDraftToPersist = null;
+    let nextTheory = null;
+
+    if (theoryType === THEORY_RECORDING_TYPE) {
+      const normalizedDraft = normalizeTheoryRecording(theoryRecordingDraft);
+      if (!normalizedDraft || normalizedDraft.events.length === 0) {
+        setTheoryError('Сначала запишите видеоразбор: голос и действия в редакторе.');
         return;
       }
-      content = embedUrl;
-      setTheoryUrl(embedUrl);
+      if (!normalizedDraft.audio || (!normalizedDraft.audio.url && !normalizedDraft.audio.file)) {
+        setTheoryError('Для видеоразбора нужно записать аудио.');
+        return;
+      }
+
+      let audioMeta = { ...normalizedDraft.audio };
+      if (audioMeta.isNew && audioMeta.file) {
+        let uploaded = null;
+        try {
+          uploaded = await api.uploadTestFile(audioMeta.file);
+        } catch (error) {
+          setTheoryError(error?.message || 'Не удалось загрузить аудио для видеоразбора.');
+          return;
+        }
+        uploadedStorageName = String(uploaded?.storageName || '').trim();
+        audioMeta = {
+          url: String(uploaded?.url || ''),
+          storageName: uploadedStorageName,
+          name: String(uploaded?.name || audioMeta.file.name || ''),
+          sizeBytes: Number(uploaded?.sizeBytes || audioMeta.file.size || 0),
+          isNew: false,
+          file: null,
+        };
+      }
+      if (!audioMeta.url) {
+        if (uploadedStorageName) {
+          api.deleteTestFile(uploadedStorageName).catch(() => {});
+        }
+        setTheoryError('Не удалось подготовить аудио для видеоразбора.');
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      const persistedRecording = {
+        version: Number.isFinite(Number(normalizedDraft.version)) ? Number(normalizedDraft.version) : 1,
+        initialCode: String(normalizedDraft.initialCode || ''),
+        durationMs: Math.max(0, Number(normalizedDraft.durationMs) || 0),
+        events: normalizedDraft.events.map((event) => ({ ...event })),
+        audio: {
+          url: String(audioMeta.url || ''),
+          storageName: String(audioMeta.storageName || ''),
+          name: String(audioMeta.name || ''),
+          sizeBytes: Math.max(0, Number(audioMeta.sizeBytes) || 0),
+        },
+        createdAt: normalizedDraft.createdAt || nowIso,
+        updatedAt: nowIso,
+      };
+
+      const jsonSizeBytes = estimateTheoryRecordingSizeBytes(persistedRecording);
+      if (!Number.isFinite(jsonSizeBytes) || jsonSizeBytes > THEORY_RECORDING_MAX_JSON_BYTES) {
+        if (uploadedStorageName) {
+          api.deleteTestFile(uploadedStorageName).catch(() => {});
+        }
+        setTheoryError('Видеоразбор слишком большой. Сократите запись или уменьшите количество действий.');
+        return;
+      }
+
+      nextRecordingStorageName = String(persistedRecording.audio.storageName || '').trim();
+      recordingDraftToPersist = {
+        ...persistedRecording,
+        audio: {
+          ...persistedRecording.audio,
+          isNew: false,
+          file: null,
+        },
+      };
+      nextTheory = { type: THEORY_RECORDING_TYPE, content: persistedRecording };
+    } else {
+      const raw = theoryType === 'gdoc' ? theoryUrl.trim() : theoryText.trim();
+      if (!raw) {
+        setTheoryError('Добавьте текст теории или ссылку на Google Docs.');
+        return;
+      }
+      let content = raw;
+      if (theoryType === 'gdoc') {
+        const embedUrl = buildGoogleDocEmbedUrl(raw);
+        if (!embedUrl) {
+          setTheoryError('Нужна ссылка на Google Docs (поддерживаются ссылки на документ или iframe).');
+          return;
+        }
+        content = embedUrl;
+        setTheoryUrl(embedUrl);
+      }
+      nextTheory = { type: theoryType, content };
     }
+
     const updatedDb = { ...(testsDb || {}) };
     if (!updatedDb[manageTaskNumber]) updatedDb[manageTaskNumber] = {};
     updatedDb[manageTaskNumber] = {
       ...(updatedDb[manageTaskNumber] || {}),
-      pythonTheory: { type: theoryType, content }
+      pythonTheory: nextTheory
     };
     setTheorySaving(true);
     setTestsDb(updatedDb);
     try {
       await api.saveTests(updatedDb);
+      if (recordingDraftToPersist) {
+        setTheoryRecordingDraft(recordingDraftToPersist);
+      } else {
+        setTheoryRecordingDraft(null);
+      }
+      if (previousRecordingStorageName && previousRecordingStorageName !== nextRecordingStorageName) {
+        api.deleteTestFile(previousRecordingStorageName).catch(() => {});
+      }
       setTheoryError('');
     } catch (err) {
+      if (uploadedStorageName) {
+        api.deleteTestFile(uploadedStorageName).catch(() => {});
+      }
       setTheoryError(err?.message || err);
     } finally {
       setTheorySaving(false);
@@ -376,16 +717,24 @@ const PythonSection = ({
   const handleClearPythonTheory = async () => {
     if (role !== 'teacher') return;
     if (!manageTaskNumber) return;
+    const previousRecordingStorageName = getTheoryRecordingStorageName(
+      testsDb?.[manageTaskNumber]?.pythonTheory || null
+    );
     const updatedDb = { ...(testsDb || {}) };
     if (!updatedDb[manageTaskNumber]) updatedDb[manageTaskNumber] = {};
-    const { pythonTheory, ...rest } = updatedDb[manageTaskNumber] || {};
-    updatedDb[manageTaskNumber] = { ...rest };
+    const rest = { ...(updatedDb[manageTaskNumber] || {}) };
+    delete rest.pythonTheory;
+    updatedDb[manageTaskNumber] = rest;
     setTheorySaving(true);
     setTestsDb(updatedDb);
     try {
       await api.saveTests(updatedDb);
+      if (previousRecordingStorageName) {
+        api.deleteTestFile(previousRecordingStorageName).catch(() => {});
+      }
       setTheoryText('');
       setTheoryUrl('');
+      setTheoryRecordingDraft(null);
       setTheoryError('');
     } catch (err) {
       setTheoryError(err?.message || err);
@@ -477,7 +826,7 @@ const PythonSection = ({
     const centerMin = nodeHalfWidth + 4;
     const centerMax = Math.max(centerMin, pathWidth - nodeHalfWidth - 4);
     let currentTop = topPadding;
-    const nodes = taskList.map((task, idx) => {
+    const nodes = pathTaskList.map((task, idx) => {
       const rawVal = Number(progressMap[task.id] || 0);
       const val = Number.isFinite(rawVal) ? Math.max(0, Math.min(100, rawVal)) : 0;
       const ringColor = val >= 85
@@ -604,7 +953,67 @@ const PythonSection = ({
       radius,
       circumference
     };
-  }, [taskList, progressMap, mobilePythonPathCanvasWidth]);
+  }, [pathTaskList, progressMap, mobilePythonPathCanvasWidth]);
+
+  const renderTaskCard = (task, idx) => {
+    const val = progressMap[task.id] || 0;
+    const clickable = role === 'student' || role === 'teacher';
+    const cardTone = val >= 85
+      ? 'border-emerald-200/90 bg-gradient-to-br from-emerald-50/60 via-white to-emerald-50/50'
+      : (val >= 60
+          ? 'border-purple-200/90 bg-gradient-to-br from-purple-50/65 via-white to-fuchsia-50/45'
+          : (val >= 40
+              ? 'border-amber-200/90 bg-gradient-to-br from-amber-50/60 via-white to-orange-50/35'
+              : 'border-slate-200/90 bg-gradient-to-br from-white via-slate-50 to-slate-100/70'));
+    const statusLabel = val >= 85 ? 'Сильная тема' : (val >= 60 ? 'В работе' : (val >= 40 ? 'Нужна практика' : 'Зона внимания'));
+    return (
+      <Card
+        key={task.id}
+        style={{ '--i': idx }}
+        className={`group relative p-3.5 md:p-4 ${cardTone}`}
+        onClick={clickable ? () => {
+          if (role === 'teacher') setReviewTask(task);
+          else {
+            setActiveQuestionIndex(null);
+            setActiveTask(task);
+          }
+        } : undefined}
+      >
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="inline-flex items-center rounded-lg border border-purple-200 bg-white/90 px-2 py-1 text-[11px] md:text-xs font-bold text-purple-700">
+            №{getTaskDisplayNumber(task)}
+          </span>
+          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-2 py-1 text-[10px] md:text-xs font-semibold text-slate-600">
+            {statusLabel}
+          </span>
+        </div>
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="font-bold text-[15px] md:text-base leading-snug text-gray-800">{task.title}</h3>
+        </div>
+        <div className="mt-2 flex items-center justify-between text-[11px] md:text-xs text-slate-500">
+          <span>
+            <span className="sm:hidden">Тема</span>
+            <span className="hidden sm:inline">Прогресс темы</span>
+          </span>
+          <span className="text-sm md:text-base font-bold text-slate-700">{val}%</span>
+        </div>
+        <ProgressBar value={val} />
+
+        {clickable && (
+          <div className="absolute inset-0 hidden md:flex bg-white/90 opacity-0 group-hover:opacity-100 transition-opacity items-center justify-center rounded-2xl cursor-pointer backdrop-blur-[2px]">
+            <div className="flex items-center gap-2 text-purple-600 font-bold bg-white px-4 py-2 rounded-full shadow-lg border border-purple-100">
+              <PlayCircle size={20} /> {role === 'teacher' ? 'Решения' : 'Решать'}
+            </div>
+          </div>
+        )}
+        {clickable && (
+          <div className="mt-3 md:hidden text-xs font-semibold text-purple-600">
+            {role === 'teacher' ? 'Смотреть решения' : 'Открыть тему'}
+          </div>
+        )}
+      </Card>
+    );
+  };
 
   const renderStudentPicker = () => {
     if (role !== 'teacher') return null;
@@ -883,64 +1292,21 @@ const PythonSection = ({
         </div>
       )}
 
-      <div className={`${role === 'student' ? 'hidden md:grid' : 'grid'} grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 stagger-children`}>
-        {taskList.map((task, idx) => {
-          const val = progressMap[task.id] || 0;
-          const clickable = role === 'student' || role === 'teacher';
-          const cardTone = val >= 85
-            ? 'border-emerald-200/90 bg-gradient-to-br from-emerald-50/60 via-white to-emerald-50/50'
-            : (val >= 60
-                ? 'border-purple-200/90 bg-gradient-to-br from-purple-50/65 via-white to-fuchsia-50/45'
-                : (val >= 40
-                    ? 'border-amber-200/90 bg-gradient-to-br from-amber-50/60 via-white to-orange-50/35'
-                    : 'border-slate-200/90 bg-gradient-to-br from-white via-slate-50 to-slate-100/70'));
-          const statusLabel = val >= 85 ? 'Сильная тема' : (val >= 60 ? 'В работе' : (val >= 40 ? 'Нужна практика' : 'Зона внимания'));
+      <div className="space-y-4 md:space-y-5">
+        {taskSections.map((section) => {
+          const sectionVisibilityClass = role === 'student' && section.id === 'topics' ? 'hidden md:block' : 'block';
           return (
-            <Card
-              key={task.id}
-              style={{ '--i': idx }}
-              className={`group relative p-3.5 md:p-4 ${cardTone}`}
-              onClick={clickable ? () => {
-                if (role === 'teacher') setReviewTask(task);
-                else {
-                  setActiveQuestionIndex(null);
-                  setActiveTask(task);
-                }
-              } : undefined}
-            >
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="inline-flex items-center rounded-lg border border-purple-200 bg-white/90 px-2 py-1 text-[11px] md:text-xs font-bold text-purple-700">
-                  №{getTaskDisplayNumber(task)}
-                </span>
-                <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-2 py-1 text-[10px] md:text-xs font-semibold text-slate-600">
-                  {statusLabel}
-                </span>
+            <div key={section.id} className={sectionVisibilityClass}>
+              <div className="mb-3 md:mb-4 flex flex-col gap-1">
+                <h3 className="text-lg md:text-xl font-bold text-slate-900">{section.title}</h3>
+                {section.description && (
+                  <p className="text-xs md:text-sm text-slate-500">{section.description}</p>
+                )}
               </div>
-              <div className="flex items-start justify-between gap-2">
-                <h3 className="font-bold text-[15px] md:text-base leading-snug text-gray-800">{task.title}</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 stagger-children">
+                {section.tasks.map((task, idx) => renderTaskCard(task, idx))}
               </div>
-              <div className="mt-2 flex items-center justify-between text-[11px] md:text-xs text-slate-500">
-                <span>
-                  <span className="sm:hidden">Тема</span>
-                  <span className="hidden sm:inline">Прогресс темы</span>
-                </span>
-                <span className="text-sm md:text-base font-bold text-slate-700">{val}%</span>
-              </div>
-              <ProgressBar value={val} />
-
-              {clickable && (
-                <div className="absolute inset-0 hidden md:flex bg-white/90 opacity-0 group-hover:opacity-100 transition-opacity items-center justify-center rounded-2xl cursor-pointer backdrop-blur-[2px]">
-                  <div className="flex items-center gap-2 text-purple-600 font-bold bg-white px-4 py-2 rounded-full shadow-lg border border-purple-100">
-                    <PlayCircle size={20} /> {role === 'teacher' ? 'Решения' : 'Решать'}
-                  </div>
-                </div>
-              )}
-              {clickable && (
-                <div className="mt-3 md:hidden text-xs font-semibold text-purple-600">
-                  {role === 'teacher' ? 'Смотреть решения' : 'Открыть тему'}
-                </div>
-              )}
-            </Card>
+            </div>
           );
         })}
       </div>
@@ -998,10 +1364,14 @@ const PythonSection = ({
               onChange={(e) => setManageTaskNumber(Number(e.target.value))}
               className="w-full sm:w-auto px-3 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none text-sm"
             >
-              {taskList.map((task) => (
-                <option key={task.id} value={task.number}>
-                  {getTaskDisplayNumber(task)} · {task.title}
-                </option>
+              {taskSections.map((section) => (
+                <optgroup key={`manage-section-${section.id}`} label={section.title}>
+                  {section.tasks.map((task) => (
+                    <option key={task.id} value={task.number}>
+                      {getTaskDisplayNumber(task)} · {task.title}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>
@@ -1021,15 +1391,102 @@ const PythonSection = ({
               className="md:col-span-2 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none min-h-[80px]"
             />
           </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Стартовый код</label>
-            <textarea
-              value={newStarterCode}
-              onChange={(e) => setNewStarterCode(e.target.value)}
-              placeholder="Например: print('Hello')"
-              className="w-full px-4 py-2 rounded-xl bg-gray-900 text-gray-100 font-mono text-sm border border-gray-800 focus:border-purple-400 outline-none min-h-[120px]"
-              spellCheck={false}
-            />
+          <div className="rounded-2xl border border-purple-100/90 bg-white/80 p-3.5 space-y-3">
+            <div className="flex flex-col gap-1">
+              <div className="text-xs font-bold uppercase tracking-wide text-gray-400">Подразделы</div>
+              <div className="text-xs text-gray-500">Создавайте группы задач внутри карточки и распределяйте задачи по этим подразделам.</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {manageSubsections.length === 0 ? (
+                <div className="text-sm text-gray-500">Пока нет подразделов. Можно начать с задач без подраздела или добавить первый подраздел ниже.</div>
+              ) : (
+                manageSubsections.map((subsection) => (
+                  <div key={subsection.id} className="inline-flex items-center gap-2 rounded-xl border border-purple-100 bg-purple-50/70 px-3 py-2 text-sm text-slate-700">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSubsectionId(subsection.id)}
+                      className={`font-semibold ${selectedSubsectionId === subsection.id ? 'text-purple-700' : 'text-slate-700'}`}
+                    >
+                      {subsection.title}
+                    </button>
+                    <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-purple-600">
+                      {subsection.count}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => startEditSubsection(subsection)}
+                      className="text-slate-500 hover:text-purple-600"
+                      title="Переименовать подраздел"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteSubsection(subsection)}
+                      disabled={subsectionSaving}
+                      className="text-rose-500 hover:text-rose-600 disabled:opacity-60"
+                      title="Удалить подраздел"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-2">
+              <input
+                type="text"
+                value={editingSubsectionId ? editingSubsectionTitle : newSubsectionTitle}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (editingSubsectionId) setEditingSubsectionTitle(value);
+                  else setNewSubsectionTitle(value);
+                }}
+                placeholder="Например: Генераторы"
+                className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+              />
+              <div className="flex flex-wrap gap-2">
+                {editingSubsectionId && (
+                  <Button variant="secondary" type="button" onClick={cancelEditSubsection} disabled={subsectionSaving}>
+                    Отменить
+                  </Button>
+                )}
+                <Button type="button" onClick={handleSaveSubsection} disabled={subsectionSaving}>
+                  {subsectionSaving ? 'Сохранение...' : (editingSubsectionId ? 'Сохранить подраздел' : 'Добавить подраздел')}
+                </Button>
+              </div>
+            </div>
+            {subsectionError && <div className="text-xs text-red-500">{subsectionError}</div>}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_260px] gap-3">
+            <div>
+              <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Стартовый код</label>
+              <textarea
+                value={newStarterCode}
+                onChange={(e) => setNewStarterCode(e.target.value)}
+                placeholder="Например: print('Hello')"
+                className="w-full px-4 py-2 rounded-xl bg-gray-900 text-gray-100 font-mono text-sm border border-gray-800 focus:border-purple-400 outline-none min-h-[120px]"
+                spellCheck={false}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Подраздел задачи</label>
+              <select
+                value={selectedSubsectionId}
+                onChange={(e) => setSelectedSubsectionId(e.target.value || PYTHON_DEFAULT_SUBSECTION_ID)}
+                className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+              >
+                <option value={PYTHON_DEFAULT_SUBSECTION_ID}>Без подраздела</option>
+                {manageSubsections.map((subsection) => (
+                  <option key={subsection.id} value={subsection.id}>
+                    {subsection.title}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-2 text-xs text-gray-500">
+                Ученик увидит подразделы внутри карточки и сможет выбирать задачи по группам.
+              </div>
+            </div>
           </div>
 
           <div className="space-y-3">
@@ -1107,34 +1564,48 @@ const PythonSection = ({
             </div>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-3">
             {manageQuestions.length === 0 ? (
               <div className="text-sm text-gray-500">Пока нет задач для выбранной темы.</div>
             ) : (
-              manageQuestions.map((q, idx) => (
-                <div key={q.id || idx} className="p-3 rounded-xl border border-purple-100 bg-white/85 flex items-start justify-between gap-2.5">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-800">{q.title || q.question || `Задача ${idx + 1}`}</p>
-                    <p className="text-xs text-gray-500 mt-1">Тестов: {Array.isArray(q.tests) ? q.tests.length : (q.answer ? 1 : 0)}</p>
+              manageQuestionGroups.map((group) => (
+                <div key={`manage-group-${group.id}`} className="space-y-2">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700">
+                    <span>{group.title}</span>
+                    <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-purple-600">{group.count}</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => startEditPythonTask(q)}
-                      className="p-2 rounded-lg text-gray-500 hover:text-purple-600 hover:bg-purple-50"
-                      title="Редактировать"
-                    >
-                      <Pencil size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeletePythonQuestion(manageTaskNumber, q.id)}
-                      className="p-2 rounded-lg text-red-500 hover:bg-red-50"
-                      title="Удалить"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                  {group.items.map((item) => {
+                    const q = item.question;
+                    return (
+                      <div key={q.id || item.questionIndex} className="p-3 rounded-xl border border-purple-100 bg-white/85 flex items-start justify-between gap-2.5">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-800">{q.title || q.question || `Задача ${item.globalNumber}`}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                            <span>{`Задача ${item.localNumber} в подразделе`}</span>
+                            <span>{`Тестов: ${Array.isArray(q.tests) ? q.tests.length : (q.answer ? 1 : 0)}`}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => startEditPythonTask(q)}
+                            className="p-2 rounded-lg text-gray-500 hover:text-purple-600 hover:bg-purple-50"
+                            title="Редактировать"
+                          >
+                            <Pencil size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePythonQuestion(manageTaskNumber, q.id)}
+                            className="p-2 rounded-lg text-red-500 hover:bg-red-50"
+                            title="Удалить"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               ))
             )}
@@ -1147,14 +1618,15 @@ const PythonSection = ({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-bold text-gray-800">Теория темы</h3>
-              <p className="text-xs text-gray-500">Текст или встраиваемый Google Docs</p>
+              <p className="text-xs text-gray-500">Текст, Google Docs или видеоразбор с записью голоса и действий в редакторе</p>
             </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
             {[
               { id: 'text', label: 'Текст' },
-              { id: 'gdoc', label: 'Google Docs' }
+              { id: 'gdoc', label: 'Google Docs' },
+              { id: THEORY_RECORDING_TYPE, label: 'Видеоразбор' },
             ].map((item) => (
               <button
                 key={item.id}
@@ -1178,7 +1650,7 @@ const PythonSection = ({
               placeholder="Вставьте текст теории..."
               className="w-full min-h-[160px] px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
             />
-          ) : (
+          ) : theoryType === 'gdoc' ? (
             <div className="space-y-2">
               <input
                 type="text"
@@ -1194,6 +1666,14 @@ const PythonSection = ({
                 Подойдут и обычные ссылки на документ (view/edit) — они встроятся через preview. Для оглавления используйте «Открыть полностью».
               </p>
             </div>
+          ) : (
+            <TheoryRecordingEditor
+              key={`theory-recording-editor-${manageTaskNumber}-${savedTheoryRecording?.updatedAt || savedTheoryRecording?.createdAt || 'new'}`}
+              initialRecording={theoryType === THEORY_RECORDING_TYPE ? savedTheoryRecording : null}
+              onDraftChange={setTheoryRecordingDraft}
+              ensurePyodideReady={ensurePyodideReady}
+              disabled={theorySaving}
+            />
           )}
 
           <div className="flex flex-wrap items-center justify-between gap-3">

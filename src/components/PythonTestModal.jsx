@@ -6,7 +6,17 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 import { api } from '../services/api';
+import TheoryRecordingPlayer from './TheoryRecordingPlayer';
 import { Button } from './ui';
+import {
+  buildPythonSubsectionModel,
+  getPythonTaskEntry,
+  PYTHON_DEFAULT_SUBSECTION_ID,
+} from '../utils/pythonSubsections';
+import {
+  normalizeTheoryRecording,
+  THEORY_RECORDING_TYPE,
+} from '../utils/theoryRecording';
 
 const QUESTION_CODE_SAVE_DEBOUNCE_MS = 250;
 
@@ -75,6 +85,7 @@ const PythonTestModal = ({
 }) => {
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [selectedSubsectionId, setSelectedSubsectionId] = useState(PYTHON_DEFAULT_SUBSECTION_ID);
   const [solvedIds, setSolvedIds] = useState(new Set());
   const [solvedCodeById, setSolvedCodeById] = useState({});
   const [questionCodeById, setQuestionCodeById] = useState({});
@@ -125,6 +136,8 @@ const PythonTestModal = ({
   const saveTimerRef = useRef(null);
 
   const currentMastery = progress[task.id] || 0;
+  const taskEntry = useMemo(() => getPythonTaskEntry(testDb, task?.number), [testDb, task?.number]);
+  const subsectionModel = useMemo(() => buildPythonSubsectionModel(taskEntry, PYTHON_LEVEL_ID), [taskEntry, PYTHON_LEVEL_ID]);
   const collabBaseRoomId = String(codeSyncRoomId || '').trim();
   const collabWsUrl = useMemo(() => getCollabWsUrl(), []);
   const localCollabName = useMemo(() => 'Ученик', []);
@@ -472,8 +485,7 @@ const PythonTestModal = ({
   }, []);
 
   useEffect(() => {
-    const qs = testDb?.[task.number]?.[PYTHON_LEVEL_ID] || [];
-    const list = Array.isArray(qs) ? qs : [];
+    const list = Array.isArray(subsectionModel.questions) ? subsectionModel.questions : [];
     let rawIndex = Number(initialQuestionIndex);
     if (!Number.isFinite(rawIndex) && typeof window !== 'undefined') {
       try {
@@ -488,6 +500,13 @@ const PythonTestModal = ({
     setQuestions(list);
     if (list.length > 0) {
       setCurrentIndex(safeIndex);
+      setSelectedSubsectionId(
+        subsectionModel.questionSectionByIndex.get(safeIndex)
+        || subsectionModel.subsections.find((section) => section.count > 0)?.id
+        || PYTHON_DEFAULT_SUBSECTION_ID
+      );
+    } else {
+      setSelectedSubsectionId(PYTHON_DEFAULT_SUBSECTION_ID);
     }
     setSolvedIds(new Set());
     setSolvedCodeById({});
@@ -524,7 +543,15 @@ const PythonTestModal = ({
         })
         .catch((err) => console.error(err));
     }
-  }, [task?.number, testDb, studentId, initialQuestionIndex]);
+  }, [task?.number, subsectionModel, studentId, initialQuestionIndex]);
+
+  useEffect(() => {
+    if (!questions.length) return;
+    const nextSubsectionId = subsectionModel.questionSectionByIndex.get(currentIndex) || PYTHON_DEFAULT_SUBSECTION_ID;
+    if (nextSubsectionId !== selectedSubsectionId) {
+      setSelectedSubsectionId(nextSubsectionId);
+    }
+  }, [currentIndex, questions.length, selectedSubsectionId, subsectionModel]);
 
   useEffect(() => {
     if (!Number.isFinite(currentIndex)) return;
@@ -1053,8 +1080,13 @@ const PythonTestModal = ({
   };
 
   const handleNext = () => {
-    if (currentIndex < questions.length - 1) setCurrentIndex(currentIndex + 1);
-    else onClose();
+    if (Number.isFinite(nextQuestionIndex)) {
+      const nextSubsection = visibleSubsections.find((section) => section.questionIndexes.includes(nextQuestionIndex));
+      if (nextSubsection?.id) setSelectedSubsectionId(nextSubsection.id);
+      setCurrentIndex(nextQuestionIndex);
+      return;
+    }
+    onClose();
   };
 
   if (!task) return null;
@@ -1092,6 +1124,27 @@ const PythonTestModal = ({
     return typeof document !== 'undefined' ? createPortal(emptyModal, document.body) : null;
   }
 
+  const visibleSubsections = subsectionModel.subsections.filter((section) => section.count > 0);
+  const activeSubsection = visibleSubsections.find((section) => section.id === selectedSubsectionId)
+    || visibleSubsections[0]
+    || null;
+  const visibleQuestionItems = activeSubsection?.items || [];
+  const currentQuestionPosition = visibleQuestionItems.findIndex((item) => item.questionIndex === currentIndex);
+  const nextQuestionIndex = (() => {
+    if (currentQuestionPosition >= 0 && currentQuestionPosition < visibleQuestionItems.length - 1) {
+      return visibleQuestionItems[currentQuestionPosition + 1].questionIndex;
+    }
+    const activeSectionIndex = visibleSubsections.findIndex((section) => section.id === activeSubsection?.id);
+    if (activeSectionIndex >= 0) {
+      for (let index = activeSectionIndex + 1; index < visibleSubsections.length; index += 1) {
+        if (visibleSubsections[index]?.items?.length) {
+          return visibleSubsections[index].items[0].questionIndex;
+        }
+      }
+    }
+    return null;
+  })();
+  const showSubsectionNav = visibleSubsections.length > 1 || subsectionModel.hasCustomSubsections;
   const currentQuestion = questions[currentIndex];
   const currentId = String(currentQuestion?.id ?? currentIndex).trim();
   const isSolved = solvedIds.has(currentId);
@@ -1118,6 +1171,9 @@ const PythonTestModal = ({
   const solvedAllTests = isSolved && testResults.length === 0;
   const theory = testDb?.[task.number]?.pythonTheory || null;
   const theoryFullUrl = theory?.type === 'gdoc' ? buildGoogleDocFullUrl(theory.content) : '';
+  const theoryRecording = theory?.type === THEORY_RECORDING_TYPE
+    ? normalizeTheoryRecording(theory?.content)
+    : null;
   const editorOptions = {
     minimap: { enabled: false },
     fontSize: 14,
@@ -1146,10 +1202,18 @@ const PythonTestModal = ({
     }
     return '';
   })();
+  const handleSelectSubsection = (subsectionId) => {
+    const nextSubsection = visibleSubsections.find((section) => section.id === subsectionId);
+    if (!nextSubsection) return;
+    setSelectedSubsectionId(nextSubsection.id);
+    if (!nextSubsection.questionIndexes.includes(currentIndex) && nextSubsection.items[0]) {
+      setCurrentIndex(nextSubsection.items[0].questionIndex);
+    }
+  };
 
   const modal = (
-    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-end sm:items-center justify-center p-2 sm:p-4">
-      <div className="surface-card modal-card rounded-2xl md:rounded-3xl w-full max-w-5xl max-h-[95svh] md:max-h-[90vh] p-3.5 sm:p-4 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
+    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-stretch justify-stretch p-0">
+      <div className="surface-card modal-card modal-card--fullscreen rounded-none w-screen h-[100dvh] max-w-none max-h-none p-3.5 sm:p-4 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
         <div className="flex flex-col gap-3 md:gap-4 mb-3 md:mb-4">
           <div className="flex justify-between items-start">
             <div>
@@ -1159,37 +1223,65 @@ const PythonTestModal = ({
             <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={18}/></button>
           </div>
 
-          <div className="flex gap-2 overflow-x-auto pb-1 pr-1">
-            {questions.map((q, idx) => {
-              const qId = String(q?.id ?? idx);
-              const solved = solvedIds.has(qId);
-              const isCurrent = idx === currentIndex;
-              let btnClass = "shrink-0 w-9 h-9 rounded-lg text-sm font-bold flex items-center justify-center transition-all border-2 ";
-
-              if (isCurrent && solved) {
-                btnClass += "border-green-400 ring-2 ring-green-100 bg-green-100 text-green-700";
-              } else if (isCurrent) {
-                btnClass += "border-purple-600 ring-2 ring-purple-200 text-purple-600 bg-white";
-              } else if (solved) {
-                btnClass += "border-green-200 bg-green-100 text-green-600";
-              } else {
-                btnClass += "border-gray-300 bg-white text-gray-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700";
-              }
-
-              return (
-                <button
-                  key={qId}
-                  onClick={() => setCurrentIndex(idx)}
-                  className={btnClass}
-                  title={solved ? 'Решено' : undefined}
-                >
-                  {idx + 1}
-                </button>
-              );
-            })}
+          {showSubsectionNav && (
+            <div className="space-y-2">
+              <div className="text-[11px] md:text-xs font-bold uppercase tracking-wide text-slate-400">Подразделы</div>
+              <div className="flex flex-wrap gap-2">
+                {visibleSubsections.map((section) => (
+                  <button
+                    key={`py-subsection-${section.id}`}
+                    type="button"
+                    onClick={() => handleSelectSubsection(section.id)}
+                    className={`rounded-xl border px-3 py-2 text-xs md:text-sm font-semibold transition-colors ${
+                      section.id === activeSubsection?.id
+                        ? 'border-purple-500 bg-purple-600 text-white'
+                        : 'border-purple-100 bg-white text-slate-600 hover:border-purple-300 hover:text-purple-700'
+                    }`}
+                  >
+                    {`${section.title} · ${section.count}`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="space-y-2">
+            <div className="text-[11px] md:text-xs font-bold uppercase tracking-wide text-slate-400">
+              {activeSubsection ? `Раздел: ${activeSubsection.title}` : 'Раздел'}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {visibleQuestionItems.map((item) => {
+                const qId = String(item.question?.id ?? item.questionIndex);
+                const solved = solvedIds.has(qId);
+                const isCurrent = item.questionIndex === currentIndex;
+                const buttonClass = isCurrent && solved
+                  ? 'border-green-400 ring-2 ring-green-100 bg-green-100 text-green-700'
+                  : (isCurrent
+                      ? 'border-purple-600 ring-2 ring-purple-200 text-purple-600 bg-white'
+                      : (solved
+                          ? 'border-green-200 bg-green-100 text-green-600'
+                          : 'border-gray-300 bg-white text-gray-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700'));
+                const label = item.question?.title || `Вопрос ${item.localNumber}`;
+                return (
+                  <button
+                    key={`py-question-${qId}`}
+                    type="button"
+                    onClick={() => setCurrentIndex(item.questionIndex)}
+                    className={`min-w-[132px] rounded-2xl border px-3 py-2 text-left transition-all ${buttonClass}`}
+                    title={label}
+                  >
+                    <div className="text-[10px] font-bold uppercase tracking-wide opacity-70">{`Задача ${item.localNumber}`}</div>
+                    <div className="mt-1 truncate text-xs md:text-sm font-semibold">{label}</div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div className="flex items-center justify-between text-[11px] md:text-xs text-slate-500">
-            <span>Задание {currentIndex + 1} из {questions.length}</span>
+            <span>
+              {activeSubsection
+                ? `Вопрос ${Math.max(1, currentQuestionPosition + 1)} из ${visibleQuestionItems.length} в подразделе`
+                : `Задача ${currentIndex + 1} из ${questions.length}`}
+            </span>
             {isSolved ? (
               <span className="font-semibold text-emerald-600">Решено</span>
             ) : (
@@ -1200,16 +1292,16 @@ const PythonTestModal = ({
 
         <div className="flex-1 overflow-y-auto pr-0 md:pr-1">
           {theory?.content && (
-            <div className="mb-4 md:mb-6 rounded-2xl border border-purple-100 bg-purple-50/60 p-3 md:p-4">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mb-4 md:mb-6 rounded-3xl border border-violet-200/70 bg-gradient-to-br from-white via-violet-50/70 to-fuchsia-50/45 p-3.5 md:p-4 shadow-[0_14px_34px_rgba(124,58,237,0.12)]">
+              <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Теория</div>
                 <div className="flex items-center gap-2 sm:gap-3 text-[11px] sm:text-xs">
-                  {theoryFullUrl && (
+                  {theory?.type === 'gdoc' && theoryFullUrl && (
                     <a
                       href={theoryFullUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-purple-600 hover:text-purple-700"
+                      className="inline-flex items-center rounded-full border border-violet-200/70 bg-white/75 px-2.5 py-1 font-semibold text-violet-700 transition hover:border-violet-300 hover:bg-white"
                     >
                       Открыть полностью
                     </a>
@@ -1217,14 +1309,20 @@ const PythonTestModal = ({
                   <button
                     type="button"
                     onClick={() => setShowTheory((prev) => !prev)}
-                    className="text-purple-600 hover:text-purple-700"
+                    className={`inline-flex items-center rounded-full border px-2.5 py-1 font-semibold transition ${
+                      showTheory
+                        ? 'border-violet-300/80 bg-white/75 text-violet-700 hover:border-violet-400 hover:bg-white'
+                        : 'border-violet-500/70 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white hover:from-violet-500 hover:to-fuchsia-500'
+                    }`}
                   >
                     {showTheory ? 'Свернуть' : 'Показать'}
                   </button>
                 </div>
               </div>
               {showTheory && (
-                theory.type === 'gdoc' ? (
+                theory.type === THEORY_RECORDING_TYPE ? (
+                  <TheoryRecordingPlayer recording={theoryRecording} />
+                ) : theory.type === 'gdoc' ? (
                   isGoogleDocEmbedUrl(theory.content) ? (
                     <div className="mt-3 overflow-hidden rounded-xl border border-purple-100 bg-white">
                       <iframe
@@ -1452,12 +1550,12 @@ const PythonTestModal = ({
         <div className="mt-1 rounded-2xl border border-purple-200/80 bg-gradient-to-r from-violet-100/95 via-fuchsia-100/90 to-purple-100/95 px-3 py-3 md:py-3.5 pb-[calc(env(safe-area-inset-bottom)+0.25rem)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
           <div className="text-xs sm:text-sm text-gray-500">
             Прогресс темы: <span className="font-semibold text-purple-700">{currentMastery}%</span>
-            <span className="text-gray-400"> • {currentIndex + 1}/{questions.length}</span>
+            <span className="text-gray-400"> • {Math.max(1, currentQuestionPosition + 1)}/{Math.max(visibleQuestionItems.length, 1)}</span>
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <Button variant="secondary" onClick={onClose} className="w-full sm:w-auto">Закрыть</Button>
             <Button onClick={handleNext} className="w-full sm:w-auto">
-              {currentIndex >= questions.length - 1 ? 'Готово' : 'Дальше'}
+              {Number.isFinite(nextQuestionIndex) ? 'Дальше' : 'Готово'}
             </Button>
           </div>
         </div>
@@ -1494,4 +1592,5 @@ const PythonTestModal = ({
 
 
 export default PythonTestModal;
+
 

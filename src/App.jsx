@@ -1128,17 +1128,27 @@ const MOCK_TASKS = RAW_TASKS
 
 // Начальная база вопросов
 const PYTHON_TASKS = [
-  { id: 101, number: 101, title: 'Ввод и вывод данных', displayNumber: '1.0' },
-  { id: 102, number: 102, title: 'Переменные', displayNumber: '1.1' },
-  { id: 103, number: 103, title: 'Условия', displayNumber: '2' },
-  { id: 104, number: 104, title: 'Вычисления', displayNumber: '3' },
-  { id: 105, number: 105, title: 'Цикл for', displayNumber: '4' },
-  { id: 106, number: 106, title: 'Строки', displayNumber: '5' },
-  { id: 107, number: 107, title: 'Цикл while', displayNumber: '6' },
-  { id: 108, number: 108, title: 'Списки', displayNumber: '7.0' },
-  { id: 109, number: 109, title: 'Кортежи', displayNumber: '7.1' },
-  { id: 110, number: 110, title: 'Функции и рекурсия', displayNumber: '8' },
-  { id: 111, number: 111, title: 'Двумерные массивы', displayNumber: '9' }
+  { id: 101, number: 101, title: 'Ввод и вывод данных', displayNumber: '1.0', sectionId: 'topics' },
+  { id: 102, number: 102, title: 'Переменные', displayNumber: '1.1', sectionId: 'topics' },
+  { id: 103, number: 103, title: 'Условия', displayNumber: '2', sectionId: 'topics' },
+  { id: 104, number: 104, title: 'Вычисления', displayNumber: '3', sectionId: 'topics' },
+  { id: 105, number: 105, title: 'Цикл for', displayNumber: '4', sectionId: 'topics' },
+  { id: 106, number: 106, title: 'Строки', displayNumber: '5', sectionId: 'topics' },
+  { id: 107, number: 107, title: 'Цикл while', displayNumber: '6', sectionId: 'topics' },
+  { id: 108, number: 108, title: 'Списки', displayNumber: '7.0', sectionId: 'topics' },
+  { id: 109, number: 109, title: 'Кортежи', displayNumber: '7.1', sectionId: 'topics' },
+  { id: 110, number: 110, title: 'Функции и рекурсия', displayNumber: '8', sectionId: 'topics' },
+  { id: 111, number: 111, title: 'Двумерные массивы', displayNumber: '9', sectionId: 'topics' },
+  { id: 205, number: 205, title: 'Подготовка к заданию 5', displayNumber: '5', sectionId: 'exam-prep', showInPath: false },
+  { id: 208, number: 208, title: 'Подготовка к заданию 8', displayNumber: '8', sectionId: 'exam-prep', showInPath: false },
+  { id: 214, number: 214, title: 'Подготовка к заданию 14', displayNumber: '14', sectionId: 'exam-prep', showInPath: false },
+  { id: 216, number: 216, title: 'Подготовка к заданию 16', displayNumber: '16', sectionId: 'exam-prep', showInPath: false },
+  { id: 217, number: 217, title: 'Подготовка к заданию 17', displayNumber: '17', sectionId: 'exam-prep', showInPath: false },
+  { id: 223, number: 223, title: 'Подготовка к заданию 23', displayNumber: '23', sectionId: 'exam-prep', showInPath: false },
+  { id: 224, number: 224, title: 'Подготовка к заданию 24', displayNumber: '24', sectionId: 'exam-prep', showInPath: false },
+  { id: 225, number: 225, title: 'Подготовка к заданию 25', displayNumber: '25', sectionId: 'exam-prep', showInPath: false },
+  { id: 226, number: 226, title: 'Подготовка к заданию 26', displayNumber: '26', sectionId: 'exam-prep', showInPath: false },
+  { id: 227, number: 227, title: 'Подготовка к заданию 27', displayNumber: '27', sectionId: 'exam-prep', showInPath: false }
 ];
 
 const PYTHON_TASK_MAP = new Map(PYTHON_TASKS.map((task) => [Number(task.number), task]));

@@ -2225,6 +2225,125 @@ const normalizeTeacherId = (value) => {
   return String(value || '').trim();
 };
 
+const SCHEDULE_WEEKDAYS = [
+  { key: 'monday', label: 'Понедельник', order: 1 },
+  { key: 'tuesday', label: 'Вторник', order: 2 },
+  { key: 'wednesday', label: 'Среда', order: 3 },
+  { key: 'thursday', label: 'Четверг', order: 4 },
+  { key: 'friday', label: 'Пятница', order: 5 },
+  { key: 'saturday', label: 'Суббота', order: 6 },
+  { key: 'sunday', label: 'Воскресенье', order: 7 },
+];
+const SCHEDULE_WEEKDAY_BY_KEY = SCHEDULE_WEEKDAYS.reduce((acc, item) => {
+  acc[item.key] = item;
+  return acc;
+}, {});
+const SCHEDULE_WEEKDAY_KEY_BY_LABEL = SCHEDULE_WEEKDAYS.reduce((acc, item) => {
+  acc[item.label.toLowerCase()] = item.key;
+  return acc;
+}, {});
+
+const normalizeScheduleWeekdayKey = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return '';
+  if (SCHEDULE_WEEKDAY_BY_KEY[normalized]) return normalized;
+  return SCHEDULE_WEEKDAY_KEY_BY_LABEL[normalized] || '';
+};
+
+const normalizeScheduleTime = (value) => {
+  const normalized = String(value || '').trim();
+  const match = normalized.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return '';
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return '';
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return '';
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+};
+
+const getScheduleWeekdayMetaFromDate = (value) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return null;
+  const date = new Date(`${normalized}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  const weekday = date.getDay();
+  const order = weekday === 0 ? 7 : weekday;
+  return SCHEDULE_WEEKDAYS.find((item) => item.order === order) || null;
+};
+
+const resolveScheduleWeekdayMeta = ({ weekdayKey, day, date }) => {
+  const normalizedKey = normalizeScheduleWeekdayKey(weekdayKey);
+  if (normalizedKey) return SCHEDULE_WEEKDAY_BY_KEY[normalizedKey] || null;
+  const normalizedDayKey = normalizeScheduleWeekdayKey(day);
+  if (normalizedDayKey) return SCHEDULE_WEEKDAY_BY_KEY[normalizedDayKey] || null;
+  return getScheduleWeekdayMetaFromDate(date);
+};
+
+const buildStudentScheduleEntry = (payload = {}, options = {}) => {
+  const existing = options?.existing && typeof options.existing === 'object' ? options.existing : null;
+  const auth = options?.auth && typeof options.auth === 'object' ? options.auth : null;
+  const rawDate = typeof payload?.date === 'string'
+    ? payload.date.trim()
+    : (typeof existing?.date === 'string' ? existing.date.trim() : '');
+  if (rawDate && !/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+    return { error: 'Некорректная дата' };
+  }
+
+  const weekdayMeta = resolveScheduleWeekdayMeta({
+    weekdayKey: payload?.weekdayKey ?? existing?.weekdayKey,
+    day: payload?.day ?? existing?.day,
+    date: rawDate,
+  });
+  const time = normalizeScheduleTime(payload?.time ?? existing?.time);
+  if (!weekdayMeta) {
+    return { error: 'Выберите день занятия' };
+  }
+  if (!time) {
+    return { error: 'Укажите время занятия' };
+  }
+
+  const subject = (() => {
+    if (typeof payload?.subject === 'string' && payload.subject.trim()) return payload.subject.trim();
+    if (typeof existing?.subject === 'string' && existing.subject.trim()) return existing.subject.trim();
+    return 'Занятие';
+  })();
+  const note = typeof payload?.note === 'string'
+    ? payload.note.trim()
+    : (typeof existing?.note === 'string' ? existing.note.trim() : '');
+  const boardLink = typeof payload?.boardLink === 'string'
+    ? payload.boardLink.trim()
+    : (typeof existing?.boardLink === 'string' ? existing.boardLink.trim() : '');
+  const lessonLink = typeof payload?.lessonLink === 'string'
+    ? payload.lessonLink.trim()
+    : (typeof existing?.lessonLink === 'string' ? existing.lessonLink.trim() : '');
+  const actorRole = String(auth?.role || '').trim() || null;
+  const actorId = String(auth?.id || '').trim() || null;
+  const actorName = typeof auth?.name === 'string' && auth.name.trim()
+    ? auth.name.trim()
+    : null;
+  const nowIso = new Date().toISOString();
+
+  return {
+    entry: {
+      id: existing?.id || crypto.randomUUID(),
+      date: rawDate || null,
+      day: weekdayMeta.label,
+      weekdayKey: weekdayMeta.key,
+      weekdayOrder: weekdayMeta.order,
+      time,
+      subject,
+      note,
+      boardLink,
+      lessonLink,
+      createdAt: existing?.createdAt || nowIso,
+      createdByRole: existing?.createdByRole || actorRole,
+      createdById: existing?.createdById || actorId,
+      createdByName: existing?.createdByName || actorName,
+      updatedAt: nowIso,
+    }
+  };
+};
+
 const normalizeTaskNumber = (value) => {
   const taskNumber = Number(value);
   if (!Number.isFinite(taskNumber)) return NaN;
@@ -2970,7 +3089,7 @@ const filterTargetsByCount = (targets, count) => {
   return targets.filter((val) => val <= count);
 };
 
-const isPythonTaskNumber = (taskNum) => Number.isFinite(taskNum) && taskNum >= 100 && taskNum <= 199;
+const isPythonTaskNumber = (taskNum) => Number.isFinite(taskNum) && taskNum >= 100;
 const isClassicTaskNumber = (taskNum) => Number.isFinite(taskNum) && taskNum >= 1 && taskNum <= 27;
 const isKnownTaskNumber = (taskNum) => isClassicTaskNumber(taskNum) || isPythonTaskNumber(taskNum);
 const GOAL_TYPE_TASK = 'task';
@@ -4173,7 +4292,7 @@ const hasCyrillic = (value) => /[\u0400-\u04FF]/.test(value);
 
 const looksMojibake = (name) => {
   if (!name || hasCyrillic(name)) return false;
-  // Typical case: UTF-8 bytes for Cyrillic interpreted as latin1 ("Ð", "Г‘" + 0x80..0xBF).
+  // Typical case: UTF-8 bytes for Cyrillic interpreted as latin1 (U+00D0/U+00D1 + 0x80..0xBF).
   if (/(?:\u00D0|\u00D1)[\u0080-\u00BF]/.test(name)) return true;
   // C1 controls should not appear in normal file names; they are common in mojibake.
   return /[\u0080-\u009F]/.test(name);
@@ -6466,46 +6585,43 @@ app.get('/api/student-schedule', (req, res) => {
 });
 
 app.post('/api/student-schedule', (req, res) => {
-  if (!ensureStaffWriteAccess(req, res)) return;
-  const { studentId, day, date, time, subject, note, boardLink, lessonLink } = req.body || {};
+  const { studentId } = req.body || {};
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
-  const trimmedDate = typeof date === 'string' ? date.trim() : '';
-  const trimmedDay = typeof day === 'string' ? day.trim() : '';
-  if ((!trimmedDate && !trimmedDay) || !time || !subject) {
-    return res.status(400).json({ error: '\u0417\u0430\u043f\u043e\u043b\u043d\u0438\u0442\u0435 \u0434\u0430\u0442\u0443, \u0432\u0440\u0435\u043c\u044f \u0438 \u043f\u0440\u0435\u0434\u043c\u0435\u0442' });
+  const { entry, error } = buildStudentScheduleEntry(req.body || {}, { auth: req.auth });
+  if (!entry) {
+    return res.status(400).json({ error: error || 'Не удалось сохранить занятие' });
   }
-  if (trimmedDate && !/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) {
-    return res.status(400).json({ error: '\u041d\u0435\u043a\u043e\u0440\u0440\u0435\u043a\u0442\u043d\u0430\u044f \u0434\u0430\u0442\u0430' });
-  }
-  const resolvedDay = (() => {
-    if (trimmedDay) return trimmedDay;
-    if (!trimmedDate) return '';
-    const dt = new Date(`${trimmedDate}T00:00:00`);
-    if (Number.isNaN(dt.getTime())) return '';
-    const label = dt.toLocaleDateString('ru-RU', { weekday: 'long' });
-    return label ? label.charAt(0).toUpperCase() + label.slice(1) : '';
-  })();
-
-  const entry = {
-    id: crypto.randomUUID(),
-    date: trimmedDate || null,
-    day: resolvedDay,
-    time: String(time).trim(),
-    subject: String(subject).trim(),
-    note: typeof note === 'string' ? note.trim() : '',
-    boardLink: typeof boardLink === 'string' ? boardLink.trim() : '',
-    lessonLink: typeof lessonLink === 'string' ? lessonLink.trim() : '',
-    createdAt: new Date().toISOString(),
-  };
   const data = getStudentData(student.id);
   const schedule = [entry, ...(data.schedule || [])];
   setStudentData(student.id, { ...data, schedule });
   res.json(entry);
 });
 
+app.put('/api/student-schedule/:id', (req, res) => {
+  const { id } = req.params;
+  const { studentId } = req.body || {};
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const data = getStudentData(student.id);
+  const schedule = Array.isArray(data.schedule) ? [...data.schedule] : [];
+  const index = schedule.findIndex((item) => item?.id === id);
+  if (index < 0) {
+    return res.status(404).json({ error: 'Занятие не найдено' });
+  }
+  const { entry, error } = buildStudentScheduleEntry(req.body || {}, {
+    existing: schedule[index],
+    auth: req.auth,
+  });
+  if (!entry) {
+    return res.status(400).json({ error: error || 'Не удалось обновить занятие' });
+  }
+  schedule[index] = entry;
+  setStudentData(student.id, { ...data, schedule });
+  res.json(entry);
+});
+
 app.delete('/api/student-schedule/:id', (req, res) => {
-  if (!ensureStaffWriteAccess(req, res)) return;
   const { id } = req.params;
   const { studentId } = req.query;
   const student = ensureStudentAccess(req, res, studentId);

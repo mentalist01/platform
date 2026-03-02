@@ -6,7 +6,17 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 import { api } from '../services/api';
+import TheoryRecordingPlayer from './TheoryRecordingPlayer';
 import { Button } from './ui';
+import {
+  buildPythonSubsectionModel,
+  getPythonTaskEntry,
+  PYTHON_DEFAULT_SUBSECTION_ID,
+} from '../utils/pythonSubsections';
+import {
+  normalizeTheoryRecording,
+  THEORY_RECORDING_TYPE,
+} from '../utils/theoryRecording';
 
 const QUESTION_CODE_SAVE_DEBOUNCE_MS = 250;
 
@@ -67,6 +77,7 @@ const PythonReviewModal = ({
 }) => {
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [selectedSubsectionId, setSelectedSubsectionId] = useState(PYTHON_DEFAULT_SUBSECTION_ID);
   const [solvedIds, setSolvedIds] = useState(new Set());
   const [solvedCodeById, setSolvedCodeById] = useState({});
   const [showTheory, setShowTheory] = useState(false);
@@ -114,6 +125,8 @@ const PythonReviewModal = ({
   const questionCodeLocalVersionRef = useRef({});
   const pendingSaveQuestionIdRef = useRef('');
   const saveTimerRef = useRef(null);
+  const taskEntry = useMemo(() => getPythonTaskEntry(testDb, task?.number), [testDb, task?.number]);
+  const subsectionModel = useMemo(() => buildPythonSubsectionModel(taskEntry, PYTHON_LEVEL_ID), [taskEntry, PYTHON_LEVEL_ID]);
   const collabBaseRoomId = String(codeSyncRoomId || '').trim();
   const collabWsUrl = useMemo(() => getCollabWsUrl(), []);
   const localCollabName = useMemo(() => 'Преподаватель', []);
@@ -444,9 +457,14 @@ const PythonReviewModal = ({
   }, []);
 
   useEffect(() => {
-    const qs = testDb?.[task.number]?.[PYTHON_LEVEL_ID] || [];
-    setQuestions(Array.isArray(qs) ? qs : []);
+    const list = Array.isArray(subsectionModel.questions) ? subsectionModel.questions : [];
+    setQuestions(list);
     setCurrentIndex(0);
+    setSelectedSubsectionId(
+      subsectionModel.questionSectionByIndex.get(0)
+      || subsectionModel.subsections.find((section) => section.count > 0)?.id
+      || PYTHON_DEFAULT_SUBSECTION_ID
+    );
     setSolvedIds(new Set());
     setSolvedCodeById({});
     setQuestionCodeById({});
@@ -483,7 +501,15 @@ const PythonReviewModal = ({
         })
         .catch((err) => console.error(err));
     }
-  }, [task?.number, testDb, studentId, PYTHON_LEVEL_ID]);
+  }, [task?.number, subsectionModel, studentId, PYTHON_LEVEL_ID]);
+
+  useEffect(() => {
+    if (!questions.length) return;
+    const nextSubsectionId = subsectionModel.questionSectionByIndex.get(currentIndex) || PYTHON_DEFAULT_SUBSECTION_ID;
+    if (nextSubsectionId !== selectedSubsectionId) {
+      setSelectedSubsectionId(nextSubsectionId);
+    }
+  }, [currentIndex, questions.length, selectedSubsectionId, subsectionModel]);
 
   useEffect(() => {
     document.body.classList.add('overflow-hidden');
@@ -1029,6 +1055,27 @@ const PythonReviewModal = ({
     return typeof document !== 'undefined' ? createPortal(emptyModal, document.body) : null;
   }
 
+  const visibleSubsections = subsectionModel.subsections.filter((section) => section.count > 0);
+  const activeSubsection = visibleSubsections.find((section) => section.id === selectedSubsectionId)
+    || visibleSubsections[0]
+    || null;
+  const visibleQuestionItems = activeSubsection?.items || [];
+  const currentQuestionPosition = visibleQuestionItems.findIndex((item) => item.questionIndex === currentIndex);
+  const nextQuestionIndex = (() => {
+    if (currentQuestionPosition >= 0 && currentQuestionPosition < visibleQuestionItems.length - 1) {
+      return visibleQuestionItems[currentQuestionPosition + 1].questionIndex;
+    }
+    const activeSectionIndex = visibleSubsections.findIndex((section) => section.id === activeSubsection?.id);
+    if (activeSectionIndex >= 0) {
+      for (let index = activeSectionIndex + 1; index < visibleSubsections.length; index += 1) {
+        if (visibleSubsections[index]?.items?.length) {
+          return visibleSubsections[index].items[0].questionIndex;
+        }
+      }
+    }
+    return null;
+  })();
+  const showSubsectionNav = visibleSubsections.length > 1 || subsectionModel.hasCustomSubsections;
   const currentQuestion = questions[currentIndex];
   const currentId = String(currentQuestion?.id ?? currentIndex).trim();
   const isSolved = solvedIds.has(currentId);
@@ -1056,6 +1103,9 @@ const PythonReviewModal = ({
     : (value) => String(value ?? '');
   const theory = testDb?.[task.number]?.pythonTheory || null;
   const theoryFullUrl = theory?.type === 'gdoc' ? buildGoogleDocFullUrl(theory.content) : '';
+  const theoryRecording = theory?.type === THEORY_RECORDING_TYPE
+    ? normalizeTheoryRecording(theory?.content)
+    : null;
   const editorOptions = {
     minimap: { enabled: false },
     fontSize: 14,
@@ -1077,10 +1127,18 @@ const PythonReviewModal = ({
     }
     return '';
   })();
+  const handleSelectSubsection = (subsectionId) => {
+    const nextSubsection = visibleSubsections.find((section) => section.id === subsectionId);
+    if (!nextSubsection) return;
+    setSelectedSubsectionId(nextSubsection.id);
+    if (!nextSubsection.questionIndexes.includes(currentIndex) && nextSubsection.items[0]) {
+      setCurrentIndex(nextSubsection.items[0].questionIndex);
+    }
+  };
 
   const modal = (
-    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="surface-card modal-card rounded-3xl w-full max-w-5xl max-h-[90vh] p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
+    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-stretch justify-stretch p-0 backdrop-blur-sm">
+      <div className="surface-card modal-card modal-card--fullscreen rounded-none w-screen h-[100dvh] max-w-none max-h-none p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
         <div className="flex flex-col gap-4 mb-4">
           <div className="flex justify-between items-start">
             <div>
@@ -1090,49 +1148,80 @@ const PythonReviewModal = ({
             <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {questions.map((q, idx) => {
-              const qId = String(q?.id ?? idx);
-              const solved = solvedIds.has(qId);
-              const isCurrent = idx === currentIndex;
-              let btnClass = 'w-8 h-8 rounded-lg text-sm font-bold flex items-center justify-center transition-all border-2 ';
-
-              if (isCurrent && solved) {
-                btnClass += 'border-green-400 ring-2 ring-green-100 bg-green-100 text-green-700';
-              } else if (isCurrent) {
-                btnClass += 'border-purple-600 ring-2 ring-purple-200 text-purple-600 bg-white';
-              } else if (solved) {
-                btnClass += 'border-green-200 bg-green-100 text-green-600';
-              } else {
-                btnClass += 'border-gray-300 bg-white text-gray-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700';
-              }
-
-              return (
-                <button
-                  key={qId}
-                  onClick={() => setCurrentIndex(idx)}
-                  className={btnClass}
-                  title={solved ? '\u0420\u0435\u0448\u0435\u043d\u043e' : '\u041d\u0435 \u0440\u0435\u0448\u0435\u043d\u043e'}
-                >
-                  {idx + 1}
-                </button>
-              );
-            })}
+          {showSubsectionNav && (
+            <div className="space-y-2">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Подразделы</div>
+              <div className="flex flex-wrap gap-2">
+                {visibleSubsections.map((section) => (
+                  <button
+                    key={`review-subsection-${section.id}`}
+                    type="button"
+                    onClick={() => handleSelectSubsection(section.id)}
+                    className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+                      section.id === activeSubsection?.id
+                        ? 'border-purple-500 bg-purple-600 text-white'
+                        : 'border-purple-100 bg-white text-slate-600 hover:border-purple-300 hover:text-purple-700'
+                    }`}
+                  >
+                    {`${section.title} · ${section.count}`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="space-y-2">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+              {activeSubsection ? `Раздел: ${activeSubsection.title}` : 'Раздел'}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {visibleQuestionItems.map((item) => {
+                const qId = String(item.question?.id ?? item.questionIndex);
+                const solved = solvedIds.has(qId);
+                const isCurrent = item.questionIndex === currentIndex;
+                const buttonClass = isCurrent && solved
+                  ? 'border-green-400 ring-2 ring-green-100 bg-green-100 text-green-700'
+                  : (isCurrent
+                      ? 'border-purple-600 ring-2 ring-purple-200 text-purple-600 bg-white'
+                      : (solved
+                          ? 'border-green-200 bg-green-100 text-green-600'
+                          : 'border-gray-300 bg-white text-gray-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700'));
+                const label = item.question?.title || `Вопрос ${item.localNumber}`;
+                return (
+                  <button
+                    key={`review-question-${qId}`}
+                    type="button"
+                    onClick={() => setCurrentIndex(item.questionIndex)}
+                    className={`min-w-[132px] rounded-2xl border px-3 py-2 text-left transition-all ${buttonClass}`}
+                    title={label}
+                  >
+                    <div className="text-[10px] font-bold uppercase tracking-wide opacity-70">{`Задача ${item.localNumber}`}</div>
+                    <div className="mt-1 truncate text-xs font-semibold">{label}</div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto pr-1">
           {theory?.content && (
-            <div className="mb-6 rounded-2xl border border-purple-100 bg-purple-50/60 p-4">
-              <div className="flex items-center justify-between">
-                <div className="text-xs font-bold uppercase tracking-widest text-purple-600">{'\u0422\u0435\u043e\u0440\u0438\u044f'}</div>
+            <div className="mb-6 rounded-3xl border border-violet-200/70 bg-gradient-to-br from-white via-violet-50/70 to-fuchsia-50/45 p-4 shadow-[0_14px_34px_rgba(124,58,237,0.12)]">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="text-xs font-bold uppercase tracking-widest text-purple-700">{'\u0422\u0435\u043e\u0440\u0438\u044f'}</div>
+                  {theory?.type === THEORY_RECORDING_TYPE && (
+                    <span className="inline-flex items-center rounded-full border border-violet-200/80 bg-violet-100/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">
+                      {'\u0412\u0438\u0434\u0435\u043e + \u043a\u043e\u0434'}
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-3">
-                  {theoryFullUrl && (
+                  {theory?.type === 'gdoc' && theoryFullUrl && (
                     <a
                       href={theoryFullUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-purple-600 hover:text-purple-700"
+                      className="inline-flex items-center rounded-full border border-violet-200/70 bg-white/75 px-2.5 py-1 text-xs font-semibold text-violet-700 transition hover:border-violet-300 hover:bg-white"
                     >
                       {'\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043f\u043e\u043b\u043d\u043e\u0441\u0442\u044c\u044e'}
                     </a>
@@ -1140,14 +1229,20 @@ const PythonReviewModal = ({
                   <button
                     type="button"
                     onClick={() => setShowTheory((prev) => !prev)}
-                    className="text-xs text-purple-600 hover:text-purple-700"
+                    className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold transition ${
+                      showTheory
+                        ? 'border-violet-300/80 bg-white/75 text-violet-700 hover:border-violet-400 hover:bg-white'
+                        : 'border-violet-500/70 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white hover:from-violet-500 hover:to-fuchsia-500'
+                    }`}
                   >
                     {showTheory ? '\u0421\u0432\u0435\u0440\u043d\u0443\u0442\u044c' : '\u041f\u043e\u043a\u0430\u0437\u0430\u0442\u044c'}
                   </button>
                 </div>
               </div>
               {showTheory && (
-                theory.type === 'gdoc' ? (
+                theory.type === THEORY_RECORDING_TYPE ? (
+                  <TheoryRecordingPlayer recording={theoryRecording} />
+                ) : theory.type === 'gdoc' ? (
                   isGoogleDocEmbedUrl(theory.content) ? (
                     <div className="mt-3 overflow-hidden rounded-xl border border-purple-100 bg-white">
                       <iframe
@@ -1325,12 +1420,18 @@ const PythonReviewModal = ({
         <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
           <div className="text-sm text-gray-500">
             {'\u0420\u0435\u0448\u0435\u043d\u043e'}: {Array.from(solvedIds).length}/{questions.length}
+            <span className="text-gray-400">{` • ${Math.max(1, currentQuestionPosition + 1)}/${Math.max(visibleQuestionItems.length, 1)}`}</span>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={onClose}>{'\u0417\u0430\u043a\u0440\u044b\u0442\u044c'}</Button>
             <Button
-              onClick={() => setCurrentIndex((prev) => Math.min(prev + 1, questions.length - 1))}
-              disabled={currentIndex >= questions.length - 1}
+              onClick={() => {
+                if (!Number.isFinite(nextQuestionIndex)) return;
+                const nextSubsection = visibleSubsections.find((section) => section.questionIndexes.includes(nextQuestionIndex));
+                if (nextSubsection?.id) setSelectedSubsectionId(nextSubsection.id);
+                setCurrentIndex(nextQuestionIndex);
+              }}
+              disabled={!Number.isFinite(nextQuestionIndex)}
             >
               {'\u0414\u0430\u043b\u044c\u0448\u0435'}
             </Button>
