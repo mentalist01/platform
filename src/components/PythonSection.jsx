@@ -32,6 +32,9 @@ const PYTHON_TASK_SECTION_META = {
   },
 };
 
+const PYTHON_TASKS_CATALOG_KEY = '__pythonTaskCatalog';
+const PYTHON_TASK_SECTION_IDS = ['topics', 'exam-prep'];
+
 const PYTHON_TASK_SECTION_UI = {
   topics: {
     icon: BookOpen,
@@ -53,6 +56,71 @@ const PYTHON_TASK_SECTION_UI = {
     hoverClass: 'hover:border-amber-400/80 hover:shadow-[0_18px_32px_rgba(249,115,22,0.2)]',
     numberClass: 'border-amber-200 bg-amber-100/80 text-amber-800',
   },
+};
+
+const normalizePythonTaskSectionId = (value) => {
+  const sectionId = String(value || 'topics').trim();
+  return sectionId === 'exam-prep' ? 'exam-prep' : 'topics';
+};
+
+const normalizePythonTaskCatalog = (value, fallback = []) => {
+  const source = Array.isArray(value) ? value : (Array.isArray(fallback) ? fallback : []);
+  const usedNumbers = new Set();
+  const normalized = [];
+  source.forEach((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return;
+    const numberRaw = Number(item.number ?? item.id);
+    if (!Number.isFinite(numberRaw)) return;
+    const number = Math.max(100, Math.floor(numberRaw));
+    if (usedNumbers.has(number)) return;
+    const title = String(item.title || '').trim();
+    if (!title) return;
+    const sectionId = normalizePythonTaskSectionId(item.sectionId);
+    const displayNumber = String(item.displayNumber || '').trim() || String(number);
+    const showInPath = sectionId === 'topics' ? item.showInPath !== false : false;
+    const task = {
+      id: number,
+      number,
+      title,
+      displayNumber,
+      sectionId,
+    };
+    if (!showInPath) task.showInPath = false;
+    normalized.push(task);
+    usedNumbers.add(number);
+  });
+  normalized.sort((left, right) => {
+    const leftSectionOrder = PYTHON_TASK_SECTION_IDS.indexOf(left.sectionId);
+    const rightSectionOrder = PYTHON_TASK_SECTION_IDS.indexOf(right.sectionId);
+    const leftSafeOrder = leftSectionOrder === -1 ? Number.MAX_SAFE_INTEGER : leftSectionOrder;
+    const rightSafeOrder = rightSectionOrder === -1 ? Number.MAX_SAFE_INTEGER : rightSectionOrder;
+    if (leftSafeOrder !== rightSafeOrder) return leftSafeOrder - rightSafeOrder;
+    return Number(left.number) - Number(right.number);
+  });
+  return normalized;
+};
+
+const getNextPythonTaskNumber = (taskList, sectionId) => {
+  const safeSectionId = normalizePythonTaskSectionId(sectionId);
+  const list = Array.isArray(taskList) ? taskList : [];
+  const scopedNumbers = list
+    .filter((task) => normalizePythonTaskSectionId(task?.sectionId) === safeSectionId)
+    .map((task) => Math.floor(Number(task?.number)))
+    .filter((number) => Number.isFinite(number) && number >= 100);
+  if (safeSectionId === 'exam-prep') {
+    const maxScoped = scopedNumbers.length ? Math.max(...scopedNumbers) : 200;
+    return Math.max(201, maxScoped + 1);
+  }
+  const maxScoped = scopedNumbers.length ? Math.max(...scopedNumbers) : 100;
+  return Math.max(101, maxScoped + 1);
+};
+
+const pythonTaskCatalogsEqual = (left, right) => {
+  try {
+    return JSON.stringify(left || []) === JSON.stringify(right || []);
+  } catch {
+    return false;
+  }
 };
 
 const normalizeSubsectionMetaList = (value) => (
@@ -173,7 +241,6 @@ const PythonSection = ({
   onXpGain,
   PYTHON_TASKS,
   PYTHON_LEVEL_ID,
-  isPythonTaskNumber,
   getStudentLabel,
   parseTestsFileContent,
   buildGoogleDocEmbedUrl,
@@ -192,9 +259,14 @@ const PythonSection = ({
   PYODIDE_RUN_TIMEOUT_MS,
   ALLOW_MAIN_THREAD_PYTHON_FALLBACK,
 }) => {
-  const taskList = useMemo(() => (Array.isArray(PYTHON_TASKS) ? PYTHON_TASKS : []), [PYTHON_TASKS]);
+  const defaultTaskList = useMemo(
+    () => normalizePythonTaskCatalog(PYTHON_TASKS, PYTHON_TASKS),
+    [PYTHON_TASKS]
+  );
+  const [taskCatalog, setTaskCatalog] = useState(() => defaultTaskList);
+  const taskList = taskCatalog;
   const taskSections = useMemo(() => {
-    const sectionOrder = ['topics', 'exam-prep'];
+    const sectionOrder = [...PYTHON_TASK_SECTION_IDS];
     const groups = new Map(
       sectionOrder.map((sectionId) => {
         const meta = PYTHON_TASK_SECTION_META[sectionId] || { title: 'Раздел Python', description: '' };
@@ -241,6 +313,13 @@ const PythonSection = ({
   const [testsDb, setTestsDb] = useState(null);
   const [testsDbError, setTestsDbError] = useState('');
   const [manageTaskNumber, setManageTaskNumber] = useState(taskList[0]?.number || '');
+  const [cardTitle, setCardTitle] = useState('');
+  const [cardDisplayNumber, setCardDisplayNumber] = useState('');
+  const [cardSectionId, setCardSectionId] = useState('topics');
+  const [cardShowInPath, setCardShowInPath] = useState(true);
+  const [editingCardNumber, setEditingCardNumber] = useState(null);
+  const [cardSaving, setCardSaving] = useState(false);
+  const [cardError, setCardError] = useState('');
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskPrompt, setNewTaskPrompt] = useState('');
   const [newStarterCode, setNewStarterCode] = useState('');
@@ -320,11 +399,17 @@ const PythonSection = ({
   }, []);
 
   useEffect(() => {
+    const normalizedCatalog = normalizePythonTaskCatalog(
+      testsDb?.[PYTHON_TASKS_CATALOG_KEY],
+      defaultTaskList
+    );
+    setTaskCatalog((prev) => (
+      pythonTaskCatalogsEqual(prev, normalizedCatalog) ? prev : normalizedCatalog
+    ));
+  }, [testsDb, defaultTaskList]);
+
+  useEffect(() => {
     if (role !== 'student' || !openTask) return;
-    if (!isPythonTaskNumber(openTask.taskNumber)) {
-      onOpenTaskHandled?.();
-      return;
-    }
     const target = taskList.find((task) => Number(task.number) === Number(openTask.taskNumber));
     if (!target) {
       onOpenTaskHandled?.();
@@ -337,7 +422,7 @@ const PythonSection = ({
       setActiveQuestionIndex(null);
     }
     onOpenTaskHandled?.();
-  }, [isPythonTaskNumber, openTask, role, taskList, onOpenTaskHandled]);
+  }, [openTask, role, taskList, onOpenTaskHandled]);
 
   useEffect(() => {
     if (role !== 'student') return;
@@ -356,7 +441,11 @@ const PythonSection = ({
   }, [activeTask, activeQuestionIndex, role, PYTHON_LEVEL_ID, onTaskStateChange, openTask]);
 
   useEffect(() => {
-    if (!taskList.length) return;
+    if (!taskList.length) {
+      setManageTaskNumber('');
+      setReviewTask(null);
+      return;
+    }
     if (!taskList.some((task) => task.number === manageTaskNumber)) {
       setManageTaskNumber(taskList[0].number);
     }
@@ -376,6 +465,7 @@ const PythonSection = ({
     setSubsectionError('');
     setTheoryError('');
     setTheoryRecordingDraft(null);
+    setCardError('');
   }, [taskList, manageTaskNumber]);
 
   useEffect(() => {
@@ -509,8 +599,8 @@ const PythonSection = ({
       setQuestionError('Введите условие задачи.');
       return;
     }
-    if (preparedTests.length === 0 || preparedTests.some((test) => !test.output)) {
-      setQuestionError('Добавьте хотя бы один тест и заполните ожидаемый вывод.');
+    if (preparedTests.length === 0) {
+      setQuestionError('Добавьте хотя бы один тест.');
       return;
     }
     const updatedDb = { ...(testsDb || {}) };
@@ -612,6 +702,175 @@ const PythonSection = ({
     setSelectedSubsectionId(PYTHON_DEFAULT_SUBSECTION_ID);
     setQuestionError('');
   };
+
+  const startEditTaskCard = (task) => {
+    if (!task) return;
+    const sectionId = normalizePythonTaskSectionId(task.sectionId);
+    setEditingCardNumber(Number(task.number));
+    setCardTitle(String(task.title || ''));
+    setCardDisplayNumber(String(task.displayNumber || ''));
+    setCardSectionId(sectionId);
+    setCardShowInPath(sectionId === 'topics' ? task.showInPath !== false : false);
+    setCardError('');
+    setManageTaskNumber(Number(task.number));
+    setShowTeacherTaskToolsMobile(true);
+  };
+
+  const cancelEditTaskCard = () => {
+    setEditingCardNumber(null);
+    setCardTitle('');
+    setCardDisplayNumber('');
+    setCardSectionId('topics');
+    setCardShowInPath(true);
+    setCardError('');
+  };
+
+  const handleSaveTaskCard = async () => {
+    if (role !== 'teacher') return;
+    const title = String(cardTitle || '').trim();
+    if (!title) {
+      setCardError('Введите название карточки.');
+      return;
+    }
+    const sectionId = normalizePythonTaskSectionId(cardSectionId);
+    const displayNumber = String(cardDisplayNumber || '').trim();
+    const nextCatalogBase = Array.isArray(taskList) ? [...taskList] : [];
+    let targetNumber = Number(editingCardNumber);
+    if (Number.isFinite(targetNumber)) {
+      const idx = nextCatalogBase.findIndex((task) => Number(task?.number) === targetNumber);
+      if (idx < 0) {
+        setCardError('Не удалось найти карточку для редактирования.');
+        return;
+      }
+      const updatedTask = {
+        ...nextCatalogBase[idx],
+        title,
+        displayNumber: displayNumber || String(nextCatalogBase[idx].displayNumber || nextCatalogBase[idx].number),
+        sectionId,
+      };
+      if (sectionId !== 'topics' || !cardShowInPath) {
+        updatedTask.showInPath = false;
+      } else {
+        delete updatedTask.showInPath;
+      }
+      nextCatalogBase[idx] = updatedTask;
+    } else {
+      targetNumber = getNextPythonTaskNumber(taskList, sectionId);
+      const nextTask = {
+        id: targetNumber,
+        number: targetNumber,
+        title,
+        displayNumber: displayNumber || String(targetNumber),
+        sectionId,
+      };
+      if (sectionId !== 'topics' || !cardShowInPath) {
+        nextTask.showInPath = false;
+      }
+      nextCatalogBase.push(nextTask);
+    }
+
+    const normalizedCatalog = normalizePythonTaskCatalog(nextCatalogBase, defaultTaskList);
+    const updatedDb = { ...(testsDb || {}) };
+    updatedDb[PYTHON_TASKS_CATALOG_KEY] = normalizedCatalog;
+    const targetKey = String(targetNumber);
+    if (!updatedDb[targetKey] || typeof updatedDb[targetKey] !== 'object' || Array.isArray(updatedDb[targetKey])) {
+      updatedDb[targetKey] = { [PYTHON_LEVEL_ID]: [] };
+    } else if (!Array.isArray(updatedDb[targetKey]?.[PYTHON_LEVEL_ID])) {
+      updatedDb[targetKey] = {
+        ...updatedDb[targetKey],
+        [PYTHON_LEVEL_ID]: [],
+      };
+    }
+
+    const previousCatalog = taskList;
+    const previousDb = testsDb;
+    setCardSaving(true);
+    setTaskCatalog(normalizedCatalog);
+    setTestsDb(updatedDb);
+    try {
+      await api.saveTests(updatedDb);
+      setManageTaskNumber(targetNumber);
+      cancelEditTaskCard();
+    } catch (err) {
+      setTaskCatalog(previousCatalog);
+      setTestsDb(previousDb);
+      setCardError(err?.message || err);
+    } finally {
+      setCardSaving(false);
+    }
+  };
+
+  const handleDeleteTaskCard = async (task) => {
+    const taskNumber = Number(task?.number);
+    if (role !== 'teacher' || !Number.isFinite(taskNumber)) return;
+    const currentTaskEntry = getPythonTaskEntry(testsDb, taskNumber) || {};
+    const questionsCount = Array.isArray(currentTaskEntry?.[PYTHON_LEVEL_ID])
+      ? currentTaskEntry[PYTHON_LEVEL_ID].length
+      : 0;
+    const removalHint = questionsCount > 0
+      ? ` Это удалит ${questionsCount} ${questionsCount === 1 ? 'задачу' : 'задач'}.`
+      : '';
+    if (!confirm(`Удалить карточку "${task.title}"?${removalHint}`)) return;
+
+    const recordingStorageNames = new Set();
+    const theoryBySubsection = normalizeTheoryBySubsectionMap(currentTaskEntry?.pythonTheoryBySubsection);
+    Object.values(theoryBySubsection).forEach((variants) => {
+      Object.values(variants || {}).forEach((theory) => {
+        const storageName = getTheoryRecordingStorageName(theory);
+        if (storageName) recordingStorageNames.add(storageName);
+      });
+    });
+    const legacyTheoryVariants = normalizeTheoryVariantMap(currentTaskEntry?.pythonTheory);
+    Object.values(legacyTheoryVariants).forEach((theory) => {
+      const storageName = getTheoryRecordingStorageName(theory);
+      if (storageName) recordingStorageNames.add(storageName);
+    });
+
+    const nextCatalog = normalizePythonTaskCatalog(
+      taskList.filter((item) => Number(item?.number) !== taskNumber),
+      []
+    );
+    const updatedDb = { ...(testsDb || {}) };
+    delete updatedDb[String(taskNumber)];
+    delete updatedDb[taskNumber];
+    if (nextCatalog.length > 0) {
+      updatedDb[PYTHON_TASKS_CATALOG_KEY] = nextCatalog;
+    } else {
+      delete updatedDb[PYTHON_TASKS_CATALOG_KEY];
+    }
+
+    const previousCatalog = taskList;
+    const previousDb = testsDb;
+    setCardSaving(true);
+    setTaskCatalog(nextCatalog);
+    setTestsDb(updatedDb);
+    if (Number(manageTaskNumber) === taskNumber) {
+      setManageTaskNumber(nextCatalog[0]?.number || '');
+      cancelEditPythonTask();
+    }
+    try {
+      await api.saveTests(updatedDb);
+      recordingStorageNames.forEach((storageName) => {
+        api.deleteTestFile(storageName).catch(() => {});
+      });
+      if (Number(editingCardNumber) === taskNumber) {
+        cancelEditTaskCard();
+      }
+      setCardError('');
+    } catch (err) {
+      setTaskCatalog(previousCatalog);
+      setTestsDb(previousDb);
+      setCardError(err?.message || err);
+    } finally {
+      setCardSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!Number.isFinite(Number(editingCardNumber))) return;
+    if (taskList.some((task) => Number(task?.number) === Number(editingCardNumber))) return;
+    cancelEditTaskCard();
+  }, [editingCardNumber, taskList]);
 
   const handleSaveSubsection = async () => {
     if (role !== 'teacher' || !manageTaskNumber) return;
@@ -747,8 +1006,8 @@ const PythonSection = ({
     reader.onload = () => {
       try {
         const parsed = parseTestsFileContent(reader.result);
-        if (!parsed.length || parsed.some((test) => !test.output)) {
-          setQuestionError('Неверный формат тестов: проверьте наличие ожидаемого вывода.');
+        if (!parsed.length) {
+          setQuestionError('Неверный формат тестов: добавьте хотя бы один тест.');
           return;
         }
         setNewTests(parsed);
@@ -1208,6 +1467,33 @@ const PythonSection = ({
           }
         } : undefined}
       >
+        {role === 'teacher' && (
+          <div className="absolute right-3 top-3 z-20 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                startEditTaskCard(task);
+              }}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-white/90 text-slate-600 transition hover:border-purple-200 hover:text-purple-700"
+              title="Редактировать карточку"
+            >
+              <Pencil size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                handleDeleteTaskCard(task);
+              }}
+              disabled={cardSaving}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-white/90 text-rose-500 transition hover:border-rose-200 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+              title="Удалить карточку"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        )}
         <div className="absolute -right-10 -top-12 h-32 w-32 rounded-full bg-white/45 blur-2xl" />
         <div className="relative z-10 p-4 md:p-5">
           <div className="mb-2.5 flex items-center justify-between gap-2">
@@ -1693,6 +1979,77 @@ const PythonSection = ({
                 </optgroup>
               ))}
             </select>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3.5 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Карточки Python</div>
+              {Number.isFinite(Number(editingCardNumber)) && (
+                <span className="text-[11px] font-semibold text-purple-700">
+                  {`Редактирование карточки №${editingCardNumber}`}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_220px_220px] gap-2">
+              <input
+                type="text"
+                value={cardTitle}
+                onChange={(event) => setCardTitle(event.target.value)}
+                placeholder="Название карточки"
+                className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+              />
+              <input
+                type="text"
+                value={cardDisplayNumber}
+                onChange={(event) => setCardDisplayNumber(event.target.value)}
+                placeholder="Номер отображения (например 9.1)"
+                className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+              />
+              <select
+                value={cardSectionId}
+                onChange={(event) => {
+                  const nextSectionId = normalizePythonTaskSectionId(event.target.value);
+                  setCardSectionId(nextSectionId);
+                  if (nextSectionId !== 'topics') {
+                    setCardShowInPath(false);
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+              >
+                <option value="topics">Темы Python</option>
+                <option value="exam-prep">Подготовка к заданиям</option>
+              </select>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="inline-flex items-center gap-2 text-xs text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={cardSectionId === 'topics' ? cardShowInPath : false}
+                  onChange={(event) => setCardShowInPath(Boolean(event.target.checked))}
+                  disabled={cardSectionId !== 'topics'}
+                  className="h-4 w-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                />
+                Показывать карточку в пути тем
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                {Number.isFinite(Number(editingCardNumber)) && (
+                  <Button
+                    variant="secondary"
+                    type="button"
+                    onClick={cancelEditTaskCard}
+                    disabled={cardSaving}
+                  >
+                    Отменить
+                  </Button>
+                )}
+                <Button type="button" onClick={handleSaveTaskCard} disabled={cardSaving}>
+                  {cardSaving
+                    ? 'Сохранение...'
+                    : (Number.isFinite(Number(editingCardNumber)) ? 'Сохранить карточку' : 'Добавить карточку')}
+                </Button>
+              </div>
+            </div>
+            {cardError && <div className="text-xs text-red-500">{cardError}</div>}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

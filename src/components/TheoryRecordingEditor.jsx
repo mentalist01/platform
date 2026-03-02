@@ -643,6 +643,9 @@ const TheoryRecordingEditor = ({
     const recorder = mediaRecorderRef.current;
     if (recorder && recorder.state !== 'inactive') {
       try {
+        recorder.onstop = () => {
+          finalizeRecording(stopMs, recorder?.mimeType || '');
+        };
         recorder.stop();
       } catch {
         finalizeRecording(stopMs, recorder?.mimeType || '');
@@ -998,15 +1001,28 @@ const TheoryRecordingEditor = ({
               Запись теории
             </Button>
           ) : (
-            <Button onClick={stopRecording} disabled={disabled}>
-              Остановить запись
-            </Button>
+            <>
+              {!isPaused ? (
+                <Button variant="secondary" onClick={pauseRecording} disabled={disabled}>
+                  Пауза
+                </Button>
+              ) : (
+                <Button onClick={resumeRecording} disabled={disabled}>
+                  Продолжить
+                </Button>
+              )}
+              <Button onClick={stopRecording} disabled={disabled}>
+                Остановить запись
+              </Button>
+            </>
           )}
           <Button variant="secondary" onClick={handleResetDraft} disabled={disabled || isRecording}>
             Сбросить черновик
           </Button>
           <div className="text-xs text-slate-500">
-            {isRecording ? 'Идет запись...' : 'Запись остановлена'}
+            {!isRecording
+              ? 'Запись остановлена'
+              : (isPaused ? 'Запись на паузе' : 'Идет запись...')}
           </div>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-600">
