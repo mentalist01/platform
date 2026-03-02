@@ -18,9 +18,11 @@ const PLAYER_EDITOR_OPTIONS = {
   wordWrap: 'on',
   automaticLayout: true,
   scrollBeyondLastLine: false,
+  handleMouseWheel: false,
+  alwaysConsumeMouseWheel: false,
   renderLineHighlight: 'line',
   glyphMargin: false,
-  mouseWheelZoom: true,
+  mouseWheelZoom: false,
   fontFamily: '"JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
   smoothScrolling: true,
   cursorSmoothCaretAnimation: 'on',
@@ -123,6 +125,22 @@ const asEditorSelection = (selection) => {
   };
 };
 
+const mapDurationPositionMs = (valueMs, sourceDurationMs, targetDurationMs) => {
+  const rawValue = Number(valueMs);
+  const safeValue = Number.isFinite(rawValue) ? Math.max(0, Math.round(rawValue)) : 0;
+  const rawSource = Number(sourceDurationMs);
+  const rawTarget = Number(targetDurationMs);
+  const safeSource = Number.isFinite(rawSource) ? Math.max(0, Math.round(rawSource)) : 0;
+  const safeTarget = Number.isFinite(rawTarget) ? Math.max(0, Math.round(rawTarget)) : 0;
+  if (safeTarget <= 0) return safeValue;
+  if (safeSource <= 0) return Math.min(safeTarget, safeValue);
+  if (Math.abs(safeSource - safeTarget) <= 160) {
+    return Math.min(safeTarget, safeValue);
+  }
+  const ratio = safeValue / safeSource;
+  return Math.max(0, Math.min(safeTarget, Math.round(ratio * safeTarget)));
+};
+
 const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey = '' }) => {
   const normalized = useMemo(() => normalizeTheoryRecording(recording), [recording]);
   const normalizedProgressStorageKey = useMemo(
@@ -135,6 +153,12 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     const safeId = source.replace(/[^0-9a-zA-Z_-]/g, '_');
     return `inmemory://theory-recording/player-${safeId}`;
   }, [normalized?.createdAt, normalized?.updatedAt]);
+  const timelineDurationMs = useMemo(() => {
+    const events = Array.isArray(normalized?.events) ? normalized.events : [];
+    const lastEvent = events.length > 0 ? events[events.length - 1] : null;
+    const lastEventMs = Math.max(0, Math.round(Number(lastEvent?.t) || 0));
+    return Math.max(0, Math.round(Number(normalized?.durationMs) || 0), lastEventMs);
+  }, [normalized?.durationMs, normalized?.events]);
 
   const [currentMs, setCurrentMs] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
@@ -161,6 +185,22 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   const rafRef = useRef(null);
   const resumePositionMsRef = useRef(0);
   const lastPersistMetaRef = useRef({ ms: -1, ts: 0 });
+
+  const mapPlaybackMsToTimelineMs = useCallback((playbackMs, sourceDurationOverride = 0) => {
+    const sourceDurationMs = Math.max(0, Math.round(Number(sourceDurationOverride) || 0))
+      || Math.max(0, Math.round(Number(durationMs) || 0))
+      || timelineDurationMs;
+    const targetDurationMs = timelineDurationMs || sourceDurationMs;
+    return mapDurationPositionMs(playbackMs, sourceDurationMs, targetDurationMs);
+  }, [durationMs, timelineDurationMs]);
+
+  const mapTimelineMsToPlaybackMs = useCallback((timelineMs, targetDurationOverride = 0) => {
+    const targetDurationMs = Math.max(0, Math.round(Number(targetDurationOverride) || 0))
+      || Math.max(0, Math.round(Number(durationMs) || 0))
+      || timelineDurationMs;
+    const sourceDurationMs = timelineDurationMs || targetDurationMs;
+    return mapDurationPositionMs(timelineMs, sourceDurationMs, targetDurationMs);
+  }, [durationMs, timelineDurationMs]);
 
   const resetCursorToStart = useCallback((editor) => {
     if (!editor) return;
@@ -335,9 +375,10 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
       stopFrameLoop();
       return;
     }
-    syncTo(audio.currentTime * 1000);
+    const nextPlaybackMs = (Number(audio.currentTime) || 0) * 1000;
+    syncTo(mapPlaybackMsToTimelineMs(nextPlaybackMs));
     rafRef.current = requestAnimationFrame(frameLoop);
-  }, [stopFrameLoop, syncTo]);
+  }, [mapPlaybackMsToTimelineMs, stopFrameLoop, syncTo]);
 
   const recordingResetKey = useMemo(() => (
     [
@@ -357,7 +398,6 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     normalized?.initialCode,
   ]);
   const hasNormalizedRecording = Boolean(normalized);
-  const normalizedDurationMs = Math.max(0, Math.round(normalized?.durationMs || 0));
   const normalizedInitialCode = String(normalized?.initialCode || '');
 
   useEffect(() => () => stopFrameLoop(), [stopFrameLoop]);
@@ -405,11 +445,12 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
       return;
     }
     const storedMs = readPersistedProgressMs();
-    const maxResumableMs = Math.max(0, normalizedDurationMs - 1200);
+    const maxResumableMs = Math.max(0, timelineDurationMs - 1200);
     const resumeMs = Math.max(0, Math.min(storedMs, maxResumableMs));
+    const resumeTimelineMs = mapDurationPositionMs(resumeMs, timelineDurationMs, timelineDurationMs);
     resumePositionMsRef.current = resumeMs;
-    setCurrentMs(resumeMs);
-    setDurationMs(normalizedDurationMs);
+    setCurrentMs(resumeTimelineMs);
+    setDurationMs(timelineDurationMs);
     setIsPlaying(false);
     setPlaybackRate(1);
     setHasPlaybackStarted(false);
@@ -438,19 +479,19 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
         }
       }
       if (resumeMs > 0) {
-        rebuildTo(resumeMs);
+        rebuildTo(resumeTimelineMs);
       } else {
         resetCursorToStart(editorRef.current);
       }
     }
   }, [
     hasNormalizedRecording,
-    normalizedDurationMs,
     normalizedInitialCode,
     readPersistedProgressMs,
     recordingResetKey,
     rebuildTo,
     resetCursorToStart,
+    timelineDurationMs,
   ]);
 
   useEffect(() => () => {
@@ -579,16 +620,29 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     boardStrokes.forEach((stroke) => drawBoardStroke(ctx, stroke, width, height));
   }, [boardStrokes, drawBoardStroke]);
 
-  const safeDurationMs = Math.max(
+  const safeTimelineDurationMs = Math.max(
     1,
-    Math.round(normalized?.durationMs || 0),
-    Math.round(durationMs || 0),
+    Math.round(timelineDurationMs || 0),
     Math.round(currentMs || 0),
   );
-  const clampedCurrentMs = Math.min(Math.max(0, Math.round(currentMs || 0)), safeDurationMs);
-  const isAtStart = clampedCurrentMs <= 120;
+  const safePlaybackDurationMs = Math.max(
+    1,
+    Math.round(durationMs || 0) || safeTimelineDurationMs,
+  );
+  const clampedCurrentTimelineMs = Math.min(
+    Math.max(0, Math.round(currentMs || 0)),
+    safeTimelineDurationMs
+  );
+  const clampedCurrentPlaybackMs = Math.min(
+    Math.max(0, mapTimelineMsToPlaybackMs(clampedCurrentTimelineMs, safePlaybackDurationMs)),
+    safePlaybackDurationMs
+  );
+  const isAtStart = clampedCurrentPlaybackMs <= 120;
   const isPrePlaybackState = !isPlaying && isAtStart;
-  const playbackProgressPercent = Math.max(0, Math.min(100, (clampedCurrentMs / safeDurationMs) * 100));
+  const playbackProgressPercent = Math.max(
+    0,
+    Math.min(100, (clampedCurrentPlaybackMs / safePlaybackDurationMs) * 100)
+  );
   const normalizedVolume = isMuted ? 0 : volume;
   const volumeProgressPercent = Math.max(0, Math.min(100, normalizedVolume * 100));
   const seekTrackStyle = useMemo(() => ({
@@ -682,13 +736,13 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   }, []);
 
   const handleSeek = useCallback((event) => {
-    const nextMs = Math.max(0, Math.round(Number(event.target?.value) || 0));
+    const nextPlaybackMs = Math.max(0, Math.round(Number(event.target?.value) || 0));
     const audio = audioRef.current;
     if (audio) {
-      audio.currentTime = nextMs / 1000;
+      audio.currentTime = nextPlaybackMs / 1000;
     }
-    syncTo(nextMs);
-  }, [syncTo]);
+    syncTo(mapPlaybackMsToTimelineMs(nextPlaybackMs, safePlaybackDurationMs));
+  }, [mapPlaybackMsToTimelineMs, safePlaybackDurationMs, syncTo]);
 
   const handleToggleMute = useCallback(() => {
     setIsMuted((prev) => !prev);
@@ -786,24 +840,24 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
             onEnded={() => {
               setIsPlaying(false);
               stopFrameLoop();
-              syncTo(safeDurationMs);
+              syncTo(safeTimelineDurationMs);
               clearPersistedProgress();
             }}
             onTimeUpdate={(event) => {
-              const nextMs = (Number(event.currentTarget?.currentTime) || 0) * 1000;
-              syncTo(nextMs);
-              persistProgressMs(nextMs);
+              const nextPlaybackMs = (Number(event.currentTarget?.currentTime) || 0) * 1000;
+              syncTo(mapPlaybackMsToTimelineMs(nextPlaybackMs, safePlaybackDurationMs));
+              persistProgressMs(nextPlaybackMs);
             }}
             onSeeked={(event) => {
-              const nextMs = (Number(event.currentTarget?.currentTime) || 0) * 1000;
-              syncTo(nextMs);
-              persistProgressMs(nextMs, { force: true });
+              const nextPlaybackMs = (Number(event.currentTarget?.currentTime) || 0) * 1000;
+              syncTo(mapPlaybackMsToTimelineMs(nextPlaybackMs, safePlaybackDurationMs));
+              persistProgressMs(nextPlaybackMs, { force: true });
             }}
             onLoadedMetadata={(event) => {
               const duration = Number(event.currentTarget?.duration);
               if (Number.isFinite(duration) && duration > 0) {
                 const durationFromAudio = Math.round(duration * 1000);
-                setDurationMs((prev) => Math.max(prev, durationFromAudio));
+                setDurationMs(durationFromAudio);
                 const maxResumableMs = Math.max(0, durationFromAudio - 1200);
                 const targetMs = Math.max(0, Math.min(Math.round(resumePositionMsRef.current || 0), maxResumableMs));
                 if (targetMs > 0) {
@@ -812,24 +866,27 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
                   } catch {
                     // Ignore seek failures while metadata is being resolved.
                   }
-                  syncTo(targetMs);
-                  setCurrentMs(targetMs);
+                  const targetTimelineMs = mapPlaybackMsToTimelineMs(targetMs, durationFromAudio);
+                  syncTo(targetTimelineMs);
+                  setCurrentMs(targetTimelineMs);
                 }
               }
             }}
           />
 
-          <Editor
-            height={editorHeight}
-            language="python"
-            theme={THEORY_PLAYER_EDITOR_THEME}
-            defaultValue={normalized.initialCode || ''}
-            path={modelPath}
-            saveViewState={false}
-            beforeMount={handleEditorBeforeMount}
-            onMount={handleEditorMount}
-            options={playerEditorOptions}
-          />
+          <div className="pointer-events-none select-none">
+            <Editor
+              height={editorHeight}
+              language="python"
+              theme={THEORY_PLAYER_EDITOR_THEME}
+              defaultValue={normalized.initialCode || ''}
+              path={modelPath}
+              saveViewState={false}
+              beforeMount={handleEditorBeforeMount}
+              onMount={handleEditorMount}
+              options={playerEditorOptions}
+            />
+          </div>
 
           <div className={`pointer-events-none absolute inset-0 z-10 transition-opacity duration-300 ${(!hasPlaybackStarted && isPrePlaybackState) ? 'opacity-100' : 'opacity-0'}`}>
             <div
@@ -844,7 +901,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
           <div className={`pointer-events-none absolute right-4 top-3 z-20 inline-flex items-center gap-2 rounded-full bg-slate-900/56 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-200/90 backdrop-blur-md transition-all duration-200 ${topLabelVisibilityClass}`}>
             <span>Видеоразбор</span>
             <span className="h-1 w-1 rounded-full bg-violet-300/80" />
-            <span>{formatRecordingDuration(safeDurationMs)}</span>
+            <span>{formatRecordingDuration(safePlaybackDurationMs)}</span>
           </div>
 
           {hasRunOutputFrame && (
@@ -927,17 +984,17 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
                   <input
                     type="range"
                     min={0}
-                    max={safeDurationMs}
+                    max={safePlaybackDurationMs}
                     step={100}
-                    value={clampedCurrentMs}
+                    value={clampedCurrentPlaybackMs}
                     onChange={handleSeek}
                     className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-transparent accent-sky-400"
                     style={seekTrackStyle}
                     aria-label="Перемотка"
                   />
                   <div className="mt-1.5 flex items-center justify-between text-[10px] font-semibold tracking-wide text-slate-300/90">
-                    <span>{formatRecordingDuration(clampedCurrentMs)}</span>
-                    <span>{formatRecordingDuration(safeDurationMs)}</span>
+                    <span>{formatRecordingDuration(clampedCurrentPlaybackMs)}</span>
+                    <span>{formatRecordingDuration(safePlaybackDurationMs)}</span>
                   </div>
                 </div>
                 <button
@@ -994,4 +1051,4 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   );
 };
 
-export default TheoryRecordingPlayer;
+export default React.memo(TheoryRecordingPlayer);
