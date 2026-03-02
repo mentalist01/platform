@@ -828,7 +828,7 @@ const TheoryRecordingEditor = ({
       contentDisposableRef.current = model.onDidChangeContent(() => {
         const nextCode = model.getValue();
         setCode(nextCode);
-        if (!isRecordingRef.current) return;
+        if (!isRecordingRef.current || isRecordingPausedRef.current) return;
         if (!codeDebounceTimerRef.current) {
           codeDebounceTimerRef.current = setTimeout(() => {
             codeDebounceTimerRef.current = null;
@@ -839,7 +839,7 @@ const TheoryRecordingEditor = ({
     }
 
     selectionDisposableRef.current = editor.onDidChangeCursorSelection(() => {
-      if (!isRecordingRef.current) return;
+      if (!isRecordingRef.current || isRecordingPausedRef.current) return;
       if (!selectionDebounceTimerRef.current) {
         selectionDebounceTimerRef.current = setTimeout(() => {
           selectionDebounceTimerRef.current = null;
@@ -894,7 +894,7 @@ const TheoryRecordingEditor = ({
     setIsRunningCode(true);
     setRunError('');
 
-    if (isRecordingRef.current) {
+    if (isRecordingRef.current && !isRecordingPausedRef.current) {
       flushScheduledSnapshots();
       const stampMs = getNowMs();
       appendCodeEvent(stampMs, editorCode, true);
@@ -908,7 +908,7 @@ const TheoryRecordingEditor = ({
       const nextError = String(result?.error ?? '');
       setRunOutput(nextOutput);
       setRunError(nextError);
-      if (isRecordingRef.current) {
+      if (isRecordingRef.current && !isRecordingPausedRef.current) {
         appendRunOutputEvent(getNowMs(), {
           input: runInput,
           output: nextOutput,
@@ -920,7 +920,7 @@ const TheoryRecordingEditor = ({
       const message = error?.message || 'Не удалось выполнить код.';
       setRunOutput('');
       setRunError(String(message));
-      if (isRecordingRef.current) {
+      if (isRecordingRef.current && !isRecordingPausedRef.current) {
         appendRunOutputEvent(getNowMs(), {
           input: runInput,
           output: '',
@@ -970,6 +970,9 @@ const TheoryRecordingEditor = ({
   useEffect(() => () => {
     runRequestSeqRef.current += 1;
     isRecordingRef.current = false;
+    isRecordingPausedRef.current = false;
+    recordingPausedAtRef.current = 0;
+    recordingPausedAccumMsRef.current = 0;
     const recorder = mediaRecorderRef.current;
     if (recorder && recorder.state !== 'inactive') {
       try {
