@@ -56,6 +56,59 @@ const buildRealtimeStatusLabel = (status) => {
   return 'Realtime: офлайн';
 };
 
+const normalizeTheorySubsectionId = (value) => {
+  const id = String(value || '').trim();
+  return id || PYTHON_DEFAULT_SUBSECTION_ID;
+};
+
+const normalizeTheoryBySubsectionMap = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const entries = {};
+  Object.entries(value).forEach(([rawId, theory]) => {
+    const id = normalizeTheorySubsectionId(rawId);
+    if (!theory || typeof theory !== 'object' || Array.isArray(theory)) return;
+    const type = String(theory.type || '').trim();
+    if (type === THEORY_RECORDING_TYPE) {
+      const recording = normalizeTheoryRecording(theory.content);
+      if (!recording) return;
+      entries[id] = { type: THEORY_RECORDING_TYPE, content: recording };
+      return;
+    }
+    if (type === 'gdoc') {
+      const content = String(theory.content || '').trim();
+      if (!content) return;
+      entries[id] = { type: 'gdoc', content };
+      return;
+    }
+    const content = String(theory.content || '').trim();
+    if (!content) return;
+    entries[id] = { type: 'text', content };
+  });
+  return entries;
+};
+
+const resolveTheoryForSubsection = (taskEntry, subsectionId) => {
+  const safeSubsectionId = normalizeTheorySubsectionId(subsectionId);
+  const bySubsection = normalizeTheoryBySubsectionMap(taskEntry?.pythonTheoryBySubsection);
+  if (bySubsection[safeSubsectionId]) return bySubsection[safeSubsectionId];
+  if (safeSubsectionId !== PYTHON_DEFAULT_SUBSECTION_ID && bySubsection[PYTHON_DEFAULT_SUBSECTION_ID]) {
+    return bySubsection[PYTHON_DEFAULT_SUBSECTION_ID];
+  }
+  const legacy = taskEntry?.pythonTheory;
+  if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy)) return null;
+  const type = String(legacy.type || '').trim();
+  if (type === THEORY_RECORDING_TYPE) {
+    const recording = normalizeTheoryRecording(legacy.content);
+    return recording ? { type: THEORY_RECORDING_TYPE, content: recording } : null;
+  }
+  if (type === 'gdoc') {
+    const content = String(legacy.content || '').trim();
+    return content ? { type: 'gdoc', content } : null;
+  }
+  const content = String(legacy.content || '').trim();
+  return content ? { type: 'text', content } : null;
+};
+
 const PythonTestModal = ({
   task,
   onClose,
@@ -1169,7 +1222,8 @@ const PythonTestModal = ({
     output: String(test?.output ?? '')
   }));
   const solvedAllTests = isSolved && testResults.length === 0;
-  const theory = testDb?.[task.number]?.pythonTheory || null;
+  const activeTheorySubsectionId = activeSubsection?.id || PYTHON_DEFAULT_SUBSECTION_ID;
+  const theory = resolveTheoryForSubsection(taskEntry, activeTheorySubsectionId);
   const theoryFullUrl = theory?.type === 'gdoc' ? buildGoogleDocFullUrl(theory.content) : '';
   const theoryRecording = theory?.type === THEORY_RECORDING_TYPE
     ? normalizeTheoryRecording(theory?.content)

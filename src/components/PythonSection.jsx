@@ -47,6 +47,63 @@ const normalizeSubsectionMetaList = (value) => (
     .filter(Boolean)
 );
 
+const normalizeTheorySubsectionId = (value) => {
+  const id = String(value || '').trim();
+  return id || PYTHON_DEFAULT_SUBSECTION_ID;
+};
+
+const normalizeTheoryBySubsectionMap = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const entries = {};
+  Object.entries(value).forEach(([rawId, theory]) => {
+    const id = normalizeTheorySubsectionId(rawId);
+    if (!theory || typeof theory !== 'object' || Array.isArray(theory)) return;
+    const type = String(theory.type || '').trim();
+    if (type === THEORY_RECORDING_TYPE) {
+      const recording = normalizeTheoryRecording(theory.content);
+      if (!recording) return;
+      entries[id] = { type: THEORY_RECORDING_TYPE, content: recording };
+      return;
+    }
+    if (type === 'gdoc') {
+      const content = String(theory.content || '').trim();
+      if (!content) return;
+      entries[id] = { type: 'gdoc', content };
+      return;
+    }
+    const content = String(theory.content || '').trim();
+    if (!content) return;
+    entries[id] = { type: 'text', content };
+  });
+  return entries;
+};
+
+const resolveTheoryForSubsection = (taskEntry, subsectionId, options = {}) => {
+  const fallbackToDefault = options?.fallbackToDefault !== false;
+  const fallbackToLegacy = options?.fallbackToLegacy !== false;
+  const safeSubsectionId = normalizeTheorySubsectionId(subsectionId);
+  const map = normalizeTheoryBySubsectionMap(taskEntry?.pythonTheoryBySubsection);
+  if (map[safeSubsectionId]) return map[safeSubsectionId];
+  if (fallbackToDefault && safeSubsectionId !== PYTHON_DEFAULT_SUBSECTION_ID && map[PYTHON_DEFAULT_SUBSECTION_ID]) {
+    return map[PYTHON_DEFAULT_SUBSECTION_ID];
+  }
+  if (!fallbackToLegacy) return null;
+  if (!fallbackToDefault && safeSubsectionId !== PYTHON_DEFAULT_SUBSECTION_ID) return null;
+  const legacyTheory = taskEntry?.pythonTheory;
+  if (!legacyTheory || typeof legacyTheory !== 'object' || Array.isArray(legacyTheory)) return null;
+  const legacyType = String(legacyTheory.type || '').trim();
+  if (legacyType === THEORY_RECORDING_TYPE) {
+    const recording = normalizeTheoryRecording(legacyTheory.content);
+    return recording ? { type: THEORY_RECORDING_TYPE, content: recording } : null;
+  }
+  if (legacyType === 'gdoc') {
+    const content = String(legacyTheory.content || '').trim();
+    return content ? { type: 'gdoc', content } : null;
+  }
+  const content = String(legacyTheory.content || '').trim();
+  return content ? { type: 'text', content } : null;
+};
+
 const PythonSection = ({
   progress,
   onUpdateProgress,
@@ -130,6 +187,7 @@ const PythonSection = ({
   const [questionSaving, setQuestionSaving] = useState(false);
   const [questionError, setQuestionError] = useState('');
   const [selectedSubsectionId, setSelectedSubsectionId] = useState(PYTHON_DEFAULT_SUBSECTION_ID);
+  const [theorySubsectionId, setTheorySubsectionId] = useState(PYTHON_DEFAULT_SUBSECTION_ID);
   const [newSubsectionTitle, setNewSubsectionTitle] = useState('');
   const [editingSubsectionId, setEditingSubsectionId] = useState('');
   const [editingSubsectionTitle, setEditingSubsectionTitle] = useState('');
@@ -248,6 +306,7 @@ const PythonSection = ({
     setTestsFileName('');
     setQuestionError('');
     setSelectedSubsectionId(PYTHON_DEFAULT_SUBSECTION_ID);
+    setTheorySubsectionId(PYTHON_DEFAULT_SUBSECTION_ID);
     setNewSubsectionTitle('');
     setEditingSubsectionId('');
     setEditingSubsectionTitle('');
@@ -258,7 +317,12 @@ const PythonSection = ({
 
   useEffect(() => {
     if (!manageTaskNumber) return;
-    const theory = testsDb?.[manageTaskNumber]?.pythonTheory || {};
+    const taskEntry = getPythonTaskEntry(testsDb, manageTaskNumber);
+    const safeTheorySubsectionId = normalizeTheorySubsectionId(theorySubsectionId);
+    const theory = resolveTheoryForSubsection(taskEntry, safeTheorySubsectionId, {
+      fallbackToDefault: false,
+      fallbackToLegacy: safeTheorySubsectionId === PYTHON_DEFAULT_SUBSECTION_ID,
+    }) || {};
     const type = theory?.type === 'gdoc'
       ? 'gdoc'
       : (theory?.type === THEORY_RECORDING_TYPE ? THEORY_RECORDING_TYPE : 'text');
@@ -267,7 +331,7 @@ const PythonSection = ({
     setTheoryUrl(type === 'gdoc' ? String(theory?.content || '') : '');
     setTheoryRecordingDraft(type === THEORY_RECORDING_TYPE ? normalizeTheoryRecording(theory?.content) : null);
     setTheoryError('');
-  }, [testsDb, manageTaskNumber]);
+  }, [testsDb, manageTaskNumber, theorySubsectionId]);
 
   useLayoutEffect(() => {
     if (role !== 'student') return undefined;
@@ -305,11 +369,21 @@ const PythonSection = ({
     () => getPythonTaskEntry(testsDb, manageTaskNumber),
     [testsDb, manageTaskNumber]
   );
+  const selectedManageTheory = useMemo(
+    () => {
+      const safeTheorySubsectionId = normalizeTheorySubsectionId(theorySubsectionId);
+      return resolveTheoryForSubsection(manageTaskEntry, safeTheorySubsectionId, {
+        fallbackToDefault: false,
+        fallbackToLegacy: safeTheorySubsectionId === PYTHON_DEFAULT_SUBSECTION_ID,
+      });
+    },
+    [manageTaskEntry, theorySubsectionId]
+  );
   const savedTheoryRecording = useMemo(() => {
-    const theory = manageTaskEntry?.pythonTheory;
+    const theory = selectedManageTheory;
     if (!theory || theory.type !== THEORY_RECORDING_TYPE) return null;
     return normalizeTheoryRecording(theory.content);
-  }, [manageTaskEntry]);
+  }, [selectedManageTheory]);
   const manageSubsectionModel = useMemo(
     () => buildPythonSubsectionModel(manageTaskEntry, PYTHON_LEVEL_ID, {
       includeEmptySections: true,
@@ -319,6 +393,10 @@ const PythonSection = ({
   );
   const manageSubsections = useMemo(
     () => manageSubsectionModel.subsections.filter((section) => !section.isDefault),
+    [manageSubsectionModel]
+  );
+  const manageTheorySubsections = useMemo(
+    () => manageSubsectionModel.subsections,
     [manageSubsectionModel]
   );
   const manageQuestionGroups = useMemo(
@@ -331,6 +409,12 @@ const PythonSection = ({
     if (manageSubsections.some((section) => section.id === selectedSubsectionId)) return;
     setSelectedSubsectionId(PYTHON_DEFAULT_SUBSECTION_ID);
   }, [manageSubsections, selectedSubsectionId]);
+
+  useEffect(() => {
+    const safeTheorySubsectionId = normalizeTheorySubsectionId(theorySubsectionId);
+    if (manageTheorySubsections.some((section) => section.id === safeTheorySubsectionId)) return;
+    setTheorySubsectionId(PYTHON_DEFAULT_SUBSECTION_ID);
+  }, [manageTheorySubsections, theorySubsectionId]);
 
   const manageQuestions = manageTaskNumber
     ? (testsDb?.[manageTaskNumber]?.[PYTHON_LEVEL_ID] || [])
@@ -525,13 +609,18 @@ const PythonSection = ({
     const updatedDb = { ...(testsDb || {}) };
     if (!updatedDb[manageTaskNumber]) return;
     const currentTaskEntry = updatedDb[manageTaskNumber];
+    const currentTheoryBySubsection = normalizeTheoryBySubsectionMap(currentTaskEntry?.pythonTheoryBySubsection);
+    const removedTheory = currentTheoryBySubsection[subsectionId] || null;
+    const removedRecordingStorageName = getTheoryRecordingStorageName(removedTheory);
+    const nextTheoryBySubsection = { ...currentTheoryBySubsection };
+    delete nextTheoryBySubsection[subsectionId];
     const currentSubsections = normalizeSubsectionMetaList(currentTaskEntry?.pythonSubsections)
       .filter((section) => section.id !== subsectionId)
       .map((section, index) => ({ ...section, order: index }));
     const currentQuestions = Array.isArray(currentTaskEntry?.[PYTHON_LEVEL_ID])
       ? currentTaskEntry[PYTHON_LEVEL_ID]
       : [];
-    updatedDb[manageTaskNumber] = {
+    const nextTaskEntry = {
       ...currentTaskEntry,
       pythonSubsections: currentSubsections,
       [PYTHON_LEVEL_ID]: currentQuestions.map((item) => {
@@ -542,13 +631,25 @@ const PythonSection = ({
         return nextItem;
       })
     };
+    if (Object.keys(nextTheoryBySubsection).length > 0) {
+      nextTaskEntry.pythonTheoryBySubsection = nextTheoryBySubsection;
+    } else {
+      delete nextTaskEntry.pythonTheoryBySubsection;
+    }
+    updatedDb[manageTaskNumber] = nextTaskEntry;
     setSubsectionSaving(true);
     setTestsDb(updatedDb);
     try {
       await api.saveTests(updatedDb);
+      if (removedRecordingStorageName) {
+        api.deleteTestFile(removedRecordingStorageName).catch(() => {});
+      }
       setSubsectionError('');
       if (selectedSubsectionId === subsectionId) {
         setSelectedSubsectionId(PYTHON_DEFAULT_SUBSECTION_ID);
+      }
+      if (theorySubsectionId === subsectionId) {
+        setTheorySubsectionId(PYTHON_DEFAULT_SUBSECTION_ID);
       }
       if (editingSubsectionId === subsectionId) {
         cancelEditSubsection();
@@ -586,7 +687,21 @@ const PythonSection = ({
   const handleSavePythonTheory = async () => {
     if (role !== 'teacher') return;
     if (!manageTaskNumber) return;
-    const currentTheory = testsDb?.[manageTaskNumber]?.pythonTheory || null;
+    const safeTheorySubsectionId = normalizeTheorySubsectionId(theorySubsectionId);
+    const currentTaskEntry = getPythonTaskEntry(testsDb, manageTaskNumber) || {};
+    const currentTheoryBySubsection = normalizeTheoryBySubsectionMap(currentTaskEntry?.pythonTheoryBySubsection);
+    const currentTheory = currentTheoryBySubsection[safeTheorySubsectionId]
+      || (
+        safeTheorySubsectionId === PYTHON_DEFAULT_SUBSECTION_ID
+          ? (
+            currentTaskEntry?.pythonTheory
+            && typeof currentTaskEntry.pythonTheory === 'object'
+            && !Array.isArray(currentTaskEntry.pythonTheory)
+              ? currentTaskEntry.pythonTheory
+              : null
+          )
+          : null
+      );
     const previousRecordingStorageName = getTheoryRecordingStorageName(currentTheory);
     let uploadedStorageName = '';
     let nextRecordingStorageName = '';
@@ -685,12 +800,19 @@ const PythonSection = ({
       nextTheory = { type: theoryType, content };
     }
 
-    const updatedDb = { ...(testsDb || {}) };
-    if (!updatedDb[manageTaskNumber]) updatedDb[manageTaskNumber] = {};
-    updatedDb[manageTaskNumber] = {
-      ...(updatedDb[manageTaskNumber] || {}),
-      pythonTheory: nextTheory
+    const nextTheoryBySubsection = {
+      ...currentTheoryBySubsection,
+      [safeTheorySubsectionId]: nextTheory,
     };
+    const updatedDb = { ...(testsDb || {}) };
+    const nextTaskEntry = {
+      ...(updatedDb[manageTaskNumber] || {}),
+      pythonTheoryBySubsection: nextTheoryBySubsection,
+    };
+    if (safeTheorySubsectionId === PYTHON_DEFAULT_SUBSECTION_ID) {
+      delete nextTaskEntry.pythonTheory;
+    }
+    updatedDb[manageTaskNumber] = nextTaskEntry;
     setTheorySaving(true);
     setTestsDb(updatedDb);
     try {
@@ -717,14 +839,35 @@ const PythonSection = ({
   const handleClearPythonTheory = async () => {
     if (role !== 'teacher') return;
     if (!manageTaskNumber) return;
-    const previousRecordingStorageName = getTheoryRecordingStorageName(
-      testsDb?.[manageTaskNumber]?.pythonTheory || null
-    );
+    const safeTheorySubsectionId = normalizeTheorySubsectionId(theorySubsectionId);
+    const currentTaskEntry = getPythonTaskEntry(testsDb, manageTaskNumber) || {};
+    const currentTheoryBySubsection = normalizeTheoryBySubsectionMap(currentTaskEntry?.pythonTheoryBySubsection);
+    const currentTheory = currentTheoryBySubsection[safeTheorySubsectionId]
+      || (
+        safeTheorySubsectionId === PYTHON_DEFAULT_SUBSECTION_ID
+          ? (
+            currentTaskEntry?.pythonTheory
+            && typeof currentTaskEntry.pythonTheory === 'object'
+            && !Array.isArray(currentTaskEntry.pythonTheory)
+              ? currentTaskEntry.pythonTheory
+              : null
+          )
+          : null
+      );
+    const previousRecordingStorageName = getTheoryRecordingStorageName(currentTheory);
+    const nextTheoryBySubsection = { ...currentTheoryBySubsection };
+    delete nextTheoryBySubsection[safeTheorySubsectionId];
     const updatedDb = { ...(testsDb || {}) };
-    if (!updatedDb[manageTaskNumber]) updatedDb[manageTaskNumber] = {};
-    const rest = { ...(updatedDb[manageTaskNumber] || {}) };
-    delete rest.pythonTheory;
-    updatedDb[manageTaskNumber] = rest;
+    const nextTaskEntry = { ...(updatedDb[manageTaskNumber] || {}) };
+    if (Object.keys(nextTheoryBySubsection).length > 0) {
+      nextTaskEntry.pythonTheoryBySubsection = nextTheoryBySubsection;
+    } else {
+      delete nextTaskEntry.pythonTheoryBySubsection;
+    }
+    if (safeTheorySubsectionId === PYTHON_DEFAULT_SUBSECTION_ID) {
+      delete nextTaskEntry.pythonTheory;
+    }
+    updatedDb[manageTaskNumber] = nextTaskEntry;
     setTheorySaving(true);
     setTestsDb(updatedDb);
     try {
@@ -1622,6 +1765,24 @@ const PythonSection = ({
             </div>
           </div>
 
+          <div className="space-y-1">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Подраздел теории
+            </div>
+            <select
+              value={theorySubsectionId}
+              onChange={(event) => setTheorySubsectionId(normalizeTheorySubsectionId(event.target.value))}
+              disabled={theorySaving}
+              className="w-full rounded-xl border border-purple-100 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-purple-500"
+            >
+              {manageTheorySubsections.map((section) => (
+                <option key={`theory-subsection-${section.id}`} value={section.id}>
+                  {section.isDefault ? 'Без подраздела (общая теория)' : section.title}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="flex flex-wrap gap-2">
             {[
               { id: 'text', label: 'Текст' },
@@ -1668,7 +1829,7 @@ const PythonSection = ({
             </div>
           ) : (
             <TheoryRecordingEditor
-              key={`theory-recording-editor-${manageTaskNumber}-${savedTheoryRecording?.updatedAt || savedTheoryRecording?.createdAt || 'new'}`}
+              key={`theory-recording-editor-${manageTaskNumber}-${theorySubsectionId}-${savedTheoryRecording?.updatedAt || savedTheoryRecording?.createdAt || 'new'}`}
               initialRecording={theoryType === THEORY_RECORDING_TYPE ? savedTheoryRecording : null}
               onDraftChange={setTheoryRecordingDraft}
               ensurePyodideReady={ensurePyodideReady}
