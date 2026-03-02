@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { BarChart2, CheckCircle, Pencil, PlayCircle, RefreshCcw, Trash2 } from 'lucide-react';
+import { ArrowUpRight, BarChart2, BookOpen, CheckCircle, Pencil, PlayCircle, RefreshCcw, Sparkles, Target, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import ProgressReviewModal from './ProgressReviewModal';
 import PythonReviewModal from './PythonReviewModal';
@@ -32,6 +32,29 @@ const PYTHON_TASK_SECTION_META = {
   },
 };
 
+const PYTHON_TASK_SECTION_UI = {
+  topics: {
+    icon: BookOpen,
+    badge: 'Фундамент',
+    shellClass: 'border-cyan-200/70 bg-gradient-to-br from-cyan-50/75 via-white to-blue-50/80',
+    headerClass: 'from-cyan-500/20 via-sky-500/16 to-blue-500/20',
+    chipClass: 'border-cyan-300/70 bg-cyan-100/90 text-cyan-800',
+    cardClass: 'border-cyan-200/80 bg-gradient-to-br from-cyan-50/65 via-white to-sky-50/70',
+    hoverClass: 'hover:border-cyan-400/80 hover:shadow-[0_18px_32px_rgba(14,165,233,0.2)]',
+    numberClass: 'border-cyan-200 bg-cyan-100/80 text-cyan-800',
+  },
+  'exam-prep': {
+    icon: Target,
+    badge: 'Практика ЕГЭ',
+    shellClass: 'border-amber-200/75 bg-gradient-to-br from-amber-50/80 via-white to-orange-50/70',
+    headerClass: 'from-amber-500/18 via-orange-500/14 to-rose-500/16',
+    chipClass: 'border-amber-300/70 bg-amber-100/90 text-amber-800',
+    cardClass: 'border-amber-200/85 bg-gradient-to-br from-amber-50/70 via-white to-orange-50/65',
+    hoverClass: 'hover:border-amber-400/80 hover:shadow-[0_18px_32px_rgba(249,115,22,0.2)]',
+    numberClass: 'border-amber-200 bg-amber-100/80 text-amber-800',
+  },
+};
+
 const normalizeSubsectionMetaList = (value) => (
   (Array.isArray(value) ? value : [])
     .map((item, index) => {
@@ -52,33 +75,74 @@ const normalizeTheorySubsectionId = (value) => {
   return id || PYTHON_DEFAULT_SUBSECTION_ID;
 };
 
+const THEORY_VARIANT_ORDER = [THEORY_RECORDING_TYPE, 'text', 'gdoc'];
+
+const normalizeTheoryItem = (value, fallbackType = '') => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const detectedType = String(value.type || fallbackType || '').trim();
+  if (detectedType === THEORY_RECORDING_TYPE) {
+    const recording = normalizeTheoryRecording(value.content);
+    return recording ? { type: THEORY_RECORDING_TYPE, content: recording } : null;
+  }
+  if (detectedType === 'gdoc') {
+    const content = String(value.content || '').trim();
+    return content ? { type: 'gdoc', content } : null;
+  }
+  const content = String(value.content || '').trim();
+  return content ? { type: 'text', content } : null;
+};
+
+const normalizeTheoryVariantMap = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const singleTheory = normalizeTheoryItem(value);
+  if (singleTheory) {
+    return { [singleTheory.type]: singleTheory };
+  }
+  const source = (
+    value.variants
+    && typeof value.variants === 'object'
+    && !Array.isArray(value.variants)
+  )
+    ? value.variants
+    : value;
+  const variants = {};
+  Object.entries(source).forEach(([rawType, rawTheory]) => {
+    const normalizedType = String(rawType || '').trim();
+    if (!normalizedType) return;
+    const theoryLike = (
+      rawTheory
+      && typeof rawTheory === 'object'
+      && !Array.isArray(rawTheory)
+    )
+      ? rawTheory
+      : { type: normalizedType, content: rawTheory };
+    const theory = normalizeTheoryItem(theoryLike, normalizedType);
+    if (!theory) return;
+    variants[theory.type] = theory;
+  });
+  return variants;
+};
+
 const normalizeTheoryBySubsectionMap = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const entries = {};
   Object.entries(value).forEach(([rawId, theory]) => {
     const id = normalizeTheorySubsectionId(rawId);
-    if (!theory || typeof theory !== 'object' || Array.isArray(theory)) return;
-    const type = String(theory.type || '').trim();
-    if (type === THEORY_RECORDING_TYPE) {
-      const recording = normalizeTheoryRecording(theory.content);
-      if (!recording) return;
-      entries[id] = { type: THEORY_RECORDING_TYPE, content: recording };
-      return;
-    }
-    if (type === 'gdoc') {
-      const content = String(theory.content || '').trim();
-      if (!content) return;
-      entries[id] = { type: 'gdoc', content };
-      return;
-    }
-    const content = String(theory.content || '').trim();
-    if (!content) return;
-    entries[id] = { type: 'text', content };
+    const variants = normalizeTheoryVariantMap(theory);
+    if (!Object.keys(variants).length) return;
+    entries[id] = variants;
   });
   return entries;
 };
 
-const resolveTheoryForSubsection = (taskEntry, subsectionId, options = {}) => {
+const pickTheoryVariantType = (variants, preferredType = '') => {
+  if (!variants || typeof variants !== 'object') return '';
+  const preferred = String(preferredType || '').trim();
+  if (preferred && variants[preferred]) return preferred;
+  return THEORY_VARIANT_ORDER.find((type) => Boolean(variants[type])) || '';
+};
+
+const resolveTheoryVariantsForSubsection = (taskEntry, subsectionId, options = {}) => {
   const fallbackToDefault = options?.fallbackToDefault !== false;
   const fallbackToLegacy = options?.fallbackToLegacy !== false;
   const safeSubsectionId = normalizeTheorySubsectionId(subsectionId);
@@ -87,21 +151,9 @@ const resolveTheoryForSubsection = (taskEntry, subsectionId, options = {}) => {
   if (fallbackToDefault && safeSubsectionId !== PYTHON_DEFAULT_SUBSECTION_ID && map[PYTHON_DEFAULT_SUBSECTION_ID]) {
     return map[PYTHON_DEFAULT_SUBSECTION_ID];
   }
-  if (!fallbackToLegacy) return null;
-  if (!fallbackToDefault && safeSubsectionId !== PYTHON_DEFAULT_SUBSECTION_ID) return null;
-  const legacyTheory = taskEntry?.pythonTheory;
-  if (!legacyTheory || typeof legacyTheory !== 'object' || Array.isArray(legacyTheory)) return null;
-  const legacyType = String(legacyTheory.type || '').trim();
-  if (legacyType === THEORY_RECORDING_TYPE) {
-    const recording = normalizeTheoryRecording(legacyTheory.content);
-    return recording ? { type: THEORY_RECORDING_TYPE, content: recording } : null;
-  }
-  if (legacyType === 'gdoc') {
-    const content = String(legacyTheory.content || '').trim();
-    return content ? { type: 'gdoc', content } : null;
-  }
-  const content = String(legacyTheory.content || '').trim();
-  return content ? { type: 'text', content } : null;
+  if (!fallbackToLegacy) return {};
+  if (!fallbackToDefault && safeSubsectionId !== PYTHON_DEFAULT_SUBSECTION_ID) return {};
+  return normalizeTheoryVariantMap(taskEntry?.pythonTheory);
 };
 
 const PythonSection = ({
@@ -143,7 +195,17 @@ const PythonSection = ({
   const taskList = useMemo(() => (Array.isArray(PYTHON_TASKS) ? PYTHON_TASKS : []), [PYTHON_TASKS]);
   const taskSections = useMemo(() => {
     const sectionOrder = ['topics', 'exam-prep'];
-    const groups = new Map();
+    const groups = new Map(
+      sectionOrder.map((sectionId) => {
+        const meta = PYTHON_TASK_SECTION_META[sectionId] || { title: 'Раздел Python', description: '' };
+        return [sectionId, {
+          id: sectionId,
+          title: meta.title,
+          description: meta.description,
+          tasks: []
+        }];
+      })
+    );
     taskList.forEach((task) => {
       const sectionId = String(task?.sectionId || 'topics');
       if (!groups.has(sectionId)) {
@@ -167,8 +229,9 @@ const PythonSection = ({
     });
   }, [taskList]);
   const pathTaskList = useMemo(() => {
-    const visibleTasks = taskList.filter((task) => task?.showInPath !== false);
-    return visibleTasks.length > 0 ? visibleTasks : taskList;
+    const topicsTasks = taskList.filter((task) => String(task?.sectionId || 'topics') === 'topics');
+    const visibleTasks = topicsTasks.filter((task) => task?.showInPath !== false);
+    return visibleTasks.length > 0 ? visibleTasks : topicsTasks;
   }, [taskList]);
   const [activeTask, setActiveTask] = useState(null);
   const [reviewTask, setReviewTask] = useState(null);
@@ -319,17 +382,11 @@ const PythonSection = ({
     if (!manageTaskNumber) return;
     const taskEntry = getPythonTaskEntry(testsDb, manageTaskNumber);
     const safeTheorySubsectionId = normalizeTheorySubsectionId(theorySubsectionId);
-    const theory = resolveTheoryForSubsection(taskEntry, safeTheorySubsectionId, {
+    const theoryVariants = resolveTheoryVariantsForSubsection(taskEntry, safeTheorySubsectionId, {
       fallbackToDefault: false,
       fallbackToLegacy: safeTheorySubsectionId === PYTHON_DEFAULT_SUBSECTION_ID,
-    }) || {};
-    const type = theory?.type === 'gdoc'
-      ? 'gdoc'
-      : (theory?.type === THEORY_RECORDING_TYPE ? THEORY_RECORDING_TYPE : 'text');
-    setTheoryType(type);
-    setTheoryText(type === 'text' ? String(theory?.content || '') : '');
-    setTheoryUrl(type === 'gdoc' ? String(theory?.content || '') : '');
-    setTheoryRecordingDraft(type === THEORY_RECORDING_TYPE ? normalizeTheoryRecording(theory?.content) : null);
+    });
+    setTheoryType((prevType) => pickTheoryVariantType(theoryVariants, prevType) || 'text');
     setTheoryError('');
   }, [testsDb, manageTaskNumber, theorySubsectionId]);
 
@@ -369,21 +426,37 @@ const PythonSection = ({
     () => getPythonTaskEntry(testsDb, manageTaskNumber),
     [testsDb, manageTaskNumber]
   );
-  const selectedManageTheory = useMemo(
+  const selectedManageTheoryVariants = useMemo(
     () => {
       const safeTheorySubsectionId = normalizeTheorySubsectionId(theorySubsectionId);
-      return resolveTheoryForSubsection(manageTaskEntry, safeTheorySubsectionId, {
+      return resolveTheoryVariantsForSubsection(manageTaskEntry, safeTheorySubsectionId, {
         fallbackToDefault: false,
         fallbackToLegacy: safeTheorySubsectionId === PYTHON_DEFAULT_SUBSECTION_ID,
       });
     },
     [manageTaskEntry, theorySubsectionId]
   );
+  const selectedManageTheory = useMemo(
+    () => selectedManageTheoryVariants[theoryType] || null,
+    [selectedManageTheoryVariants, theoryType]
+  );
   const savedTheoryRecording = useMemo(() => {
     const theory = selectedManageTheory;
     if (!theory || theory.type !== THEORY_RECORDING_TYPE) return null;
     return normalizeTheoryRecording(theory.content);
   }, [selectedManageTheory]);
+
+  useEffect(() => {
+    const theory = selectedManageTheory;
+    setTheoryText(theoryType === 'text' ? String(theory?.content || '') : '');
+    setTheoryUrl(theoryType === 'gdoc' ? String(theory?.content || '') : '');
+    setTheoryRecordingDraft(
+      theoryType === THEORY_RECORDING_TYPE
+        ? normalizeTheoryRecording(theory?.content)
+        : null
+    );
+    setTheoryError('');
+  }, [selectedManageTheory, theoryType]);
   const manageSubsectionModel = useMemo(
     () => buildPythonSubsectionModel(manageTaskEntry, PYTHON_LEVEL_ID, {
       includeEmptySections: true,
@@ -610,8 +683,14 @@ const PythonSection = ({
     if (!updatedDb[manageTaskNumber]) return;
     const currentTaskEntry = updatedDb[manageTaskNumber];
     const currentTheoryBySubsection = normalizeTheoryBySubsectionMap(currentTaskEntry?.pythonTheoryBySubsection);
-    const removedTheory = currentTheoryBySubsection[subsectionId] || null;
-    const removedRecordingStorageName = getTheoryRecordingStorageName(removedTheory);
+    const removedTheoryVariants = currentTheoryBySubsection[subsectionId] || {};
+    const removedRecordingStorageNames = Array.from(
+      new Set(
+        Object.values(removedTheoryVariants)
+          .map((theory) => getTheoryRecordingStorageName(theory))
+          .filter((storageName) => Boolean(storageName))
+      )
+    );
     const nextTheoryBySubsection = { ...currentTheoryBySubsection };
     delete nextTheoryBySubsection[subsectionId];
     const currentSubsections = normalizeSubsectionMetaList(currentTaskEntry?.pythonSubsections)
@@ -641,9 +720,9 @@ const PythonSection = ({
     setTestsDb(updatedDb);
     try {
       await api.saveTests(updatedDb);
-      if (removedRecordingStorageName) {
-        api.deleteTestFile(removedRecordingStorageName).catch(() => {});
-      }
+      removedRecordingStorageNames.forEach((storageName) => {
+        api.deleteTestFile(storageName).catch(() => {});
+      });
       setSubsectionError('');
       if (selectedSubsectionId === subsectionId) {
         setSelectedSubsectionId(PYTHON_DEFAULT_SUBSECTION_ID);
@@ -690,19 +769,18 @@ const PythonSection = ({
     const safeTheorySubsectionId = normalizeTheorySubsectionId(theorySubsectionId);
     const currentTaskEntry = getPythonTaskEntry(testsDb, manageTaskNumber) || {};
     const currentTheoryBySubsection = normalizeTheoryBySubsectionMap(currentTaskEntry?.pythonTheoryBySubsection);
-    const currentTheory = currentTheoryBySubsection[safeTheorySubsectionId]
+    const currentTheoryVariants = currentTheoryBySubsection[safeTheorySubsectionId]
       || (
         safeTheorySubsectionId === PYTHON_DEFAULT_SUBSECTION_ID
-          ? (
-            currentTaskEntry?.pythonTheory
-            && typeof currentTaskEntry.pythonTheory === 'object'
-            && !Array.isArray(currentTaskEntry.pythonTheory)
-              ? currentTaskEntry.pythonTheory
-              : null
-          )
-          : null
+          ? normalizeTheoryVariantMap(currentTaskEntry?.pythonTheory)
+          : {}
       );
-    const previousRecordingStorageName = getTheoryRecordingStorageName(currentTheory);
+    const currentTheory = currentTheoryVariants[theoryType] || null;
+    const previousRecordingStorageName = (
+      theoryType === THEORY_RECORDING_TYPE
+        ? getTheoryRecordingStorageName(currentTheory)
+        : ''
+    );
     let uploadedStorageName = '';
     let nextRecordingStorageName = '';
     let recordingDraftToPersist = null;
@@ -800,9 +878,13 @@ const PythonSection = ({
       nextTheory = { type: theoryType, content };
     }
 
+    const nextTheoryVariants = {
+      ...currentTheoryVariants,
+      [theoryType]: nextTheory,
+    };
     const nextTheoryBySubsection = {
       ...currentTheoryBySubsection,
-      [safeTheorySubsectionId]: nextTheory,
+      [safeTheorySubsectionId]: nextTheoryVariants,
     };
     const updatedDb = { ...(testsDb || {}) };
     const nextTaskEntry = {
@@ -842,21 +924,26 @@ const PythonSection = ({
     const safeTheorySubsectionId = normalizeTheorySubsectionId(theorySubsectionId);
     const currentTaskEntry = getPythonTaskEntry(testsDb, manageTaskNumber) || {};
     const currentTheoryBySubsection = normalizeTheoryBySubsectionMap(currentTaskEntry?.pythonTheoryBySubsection);
-    const currentTheory = currentTheoryBySubsection[safeTheorySubsectionId]
+    const currentTheoryVariants = currentTheoryBySubsection[safeTheorySubsectionId]
       || (
         safeTheorySubsectionId === PYTHON_DEFAULT_SUBSECTION_ID
-          ? (
-            currentTaskEntry?.pythonTheory
-            && typeof currentTaskEntry.pythonTheory === 'object'
-            && !Array.isArray(currentTaskEntry.pythonTheory)
-              ? currentTaskEntry.pythonTheory
-              : null
-          )
-          : null
+          ? normalizeTheoryVariantMap(currentTaskEntry?.pythonTheory)
+          : {}
       );
-    const previousRecordingStorageName = getTheoryRecordingStorageName(currentTheory);
+    const currentTheory = currentTheoryVariants[theoryType] || null;
+    const previousRecordingStorageName = (
+      theoryType === THEORY_RECORDING_TYPE
+        ? getTheoryRecordingStorageName(currentTheory)
+        : ''
+    );
+    const nextTheoryVariants = { ...currentTheoryVariants };
+    delete nextTheoryVariants[theoryType];
     const nextTheoryBySubsection = { ...currentTheoryBySubsection };
-    delete nextTheoryBySubsection[safeTheorySubsectionId];
+    if (Object.keys(nextTheoryVariants).length > 0) {
+      nextTheoryBySubsection[safeTheorySubsectionId] = nextTheoryVariants;
+    } else {
+      delete nextTheoryBySubsection[safeTheorySubsectionId];
+    }
     const updatedDb = { ...(testsDb || {}) };
     const nextTaskEntry = { ...(updatedDb[manageTaskNumber] || {}) };
     if (Object.keys(nextTheoryBySubsection).length > 0) {
@@ -875,9 +962,9 @@ const PythonSection = ({
       if (previousRecordingStorageName) {
         api.deleteTestFile(previousRecordingStorageName).catch(() => {});
       }
-      setTheoryText('');
-      setTheoryUrl('');
-      setTheoryRecordingDraft(null);
+      if (theoryType === 'text') setTheoryText('');
+      if (theoryType === 'gdoc') setTheoryUrl('');
+      if (theoryType === THEORY_RECORDING_TYPE) setTheoryRecordingDraft(null);
       setTheoryError('');
     } catch (err) {
       setTheoryError(err?.message || err);
@@ -1098,22 +1185,21 @@ const PythonSection = ({
     };
   }, [pathTaskList, progressMap, mobilePythonPathCanvasWidth]);
 
-  const renderTaskCard = (task, idx) => {
-    const val = progressMap[task.id] || 0;
+  const renderTaskCard = (task, idx, section) => {
+    const val = Math.max(0, Math.min(100, Number(progressMap[task.id] || 0)));
     const clickable = role === 'student' || role === 'teacher';
-    const cardTone = val >= 85
-      ? 'border-emerald-200/90 bg-gradient-to-br from-emerald-50/60 via-white to-emerald-50/50'
-      : (val >= 60
-          ? 'border-purple-200/90 bg-gradient-to-br from-purple-50/65 via-white to-fuchsia-50/45'
-          : (val >= 40
-              ? 'border-amber-200/90 bg-gradient-to-br from-amber-50/60 via-white to-orange-50/35'
-              : 'border-slate-200/90 bg-gradient-to-br from-white via-slate-50 to-slate-100/70'));
-    const statusLabel = val >= 85 ? 'Сильная тема' : (val >= 60 ? 'В работе' : (val >= 40 ? 'Нужна практика' : 'Зона внимания'));
+    const sectionUi = PYTHON_TASK_SECTION_UI[section?.id] || {
+      badge: 'Раздел',
+      cardClass: 'border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-slate-100/75',
+      hoverClass: 'hover:border-slate-300/80 hover:shadow-[0_16px_28px_rgba(148,163,184,0.22)]',
+      numberClass: 'border-slate-200 bg-slate-100/80 text-slate-700',
+    };
+    const statusLabel = val >= 85 ? 'Отлично' : (val >= 60 ? 'Стабильно' : (val >= 40 ? 'Нужно закрепить' : 'Старт'));
     return (
       <Card
         key={task.id}
-        style={{ '--i': idx }}
-        className={`group relative p-3.5 md:p-4 ${cardTone}`}
+        style={{ '--i': idx, '--python-card-i': `${idx}` }}
+        className={`python-learning-task-card group relative overflow-hidden border p-0 transition-all duration-300 ${sectionUi.cardClass} ${sectionUi.hoverClass}`}
         onClick={clickable ? () => {
           if (role === 'teacher') setReviewTask(task);
           else {
@@ -1122,38 +1208,33 @@ const PythonSection = ({
           }
         } : undefined}
       >
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <span className="inline-flex items-center rounded-lg border border-purple-200 bg-white/90 px-2 py-1 text-[11px] md:text-xs font-bold text-purple-700">
-            №{getTaskDisplayNumber(task)}
-          </span>
-          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-2 py-1 text-[10px] md:text-xs font-semibold text-slate-600">
-            {statusLabel}
-          </span>
-        </div>
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="font-bold text-[15px] md:text-base leading-snug text-gray-800">{task.title}</h3>
-        </div>
-        <div className="mt-2 flex items-center justify-between text-[11px] md:text-xs text-slate-500">
-          <span>
-            <span className="sm:hidden">Тема</span>
-            <span className="hidden sm:inline">Прогресс темы</span>
-          </span>
-          <span className="text-sm md:text-base font-bold text-slate-700">{val}%</span>
-        </div>
-        <ProgressBar value={val} />
+        <div className="absolute -right-10 -top-12 h-32 w-32 rounded-full bg-white/45 blur-2xl" />
+        <div className="relative z-10 p-4 md:p-5">
+          <div className="mb-2.5 flex items-center justify-between gap-2">
+            <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-[11px] md:text-xs font-extrabold ${sectionUi.numberClass}`}>
+              №{getTaskDisplayNumber(task)}
+            </span>
+            <span className="inline-flex items-center rounded-full border border-white/70 bg-white/80 px-2 py-1 text-[10px] md:text-[11px] font-semibold text-slate-600">
+              {statusLabel}
+            </span>
+          </div>
+          <h3 className="font-bold text-[15px] md:text-base leading-snug text-slate-900">{task.title}</h3>
+          <div className="mt-3 flex items-center justify-between text-[11px] md:text-xs text-slate-500">
+            <span>{section?.id === 'exam-prep' ? 'Прогресс подготовки' : 'Прогресс темы'}</span>
+            <span className="text-sm md:text-base font-extrabold text-slate-800">{val}%</span>
+          </div>
+          <ProgressBar value={val} />
 
-        {clickable && (
-          <div className="absolute inset-0 hidden md:flex bg-white/90 opacity-0 group-hover:opacity-100 transition-opacity items-center justify-center rounded-2xl cursor-pointer backdrop-blur-[2px]">
-            <div className="flex items-center gap-2 text-purple-600 font-bold bg-white px-4 py-2 rounded-full shadow-lg border border-purple-100">
-              <PlayCircle size={20} /> {role === 'teacher' ? 'Решения' : 'Решать'}
+          {clickable && (
+            <div className="mt-3 flex items-center justify-between text-xs font-semibold text-slate-600">
+              <span>{role === 'teacher' ? 'Открыть решения' : 'Открыть тренировку'}</span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/80 bg-white/80 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+                <PlayCircle size={14} />
+                <ArrowUpRight size={13} />
+              </span>
             </div>
-          </div>
-        )}
-        {clickable && (
-          <div className="mt-3 md:hidden text-xs font-semibold text-purple-600">
-            {role === 'teacher' ? 'Смотреть решения' : 'Открыть тему'}
-          </div>
-        )}
+          )}
+        </div>
       </Card>
     );
   };
@@ -1210,29 +1291,33 @@ const PythonSection = ({
   }
 
   return (
-    <div className="space-y-4 md:space-y-6 animate-fadeIn">
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-4 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
-        <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
-        <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
-        <div className="relative z-10 flex flex-col gap-3 md:gap-5">
-          <div className="flex flex-col gap-3 md:gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-2.5 md:space-y-3">
-              <div>
-                <h2 className="text-xl md:text-2xl font-bold text-gray-900">Изучение Python</h2>
-                <p className="hidden md:block text-sm text-slate-600">Тестирования по темам курса и общий прогресс</p>
+    <div className="python-learning-shell space-y-4 md:space-y-6 animate-fadeIn">
+      <div className="python-learning-hero relative overflow-hidden rounded-[2rem] border border-slate-200/80 bg-gradient-to-br from-slate-50 via-white to-cyan-50/70 p-4 md:p-6 shadow-[0_24px_48px_rgba(15,23,42,0.14)]">
+        <div aria-hidden className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-cyan-200/40 blur-3xl" />
+        <div aria-hidden className="pointer-events-none absolute -left-20 bottom-0 h-56 w-56 rounded-full bg-amber-200/40 blur-3xl" />
+        <div className="relative z-10 space-y-4 md:space-y-5">
+          <div className="flex flex-col gap-3 md:gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="space-y-2.5">
+              <div className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white/80 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.13em] text-slate-600">
+                <Sparkles size={13} />
+                Персональный трек Python
               </div>
-              <div className="flex flex-wrap gap-1.5 md:gap-2 text-[11px] md:text-xs font-semibold">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white/90 px-2 py-1 md:px-2.5 text-purple-700">
+              <div>
+                <h2 className="text-2xl md:text-[2.1rem] font-black tracking-tight text-slate-900">Изучение Python</h2>
+                <p className="text-sm md:text-[15px] text-slate-600">
+                  Два отдельных раздела: фундаментальные темы и подготовка к заданиям.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-[11px] md:text-xs font-semibold">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white/85 px-2.5 py-1 text-slate-700">
                   <BarChart2 size={13} />
-                  <span className="sm:hidden">{`Прогресс: ${totalMasteryLabel}%`}</span>
-                  <span className="hidden sm:inline">{`Общий прогресс: ${totalMasteryLabel}%`}</span>
+                  {`Общий прогресс: ${totalMasteryLabel}%`}
                 </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-white/90 px-2 py-1 md:px-2.5 text-emerald-700">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50/90 px-2.5 py-1 text-emerald-700">
                   <CheckCircle size={13} />
-                  <span className="sm:hidden">{`Увер.: ${masteredTopicsCount}/${taskList.length}`}</span>
-                  <span className="hidden sm:inline">{`Уверенно: ${masteredTopicsCount}/${taskList.length}`}</span>
+                  {`Уверенно: ${masteredTopicsCount}/${taskList.length}`}
                 </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-white/90 px-2 py-1 md:px-2.5 text-amber-700">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50/90 px-2.5 py-1 text-amber-700">
                   <RefreshCcw size={12} />
                   {`Подтянуть: ${needsPracticeTopicsCount}`}
                 </span>
@@ -1243,33 +1328,84 @@ const PythonSection = ({
             </div>
           </div>
 
-          <div className="relative overflow-hidden rounded-2xl border border-purple-200/80 bg-white/80 p-3 md:p-4 shadow-[0_10px_24px_rgba(99,102,241,0.12)]">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="rounded-full bg-purple-600 px-2.5 py-1 text-[10px] md:text-xs font-bold uppercase tracking-[0.14em] md:tracking-widest text-white">
-                  Прогресс Python
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="python-learning-progress-card relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-[0_14px_28px_rgba(15,23,42,0.08)]">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Общий прогресс курса</div>
+                <div className="text-2xl md:text-3xl font-black text-slate-900">{totalMasteryLabel}%</div>
+              </div>
+              <div className="relative h-8 w-full overflow-hidden rounded-full border border-slate-200 bg-slate-100">
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500 shadow-[0_0_18px_rgba(14,165,233,0.35)] transition-[width] duration-700 ease-out"
+                  style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
+                />
+                <div
+                  key={`sheen-python-${totalMasteryRounded}`}
+                  className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.52),transparent)] animate-sheen"
+                />
+              </div>
+              <div className="mt-2 text-[11px] md:text-xs text-slate-500">
+                0% — старт • 100% — уверенное владение материалом.
+              </div>
+            </div>
+            <div className="python-learning-focus-card rounded-2xl border border-slate-200/80 bg-white/85 p-4 shadow-[0_14px_28px_rgba(15,23,42,0.08)]">
+              <div className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Фокус недели</div>
+              <div className="mt-2 text-sm font-semibold text-slate-700">
+                {needsPracticeTopicsCount > 0
+                  ? `Сфокусируйтесь на ${needsPracticeTopicsCount} темах с низким прогрессом.`
+                  : 'Отличный темп. Можно переходить к сложным заданиям.'}
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 px-3 py-2">
+                  <div className="text-cyan-700/80">Всего карточек</div>
+                  <div className="mt-1 text-base font-black text-cyan-900">{taskList.length}</div>
                 </div>
-                <span className="hidden md:inline text-sm text-gray-500">Общий прогресс изучения</span>
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2">
+                  <div className="text-emerald-700/80">Закрыто уверенно</div>
+                  <div className="mt-1 text-base font-black text-emerald-900">{masteredTopicsCount}</div>
+                </div>
               </div>
-              <div className="text-2xl md:text-3xl font-extrabold text-purple-700 drop-shadow-sm">
-                {totalMasteryLabel}%
-              </div>
             </div>
-            <div className="relative mt-2.5 md:mt-3 h-6 md:h-8 w-full overflow-hidden rounded-full border border-purple-100 bg-white/90">
-              <div
-                className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.45)] transition-[width] duration-700 ease-out"
-                style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
-              />
-              <div
-                key={`sheen-python-${totalMasteryRounded}`}
-                className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-sheen"
-              />
-            </div>
-            <div className="mt-2 flex items-center justify-between text-[11px] md:text-xs text-gray-500">
-              <span className="hidden sm:inline">Проходите темы последовательно</span>
-              <span className="sm:hidden">Идите по темам по порядку</span>
-              <span>0% — старт • 100% — уверенно</span>
-            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {taskSections
+              .filter((section) => section.id === 'topics' || section.id === 'exam-prep')
+              .map((section, sectionIdx) => {
+                const sectionUi = PYTHON_TASK_SECTION_UI[section.id] || PYTHON_TASK_SECTION_UI.topics;
+                const SectionIcon = sectionUi.icon || Sparkles;
+                const tasksInSection = Array.isArray(section.tasks) ? section.tasks : [];
+                const sectionAvg = tasksInSection.length
+                  ? Math.round(tasksInSection.reduce((sum, task) => sum + Number(progressMap[task.id] || 0), 0) / tasksInSection.length)
+                  : 0;
+                return (
+                  <div
+                    key={`overview-${section.id}`}
+                    style={{ '--python-overview-i': `${sectionIdx}` }}
+                    className={`python-learning-overview-card rounded-2xl border p-3.5 md:p-4 shadow-[0_12px_26px_rgba(15,23,42,0.08)] ${sectionUi.shellClass}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-2.5">
+                        <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${sectionUi.chipClass}`}>
+                          <SectionIcon size={17} />
+                        </span>
+                        <div>
+                          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{sectionUi.badge}</div>
+                          <div className="text-base font-black text-slate-900">{section.title}</div>
+                        </div>
+                      </div>
+                      <div className="rounded-full border border-white/80 bg-white/80 px-2.5 py-1 text-xs font-bold text-slate-700">
+                        {`${tasksInSection.length} карточек`}
+                      </div>
+                    </div>
+                    <div className="mt-2 text-sm text-slate-600">{section.description}</div>
+                    <div className="mt-3 flex items-center justify-between rounded-xl border border-white/80 bg-white/80 px-3 py-2 text-xs">
+                      <span className="font-semibold text-slate-600">Средний прогресс раздела</span>
+                      <span className="text-base font-black text-slate-900">{`${sectionAvg}%`}</span>
+                    </div>
+                  </div>
+                );
+              })}
           </div>
         </div>
       </div>
@@ -1435,21 +1571,61 @@ const PythonSection = ({
         </div>
       )}
 
-      <div className="space-y-4 md:space-y-5">
-        {taskSections.map((section) => {
+      <div className="space-y-4 md:space-y-6">
+        {taskSections.map((section, sectionIdx) => {
           const sectionVisibilityClass = role === 'student' && section.id === 'topics' ? 'hidden md:block' : 'block';
+          const sectionUi = PYTHON_TASK_SECTION_UI[section.id] || PYTHON_TASK_SECTION_UI.topics;
+          const SectionIcon = sectionUi.icon || BookOpen;
+          const sectionTasks = Array.isArray(section.tasks) ? section.tasks : [];
+          const sectionAvg = sectionTasks.length
+            ? Math.round(sectionTasks.reduce((sum, task) => sum + Number(progressMap[task.id] || 0), 0) / sectionTasks.length)
+            : 0;
           return (
-            <div key={section.id} className={sectionVisibilityClass}>
-              <div className="mb-3 md:mb-4 flex flex-col gap-1">
-                <h3 className="text-lg md:text-xl font-bold text-slate-900">{section.title}</h3>
-                {section.description && (
-                  <p className="text-xs md:text-sm text-slate-500">{section.description}</p>
-                )}
+            <section key={section.id} className={sectionVisibilityClass}>
+              <div
+                style={{ '--python-section-i': `${sectionIdx}` }}
+                className={`python-learning-section-shell relative overflow-hidden rounded-3xl border p-4 md:p-5 shadow-[0_18px_36px_rgba(15,23,42,0.12)] ${sectionUi.shellClass}`}
+              >
+                <div className={`pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-r opacity-70 ${sectionUi.headerClass || 'from-slate-200/30 via-white/20 to-slate-200/30'}`} />
+                <div className="relative z-10">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${sectionUi.chipClass}`}>
+                        <SectionIcon size={18} />
+                      </span>
+                      <div className="space-y-1">
+                        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{sectionUi.badge || 'Раздел'}</div>
+                        <h3 className="text-lg md:text-xl font-black text-slate-900">{section.title}</h3>
+                        {section.description && (
+                          <p className="text-xs md:text-sm text-slate-600">{section.description}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center rounded-full border border-white/85 bg-white/80 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+                        {`${sectionTasks.length} карточек`}
+                      </span>
+                      <span className="inline-flex items-center rounded-full border border-white/85 bg-white/80 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+                        {`Средний: ${sectionAvg}%`}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    {sectionTasks.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 stagger-children">
+                        {sectionTasks.map((task, idx) => renderTaskCard(task, idx, section))}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-slate-300/80 bg-white/75 px-4 py-5 text-sm font-medium text-slate-500">
+                        {role === 'teacher'
+                          ? 'Пока нет карточек. Добавьте первую задачу в этом разделе ниже.'
+                          : 'Пока здесь нет карточек. Скоро появятся новые задания.'}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 stagger-children">
-                {section.tasks.map((task, idx) => renderTaskCard(task, idx))}
-              </div>
-            </div>
+            </section>
           );
         })}
       </div>
@@ -1465,7 +1641,7 @@ const PythonSection = ({
                 return next;
               });
             }}
-            className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
+            className={`python-mobile-toggle rounded-xl border px-3 py-2 text-xs font-semibold ${
               showTeacherTaskToolsMobile
                 ? 'border-purple-500 bg-purple-50 text-purple-700'
                 : 'border-slate-200 bg-white text-slate-600'
@@ -1482,7 +1658,7 @@ const PythonSection = ({
                 return next;
               });
             }}
-            className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
+            className={`python-mobile-toggle rounded-xl border px-3 py-2 text-xs font-semibold ${
               showTeacherTheoryToolsMobile
                 ? 'border-purple-500 bg-purple-50 text-purple-700'
                 : 'border-slate-200 bg-white text-slate-600'
@@ -1494,7 +1670,7 @@ const PythonSection = ({
       )}
 
       {role === 'teacher' && (
-        <Card className={`space-y-4 border-purple-200/60 bg-gradient-to-br from-white via-white to-purple-50/40 ${showTeacherTaskToolsMobile ? 'block' : 'hidden'} md:block`}>
+        <Card className={`python-mobile-panel python-mobile-panel--task space-y-4 border-purple-200/60 bg-gradient-to-br from-white via-white to-purple-50/40 ${showTeacherTaskToolsMobile ? 'python-mobile-panel--open' : 'python-mobile-panel--closed'}`}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-bold text-gray-800">
@@ -1757,7 +1933,7 @@ const PythonSection = ({
       )}
 
       {role === 'teacher' && (
-        <Card className={`space-y-4 border-slate-200 bg-white/90 ${showTeacherTheoryToolsMobile ? 'block' : 'hidden'} md:block`}>
+        <Card className={`python-mobile-panel python-mobile-panel--theory space-y-4 border-slate-200 bg-white/90 ${showTeacherTheoryToolsMobile ? 'python-mobile-panel--open' : 'python-mobile-panel--closed'}`}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-bold text-gray-800">Теория темы</h3>
@@ -1793,7 +1969,7 @@ const PythonSection = ({
                 key={item.id}
                 type="button"
                 onClick={() => setTheoryType(item.id)}
-                className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
+                className={`python-theory-type-chip px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
                   theoryType === item.id
                     ? 'bg-purple-600 text-white border-purple-600'
                     : 'bg-white text-gray-600 border-purple-100 hover:border-purple-300'
@@ -1804,44 +1980,49 @@ const PythonSection = ({
             ))}
           </div>
 
-          {theoryType === 'text' ? (
-            <textarea
-              value={theoryText}
-              onChange={(e) => setTheoryText(e.target.value)}
-              placeholder="Вставьте текст теории..."
-              className="w-full min-h-[160px] px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
-            />
-          ) : theoryType === 'gdoc' ? (
-            <div className="space-y-2">
-              <input
-                type="text"
-                value={theoryUrl}
-                onChange={(e) => setTheoryUrl(e.target.value)}
-                placeholder="Вставьте ссылку на документ или iframe Google Docs"
-                className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+          <div
+            key={`theory-stage-${theoryType}-${manageTaskNumber}-${theorySubsectionId}`}
+            className="python-theory-editor-stage"
+          >
+            {theoryType === 'text' ? (
+              <textarea
+                value={theoryText}
+                onChange={(e) => setTheoryText(e.target.value)}
+                placeholder="Вставьте текст теории..."
+                className="w-full min-h-[160px] px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
               />
-              <p className="hidden md:block text-xs text-gray-400">
-                Используйте ссылку для встраивания из Google Docs (Файл → Опубликовать в интернете → Встроить).
-              </p>
-              <p className="text-[11px] text-gray-400">
-                Подойдут и обычные ссылки на документ (view/edit) — они встроятся через preview. Для оглавления используйте «Открыть полностью».
-              </p>
-            </div>
-          ) : (
-            <TheoryRecordingEditor
-              key={`theory-recording-editor-${manageTaskNumber}-${theorySubsectionId}-${savedTheoryRecording?.updatedAt || savedTheoryRecording?.createdAt || 'new'}`}
-              initialRecording={theoryType === THEORY_RECORDING_TYPE ? savedTheoryRecording : null}
-              onDraftChange={setTheoryRecordingDraft}
-              ensurePyodideReady={ensurePyodideReady}
-              disabled={theorySaving}
-            />
-          )}
+            ) : theoryType === 'gdoc' ? (
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={theoryUrl}
+                  onChange={(e) => setTheoryUrl(e.target.value)}
+                  placeholder="Вставьте ссылку на документ или iframe Google Docs"
+                  className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+                />
+                <p className="hidden md:block text-xs text-gray-400">
+                  Используйте ссылку для встраивания из Google Docs (Файл → Опубликовать в интернете → Встроить).
+                </p>
+                <p className="text-[11px] text-gray-400">
+                  Подойдут и обычные ссылки на документ (view/edit) — они встроятся через preview. Для оглавления используйте «Открыть полностью».
+                </p>
+              </div>
+            ) : (
+              <TheoryRecordingEditor
+                key={`theory-recording-editor-${manageTaskNumber}-${theorySubsectionId}-${savedTheoryRecording?.updatedAt || savedTheoryRecording?.createdAt || 'new'}`}
+                initialRecording={theoryType === THEORY_RECORDING_TYPE ? savedTheoryRecording : null}
+                onDraftChange={setTheoryRecordingDraft}
+                ensurePyodideReady={ensurePyodideReady}
+                disabled={theorySaving}
+              />
+            )}
+          </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3">
             {theoryError && <span className="text-xs text-red-500">{theoryError}</span>}
             <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <Button variant="secondary" onClick={handleClearPythonTheory} disabled={theorySaving} className="w-full sm:w-auto">
-                Очистить
+                Очистить текущий тип
               </Button>
               <Button onClick={handleSavePythonTheory} disabled={theorySaving} className="w-full sm:w-auto">
                 {theorySaving ? 'Сохранение...' : 'Сохранить теорию'}

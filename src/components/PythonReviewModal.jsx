@@ -61,52 +61,91 @@ const normalizeTheorySubsectionId = (value) => {
   return id || PYTHON_DEFAULT_SUBSECTION_ID;
 };
 
+const THEORY_VARIANT_ORDER = [THEORY_RECORDING_TYPE, 'text', 'gdoc'];
+
+const normalizeTheoryItem = (value, fallbackType = '') => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const detectedType = String(value.type || fallbackType || '').trim();
+  if (detectedType === THEORY_RECORDING_TYPE) {
+    const recording = normalizeTheoryRecording(value.content);
+    return recording ? { type: THEORY_RECORDING_TYPE, content: recording } : null;
+  }
+  if (detectedType === 'gdoc') {
+    const content = String(value.content || '').trim();
+    return content ? { type: 'gdoc', content } : null;
+  }
+  const content = String(value.content || '').trim();
+  return content ? { type: 'text', content } : null;
+};
+
+const normalizeTheoryVariantMap = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const singleTheory = normalizeTheoryItem(value);
+  if (singleTheory) {
+    return { [singleTheory.type]: singleTheory };
+  }
+  const source = (
+    value.variants
+    && typeof value.variants === 'object'
+    && !Array.isArray(value.variants)
+  )
+    ? value.variants
+    : value;
+  const variants = {};
+  Object.entries(source).forEach(([rawType, rawTheory]) => {
+    const normalizedType = String(rawType || '').trim();
+    if (!normalizedType) return;
+    const theoryLike = (
+      rawTheory
+      && typeof rawTheory === 'object'
+      && !Array.isArray(rawTheory)
+    )
+      ? rawTheory
+      : { type: normalizedType, content: rawTheory };
+    const theory = normalizeTheoryItem(theoryLike, normalizedType);
+    if (!theory) return;
+    variants[theory.type] = theory;
+  });
+  return variants;
+};
+
 const normalizeTheoryBySubsectionMap = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const entries = {};
   Object.entries(value).forEach(([rawId, theory]) => {
     const id = normalizeTheorySubsectionId(rawId);
-    if (!theory || typeof theory !== 'object' || Array.isArray(theory)) return;
-    const type = String(theory.type || '').trim();
-    if (type === THEORY_RECORDING_TYPE) {
-      const recording = normalizeTheoryRecording(theory.content);
-      if (!recording) return;
-      entries[id] = { type: THEORY_RECORDING_TYPE, content: recording };
-      return;
-    }
-    if (type === 'gdoc') {
-      const content = String(theory.content || '').trim();
-      if (!content) return;
-      entries[id] = { type: 'gdoc', content };
-      return;
-    }
-    const content = String(theory.content || '').trim();
-    if (!content) return;
-    entries[id] = { type: 'text', content };
+    const variants = normalizeTheoryVariantMap(theory);
+    if (!Object.keys(variants).length) return;
+    entries[id] = variants;
   });
   return entries;
 };
 
-const resolveTheoryForSubsection = (taskEntry, subsectionId) => {
+const pickTheoryVariantType = (variants, preferredType = '') => {
+  if (!variants || typeof variants !== 'object') return '';
+  const preferred = String(preferredType || '').trim();
+  if (preferred && variants[preferred]) return preferred;
+  return THEORY_VARIANT_ORDER.find((type) => Boolean(variants[type])) || '';
+};
+
+const getTheoryVariantList = (variants) => (
+  THEORY_VARIANT_ORDER.filter((type) => Boolean(variants?.[type]))
+);
+
+const getTheoryTypeLabel = (type) => {
+  if (type === THEORY_RECORDING_TYPE) return 'Видеоразбор';
+  if (type === 'gdoc') return 'Google Docs';
+  return 'Текст';
+};
+
+const resolveTheoryVariantsForSubsection = (taskEntry, subsectionId) => {
   const safeSubsectionId = normalizeTheorySubsectionId(subsectionId);
   const bySubsection = normalizeTheoryBySubsectionMap(taskEntry?.pythonTheoryBySubsection);
   if (bySubsection[safeSubsectionId]) return bySubsection[safeSubsectionId];
   if (safeSubsectionId !== PYTHON_DEFAULT_SUBSECTION_ID && bySubsection[PYTHON_DEFAULT_SUBSECTION_ID]) {
     return bySubsection[PYTHON_DEFAULT_SUBSECTION_ID];
   }
-  const legacy = taskEntry?.pythonTheory;
-  if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy)) return null;
-  const type = String(legacy.type || '').trim();
-  if (type === THEORY_RECORDING_TYPE) {
-    const recording = normalizeTheoryRecording(legacy.content);
-    return recording ? { type: THEORY_RECORDING_TYPE, content: recording } : null;
-  }
-  if (type === 'gdoc') {
-    const content = String(legacy.content || '').trim();
-    return content ? { type: 'gdoc', content } : null;
-  }
-  const content = String(legacy.content || '').trim();
-  return content ? { type: 'text', content } : null;
+  return normalizeTheoryVariantMap(taskEntry?.pythonTheory);
 };
 
 const PythonReviewModal = ({
@@ -134,6 +173,7 @@ const PythonReviewModal = ({
   const [solvedIds, setSolvedIds] = useState(new Set());
   const [solvedCodeById, setSolvedCodeById] = useState({});
   const [showTheory, setShowTheory] = useState(false);
+  const [activeTheoryType, setActiveTheoryType] = useState('');
   const [questionCodeById, setQuestionCodeById] = useState({});
   const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
   const [questionCodeSavingById, setQuestionCodeSavingById] = useState({});
@@ -188,13 +228,28 @@ const PythonReviewModal = ({
     [studentId]
   );
   const activeQuestionId = useMemo(
-    () => String(questions[currentIndex]?.id ?? currentIndex).trim(),
+    () => String(questions[currentIndex]?.id ?? '').trim(),
     [questions, currentIndex]
   );
   const collabRoomId = useMemo(() => {
     if (!collabBaseRoomId || !task?.number || !activeQuestionId) return '';
     return `py-collab:${collabBaseRoomId}:${task.number}:${PYTHON_LEVEL_ID}:${activeQuestionId}`;
   }, [collabBaseRoomId, task?.number, PYTHON_LEVEL_ID, activeQuestionId]);
+  const theoryVariantsForVisibility = useMemo(
+    () => resolveTheoryVariantsForSubsection(taskEntry, selectedSubsectionId || PYTHON_DEFAULT_SUBSECTION_ID),
+    [taskEntry, selectedSubsectionId]
+  );
+  useEffect(() => {
+    setActiveTheoryType((prevType) => {
+      const nextType = pickTheoryVariantType(theoryVariantsForVisibility, prevType);
+      return nextType === prevType ? prevType : nextType;
+    });
+  }, [task?.number, selectedSubsectionId, theoryVariantsForVisibility]);
+
+  const theoryTypeForVisibility = String(activeTheoryType || '').trim();
+  useEffect(() => {
+    setShowTheory(theoryTypeForVisibility === THEORY_RECORDING_TYPE);
+  }, [task?.number, selectedSubsectionId, theoryTypeForVisibility]);
 
   const getQuestionCodeEntry = (questionId, source = null) => {
     const key = String(questionId ?? '').trim();
@@ -315,7 +370,13 @@ const PythonReviewModal = ({
         input: remoteInput,
         updatedAt: remoteUpdatedAt,
       });
-      if (key === activeQuestionId && collabDocRef.current && collabYTextRef.current && collabStateMapRef.current) {
+      if (
+        key === activeQuestionId
+        && collabProviderRef.current?.synced
+        && collabDocRef.current
+        && collabYTextRef.current
+        && collabStateMapRef.current
+      ) {
         const doc = collabDocRef.current;
         const ytext = collabYTextRef.current;
         const stateMap = collabStateMapRef.current;
@@ -753,7 +814,7 @@ const PythonReviewModal = ({
     if (!studentId || !task?.number) return;
     flushScheduledQuestionSave();
     const currentQuestion = questions[currentIndex];
-    const currentId = String(currentQuestion?.id ?? currentIndex).trim();
+    const currentId = String(currentQuestion?.id ?? '').trim();
     if (!currentId) return;
     loadQuestionCode(currentQuestion, currentId).catch(() => {});
     setTestResults([]);
@@ -921,7 +982,7 @@ const PythonReviewModal = ({
   const handleRunTests = async () => {
     const currentQuestion = questions[currentIndex];
     if (!currentQuestion) return;
-    const currentId = String(currentQuestion?.id ?? currentIndex).trim();
+    const currentId = String(currentQuestion?.id ?? '').trim();
     const entry = getQuestionCodeEntry(currentId, questionCodeById);
     const fallbackSolvedCode = typeof solvedCodeById?.[currentId] === 'string' ? solvedCodeById[currentId] : '';
     const fallbackStarterCode = typeof currentQuestion?.starterCode === 'string' ? currentQuestion.starterCode : '';
@@ -1078,8 +1139,8 @@ const PythonReviewModal = ({
 
   if (testsLoading) {
     const loadingModal = (
-      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
-        <div className="surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
+      <div className="python-runtime-modal-overlay fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
+        <div className="python-runtime-modal-shell surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
           <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
           <div className="mx-auto inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-sm font-semibold text-purple-700">
             <RefreshCcw size={14} className="animate-spin" />
@@ -1094,8 +1155,8 @@ const PythonReviewModal = ({
 
   if (!Array.isArray(questions) || questions.length === 0) {
     const emptyModal = (
-      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
-        <div className="surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
+      <div className="python-runtime-modal-overlay fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
+        <div className="python-runtime-modal-shell surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
           <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
           <h2 className="text-2xl font-bold text-gray-900">{'\u0417\u0430\u0434\u0430\u043d\u0438\u0439 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442'}</h2>
           <p className="text-gray-500 mt-2">{'\u0414\u043b\u044f \u044d\u0442\u043e\u0439 \u0442\u0435\u043c\u044b \u043d\u0435\u0442 \u0437\u0430\u0434\u0430\u0447.'}</p>
@@ -1130,7 +1191,7 @@ const PythonReviewModal = ({
   })();
   const showSubsectionNav = visibleSubsections.length > 1 || subsectionModel.hasCustomSubsections;
   const currentQuestion = questions[currentIndex];
-  const currentId = String(currentQuestion?.id ?? currentIndex).trim();
+  const currentId = String(currentQuestion?.id ?? '').trim();
   const isSolved = solvedIds.has(currentId);
   const questionCodeEntry = getQuestionCodeEntry(currentId, questionCodeById);
   const fallbackSolvedCode = typeof solvedCodeById?.[currentId] === 'string' ? solvedCodeById[currentId] : '';
@@ -1155,9 +1216,12 @@ const PythonReviewModal = ({
     ? normalizeOutput
     : (value) => String(value ?? '');
   const activeTheorySubsectionId = activeSubsection?.id || PYTHON_DEFAULT_SUBSECTION_ID;
-  const theory = resolveTheoryForSubsection(taskEntry, activeTheorySubsectionId);
-  const theoryFullUrl = theory?.type === 'gdoc' ? buildGoogleDocFullUrl(theory.content) : '';
-  const theoryRecording = theory?.type === THEORY_RECORDING_TYPE
+  const theoryVariants = resolveTheoryVariantsForSubsection(taskEntry, activeTheorySubsectionId);
+  const availableTheoryTypes = getTheoryVariantList(theoryVariants);
+  const theoryType = pickTheoryVariantType(theoryVariants, activeTheoryType);
+  const theory = theoryType ? theoryVariants[theoryType] : null;
+  const theoryFullUrl = theoryType === 'gdoc' ? buildGoogleDocFullUrl(theory?.content) : '';
+  const theoryRecording = theoryType === THEORY_RECORDING_TYPE
     ? normalizeTheoryRecording(theory?.content)
     : null;
   const editorOptions = {
@@ -1191,9 +1255,9 @@ const PythonReviewModal = ({
   };
 
   const modal = (
-    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-stretch justify-stretch p-0 backdrop-blur-sm">
-      <div className="surface-card modal-card modal-card--fullscreen rounded-none w-screen h-[100dvh] max-w-none max-h-none p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
-        <div className="flex flex-col gap-4 mb-4">
+    <div className="python-runtime-modal-overlay fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-stretch justify-stretch p-0 backdrop-blur-sm">
+      <div className="python-runtime-modal-shell surface-card modal-card modal-card--fullscreen rounded-none w-screen h-[100dvh] max-w-none max-h-none p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
+        <div className="python-runtime-modal-header flex flex-col gap-4 mb-4">
           <div className="flex justify-between items-start">
             <div>
               <div className="text-xs font-bold uppercase tracking-widest text-purple-600">{'\u0422\u0435\u043c\u0430'}</div>
@@ -1211,7 +1275,7 @@ const PythonReviewModal = ({
                     key={`review-subsection-${section.id}`}
                     type="button"
                     onClick={() => handleSelectSubsection(section.id)}
-                    className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+                    className={`python-runtime-chip rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
                       section.id === activeSubsection?.id
                         ? 'border-purple-500 bg-purple-600 text-white'
                         : 'border-purple-100 bg-white text-slate-600 hover:border-purple-300 hover:text-purple-700'
@@ -1245,7 +1309,7 @@ const PythonReviewModal = ({
                     key={`review-question-${qId}`}
                     type="button"
                     onClick={() => setCurrentIndex(item.questionIndex)}
-                    className={`min-w-[132px] rounded-2xl border px-3 py-2 text-left transition-all ${buttonClass}`}
+                    className={`python-runtime-chip min-w-[132px] rounded-2xl border px-3 py-2 text-left transition-all ${buttonClass}`}
                     title={label}
                   >
                     <div className="text-[10px] font-bold uppercase tracking-wide opacity-70">{`Задача ${item.localNumber}`}</div>
@@ -1259,18 +1323,31 @@ const PythonReviewModal = ({
 
         <div className="flex-1 overflow-y-auto pr-1">
           {theory?.content && (
-            <div className="mb-6 rounded-3xl border border-violet-200/70 bg-gradient-to-br from-white via-violet-50/70 to-fuchsia-50/45 p-4 shadow-[0_14px_34px_rgba(124,58,237,0.12)]">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
+            <div className="python-runtime-theory-card mb-6 rounded-3xl border border-violet-200/70 bg-gradient-to-br from-white via-violet-50/70 to-fuchsia-50/45 p-4 shadow-[0_14px_34px_rgba(124,58,237,0.12)]">
+              <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-1.5">
                   <div className="text-xs font-bold uppercase tracking-widest text-purple-700">{'\u0422\u0435\u043e\u0440\u0438\u044f'}</div>
-                  {theory?.type === THEORY_RECORDING_TYPE && (
-                    <span className="inline-flex items-center rounded-full border border-violet-200/80 bg-violet-100/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">
-                      {'\u0412\u0438\u0434\u0435\u043e + \u043a\u043e\u0434'}
-                    </span>
+                  {availableTheoryTypes.length > 1 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {availableTheoryTypes.map((type) => (
+                        <button
+                          key={`review-theory-type-${type}`}
+                          type="button"
+                          onClick={() => setActiveTheoryType(type)}
+                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] sm:text-xs font-semibold transition ${
+                            type === theoryType
+                              ? 'border-violet-500 bg-violet-600 text-white'
+                              : 'border-violet-200/80 bg-white/80 text-violet-700 hover:border-violet-300 hover:bg-white'
+                          }`}
+                        >
+                          {getTheoryTypeLabel(type)}
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </div>
                 <div className="flex items-center gap-3">
-                  {theory?.type === 'gdoc' && theoryFullUrl && (
+                  {theoryType === 'gdoc' && theoryFullUrl && (
                     <a
                       href={theoryFullUrl}
                       target="_blank"
@@ -1293,12 +1370,12 @@ const PythonReviewModal = ({
                   </button>
                 </div>
               </div>
-              {showTheory && (
-                theory.type === THEORY_RECORDING_TYPE ? (
-                  <TheoryRecordingPlayer recording={theoryRecording} />
-                ) : theory.type === 'gdoc' ? (
+              {showTheory && theory && (
+                theoryType === THEORY_RECORDING_TYPE ? (
+                  <div className="python-runtime-theory-body"><TheoryRecordingPlayer recording={theoryRecording} /></div>
+                ) : theoryType === 'gdoc' ? (
                   isGoogleDocEmbedUrl(theory.content) ? (
-                    <div className="mt-3 overflow-hidden rounded-xl border border-purple-100 bg-white">
+                    <div className="python-runtime-theory-body mt-3 overflow-hidden rounded-xl border border-purple-100 bg-white">
                       <iframe
                         title={`theory-review-${task.number}`}
                         src={theory.content}
@@ -1306,10 +1383,10 @@ const PythonReviewModal = ({
                       />
                     </div>
                   ) : (
-                    <div className="mt-3 text-sm text-red-500">{'\u041d\u0443\u0436\u043d\u0430 \u0441\u0441\u044b\u043b\u043a\u0430 \u0434\u043b\u044f \u0432\u0441\u0442\u0440\u0430\u0438\u0432\u0430\u043d\u0438\u044f Google Docs (\u0424\u0430\u0439\u043b \u2192 \u041e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u0442\u044c \u0432 \u0438\u043d\u0442\u0435\u0440\u043d\u0435\u0442\u0435 \u2192 \u0412\u0441\u0442\u0440\u043e\u0438\u0442\u044c).'}</div>
+                    <div className="python-runtime-theory-body mt-3 text-sm text-red-500">{'\u041d\u0443\u0436\u043d\u0430 \u0441\u0441\u044b\u043b\u043a\u0430 \u0434\u043b\u044f \u0432\u0441\u0442\u0440\u0430\u0438\u0432\u0430\u043d\u0438\u044f Google Docs (\u0424\u0430\u0439\u043b \u2192 \u041e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u0442\u044c \u0432 \u0438\u043d\u0442\u0435\u0440\u043d\u0435\u0442\u0435 \u2192 \u0412\u0441\u0442\u0440\u043e\u0438\u0442\u044c).'}</div>
                   )
                 ) : (
-                  <div className="mt-3 whitespace-pre-wrap text-sm text-gray-700">
+                  <div className="python-runtime-theory-body mt-3 whitespace-pre-wrap text-sm text-gray-700">
                     {theory.content}
                   </div>
                 )
@@ -1409,7 +1486,8 @@ const PythonReviewModal = ({
                     return (
                       <div
                         key={`${idx}-${item.input}`}
-                        className={`rounded-2xl border p-2.5 text-xs sm:text-sm ${
+                        style={{ '--python-test-i': `${idx}` }}
+                        className={`python-runtime-test-card rounded-2xl border p-2.5 text-xs sm:text-sm ${
                           passed === undefined
                             ? 'border-gray-200 bg-gray-50'
                             : (passed ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50')
@@ -1471,7 +1549,7 @@ const PythonReviewModal = ({
           )}
         </div>
 
-        <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
+        <div className="python-runtime-footer pt-4 border-t border-gray-100 flex items-center justify-between">
           <div className="text-sm text-gray-500">
             {'\u0420\u0435\u0448\u0435\u043d\u043e'}: {Array.from(solvedIds).length}/{questions.length}
             <span className="text-gray-400">{` • ${Math.max(1, currentQuestionPosition + 1)}/${Math.max(visibleQuestionItems.length, 1)}`}</span>
