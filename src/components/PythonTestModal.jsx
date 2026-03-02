@@ -51,20 +51,10 @@ const pickCollabColor = (seed, fallback = '#7c3aed') => {
   return palette[hashSeed(seed) % palette.length] || fallback;
 };
 
-const getAwarenessLeaderClientId = (provider) => {
-  if (!provider?.awareness) return null;
-  const ids = [];
-  provider.awareness.getStates().forEach((_, clientId) => {
-    const numericId = Number(clientId);
-    if (Number.isFinite(numericId)) ids.push(numericId);
-  });
-  const localClientId = Number(provider.awareness.clientID);
-  if (Number.isFinite(localClientId) && !ids.includes(localClientId)) {
-    ids.push(localClientId);
-  }
-  if (!ids.length) return null;
-  ids.sort((left, right) => left - right);
-  return ids[0];
+const getAwarenessPeerCount = (provider) => {
+  const size = provider?.awareness?.getStates?.().size;
+  if (!Number.isFinite(Number(size))) return 0;
+  return Math.max(0, Number(size) - 1);
 };
 
 const buildRealtimeStatusLabel = (status) => {
@@ -423,7 +413,16 @@ const PythonTestModal = ({
         updatedAt: remoteUpdatedAt,
       });
 
-      if (doc && ytext && stateMap && !hasLiveSnapshot && (nextCode || remoteInput)) {
+      const collabPeerCount = getAwarenessPeerCount(collabProviderRef.current);
+      const canHydrateCollabFromApi = collabPeerCount === 0;
+      if (
+        doc
+        && ytext
+        && stateMap
+        && canHydrateCollabFromApi
+        && !hasLiveSnapshot
+        && (nextCode || remoteInput)
+      ) {
         doc.transact(() => {
           if (!ytext.toString() && nextCode) {
             ytext.insert(0, nextCode);
@@ -766,6 +765,13 @@ const PythonTestModal = ({
     const editor = editorRef.current;
     const model = editor?.getModel?.();
     if (!editor || !model) return undefined;
+    if (collabRoomId && typeof model.getValue === 'function' && typeof model.setValue === 'function') {
+      const bootstrapValue = model.getValue();
+      if (bootstrapValue) {
+        // Avoid duplicating text when Yjs sync applies persisted content on top of local bootstrap content.
+        model.setValue('');
+      }
+    }
 
     const currentQuestion = questions[currentIndex];
     const seedCode = resolveCurrentQuestionCode(currentQuestion, currentIndex, questionCodeByIdRef.current);
@@ -792,6 +798,7 @@ const PythonTestModal = ({
     let seedTimer = null;
     const trySeedDocState = () => {
       if (seeded) return;
+      if (!provider.synced) return;
       const codeInDoc = ytext.toString();
       const inputInDoc = typeof stateMap.get('input') === 'string'
         ? stateMap.get('input')
@@ -800,14 +807,14 @@ const PythonTestModal = ({
         seeded = true;
         return;
       }
+      const hasPeers = getAwarenessPeerCount(provider) > 0;
+      if (hasPeers) {
+        return;
+      }
       const shouldSeedCode = Boolean(seedCode);
       const shouldSeedInput = Boolean(seedInput);
       if (!shouldSeedCode && !shouldSeedInput) {
         seeded = true;
-        return;
-      }
-      const leaderClientId = getAwarenessLeaderClientId(provider);
-      if (!Number.isFinite(leaderClientId) || Number(provider.awareness.clientID) !== leaderClientId) {
         return;
       }
       if (shouldSeedCode || shouldSeedInput) {
@@ -1663,7 +1670,7 @@ const PythonTestModal = ({
                 height={codeEditorHeight}
                 language="python"
                 theme="vs-dark"
-                defaultValue={resolvedCode}
+                defaultValue={collabRoomId ? '' : resolvedCode}
                 onMount={handleEditorMount}
                 options={editorOptions}
                 loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}

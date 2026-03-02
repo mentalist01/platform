@@ -20,6 +20,7 @@ import {
 
 const QUESTION_CODE_SAVE_DEBOUNCE_MS = 250;
 const COLLAB_SEED_DELAY_MS = 450;
+const REVIEW_COLLAB_CAN_SEED = false;
 
 const getCollabWsUrl = () => {
   if (typeof window === 'undefined') return '';
@@ -51,20 +52,10 @@ const pickCollabColor = (seed, fallback = '#7c3aed') => {
   return palette[hashSeed(seed) % palette.length] || fallback;
 };
 
-const getAwarenessLeaderClientId = (provider) => {
-  if (!provider?.awareness) return null;
-  const ids = [];
-  provider.awareness.getStates().forEach((_, clientId) => {
-    const numericId = Number(clientId);
-    if (Number.isFinite(numericId)) ids.push(numericId);
-  });
-  const localClientId = Number(provider.awareness.clientID);
-  if (Number.isFinite(localClientId) && !ids.includes(localClientId)) {
-    ids.push(localClientId);
-  }
-  if (!ids.length) return null;
-  ids.sort((left, right) => left - right);
-  return ids[0];
+const getAwarenessPeerCount = (provider) => {
+  const size = provider?.awareness?.getStates?.().size;
+  if (!Number.isFinite(Number(size))) return 0;
+  return Math.max(0, Number(size) - 1);
 };
 
 const buildRealtimeStatusLabel = (status) => {
@@ -406,7 +397,16 @@ const PythonReviewModal = ({
         updatedAt: remoteUpdatedAt,
       });
 
-      if (doc && ytext && stateMap && !hasLiveSnapshot && (nextCode || remoteInput)) {
+      const collabPeerCount = getAwarenessPeerCount(collabProviderRef.current);
+      const canHydrateCollabFromApi = REVIEW_COLLAB_CAN_SEED && collabPeerCount === 0;
+      if (
+        doc
+        && ytext
+        && stateMap
+        && canHydrateCollabFromApi
+        && !hasLiveSnapshot
+        && (nextCode || remoteInput)
+      ) {
         doc.transact(() => {
           if (!ytext.toString() && nextCode) {
             ytext.insert(0, nextCode);
@@ -696,6 +696,13 @@ const PythonReviewModal = ({
     const editor = editorRef.current;
     const model = editor?.getModel?.();
     if (!editor || !model) return undefined;
+    if (collabRoomId && typeof model.getValue === 'function' && typeof model.setValue === 'function') {
+      const bootstrapValue = model.getValue();
+      if (bootstrapValue) {
+        // Avoid duplicating text when Yjs sync applies persisted content on top of local bootstrap content.
+        model.setValue('');
+      }
+    }
 
     const currentQuestion = questions[currentIndex];
     const seedCode = getQuestionCodeEntry(activeQuestionId, questionCodeByIdRef.current).loaded
@@ -724,6 +731,11 @@ const PythonReviewModal = ({
     let seedTimer = null;
     const trySeedDocState = () => {
       if (seeded) return;
+      if (!provider.synced) return;
+      if (!REVIEW_COLLAB_CAN_SEED) {
+        seeded = true;
+        return;
+      }
       const codeInDoc = ytext.toString();
       const inputInDoc = typeof stateMap.get('input') === 'string'
         ? stateMap.get('input')
@@ -732,14 +744,14 @@ const PythonReviewModal = ({
         seeded = true;
         return;
       }
+      const hasPeers = getAwarenessPeerCount(provider) > 0;
+      if (hasPeers) {
+        return;
+      }
       const shouldSeedCode = Boolean(seedCode);
       const shouldSeedInput = Boolean(seedInput);
       if (!shouldSeedCode && !shouldSeedInput) {
         seeded = true;
-        return;
-      }
-      const leaderClientId = getAwarenessLeaderClientId(provider);
-      if (!Number.isFinite(leaderClientId) || Number(provider.awareness.clientID) !== leaderClientId) {
         return;
       }
       if (shouldSeedCode || shouldSeedInput) {
@@ -1486,7 +1498,7 @@ const PythonReviewModal = ({
                 height="280px"
                 language="python"
                 theme="vs-dark"
-                defaultValue={code}
+                defaultValue={collabRoomId ? '' : code}
                 onMount={handleEditorMount}
                 options={editorOptions}
                 loading={<div className="p-4 text-sm text-gray-400">{'\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u0440\u0435\u0434\u0430\u043a\u0442\u043e\u0440\u0430...'}</div>}
