@@ -54,7 +54,7 @@ import {
   getPreferredTheme,
   clearStoredSession,
 } from './utils/theme';
-import { ensureMonacoColorTheme, MONACO_THEME_COLORFUL_DARK } from './utils/monacoTheme';
+import { ensureMonacoColorTheme, resolveMonacoColorTheme } from './utils/monacoTheme';
 import {
   isPushFeatureSupported,
   getPushPermission,
@@ -4512,7 +4512,7 @@ const CollabSection = ({
       <Editor
         height={isSplitCollabLayout ? '100%' : editorHeight}
         language="python"
-        theme={MONACO_THEME_COLORFUL_DARK}
+        theme={resolveMonacoColorTheme(theme)}
         beforeMount={ensureMonacoColorTheme}
         defaultValue=""
         onMount={handleEditorMount}
@@ -11575,6 +11575,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 onUpdateProgress(...args);
                 if (user.role === 'student') setGoalRefreshTick((prev) => prev + 1);
               }}
+              theme={theme}
               role={user.role}
               studentId={user.id}
               students={studentsWithNicknames}
@@ -11654,6 +11655,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 onUpdateProgress(...args);
                 if (user.role === 'student') setGoalRefreshTick((prev) => prev + 1);
               }}
+              theme={theme}
               role={user.role}
               studentId={user.id}
               teacherId={user.role === 'teacher' ? user.id : user.teacherId}
@@ -11734,6 +11736,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           )}
           {view === 'notes' && (
             <NotesSection
+              theme={theme}
               role={user.role}
               studentId={user.id}
               students={studentsWithNicknames}

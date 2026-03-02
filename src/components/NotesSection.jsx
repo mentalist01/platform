@@ -18,7 +18,7 @@ import {
 import Editor from '@monaco-editor/react';
 import ImageViewer from './ImageViewer';
 import { api } from '../services/api';
-import { ensureMonacoColorTheme, MONACO_THEME_COLORFUL_DARK } from '../utils/monacoTheme';
+import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { Button, Card } from './ui';
 
 const mergeFolderLists = (lists) => {
@@ -36,6 +36,7 @@ const mergeFolderLists = (lists) => {
 const AUTO_REFRESH_INTERVAL_MS = 5000;
 
 const NotesSection = ({
+  theme = '',
   role,
   studentId,
   students,
@@ -65,6 +66,7 @@ const NotesSection = ({
   highlightPython
 }) => {
   const [currentTask, setCurrentTask] = useState(null);
+  const monacoTheme = resolveMonacoColorTheme(theme);
   const [currentCategory, setCurrentCategory] = useState(null);
   const [files, setFiles] = useState([]);
   const [filesError, setFilesError] = useState('');
@@ -1763,7 +1765,7 @@ const NotesSection = ({
               <Editor
                 height={pyDraftEditorHeight}
                 language="python"
-                theme={MONACO_THEME_COLORFUL_DARK}
+                theme={monacoTheme}
                 beforeMount={ensureMonacoColorTheme}
                 value={pyDraftCode}
                 onChange={(value) => {
@@ -2056,7 +2058,7 @@ const NotesSection = ({
                             <Editor
                               height={pyFileEditorHeight}
                               language="python"
-                              theme={MONACO_THEME_COLORFUL_DARK}
+                              theme={monacoTheme}
                               beforeMount={ensureMonacoColorTheme}
                               value={pyEditDraft}
                               onChange={(value) => {

@@ -8,7 +8,7 @@ import { MonacoBinding } from 'y-monaco';
 import { api } from '../services/api';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
 import { Button } from './ui';
-import { ensureMonacoColorTheme, MONACO_THEME_COLORFUL_DARK } from '../utils/monacoTheme';
+import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import {
   buildPythonSubsectionModel,
   getPythonTaskEntry,
@@ -185,6 +185,7 @@ const resolveTheoryVariantsForSubsection = (taskEntry, subsectionId) => {
 };
 
 const PythonReviewModal = ({
+  theme = '',
   task,
   onClose,
   studentId,
@@ -203,6 +204,7 @@ const PythonReviewModal = ({
   buildGoogleDocFullUrl,
   codeSyncRoomId = '',
 }) => {
+  const monacoTheme = resolveMonacoColorTheme(theme);
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedSubsectionId, setSelectedSubsectionId] = useState(PYTHON_DEFAULT_SUBSECTION_ID);
@@ -1361,12 +1363,14 @@ const PythonReviewModal = ({
     : null;
   const editorOptions = {
     minimap: { enabled: false },
-    fontSize: 14,
+    fontSize: 18,
     tabSize: 4,
     insertSpaces: true,
     wordWrap: 'on',
     automaticLayout: true,
+    mouseWheelZoom: true,
   };
+  const reviewEditorHeight = isMobileViewport ? '425px' : '700px';
   const realtimeStatusLabel = buildRealtimeStatusLabel(realtimeStatus);
   const sharedRunTimeLabel = sharedRunState.ts
     ? new Date(sharedRunState.ts).toLocaleTimeString('ru-RU')
@@ -1507,7 +1511,7 @@ const PythonReviewModal = ({
               </div>
               {showTheory && theory && (
                 theoryType === THEORY_RECORDING_TYPE ? (
-                  <div className="python-runtime-theory-body"><TheoryRecordingPlayer recording={theoryRecording} /></div>
+                  <div className="python-runtime-theory-body"><TheoryRecordingPlayer recording={theoryRecording} theme={theme} /></div>
                 ) : theoryType === 'gdoc' ? (
                   isGoogleDocEmbedUrl(theory.content) ? (
                     <div className="python-runtime-theory-body mt-3 overflow-hidden rounded-xl border border-purple-100 bg-white">
@@ -1562,9 +1566,9 @@ const PythonReviewModal = ({
             <div className="rounded-2xl overflow-hidden border border-gray-800">
               <Editor
                 key={'py-review-editor-' + (collabRoomId || currentId)}
-                height="280px"
+                height={reviewEditorHeight}
                 language="python"
-                theme={MONACO_THEME_COLORFUL_DARK}
+                theme={monacoTheme}
                 beforeMount={ensureMonacoColorTheme}
                 defaultValue={collabRoomId ? '' : code}
                 onMount={handleEditorMount}

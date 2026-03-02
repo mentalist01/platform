@@ -9,6 +9,7 @@ import {
   THEORY_RECORDING_EVENT_RUN_OUTPUT,
   THEORY_RECORDING_EVENT_SELECTION,
 } from '../utils/theoryRecording';
+import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 
 const PLAYER_EDITOR_OPTIONS = {
   minimap: { enabled: false },
@@ -29,7 +30,6 @@ const PLAYER_EDITOR_OPTIONS = {
   padding: { top: 18, bottom: 26 },
 };
 
-const THEORY_PLAYER_EDITOR_THEME = 'theory-player-vivid-dark';
 const FALLBACK_EMPTY_STATE_TEXT = 'Видеоразбор пока не готов.';
 
 const PLAYBACK_RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
@@ -176,6 +176,7 @@ const getRecordingMemoMeta = (recording) => {
 const areTheoryPlayerPropsEqual = (prevProps, nextProps) => {
   if (String(prevProps?.className || '') !== String(nextProps?.className || '')) return false;
   if (String(prevProps?.progressStorageKey || '') !== String(nextProps?.progressStorageKey || '')) return false;
+  if (String(prevProps?.theme || '') !== String(nextProps?.theme || '')) return false;
   const prevMeta = getRecordingMemoMeta(prevProps?.recording);
   const nextMeta = getRecordingMemoMeta(nextProps?.recording);
   return (
@@ -192,8 +193,9 @@ const areTheoryPlayerPropsEqual = (prevProps, nextProps) => {
   );
 };
 
-const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey = '' }) => {
+const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey = '', theme = '' }) => {
   const normalized = useMemo(() => normalizeTheoryRecording(recording), [recording]);
+  const monacoTheme = resolveMonacoColorTheme(theme);
   const normalizedProgressStorageKey = useMemo(
     () => String(progressStorageKey || '').trim(),
     [progressStorageKey]
@@ -567,38 +569,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   }, [isMuted, playbackRate, volume]);
 
   const handleEditorBeforeMount = useCallback((monaco) => {
-    try {
-      monaco.editor.defineTheme(THEORY_PLAYER_EDITOR_THEME, {
-        base: 'vs-dark',
-        inherit: true,
-        rules: [
-          { token: 'comment', foreground: '86EFAC', fontStyle: 'italic' },
-          { token: 'keyword', foreground: 'C084FC' },
-          { token: 'number', foreground: 'FB923C' },
-          { token: 'string', foreground: 'FDE047' },
-          { token: 'type.identifier', foreground: '7DD3FC' },
-          { token: 'delimiter', foreground: 'E2E8F0' },
-          { token: 'operator', foreground: '818CF8' },
-          { token: 'function', foreground: '34D399' },
-        ],
-        colors: {
-          'editor.background': '#050d1f',
-          'editor.foreground': '#dbe7ff',
-          'editorLineNumber.foreground': '#62708a',
-          'editorLineNumber.activeForeground': '#f8fafc',
-          'editorCursor.foreground': '#38bdf8',
-          'editor.selectionBackground': '#6366f15a',
-          'editor.inactiveSelectionBackground': '#33415580',
-          'editor.wordHighlightBackground': '#14b8a633',
-          'editor.wordHighlightStrongBackground': '#a78bfa33',
-          'editorBracketMatch.background': '#22d3ee2b',
-          'editorBracketMatch.border': '#22d3ee9c',
-          'editorWhitespace.foreground': '#334155',
-        },
-      });
-    } catch {
-      // Keep default theme if custom theme registration fails.
-    }
+    ensureMonacoColorTheme(monaco);
   }, []);
 
   const handleEditorMount = useCallback((editor) => {
@@ -929,7 +900,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
             <Editor
               height={editorHeight}
               language="python"
-              theme={THEORY_PLAYER_EDITOR_THEME}
+              theme={monacoTheme}
               defaultValue={normalized.initialCode || ''}
               path={modelPath}
               saveViewState={false}

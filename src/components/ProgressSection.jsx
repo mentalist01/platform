@@ -9,6 +9,7 @@ import { Button, Card, ProgressBar } from './ui';
 const ProgressSection = ({
   progress,
   onUpdateProgress,
+  theme = '',
   role,
   studentId,
   students,
@@ -1729,6 +1730,7 @@ const ProgressSection = ({
 
           {role === 'student' && activeTask && (
         <StudentTestModal 
+          theme={theme}
           task={activeTask} 
           onClose={() => {
             setActiveTask(null);
@@ -1776,6 +1778,7 @@ const ProgressSection = ({
       )}
           {role === 'teacher' && reviewTask && (
             <ProgressReviewModal
+              theme={theme}
               task={reviewTask}
               onClose={() => setReviewTask(null)}
               studentId={effectiveStudentId}

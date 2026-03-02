@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 
 import Editor from '@monaco-editor/react';
 import { Button } from './ui';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
-import { ensureMonacoColorTheme, MONACO_THEME_COLORFUL_DARK } from '../utils/monacoTheme';
+import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import {
   formatRecordingDuration,
   normalizeTheoryRecording,
@@ -161,7 +161,9 @@ const TheoryRecordingEditor = ({
   disabled = false,
   onDraftChange,
   ensurePyodideReady = null,
+  theme = '',
 }) => {
+  const monacoTheme = resolveMonacoColorTheme(theme);
   const normalizedInitial = useMemo(() => normalizeTheoryRecording(initialRecording), [initialRecording]);
   const initialDraft = useMemo(() => (
     normalizedInitial
@@ -1039,7 +1041,7 @@ const TheoryRecordingEditor = ({
         <Editor
           height="260px"
           language="python"
-          theme={MONACO_THEME_COLORFUL_DARK}
+          theme={monacoTheme}
           beforeMount={ensureMonacoColorTheme}
           defaultValue={code}
           path={editorPath}
@@ -1165,7 +1167,7 @@ const TheoryRecordingEditor = ({
       {draft && (
         <div className="rounded-2xl border border-slate-200 bg-white/80 p-3">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Предпросмотр видеоразбора</div>
-          <TheoryRecordingPlayer recording={draft} className="mt-2" />
+          <TheoryRecordingPlayer recording={draft} className="mt-2" theme={theme} />
         </div>
       )}
     </div>

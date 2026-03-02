@@ -3,9 +3,10 @@ import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
 import { Download, X } from 'lucide-react';
 import { api } from '../services/api';
-import { ensureMonacoColorTheme, MONACO_THEME_COLORFUL_DARK } from '../utils/monacoTheme';
+import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { Button } from './ui';
 const ProgressReviewModal = ({
+  theme = '',
   task,
   onClose,
   studentId,
@@ -16,6 +17,7 @@ const ProgressReviewModal = ({
   getExpectedAnswers,
   withStudentId,
 }) => {
+  const monacoTheme = resolveMonacoColorTheme(theme);
   const levelOptions = Object.values(LEVELS);
   const [levelId, setLevelId] = useState(levelOptions[0]?.id || 'basic');
   const [questions, setQuestions] = useState([]);
@@ -363,7 +365,7 @@ const ProgressReviewModal = ({
                     <Editor
                       height="240px"
                       language="python"
-                      theme={MONACO_THEME_COLORFUL_DARK}
+                      theme={monacoTheme}
                       beforeMount={ensureMonacoColorTheme}
                       value={questionCodeEntry.code || '# Код не сохранён'}
                       options={codeEditorOptions}

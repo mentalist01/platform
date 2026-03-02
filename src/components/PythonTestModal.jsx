@@ -8,7 +8,7 @@ import { MonacoBinding } from 'y-monaco';
 import { api } from '../services/api';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
 import { Button } from './ui';
-import { ensureMonacoColorTheme, MONACO_THEME_COLORFUL_DARK } from '../utils/monacoTheme';
+import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import {
   buildPythonSubsectionModel,
   getPythonTaskEntry,
@@ -185,6 +185,7 @@ const resolveTheoryVariantsForSubsection = (taskEntry, subsectionId) => {
 };
 
 const PythonTestModal = ({
+  theme = '',
   task,
   onClose,
   onComplete,
@@ -211,6 +212,7 @@ const PythonTestModal = ({
   buildGoogleDocFullUrl,
   codeSyncRoomId = '',
 }) => {
+  const monacoTheme = resolveMonacoColorTheme(theme);
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedSubsectionId, setSelectedSubsectionId] = useState(PYTHON_DEFAULT_SUBSECTION_ID);
@@ -1450,11 +1452,12 @@ const PythonTestModal = ({
   })();
   const editorOptions = {
     minimap: { enabled: false },
-    fontSize: 14,
+    fontSize: 18,
     tabSize: 4,
     insertSpaces: true,
     wordWrap: 'on',
     automaticLayout: true,
+    mouseWheelZoom: true,
     scrollBeyondLastLine: false,
     autoClosingBrackets: 'always',
     autoClosingQuotes: 'always',
@@ -1462,7 +1465,7 @@ const PythonTestModal = ({
     formatOnType: true,
     formatOnPaste: true
   };
-  const codeEditorHeight = isMobileViewport ? '170px' : '260px';
+  const codeEditorHeight = isMobileViewport ? '425px' : '650px';
   const realtimeStatusLabel = buildRealtimeStatusLabel(realtimeStatus);
   const sharedRunTimeLabel = sharedRunState.ts
     ? new Date(sharedRunState.ts).toLocaleTimeString('ru-RU')
@@ -1619,6 +1622,7 @@ const PythonTestModal = ({
                     <TheoryRecordingPlayer
                       recording={theoryRecording}
                       progressStorageKey={theoryProgressStorageKey}
+                      theme={theme}
                     />
                   </div>
                 ) : theoryType === 'gdoc' ? (
@@ -1741,7 +1745,7 @@ const PythonTestModal = ({
                 key={`py-test-editor-${collabRoomId || currentId}`}
                 height={codeEditorHeight}
                 language="python"
-                theme={MONACO_THEME_COLORFUL_DARK}
+                theme={monacoTheme}
                 beforeMount={ensureMonacoColorTheme}
                 defaultValue={collabRoomId ? '' : resolvedCode}
                 onMount={handleEditorMount}

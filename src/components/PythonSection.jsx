@@ -234,6 +234,7 @@ const resolveTheoryVariantsForSubsection = (taskEntry, subsectionId, options = {
 const PythonSection = ({
   progress,
   onUpdateProgress,
+  theme = '',
   role,
   studentId,
   teacherId,
@@ -2377,6 +2378,7 @@ const PythonSection = ({
                 onDraftChange={setTheoryRecordingDraft}
                 ensurePyodideReady={ensurePyodideReady}
                 disabled={theorySaving}
+                theme={theme}
               />
             )}
           </div>
@@ -2397,6 +2399,7 @@ const PythonSection = ({
 
       {role === 'student' && activeTask && (
         <PythonTestModal
+          theme={theme}
           task={activeTask}
           onClose={() => {
             setActiveTask(null);
@@ -2431,6 +2434,7 @@ const PythonSection = ({
       )}
       {role === 'teacher' && reviewTask && (
         <PythonReviewModal
+          theme={theme}
           task={reviewTask}
           onClose={() => setReviewTask(null)}
           studentId={effectiveStudentId}

@@ -3,9 +3,10 @@ import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
 import { Check, Download, PlayCircle, RefreshCcw, X } from 'lucide-react';
 import { api } from '../services/api';
-import { ensureMonacoColorTheme, MONACO_THEME_COLORFUL_DARK } from '../utils/monacoTheme';
+import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { Button } from './ui';
 const StudentTestModal = ({
+  theme = '',
   task,
   onClose,
   onComplete,
@@ -40,6 +41,7 @@ const StudentTestModal = ({
   PY_IDLE_STDIN_HEADER,
   withStudentId,
 }) => {
+  const monacoTheme = resolveMonacoColorTheme(theme);
   const [stage, setStage] = useState('select_level'); // select_level | testing
   const [level, setLevel] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -1153,7 +1155,7 @@ const StudentTestModal = ({
                       <Editor
                         height={questionCodeEditorHeight}
                         language="python"
-                        theme={MONACO_THEME_COLORFUL_DARK}
+                        theme={monacoTheme}
                         beforeMount={ensureMonacoColorTheme}
                         value={questionCodeEntry.code}
                         onChange={(value) => {
