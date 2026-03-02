@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
 import { Check, Download, PlayCircle, RefreshCcw, X } from 'lucide-react';
 import { api } from '../services/api';
+import { ensureMonacoColorTheme, MONACO_THEME_COLORFUL_DARK } from '../utils/monacoTheme';
 import { Button } from './ui';
 const StudentTestModal = ({
   task,
@@ -1152,7 +1153,8 @@ const StudentTestModal = ({
                       <Editor
                         height={questionCodeEditorHeight}
                         language="python"
-                        theme="vs-dark"
+                        theme={MONACO_THEME_COLORFUL_DARK}
+                        beforeMount={ensureMonacoColorTheme}
                         value={questionCodeEntry.code}
                         onChange={(value) => {
                           setQuestionCodeEntry(currentId, { code: value ?? '' });

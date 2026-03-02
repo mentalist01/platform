@@ -18,6 +18,7 @@ import {
 import Editor from '@monaco-editor/react';
 import ImageViewer from './ImageViewer';
 import { api } from '../services/api';
+import { ensureMonacoColorTheme, MONACO_THEME_COLORFUL_DARK } from '../utils/monacoTheme';
 import { Button, Card } from './ui';
 
 const mergeFolderLists = (lists) => {
@@ -1762,7 +1763,8 @@ const NotesSection = ({
               <Editor
                 height={pyDraftEditorHeight}
                 language="python"
-                theme="vs-dark"
+                theme={MONACO_THEME_COLORFUL_DARK}
+                beforeMount={ensureMonacoColorTheme}
                 value={pyDraftCode}
                 onChange={(value) => {
                   setPyDraftCode(value ?? '');
@@ -2054,7 +2056,8 @@ const NotesSection = ({
                             <Editor
                               height={pyFileEditorHeight}
                               language="python"
-                              theme="vs-dark"
+                              theme={MONACO_THEME_COLORFUL_DARK}
+                              beforeMount={ensureMonacoColorTheme}
                               value={pyEditDraft}
                               onChange={(value) => {
                                 setPyEditDraft(value ?? '');

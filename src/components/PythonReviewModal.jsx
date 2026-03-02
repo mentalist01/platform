@@ -8,6 +8,7 @@ import { MonacoBinding } from 'y-monaco';
 import { api } from '../services/api';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
 import { Button } from './ui';
+import { ensureMonacoColorTheme, MONACO_THEME_COLORFUL_DARK } from '../utils/monacoTheme';
 import {
   buildPythonSubsectionModel,
   getPythonTaskEntry,
@@ -1563,7 +1564,8 @@ const PythonReviewModal = ({
                 key={'py-review-editor-' + (collabRoomId || currentId)}
                 height="280px"
                 language="python"
-                theme="vs-dark"
+                theme={MONACO_THEME_COLORFUL_DARK}
+                beforeMount={ensureMonacoColorTheme}
                 defaultValue={collabRoomId ? '' : code}
                 onMount={handleEditorMount}
                 options={editorOptions}

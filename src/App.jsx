@@ -54,6 +54,7 @@ import {
   getPreferredTheme,
   clearStoredSession,
 } from './utils/theme';
+import { ensureMonacoColorTheme, MONACO_THEME_COLORFUL_DARK } from './utils/monacoTheme';
 import {
   isPushFeatureSupported,
   getPushPermission,
@@ -4511,7 +4512,8 @@ const CollabSection = ({
       <Editor
         height={isSplitCollabLayout ? '100%' : editorHeight}
         language="python"
-        theme="vs-dark"
+        theme={MONACO_THEME_COLORFUL_DARK}
+        beforeMount={ensureMonacoColorTheme}
         defaultValue=""
         onMount={handleEditorMount}
         options={editorOptions}

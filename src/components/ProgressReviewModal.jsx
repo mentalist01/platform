@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
 import { Download, X } from 'lucide-react';
 import { api } from '../services/api';
+import { ensureMonacoColorTheme, MONACO_THEME_COLORFUL_DARK } from '../utils/monacoTheme';
 import { Button } from './ui';
 const ProgressReviewModal = ({
   task,
@@ -362,7 +363,8 @@ const ProgressReviewModal = ({
                     <Editor
                       height="240px"
                       language="python"
-                      theme="vs-dark"
+                      theme={MONACO_THEME_COLORFUL_DARK}
+                      beforeMount={ensureMonacoColorTheme}
                       value={questionCodeEntry.code || '# Код не сохранён'}
                       options={codeEditorOptions}
                       loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}

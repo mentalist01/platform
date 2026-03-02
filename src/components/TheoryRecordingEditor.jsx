@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 
 import Editor from '@monaco-editor/react';
 import { Button } from './ui';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
+import { ensureMonacoColorTheme, MONACO_THEME_COLORFUL_DARK } from '../utils/monacoTheme';
 import {
   formatRecordingDuration,
   normalizeTheoryRecording,
@@ -1038,7 +1039,8 @@ const TheoryRecordingEditor = ({
         <Editor
           height="260px"
           language="python"
-          theme="vs-dark"
+          theme={MONACO_THEME_COLORFUL_DARK}
+          beforeMount={ensureMonacoColorTheme}
           defaultValue={code}
           path={editorPath}
           saveViewState={false}
