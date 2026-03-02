@@ -64,9 +64,10 @@ const StudentLeaderboardSection = ({
       setError(err?.message || 'Не удалось загрузить рейтинг.');
       setLeaderboard({ items: [], week: null, currentStudent: null });
     } finally {
-      if (!mountedRef.current) return;
-      setLoading(false);
-      setRefreshing(false);
+      if (mountedRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [role]);
 
@@ -198,8 +199,9 @@ const StudentLeaderboardSection = ({
       if (!mountedRef.current) return;
       setAliasError(err?.message || 'Не удалось сохранить псевдоним.');
     } finally {
-      if (!mountedRef.current) return;
-      setAliasSaving(false);
+      if (mountedRef.current) {
+        setAliasSaving(false);
+      }
     }
   };
 
@@ -221,8 +223,9 @@ const StudentLeaderboardSection = ({
       if (!mountedRef.current) return;
       setAliasError(err?.message || 'Не удалось добавить основное имя.');
     } finally {
-      if (!mountedRef.current) return;
-      setAliasSaving(false);
+      if (mountedRef.current) {
+        setAliasSaving(false);
+      }
     }
   };
 

@@ -2,11 +2,67 @@ export const THEORY_RECORDING_TYPE = 'recording';
 export const THEORY_RECORDING_VERSION = 1;
 export const THEORY_RECORDING_EVENT_CODE = 'code';
 export const THEORY_RECORDING_EVENT_SELECTION = 'selection';
+export const THEORY_RECORDING_EVENT_BOARD = 'board';
 export const THEORY_RECORDING_EVENT_RUN_OUTPUT = 'run_output';
 export const THEORY_RECORDING_MAX_EVENTS = 12000;
 export const THEORY_RECORDING_MAX_JSON_BYTES = 6 * 1024 * 1024;
 const THEORY_RECORDING_MAX_RUN_INPUT_CHARS = 8000;
 const THEORY_RECORDING_MAX_RUN_OUTPUT_CHARS = 120000;
+const THEORY_RECORDING_MAX_BOARD_POINTS = 2400;
+const THEORY_RECORDING_MAX_BOARD_STROKES = 360;
+
+const clampUnit = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.max(0, Math.min(1, Number(num.toFixed(4))));
+};
+
+const clampBoardWidth = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 2;
+  return Math.max(1, Math.min(64, Number(num.toFixed(2))));
+};
+
+const normalizeBoardColor = (value) => {
+  const color = normalizeText(value).trim();
+  if (!color) return '#38bdf8';
+  return color.slice(0, 40);
+};
+
+const normalizeBoardPoint = (value) => {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    x: clampUnit(value.x),
+    y: clampUnit(value.y),
+  };
+};
+
+const normalizeBoardPoints = (value) => (
+  (Array.isArray(value) ? value : [])
+    .map((item) => normalizeBoardPoint(item))
+    .filter(Boolean)
+    .slice(0, THEORY_RECORDING_MAX_BOARD_POINTS)
+);
+
+const normalizeBoardStroke = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const points = normalizeBoardPoints(value.points);
+  if (points.length < 1) return null;
+  const id = normalizeText(value.id || '').trim().slice(0, 64) || `stroke-${Date.now()}`;
+  return {
+    id,
+    color: normalizeBoardColor(value.color),
+    width: clampBoardWidth(value.width),
+    points,
+  };
+};
+
+const normalizeBoardStrokeList = (value) => (
+  (Array.isArray(value) ? value : [])
+    .map((item) => normalizeBoardStroke(item))
+    .filter(Boolean)
+    .slice(0, THEORY_RECORDING_MAX_BOARD_STROKES)
+);
 
 const clampNonNegativeInt = (value) => {
   const num = Number(value);
@@ -75,6 +131,35 @@ const normalizeEvent = (value) => {
       error: normalizeRunText(value.error, THEORY_RECORDING_MAX_RUN_OUTPUT_CHARS),
     };
   }
+  if (type === THEORY_RECORDING_EVENT_BOARD) {
+    const action = normalizeText(value.action || '').trim();
+    if (action === 'clear') {
+      return {
+        t,
+        type: THEORY_RECORDING_EVENT_BOARD,
+        action: 'clear',
+      };
+    }
+    if (action === 'stroke') {
+      const stroke = normalizeBoardStroke(value.stroke);
+      if (!stroke) return null;
+      return {
+        t,
+        type: THEORY_RECORDING_EVENT_BOARD,
+        action: 'stroke',
+        stroke,
+      };
+    }
+    if (action === 'snapshot') {
+      return {
+        t,
+        type: THEORY_RECORDING_EVENT_BOARD,
+        action: 'snapshot',
+        strokes: normalizeBoardStrokeList(value.strokes),
+      };
+    }
+    return null;
+  }
   return null;
 };
 
@@ -107,9 +192,13 @@ export const normalizeTheoryRecording = (value) => {
       const delta = left.t - right.t;
       if (delta !== 0) return delta;
       if (left.type === right.type) return 0;
-      if (left.type === THEORY_RECORDING_EVENT_CODE) return -1;
-      if (right.type === THEORY_RECORDING_EVENT_CODE) return 1;
-      return 0;
+      const order = {
+        [THEORY_RECORDING_EVENT_CODE]: 0,
+        [THEORY_RECORDING_EVENT_SELECTION]: 1,
+        [THEORY_RECORDING_EVENT_BOARD]: 2,
+        [THEORY_RECORDING_EVENT_RUN_OUTPUT]: 3,
+      };
+      return (order[left.type] ?? 99) - (order[right.type] ?? 99);
     })
     .slice(0, THEORY_RECORDING_MAX_EVENTS);
   const audio = normalizeAudio(value.audio);

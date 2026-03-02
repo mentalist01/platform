@@ -5,6 +5,7 @@ import TheoryRecordingPlayer from './TheoryRecordingPlayer';
 import {
   formatRecordingDuration,
   normalizeTheoryRecording,
+  THEORY_RECORDING_EVENT_BOARD,
   THEORY_RECORDING_EVENT_CODE,
   THEORY_RECORDING_EVENT_RUN_OUTPUT,
   THEORY_RECORDING_EVENT_SELECTION,
@@ -29,6 +30,16 @@ const RECORDING_EDITOR_OPTIONS = {
 
 const CODE_SNAPSHOT_DEBOUNCE_MS = 120;
 const SELECTION_SNAPSHOT_DEBOUNCE_MS = 90;
+const BOARD_SNAPSHOT_BG = '#050d1f';
+const BOARD_CANVAS_MIN_DISTANCE = 0.0015;
+const BOARD_MAX_STROKES = 900;
+const BOARD_MAX_POINTS_IN_STROKE = 2400;
+const BOARD_DEFAULT_COLOR = '#38bdf8';
+const BOARD_DEFAULT_WIDTH = 3;
+const BOARD_ERASER_WIDTH_MULTIPLIER = 2.6;
+const BOARD_ERASER_MIN_WIDTH = 10;
+const BOARD_TIMELINE_THROTTLE_MS = 60;
+const BOARD_TIMELINE_MIN_POINT_DELTA = 3;
 
 const getPreferredAudioMimeType = () => {
   if (typeof MediaRecorder === 'undefined') return '';
@@ -75,6 +86,75 @@ const selectionSignature = (selections) => {
   }
 };
 
+const clampBoardUnit = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.max(0, Math.min(1, Number(num.toFixed(4))));
+};
+
+const normalizeBoardStrokeForEvent = (stroke) => {
+  if (!stroke || typeof stroke !== 'object') return null;
+  const points = (Array.isArray(stroke.points) ? stroke.points : [])
+    .map((point) => {
+      if (!point || typeof point !== 'object') return null;
+      return {
+        x: clampBoardUnit(point.x),
+        y: clampBoardUnit(point.y),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, BOARD_MAX_POINTS_IN_STROKE);
+  if (points.length < 1) return null;
+  return {
+    id: String(stroke.id || '').trim().slice(0, 64) || `stroke-${Date.now()}`,
+    color: String(stroke.color || BOARD_DEFAULT_COLOR).trim().slice(0, 40) || BOARD_DEFAULT_COLOR,
+    width: Math.max(1, Math.min(64, Number(stroke.width) || BOARD_DEFAULT_WIDTH)),
+    points,
+  };
+};
+
+const normalizeBoardStrokesForEvent = (strokes) => (
+  (Array.isArray(strokes) ? strokes : [])
+    .map((stroke) => normalizeBoardStrokeForEvent(stroke))
+    .filter(Boolean)
+    .slice(0, BOARD_MAX_STROKES)
+);
+
+const upsertBoardStrokeById = (list, stroke) => {
+  if (!stroke?.id) return list;
+  const idx = list.findIndex((item) => item?.id === stroke.id);
+  if (idx === -1) {
+    list.push(stroke);
+    return list;
+  }
+  list[idx] = stroke;
+  return list;
+};
+
+const buildBoardStrokesFromEvents = (events) => {
+  const next = [];
+  (Array.isArray(events) ? events : []).forEach((event) => {
+    if (!event || event.type !== THEORY_RECORDING_EVENT_BOARD) return;
+    if (event.action === 'clear') {
+      next.length = 0;
+      return;
+    }
+    if (event.action === 'snapshot') {
+      const snapshot = normalizeBoardStrokesForEvent(event.strokes);
+      next.length = 0;
+      snapshot.forEach((stroke) => next.push(stroke));
+      return;
+    }
+    if (event.action === 'stroke') {
+      const stroke = normalizeBoardStrokeForEvent(event.stroke);
+      if (!stroke) return;
+      upsertBoardStrokeById(next, stroke);
+      if (next.length > BOARD_MAX_STROKES) next.splice(0, next.length - BOARD_MAX_STROKES);
+    }
+  });
+  return next;
+};
+
 const TheoryRecordingEditor = ({
   initialRecording,
   disabled = false,
@@ -92,10 +172,15 @@ const TheoryRecordingEditor = ({
         }
       : null
   ), [normalizedInitial]);
+  const initialBoardStrokes = useMemo(
+    () => buildBoardStrokesFromEvents(initialDraft?.events),
+    [initialDraft?.events]
+  );
   const [draft, setDraft] = useState(() => initialDraft);
   const [code, setCode] = useState(() => initialDraft?.initialCode || '');
   const [recordingError, setRecordingError] = useState('');
   const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(() => initialDraft?.durationMs || 0);
   const [eventCount, setEventCount] = useState(() => (
     Array.isArray(initialDraft?.events) ? initialDraft.events.length : 0
@@ -104,6 +189,10 @@ const TheoryRecordingEditor = ({
   const [runOutput, setRunOutput] = useState('');
   const [runError, setRunError] = useState('');
   const [isRunningCode, setIsRunningCode] = useState(false);
+  const [boardStrokes, setBoardStrokes] = useState(() => initialBoardStrokes);
+  const [boardTool, setBoardTool] = useState('pen');
+  const [boardColor, setBoardColor] = useState(BOARD_DEFAULT_COLOR);
+  const [boardWidth, setBoardWidth] = useState(BOARD_DEFAULT_WIDTH);
 
   const editorRef = useRef(null);
   const contentDisposableRef = useRef(null);
@@ -112,7 +201,14 @@ const TheoryRecordingEditor = ({
   const mediaStreamRef = useRef(null);
   const chunksRef = useRef([]);
   const eventsRef = useRef([]);
+  const boardCanvasRef = useRef(null);
+  const boardDrawingRef = useRef({ active: false, pointerId: null, stroke: null });
+  const boardStrokesRef = useRef(initialBoardStrokes);
+  const boardTimelineEmitRef = useRef({ strokeId: '', points: 0, ts: 0 });
   const recordingStartedAtRef = useRef(0);
+  const recordingPausedAtRef = useRef(0);
+  const recordingPausedAccumMsRef = useRef(0);
+  const isRecordingPausedRef = useRef(false);
   const isRecordingRef = useRef(false);
   const elapsedTimerRef = useRef(null);
   const codeDebounceTimerRef = useRef(null);
@@ -161,9 +257,27 @@ const TheoryRecordingEditor = ({
   }, []);
 
   const getNowMs = useCallback(
-    () => Math.max(0, Math.round(performance.now() - recordingStartedAtRef.current)),
+    () => {
+      const startedAt = Number(recordingStartedAtRef.current || 0);
+      if (!startedAt) return 0;
+      const pausedAccum = Math.max(0, Number(recordingPausedAccumMsRef.current || 0));
+      const nowRaw = isRecordingPausedRef.current
+        ? Number(recordingPausedAtRef.current || startedAt)
+        : performance.now();
+      return Math.max(0, Math.round(nowRaw - startedAt - pausedAccum));
+    },
     []
   );
+
+  const startElapsedTimer = useCallback(() => {
+    if (elapsedTimerRef.current) {
+      clearInterval(elapsedTimerRef.current);
+      elapsedTimerRef.current = null;
+    }
+    elapsedTimerRef.current = setInterval(() => {
+      setElapsedMs(getNowMs());
+    }, 100);
+  }, [getNowMs]);
 
   const getEditorSelections = useCallback(() => {
     const editor = editorRef.current;
@@ -212,6 +326,226 @@ const TheoryRecordingEditor = ({
     setEventCount(eventsRef.current.length);
   }, []);
 
+  const appendBoardEvent = useCallback((timestampMs, payload = {}) => {
+    if (eventsRef.current.length >= THEORY_RECORDING_MAX_EVENTS) return;
+    const action = String(payload.action || '').trim();
+    if (action === 'clear') {
+      eventsRef.current.push({
+        t: Math.max(0, Math.round(timestampMs)),
+        type: THEORY_RECORDING_EVENT_BOARD,
+        action: 'clear',
+      });
+      setEventCount(eventsRef.current.length);
+      return;
+    }
+    if (action === 'snapshot') {
+      const strokes = normalizeBoardStrokesForEvent(payload.strokes);
+      eventsRef.current.push({
+        t: Math.max(0, Math.round(timestampMs)),
+        type: THEORY_RECORDING_EVENT_BOARD,
+        action: 'snapshot',
+        strokes,
+      });
+      setEventCount(eventsRef.current.length);
+      return;
+    }
+    if (action === 'stroke') {
+      const stroke = normalizeBoardStrokeForEvent(payload.stroke);
+      if (!stroke) return;
+      eventsRef.current.push({
+        t: Math.max(0, Math.round(timestampMs)),
+        type: THEORY_RECORDING_EVENT_BOARD,
+        action: 'stroke',
+        stroke,
+      });
+      setEventCount(eventsRef.current.length);
+    }
+  }, []);
+
+  const emitBoardStrokeProgress = useCallback((stroke, options = {}) => {
+    if (!isRecordingRef.current || isRecordingPausedRef.current) return;
+    const safeStroke = normalizeBoardStrokeForEvent(stroke);
+    if (!safeStroke) return;
+    const force = options?.force === true;
+    const now = Date.now();
+    const meta = boardTimelineEmitRef.current;
+    const isSameStroke = meta.strokeId === safeStroke.id;
+    const isSamePointCount = isSameStroke && meta.points === safeStroke.points.length;
+    const pointsDelta = Math.max(0, safeStroke.points.length - Number(meta.points || 0));
+    const withinThrottle = isSameStroke && (now - Number(meta.ts || 0)) < BOARD_TIMELINE_THROTTLE_MS;
+    if (!force && (isSamePointCount || (withinThrottle && pointsDelta < BOARD_TIMELINE_MIN_POINT_DELTA))) return;
+    appendBoardEvent(getNowMs(), { action: 'stroke', stroke: safeStroke });
+    boardTimelineEmitRef.current = {
+      strokeId: safeStroke.id,
+      points: safeStroke.points.length,
+      ts: now,
+    };
+  }, [appendBoardEvent, getNowMs]);
+
+  const drawBoardStroke = useCallback((ctx, stroke, width, height) => {
+    if (!ctx || !stroke || !Array.isArray(stroke.points) || stroke.points.length < 1) return;
+    const points = stroke.points
+      .map((point) => {
+        const x = Math.max(0, Math.min(width, Number(point.x || 0) * width));
+        const y = Math.max(0, Math.min(height, Number(point.y || 0) * height));
+        return { x, y };
+      });
+    if (points.length < 1) return;
+    const lineWidth = Math.max(1, Number(stroke.width) || BOARD_DEFAULT_WIDTH);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = String(stroke.color || BOARD_DEFAULT_COLOR);
+    ctx.fillStyle = String(stroke.color || BOARD_DEFAULT_COLOR);
+    ctx.lineWidth = lineWidth;
+    if (points.length === 1) {
+      const point = points[0];
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, Math.max(1, lineWidth * 0.5), 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    if (points.length === 2) {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      ctx.lineTo(points[1].x, points[1].y);
+      ctx.stroke();
+      return;
+    }
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length - 1; i += 1) {
+      const current = points[i];
+      const next = points[i + 1];
+      const midX = (current.x + next.x) / 2;
+      const midY = (current.y + next.y) / 2;
+      ctx.quadraticCurveTo(current.x, current.y, midX, midY);
+    }
+    const penultimate = points[points.length - 2];
+    const last = points[points.length - 1];
+    ctx.quadraticCurveTo(penultimate.x, penultimate.y, last.x, last.y);
+    ctx.stroke();
+  }, []);
+
+  const renderBoardCanvas = useCallback(() => {
+    const canvas = boardCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const width = Math.max(1, canvas.width || 1);
+    const height = Math.max(1, canvas.height || 1);
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = BOARD_SNAPSHOT_BG;
+    ctx.fillRect(0, 0, width, height);
+    boardStrokesRef.current.forEach((stroke) => drawBoardStroke(ctx, stroke, width, height));
+    const previewStroke = boardDrawingRef.current?.stroke;
+    if (previewStroke) drawBoardStroke(ctx, previewStroke, width, height);
+  }, [drawBoardStroke]);
+
+  const getBoardPoint = useCallback((event) => {
+    const canvas = boardCanvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const width = Math.max(1, rect.width || 1);
+    const height = Math.max(1, rect.height || 1);
+    const x = clampBoardUnit((Number(event.clientX) - rect.left) / width);
+    const y = clampBoardUnit((Number(event.clientY) - rect.top) / height);
+    return { x, y };
+  }, []);
+
+  const commitBoardStroke = useCallback((stroke) => {
+    const safeStroke = normalizeBoardStrokeForEvent(stroke);
+    if (!safeStroke) return;
+    setBoardStrokes((prev) => {
+      const next = [...(Array.isArray(prev) ? prev : [])];
+      upsertBoardStrokeById(next, safeStroke);
+      if (next.length > BOARD_MAX_STROKES) {
+        next.splice(0, next.length - BOARD_MAX_STROKES);
+      }
+      return next;
+    });
+  }, []);
+
+  const finishBoardDrawing = useCallback((pointerId = null) => {
+    const drawingState = boardDrawingRef.current;
+    if (!drawingState.active) return;
+    if (pointerId !== null && drawingState.pointerId !== pointerId) return;
+    const stroke = drawingState.stroke;
+    boardDrawingRef.current = { active: false, pointerId: null, stroke: null };
+    if (stroke) {
+      emitBoardStrokeProgress(stroke, { force: true });
+      commitBoardStroke(stroke);
+    }
+    renderBoardCanvas();
+  }, [commitBoardStroke, emitBoardStrokeProgress, renderBoardCanvas]);
+
+  const handleBoardPointerDown = useCallback((event) => {
+    if (disabled) return;
+    event.preventDefault();
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+    const point = getBoardPoint(event);
+    if (!point) return;
+    const strokeColor = boardTool === 'eraser' ? BOARD_SNAPSHOT_BG : boardColor;
+    const strokeWidth = boardTool === 'eraser'
+      ? Math.max(BOARD_ERASER_MIN_WIDTH, boardWidth * BOARD_ERASER_WIDTH_MULTIPLIER)
+      : boardWidth;
+    boardDrawingRef.current = {
+      active: true,
+      pointerId: event.pointerId,
+      stroke: {
+        id: `board-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        color: strokeColor,
+        width: strokeWidth,
+        points: [point],
+      },
+    };
+    boardTimelineEmitRef.current = {
+      strokeId: boardDrawingRef.current.stroke.id,
+      points: 0,
+      ts: 0,
+    };
+    emitBoardStrokeProgress(boardDrawingRef.current.stroke, { force: true });
+    renderBoardCanvas();
+  }, [boardColor, boardTool, boardWidth, disabled, emitBoardStrokeProgress, getBoardPoint, renderBoardCanvas]);
+
+  const handleBoardPointerMove = useCallback((event) => {
+    const drawingState = boardDrawingRef.current;
+    if (!drawingState.active || drawingState.pointerId !== event.pointerId || !drawingState.stroke) return;
+    const point = getBoardPoint(event);
+    if (!point) return;
+    const points = drawingState.stroke.points;
+    const lastPoint = points[points.length - 1];
+    const dx = Math.abs(point.x - (lastPoint?.x ?? 0));
+    const dy = Math.abs(point.y - (lastPoint?.y ?? 0));
+    if ((dx + dy) < BOARD_CANVAS_MIN_DISTANCE) return;
+    points.push(point);
+    if (points.length > BOARD_MAX_POINTS_IN_STROKE) {
+      points.splice(0, points.length - BOARD_MAX_POINTS_IN_STROKE);
+    }
+    emitBoardStrokeProgress(drawingState.stroke);
+    renderBoardCanvas();
+  }, [emitBoardStrokeProgress, getBoardPoint, renderBoardCanvas]);
+
+  const handleBoardPointerUp = useCallback((event) => {
+    event.preventDefault();
+    finishBoardDrawing(event.pointerId);
+    event.currentTarget?.releasePointerCapture?.(event.pointerId);
+  }, [finishBoardDrawing]);
+
+  const handleBoardPointerCancel = useCallback((event) => {
+    event.preventDefault();
+    finishBoardDrawing(event.pointerId);
+  }, [finishBoardDrawing]);
+
+  const handleClearBoard = useCallback(() => {
+    boardDrawingRef.current = { active: false, pointerId: null, stroke: null };
+    boardTimelineEmitRef.current = { strokeId: '', points: 0, ts: 0 };
+    setBoardStrokes([]);
+    if (isRecordingRef.current && !isRecordingPausedRef.current) {
+      appendBoardEvent(getNowMs(), { action: 'clear' });
+    }
+    renderBoardCanvas();
+  }, [appendBoardEvent, getNowMs, renderBoardCanvas]);
+
   const flushScheduledSnapshots = useCallback(() => {
     if (codeDebounceTimerRef.current) {
       clearTimeout(codeDebounceTimerRef.current);
@@ -224,6 +558,11 @@ const TheoryRecordingEditor = ({
       appendSelectionEvent(getNowMs(), getEditorSelections(), true);
     }
   }, [appendCodeEvent, appendSelectionEvent, getEditorSelections, getNowMs]);
+
+  useEffect(() => {
+    boardStrokesRef.current = Array.isArray(boardStrokes) ? boardStrokes : [];
+    renderBoardCanvas();
+  }, [boardStrokes, renderBoardCanvas]);
 
   const finalizeRecording = useCallback((durationMs, mimeType = '') => {
     const chunks = Array.isArray(chunksRef.current) ? chunksRef.current : [];
@@ -245,9 +584,13 @@ const TheoryRecordingEditor = ({
         const delta = left.t - right.t;
         if (delta !== 0) return delta;
         if (left.type === right.type) return 0;
-        if (left.type === THEORY_RECORDING_EVENT_CODE) return -1;
-        if (right.type === THEORY_RECORDING_EVENT_CODE) return 1;
-        return 0;
+        const order = {
+          [THEORY_RECORDING_EVENT_CODE]: 0,
+          [THEORY_RECORDING_EVENT_SELECTION]: 1,
+          [THEORY_RECORDING_EVENT_BOARD]: 2,
+          [THEORY_RECORDING_EVENT_RUN_OUTPUT]: 3,
+        };
+        return (order[left.type] ?? 99) - (order[right.type] ?? 99);
       })
       .slice(0, THEORY_RECORDING_MAX_EVENTS);
     const safeDuration = Math.max(
@@ -284,14 +627,19 @@ const TheoryRecordingEditor = ({
 
   const stopRecording = useCallback(() => {
     if (!isRecordingRef.current) return;
-    isRecordingRef.current = false;
-    setIsRecording(false);
+    finishBoardDrawing();
     const stopMs = getNowMs();
-    clearRecordTimers();
     flushScheduledSnapshots();
+    clearRecordTimers();
     appendCodeEvent(stopMs, editorRef.current?.getValue?.() || '', true);
     appendSelectionEvent(stopMs, getEditorSelections(), true);
     setElapsedMs(stopMs);
+    isRecordingRef.current = false;
+    isRecordingPausedRef.current = false;
+    recordingPausedAtRef.current = 0;
+    recordingPausedAccumMsRef.current = 0;
+    setIsPaused(false);
+    setIsRecording(false);
     const recorder = mediaRecorderRef.current;
     if (recorder && recorder.state !== 'inactive') {
       try {
@@ -307,6 +655,7 @@ const TheoryRecordingEditor = ({
     appendSelectionEvent,
     clearRecordTimers,
     finalizeRecording,
+    finishBoardDrawing,
     flushScheduledSnapshots,
     getEditorSelections,
     getNowMs,
@@ -364,8 +713,12 @@ const TheoryRecordingEditor = ({
       setIsRecording(true);
       setElapsedMs(0);
       setEventCount(0);
+      boardTimelineEmitRef.current = { strokeId: '', points: 0, ts: 0 };
       appendCodeEvent(0, initialCodeAtStartRef.current, true);
       appendSelectionEvent(0, getEditorSelections(), true);
+      if (boardStrokesRef.current.length > 0) {
+        appendBoardEvent(0, { action: 'snapshot', strokes: boardStrokesRef.current });
+      }
       recorder.start(250);
 
       elapsedTimerRef.current = setInterval(() => {
@@ -377,6 +730,7 @@ const TheoryRecordingEditor = ({
     }
   }, [
     appendCodeEvent,
+    appendBoardEvent,
     appendSelectionEvent,
     disabled,
     finalizeRecording,
@@ -526,13 +880,17 @@ const TheoryRecordingEditor = ({
   const handleResetDraft = useCallback(() => {
     if (isRecordingRef.current) return;
     setDraft(null);
+    setBoardStrokes([]);
+    boardDrawingRef.current = { active: false, pointerId: null, stroke: null };
+    boardTimelineEmitRef.current = { strokeId: '', points: 0, ts: 0 };
     setEventCount(0);
     setElapsedMs(0);
     setRunOutput('');
     setRunError('');
     setRecordingError('');
     revokeLocalAudioUrl();
-  }, [revokeLocalAudioUrl]);
+    renderBoardCanvas();
+  }, [renderBoardCanvas, revokeLocalAudioUrl]);
 
   useEffect(() => {
     if (typeof onDraftChange === 'function') {
@@ -601,6 +959,81 @@ const TheoryRecordingEditor = ({
         />
       </div>
 
+      <div className="rounded-2xl border border-slate-200 bg-white/85 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Доска для видеоразбора</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setBoardTool('pen')}
+              className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
+                boardTool === 'pen'
+                  ? 'border-purple-500 bg-purple-600 text-white'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-purple-300 hover:text-purple-700'
+              }`}
+            >
+              Перо
+            </button>
+            <button
+              type="button"
+              onClick={() => setBoardTool('eraser')}
+              className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
+                boardTool === 'eraser'
+                  ? 'border-purple-500 bg-purple-600 text-white'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-purple-300 hover:text-purple-700'
+              }`}
+            >
+              Ластик
+            </button>
+            <button
+              type="button"
+              onClick={handleClearBoard}
+              className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-100"
+            >
+              Очистить
+            </button>
+          </div>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+          <label className="inline-flex items-center gap-2">
+            <span>Цвет</span>
+            <input
+              type="color"
+              value={boardColor}
+              onChange={(event) => setBoardColor(event.target.value || BOARD_DEFAULT_COLOR)}
+              disabled={boardTool === 'eraser'}
+              className="h-7 w-9 cursor-pointer rounded border border-slate-300 bg-white p-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+            />
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <span>Толщина</span>
+            <input
+              type="range"
+              min={1}
+              max={22}
+              step={1}
+              value={Math.max(1, Math.min(22, Math.round(Number(boardWidth) || BOARD_DEFAULT_WIDTH)))}
+              onChange={(event) => setBoardWidth(Math.max(1, Math.min(22, Number(event.target.value) || BOARD_DEFAULT_WIDTH)))}
+              className="w-28"
+            />
+            <span>{Math.max(1, Math.min(22, Math.round(Number(boardWidth) || BOARD_DEFAULT_WIDTH)))}</span>
+          </label>
+          <span>{`Штрихов: ${boardStrokes.length}`}</span>
+        </div>
+        <div className="mt-2 overflow-hidden rounded-xl border border-slate-300/80 bg-[#050d1f] shadow-[inset_0_1px_0_rgba(148,163,184,0.16)]">
+          <canvas
+            ref={boardCanvasRef}
+            width={960}
+            height={300}
+            onPointerDown={handleBoardPointerDown}
+            onPointerMove={handleBoardPointerMove}
+            onPointerUp={handleBoardPointerUp}
+            onPointerCancel={handleBoardPointerCancel}
+            className="h-[210px] w-full touch-none select-none cursor-crosshair"
+          />
+        </div>
+      </div>
+
       <div className="rounded-2xl border border-slate-200 bg-white/80 p-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
@@ -636,7 +1069,7 @@ const TheoryRecordingEditor = ({
       </div>
 
       <div className="text-[11px] text-slate-500">
-        Во время записи сохраняются аудио с микрофона, изменения кода, выделения в редакторе и результаты запусков (stdin/stdout/stderr).
+        Во время записи сохраняются аудио с микрофона, изменения кода, выделения в редакторе, рисунки на доске и результаты запусков (stdin/stdout/stderr).
       </div>
 
       {draft && (

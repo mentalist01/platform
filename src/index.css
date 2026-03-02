@@ -948,6 +948,140 @@
   .floating {
     animation: floatSoft 4.5s ease-in-out infinite;
   }
+
+  .python-learning-shell .python-learning-hero {
+    animation: pythonHeroReveal 0.58s cubic-bezier(0.2, 0.74, 0.26, 1) both;
+  }
+
+  .python-learning-shell .python-learning-progress-card,
+  .python-learning-shell .python-learning-focus-card,
+  .python-learning-shell .python-learning-overview-card,
+  .python-learning-shell .python-learning-section-shell {
+    opacity: 0;
+    animation: pythonSurfaceReveal 0.52s cubic-bezier(0.22, 0.72, 0.25, 1) both;
+  }
+
+  .python-learning-shell .python-learning-progress-card {
+    animation-delay: 90ms;
+  }
+
+  .python-learning-shell .python-learning-focus-card {
+    animation-delay: 150ms;
+  }
+
+  .python-learning-shell .python-learning-overview-card {
+    animation-delay: calc(180ms + (var(--python-overview-i, 0) * 70ms));
+  }
+
+  .python-learning-shell .python-learning-section-shell {
+    animation-delay: calc(230ms + (var(--python-section-i, 0) * 85ms));
+  }
+
+  .python-learning-task-card {
+    opacity: 0;
+    animation: pythonTaskReveal 0.44s cubic-bezier(0.22, 0.7, 0.24, 1) both;
+    animation-delay: calc(120ms + (var(--python-card-i, 0) * 45ms));
+    will-change: transform, opacity;
+  }
+
+  .python-learning-task-card:hover {
+    transform: translateY(-4px) scale(1.008);
+  }
+
+  .python-learning-task-card:active {
+    transform: translateY(-1px) scale(0.997);
+  }
+
+  .python-mobile-toggle {
+    transition: transform 0.2s ease, box-shadow 0.24s ease, border-color 0.24s ease, background-color 0.24s ease, color 0.24s ease;
+  }
+
+  .python-mobile-toggle:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 20px rgba(79, 70, 229, 0.12);
+  }
+
+  .python-mobile-panel {
+    overflow: hidden;
+    transform-origin: top center;
+    transition: max-height 0.42s cubic-bezier(0.21, 0.69, 0.22, 1), opacity 0.28s ease, transform 0.34s ease;
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(-10px) scale(0.986);
+    pointer-events: none;
+  }
+
+  .python-mobile-panel--open {
+    max-height: 5200px;
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+    animation: pythonPanelReveal 0.38s cubic-bezier(0.22, 0.68, 0.24, 1) both;
+  }
+
+  .python-theory-type-chip {
+    transition: transform 0.2s ease, box-shadow 0.22s ease, border-color 0.22s ease, background-color 0.22s ease;
+  }
+
+  .python-theory-type-chip:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(109, 40, 217, 0.14);
+  }
+
+  .python-theory-editor-stage {
+    animation: pythonTheoryReveal 0.28s cubic-bezier(0.2, 0.72, 0.24, 1) both;
+  }
+
+  .python-runtime-modal-overlay {
+    animation: backdropIn 0.24s ease-out both;
+  }
+
+  .python-runtime-modal-shell {
+    transform-origin: 50% 12%;
+    animation: pythonModalReveal 0.34s cubic-bezier(0.2, 0.76, 0.24, 1) both;
+  }
+
+  .python-runtime-modal-header {
+    animation: pythonSurfaceReveal 0.46s ease-out both;
+  }
+
+  .python-runtime-chip {
+    transition: transform 0.18s ease, box-shadow 0.22s ease;
+  }
+
+  .python-runtime-chip:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 20px rgba(79, 70, 229, 0.14);
+  }
+
+  .python-runtime-theory-card {
+    animation: pythonSurfaceReveal 0.48s ease-out both;
+    animation-delay: 80ms;
+  }
+
+  .python-runtime-theory-body {
+    animation: pythonTheoryReveal 0.3s cubic-bezier(0.2, 0.7, 0.24, 1) both;
+    transform-origin: top center;
+  }
+
+  .python-runtime-test-card {
+    animation: pythonTestCardReveal 0.3s cubic-bezier(0.22, 0.72, 0.25, 1) both;
+    animation-delay: calc(var(--python-test-i, 0) * 34ms);
+  }
+
+  .python-runtime-footer {
+    animation: pythonFooterReveal 0.45s cubic-bezier(0.2, 0.72, 0.24, 1) both;
+    animation-delay: 120ms;
+  }
+
+  @media (min-width: 768px) {
+    .python-mobile-panel {
+      max-height: none !important;
+      opacity: 1 !important;
+      transform: none !important;
+      pointer-events: auto !important;
+    }
+  }
 }
 
 .app-h {
@@ -1020,6 +1154,109 @@
 @keyframes floatSoft {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-6px); }
+}
+
+@keyframes pythonHeroReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+    filter: blur(3px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes pythonSurfaceReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.992);
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes pythonTaskReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.985);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.008);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pythonPanelReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.986);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pythonModalReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.972);
+    filter: blur(4px);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.005);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes pythonTheoryReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(-5px) scale(0.994);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pythonTestCardReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.994);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pythonFooterReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes callPanelIn {
@@ -3618,6 +3855,122 @@ html[data-theme='dark'] .mobile-level-arrow::after {
   background:
     linear-gradient(162deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.94)),
     radial-gradient(circle at 36% 8%, rgba(125, 211, 252, 0.22), transparent 60%);
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-hero {
+  border-color: rgba(100, 116, 139, 0.5) !important;
+  background:
+    radial-gradient(circle at 90% -20%, rgba(14, 165, 233, 0.2), transparent 46%),
+    radial-gradient(circle at -12% 110%, rgba(251, 191, 36, 0.12), transparent 54%),
+    linear-gradient(156deg, rgba(15, 23, 42, 0.94), rgba(15, 23, 42, 0.9)) !important;
+  box-shadow:
+    0 22px 44px rgba(2, 6, 23, 0.58),
+    inset 0 1px 0 rgba(148, 163, 184, 0.14);
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-progress-card,
+html[data-theme='dark'] .python-learning-shell .python-learning-focus-card,
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card,
+html[data-theme='dark'] .python-learning-shell .python-learning-section-shell,
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card {
+  border-color: rgba(100, 116, 139, 0.46) !important;
+  background:
+    linear-gradient(162deg, rgba(30, 41, 59, 0.94), rgba(15, 23, 42, 0.9)) !important;
+  box-shadow:
+    0 14px 30px rgba(2, 6, 23, 0.48),
+    inset 0 1px 0 rgba(148, 163, 184, 0.15) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-section-shell {
+  background:
+    radial-gradient(circle at 94% -24%, rgba(14, 165, 233, 0.2), transparent 42%),
+    radial-gradient(circle at -12% 112%, rgba(251, 191, 36, 0.12), transparent 54%),
+    linear-gradient(160deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.9)) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .bg-cyan-50,
+html[data-theme='dark'] .python-learning-shell .bg-cyan-50\/70,
+html[data-theme='dark'] .python-learning-shell .bg-cyan-100,
+html[data-theme='dark'] .python-learning-shell .bg-cyan-100\/80,
+html[data-theme='dark'] .python-learning-shell .bg-cyan-100\/90,
+html[data-theme='dark'] .python-learning-shell .bg-cyan-200\/40 {
+  background-color: rgba(8, 47, 73, 0.42) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .bg-emerald-50\/90 {
+  background-color: rgba(6, 78, 59, 0.48) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .bg-amber-50\/90,
+html[data-theme='dark'] .python-learning-shell .bg-amber-100\/80,
+html[data-theme='dark'] .python-learning-shell .bg-amber-100\/90 {
+  background-color: rgba(120, 53, 15, 0.5) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .text-cyan-700\/80,
+html[data-theme='dark'] .python-learning-shell .text-cyan-800,
+html[data-theme='dark'] .python-learning-shell .text-cyan-900 {
+  color: rgb(125, 211, 252) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .text-emerald-700\/80 {
+  color: rgb(110, 231, 183) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .border-cyan-200,
+html[data-theme='dark'] .python-learning-shell .border-cyan-200\/70,
+html[data-theme='dark'] .python-learning-shell .border-cyan-200\/80,
+html[data-theme='dark'] .python-learning-shell .border-cyan-300\/70 {
+  border-color: rgba(56, 189, 248, 0.56) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .border-amber-200\/75,
+html[data-theme='dark'] .python-learning-shell .border-amber-200\/85 {
+  border-color: rgba(251, 191, 36, 0.56) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .border-slate-300,
+html[data-theme='dark'] .python-learning-shell .border-slate-300\/80 {
+  border-color: rgba(100, 116, 139, 0.56) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .hover\:border-cyan-400\/80:hover {
+  border-color: rgba(103, 232, 249, 0.78) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .hover\:border-amber-400\/80:hover {
+  border-color: rgba(253, 224, 71, 0.74) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .from-cyan-50\/65,
+html[data-theme='dark'] .python-learning-shell .from-cyan-50\/75 {
+  --tw-gradient-from: rgba(8, 47, 73, 0.45) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgba(8, 47, 73, 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .from-amber-50\/80 {
+  --tw-gradient-from: rgba(120, 53, 15, 0.44) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgba(120, 53, 15, 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .to-cyan-50\/70 {
+  --tw-gradient-to: rgba(8, 47, 73, 0.46) var(--tw-gradient-to-position) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .to-blue-50\/80 {
+  --tw-gradient-to: rgba(30, 58, 138, 0.34) var(--tw-gradient-to-position) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .to-orange-50\/65,
+html[data-theme='dark'] .python-learning-shell .to-orange-50\/70 {
+  --tw-gradient-to: rgba(120, 53, 15, 0.48) var(--tw-gradient-to-position) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .to-slate-100\/75,
+html[data-theme='dark'] .python-learning-shell .to-slate-200\/30 {
+  --tw-gradient-to: rgba(30, 41, 59, 0.78) var(--tw-gradient-to-position) !important;
 }
 
 html[data-theme='dark'] .bg-white,

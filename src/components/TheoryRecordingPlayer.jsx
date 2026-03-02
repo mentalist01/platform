@@ -4,6 +4,7 @@ import { Maximize2, Minimize2, Pause, Play, Volume2, VolumeX } from 'lucide-reac
 import {
   formatRecordingDuration,
   normalizeTheoryRecording,
+  THEORY_RECORDING_EVENT_BOARD,
   THEORY_RECORDING_EVENT_CODE,
   THEORY_RECORDING_EVENT_RUN_OUTPUT,
   THEORY_RECORDING_EVENT_SELECTION,
@@ -28,6 +29,41 @@ const PLAYER_EDITOR_OPTIONS = {
 
 const THEORY_PLAYER_EDITOR_THEME = 'theory-player-vivid-dark';
 const FALLBACK_EMPTY_STATE_TEXT = 'Видеоразбор пока не готов.';
+
+const PLAYBACK_RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+const THEORY_PLAYER_BOARD_BG = '#050d1f';
+const THEORY_PLAYER_BOARD_MAX_STROKES = 900;
+
+const normalizeBoardStrokeForPlayer = (stroke) => {
+  if (!stroke || typeof stroke !== 'object') return null;
+  const points = (Array.isArray(stroke.points) ? stroke.points : [])
+    .map((point) => {
+      if (!point || typeof point !== 'object') return null;
+      const x = Math.max(0, Math.min(1, Number(point.x)));
+      const y = Math.max(0, Math.min(1, Number(point.y)));
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      return { x, y };
+    })
+    .filter(Boolean);
+  if (points.length < 1) return null;
+  return {
+    id: String(stroke.id || '').trim().slice(0, 64) || `stroke-${Math.random().toString(36).slice(2, 9)}`,
+    color: String(stroke.color || '#38bdf8').trim().slice(0, 40) || '#38bdf8',
+    width: Math.max(1, Math.min(64, Number(stroke.width) || 3)),
+    points,
+  };
+};
+
+const upsertBoardStrokeById = (list, stroke) => {
+  if (!stroke?.id) return list;
+  const idx = list.findIndex((item) => item?.id === stroke.id);
+  if (idx === -1) {
+    list.push(stroke);
+    return list;
+  }
+  list[idx] = stroke;
+  return list;
+};
 
 const clampSelectionToModel = (model, selection) => {
   if (!model || !selection || typeof selection !== 'object') return null;
@@ -87,8 +123,13 @@ const asEditorSelection = (selection) => {
   };
 };
 
-const TheoryRecordingPlayer = ({ recording, className = '' }) => {
+const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey = '' }) => {
   const normalized = useMemo(() => normalizeTheoryRecording(recording), [recording]);
+  const normalizedProgressStorageKey = useMemo(
+    () => String(progressStorageKey || '').trim(),
+    [progressStorageKey]
+  );
+  const canPersistProgress = normalizedProgressStorageKey.length > 0;
   const modelPath = useMemo(() => {
     const source = String(normalized?.updatedAt || normalized?.createdAt || 'draft');
     const safeId = source.replace(/[^0-9a-zA-Z_-]/g, '_');
@@ -101,9 +142,11 @@ const TheoryRecordingPlayer = ({ recording, className = '' }) => {
   const [isPlayerHovered, setIsPlayerHovered] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(1);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const [hasPlaybackStarted, setHasPlaybackStarted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [runOutputFrame, setRunOutputFrame] = useState(null);
+  const [boardStrokes, setBoardStrokes] = useState([]);
   const [supportsHover, setSupportsHover] = useState(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
     return window.matchMedia('(hover: hover)').matches;
@@ -112,9 +155,12 @@ const TheoryRecordingPlayer = ({ recording, className = '' }) => {
   const playerContainerRef = useRef(null);
   const editorRef = useRef(null);
   const audioRef = useRef(null);
+  const boardCanvasRef = useRef(null);
   const lastAppliedIndexRef = useRef(-1);
   const lastAppliedMsRef = useRef(0);
   const rafRef = useRef(null);
+  const resumePositionMsRef = useRef(0);
+  const lastPersistMetaRef = useRef({ ms: -1, ts: 0 });
 
   const resetCursorToStart = useCallback((editor) => {
     if (!editor) return;
@@ -132,6 +178,46 @@ const TheoryRecordingPlayer = ({ recording, className = '' }) => {
       rafRef.current = null;
     }
   }, []);
+
+  const readPersistedProgressMs = useCallback(() => {
+    if (!canPersistProgress || typeof window === 'undefined') return 0;
+    try {
+      const raw = window.localStorage.getItem(normalizedProgressStorageKey);
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+      return Math.max(0, Math.round(parsed));
+    } catch {
+      return 0;
+    }
+  }, [canPersistProgress, normalizedProgressStorageKey]);
+
+  const clearPersistedProgress = useCallback(() => {
+    if (!canPersistProgress || typeof window === 'undefined') return;
+    try {
+      window.localStorage.removeItem(normalizedProgressStorageKey);
+    } catch {
+      // Ignore storage quota/privacy errors.
+    }
+  }, [canPersistProgress, normalizedProgressStorageKey]);
+
+  const persistProgressMs = useCallback((valueMs, options = {}) => {
+    if (!canPersistProgress || typeof window === 'undefined') return;
+    const force = options?.force === true;
+    const nextMs = Math.max(0, Math.round(Number(valueMs) || 0));
+    const now = Date.now();
+    if (!force) {
+      const meta = lastPersistMetaRef.current;
+      if ((now - Number(meta.ts || 0)) < 1200 && Math.abs(nextMs - Number(meta.ms || 0)) < 900) {
+        return;
+      }
+    }
+    lastPersistMetaRef.current = { ms: nextMs, ts: now };
+    try {
+      window.localStorage.setItem(normalizedProgressStorageKey, String(nextMs));
+    } catch {
+      // Ignore storage quota/privacy errors.
+    }
+  }, [canPersistProgress, normalizedProgressStorageKey]);
 
   const applyEvent = useCallback((event) => {
     const editor = editorRef.current;
@@ -163,6 +249,34 @@ const TheoryRecordingPlayer = ({ recording, className = '' }) => {
       }
       return;
     }
+    if (event.type === THEORY_RECORDING_EVENT_BOARD) {
+      const action = String(event.action || '').trim();
+      if (action === 'clear') {
+        setBoardStrokes([]);
+        return;
+      }
+      if (action === 'snapshot') {
+        const nextStrokes = (Array.isArray(event.strokes) ? event.strokes : [])
+          .map((stroke) => normalizeBoardStrokeForPlayer(stroke))
+          .filter(Boolean)
+          .slice(-THEORY_PLAYER_BOARD_MAX_STROKES);
+        setBoardStrokes(nextStrokes);
+        return;
+      }
+      if (action === 'stroke') {
+        const stroke = normalizeBoardStrokeForPlayer(event.stroke);
+        if (!stroke) return;
+        setBoardStrokes((prev) => {
+          const next = [...(Array.isArray(prev) ? prev : [])];
+          upsertBoardStrokeById(next, stroke);
+          if (next.length > THEORY_PLAYER_BOARD_MAX_STROKES) {
+            next.splice(0, next.length - THEORY_PLAYER_BOARD_MAX_STROKES);
+          }
+          return next;
+        });
+      }
+      return;
+    }
     if (event.type === THEORY_RECORDING_EVENT_RUN_OUTPUT) {
       setRunOutputFrame({
         input: String(event.input ?? ''),
@@ -185,6 +299,7 @@ const TheoryRecordingPlayer = ({ recording, className = '' }) => {
     }
     lastAppliedIndexRef.current = -1;
     setRunOutputFrame(null);
+    setBoardStrokes([]);
     const events = normalized.events || [];
     for (let index = 0; index < events.length; index += 1) {
       const event = events[index];
@@ -281,24 +396,37 @@ const TheoryRecordingPlayer = ({ recording, className = '' }) => {
 
   useEffect(() => {
     if (!hasNormalizedRecording) {
+      resumePositionMsRef.current = 0;
       setCurrentMs(0);
       setDurationMs(0);
       setIsPlaying(false);
+      setPlaybackRate(1);
       setHasPlaybackStarted(false);
       return;
     }
-    setCurrentMs(0);
+    const storedMs = readPersistedProgressMs();
+    const maxResumableMs = Math.max(0, normalizedDurationMs - 1200);
+    const resumeMs = Math.max(0, Math.min(storedMs, maxResumableMs));
+    resumePositionMsRef.current = resumeMs;
+    setCurrentMs(resumeMs);
     setDurationMs(normalizedDurationMs);
     setIsPlaying(false);
+    setPlaybackRate(1);
     setHasPlaybackStarted(false);
     setIsFullscreen(false);
     setRunOutputFrame(null);
+    setBoardStrokes([]);
     lastAppliedIndexRef.current = -1;
     lastAppliedMsRef.current = 0;
+    lastPersistMetaRef.current = { ms: -1, ts: 0 };
     const audio = audioRef.current;
     if (audio) {
       audio.pause();
-      audio.currentTime = 0;
+      try {
+        audio.currentTime = resumeMs > 0 ? (resumeMs / 1000) : 0;
+      } catch {
+        audio.currentTime = 0;
+      }
     }
     if (editorRef.current) {
       const model = editorRef.current.getModel();
@@ -309,16 +437,42 @@ const TheoryRecordingPlayer = ({ recording, className = '' }) => {
           // no-op
         }
       }
-      resetCursorToStart(editorRef.current);
+      if (resumeMs > 0) {
+        rebuildTo(resumeMs);
+      } else {
+        resetCursorToStart(editorRef.current);
+      }
     }
-  }, [hasNormalizedRecording, normalizedDurationMs, normalizedInitialCode, recordingResetKey, resetCursorToStart]);
+  }, [
+    hasNormalizedRecording,
+    normalizedDurationMs,
+    normalizedInitialCode,
+    readPersistedProgressMs,
+    recordingResetKey,
+    rebuildTo,
+    resetCursorToStart,
+  ]);
+
+  useEffect(() => () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const mediaDurationMs = Number.isFinite(Number(audio.duration)) ? Math.round(Number(audio.duration) * 1000) : 0;
+    const currentTimeMs = Math.max(0, Math.round((Number(audio.currentTime) || 0) * 1000));
+    const nearEndThresholdMs = Math.max(0, mediaDurationMs - 1200);
+    if (audio.ended || (mediaDurationMs > 0 && currentTimeMs >= nearEndThresholdMs)) {
+      clearPersistedProgress();
+      return;
+    }
+    persistProgressMs(currentTimeMs, { force: true });
+  }, [clearPersistedProgress, persistProgressMs]);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
     audio.volume = volume;
     audio.muted = isMuted;
-  }, [isMuted, volume]);
+    audio.playbackRate = playbackRate;
+  }, [isMuted, playbackRate, volume]);
 
   const handleEditorBeforeMount = useCallback((monaco) => {
     try {
@@ -369,6 +523,62 @@ const TheoryRecordingPlayer = ({ recording, className = '' }) => {
     resetCursorToStart(editor);
   }, [normalized, resetCursorToStart]);
 
+  const drawBoardStroke = useCallback((ctx, stroke, width, height) => {
+    if (!ctx || !stroke || !Array.isArray(stroke.points) || stroke.points.length < 1) return;
+    const points = stroke.points
+      .map((point) => ({
+        x: Math.max(0, Math.min(width, Number(point.x || 0) * width)),
+        y: Math.max(0, Math.min(height, Number(point.y || 0) * height)),
+      }));
+    if (points.length < 1) return;
+    const lineWidth = Math.max(1, Number(stroke.width) || 3);
+    const color = String(stroke.color || '#38bdf8');
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = lineWidth;
+    if (points.length === 1) {
+      ctx.beginPath();
+      ctx.arc(points[0].x, points[0].y, Math.max(1, lineWidth * 0.5), 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    if (points.length === 2) {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      ctx.lineTo(points[1].x, points[1].y);
+      ctx.stroke();
+      return;
+    }
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length - 1; i += 1) {
+      const current = points[i];
+      const next = points[i + 1];
+      const midX = (current.x + next.x) / 2;
+      const midY = (current.y + next.y) / 2;
+      ctx.quadraticCurveTo(current.x, current.y, midX, midY);
+    }
+    const penultimate = points[points.length - 2];
+    const last = points[points.length - 1];
+    ctx.quadraticCurveTo(penultimate.x, penultimate.y, last.x, last.y);
+    ctx.stroke();
+  }, []);
+
+  useEffect(() => {
+    const canvas = boardCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const width = Math.max(1, canvas.width || 1);
+    const height = Math.max(1, canvas.height || 1);
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = THEORY_PLAYER_BOARD_BG;
+    ctx.fillRect(0, 0, width, height);
+    boardStrokes.forEach((stroke) => drawBoardStroke(ctx, stroke, width, height));
+  }, [boardStrokes, drawBoardStroke]);
+
   const safeDurationMs = Math.max(
     1,
     Math.round(normalized?.durationMs || 0),
@@ -414,6 +624,46 @@ const TheoryRecordingPlayer = ({ recording, className = '' }) => {
     runOutputFrame
     && (runOutputFrame.input || runOutputFrame.output || runOutputFrame.error)
   );
+  const runOutputShellClass = isFullscreen
+    ? 'absolute inset-x-5 bottom-28 z-20 md:left-6 md:right-auto md:w-[min(1040px,calc(100%-3rem))]'
+    : 'absolute inset-x-3 bottom-24 z-20 md:left-4 md:right-auto md:w-[min(680px,calc(100%-2rem))]';
+  const runOutputCardClass = isFullscreen
+    ? 'rounded-2xl border border-slate-700/70 bg-slate-950/94 px-4 py-3 shadow-[0_14px_34px_rgba(2,6,23,0.6)] backdrop-blur-md'
+    : 'rounded-xl border border-slate-700/70 bg-slate-950/94 px-3 py-2 shadow-[0_12px_30px_rgba(2,6,23,0.55)] backdrop-blur-md';
+  const runOutputLabelClass = isFullscreen
+    ? 'text-[12px] font-semibold uppercase tracking-wide text-slate-300'
+    : 'text-[10px] font-semibold uppercase tracking-wide text-slate-400';
+  const runOutputInputTextClass = isFullscreen
+    ? 'mt-1 max-h-[140px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-slate-900/80 px-3 py-2 font-mono text-[15px] leading-7 text-slate-100'
+    : 'mt-1 max-h-[78px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-slate-900/80 px-2 py-1 font-mono text-[11px] leading-5 text-slate-200';
+  const runOutputMainTextClass = isFullscreen
+    ? 'mt-1 max-h-[260px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-slate-900/75 px-3 py-2 font-mono text-[16px] leading-7 text-slate-100'
+    : 'mt-1 max-h-[126px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-slate-900/75 px-2 py-1 font-mono text-[11px] leading-5 text-slate-100';
+  const runOutputErrorLabelClass = isFullscreen
+    ? 'text-[12px] font-semibold uppercase tracking-wide text-rose-200'
+    : 'text-[10px] font-semibold uppercase tracking-wide text-rose-300';
+  const runOutputErrorTextClass = isFullscreen
+    ? 'mt-1 max-h-[220px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-rose-950/30 px-3 py-2 font-mono text-[16px] leading-7 text-rose-200'
+    : 'mt-1 max-h-[108px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-rose-950/30 px-2 py-1 font-mono text-[11px] leading-5 text-rose-200';
+  const hasBoardTimeline = useMemo(
+    () => Array.isArray(normalized?.events) && normalized.events.some((event) => event?.type === THEORY_RECORDING_EVENT_BOARD),
+    [normalized?.events]
+  );
+  const shouldShowBoard = hasBoardTimeline || boardStrokes.length > 0;
+  const boardShellClass = isFullscreen
+    ? (hasRunOutputFrame
+        ? 'absolute right-5 top-14 z-20 w-[min(44vw,640px)]'
+        : 'absolute right-5 bottom-28 z-20 w-[min(44vw,640px)]')
+    : (hasRunOutputFrame
+        ? 'absolute right-3 top-12 z-20 w-[min(44vw,320px)]'
+        : 'absolute right-3 bottom-24 z-20 w-[min(44vw,320px)]');
+  const boardCardClass = isFullscreen
+    ? 'rounded-2xl border border-slate-700/70 bg-slate-950/92 p-3 shadow-[0_14px_30px_rgba(2,6,23,0.58)] backdrop-blur-md'
+    : 'rounded-xl border border-slate-700/70 bg-slate-950/92 p-2 shadow-[0_10px_26px_rgba(2,6,23,0.5)] backdrop-blur-md';
+  const boardLabelClass = isFullscreen
+    ? 'text-[12px] font-semibold uppercase tracking-wide text-slate-300'
+    : 'text-[10px] font-semibold uppercase tracking-wide text-slate-400';
+  const boardCanvasHeightClass = isFullscreen ? 'h-[220px]' : 'h-[132px]';
   const playbackActionLabel = isPlaying ? 'Пауза' : 'Воспроизвести';
   const soundActionLabel = isMuted ? 'Включить звук' : 'Выключить звук';
 
@@ -450,6 +700,12 @@ const TheoryRecordingPlayer = ({ recording, className = '' }) => {
     setIsMuted(nextVolume <= 0);
   }, []);
 
+  const handlePlaybackRateChange = useCallback((event) => {
+    const nextRate = Number(event.target?.value);
+    if (!Number.isFinite(nextRate)) return;
+    setPlaybackRate(nextRate);
+  }, []);
+
   const toggleFullscreen = useCallback(async () => {
     if (typeof document === 'undefined') return;
     const playerElement = playerContainerRef.current;
@@ -476,6 +732,10 @@ const TheoryRecordingPlayer = ({ recording, className = '' }) => {
 
   const fullscreenActionLabel = isFullscreen ? 'Выйти из полноэкранного режима' : 'Открыть полноэкранный режим';
   const editorHeight = isFullscreen ? '100vh' : '360px';
+  const playerEditorOptions = useMemo(() => ({
+    ...PLAYER_EDITOR_OPTIONS,
+    fontSize: isFullscreen ? 30 : PLAYER_EDITOR_OPTIONS.fontSize,
+  }), [isFullscreen]);
 
   if (!normalized || !normalized.audio?.url || normalized.events.length === 0) {
     return (
@@ -509,22 +769,52 @@ const TheoryRecordingPlayer = ({ recording, className = '' }) => {
               stopFrameLoop();
               rafRef.current = requestAnimationFrame(runFrameLoop);
             }}
-            onPause={() => {
+            onPause={(event) => {
               setIsPlaying(false);
               stopFrameLoop();
+              const mediaDurationMs = Number.isFinite(Number(event.currentTarget?.duration))
+                ? Math.round(Number(event.currentTarget.duration) * 1000)
+                : 0;
+              const currentTimeMs = Math.max(0, Math.round((Number(event.currentTarget?.currentTime) || 0) * 1000));
+              const nearEndThresholdMs = Math.max(0, mediaDurationMs - 1200);
+              if (event.currentTarget?.ended || (mediaDurationMs > 0 && currentTimeMs >= nearEndThresholdMs)) {
+                clearPersistedProgress();
+                return;
+              }
+              persistProgressMs(currentTimeMs, { force: true });
             }}
             onEnded={() => {
               setIsPlaying(false);
               stopFrameLoop();
               syncTo(safeDurationMs);
+              clearPersistedProgress();
             }}
-            onTimeUpdate={(event) => syncTo((event.currentTarget?.currentTime || 0) * 1000)}
-            onSeeked={(event) => syncTo((event.currentTarget?.currentTime || 0) * 1000)}
+            onTimeUpdate={(event) => {
+              const nextMs = (Number(event.currentTarget?.currentTime) || 0) * 1000;
+              syncTo(nextMs);
+              persistProgressMs(nextMs);
+            }}
+            onSeeked={(event) => {
+              const nextMs = (Number(event.currentTarget?.currentTime) || 0) * 1000;
+              syncTo(nextMs);
+              persistProgressMs(nextMs, { force: true });
+            }}
             onLoadedMetadata={(event) => {
               const duration = Number(event.currentTarget?.duration);
               if (Number.isFinite(duration) && duration > 0) {
                 const durationFromAudio = Math.round(duration * 1000);
                 setDurationMs((prev) => Math.max(prev, durationFromAudio));
+                const maxResumableMs = Math.max(0, durationFromAudio - 1200);
+                const targetMs = Math.max(0, Math.min(Math.round(resumePositionMsRef.current || 0), maxResumableMs));
+                if (targetMs > 0) {
+                  try {
+                    event.currentTarget.currentTime = targetMs / 1000;
+                  } catch {
+                    // Ignore seek failures while metadata is being resolved.
+                  }
+                  syncTo(targetMs);
+                  setCurrentMs(targetMs);
+                }
               }
             }}
           />
@@ -538,7 +828,7 @@ const TheoryRecordingPlayer = ({ recording, className = '' }) => {
             saveViewState={false}
             beforeMount={handleEditorBeforeMount}
             onMount={handleEditorMount}
-            options={PLAYER_EDITOR_OPTIONS}
+            options={playerEditorOptions}
           />
 
           <div className={`pointer-events-none absolute inset-0 z-10 transition-opacity duration-300 ${(!hasPlaybackStarted && isPrePlaybackState) ? 'opacity-100' : 'opacity-0'}`}>
@@ -558,24 +848,40 @@ const TheoryRecordingPlayer = ({ recording, className = '' }) => {
           </div>
 
           {hasRunOutputFrame && (
-            <div className="absolute inset-x-3 bottom-24 z-20 md:left-4 md:right-auto md:w-[min(680px,calc(100%-2rem))]">
-              <div className="rounded-xl border border-slate-700/70 bg-slate-950/94 px-3 py-2 shadow-[0_12px_30px_rgba(2,6,23,0.55)] backdrop-blur-md">
+            <div className={runOutputShellClass}>
+              <div className={runOutputCardClass}>
                 {runOutputFrame?.input && (
                   <div className="mb-2">
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">stdin</div>
-                    <pre className="mt-1 max-h-[78px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-slate-900/80 px-2 py-1 font-mono text-[11px] leading-5 text-slate-200">{runOutputFrame.input}</pre>
+                    <div className={runOutputLabelClass}>stdin</div>
+                    <pre className={runOutputInputTextClass}>{runOutputFrame.input}</pre>
                   </div>
                 )}
                 <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">stdout</div>
-                  <pre className="mt-1 max-h-[126px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-slate-900/75 px-2 py-1 font-mono text-[11px] leading-5 text-slate-100">{runOutputFrame?.output || 'Пусто'}</pre>
+                  <div className={runOutputLabelClass}>stdout</div>
+                  <pre className={runOutputMainTextClass}>{runOutputFrame?.output || 'Пусто'}</pre>
                 </div>
                 {runOutputFrame?.error && (
                   <div className="mt-2 border-t border-slate-800 pt-2">
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-rose-300">stderr</div>
-                    <pre className="mt-1 max-h-[108px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-rose-950/30 px-2 py-1 font-mono text-[11px] leading-5 text-rose-200">{runOutputFrame.error}</pre>
+                    <div className={runOutputErrorLabelClass}>stderr</div>
+                    <pre className={runOutputErrorTextClass}>{runOutputFrame.error}</pre>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {shouldShowBoard && (
+            <div className={`${boardShellClass} pointer-events-none`}>
+              <div className={boardCardClass}>
+                <div className={boardLabelClass}>Доска</div>
+                <div className="mt-1 overflow-hidden rounded-lg border border-slate-700/80 bg-[#050d1f]">
+                  <canvas
+                    ref={boardCanvasRef}
+                    width={960}
+                    height={320}
+                    className={`w-full ${boardCanvasHeightClass}`}
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -653,6 +959,18 @@ const TheoryRecordingPlayer = ({ recording, className = '' }) => {
                   style={volumeTrackStyle}
                   aria-label="Громкость"
                 />
+                <select
+                  value={playbackRate}
+                  onChange={handlePlaybackRateChange}
+                  className="h-9 w-[70px] shrink-0 cursor-pointer rounded-lg border border-white/18 bg-white/10 px-2 text-[11px] font-semibold text-slate-100 outline-none transition hover:bg-white/16"
+                  aria-label="Playback speed"
+                >
+                  {PLAYBACK_RATE_OPTIONS.map((rateOption) => (
+                    <option key={`playback-rate-${rateOption}`} value={rateOption} className="bg-slate-900 text-slate-100">
+                      {`${rateOption}x`}
+                    </option>
+                  ))}
+                </select>
                 <button
                   type="button"
                   onClick={toggleFullscreen}
