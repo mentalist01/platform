@@ -1,7 +1,7 @@
 [
-        { "input": "1\n", "output": "1\n" },
-        { "input": "2\n", "output": "1\n" },
-        { "input": "6\n", "output": "8\n" },
-        { "input": "7\n", "output": "13\n" },
-        { "input": "10\n", "output": "55\n" }
+      { "input": "7\n14\n21\n28\n35\n", "output": "7\n21\n35\n" },
+      { "input": "1\n2\n3\n", "output": "" },
+      { "input": "-7\n-14\n0\n49\n56\n", "output": "-7\n49\n" },
+      { "input": "70\n77\n84\n91\n", "output": "77\n91\n" },
+      { "input": "14\n28\n42\n", "output": "42\n" }
     ]

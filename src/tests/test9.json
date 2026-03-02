@@ -1,6 +1,7 @@
 [
-        { "input": "Python это круто\n", "output": "Python#это#круто\n" },
-        { "input": "один два\n", "output": "один#два\n" },
-        { "input": "А Б В\n", "output": "А#Б#В\n" },
-        { "input": "Слово\n", "output": "Слово\n" }
+      { "input": "1\n2\n3\n4\n", "output": "1\n9\n" },
+      { "input": "2\n4\n6\n", "output": "" },
+      { "input": "-1\n-2\n-3\n", "output": "1\n9\n" },
+      { "input": "0\n1\n0\n3\n", "output": "1\n9\n" },
+      { "input": "5\n5\n5\n", "output": "25\n25\n25\n" }
     ]

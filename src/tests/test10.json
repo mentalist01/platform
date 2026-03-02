@@ -1,6 +1,7 @@
 [
-        { "input": "1 2 3 4 5\n", "output": "5 2 3 4 1\n" },
-        { "input": "10 20 5\n", "output": "10 5 20\n" },
-        { "input": "3 1 2\n", "output": "3 2 1\n" }, 
-        { "input": "100 50 200\n", "output": "100 200 50\n" } 
+      { "input": "5\n2\n9\n2\n", "output": "3\n0\n7\n0\n" },
+      { "input": "7\n", "output": "0\n" },
+      { "input": "-1\n-3\n0\n", "output": "2\n0\n3\n" },
+      { "input": "0\n0\n0\n", "output": "0\n0\n0\n" },
+      { "input": "10\n-5\n10\n-5\n10\n", "output": "15\n0\n15\n0\n15\n" }
     ]

@@ -1763,25 +1763,11 @@ const PythonTestModal = ({
           )}
 
           <div className="space-y-3 mb-5 md:mb-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div className="text-xs font-bold text-gray-400 uppercase">Тесты</div>
-              <Button
-                onClick={(event) => {
-                  const rect = event?.currentTarget?.getBoundingClientRect?.();
-                  handleRunTests(rect && Number.isFinite(rect.left) && Number.isFinite(rect.top)
-                    ? {
-                        left: rect.left,
-                        top: rect.top,
-                        width: rect.width,
-                        height: rect.height,
-                      }
-                    : null);
-                }}
-                disabled={runnerLoading || questionCodeLoading || !resolvedCode.trim()}
-                className="w-full sm:w-auto"
-              >
-                {runnerLoading ? 'Запуск...' : 'Запустить тесты'}
-              </Button>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs font-bold text-gray-400 uppercase">{'\u0422\u0435\u0441\u0442\u044b'}</div>
+              {runnerLoading && (
+                <span className="text-[11px] font-semibold text-purple-600">{'\u0417\u0430\u043f\u0443\u0441\u043a...'}</span>
+              )}
             </div>
             {testsToShow.length === 0 ? (
               <div className="text-sm text-gray-500">Учитель еще не добавил тесты.</div>
@@ -1858,6 +1844,23 @@ const PythonTestModal = ({
             <span className="text-gray-400"> • {Math.max(1, currentQuestionPosition + 1)}/{Math.max(visibleQuestionItems.length, 1)}</span>
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Button
+              onClick={(event) => {
+                const rect = event?.currentTarget?.getBoundingClientRect?.();
+                handleRunTests(rect && Number.isFinite(rect.left) && Number.isFinite(rect.top)
+                  ? {
+                      left: rect.left,
+                      top: rect.top,
+                      width: rect.width,
+                      height: rect.height,
+                    }
+                  : null);
+              }}
+              disabled={runnerLoading || questionCodeLoading || !resolvedCode.trim()}
+              className="w-full sm:w-auto"
+            >
+              {runnerLoading ? '\u0417\u0430\u043f\u0443\u0441\u043a...' : '\u0417\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c \u0442\u0435\u0441\u0442\u044b'}
+            </Button>
             <Button variant="secondary" onClick={onClose} className="w-full sm:w-auto">Закрыть</Button>
             <Button onClick={handleNext} className="w-full sm:w-auto">
               {Number.isFinite(nextQuestionIndex) ? 'Дальше' : 'Готово'}

@@ -1,6 +1,7 @@
 [
-        { "input": "10 5 8 2\n", "output": "2 5 8 10\n" },
-        { "input": "3 1 2\n", "output": "1 2 3\n" },
-        { "input": "100 1\n", "output": "1 100\n" },
-        { "input": "5 5 0\n", "output": "0 5 5\n" }
+      { "input": "1\n2\n3\n4\n", "output": "6\n9\n" },
+      { "input": "5\n6\n7\n", "output": "18\n" },
+      { "input": "-1\n0\n1\n2\n", "output": "0\n3\n" },
+      { "input": "0\n0\n0\n", "output": "0\n" },
+      { "input": "10\n-5\n10\n-5\n10\n", "output": "15\n0\n15\n" }
     ]

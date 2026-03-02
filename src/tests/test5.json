@@ -1,6 +1,7 @@
 [
-        { "input": "12345\n", "output": "54321\n" },
-        { "input": "123\n", "output": "321\n" },
-        { "input": "7\n", "output": "7\n" },
-        { "input": "700\n", "output": "007\n" }
+      { "input": "-1\n5\n0\n2\n", "output": "1\n3\n" },
+      { "input": "1\n2\n3\n", "output": "0\n1\n2\n" },
+      { "input": "0\n0\n0\n", "output": "" },
+      { "input": "-5\n-1\n-2\n", "output": "" },
+      { "input": "10\n-1\n5\n-3\n2\n", "output": "0\n2\n4\n" }
     ]
