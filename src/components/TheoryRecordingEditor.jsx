@@ -661,6 +661,73 @@ const TheoryRecordingEditor = ({
     getNowMs,
   ]);
 
+  const pauseRecording = useCallback(() => {
+    if (!isRecordingRef.current || isRecordingPausedRef.current) return;
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state === 'recording') {
+      try {
+        recorder.pause();
+      } catch {
+        setRecordingError('Не удалось поставить запись на паузу.');
+        return;
+      }
+    }
+    finishBoardDrawing();
+    const pauseMs = getNowMs();
+    flushScheduledSnapshots();
+    clearRecordTimers();
+    appendCodeEvent(pauseMs, editorRef.current?.getValue?.() || '', true);
+    appendSelectionEvent(pauseMs, getEditorSelections(), true);
+    setElapsedMs(pauseMs);
+    recordingPausedAtRef.current = performance.now();
+    isRecordingPausedRef.current = true;
+    setIsPaused(true);
+    setRecordingError('');
+  }, [
+    appendCodeEvent,
+    appendSelectionEvent,
+    clearRecordTimers,
+    finishBoardDrawing,
+    flushScheduledSnapshots,
+    getEditorSelections,
+    getNowMs,
+  ]);
+
+  const resumeRecording = useCallback(() => {
+    if (!isRecordingRef.current || !isRecordingPausedRef.current) return;
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state === 'paused') {
+      try {
+        recorder.resume();
+      } catch {
+        setRecordingError('Не удалось продолжить запись.');
+        return;
+      }
+    }
+    const nowPerf = performance.now();
+    const pausedAt = Number(recordingPausedAtRef.current || nowPerf);
+    if (pausedAt > 0 && nowPerf > pausedAt) {
+      recordingPausedAccumMsRef.current += (nowPerf - pausedAt);
+    }
+    recordingPausedAtRef.current = 0;
+    isRecordingPausedRef.current = false;
+    setIsPaused(false);
+    const resumeMs = getNowMs();
+    appendCodeEvent(resumeMs, editorRef.current?.getValue?.() || '', true);
+    appendSelectionEvent(resumeMs, getEditorSelections(), true);
+    appendBoardEvent(resumeMs, { action: 'snapshot', strokes: boardStrokesRef.current });
+    setElapsedMs(resumeMs);
+    startElapsedTimer();
+    setRecordingError('');
+  }, [
+    appendBoardEvent,
+    appendCodeEvent,
+    appendSelectionEvent,
+    getEditorSelections,
+    getNowMs,
+    startElapsedTimer,
+  ]);
+
   const startRecording = useCallback(async () => {
     if (disabled || isRecordingRef.current) return;
     setRecordingError('');
@@ -709,8 +776,12 @@ const TheoryRecordingEditor = ({
 
       initialCodeAtStartRef.current = editor.getValue() || '';
       recordingStartedAtRef.current = performance.now();
+      recordingPausedAtRef.current = 0;
+      recordingPausedAccumMsRef.current = 0;
+      isRecordingPausedRef.current = false;
       isRecordingRef.current = true;
       setIsRecording(true);
+      setIsPaused(false);
       setElapsedMs(0);
       setEventCount(0);
       boardTimelineEmitRef.current = { strokeId: '', points: 0, ts: 0 };
@@ -720,10 +791,7 @@ const TheoryRecordingEditor = ({
         appendBoardEvent(0, { action: 'snapshot', strokes: boardStrokesRef.current });
       }
       recorder.start(250);
-
-      elapsedTimerRef.current = setInterval(() => {
-        setElapsedMs(getNowMs());
-      }, 100);
+      startElapsedTimer();
     } catch (error) {
       stopMediaStream();
       setRecordingError(error?.message || 'Не удалось получить доступ к микрофону.');
@@ -736,6 +804,7 @@ const TheoryRecordingEditor = ({
     finalizeRecording,
     getEditorSelections,
     getNowMs,
+    startElapsedTimer,
     stopMediaStream,
   ]);
 
