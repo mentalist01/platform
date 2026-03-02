@@ -410,7 +410,12 @@ const isPersistedCollabDoc = (docName) => {
   const normalized = docName.trim();
   if (!normalized) return false;
   const base = normalized.split('/').pop() || normalized;
-  return base.startsWith('board-') || base.startsWith('collab-');
+  return (
+    base.startsWith('board-')
+    || base.startsWith('collab-')
+    || base.startsWith('py-collab:')
+    || base.startsWith('py-collab-')
+  );
 };
 const collabPersistence = rawCollabPersistence ? {
   bindState: async (docName, ydoc) => {
@@ -3082,6 +3087,14 @@ const getQuestionEntryFromTestsDb = (testsDb, taskNum, levelId, questionId) => {
   const questionKey = String(questionId || '').trim();
   const question = questions.find((entry) => String(entry?.id ?? '').trim() === questionKey) || null;
   return { taskLevels, questions, question };
+};
+
+const normalizeCodeText = (value) => {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/\r\n?/g, '\n')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[\u200b-\u200d\ufeff]/g, '');
 };
 
 const filterTargetsByCount = (targets, count) => {
@@ -6432,9 +6445,10 @@ app.get('/api/progress/question-code', (req, res) => {
     ? byId[questionKey]
     : {};
   return res.json({
-    code: typeof stored.code === 'string' ? stored.code : '',
+    code: normalizeCodeText(typeof stored.code === 'string' ? stored.code : ''),
     input: typeof stored.input === 'string' ? stored.input : '',
     updatedAt: typeof stored.updatedAt === 'string' ? stored.updatedAt : '',
+    starterCode: normalizeCodeText(typeof question?.starterCode === 'string' ? question.starterCode : ''),
   });
 });
 
@@ -6466,7 +6480,7 @@ app.patch('/api/progress/question-code', (req, res) => {
   if (!taskLevels) return res.status(400).json({ error: 'Задание не найдено' });
   if (!questions) return res.status(400).json({ error: 'Уровень не найден' });
   if (!question) return res.status(400).json({ error: 'Вопрос не найден' });
-  const safeCode = code.slice(0, 20000);
+  const safeCode = normalizeCodeText(code).slice(0, 20000);
   const safeInput = typeof input === 'string' ? input.slice(0, 5000) : '';
   const hasPayload = Boolean(safeCode.trim() || safeInput.trim());
 
@@ -6506,9 +6520,10 @@ app.patch('/api/progress/question-code', (req, res) => {
       ? updated.solvedByTask[taskKey][levelKey]._questionCodeById[questionKey]
       : {};
   return res.json({
-    code: typeof stored.code === 'string' ? stored.code : '',
+    code: normalizeCodeText(typeof stored.code === 'string' ? stored.code : ''),
     input: typeof stored.input === 'string' ? stored.input : '',
     updatedAt: typeof stored.updatedAt === 'string' ? stored.updatedAt : '',
+    starterCode: normalizeCodeText(typeof question?.starterCode === 'string' ? question.starterCode : ''),
   });
 });
 

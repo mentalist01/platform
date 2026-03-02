@@ -123,6 +123,13 @@ const pythonTaskCatalogsEqual = (left, right) => {
   }
 };
 
+const normalizeCodeText = (value) => (
+  String(value ?? '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[\u200b-\u200d\ufeff]/g, '')
+);
+
 const normalizeSubsectionMetaList = (value) => (
   (Array.isArray(value) ? value : [])
     .map((item, index) => {
@@ -347,9 +354,8 @@ const PythonSection = ({
   const [mobilePythonPathCanvasWidth, setMobilePythonPathCanvasWidth] = useState(0);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
-  const effectiveTeacherId = String(teacherId || '').trim();
-  const codeSyncRoomId = effectiveTeacherId && effectiveStudentId
-    ? `rtc:${effectiveTeacherId}:${effectiveStudentId}`
+  const codeSyncRoomId = effectiveStudentId
+    ? `py-sync:${String(effectiveStudentId).trim()}`
     : '';
 
   useEffect(() => {
@@ -587,7 +593,7 @@ const PythonSection = ({
     if (role !== 'teacher') return;
     const question = newTaskPrompt.trim();
     const title = newTaskTitle.trim();
-    const starterCode = newStarterCode.trim();
+    const starterCode = normalizeCodeText(newStarterCode).trim();
     if (!manageTaskNumber) return;
     const preparedTests = newTests
       .map((test) => ({

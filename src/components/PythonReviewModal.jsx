@@ -20,7 +20,6 @@ import {
 
 const QUESTION_CODE_SAVE_DEBOUNCE_MS = 250;
 const COLLAB_SEED_DELAY_MS = 450;
-const REVIEW_COLLAB_CAN_SEED = false;
 
 const getCollabWsUrl = () => {
   if (typeof window === 'undefined') return '';
@@ -56,6 +55,34 @@ const getAwarenessPeerCount = (provider) => {
   const size = provider?.awareness?.getStates?.().size;
   if (!Number.isFinite(Number(size))) return 0;
   return Math.max(0, Number(size) - 1);
+};
+
+const normalizeCodeText = (value) => {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/\r\n?/g, '\n')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[\u200b-\u200d\ufeff]/g, '');
+};
+
+const collapseDuplicatedCode = (value) => {
+  const text = normalizeCodeText(typeof value === 'string' ? value : String(value ?? ''));
+  if (text.length < 40) return text;
+  for (let parts = 2; parts <= 3; parts += 1) {
+    if (text.length % parts !== 0) continue;
+    const chunkLength = text.length / parts;
+    if (chunkLength < 20) continue;
+    const chunk = text.slice(0, chunkLength);
+    let duplicated = true;
+    for (let index = 1; index < parts; index += 1) {
+      if (text.slice(index * chunkLength, (index + 1) * chunkLength) !== chunk) {
+        duplicated = false;
+        break;
+      }
+    }
+    if (duplicated) return chunk;
+  }
+  return text;
 };
 
 const buildRealtimeStatusLabel = (status) => {
@@ -239,6 +266,7 @@ const PythonReviewModal = ({
     () => String(questions[currentIndex]?.id ?? '').trim(),
     [questions, currentIndex]
   );
+  const activeQuestionCodeLoaded = Boolean(questionCodeById?.[activeQuestionId]?.loaded);
   const collabRoomId = useMemo(() => {
     if (!collabBaseRoomId || !task?.number || !activeQuestionId) return '';
     return `py-collab:${collabBaseRoomId}:${task.number}:${PYTHON_LEVEL_ID}:${activeQuestionId}`;
@@ -266,12 +294,13 @@ const PythonReviewModal = ({
       : questionCodeByIdRef.current;
     const cached = store?.[key];
     if (!cached || typeof cached !== 'object') {
-      return { code: '', input: '', updatedAt: '', loaded: false };
+      return { code: '', input: '', updatedAt: '', starterCode: '', loaded: false };
     }
     return {
-      code: typeof cached.code === 'string' ? cached.code : '',
+      code: normalizeCodeText(typeof cached.code === 'string' ? cached.code : ''),
       input: typeof cached.input === 'string' ? cached.input : '',
       updatedAt: typeof cached.updatedAt === 'string' ? cached.updatedAt : '',
+      starterCode: normalizeCodeText(typeof cached.starterCode === 'string' ? cached.starterCode : ''),
       loaded: Boolean(cached.loaded),
     };
   };
@@ -282,12 +311,23 @@ const PythonReviewModal = ({
     setQuestionCodeById((prev) => {
       const current = prev?.[key] && typeof prev[key] === 'object'
         ? prev[key]
-        : { code: '', input: '', updatedAt: '', loaded: false };
+        : { code: '', input: '', updatedAt: '', starterCode: '', loaded: false };
+      const rawPatch = patch && typeof patch === 'object' ? patch : {};
+      const nextPatch = { ...rawPatch };
+      if (Object.prototype.hasOwnProperty.call(rawPatch, 'code')) {
+        const normalized = normalizeCodeText(typeof rawPatch.code === 'string' ? rawPatch.code : '');
+        nextPatch.code = collapseDuplicatedCode(normalized);
+      }
+      if (Object.prototype.hasOwnProperty.call(rawPatch, 'starterCode')) {
+        nextPatch.starterCode = normalizeCodeText(
+          typeof rawPatch.starterCode === 'string' ? rawPatch.starterCode : ''
+        );
+      }
       return {
         ...(prev || {}),
         [key]: {
           ...current,
-          ...(patch || {}),
+          ...nextPatch,
           loaded: true,
         },
       };
@@ -317,11 +357,12 @@ const PythonReviewModal = ({
     setQuestionCodeDirtyById((prev) => ({ ...(prev || {}), [key]: Boolean(dirty) }));
   };
 
-  const getFallbackCodeForQuestion = (question, questionId) => {
+  const getFallbackCodeForQuestion = (question, questionId, serverStarterCode = '') => {
     const key = String(questionId ?? '').trim();
     const solvedCode = solvedCodeById?.[key];
-    if (typeof solvedCode === 'string' && solvedCode.length > 0) return solvedCode;
-    if (typeof question?.starterCode === 'string') return question.starterCode;
+    if (typeof solvedCode === 'string' && solvedCode.length > 0) return normalizeCodeText(solvedCode);
+    if (typeof serverStarterCode === 'string' && serverStarterCode.length > 0) return normalizeCodeText(serverStarterCode);
+    if (typeof question?.starterCode === 'string') return normalizeCodeText(question.starterCode);
     return '';
   };
 
@@ -349,30 +390,24 @@ const PythonReviewModal = ({
     if (questionCodeLoadingByIdRef.current?.[key]) return;
     const cached = getQuestionCodeEntry(key);
     if (cached.loaded && !force) {
-      const hasRemoteSnapshot = Boolean(
-        String(cached.updatedAt || '').trim()
-        || String(cached.code || '').trim()
-        || String(cached.input || '').trim()
-      );
+      const hasSavedSnapshot = Boolean(String(cached.updatedAt || '').trim());
       const isDirty = Boolean(questionCodeDirtyByIdRef.current?.[key]);
       const isSaving = Boolean(questionCodeSavingByIdRef.current?.[key]);
-      if (hasRemoteSnapshot || isDirty || isSaving) return;
-      const fallbackCode = getFallbackCodeForQuestion(question, key);
-      if (cached.code !== fallbackCode) {
-        setQuestionCodeEntry(key, { code: fallbackCode });
-      }
-      return;
+      if (hasSavedSnapshot || isDirty || isSaving) return;
+      // Unsaved snapshot: refetch so teacher/student always receive latest starterCode from server.
     }
     setQuestionCodeLoadingById((prev) => ({ ...(prev || {}), [key]: true }));
     try {
       const payload = await api.getQuestionCode(studentId, task.number, PYTHON_LEVEL_ID, key);
-      const remoteCode = typeof payload?.code === 'string' ? payload.code : '';
+      const remoteCodeRaw = typeof payload?.code === 'string' ? payload.code : '';
+      const remoteCode = collapseDuplicatedCode(remoteCodeRaw);
       const remoteInput = typeof payload?.input === 'string' ? payload.input : '';
       const remoteUpdatedAt = typeof payload?.updatedAt === 'string' ? payload.updatedAt : '';
-      const fallbackCode = getFallbackCodeForQuestion(question, key);
+      const remoteStarterCode = typeof payload?.starterCode === 'string' ? payload.starterCode : '';
+      const fallbackCode = getFallbackCodeForQuestion(question, key, remoteStarterCode);
       const nextCode = remoteCode.length > 0
         ? remoteCode
-        : (remoteUpdatedAt ? '' : fallbackCode);
+        : fallbackCode;
       const isActiveCollabQuestion = (
         key === activeQuestionId
         && collabProviderRef.current?.synced
@@ -395,10 +430,11 @@ const PythonReviewModal = ({
         code: hasLiveSnapshot ? liveCode : nextCode,
         input: hasLiveSnapshot ? liveInput : remoteInput,
         updatedAt: remoteUpdatedAt,
+        starterCode: remoteStarterCode,
       });
 
       const collabPeerCount = getAwarenessPeerCount(collabProviderRef.current);
-      const canHydrateCollabFromApi = REVIEW_COLLAB_CAN_SEED && collabPeerCount === 0;
+      const canHydrateCollabFromApi = collabPeerCount === 0;
       if (
         doc
         && ytext
@@ -426,6 +462,20 @@ const PythonReviewModal = ({
       };
       clearQuestionCodeError(key);
     } catch (err) {
+      if (!cached.loaded) {
+        const fallbackCode = getFallbackCodeForQuestion(question, key);
+        setQuestionCodeEntry(key, {
+          code: fallbackCode,
+          input: '',
+          updatedAt: '',
+          starterCode: typeof question?.starterCode === 'string' ? question.starterCode : '',
+        });
+        setQuestionCodeDirty(key, false);
+        questionCodeLocalVersionRef.current = {
+          ...(questionCodeLocalVersionRef.current || {}),
+          [key]: 0,
+        };
+      }
       setQuestionCodeError(key, err?.message || err);
     } finally {
       setQuestionCodeLoadingById((prev) => ({ ...(prev || {}), [key]: false }));
@@ -585,6 +635,15 @@ const PythonReviewModal = ({
   }, []);
 
   const handleEditorMount = useCallback((editor, monaco) => {
+    try {
+      const model = editor?.getModel?.();
+      const lf = monaco?.editor?.EndOfLineSequence?.LF;
+      if (model && Number.isFinite(Number(lf)) && typeof model.setEOL === 'function') {
+        model.setEOL(lf);
+      }
+    } catch (error) {
+      void error;
+    }
     editorRef.current = editor;
     monacoRef.current = monaco;
     setEditorReady(true);
@@ -679,7 +738,7 @@ const PythonReviewModal = ({
   }, [questionCodeDirtyById]);
 
   useEffect(() => {
-    if (!collabRoomId || !editorReady || !collabWsUrl || !activeQuestionId) {
+    if (!collabRoomId || !editorReady || !collabWsUrl || !activeQuestionId || !activeQuestionCodeLoaded) {
       setRealtimeStatus('disconnected');
       setRealtimePeerCount(0);
       collabDocRef.current = null;
@@ -696,14 +755,6 @@ const PythonReviewModal = ({
     const editor = editorRef.current;
     const model = editor?.getModel?.();
     if (!editor || !model) return undefined;
-    if (collabRoomId && typeof model.getValue === 'function' && typeof model.setValue === 'function') {
-      const bootstrapValue = model.getValue();
-      if (bootstrapValue) {
-        // Avoid duplicating text when Yjs sync applies persisted content on top of local bootstrap content.
-        model.setValue('');
-      }
-    }
-
     const currentQuestion = questions[currentIndex];
     const seedCode = getQuestionCodeEntry(activeQuestionId, questionCodeByIdRef.current).loaded
       ? getQuestionCodeEntry(activeQuestionId, questionCodeByIdRef.current).code
@@ -729,14 +780,21 @@ const PythonReviewModal = ({
 
     let seeded = false;
     let seedTimer = null;
+    const normalizeDocCodeIfNeeded = () => {
+      const rawCode = ytext.toString();
+      const normalizedCode = collapseDuplicatedCode(rawCode);
+      if (normalizedCode !== rawCode) {
+        doc.transact(() => {
+          if (ytext.length > 0) ytext.delete(0, ytext.length);
+          if (normalizedCode) ytext.insert(0, normalizedCode);
+        });
+      }
+      return normalizedCode;
+    };
     const trySeedDocState = () => {
       if (seeded) return;
       if (!provider.synced) return;
-      if (!REVIEW_COLLAB_CAN_SEED) {
-        seeded = true;
-        return;
-      }
-      const codeInDoc = ytext.toString();
+      const codeInDoc = normalizeDocCodeIfNeeded();
       const inputInDoc = typeof stateMap.get('input') === 'string'
         ? stateMap.get('input')
         : String(stateMap.get('input') ?? '');
@@ -787,7 +845,14 @@ const PythonReviewModal = ({
       trySeedDocState();
     };
     const handleCodeChange = (event) => {
-      const nextCode = ytext.toString();
+      const rawCode = ytext.toString();
+      const nextCode = collapseDuplicatedCode(rawCode);
+      if (nextCode !== rawCode) {
+        doc.transact(() => {
+          if (ytext.length > 0) ytext.delete(0, ytext.length);
+          if (nextCode) ytext.insert(0, nextCode);
+        });
+      }
       setQuestionCodeEntry(activeQuestionId, { code: nextCode });
       clearQuestionCodeError(activeQuestionId);
       if (event?.transaction?.local) {
@@ -865,6 +930,7 @@ const PythonReviewModal = ({
     editorMountVersion,
     collabWsUrl,
     activeQuestionId,
+    activeQuestionCodeLoaded,
     questions,
     currentIndex,
     localCollabName,
