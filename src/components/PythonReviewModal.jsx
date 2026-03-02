@@ -19,6 +19,7 @@ import {
 } from '../utils/theoryRecording';
 
 const QUESTION_CODE_SAVE_DEBOUNCE_MS = 250;
+const COLLAB_SEED_DELAY_MS = 450;
 
 const getCollabWsUrl = () => {
   if (typeof window === 'undefined') return '';
@@ -48,6 +49,22 @@ const pickCollabColor = (seed, fallback = '#7c3aed') => {
   const palette = ['#7c3aed', '#0ea5e9', '#f59e0b', '#ef4444', '#22c55e', '#ec4899', '#6366f1'];
   if (!seed) return fallback;
   return palette[hashSeed(seed) % palette.length] || fallback;
+};
+
+const getAwarenessLeaderClientId = (provider) => {
+  if (!provider?.awareness) return null;
+  const ids = [];
+  provider.awareness.getStates().forEach((_, clientId) => {
+    const numericId = Number(clientId);
+    if (Number.isFinite(numericId)) ids.push(numericId);
+  });
+  const localClientId = Number(provider.awareness.clientID);
+  if (Number.isFinite(localClientId) && !ids.includes(localClientId)) {
+    ids.push(localClientId);
+  }
+  if (!ids.length) return null;
+  ids.sort((left, right) => left - right);
+  return ids[0];
 };
 
 const buildRealtimeStatusLabel = (status) => {
@@ -365,38 +382,42 @@ const PythonReviewModal = ({
       const nextCode = remoteCode.length > 0
         ? remoteCode
         : (remoteUpdatedAt ? '' : fallbackCode);
-      setQuestionCodeEntry(key, {
-        code: nextCode,
-        input: remoteInput,
-        updatedAt: remoteUpdatedAt,
-      });
-      if (
+      const isActiveCollabQuestion = (
         key === activeQuestionId
         && collabProviderRef.current?.synced
         && collabDocRef.current
         && collabYTextRef.current
         && collabStateMapRef.current
-      ) {
-        const doc = collabDocRef.current;
-        const ytext = collabYTextRef.current;
-        const stateMap = collabStateMapRef.current;
-        const currentCode = ytext.toString();
-        const currentInput = typeof stateMap.get('input') === 'string'
-          ? stateMap.get('input')
-          : String(stateMap.get('input') ?? '');
-        if ((!currentCode && nextCode) || (!currentInput && remoteInput)) {
-          doc.transact(() => {
-            if (!ytext.toString() && nextCode) {
-              ytext.insert(0, nextCode);
-            }
-            const mapInput = typeof stateMap.get('input') === 'string'
-              ? stateMap.get('input')
-              : String(stateMap.get('input') ?? '');
-            if (!mapInput && remoteInput) {
-              stateMap.set('input', remoteInput);
-            }
-          });
-        }
+      );
+      const doc = isActiveCollabQuestion ? collabDocRef.current : null;
+      const ytext = isActiveCollabQuestion ? collabYTextRef.current : null;
+      const stateMap = isActiveCollabQuestion ? collabStateMapRef.current : null;
+      const liveCode = ytext ? ytext.toString() : '';
+      const liveInput = stateMap
+        ? (typeof stateMap.get('input') === 'string'
+            ? stateMap.get('input')
+            : String(stateMap.get('input') ?? ''))
+        : '';
+      const hasLiveSnapshot = Boolean(liveCode || liveInput);
+
+      setQuestionCodeEntry(key, {
+        code: hasLiveSnapshot ? liveCode : nextCode,
+        input: hasLiveSnapshot ? liveInput : remoteInput,
+        updatedAt: remoteUpdatedAt,
+      });
+
+      if (doc && ytext && stateMap && !hasLiveSnapshot && (nextCode || remoteInput)) {
+        doc.transact(() => {
+          if (!ytext.toString() && nextCode) {
+            ytext.insert(0, nextCode);
+          }
+          const mapInput = typeof stateMap.get('input') === 'string'
+            ? stateMap.get('input')
+            : String(stateMap.get('input') ?? '');
+          if (!mapInput && remoteInput) {
+            stateMap.set('input', remoteInput);
+          }
+        });
       }
       setQuestionCodeDirty(key, false);
       questionCodeLocalVersionRef.current = {
@@ -700,21 +721,45 @@ const PythonReviewModal = ({
     collabRunMapRef.current = runMap;
 
     let seeded = false;
-    const seedDocState = () => {
+    let seedTimer = null;
+    const trySeedDocState = () => {
       if (seeded) return;
       const codeInDoc = ytext.toString();
       const inputInDoc = typeof stateMap.get('input') === 'string'
         ? stateMap.get('input')
         : String(stateMap.get('input') ?? '');
-      const shouldSeedCode = !codeInDoc && seedCode;
-      const shouldSeedInput = !inputInDoc && seedInput;
+      if (codeInDoc || inputInDoc) {
+        seeded = true;
+        return;
+      }
+      const shouldSeedCode = Boolean(seedCode);
+      const shouldSeedInput = Boolean(seedInput);
+      if (!shouldSeedCode && !shouldSeedInput) {
+        seeded = true;
+        return;
+      }
+      const leaderClientId = getAwarenessLeaderClientId(provider);
+      if (!Number.isFinite(leaderClientId) || Number(provider.awareness.clientID) !== leaderClientId) {
+        return;
+      }
       if (shouldSeedCode || shouldSeedInput) {
         doc.transact(() => {
-          if (shouldSeedCode) ytext.insert(0, seedCode);
-          if (shouldSeedInput) stateMap.set('input', seedInput);
+          if (!ytext.toString() && shouldSeedCode) ytext.insert(0, seedCode);
+          const nextInputInDoc = typeof stateMap.get('input') === 'string'
+            ? stateMap.get('input')
+            : String(stateMap.get('input') ?? '');
+          if (!nextInputInDoc && shouldSeedInput) stateMap.set('input', seedInput);
         });
       }
       seeded = true;
+    };
+    const scheduleSeedDocState = () => {
+      if (seeded) return;
+      if (seedTimer) clearTimeout(seedTimer);
+      seedTimer = setTimeout(() => {
+        seedTimer = null;
+        trySeedDocState();
+      }, COLLAB_SEED_DELAY_MS);
     };
 
     const handleProviderStatus = (event) => {
@@ -722,11 +767,12 @@ const PythonReviewModal = ({
     };
     const handleProviderSync = (isSynced) => {
       if (!isSynced) return;
-      seedDocState();
+      scheduleSeedDocState();
     };
     const handleAwareness = () => {
       const states = provider.awareness.getStates();
       setRealtimePeerCount(Math.max(0, states.size - 1));
+      trySeedDocState();
     };
     const handleCodeChange = (event) => {
       const nextCode = ytext.toString();
@@ -771,10 +817,14 @@ const PythonReviewModal = ({
 
     handleAwareness();
     if (provider.synced) {
-      seedDocState();
+      scheduleSeedDocState();
     }
 
     return () => {
+      if (seedTimer) {
+        clearTimeout(seedTimer);
+        seedTimer = null;
+      }
       provider.awareness.off('change', handleAwareness);
       provider.off('sync', handleProviderSync);
       provider.off('status', handleProviderStatus);
@@ -986,7 +1036,13 @@ const PythonReviewModal = ({
     const entry = getQuestionCodeEntry(currentId, questionCodeById);
     const fallbackSolvedCode = typeof solvedCodeById?.[currentId] === 'string' ? solvedCodeById[currentId] : '';
     const fallbackStarterCode = typeof currentQuestion?.starterCode === 'string' ? currentQuestion.starterCode : '';
-    const currentCode = entry.loaded ? entry.code : (fallbackSolvedCode || fallbackStarterCode);
+    const editorModel = editorRef.current?.getModel?.();
+    const liveEditorCode = typeof editorModel?.getValue === 'function'
+      ? editorModel.getValue()
+      : null;
+    const currentCode = typeof liveEditorCode === 'string'
+      ? liveEditorCode
+      : (entry.loaded ? entry.code : (fallbackSolvedCode || fallbackStarterCode));
     if (!String(currentCode || '').trim()) return;
 
     flushScheduledQuestionSave();
