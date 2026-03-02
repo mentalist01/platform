@@ -1418,26 +1418,15 @@ const PythonTestModal = ({
   }));
   const solvedAllTests = isSolved && testResults.length === 0;
   const activeTheorySubsectionId = activeSubsection?.id || PYTHON_DEFAULT_SUBSECTION_ID;
-  const theoryVariants = useMemo(
-    () => resolveTheoryVariantsForSubsection(taskEntry, activeTheorySubsectionId),
-    [taskEntry, activeTheorySubsectionId]
-  );
-  const availableTheoryTypes = useMemo(
-    () => getTheoryVariantList(theoryVariants),
-    [theoryVariants]
-  );
+  const theoryVariants = resolveTheoryVariantsForSubsection(taskEntry, activeTheorySubsectionId);
+  const availableTheoryTypes = getTheoryVariantList(theoryVariants);
   const theoryType = pickTheoryVariantType(theoryVariants, activeTheoryType);
   const theory = theoryType ? theoryVariants[theoryType] : null;
   const theoryFullUrl = theoryType === 'gdoc' ? buildGoogleDocFullUrl(theory?.content) : '';
-  const theoryRecording = useMemo(
-    () => (
-      theoryType === THEORY_RECORDING_TYPE
-        ? normalizeTheoryRecording(theory?.content)
-        : null
-    ),
-    [theoryType, theory?.content]
-  );
-  const theoryProgressStorageKey = useMemo(() => {
+  const theoryRecording = theoryType === THEORY_RECORDING_TYPE
+    ? normalizeTheoryRecording(theory?.content)
+    : null;
+  const theoryProgressStorageKey = (() => {
     if (theoryType !== THEORY_RECORDING_TYPE || !studentId) return '';
     const subsectionKey = String(activeTheorySubsectionId || PYTHON_DEFAULT_SUBSECTION_ID)
       .replace(/[^0-9a-zA-Z_-]/g, '_');
@@ -1457,17 +1446,7 @@ const PythonTestModal = ({
       subsectionKey,
       recordingStamp,
     ].join(':');
-  }, [
-    activeTheorySubsectionId,
-    studentId,
-    task?.number,
-    theoryRecording?.audio?.storageName,
-    theoryRecording?.audio?.url,
-    theoryRecording?.createdAt,
-    theoryRecording?.durationMs,
-    theoryRecording?.updatedAt,
-    theoryType,
-  ]);
+  })();
   const editorOptions = {
     minimap: { enabled: false },
     fontSize: 14,

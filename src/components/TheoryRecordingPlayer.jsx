@@ -141,6 +141,57 @@ const mapDurationPositionMs = (valueMs, sourceDurationMs, targetDurationMs) => {
   return Math.max(0, Math.min(safeTarget, Math.round(ratio * safeTarget)));
 };
 
+const getRecordingMemoMeta = (recording) => {
+  const normalized = normalizeTheoryRecording(recording);
+  if (!normalized) {
+    return {
+      ready: false,
+      updatedAt: '',
+      createdAt: '',
+      durationMs: 0,
+      audioUrl: '',
+      audioStorage: '',
+      initialCode: '',
+      eventsLength: 0,
+      lastEventT: 0,
+      lastEventType: '',
+    };
+  }
+  const events = Array.isArray(normalized.events) ? normalized.events : [];
+  const lastEvent = events.length > 0 ? events[events.length - 1] : null;
+  return {
+    ready: true,
+    updatedAt: String(normalized.updatedAt || ''),
+    createdAt: String(normalized.createdAt || ''),
+    durationMs: Number(normalized.durationMs || 0),
+    audioUrl: String(normalized.audio?.url || ''),
+    audioStorage: String(normalized.audio?.storageName || ''),
+    initialCode: String(normalized.initialCode || ''),
+    eventsLength: events.length,
+    lastEventT: Number(lastEvent?.t || 0),
+    lastEventType: String(lastEvent?.type || ''),
+  };
+};
+
+const areTheoryPlayerPropsEqual = (prevProps, nextProps) => {
+  if (String(prevProps?.className || '') !== String(nextProps?.className || '')) return false;
+  if (String(prevProps?.progressStorageKey || '') !== String(nextProps?.progressStorageKey || '')) return false;
+  const prevMeta = getRecordingMemoMeta(prevProps?.recording);
+  const nextMeta = getRecordingMemoMeta(nextProps?.recording);
+  return (
+    prevMeta.ready === nextMeta.ready
+    && prevMeta.updatedAt === nextMeta.updatedAt
+    && prevMeta.createdAt === nextMeta.createdAt
+    && prevMeta.durationMs === nextMeta.durationMs
+    && prevMeta.audioUrl === nextMeta.audioUrl
+    && prevMeta.audioStorage === nextMeta.audioStorage
+    && prevMeta.initialCode === nextMeta.initialCode
+    && prevMeta.eventsLength === nextMeta.eventsLength
+    && prevMeta.lastEventT === nextMeta.lastEventT
+    && prevMeta.lastEventType === nextMeta.lastEventType
+  );
+};
+
 const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey = '' }) => {
   const normalized = useMemo(() => normalizeTheoryRecording(recording), [recording]);
   const normalizedProgressStorageKey = useMemo(
@@ -1051,4 +1102,4 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   );
 };
 
-export default React.memo(TheoryRecordingPlayer);
+export default React.memo(TheoryRecordingPlayer, areTheoryPlayerPropsEqual);
