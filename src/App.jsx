@@ -8851,13 +8851,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setPushPermission(getPushPermission());
     }
   }, [user.role]);
-  const handleTogglePush = useCallback(() => {
+  const handleTogglePush = useCallback(async () => {
     if (pushBusy || pushSyncing) return;
     if (pushSubscribed) {
-      handleDisablePush();
+      await handleDisablePush();
       return;
     }
-    handleEnablePush();
+    await handleEnablePush();
   }, [handleDisablePush, handleEnablePush, pushBusy, pushSubscribed, pushSyncing]);
   const pushStatusText = (() => {
     if (pushSyncing) return 'Проверяем статус push...';
@@ -11566,6 +11566,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               PYTHON_TASKS={PYTHON_TASKS}
               PYTHON_LEVEL_ID={PYTHON_LEVEL_ID}
               LEVELS={LEVELS}
+              pushSupported={pushSupported}
+              pushPermission={pushPermission}
+              pushEnabled={pushSubscribed}
+              pushSyncing={pushSyncing}
+              pushBusy={pushBusy}
+              pushReady={pushReady}
+              pushError={pushError}
+              onTogglePush={handleTogglePush}
             />
           )}
           {view === 'progress' && (

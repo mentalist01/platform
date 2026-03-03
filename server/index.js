@@ -201,8 +201,8 @@ const PUSH_VAPID_SUBJECT = (() => {
 })();
 const PUSH_SWEEP_INTERVAL_MS = (() => {
   const raw = Number(process.env.PUSH_SWEEP_INTERVAL_MS);
-  if (Number.isFinite(raw) && raw >= 5 * 60 * 1000) return Math.floor(raw);
-  return 30 * 60 * 1000;
+  if (Number.isFinite(raw) && raw >= 60 * 1000) return Math.floor(raw);
+  return 5 * 60 * 1000;
 })();
 const PUSH_SWEEP_START_DELAY_MS = (() => {
   const raw = Number(process.env.PUSH_SWEEP_START_DELAY_MS);
@@ -228,6 +228,12 @@ const PUSH_REMINDER_MIN_INTERVAL_MS = (() => {
   const raw = Number(process.env.PUSH_REMINDER_MIN_INTERVAL_MS);
   if (Number.isFinite(raw) && raw >= 2 * DAY_MS) return Math.floor(raw);
   return 2 * DAY_MS;
+})();
+const LESSON_REMINDER_LEAD_MS = 30 * 60 * 1000;
+const LESSON_REMINDER_SEND_WINDOW_MS = (() => {
+  const raw = Number(process.env.LESSON_REMINDER_SEND_WINDOW_MS);
+  if (Number.isFinite(raw) && raw >= 60 * 1000) return Math.floor(raw);
+  return Math.max(10 * 60 * 1000, PUSH_SWEEP_INTERVAL_MS * 2);
 })();
 const STUDENT_SOLVED_EVENTS_LIMIT = (() => {
   const raw = Number(process.env.STUDENT_SOLVED_EVENTS_LIMIT);
@@ -330,6 +336,7 @@ const pythonRunQueue = [];
 let pushRuntimeEnabled = false;
 let pushRuntimeConfigError = '';
 let pushSweepInFlight = false;
+let pushLessonSweepInFlight = false;
 
 const normalizeDayKey = (value) => {
   if (typeof value !== 'string') return null;
@@ -731,6 +738,67 @@ const normalizePushRemindersByStudent = (value) => {
   return result;
 };
 
+const normalizePushLessonReminderSettingsEntry = (value) => {
+  if (typeof value === 'boolean') {
+    return { enabled: value, updatedAt: '' };
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return {
+    enabled: Boolean(value.enabled),
+    updatedAt: typeof value.updatedAt === 'string' && value.updatedAt.trim()
+      ? value.updatedAt.trim()
+      : '',
+  };
+};
+
+const normalizePushLessonReminderSettingsByStudent = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result = {};
+  Object.entries(value).forEach(([studentId, entry]) => {
+    const id = String(studentId || '').trim();
+    if (!id) return;
+    const normalized = normalizePushLessonReminderSettingsEntry(entry);
+    if (!normalized) return;
+    result[id] = normalized;
+  });
+  return result;
+};
+
+const normalizePushLessonReminderStateEntry = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const slotId = typeof value.slotId === 'string' ? value.slotId.trim() : '';
+  const occurrenceKey = typeof value.occurrenceKey === 'string' ? value.occurrenceKey.trim() : '';
+  const sentAt = typeof value.sentAt === 'string' ? value.sentAt.trim() : '';
+  if (!slotId || !occurrenceKey || !sentAt) return null;
+  return {
+    slotId,
+    occurrenceKey,
+    sentAt,
+  };
+};
+
+const normalizePushLessonReminderStateByStudent = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result = {};
+  Object.entries(value).forEach(([studentId, list]) => {
+    const id = String(studentId || '').trim();
+    if (!id) return;
+    const source = Array.isArray(list)
+      ? list
+      : (list && typeof list === 'object' ? Object.values(list) : []);
+    const unique = [];
+    const seen = new Set();
+    source.forEach((entry) => {
+      const normalized = normalizePushLessonReminderStateEntry(entry);
+      if (!normalized || seen.has(normalized.slotId)) return;
+      seen.add(normalized.slotId);
+      unique.push(normalized);
+    });
+    if (unique.length > 0) result[id] = unique;
+  });
+  return result;
+};
+
 const normalizePushVapidKeys = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const publicKey = typeof value.publicKey === 'string' ? value.publicKey.trim() : '';
@@ -744,6 +812,8 @@ const getDefaultPushDb = () => ({
   subscriptionsByStudent: {},
   subscriptionsByUser: {},
   remindersByStudent: {},
+  lessonReminderSettingsByStudent: {},
+  lessonReminderStateByStudent: {},
 });
 
 const readPushDb = () => {
@@ -759,6 +829,8 @@ const readPushDb = () => {
       subscriptionsByStudent: normalizePushSubscriptionsByStudent(data.subscriptionsByStudent),
       subscriptionsByUser: normalizePushSubscriptionsByUser(data.subscriptionsByUser),
       remindersByStudent: normalizePushRemindersByStudent(data.remindersByStudent),
+      lessonReminderSettingsByStudent: normalizePushLessonReminderSettingsByStudent(data.lessonReminderSettingsByStudent),
+      lessonReminderStateByStudent: normalizePushLessonReminderStateByStudent(data.lessonReminderStateByStudent),
     };
   } catch {
     return fallback;
@@ -771,6 +843,8 @@ const writePushDb = (data) => {
     subscriptionsByStudent: normalizePushSubscriptionsByStudent(data?.subscriptionsByStudent),
     subscriptionsByUser: normalizePushSubscriptionsByUser(data?.subscriptionsByUser),
     remindersByStudent: normalizePushRemindersByStudent(data?.remindersByStudent),
+    lessonReminderSettingsByStudent: normalizePushLessonReminderSettingsByStudent(data?.lessonReminderSettingsByStudent),
+    lessonReminderStateByStudent: normalizePushLessonReminderStateByStudent(data?.lessonReminderStateByStudent),
   };
   fs.writeFileSync(pushFile, JSON.stringify(normalized, null, 2), 'utf8');
 };
@@ -787,6 +861,14 @@ const purgePushDataForStudents = (studentIds = []) => {
     }
     if (pushDb.remindersByStudent?.[studentId]) {
       delete pushDb.remindersByStudent[studentId];
+      changed = true;
+    }
+    if (pushDb.lessonReminderSettingsByStudent?.[studentId]) {
+      delete pushDb.lessonReminderSettingsByStudent[studentId];
+      changed = true;
+    }
+    if (pushDb.lessonReminderStateByStudent?.[studentId]) {
+      delete pushDb.lessonReminderStateByStudent[studentId];
       changed = true;
     }
   });
@@ -3432,6 +3514,131 @@ const buildNewHomeworkPushPayload = (student, entry, summary = null) => {
   };
 };
 
+const getScheduleSlotId = (entry) => {
+  const explicitId = typeof entry?.id === 'string' ? entry.id.trim() : '';
+  if (explicitId) return explicitId;
+  const weekdayMeta = resolveScheduleWeekdayMeta({
+    weekdayKey: entry?.weekdayKey,
+    day: entry?.day,
+    date: entry?.date,
+  });
+  const weekdayKey = String(weekdayMeta?.key || entry?.weekdayKey || '').trim().toLowerCase();
+  const time = normalizeScheduleTime(entry?.time);
+  const date = typeof entry?.date === 'string' ? entry.date.trim() : '';
+  if (!weekdayKey && !time && !date) return '';
+  return `${weekdayKey}|${time}|${date}`;
+};
+
+const getScheduleTimeParts = (value) => {
+  const normalized = normalizeScheduleTime(value);
+  if (!normalized) return null;
+  const parts = normalized.split(':').map((item) => Number(item));
+  if (parts.length !== 2) return null;
+  const [hours, minutes] = parts;
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return { hours, minutes, normalized };
+};
+
+const getLessonReminderOccurrenceCandidatesMs = (entry, nowMs) => {
+  const now = Number.isFinite(nowMs) ? new Date(nowMs) : new Date();
+  const timeParts = getScheduleTimeParts(entry?.time);
+  if (!timeParts) return [];
+  const dateRaw = typeof entry?.date === 'string' ? entry.date.trim() : '';
+  if (dateRaw && /^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) {
+    const exactMs = Date.parse(`${dateRaw}T${timeParts.normalized}:00`);
+    return Number.isFinite(exactMs) ? [exactMs] : [];
+  }
+
+  const weekdayMeta = resolveScheduleWeekdayMeta({
+    weekdayKey: entry?.weekdayKey,
+    day: entry?.day,
+    date: entry?.date,
+  });
+  if (!weekdayMeta?.order) return [];
+
+  const todayOrder = now.getDay() === 0 ? 7 : now.getDay();
+  const baseDiffDays = weekdayMeta.order - todayOrder;
+  const list = [];
+  for (let weekShift = -1; weekShift <= 1; weekShift += 1) {
+    const candidate = new Date(now);
+    candidate.setHours(0, 0, 0, 0);
+    candidate.setDate(candidate.getDate() + baseDiffDays + (weekShift * 7));
+    candidate.setHours(timeParts.hours, timeParts.minutes, 0, 0);
+    const candidateMs = candidate.getTime();
+    if (Number.isFinite(candidateMs)) list.push(candidateMs);
+  }
+  return list;
+};
+
+const findDueLessonReminderOccurrence = (entry, nowMs = Date.now()) => {
+  const slotId = getScheduleSlotId(entry);
+  if (!slotId) return null;
+  const candidates = getLessonReminderOccurrenceCandidatesMs(entry, nowMs);
+  if (candidates.length === 0) return null;
+  let best = null;
+  candidates.forEach((startMs) => {
+    if (!Number.isFinite(startMs)) return;
+    const reminderAtMs = startMs - LESSON_REMINDER_LEAD_MS;
+    const delta = nowMs - reminderAtMs;
+    if (delta < 0 || delta > LESSON_REMINDER_SEND_WINDOW_MS) return;
+    if (nowMs >= startMs) return;
+    if (!best || delta < best.delta) {
+      best = { startMs, reminderAtMs, delta };
+    }
+  });
+  if (!best) return null;
+  return {
+    slotId,
+    startMs: best.startMs,
+    reminderAtMs: best.reminderAtMs,
+    occurrenceKey: new Date(best.startMs).toISOString(),
+  };
+};
+
+const buildLessonReminderPushPayload = (entry, reminder) => {
+  const weekdayMeta = resolveScheduleWeekdayMeta({
+    weekdayKey: entry?.weekdayKey,
+    day: entry?.day,
+    date: entry?.date,
+  });
+  const dayLabel = String(weekdayMeta?.label || entry?.day || '').trim();
+  const timeLabel = normalizeScheduleTime(entry?.time) || '';
+  const subjectRaw = typeof entry?.subject === 'string' ? entry.subject.trim() : '';
+  const subject = subjectRaw || 'занятие';
+  const dateLabel = (() => {
+    const date = new Date(reminder?.startMs || Date.now());
+    if (Number.isNaN(date.getTime())) return '';
+    try {
+      return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }).replace(' г.', '');
+    } catch {
+      return '';
+    }
+  })();
+  const whenLabel = [dayLabel, timeLabel].filter(Boolean).join(', ');
+  const bodyBase = whenLabel
+    ? `${whenLabel}. ${subject.charAt(0).toUpperCase()}${subject.slice(1)} начнется через 30 минут.`
+    : `${subject.charAt(0).toUpperCase()}${subject.slice(1)} начнется через 30 минут.`;
+  const body = dateLabel
+    ? `${dateLabel} · ${bodyBase}`
+    : bodyBase;
+  const safeSlotTag = String(reminder?.slotId || 'slot').replace(/[^\w-]/g, '-').slice(0, 80);
+  const occurrenceTag = String(reminder?.occurrenceKey || '').replace(/[^\dTZ:-]/g, '').slice(0, 20);
+  return {
+    title: 'Напоминание о занятии',
+    body,
+    icon: '/favicon.ico',
+    badge: '/favicon.ico',
+    tag: `lesson-reminder-${safeSlotTag}-${occurrenceTag || 'next'}`,
+    renotify: true,
+    data: {
+      type: 'lesson-reminder',
+      url: '/?view=schedule',
+      slotId: reminder?.slotId || null,
+      startsAt: Number.isFinite(reminder?.startMs) ? new Date(reminder.startMs).toISOString() : null,
+    },
+  };
+};
+
 const isPushSubscriptionGoneError = (error) => {
   const code = Number(error?.statusCode || error?.status);
   return code === 404 || code === 410;
@@ -3565,6 +3772,7 @@ const sendPushNotificationToStudentId = async (studentId, payload, options = {})
   const pushDb = readPushDb();
   const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
   const remindersByStudent = normalizePushRemindersByStudent(pushDb.remindersByStudent);
+  const lessonReminderStateByStudent = normalizePushLessonReminderStateByStudent(pushDb.lessonReminderStateByStudent);
   const subscriptions = Array.isArray(subscriptionsByStudent[id]) ? subscriptionsByStudent[id] : [];
   if (subscriptions.length === 0) return { successCount: 0, staleEndpoints: [] };
 
@@ -3578,11 +3786,13 @@ const sendPushNotificationToStudentId = async (studentId, payload, options = {})
     } else {
       delete subscriptionsByStudent[id];
       if (remindersByStudent[id]) delete remindersByStudent[id];
+      if (lessonReminderStateByStudent[id]) delete lessonReminderStateByStudent[id];
     }
     writePushDb({
       ...pushDb,
       subscriptionsByStudent,
       remindersByStudent,
+      lessonReminderStateByStudent,
     });
   }
   return result;
@@ -3764,6 +3974,134 @@ const runPushReminderSweep = async () => {
     console.error('[push] reminder sweep failed:', error);
   } finally {
     pushSweepInFlight = false;
+  }
+};
+
+const runPushLessonReminderSweep = async () => {
+  if (pushLessonSweepInFlight) return;
+  if (!pushRuntimeEnabled) {
+    const runtime = ensurePushRuntimeConfigured();
+    if (!runtime.enabled) return;
+  }
+
+  pushLessonSweepInFlight = true;
+  try {
+    const pushDb = readPushDb();
+    const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
+    const lessonReminderSettingsByStudent = normalizePushLessonReminderSettingsByStudent(pushDb.lessonReminderSettingsByStudent);
+    const lessonReminderStateByStudent = normalizePushLessonReminderStateByStudent(pushDb.lessonReminderStateByStudent);
+    const nowMs = Date.now();
+    let changed = false;
+
+    const candidateStudentIds = Array.from(new Set([
+      ...Object.keys(subscriptionsByStudent),
+      ...Object.keys(lessonReminderSettingsByStudent),
+      ...Object.keys(lessonReminderStateByStudent),
+    ]));
+
+    for (const studentId of candidateStudentIds) {
+      const student = findStudentById(studentId);
+      if (!student) {
+        if (subscriptionsByStudent[studentId]) {
+          delete subscriptionsByStudent[studentId];
+          changed = true;
+        }
+        if (lessonReminderSettingsByStudent[studentId]) {
+          delete lessonReminderSettingsByStudent[studentId];
+          changed = true;
+        }
+        if (lessonReminderStateByStudent[studentId]) {
+          delete lessonReminderStateByStudent[studentId];
+          changed = true;
+        }
+        continue;
+      }
+
+      const settings = lessonReminderSettingsByStudent[studentId];
+      const enabled = Boolean(settings?.enabled);
+      let subscriptions = Array.isArray(subscriptionsByStudent[studentId]) ? subscriptionsByStudent[studentId] : [];
+      const studentData = getStudentData(student.id);
+      const schedule = Array.isArray(studentData?.schedule) ? studentData.schedule : [];
+      const knownSlotIds = new Set(schedule.map((entry) => getScheduleSlotId(entry)).filter(Boolean));
+
+      const previousState = Array.isArray(lessonReminderStateByStudent[studentId])
+        ? lessonReminderStateByStudent[studentId]
+        : [];
+      let nextState = previousState.filter((item) => knownSlotIds.has(item.slotId));
+      if (nextState.length !== previousState.length) {
+        lessonReminderStateByStudent[studentId] = nextState;
+        changed = true;
+      }
+
+      if (!enabled || subscriptions.length === 0 || schedule.length === 0) {
+        if ((!enabled || schedule.length === 0) && nextState.length > 0) {
+          delete lessonReminderStateByStudent[studentId];
+          changed = true;
+        }
+        if (enabled && schedule.length > 0 && subscriptions.length === 0 && nextState.length > 0) {
+          // Keep no state while there are no active subscriptions.
+          delete lessonReminderStateByStudent[studentId];
+          changed = true;
+        }
+        continue;
+      }
+
+      const stateBySlot = new Map(nextState.map((item) => [item.slotId, item]));
+      const dueReminders = schedule
+        .map((entry) => ({ entry, reminder: findDueLessonReminderOccurrence(entry, nowMs) }))
+        .filter((item) => item.reminder && item.reminder.slotId);
+
+      for (const item of dueReminders) {
+        const { entry, reminder } = item;
+        const previous = stateBySlot.get(reminder.slotId);
+        if (previous?.occurrenceKey === reminder.occurrenceKey) continue;
+
+        const payload = buildLessonReminderPushPayload(entry, reminder);
+        const result = await sendPushNotificationToSubscriptions(subscriptions, payload, `lesson:${studentId}`);
+
+        if (result.staleEndpoints.length > 0) {
+          const staleSet = new Set(result.staleEndpoints);
+          const filtered = subscriptions.filter((sub) => !staleSet.has(sub.endpoint));
+          if (filtered.length > 0) {
+            subscriptionsByStudent[studentId] = filtered;
+            subscriptions = filtered;
+          } else {
+            delete subscriptionsByStudent[studentId];
+            subscriptions = [];
+          }
+          changed = true;
+        }
+
+        if (result.successCount > 0) {
+          stateBySlot.set(reminder.slotId, {
+            slotId: reminder.slotId,
+            occurrenceKey: reminder.occurrenceKey,
+            sentAt: new Date().toISOString(),
+          });
+          changed = true;
+        }
+      }
+
+      if (stateBySlot.size > 0) {
+        lessonReminderStateByStudent[studentId] = Array.from(stateBySlot.values());
+      } else if (lessonReminderStateByStudent[studentId]) {
+        delete lessonReminderStateByStudent[studentId];
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      writePushDb({
+        ...pushDb,
+        subscriptionsByStudent,
+        lessonReminderSettingsByStudent,
+        lessonReminderStateByStudent,
+      });
+    }
+  } catch (error) {
+    console.error('[push] lesson reminder sweep failed:', error);
+  } finally {
+    pushLessonSweepInFlight = false;
   }
 };
 
@@ -5284,6 +5622,7 @@ app.delete('/api/push/subscription', (req, res) => {
   const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
   const subscriptionsByUser = normalizePushSubscriptionsByUser(pushDb.subscriptionsByUser);
   const remindersByStudent = normalizePushRemindersByStudent(pushDb.remindersByStudent);
+  const lessonReminderStateByStudent = normalizePushLessonReminderStateByStudent(pushDb.lessonReminderStateByStudent);
   const current = student
     ? (Array.isArray(subscriptionsByStudent[student.id]) ? [...subscriptionsByStudent[student.id]] : [])
     : (Array.isArray(subscriptionsByUser[userKey]) ? [...subscriptionsByUser[userKey]] : []);
@@ -5298,17 +5637,74 @@ app.delete('/api/push/subscription', (req, res) => {
     if (student) {
       delete subscriptionsByStudent[student.id];
       delete remindersByStudent[student.id];
+      if (lessonReminderStateByStudent[student.id]) delete lessonReminderStateByStudent[student.id];
     } else {
       delete subscriptionsByUser[userKey];
     }
   }
 
-  writePushDb({ ...pushDb, subscriptionsByStudent, subscriptionsByUser, remindersByStudent });
+  writePushDb({
+    ...pushDb,
+    subscriptionsByStudent,
+    subscriptionsByUser,
+    remindersByStudent,
+    lessonReminderStateByStudent,
+  });
 
   return res.json({
     ok: true,
     subscribed: next.length > 0,
     count: next.length,
+  });
+});
+
+app.get('/api/push/lesson-reminder', (req, res) => {
+  const { studentId } = req.query || {};
+  const effectiveStudentId = isStudentRole(req.auth)
+    ? req.auth.id
+    : studentId;
+  const student = ensureStudentAccess(req, res, effectiveStudentId, { missingError: 'studentId required' });
+  if (!student) return;
+  const pushDb = readPushDb();
+  const settingsByStudent = normalizePushLessonReminderSettingsByStudent(pushDb.lessonReminderSettingsByStudent);
+  const entry = settingsByStudent[student.id] || null;
+  return res.json({
+    enabled: Boolean(entry?.enabled),
+    updatedAt: entry?.updatedAt || '',
+  });
+});
+
+app.patch('/api/push/lesson-reminder', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const { studentId, enabled } = req.body || {};
+  const effectiveStudentId = studentId || req.auth.id;
+  const student = ensureStudentAccess(req, res, effectiveStudentId, { missingError: 'studentId required' });
+  if (!student) return;
+
+  const nextEnabled = Boolean(enabled);
+  const nowIso = new Date().toISOString();
+  const pushDb = readPushDb();
+  const lessonReminderSettingsByStudent = normalizePushLessonReminderSettingsByStudent(pushDb.lessonReminderSettingsByStudent);
+  const lessonReminderStateByStudent = normalizePushLessonReminderStateByStudent(pushDb.lessonReminderStateByStudent);
+
+  lessonReminderSettingsByStudent[student.id] = {
+    enabled: nextEnabled,
+    updatedAt: nowIso,
+  };
+  if (!nextEnabled && lessonReminderStateByStudent[student.id]) {
+    delete lessonReminderStateByStudent[student.id];
+  }
+
+  writePushDb({
+    ...pushDb,
+    lessonReminderSettingsByStudent,
+    lessonReminderStateByStudent,
+  });
+
+  return res.json({
+    ok: true,
+    enabled: nextEnabled,
+    updatedAt: nowIso,
   });
 });
 
@@ -7438,13 +7834,22 @@ if (!pushRuntimeBoot.enabled) {
 }
 
 const startPushReminderSweep = () => {
-  const runSweep = () => {
-    runPushReminderSweep().catch((error) => {
+  const runSweep = async () => {
+    try {
+      await runPushReminderSweep();
+    } catch (error) {
       console.error('[push] reminder sweep crashed:', error);
-    });
+    }
+    try {
+      await runPushLessonReminderSweep();
+    } catch (error) {
+      console.error('[push] lesson reminder sweep crashed:', error);
+    }
   };
-  runSweep();
-  const interval = setInterval(runSweep, PUSH_SWEEP_INTERVAL_MS);
+  runSweep().catch(() => {});
+  const interval = setInterval(() => {
+    runSweep().catch(() => {});
+  }, PUSH_SWEEP_INTERVAL_MS);
   if (typeof interval.unref === 'function') interval.unref();
 };
 

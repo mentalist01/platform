@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, Calendar, CheckCircle, ChevronRight, Clock3, Pencil, RefreshCcw, Save, Trash2 } from 'lucide-react';
+import { Bell, BellOff, BookOpen, Calendar, CheckCircle, ChevronRight, Clock3, Pencil, RefreshCcw, Save, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
@@ -116,6 +116,14 @@ const ScheduleSection = ({
   PYTHON_TASKS,
   PYTHON_LEVEL_ID,
   LEVELS,
+  pushSupported = false,
+  pushPermission = 'default',
+  pushEnabled = false,
+  pushSyncing = false,
+  pushBusy = false,
+  pushReady = false,
+  pushError = '',
+  onTogglePush = null,
 }) => {
   const DEFAULT_HOMEWORK = '';
   const DEFAULT_GOAL = { type: GOAL_TYPE_TASK, taskNumber: '', levelId: 'basic', targetInput: '', includeAll: false, mockExamId: '' };
@@ -144,6 +152,10 @@ const ScheduleSection = ({
   const [scheduleEditingId, setScheduleEditingId] = useState(null);
   const [scheduleDeletingId, setScheduleDeletingId] = useState(null);
   const [scheduleError, setScheduleError] = useState('');
+  const [lessonReminderEnabled, setLessonReminderEnabled] = useState(false);
+  const [lessonReminderLoading, setLessonReminderLoading] = useState(false);
+  const [lessonReminderSaving, setLessonReminderSaving] = useState(false);
+  const [lessonReminderError, setLessonReminderError] = useState('');
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const mockAttemptStudentId = role === 'student' ? null : effectiveStudentId;
@@ -241,6 +253,39 @@ const ScheduleSection = ({
     setScheduleForm({ ...DEFAULT_SCHEDULE_FORM });
     setScheduleError('');
   }, [effectiveStudentId]);
+
+  const loadLessonReminderSetting = useCallback(async () => {
+    if (role !== 'student' || !effectiveStudentId) {
+      setLessonReminderEnabled(false);
+      setLessonReminderError('');
+      setLessonReminderLoading(false);
+      return;
+    }
+    setLessonReminderLoading(true);
+    try {
+      const data = await api.getPushLessonReminderSetting(effectiveStudentId);
+      setLessonReminderEnabled(Boolean(data?.enabled));
+      setLessonReminderError('');
+    } catch (err) {
+      setLessonReminderEnabled(false);
+      setLessonReminderError(err?.message || err);
+    } finally {
+      setLessonReminderLoading(false);
+    }
+  }, [effectiveStudentId, role]);
+
+  useEffect(() => {
+    loadLessonReminderSetting();
+  }, [loadLessonReminderSetting]);
+
+  useEffect(() => {
+    if (role !== 'student') {
+      setLessonReminderEnabled(false);
+      setLessonReminderLoading(false);
+      setLessonReminderSaving(false);
+      setLessonReminderError('');
+    }
+  }, [role]);
 
   const handleRefreshData = useCallback(async () => {
     if (!effectiveStudentId || refreshingData) return;
@@ -512,6 +557,45 @@ const ScheduleSection = ({
       setScheduleDeletingId(null);
     }
   };
+
+  const handleToggleLessonReminder = async () => {
+    if (role !== 'student' || !effectiveStudentId || lessonReminderSaving) return;
+    setLessonReminderSaving(true);
+    setLessonReminderError('');
+    try {
+      if (!pushEnabled && typeof onTogglePush === 'function') {
+        await onTogglePush();
+        return;
+      }
+      const nextEnabled = !lessonReminderEnabled;
+      const data = await api.updatePushLessonReminderSetting(nextEnabled, effectiveStudentId);
+      setLessonReminderEnabled(Boolean(data?.enabled));
+    } catch (err) {
+      setLessonReminderError(err?.message || err);
+    } finally {
+      setLessonReminderSaving(false);
+    }
+  };
+
+  const lessonReminderStatusText = useMemo(() => {
+    if (role !== 'student') return '';
+    if (lessonReminderLoading) return 'Проверяем настройки напоминаний...';
+    if (!pushSupported) return 'Push не поддерживается в этом браузере.';
+    if (pushPermission === 'denied') return 'Уведомления заблокированы в настройках браузера.';
+    if (!pushEnabled && lessonReminderEnabled) {
+      return 'Напоминания включены, но push выключены. Включите push, чтобы получать уведомления.';
+    }
+    if (!pushEnabled) return 'Сначала включите push, затем включите напоминания о занятиях.';
+    if (lessonReminderEnabled) return 'Напоминания включены: уведомление придет за 30 минут до занятия.';
+    return 'Включите напоминания, чтобы получать уведомление за 30 минут до занятия.';
+  }, [
+    lessonReminderEnabled,
+    lessonReminderLoading,
+    pushEnabled,
+    pushPermission,
+    pushSupported,
+    role,
+  ]);
 
   const parseTargetInput = (input, maxCount) => {
     const parts = String(input || '').split(/[\s,;]+/).filter(Boolean);
@@ -1477,6 +1561,39 @@ const ScheduleSection = ({
               {`Слотов: ${sortedSchedule.length}`}
             </span>
           </div>
+
+          {role === 'student' && (
+            <div className="rounded-2xl border border-sky-200/80 bg-white/90 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-sky-700">Уведомления о занятиях</div>
+                  <div className="mt-1 text-xs text-slate-600">{lessonReminderStatusText}</div>
+                  {(lessonReminderError || pushError) && (
+                    <div className="mt-1 text-xs text-rose-600">{lessonReminderError || pushError}</div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleLessonReminder}
+                  disabled={lessonReminderLoading || lessonReminderSaving || pushSyncing || pushBusy || !pushReady}
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                    !pushEnabled
+                      ? 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100'
+                      : (lessonReminderEnabled
+                          ? 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                          : 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100')
+                  } disabled:cursor-not-allowed disabled:opacity-60`}
+                >
+                  {(pushEnabled && lessonReminderEnabled) ? <BellOff size={14} /> : <Bell size={14} />}
+                  {lessonReminderSaving
+                    ? 'Сохраняем...'
+                    : (!pushEnabled
+                        ? 'Включить push'
+                        : (lessonReminderEnabled ? 'Отключить напоминания' : 'Включить напоминания'))}
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px]">
             <select

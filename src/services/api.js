@@ -215,6 +215,25 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getPushLessonReminderSetting: async (studentId = '') => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', String(studentId));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/push/lesson-reminder?${qs}` : '/api/push/lesson-reminder');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updatePushLessonReminderSetting: async (enabled, studentId = '') => {
+    const payload = { enabled: Boolean(enabled) };
+    if (studentId) payload.studentId = String(studentId);
+    const res = await apiFetch('/api/push/lesson-reminder', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   savePushSubscription: async (subscription) => {
     const payload = subscription && typeof subscription === 'object'
       ? { subscription }

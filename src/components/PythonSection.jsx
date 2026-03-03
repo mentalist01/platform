@@ -313,6 +313,11 @@ const PythonSection = ({
     const visibleTasks = topicsTasks.filter((task) => task?.showInPath !== false);
     return visibleTasks.length > 0 ? visibleTasks : topicsTasks;
   }, [taskList]);
+  const sectionTabs = useMemo(() => {
+    const primarySections = taskSections.filter((section) => section.id === 'topics' || section.id === 'exam-prep');
+    return primarySections.length > 0 ? primarySections : taskSections;
+  }, [taskSections]);
+  const [activeTaskSectionId, setActiveTaskSectionId] = useState('topics');
   const [activeTask, setActiveTask] = useState(null);
   const [reviewTask, setReviewTask] = useState(null);
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(null);
@@ -416,12 +421,19 @@ const PythonSection = ({
   }, [testsDb, defaultTaskList]);
 
   useEffect(() => {
+    if (!sectionTabs.length) return;
+    if (sectionTabs.some((section) => section.id === activeTaskSectionId)) return;
+    setActiveTaskSectionId(sectionTabs[0].id);
+  }, [sectionTabs, activeTaskSectionId]);
+
+  useEffect(() => {
     if (role !== 'student' || !openTask) return;
     const target = taskList.find((task) => Number(task.number) === Number(openTask.taskNumber));
     if (!target) {
       onOpenTaskHandled?.();
       return;
     }
+    setActiveTaskSectionId(String(target.sectionId || 'topics'));
     setActiveTask(target);
     if (Number.isFinite(openTask.questionIndex)) {
       setActiveQuestionIndex(openTask.questionIndex);
@@ -446,6 +458,12 @@ const PythonSection = ({
       questionIndex: Number.isFinite(activeQuestionIndex) ? activeQuestionIndex : null
     });
   }, [activeTask, activeQuestionIndex, role, PYTHON_LEVEL_ID, onTaskStateChange, openTask]);
+
+  useEffect(() => {
+    if (!activeTask) return;
+    const nextSectionId = String(activeTask.sectionId || 'topics');
+    setActiveTaskSectionId((prev) => (prev === nextSectionId ? prev : nextSectionId));
+  }, [activeTask]);
 
   useEffect(() => {
     if (!taskList.length) {
@@ -519,6 +537,10 @@ const PythonSection = ({
       ? (studentData.progress || {})
       : (Object.keys(progress || {}).length ? progress : (studentData.progress || {}))
   ), [role, progress, studentData.progress]);
+  const activeTaskSection = useMemo(
+    () => sectionTabs.find((section) => section.id === activeTaskSectionId) || sectionTabs[0] || null,
+    [sectionTabs, activeTaskSectionId]
+  );
   const manageTaskEntry = useMemo(
     () => getPythonTaskEntry(testsDb, manageTaskNumber),
     [testsDb, manageTaskNumber]
@@ -1865,62 +1887,105 @@ const PythonSection = ({
       )}
 
       <div className="space-y-4 md:space-y-6">
-        {taskSections.map((section, sectionIdx) => {
-          const sectionVisibilityClass = role === 'student' && section.id === 'topics' ? 'hidden md:block' : 'block';
-          const sectionUi = PYTHON_TASK_SECTION_UI[section.id] || PYTHON_TASK_SECTION_UI.topics;
-          const SectionIcon = sectionUi.icon || BookOpen;
-          const sectionTasks = Array.isArray(section.tasks) ? section.tasks : [];
-          const sectionAvg = sectionTasks.length
-            ? Math.round(sectionTasks.reduce((sum, task) => sum + Number(progressMap[task.id] || 0), 0) / sectionTasks.length)
-            : 0;
-          return (
-            <section key={section.id} className={sectionVisibilityClass}>
-              <div
-                style={{ '--python-section-i': `${sectionIdx}` }}
-                className={`python-learning-section-shell relative overflow-hidden rounded-3xl border p-4 md:p-5 shadow-[0_18px_36px_rgba(15,23,42,0.12)] ${sectionUi.shellClass}`}
-              >
-                <div className={`pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-r opacity-70 ${sectionUi.headerClass || 'from-slate-200/30 via-white/20 to-slate-200/30'}`} />
-                <div className="relative z-10">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex items-start gap-3">
-                      <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${sectionUi.chipClass}`}>
-                        <SectionIcon size={18} />
+        {sectionTabs.length > 1 && (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {sectionTabs.map((section) => {
+              const sectionUi = PYTHON_TASK_SECTION_UI[section.id] || PYTHON_TASK_SECTION_UI.topics;
+              const SectionIcon = sectionUi.icon || BookOpen;
+              const sectionTasks = Array.isArray(section.tasks) ? section.tasks : [];
+              const sectionAvg = sectionTasks.length
+                ? Math.round(sectionTasks.reduce((sum, task) => sum + Number(progressMap[task.id] || 0), 0) / sectionTasks.length)
+                : 0;
+              const isActive = section.id === activeTaskSection?.id;
+              return (
+                <button
+                  key={`python-section-tab-${section.id}`}
+                  type="button"
+                  onClick={() => setActiveTaskSectionId(section.id)}
+                  className={`flex items-center justify-between gap-3 rounded-2xl border px-3.5 py-3 text-left transition-colors ${
+                    isActive
+                      ? 'border-purple-500 bg-purple-50 text-purple-900 shadow-[0_12px_24px_rgba(147,51,234,0.16)]'
+                      : 'border-slate-200 bg-white/90 text-slate-700 hover:border-purple-300 hover:bg-purple-50/60'
+                  }`}
+                >
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border ${sectionUi.chipClass}`}>
+                      <SectionIcon size={16} />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-[10px] font-bold uppercase tracking-[0.13em] text-slate-500">
+                        {sectionUi.badge || 'Раздел'}
                       </span>
-                      <div className="space-y-1">
-                        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{sectionUi.badge || 'Раздел'}</div>
-                        <h3 className="text-lg md:text-xl font-black text-slate-900">{section.title}</h3>
-                        {section.description && (
-                          <p className="text-xs md:text-sm text-slate-600">{section.description}</p>
-                        )}
+                      <span className="block truncate text-sm font-bold">{section.title}</span>
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-full border border-white/85 bg-white/85 px-2 py-1 text-[11px] font-bold text-slate-700">
+                    {`${sectionAvg}%`}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {sectionTabs
+          .filter((section) => section.id === activeTaskSection?.id)
+          .map((section) => {
+            const sectionIdx = sectionTabs.findIndex((item) => item.id === section.id);
+            const sectionUi = PYTHON_TASK_SECTION_UI[section.id] || PYTHON_TASK_SECTION_UI.topics;
+            const SectionIcon = sectionUi.icon || BookOpen;
+            const sectionTasks = Array.isArray(section.tasks) ? section.tasks : [];
+            const sectionAvg = sectionTasks.length
+              ? Math.round(sectionTasks.reduce((sum, task) => sum + Number(progressMap[task.id] || 0), 0) / sectionTasks.length)
+              : 0;
+            return (
+              <section key={section.id}>
+                <div
+                  style={{ '--python-section-i': `${sectionIdx}` }}
+                  className={`python-learning-section-shell relative overflow-hidden rounded-3xl border p-4 md:p-5 shadow-[0_18px_36px_rgba(15,23,42,0.12)] ${sectionUi.shellClass}`}
+                >
+                  <div className={`pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-r opacity-70 ${sectionUi.headerClass || 'from-slate-200/30 via-white/20 to-slate-200/30'}`} />
+                  <div className="relative z-10">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${sectionUi.chipClass}`}>
+                          <SectionIcon size={18} />
+                        </span>
+                        <div className="space-y-1">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{sectionUi.badge || 'Раздел'}</div>
+                          <h3 className="text-lg md:text-xl font-black text-slate-900">{section.title}</h3>
+                          {section.description && (
+                            <p className="text-xs md:text-sm text-slate-600">{section.description}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center rounded-full border border-white/85 bg-white/80 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+                          {`${sectionTasks.length} карточек`}
+                        </span>
+                        <span className="inline-flex items-center rounded-full border border-white/85 bg-white/80 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+                          {`Средний: ${sectionAvg}%`}
+                        </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex items-center rounded-full border border-white/85 bg-white/80 px-2.5 py-1 text-[11px] font-bold text-slate-700">
-                        {`${sectionTasks.length} карточек`}
-                      </span>
-                      <span className="inline-flex items-center rounded-full border border-white/85 bg-white/80 px-2.5 py-1 text-[11px] font-bold text-slate-700">
-                        {`Средний: ${sectionAvg}%`}
-                      </span>
+                    <div className="mt-4">
+                      {sectionTasks.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 stagger-children">
+                          {sectionTasks.map((task, idx) => renderTaskCard(task, idx, section))}
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-slate-300/80 bg-white/75 px-4 py-5 text-sm font-medium text-slate-500">
+                          {role === 'teacher'
+                            ? 'Пока нет карточек. Добавьте первую задачу в этом разделе ниже.'
+                            : 'Пока здесь нет карточек. Скоро появятся новые задания.'}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                  <div className="mt-4">
-                    {sectionTasks.length > 0 ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 stagger-children">
-                        {sectionTasks.map((task, idx) => renderTaskCard(task, idx, section))}
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl border border-dashed border-slate-300/80 bg-white/75 px-4 py-5 text-sm font-medium text-slate-500">
-                        {role === 'teacher'
-                          ? 'Пока нет карточек. Добавьте первую задачу в этом разделе ниже.'
-                          : 'Пока здесь нет карточек. Скоро появятся новые задания.'}
-                      </div>
-                    )}
                   </div>
                 </div>
-              </div>
-            </section>
-          );
-        })}
+              </section>
+            );
+          })}
       </div>
 
       {role === 'teacher' && (
