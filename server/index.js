@@ -230,7 +230,12 @@ const PUSH_REMINDER_MIN_INTERVAL_MS = (() => {
   if (Number.isFinite(raw) && raw >= 2 * DAY_MS) return Math.floor(raw);
   return 2 * DAY_MS;
 })();
-const LESSON_REMINDER_LEAD_MS = 30 * 60 * 1000;
+const LESSON_REMINDER_LEAD_MINUTES = (() => {
+  const raw = Number(process.env.LESSON_REMINDER_LEAD_MINUTES);
+  if (Number.isFinite(raw) && raw >= 1 && raw <= 240) return Math.round(raw);
+  return 10;
+})();
+const LESSON_REMINDER_LEAD_MS = LESSON_REMINDER_LEAD_MINUTES * 60 * 1000;
 const LESSON_REMINDER_SEND_WINDOW_MS = (() => {
   const raw = Number(process.env.LESSON_REMINDER_SEND_WINDOW_MS);
   if (Number.isFinite(raw) && raw >= 60 * 1000) return Math.floor(raw);
@@ -2526,6 +2531,7 @@ const isLeadAllowedApiRequest = (req) => {
   if (apiPath === '/signup-chat/messages') return method === 'GET' || method === 'POST';
   if (apiPath === '/push/public-key') return method === 'GET';
   if (apiPath === '/push/subscription') return method === 'GET' || method === 'POST' || method === 'DELETE';
+  if (apiPath === '/push/test') return method === 'POST';
   return false;
 };
 
@@ -4134,8 +4140,8 @@ const buildLessonReminderPushPayload = (entry, reminder) => {
   })();
   const whenLabel = [dayLabel, timeLabel].filter(Boolean).join(', ');
   const bodyBase = whenLabel
-    ? `${whenLabel}. ${subject.charAt(0).toUpperCase()}${subject.slice(1)} начнется через 30 минут.`
-    : `${subject.charAt(0).toUpperCase()}${subject.slice(1)} начнется через 30 минут.`;
+    ? `${whenLabel}. ${subject.charAt(0).toUpperCase()}${subject.slice(1)} начнется через ${LESSON_REMINDER_LEAD_MINUTES} мин.`
+    : `${subject.charAt(0).toUpperCase()}${subject.slice(1)} начнется через ${LESSON_REMINDER_LEAD_MINUTES} мин.`;
   const body = dateLabel
     ? `${dateLabel} · ${bodyBase}`
     : bodyBase;
@@ -4177,8 +4183,8 @@ const buildTeacherCalendarReminderPushPayload = (entry, reminder, student = null
   })();
   const whenLabel = [dayLabel, timeLabel].filter(Boolean).join(', ');
   const bodyBase = whenLabel
-    ? `${studentName}: ${whenLabel}. Занятие начнется через 30 минут.`
-    : `${studentName}: занятие начнется через 30 минут.`;
+    ? `${studentName}: ${whenLabel}. Занятие начнется через ${LESSON_REMINDER_LEAD_MINUTES} мин.`
+    : `${studentName}: занятие начнется через ${LESSON_REMINDER_LEAD_MINUTES} мин.`;
   const body = dateLabel
     ? `${dateLabel} · ${bodyBase}`
     : bodyBase;
@@ -4200,6 +4206,39 @@ const buildTeacherCalendarReminderPushPayload = (entry, reminder, student = null
       studentName,
       slotId: reminder?.slotId || null,
       startsAt: Number.isFinite(reminder?.startMs) ? new Date(reminder.startMs).toISOString() : null,
+    },
+  };
+};
+
+const buildPushTestPayload = (auth = {}) => {
+  const role = String(auth?.role || '').trim();
+  const now = new Date();
+  const sentAtIso = now.toISOString();
+  const timestampLabel = (() => {
+    try {
+      return now.toLocaleString('ru-RU', { hour12: false });
+    } catch {
+      return sentAtIso;
+    }
+  })();
+  const roleLabel = role === 'teacher'
+    ? 'учителя'
+    : (role === 'student' ? 'ученика' : 'пользователя');
+  const destinationView = role === 'teacher'
+    ? 'teacher-calendar'
+    : (role === 'student' ? 'schedule' : 'signup-chats');
+  return {
+    title: 'Тест push-уведомления',
+    body: `Проверка доставки для ${roleLabel} (${timestampLabel}).`,
+    icon: '/favicon.ico',
+    badge: '/favicon.ico',
+    tag: `push-test-${role || 'user'}`,
+    renotify: true,
+    data: {
+      type: 'push-test',
+      role: role || 'user',
+      sentAt: sentAtIso,
+      url: `/?view=${destinationView}`,
     },
   };
 };
@@ -6331,6 +6370,81 @@ app.get('/api/push/subscription', (req, res) => {
     subscribed: list.length > 0,
     count: list.length,
   });
+});
+
+app.post('/api/push/test', async (req, res) => {
+  if (!isStudentRole(req.auth) && !isTeacherRole(req.auth) && !isLeadRole(req.auth)) return forbid(res);
+  const runtime = ensurePushRuntimeConfigured();
+  if (!runtime.enabled) {
+    return res.status(503).json({ error: runtime.error || 'Push не настроен на сервере' });
+  }
+
+  try {
+    const pushDb = readPushDb();
+    const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
+    const subscriptionsByUser = normalizePushSubscriptionsByUser(pushDb.subscriptionsByUser);
+    let subscriptions = [];
+    let userKey = '';
+    let logTarget = '';
+
+    if (isStudentRole(req.auth)) {
+      const student = findStudentById(req.auth.id);
+      if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+      subscriptions = Array.isArray(subscriptionsByStudent[student.id]) ? subscriptionsByStudent[student.id] : [];
+      logTarget = `student:${student.id}`;
+    } else {
+      userKey = getPushUserStorageKey(req.auth);
+      if (!userKey) return forbid(res);
+      subscriptions = Array.isArray(subscriptionsByUser[userKey]) ? subscriptionsByUser[userKey] : [];
+      logTarget = userKey;
+    }
+
+    if (subscriptions.length === 0) {
+      return res.status(400).json({ error: 'Push не включен в этом браузере. Сначала нажмите "Включить push".' });
+    }
+
+    const payload = buildPushTestPayload(req.auth);
+    const result = await sendPushNotificationToSubscriptions(subscriptions, payload, `push-test:${logTarget}`);
+    let changed = false;
+
+    if (result.staleEndpoints.length > 0) {
+      const staleSet = new Set(result.staleEndpoints);
+      if (isStudentRole(req.auth)) {
+        const studentId = String(req.auth.id || '').trim();
+        const filtered = subscriptions.filter((entry) => !staleSet.has(entry.endpoint));
+        if (filtered.length > 0) subscriptionsByStudent[studentId] = filtered;
+        else delete subscriptionsByStudent[studentId];
+      } else if (userKey) {
+        const filtered = subscriptions.filter((entry) => !staleSet.has(entry.endpoint));
+        if (filtered.length > 0) subscriptionsByUser[userKey] = filtered;
+        else delete subscriptionsByUser[userKey];
+      }
+      changed = true;
+    }
+
+    if (changed) {
+      writePushDb({
+        ...pushDb,
+        subscriptionsByStudent,
+        subscriptionsByUser,
+      });
+    }
+
+    if (result.successCount <= 0) {
+      return res.status(502).json({
+        error: 'Не удалось доставить тестовое push-уведомление. Проверьте разрешения браузера.',
+      });
+    }
+
+    return res.json({
+      ok: true,
+      sent: result.successCount,
+      staleRemoved: result.staleEndpoints.length,
+    });
+  } catch (error) {
+    console.error('[push] test notification failed:', error);
+    return res.status(500).json({ error: 'Не удалось отправить тестовое push-уведомление' });
+  }
 });
 
 app.post('/api/push/subscription', (req, res) => {

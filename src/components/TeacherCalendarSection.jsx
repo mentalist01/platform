@@ -39,6 +39,7 @@ const QUICK_CREATE_TIME_STEP_MINUTES = 30;
 const DEFAULT_ONE_TIME_LESSON_SUBJECT = 'Пробное занятие';
 const TRIAL_WITHOUT_STUDENT_VALUE = '__trial_without_student__';
 const CALENDAR_UI_PREFS_STORAGE_KEY = 'teacher_calendar_ui_prefs_v2';
+const CALENDAR_BROWSER_ALARM_PREFS_STORAGE_KEY = 'teacher_calendar_browser_alarm_prefs_v1';
 const QUICK_DURATION_PRESETS = [30, 45, 60, 90];
 const QUICK_TIME_PRESETS = ['09:00', '12:00', '15:00', '17:00', '19:00'];
 const LESSON_FILTER_ALL = 'all';
@@ -46,6 +47,11 @@ const LESSON_FILTER_TRIAL = 'trial';
 const LESSON_FILTER_STUDENT = 'student';
 const REPEAT_MODE_ONCE = 'once';
 const REPEAT_MODE_WEEKLY = 'weekly';
+const BROWSER_ALARM_LEAD_MINUTES = 10;
+const BROWSER_ALARM_LEAD_MS = BROWSER_ALARM_LEAD_MINUTES * 60 * 1000;
+const BROWSER_ALARM_TRIGGER_WINDOW_MS = 3 * 60 * 1000;
+const BROWSER_ALARM_CHECK_INTERVAL_MS = 20 * 1000;
+const BROWSER_ALARM_DEFAULT_MELODY_URL = '/sounds/user_join.mp3';
 
 const SCHEDULE_WEEKDAY_BY_KEY = SCHEDULE_WEEKDAYS.reduce((acc, weekday) => {
   acc[weekday.key] = weekday;
@@ -157,6 +163,75 @@ const formatMinutesAsDisplayTime = (minutes, use24HourFormat = true) => {
 };
 
 const isTrialEntry = (entry) => !String(entry?.studentId || '').trim();
+const resolveStudentLessonSubjectFallback = (studentName) => {
+  const normalized = String(studentName || '').trim();
+  return normalized || 'Занятие';
+};
+const buildScheduleSlotAlarmKey = (entry) => {
+  const explicitId = String(entry?.id || '').trim();
+  if (explicitId) return explicitId;
+  const studentId = String(entry?.studentId || '').trim() || 'trial';
+  const dateKey = String(entry?.date || '').trim() || String(entry?.weekdayKey || '').trim() || String(entry?.day || '').trim();
+  const time = String(entry?.time || '').trim();
+  return `${studentId}:${dateKey}:${time}`;
+};
+
+const getScheduleOccurrenceCandidatesMsForAlarm = (entry, nowMs = Date.now()) => {
+  const timeMinutes = parseScheduleTimeToMinutes(entry?.time);
+  if (!Number.isFinite(timeMinutes)) return [];
+  const hours = Math.floor(timeMinutes / 60);
+  const minutes = timeMinutes % 60;
+  const excludedSet = new Set(normalizeExcludedDayKeys(entry?.excludedDates));
+  const dateRaw = String(entry?.date || '').trim();
+  if (dateRaw && /^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) {
+    if (excludedSet.has(dateRaw)) return [];
+    const exactMs = Date.parse(`${dateRaw}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`);
+    return Number.isFinite(exactMs) ? [exactMs] : [];
+  }
+
+  const weekdayMeta = resolveScheduleWeekdayMeta(entry);
+  if (!weekdayMeta?.order) return [];
+  const now = Number.isFinite(nowMs) ? new Date(nowMs) : new Date();
+  const todayOrder = now.getDay() === 0 ? 7 : now.getDay();
+  const baseDiffDays = weekdayMeta.order - todayOrder;
+  const list = [];
+  for (let weekShift = -1; weekShift <= 1; weekShift += 1) {
+    const candidate = new Date(now);
+    candidate.setHours(0, 0, 0, 0);
+    candidate.setDate(candidate.getDate() + baseDiffDays + (weekShift * 7));
+    const candidateDayKey = toDayKey(candidate);
+    if (candidateDayKey && excludedSet.has(candidateDayKey)) continue;
+    candidate.setHours(hours, minutes, 0, 0);
+    const candidateMs = candidate.getTime();
+    if (Number.isFinite(candidateMs)) list.push(candidateMs);
+  }
+  return list;
+};
+
+const findDueBrowserAlarmOccurrence = (entry, nowMs = Date.now()) => {
+  const slotId = buildScheduleSlotAlarmKey(entry);
+  if (!slotId) return null;
+  const candidates = getScheduleOccurrenceCandidatesMsForAlarm(entry, nowMs);
+  if (candidates.length === 0) return null;
+  let best = null;
+  candidates.forEach((startMs) => {
+    if (!Number.isFinite(startMs)) return;
+    const reminderAtMs = startMs - BROWSER_ALARM_LEAD_MS;
+    const delta = nowMs - reminderAtMs;
+    if (delta < 0 || delta > BROWSER_ALARM_TRIGGER_WINDOW_MS) return;
+    if (nowMs >= startMs) return;
+    if (!best || delta < best.delta) {
+      best = { startMs, reminderAtMs, delta };
+    }
+  });
+  if (!best) return null;
+  return {
+    slotId,
+    startMs: best.startMs,
+    reminderAtMs: best.reminderAtMs,
+    occurrenceKey: new Date(best.startMs).toISOString(),
+  };
+};
 
 const clampNumber = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -339,6 +414,17 @@ const TeacherCalendarSection = ({
   const [teacherReminderLoading, setTeacherReminderLoading] = useState(false);
   const [teacherReminderSaving, setTeacherReminderSaving] = useState(false);
   const [teacherReminderError, setTeacherReminderError] = useState('');
+  const [teacherTestPushSending, setTeacherTestPushSending] = useState(false);
+  const [teacherTestPushError, setTeacherTestPushError] = useState('');
+  const [teacherTestPushSuccess, setTeacherTestPushSuccess] = useState('');
+  const [browserAlarmEnabled, setBrowserAlarmEnabled] = useState(false);
+  const [browserAlarmCustomMelodyUrl, setBrowserAlarmCustomMelodyUrl] = useState('');
+  const [browserAlarmUploadedMelodyUrl, setBrowserAlarmUploadedMelodyUrl] = useState('');
+  const [browserAlarmUploadedMelodyName, setBrowserAlarmUploadedMelodyName] = useState('');
+  const [browserAlarmRinging, setBrowserAlarmRinging] = useState(null);
+  const [browserAlarmTesting, setBrowserAlarmTesting] = useState(false);
+  const [browserAlarmError, setBrowserAlarmError] = useState('');
+  const [browserAlarmSuccess, setBrowserAlarmSuccess] = useState('');
   const [timelineViewportHeight, setTimelineViewportHeight] = useState(0);
   const [quickCreateDraft, setQuickCreateDraft] = useState(null);
   const [quickCreateSaving, setQuickCreateSaving] = useState(false);
@@ -364,6 +450,10 @@ const TeacherCalendarSection = ({
   const [draggingEvent, setDraggingEvent] = useState(null);
   const [dragPreview, setDragPreview] = useState(null);
   const [dragRecurringChoiceModal, setDragRecurringChoiceModal] = useState(null);
+  const browserAlarmFileInputRef = useRef(null);
+  const browserAlarmAudioRef = useRef(null);
+  const browserAlarmFiredRef = useRef(new Map());
+  const browserAlarmObjectUrlRef = useRef('');
   const quickCreateClickSuppressedUntilRef = useRef(0);
   const timelineViewportRef = useRef(null);
 
@@ -445,6 +535,52 @@ const TeacherCalendarSection = ({
     sidebarCollapsed,
     use24HourFormat,
   ]);
+
+  const browserAlarmMelodyUrl = useMemo(() => {
+    const uploaded = String(browserAlarmUploadedMelodyUrl || '').trim();
+    if (uploaded) return uploaded;
+    const custom = String(browserAlarmCustomMelodyUrl || '').trim();
+    return custom || BROWSER_ALARM_DEFAULT_MELODY_URL;
+  }, [browserAlarmCustomMelodyUrl, browserAlarmUploadedMelodyUrl]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(CALENDAR_BROWSER_ALARM_PREFS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return;
+      if (typeof parsed.enabled === 'boolean') setBrowserAlarmEnabled(parsed.enabled);
+      if (typeof parsed.customMelodyUrl === 'string') setBrowserAlarmCustomMelodyUrl(parsed.customMelodyUrl);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const payload = {
+      enabled: browserAlarmEnabled,
+      customMelodyUrl: String(browserAlarmCustomMelodyUrl || '').trim(),
+    };
+    try {
+      window.localStorage.setItem(CALENDAR_BROWSER_ALARM_PREFS_STORAGE_KEY, JSON.stringify(payload));
+    } catch {}
+  }, [browserAlarmCustomMelodyUrl, browserAlarmEnabled]);
+
+  useEffect(() => () => {
+    const audio = browserAlarmAudioRef.current;
+    if (audio) {
+      try {
+        audio.pause();
+      } catch {}
+      browserAlarmAudioRef.current = null;
+    }
+    const objectUrl = browserAlarmObjectUrlRef.current;
+    if (objectUrl && typeof window !== 'undefined' && window.URL?.revokeObjectURL) {
+      try {
+        window.URL.revokeObjectURL(objectUrl);
+      } catch {}
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -593,6 +729,7 @@ const TeacherCalendarSection = ({
     if (!teacherId || teacherReminderSaving) return;
     setTeacherReminderSaving(true);
     setTeacherReminderError('');
+    setTeacherTestPushError('');
     try {
       let effectivePushEnabled = pushEnabled;
       if (!pushEnabled && typeof onTogglePush === 'function') {
@@ -613,6 +750,132 @@ const TeacherCalendarSection = ({
     }
   };
 
+  const stopBrowserAlarmAudio = useCallback(() => {
+    const audio = browserAlarmAudioRef.current;
+    if (!audio) return;
+    try {
+      audio.pause();
+    } catch {}
+    try {
+      audio.currentTime = 0;
+    } catch {}
+    audio.onended = null;
+    audio.onerror = null;
+    browserAlarmAudioRef.current = null;
+  }, []);
+
+  const playBrowserAlarmAudio = useCallback(async ({ loop = false } = {}) => {
+    if (typeof window === 'undefined') {
+      throw new Error('Будильник доступен только в браузере.');
+    }
+    stopBrowserAlarmAudio();
+    const source = String(browserAlarmMelodyUrl || '').trim();
+    if (!source) throw new Error('Укажите мелодию для будильника.');
+    const audio = new Audio(source);
+    audio.preload = 'auto';
+    audio.loop = Boolean(loop);
+    audio.volume = 1;
+    browserAlarmAudioRef.current = audio;
+    audio.onended = () => {
+      if (browserAlarmAudioRef.current === audio) browserAlarmAudioRef.current = null;
+    };
+    audio.onerror = () => {
+      if (browserAlarmAudioRef.current === audio) browserAlarmAudioRef.current = null;
+    };
+    try {
+      audio.currentTime = 0;
+      const playResult = audio.play?.();
+      if (playResult && typeof playResult.catch === 'function') {
+        await playResult;
+      }
+    } catch (error) {
+      if (browserAlarmAudioRef.current === audio) browserAlarmAudioRef.current = null;
+      throw error;
+    }
+  }, [browserAlarmMelodyUrl, stopBrowserAlarmAudio]);
+
+  const stopBrowserAlarm = useCallback(() => {
+    stopBrowserAlarmAudio();
+    setBrowserAlarmRinging(null);
+    setBrowserAlarmError('');
+  }, [stopBrowserAlarmAudio]);
+
+  const handleBrowserAlarmTest = useCallback(async () => {
+    if (browserAlarmTesting) return;
+    setBrowserAlarmTesting(true);
+    setBrowserAlarmError('');
+    setBrowserAlarmSuccess('');
+    try {
+      await playBrowserAlarmAudio({ loop: false });
+      setBrowserAlarmSuccess('Тест будильника воспроизведен.');
+    } catch (error) {
+      setBrowserAlarmError(
+        error?.name === 'NotAllowedError'
+          ? 'Браузер заблокировал звук. Нажмите на страницу и повторите.'
+          : 'Не удалось воспроизвести мелодию. Проверьте ссылку или выберите другой файл.'
+      );
+    } finally {
+      setBrowserAlarmTesting(false);
+    }
+  }, [browserAlarmTesting, playBrowserAlarmAudio]);
+
+  const clearBrowserAlarmUploadedMelody = useCallback(() => {
+    const objectUrl = browserAlarmObjectUrlRef.current;
+    if (objectUrl && typeof window !== 'undefined' && window.URL?.revokeObjectURL) {
+      try {
+        window.URL.revokeObjectURL(objectUrl);
+      } catch {}
+    }
+    browserAlarmObjectUrlRef.current = '';
+    setBrowserAlarmUploadedMelodyUrl('');
+    setBrowserAlarmUploadedMelodyName('');
+  }, []);
+
+  const handleBrowserAlarmFileSelect = useCallback((event) => {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+    if (typeof window === 'undefined' || !window.URL?.createObjectURL) {
+      setBrowserAlarmError('Не удалось загрузить мелодию в этом браузере.');
+      return;
+    }
+    clearBrowserAlarmUploadedMelody();
+    const nextUrl = window.URL.createObjectURL(file);
+    browserAlarmObjectUrlRef.current = nextUrl;
+    setBrowserAlarmUploadedMelodyUrl(nextUrl);
+    setBrowserAlarmUploadedMelodyName(String(file.name || '').trim() || 'Локальный файл');
+    setBrowserAlarmError('');
+    setBrowserAlarmSuccess('Локальная мелодия подключена.');
+    if (event?.target) event.target.value = '';
+  }, [clearBrowserAlarmUploadedMelody]);
+
+  const handleSendTeacherTestPush = async () => {
+    if (!teacherId || teacherReminderLoading || teacherReminderSaving || teacherTestPushSending) return;
+    setTeacherTestPushSending(true);
+    setTeacherTestPushError('');
+    setTeacherTestPushSuccess('');
+    setTeacherReminderError('');
+    try {
+      let effectivePushEnabled = pushEnabled;
+      if (!pushEnabled && typeof onTogglePush === 'function') {
+        await onTogglePush();
+        const status = await api.getPushSubscriptionStatus().catch(() => null);
+        effectivePushEnabled = Boolean(status?.subscribed);
+      }
+      if (!effectivePushEnabled) {
+        setTeacherTestPushError('Сначала включите push в браузере.');
+        return;
+      }
+      const result = await api.sendPushTestNotification();
+      const sentCount = Number(result?.sent);
+      const countText = Number.isFinite(sentCount) && sentCount > 1 ? ` (${sentCount})` : '';
+      setTeacherTestPushSuccess(`Тест push отправлен${countText}.`);
+    } catch (err) {
+      setTeacherTestPushError(err?.message || 'Не удалось отправить тест push.');
+    } finally {
+      setTeacherTestPushSending(false);
+    }
+  };
+
   const teacherReminderStatusText = useMemo(() => {
     if (teacherReminderLoading) return 'Проверяем настройки напоминаний...';
     if (!pushSupported) return 'Push не поддерживается в этом браузере.';
@@ -621,14 +884,89 @@ const TeacherCalendarSection = ({
       return 'Напоминания включены, но push выключены. Включите push, чтобы получать уведомления.';
     }
     if (!pushEnabled) return 'Сначала включите push, затем включите напоминания для календаря.';
-    if (teacherReminderEnabled) return 'Напоминания включены: учителю придет уведомление за 30 минут до урока.';
-    return 'Включите напоминания, чтобы получать уведомление за 30 минут до урока.';
+    if (teacherReminderEnabled) return 'Напоминания включены: учителю придет уведомление за 10 минут до урока.';
+    return 'Включите напоминания, чтобы получать уведомление за 10 минут до урока.';
   }, [
     pushEnabled,
     pushPermission,
     pushSupported,
     teacherReminderEnabled,
     teacherReminderLoading,
+  ]);
+
+  useEffect(() => {
+    if (!browserAlarmEnabled) {
+      stopBrowserAlarm();
+      return undefined;
+    }
+    if (typeof window === 'undefined') return undefined;
+
+    const tick = () => {
+      if (browserAlarmRinging) return;
+      const nowMs = Date.now();
+      const firedMap = browserAlarmFiredRef.current;
+      const staleThreshold = nowMs - (2 * 24 * 60 * 60 * 1000);
+      Array.from(firedMap.entries()).forEach(([key, ts]) => {
+        if (!Number.isFinite(ts) || ts < staleThreshold) firedMap.delete(key);
+      });
+
+      const dueItems = (Array.isArray(entries) ? entries : [])
+        .map((entry) => ({ entry, reminder: findDueBrowserAlarmOccurrence(entry, nowMs) }))
+        .filter((item) => item.reminder && item.reminder.slotId);
+      if (dueItems.length === 0) return;
+
+      dueItems.sort((left, right) => left.reminder.startMs - right.reminder.startMs);
+      const nextDue = dueItems.find((item) => {
+        const key = `${item.reminder.slotId}::${item.reminder.occurrenceKey}`;
+        return !firedMap.has(key);
+      });
+      if (!nextDue) return;
+
+      const alarmKey = `${nextDue.reminder.slotId}::${nextDue.reminder.occurrenceKey}`;
+      firedMap.set(alarmKey, nowMs);
+
+      const entry = nextDue.entry;
+      const hasStudent = Boolean(String(entry?.studentId || '').trim());
+      const studentName = studentNameById[String(entry?.studentId || '').trim()] || entry?.studentName || 'Ученик';
+      const subject = String(entry?.subject || '').trim();
+      const primaryLabel = hasStudent
+        ? studentName
+        : (subject || studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT);
+      const startsAtDate = new Date(nextDue.reminder.startMs);
+      const startMinutes = (startsAtDate.getHours() * 60) + startsAtDate.getMinutes();
+      const startLabel = formatMinutesAsDisplayTime(startMinutes, use24HourFormat);
+      const dateLabel = capitalize(startsAtDate.toLocaleDateString('ru-RU', {
+        day: 'numeric',
+        month: 'long',
+      }).replace(' г.', ''));
+
+      setBrowserAlarmRinging({
+        title: primaryLabel,
+        dateLabel,
+        timeLabel: startLabel,
+      });
+      setBrowserAlarmError('');
+      setBrowserAlarmSuccess('');
+      playBrowserAlarmAudio({ loop: true }).catch((error) => {
+        setBrowserAlarmError(
+          error?.name === 'NotAllowedError'
+            ? 'Браузер заблокировал звук будильника. Нажмите на страницу и проверьте "Тест будильник".'
+            : 'Не удалось воспроизвести мелодию будильника. Проверьте ссылку или файл.'
+        );
+      });
+    };
+
+    tick();
+    const timerId = window.setInterval(tick, BROWSER_ALARM_CHECK_INTERVAL_MS);
+    return () => window.clearInterval(timerId);
+  }, [
+    browserAlarmEnabled,
+    browserAlarmRinging,
+    entries,
+    playBrowserAlarmAudio,
+    stopBrowserAlarm,
+    studentNameById,
+    use24HourFormat,
   ]);
 
   const studentCalendars = useMemo(() => {
@@ -917,7 +1255,7 @@ const TeacherCalendarSection = ({
     if (Number.isFinite(startMinutes) && Number.isFinite(endMinutes)) {
       const startLabel = formatMinutesAsDisplayTime(startMinutes, use24HourFormat);
       const endLabel = formatMinutesAsDisplayTime(endMinutes, use24HourFormat);
-      return `${startLabel} - ${endLabel}`;
+      return `с ${startLabel} до ${endLabel}`;
     }
     const startRaw = String(eventDetails.time || '').trim();
     if (!startRaw) return '--:--';
@@ -928,7 +1266,7 @@ const TeacherCalendarSection = ({
       : DEFAULT_EVENT_DURATION_MINUTES;
     const startLabel = formatMinutesAsDisplayTime(startParsed, use24HourFormat);
     const endLabel = formatMinutesAsDisplayTime(startParsed + duration, use24HourFormat);
-    return `${startLabel} - ${endLabel}`;
+    return `с ${startLabel} до ${endLabel}`;
   }, [eventDetails, use24HourFormat]);
 
   const focusDateInputValue = useMemo(() => toDayKey(focusDate), [focusDate]);
@@ -1517,7 +1855,12 @@ const TeacherCalendarSection = ({
     setQuickCreateSaving(true);
     setQuickCreateError('');
     try {
-      const subject = String(quickCreateDraft.title || '').trim() || DEFAULT_ONE_TIME_LESSON_SUBJECT;
+      const selectedStudentName = studentNameById[studentId] || '';
+      const subject = String(quickCreateDraft.title || '').trim() || (
+        isTrialWithoutStudent
+          ? DEFAULT_ONE_TIME_LESSON_SUBJECT
+          : resolveStudentLessonSubjectFallback(selectedStudentName)
+      );
       const scheduleTarget = repeatMode === REPEAT_MODE_WEEKLY
         ? { weekdayKey: weekdayMeta.key }
         : { date: dateKey };
@@ -1547,13 +1890,15 @@ const TeacherCalendarSection = ({
     } finally {
       setQuickCreateSaving(false);
     }
-  }, [dayEndMinutes, dayStartMinutes, loadTeacherCalendar, quickCreateDraft, quickCreateSaving, teacherId]);
+  }, [dayEndMinutes, dayStartMinutes, loadTeacherCalendar, quickCreateDraft, quickCreateSaving, studentNameById, teacherId]);
 
   const openEventDetailsModal = useCallback((event, dayKey) => {
     const hasStudent = Boolean(String(event?.studentId || '').trim());
     const studentName = studentNameById[event?.studentId] || event?.studentName || 'Ученик';
     const subject = String(event?.subject || '').trim();
-    const subjectLabel = subject && subject.toLowerCase() !== 'занятие' ? subject : '';
+    const subjectLabel = !hasStudent && subject && subject.toLowerCase() !== 'занятие'
+      ? subject
+      : '';
     const primaryLabel = hasStudent
       ? studentName
       : (subjectLabel || studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT);
@@ -1716,12 +2061,16 @@ const TeacherCalendarSection = ({
     const duration = Number.isFinite(Number(eventDetails.durationMinutes))
       ? Math.round(Number(eventDetails.durationMinutes))
       : DEFAULT_EVENT_DURATION_MINUTES;
-    const subject = String(
-      eventDetails.subject
-      || eventDetails.subjectLabel
-      || eventDetails.studentName
-      || DEFAULT_ONE_TIME_LESSON_SUBJECT
-    ).trim() || DEFAULT_ONE_TIME_LESSON_SUBJECT;
+    const hasStudent = Boolean(String(eventDetails.studentId || '').trim());
+    const fallbackSubject = hasStudent
+      ? resolveStudentLessonSubjectFallback(eventDetails.studentName)
+      : DEFAULT_ONE_TIME_LESSON_SUBJECT;
+    const rawSubject = String(eventDetails.subject || eventDetails.subjectLabel || '').trim();
+    const subject = (
+      hasStudent && rawSubject.toLowerCase() === DEFAULT_ONE_TIME_LESSON_SUBJECT.toLowerCase()
+        ? fallbackSubject
+        : (rawSubject || fallbackSubject)
+    );
     setEventQuickActionBusy(true);
     setEventQuickActionError('');
     try {
@@ -1763,18 +2112,22 @@ const TeacherCalendarSection = ({
 
   const startEventEdit = useCallback(() => {
     if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy) return;
-    const currentTitle = String(
-      eventDetails.subject
-      || eventDetails.subjectLabel
-      || eventDetails.studentName
-      || DEFAULT_ONE_TIME_LESSON_SUBJECT
-    ).trim();
+    const hasStudent = Boolean(String(eventDetails.studentId || '').trim());
+    const fallbackTitle = hasStudent
+      ? resolveStudentLessonSubjectFallback(eventDetails.studentName)
+      : DEFAULT_ONE_TIME_LESSON_SUBJECT;
+    const rawSubject = String(eventDetails.subject || eventDetails.subjectLabel || '').trim();
+    const currentTitle = (
+      hasStudent && rawSubject.toLowerCase() === DEFAULT_ONE_TIME_LESSON_SUBJECT.toLowerCase()
+        ? fallbackTitle
+        : (rawSubject || fallbackTitle)
+    );
     const baseDateKey = resolveEventDateKey(eventDetails) || toDayKey(new Date());
     const repeatMode = String(eventDetails.date || '').trim()
       ? REPEAT_MODE_ONCE
       : REPEAT_MODE_WEEKLY;
     setEventEditDraft({
-      title: currentTitle || DEFAULT_ONE_TIME_LESSON_SUBJECT,
+      title: currentTitle,
       time: String(eventDetails.time || '').trim() || '09:00',
       durationMinutes: Number.isFinite(Number(eventDetails.durationMinutes))
         ? Math.round(Number(eventDetails.durationMinutes))
@@ -1801,7 +2154,11 @@ const TeacherCalendarSection = ({
       return;
     }
 
-    const title = String(eventEditDraft.title || '').trim() || DEFAULT_ONE_TIME_LESSON_SUBJECT;
+    const hasStudent = Boolean(String(eventDetails.studentId || '').trim());
+    const fallbackTitle = hasStudent
+      ? resolveStudentLessonSubjectFallback(eventDetails.studentName)
+      : DEFAULT_ONE_TIME_LESSON_SUBJECT;
+    const title = String(eventEditDraft.title || '').trim() || fallbackTitle;
     const time = String(eventEditDraft.time || '').trim();
     const startMinutes = parseScheduleTimeToMinutes(time);
     if (!Number.isFinite(startMinutes)) {
@@ -2260,10 +2617,101 @@ const TeacherCalendarSection = ({
                         ? 'Включить push'
                         : (teacherReminderEnabled ? 'Отключить напоминания' : 'Включить напоминания'))}
                 </button>
+                <button
+                  type="button"
+                  onClick={handleSendTeacherTestPush}
+                  disabled={teacherReminderLoading || teacherReminderSaving || teacherTestPushSending || pushSyncing || pushBusy || !pushReady}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Bell size={12} />
+                  {teacherTestPushSending ? 'Отправляем тест...' : 'Тест push'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBrowserAlarmEnabled((prev) => !prev);
+                    setBrowserAlarmError('');
+                    setBrowserAlarmSuccess('');
+                  }}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-semibold transition ${
+                    browserAlarmEnabled
+                      ? 'border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200'
+                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <Bell size={12} />
+                  {browserAlarmEnabled ? `Будильник: ${BROWSER_ALARM_LEAD_MINUTES}м` : 'Будильник выкл'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBrowserAlarmTest}
+                  disabled={browserAlarmTesting}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Bell size={12} />
+                  {browserAlarmTesting ? 'Проверяем звук...' : 'Тест будильник'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => browserAlarmFileInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-50"
+                >
+                  <Plus size={12} />
+                  Файл мелодии
+                </button>
+                <input
+                  ref={browserAlarmFileInputRef}
+                  type="file"
+                  accept="audio/*"
+                  onChange={handleBrowserAlarmFileSelect}
+                  className="hidden"
+                />
               </div>
-              {(teacherReminderError || pushError) && (
+              {(teacherReminderError || teacherTestPushError || pushError) && (
                 <div className="mt-1 text-xs text-rose-600">
-                  {teacherReminderError || pushError}
+                  {teacherReminderError || teacherTestPushError || pushError}
+                </div>
+              )}
+              {teacherTestPushSuccess && (
+                <div className="mt-1 text-xs text-emerald-700">
+                  {teacherTestPushSuccess}
+                </div>
+              )}
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <input
+                  type="url"
+                  value={browserAlarmCustomMelodyUrl}
+                  onChange={(event) => setBrowserAlarmCustomMelodyUrl(event.target.value)}
+                  placeholder="Ссылка на кастомную мелодию (mp3/ogg/wav)"
+                  className="min-w-[240px] flex-1 rounded-full border border-amber-200 bg-white px-3 py-1.5 text-xs text-slate-800 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                />
+                {browserAlarmUploadedMelodyName && (
+                  <button
+                    type="button"
+                    onClick={clearBrowserAlarmUploadedMelody}
+                    className="rounded-full border border-amber-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-50"
+                  >
+                    Убрать файл: {browserAlarmUploadedMelodyName}
+                  </button>
+                )}
+              </div>
+              {(browserAlarmError || browserAlarmSuccess) && (
+                <div className={`mt-1 text-xs ${browserAlarmError ? 'text-rose-600' : 'text-emerald-700'}`}>
+                  {browserAlarmError || browserAlarmSuccess}
+                </div>
+              )}
+              {browserAlarmRinging && (
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2">
+                  <div className="text-xs font-semibold text-rose-800">
+                    Будильник: {browserAlarmRinging.title} • {browserAlarmRinging.dateLabel}, {browserAlarmRinging.timeLabel}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={stopBrowserAlarm}
+                    className="rounded-full border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                  >
+                    Остановить
+                  </button>
                 </div>
               )}
               {error && (
@@ -2397,13 +2845,13 @@ const TeacherCalendarSection = ({
                                 const hasStudent = Boolean(String(event.studentId || '').trim());
                                 const studentName = studentNameById[event.studentId] || event.studentName || 'Ученик';
                                 const subject = String(event.subject || '').trim();
-                                const subjectLabel = subject && subject.toLowerCase() !== 'занятие'
+                                const subjectLabel = !hasStudent && subject && subject.toLowerCase() !== 'занятие'
                                   ? subject
                                   : '';
                                 const primaryLabel = hasStudent
                                   ? studentName
                                   : (subjectLabel || studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT);
-                                const showSubjectInCard = Boolean(hasStudent && subjectLabel && subjectLabel !== primaryLabel);
+                                const showSubjectInCard = Boolean(subjectLabel && subjectLabel !== primaryLabel);
                                 const startLabel = formatMinutesAsDisplayTime(event.startMinutes, use24HourFormat);
                                 const endLabel = formatMinutesAsDisplayTime(event.endMinutes, use24HourFormat);
                                 const color = getEventColor(event.studentId || studentName || `${dayIndex}-${index}`);
@@ -2413,7 +2861,7 @@ const TeacherCalendarSection = ({
                                 return (
                                   <div
                                     key={event.id || `${dayKey}-${event.time}-${event.studentId}-${index}`}
-                                    title={`${primaryLabel}${showSubjectInCard ? ` • ${subjectLabel}` : ''} • ${startLabel}-${endLabel}`}
+                                    title={`${primaryLabel}${showSubjectInCard ? ` • ${subjectLabel}` : ''} • с ${startLabel} до ${endLabel}`}
                                     className={`teacher-calendar-shell__event-card absolute z-10 overflow-hidden rounded-md border px-2 py-1 text-white shadow-sm ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
                                     draggable={!dragDropBusy && !eventDeleteBusy && !eventEditSaving && !eventQuickActionBusy}
                                     style={{
@@ -2537,6 +2985,7 @@ const TeacherCalendarSection = ({
                 onClick={() => setQuickCreateDraft((prev) => (prev ? {
                   ...prev,
                   studentId: TRIAL_WITHOUT_STUDENT_VALUE,
+                  title: String(prev.title || '').trim() || DEFAULT_ONE_TIME_LESSON_SUBJECT,
                 } : prev))}
                 disabled={quickCreateSaving || quickCreateFindingSlot}
                 className={`flex-1 px-3 py-2 ${quickCreateIsTrialWithoutStudent ? 'bg-sky-100 text-sky-700' : 'text-slate-700 hover:bg-slate-50'} disabled:cursor-not-allowed disabled:opacity-60`}
@@ -2545,10 +2994,14 @@ const TeacherCalendarSection = ({
               </button>
               <button
                 type="button"
-                onClick={() => setQuickCreateDraft((prev) => (prev ? {
-                  ...prev,
-                  studentId: firstStudentOptionId || prev.studentId,
-                } : prev))}
+                onClick={() => setQuickCreateDraft((prev) => {
+                  if (!prev) return prev;
+                  return {
+                    ...prev,
+                    studentId: firstStudentOptionId || prev.studentId,
+                    title: '',
+                  };
+                })}
                 disabled={quickCreateSaving || quickCreateFindingSlot || !firstStudentOptionId}
                 className={`flex-1 border-l border-purple-100 px-3 py-2 ${
                   !quickCreateIsTrialWithoutStudent ? 'bg-emerald-100 text-emerald-700' : 'text-slate-700 hover:bg-slate-50'
@@ -2611,18 +3064,26 @@ const TeacherCalendarSection = ({
               </button>
             </div>
 
-            <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Название
-            </label>
-            <input
-              type="text"
-              value={quickCreateDraft.title}
-              onChange={(event) => setQuickCreateDraft((prev) => (prev ? { ...prev, title: event.target.value } : prev))}
-              disabled={quickCreateSaving || quickCreateFindingSlot}
-              placeholder={DEFAULT_ONE_TIME_LESSON_SUBJECT}
-              className="mt-1 w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
-              maxLength={80}
-            />
+            {quickCreateIsTrialWithoutStudent ? (
+              <>
+                <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Название
+                </label>
+                <input
+                  type="text"
+                  value={quickCreateDraft.title}
+                  onChange={(event) => setQuickCreateDraft((prev) => (prev ? { ...prev, title: event.target.value } : prev))}
+                  disabled={quickCreateSaving || quickCreateFindingSlot}
+                  placeholder={DEFAULT_ONE_TIME_LESSON_SUBJECT}
+                  className="mt-1 w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
+                  maxLength={80}
+                />
+              </>
+            ) : (
+              <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
+                Для занятия с учеником название не требуется: в карточке будут имя ученика и время.
+              </div>
+            )}
 
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="block">
@@ -2750,7 +3211,9 @@ const TeacherCalendarSection = ({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-lg font-semibold text-slate-900">
-                  {eventDetails.subjectLabel || eventDetails.subject || 'Занятие'}
+                  {String(eventDetails.studentId || '').trim()
+                    ? (eventDetails.studentName || 'Ученик')
+                    : (eventDetails.subjectLabel || eventDetails.subject || 'Занятие')}
                 </div>
                 <div className="text-xs text-slate-500">{eventDetailsDateLabel}</div>
               </div>
@@ -2766,17 +3229,25 @@ const TeacherCalendarSection = ({
 
             {eventEditDraft ? (
               <div className="mt-4 space-y-3">
-                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Название
-                </label>
-                <input
-                  type="text"
-                  value={eventEditDraft.title}
-                  onChange={(event) => setEventEditDraft((prev) => (prev ? { ...prev, title: event.target.value } : prev))}
-                  disabled={eventEditSaving || eventDeleteBusy}
-                  maxLength={80}
-                  className="w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
-                />
+                {String(eventDetails.studentId || '').trim() ? (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
+                    Для занятия с учеником название не требуется: используется имя ученика.
+                  </div>
+                ) : (
+                  <>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Название
+                    </label>
+                    <input
+                      type="text"
+                      value={eventEditDraft.title}
+                      onChange={(event) => setEventEditDraft((prev) => (prev ? { ...prev, title: event.target.value } : prev))}
+                      disabled={eventEditSaving || eventDeleteBusy}
+                      maxLength={80}
+                      className="w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
+                    />
+                  </>
+                )}
                 <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Повтор
                 </label>

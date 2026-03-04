@@ -215,6 +215,13 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  sendPushTestNotification: async () => {
+    const res = await apiFetch('/api/push/test', {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getPushLessonReminderSetting: async (studentId = '') => {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', String(studentId));
