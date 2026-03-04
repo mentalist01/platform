@@ -1945,10 +1945,10 @@ const TeacherCalendarSection = ({
   }, [dragDropBusy, eventDeleteBusy, eventDetails, eventEditDraft, eventEditSaving, eventQuickActionBusy]);
 
   return (
-    <section className="relative h-[calc(var(--app-vh,1vh)*100-8.25rem)] overflow-hidden rounded-[28px] border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/60 to-fuchsia-50/45 shadow-[0_18px_38px_rgba(99,102,241,0.16)] md:h-[calc(var(--app-vh,1vh)*100-7rem)]">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_6%_0%,rgba(59,130,246,0.16),transparent_38%),radial-gradient(circle_at_96%_2%,rgba(217,70,239,0.15),transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.28),rgba(255,255,255,0))]" />
+    <section className="teacher-calendar-shell relative h-[calc(var(--app-vh,1vh)*100-8.25rem)] overflow-hidden rounded-[28px] border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/60 to-fuchsia-50/45 shadow-[0_18px_38px_rgba(99,102,241,0.16)] md:h-[calc(var(--app-vh,1vh)*100-7rem)]">
+      <div className="teacher-calendar-shell__glow pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_6%_0%,rgba(59,130,246,0.16),transparent_38%),radial-gradient(circle_at_96%_2%,rgba(217,70,239,0.15),transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.28),rgba(255,255,255,0))]" />
       <div className="relative z-10 flex h-full min-h-0 flex-col overflow-hidden rounded-[28px]">
-        <div className="flex h-12 items-center justify-between border-b border-purple-200/70 bg-white/75 px-3 backdrop-blur-xl">
+        <div className="teacher-calendar-shell__topbar flex h-12 items-center justify-between border-b border-purple-200/70 bg-white/75 px-3 backdrop-blur-xl">
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -1989,7 +1989,7 @@ const TeacherCalendarSection = ({
           className="min-h-0 flex-1 grid"
           style={{ gridTemplateColumns: `${sidebarCollapsed ? 76 : 240}px minmax(0, 1fr)` }}
         >
-          <aside className={`${sidebarCollapsed ? 'w-[76px]' : 'w-60'} overflow-hidden border-r border-purple-200/65 bg-gradient-to-b from-white/80 via-violet-50/45 to-fuchsia-50/35 p-3 backdrop-blur-md`}>
+          <aside className={`teacher-calendar-shell__sidebar ${sidebarCollapsed ? 'w-[76px]' : 'w-60'} overflow-hidden border-r border-purple-200/65 bg-gradient-to-b from-white/80 via-violet-50/45 to-fuchsia-50/35 p-3 backdrop-blur-md`}>
             <button
               type="button"
               onClick={openQuickCreateForFocusDate}
@@ -2132,8 +2132,8 @@ const TeacherCalendarSection = ({
             )}
           </aside>
 
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-white/72 backdrop-blur-[2px]">
-            <div className="border-b border-purple-200/70 bg-white/75 px-3 py-2 backdrop-blur-md">
+          <div className="teacher-calendar-shell__main flex min-h-0 min-w-0 flex-1 flex-col bg-white/72 backdrop-blur-[2px]">
+            <div className="teacher-calendar-shell__toolbar border-b border-purple-200/70 bg-white/75 px-3 py-2 backdrop-blur-md">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                   <button
@@ -2286,7 +2286,7 @@ const TeacherCalendarSection = ({
             <div className="min-h-0 flex-1 overflow-hidden">
               <div className="flex h-full min-h-0 flex-col">
                 <div
-                  className="grid border-b border-purple-200/75 bg-gradient-to-r from-violet-50/70 via-white/95 to-fuchsia-50/60"
+                  className="teacher-calendar-shell__grid-header grid border-b border-purple-200/75 bg-gradient-to-r from-violet-50/70 via-white/95 to-fuchsia-50/60"
                   style={{ gridTemplateColumns: `72px repeat(${visibleDayIndexes.length}, minmax(0, 1fr))` }}
                 >
                   <div className="px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
@@ -2334,7 +2334,7 @@ const TeacherCalendarSection = ({
                         className="grid"
                         style={{ gridTemplateColumns: `72px repeat(${visibleDayIndexes.length}, minmax(0, 1fr))` }}
                       >
-                        <div className="relative border-r border-purple-200/70 bg-white/85" style={{ height: `${calendarHeight}px` }}>
+                        <div className="teacher-calendar-shell__time-col relative border-r border-purple-200/70 bg-white/85" style={{ height: `${calendarHeight}px` }}>
                           {hourTicks.map((hour, index) => (
                             <div
                               key={`time-label-${hour}`}
@@ -2355,7 +2355,7 @@ const TeacherCalendarSection = ({
                           return (
                             <div
                               key={`day-column-${dayKey}`}
-                              className={`relative cursor-pointer border-r border-purple-200/70 transition-colors ${dayColumnIndex === visibleDayIndexes.length - 1 ? 'border-r-0' : ''} ${
+                              className={`teacher-calendar-shell__day-col relative cursor-pointer border-r border-purple-200/70 transition-colors ${dayColumnIndex === visibleDayIndexes.length - 1 ? 'border-r-0' : ''} ${
                                 isToday ? 'bg-violet-100/45' : 'bg-white/75 hover:bg-violet-50/55'
                               } ${dragPreview?.dayKey === dayKey ? 'bg-violet-100/65' : ''}`}
                               style={{ height: `${calendarHeight}px` }}
@@ -2367,7 +2367,7 @@ const TeacherCalendarSection = ({
                               {hourTicks.map((hour, index) => (
                                 <div
                                   key={`grid-line-${dayKey}-${hour}`}
-                                  className="absolute left-0 right-0 border-t border-purple-200/65"
+                                  className="teacher-calendar-shell__grid-line absolute left-0 right-0 border-t border-purple-200/65"
                                   style={{ top: `${index * hourHeight}px` }}
                                 />
                               ))}
@@ -2414,7 +2414,7 @@ const TeacherCalendarSection = ({
                                   <div
                                     key={event.id || `${dayKey}-${event.time}-${event.studentId}-${index}`}
                                     title={`${primaryLabel}${showSubjectInCard ? ` • ${subjectLabel}` : ''} • ${startLabel}-${endLabel}`}
-                                    className={`absolute z-10 overflow-hidden rounded-md border px-2 py-1 text-white shadow-sm ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
+                                    className={`teacher-calendar-shell__event-card absolute z-10 overflow-hidden rounded-md border px-2 py-1 text-white shadow-sm ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
                                     draggable={!dragDropBusy && !eventDeleteBusy && !eventEditSaving && !eventQuickActionBusy}
                                     style={{
                                       top: `${top}px`,
@@ -2461,11 +2461,11 @@ const TeacherCalendarSection = ({
       </div>
       {dragRecurringChoiceModal && (
         <div
-          className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]"
+          className="teacher-calendar-shell__modal-backdrop absolute inset-0 z-40 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]"
           onClick={closeDragRecurringChoiceModal}
         >
           <div
-            className="surface-panel modal-card w-full max-w-md rounded-2xl border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/65 to-fuchsia-50/55 p-4 shadow-2xl"
+            className="teacher-calendar-shell__modal surface-panel modal-card w-full max-w-md rounded-2xl border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/65 to-fuchsia-50/55 p-4 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="text-lg font-semibold text-slate-900">Перенос повторяющегося занятия</div>
@@ -2505,11 +2505,11 @@ const TeacherCalendarSection = ({
       )}
       {quickCreateDraft && (
         <div
-          className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]"
+          className="teacher-calendar-shell__modal-backdrop absolute inset-0 z-40 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]"
           onClick={closeQuickCreate}
         >
           <form
-            className="surface-panel modal-card w-full max-w-md rounded-2xl border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/65 to-fuchsia-50/55 p-4 shadow-2xl"
+            className="teacher-calendar-shell__modal surface-panel modal-card w-full max-w-md rounded-2xl border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/65 to-fuchsia-50/55 p-4 shadow-2xl"
             onSubmit={handleQuickCreateSave}
             onClick={(event) => event.stopPropagation()}
           >
@@ -2740,11 +2740,11 @@ const TeacherCalendarSection = ({
       )}
       {eventDetails && (
         <div
-          className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]"
+          className="teacher-calendar-shell__modal-backdrop absolute inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]"
           onClick={closeEventDetails}
         >
           <div
-            className="surface-panel modal-card w-full max-w-md rounded-2xl border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/65 to-fuchsia-50/55 p-4 shadow-2xl"
+            className="teacher-calendar-shell__modal surface-panel modal-card w-full max-w-md rounded-2xl border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/65 to-fuchsia-50/55 p-4 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">

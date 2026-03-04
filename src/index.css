@@ -3224,6 +3224,232 @@ html[data-theme='dark'] .teacher-signup-send {
   box-shadow: 0 12px 24px rgba(76, 29, 149, 0.28);
 }
 
+html[data-theme='dark'] .teacher-calendar-shell {
+  border-color: rgba(129, 140, 248, 0.4) !important;
+  background:
+    radial-gradient(circle at 8% -14%, rgba(56, 189, 248, 0.2), transparent 42%),
+    radial-gradient(circle at 96% -18%, rgba(167, 139, 250, 0.22), transparent 48%),
+    linear-gradient(162deg, rgba(15, 23, 42, 0.96), rgba(2, 6, 23, 0.95)) !important;
+  box-shadow:
+    0 24px 56px rgba(2, 6, 23, 0.58),
+    inset 0 1px 0 rgba(148, 163, 184, 0.13);
+}
+
+html[data-theme='dark'] .teacher-calendar-shell__glow {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(56, 189, 248, 0.18), transparent 38%),
+    radial-gradient(circle at 94% 2%, rgba(129, 140, 248, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.28), rgba(15, 23, 42, 0)) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell__topbar,
+html[data-theme='dark'] .teacher-calendar-shell__toolbar {
+  border-color: rgba(99, 102, 241, 0.36) !important;
+  background: rgba(15, 23, 42, 0.76) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell__sidebar {
+  border-color: rgba(99, 102, 241, 0.34) !important;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.82), rgba(30, 41, 59, 0.72)),
+    radial-gradient(circle at 10% -12%, rgba(56, 189, 248, 0.1), transparent 44%) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell__main {
+  background: rgba(15, 23, 42, 0.72) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell__grid-header {
+  border-color: rgba(99, 102, 241, 0.34) !important;
+  background:
+    linear-gradient(90deg, rgba(30, 41, 59, 0.88), rgba(15, 23, 42, 0.88), rgba(49, 46, 129, 0.32)) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell__time-col {
+  border-color: rgba(99, 102, 241, 0.32) !important;
+  background: rgba(15, 23, 42, 0.82) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell__day-col {
+  border-color: rgba(99, 102, 241, 0.32) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell__day-col:hover {
+  background-color: rgba(30, 41, 59, 0.9) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell__grid-line {
+  border-color: rgba(99, 102, 241, 0.24) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell__modal-backdrop {
+  background: rgba(2, 6, 23, 0.66) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell__modal {
+  border-color: rgba(129, 140, 248, 0.42) !important;
+  background:
+    radial-gradient(circle at 12% -12%, rgba(56, 189, 248, 0.16), transparent 42%),
+    radial-gradient(circle at 95% -14%, rgba(167, 139, 250, 0.2), transparent 44%),
+    linear-gradient(170deg, rgba(15, 23, 42, 0.95), rgba(2, 6, 23, 0.94)) !important;
+  box-shadow:
+    0 28px 52px rgba(2, 6, 23, 0.66),
+    inset 0 1px 0 rgba(148, 163, 184, 0.16);
+}
+
+html[data-theme='dark'] .teacher-calendar-shell .bg-white\/72 {
+  background-color: rgba(15, 23, 42, 0.82) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell .bg-violet-100\/45,
+html[data-theme='dark'] .teacher-calendar-shell .bg-violet-100\/65 {
+  background-color: rgba(79, 70, 229, 0.28) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell .hover\:bg-violet-50\/55:hover {
+  background-color: rgba(76, 29, 149, 0.3) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell .border-purple-200\/65,
+html[data-theme='dark'] .teacher-calendar-shell .border-purple-200\/75,
+html[data-theme='dark'] .teacher-calendar-shell .border-purple-200\/85 {
+  border-color: rgba(167, 139, 250, 0.5) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell .text-violet-900 {
+  color: rgb(224, 231, 255) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell .ring-offset-white {
+  --tw-ring-offset-color: rgba(15, 23, 42, 0.94) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell input[type='date'],
+html[data-theme='dark'] .teacher-calendar-shell input[type='time'],
+html[data-theme='dark'] .teacher-calendar-shell select {
+  color-scheme: dark;
+}
+
+html[data-theme='dark'] .schedule-shell__hero {
+  border-color: rgba(129, 140, 248, 0.38) !important;
+  background:
+    radial-gradient(circle at 12% -16%, rgba(56, 189, 248, 0.2), transparent 42%),
+    radial-gradient(circle at 96% -12%, rgba(167, 139, 250, 0.2), transparent 46%),
+    linear-gradient(165deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.9)) !important;
+  box-shadow:
+    0 20px 40px rgba(2, 6, 23, 0.52),
+    inset 0 1px 0 rgba(148, 163, 184, 0.14);
+}
+
+html[data-theme='dark'] .schedule-shell__hero-glow--a {
+  background-color: rgba(129, 140, 248, 0.28) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__hero-glow--b {
+  background-color: rgba(56, 189, 248, 0.24) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__view-switch {
+  border-color: rgba(100, 116, 139, 0.44) !important;
+  background: rgba(15, 23, 42, 0.82) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__next-step {
+  border-color: rgba(100, 116, 139, 0.42) !important;
+  background: rgba(15, 23, 42, 0.78) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__lessons-card {
+  border-color: rgba(56, 189, 248, 0.42) !important;
+  background:
+    linear-gradient(160deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.82)),
+    radial-gradient(circle at 92% -12%, rgba(56, 189, 248, 0.14), transparent 48%) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__lessons-count {
+  border-color: rgba(56, 189, 248, 0.46) !important;
+  background: rgba(15, 23, 42, 0.86) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__reminder-card,
+html[data-theme='dark'] .schedule-shell__student-requests-card {
+  border-color: rgba(99, 102, 241, 0.4) !important;
+  background: rgba(15, 23, 42, 0.78) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__notice-success {
+  border-color: rgba(52, 211, 153, 0.45) !important;
+  background: rgba(6, 78, 59, 0.4) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__requests-card {
+  border-color: rgba(251, 191, 36, 0.48) !important;
+  background:
+    linear-gradient(150deg, rgba(120, 53, 15, 0.3), rgba(30, 41, 59, 0.76)),
+    radial-gradient(circle at 92% 10%, rgba(251, 191, 36, 0.16), transparent 52%) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__request-item,
+html[data-theme='dark'] .schedule-shell__request-row {
+  border-color: rgba(100, 116, 139, 0.46) !important;
+  background: rgba(15, 23, 42, 0.82) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__field {
+  border-color: rgba(56, 189, 248, 0.44) !important;
+  background: rgba(15, 23, 42, 0.84) !important;
+  color: rgb(226, 232, 240) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__field:focus {
+  border-color: rgba(56, 189, 248, 0.72) !important;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
+}
+
+html[data-theme='dark'] .schedule-shell__cancel-btn {
+  border-color: rgba(100, 116, 139, 0.46) !important;
+  background: rgba(15, 23, 42, 0.84) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__loading {
+  background: rgba(30, 41, 59, 0.82) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__empty {
+  border-color: rgba(100, 116, 139, 0.44) !important;
+  background: rgba(15, 23, 42, 0.66) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__slot-card {
+  border-color: rgba(56, 189, 248, 0.42) !important;
+  background:
+    linear-gradient(162deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.86)) !important;
+  box-shadow:
+    0 14px 30px rgba(2, 6, 23, 0.42),
+    inset 0 1px 0 rgba(125, 211, 252, 0.08);
+}
+
+html[data-theme='dark'] .schedule-shell__chip-day {
+  border-color: rgba(56, 189, 248, 0.48) !important;
+  background: rgba(8, 47, 73, 0.48) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__chip-time,
+html[data-theme='dark'] .schedule-shell__chip-date,
+html[data-theme='dark'] .schedule-shell__slot-edit {
+  border-color: rgba(100, 116, 139, 0.46) !important;
+  background: rgba(15, 23, 42, 0.82) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__slot-delete {
+  border-color: rgba(251, 113, 133, 0.54) !important;
+  background: rgba(127, 29, 29, 0.44) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__field {
+  color-scheme: dark;
+}
+
 html[data-theme='dark'] .call-controls-wrap::before {
   background: linear-gradient(118deg, rgba(148, 163, 184, 0.12), transparent 35%, rgba(56, 189, 248, 0.12) 56%, transparent 74%);
   opacity: 0.3;
