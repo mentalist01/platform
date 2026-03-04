@@ -337,6 +337,7 @@ let pushRuntimeEnabled = false;
 let pushRuntimeConfigError = '';
 let pushSweepInFlight = false;
 let pushLessonSweepInFlight = false;
+let pushTeacherCalendarSweepInFlight = false;
 
 const normalizeDayKey = (value) => {
   if (typeof value !== 'string') return null;
@@ -764,6 +765,32 @@ const normalizePushLessonReminderSettingsByStudent = (value) => {
   return result;
 };
 
+const normalizePushTeacherCalendarReminderSettingsEntry = (value) => {
+  if (typeof value === 'boolean') {
+    return { enabled: value, updatedAt: '' };
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return {
+    enabled: Boolean(value.enabled),
+    updatedAt: typeof value.updatedAt === 'string' && value.updatedAt.trim()
+      ? value.updatedAt.trim()
+      : '',
+  };
+};
+
+const normalizePushTeacherCalendarReminderSettingsByTeacher = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result = {};
+  Object.entries(value).forEach(([teacherId, entry]) => {
+    const id = String(teacherId || '').trim();
+    if (!id) return;
+    const normalized = normalizePushTeacherCalendarReminderSettingsEntry(entry);
+    if (!normalized) return;
+    result[id] = normalized;
+  });
+  return result;
+};
+
 const normalizePushLessonReminderStateEntry = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const slotId = typeof value.slotId === 'string' ? value.slotId.trim() : '';
@@ -799,6 +826,41 @@ const normalizePushLessonReminderStateByStudent = (value) => {
   return result;
 };
 
+const normalizePushTeacherCalendarReminderStateEntry = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const slotKey = typeof value.slotKey === 'string' ? value.slotKey.trim() : '';
+  const occurrenceKey = typeof value.occurrenceKey === 'string' ? value.occurrenceKey.trim() : '';
+  const sentAt = typeof value.sentAt === 'string' ? value.sentAt.trim() : '';
+  if (!slotKey || !occurrenceKey || !sentAt) return null;
+  return {
+    slotKey,
+    occurrenceKey,
+    sentAt,
+  };
+};
+
+const normalizePushTeacherCalendarReminderStateByTeacher = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result = {};
+  Object.entries(value).forEach(([teacherId, list]) => {
+    const id = String(teacherId || '').trim();
+    if (!id) return;
+    const source = Array.isArray(list)
+      ? list
+      : (list && typeof list === 'object' ? Object.values(list) : []);
+    const unique = [];
+    const seen = new Set();
+    source.forEach((entry) => {
+      const normalized = normalizePushTeacherCalendarReminderStateEntry(entry);
+      if (!normalized || seen.has(normalized.slotKey)) return;
+      seen.add(normalized.slotKey);
+      unique.push(normalized);
+    });
+    if (unique.length > 0) result[id] = unique;
+  });
+  return result;
+};
+
 const normalizePushVapidKeys = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const publicKey = typeof value.publicKey === 'string' ? value.publicKey.trim() : '';
@@ -814,6 +876,8 @@ const getDefaultPushDb = () => ({
   remindersByStudent: {},
   lessonReminderSettingsByStudent: {},
   lessonReminderStateByStudent: {},
+  teacherCalendarReminderSettingsByTeacher: {},
+  teacherCalendarReminderStateByTeacher: {},
 });
 
 const readPushDb = () => {
@@ -831,6 +895,8 @@ const readPushDb = () => {
       remindersByStudent: normalizePushRemindersByStudent(data.remindersByStudent),
       lessonReminderSettingsByStudent: normalizePushLessonReminderSettingsByStudent(data.lessonReminderSettingsByStudent),
       lessonReminderStateByStudent: normalizePushLessonReminderStateByStudent(data.lessonReminderStateByStudent),
+      teacherCalendarReminderSettingsByTeacher: normalizePushTeacherCalendarReminderSettingsByTeacher(data.teacherCalendarReminderSettingsByTeacher),
+      teacherCalendarReminderStateByTeacher: normalizePushTeacherCalendarReminderStateByTeacher(data.teacherCalendarReminderStateByTeacher),
     };
   } catch {
     return fallback;
@@ -845,6 +911,8 @@ const writePushDb = (data) => {
     remindersByStudent: normalizePushRemindersByStudent(data?.remindersByStudent),
     lessonReminderSettingsByStudent: normalizePushLessonReminderSettingsByStudent(data?.lessonReminderSettingsByStudent),
     lessonReminderStateByStudent: normalizePushLessonReminderStateByStudent(data?.lessonReminderStateByStudent),
+    teacherCalendarReminderSettingsByTeacher: normalizePushTeacherCalendarReminderSettingsByTeacher(data?.teacherCalendarReminderSettingsByTeacher),
+    teacherCalendarReminderStateByTeacher: normalizePushTeacherCalendarReminderStateByTeacher(data?.teacherCalendarReminderStateByTeacher),
   };
   fs.writeFileSync(pushFile, JSON.stringify(normalized, null, 2), 'utf8');
 };
@@ -869,6 +937,29 @@ const purgePushDataForStudents = (studentIds = []) => {
     }
     if (pushDb.lessonReminderStateByStudent?.[studentId]) {
       delete pushDb.lessonReminderStateByStudent[studentId];
+      changed = true;
+    }
+  });
+  if (changed) writePushDb(pushDb);
+};
+
+const purgePushDataForTeachers = (teacherIds = []) => {
+  const ids = Array.isArray(teacherIds) ? teacherIds.map((id) => String(id || '').trim()).filter(Boolean) : [];
+  if (ids.length === 0) return;
+  const pushDb = readPushDb();
+  let changed = false;
+  ids.forEach((teacherId) => {
+    const userKey = `teacher:${teacherId}`;
+    if (pushDb.subscriptionsByUser?.[userKey]) {
+      delete pushDb.subscriptionsByUser[userKey];
+      changed = true;
+    }
+    if (pushDb.teacherCalendarReminderSettingsByTeacher?.[teacherId]) {
+      delete pushDb.teacherCalendarReminderSettingsByTeacher[teacherId];
+      changed = true;
+    }
+    if (pushDb.teacherCalendarReminderStateByTeacher?.[teacherId]) {
+      delete pushDb.teacherCalendarReminderStateByTeacher[teacherId];
       changed = true;
     }
   });
@@ -2321,6 +2412,8 @@ const SCHEDULE_WEEKDAYS = [
   { key: 'saturday', label: 'Суббота', order: 6 },
   { key: 'sunday', label: 'Воскресенье', order: 7 },
 ];
+const TEACHER_TRIAL_STUDENT_FALLBACK_NAME = 'Пробное занятие';
+const DEFAULT_SCHEDULE_DURATION_MINUTES = 60;
 const SCHEDULE_WEEKDAY_BY_KEY = SCHEDULE_WEEKDAYS.reduce((acc, item) => {
   acc[item.key] = item;
   return acc;
@@ -2346,6 +2439,18 @@ const normalizeScheduleTime = (value) => {
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return '';
   if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return '';
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+};
+
+const normalizeScheduleDurationMinutes = (value, fallback = DEFAULT_SCHEDULE_DURATION_MINUTES) => {
+  const fallbackRaw = Number(fallback);
+  const fallbackMinutes = Number.isFinite(fallbackRaw) && fallbackRaw >= 15
+    ? Math.round(fallbackRaw)
+    : DEFAULT_SCHEDULE_DURATION_MINUTES;
+  const normalizedRaw = Number(value);
+  if (!Number.isFinite(normalizedRaw)) return fallbackMinutes;
+  const normalized = Math.round(normalizedRaw);
+  if (normalized < 15 || normalized > 360) return fallbackMinutes;
+  return normalized;
 };
 
 const getScheduleWeekdayMetaFromDate = (value) => {
@@ -2382,6 +2487,10 @@ const buildStudentScheduleEntry = (payload = {}, options = {}) => {
     date: rawDate,
   });
   const time = normalizeScheduleTime(payload?.time ?? existing?.time);
+  const durationMinutes = normalizeScheduleDurationMinutes(
+    payload?.durationMinutes ?? existing?.durationMinutes,
+    existing?.durationMinutes
+  );
   if (!weekdayMeta) {
     return { error: 'Выберите день занятия' };
   }
@@ -2418,6 +2527,7 @@ const buildStudentScheduleEntry = (payload = {}, options = {}) => {
       weekdayKey: weekdayMeta.key,
       weekdayOrder: weekdayMeta.order,
       time,
+      durationMinutes,
       subject,
       note,
       boardLink,
@@ -2429,6 +2539,174 @@ const buildStudentScheduleEntry = (payload = {}, options = {}) => {
       updatedAt: nowIso,
     }
   };
+};
+
+const normalizeTeacherCalendarEntry = (entry) => {
+  if (!entry || typeof entry !== 'object') return null;
+  const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+  if (!id) return null;
+  const rawDate = typeof entry.date === 'string' ? entry.date.trim() : '';
+  if (rawDate && !/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) return null;
+  const weekdayMeta = resolveScheduleWeekdayMeta({
+    weekdayKey: entry?.weekdayKey,
+    day: entry?.day,
+    date: rawDate,
+  });
+  const time = normalizeScheduleTime(entry?.time);
+  const durationMinutes = normalizeScheduleDurationMinutes(entry?.durationMinutes);
+  if (!weekdayMeta || !time) return null;
+  const subject = typeof entry?.subject === 'string' && entry.subject.trim()
+    ? entry.subject.trim()
+    : TEACHER_TRIAL_STUDENT_FALLBACK_NAME;
+  const note = typeof entry?.note === 'string' ? entry.note.trim() : '';
+  const studentNameRaw = typeof entry?.studentName === 'string' ? entry.studentName.trim() : '';
+  const studentName = studentNameRaw || subject || TEACHER_TRIAL_STUDENT_FALLBACK_NAME;
+  return {
+    ...entry,
+    id,
+    date: rawDate || null,
+    day: weekdayMeta.label,
+    weekdayKey: weekdayMeta.key,
+    weekdayOrder: weekdayMeta.order,
+    time,
+    durationMinutes,
+    subject,
+    note,
+    studentId: '',
+    studentName,
+    isTeacherSlot: true,
+  };
+};
+
+const buildTeacherScheduleEntry = (payload = {}, options = {}) => {
+  const existing = options?.existing && typeof options.existing === 'object' ? options.existing : null;
+  const auth = options?.auth && typeof options.auth === 'object' ? options.auth : null;
+  const rawDate = typeof payload?.date === 'string'
+    ? payload.date.trim()
+    : (typeof existing?.date === 'string' ? existing.date.trim() : '');
+  if (rawDate && !/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+    return { error: 'Некорректная дата' };
+  }
+
+  const weekdayMeta = resolveScheduleWeekdayMeta({
+    weekdayKey: payload?.weekdayKey ?? existing?.weekdayKey,
+    day: payload?.day ?? existing?.day,
+    date: rawDate,
+  });
+  const time = normalizeScheduleTime(payload?.time ?? existing?.time);
+  const durationMinutes = normalizeScheduleDurationMinutes(
+    payload?.durationMinutes ?? existing?.durationMinutes,
+    existing?.durationMinutes
+  );
+  if (!weekdayMeta) {
+    return { error: 'Выберите день занятия' };
+  }
+  if (!time) {
+    return { error: 'Укажите время занятия' };
+  }
+
+  const subject = (() => {
+    if (typeof payload?.subject === 'string' && payload.subject.trim()) return payload.subject.trim();
+    if (typeof existing?.subject === 'string' && existing.subject.trim()) return existing.subject.trim();
+    return TEACHER_TRIAL_STUDENT_FALLBACK_NAME;
+  })();
+  const note = typeof payload?.note === 'string'
+    ? payload.note.trim()
+    : (typeof existing?.note === 'string' ? existing.note.trim() : '');
+  const studentNameRaw = typeof payload?.studentName === 'string'
+    ? payload.studentName.trim()
+    : (typeof existing?.studentName === 'string' ? existing.studentName.trim() : '');
+  const studentName = studentNameRaw || subject || TEACHER_TRIAL_STUDENT_FALLBACK_NAME;
+  const actorRole = String(auth?.role || '').trim() || null;
+  const actorId = String(auth?.id || '').trim() || null;
+  const actorName = typeof auth?.name === 'string' && auth.name.trim()
+    ? auth.name.trim()
+    : null;
+  const nowIso = new Date().toISOString();
+
+  return {
+    entry: {
+      id: existing?.id || crypto.randomUUID(),
+      date: rawDate || null,
+      day: weekdayMeta.label,
+      weekdayKey: weekdayMeta.key,
+      weekdayOrder: weekdayMeta.order,
+      time,
+      durationMinutes,
+      subject,
+      note,
+      studentId: '',
+      studentName,
+      isTeacherSlot: true,
+      createdAt: existing?.createdAt || nowIso,
+      createdByRole: existing?.createdByRole || actorRole,
+      createdById: existing?.createdById || actorId,
+      createdByName: existing?.createdByName || actorName,
+      updatedAt: nowIso,
+    }
+  };
+};
+
+const getTeacherOwnedScheduleEntries = (teacherId) => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  if (!normalizedTeacherId) return [];
+  const teacher = findTeacherById(normalizedTeacherId);
+  if (!teacher) return [];
+  const list = Array.isArray(teacher?.calendarSchedule) ? teacher.calendarSchedule : [];
+  return list
+    .map((entry) => normalizeTeacherCalendarEntry(entry))
+    .filter(Boolean);
+};
+
+const getTeacherScheduleEntries = (teacherId, options = {}) => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  if (!normalizedTeacherId) return [];
+  const includeDeletedStudents = Boolean(options.includeDeletedStudents);
+  const students = readStudentsDb().filter((student) => {
+    if (!student || String(student.teacherId || '').trim() !== normalizedTeacherId) return false;
+    if (!includeDeletedStudents && student.deletedAt) return false;
+    return true;
+  });
+  const entries = [];
+  students.forEach((student) => {
+    const studentData = getStudentData(student.id);
+    const schedule = Array.isArray(studentData?.schedule) ? studentData.schedule : [];
+    schedule.forEach((entry) => {
+      if (!entry || typeof entry !== 'object') return;
+      const weekdayMeta = resolveScheduleWeekdayMeta({
+        weekdayKey: entry?.weekdayKey,
+        day: entry?.day,
+        date: entry?.date,
+      });
+      const time = normalizeScheduleTime(entry?.time);
+      if (!weekdayMeta || !time) return;
+      entries.push({
+        ...entry,
+        day: weekdayMeta.label,
+        weekdayKey: weekdayMeta.key,
+        weekdayOrder: weekdayMeta.order,
+        time,
+        studentId: student.id,
+        studentName: student.name || 'Ученик',
+      });
+    });
+  });
+  entries.push(...getTeacherOwnedScheduleEntries(normalizedTeacherId));
+
+  entries.sort((left, right) => {
+    const leftOrder = Number(left?.weekdayOrder) || 99;
+    const rightOrder = Number(right?.weekdayOrder) || 99;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    const leftTime = String(left?.time || '');
+    const rightTime = String(right?.time || '');
+    const timeDiff = leftTime.localeCompare(rightTime, 'ru');
+    if (timeDiff !== 0) return timeDiff;
+    const leftStudent = String(left?.studentName || '');
+    const rightStudent = String(right?.studentName || '');
+    return leftStudent.localeCompare(rightStudent, 'ru');
+  });
+
+  return entries;
 };
 
 const normalizeTaskNumber = (value) => {
@@ -3639,6 +3917,53 @@ const buildLessonReminderPushPayload = (entry, reminder) => {
   };
 };
 
+const buildTeacherCalendarReminderPushPayload = (entry, reminder, student = null, options = {}) => {
+  const weekdayMeta = resolveScheduleWeekdayMeta({
+    weekdayKey: entry?.weekdayKey,
+    day: entry?.day,
+    date: entry?.date,
+  });
+  const dayLabel = String(weekdayMeta?.label || entry?.day || '').trim();
+  const timeLabel = normalizeScheduleTime(entry?.time) || '';
+  const studentName = String(student?.name || entry?.studentName || 'Ученик').trim() || 'Ученик';
+  const dateLabel = (() => {
+    const date = new Date(reminder?.startMs || Date.now());
+    if (Number.isNaN(date.getTime())) return '';
+    try {
+      return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }).replace(' г.', '');
+    } catch {
+      return '';
+    }
+  })();
+  const whenLabel = [dayLabel, timeLabel].filter(Boolean).join(', ');
+  const bodyBase = whenLabel
+    ? `${studentName}: ${whenLabel}. Занятие начнется через 30 минут.`
+    : `${studentName}: занятие начнется через 30 минут.`;
+  const body = dateLabel
+    ? `${dateLabel} · ${bodyBase}`
+    : bodyBase;
+  const safeStudentTag = String(student?.id || entry?.studentId || 'student').replace(/[^\w-]/g, '-').slice(0, 64);
+  const safeSlotTagRaw = String(options?.slotKey || reminder?.slotId || 'slot');
+  const safeSlotTag = safeSlotTagRaw.replace(/[^\w-]/g, '-').slice(0, 80);
+  const occurrenceTag = String(reminder?.occurrenceKey || '').replace(/[^\dTZ:-]/g, '').slice(0, 20);
+  return {
+    title: 'Напоминание учителю',
+    body,
+    icon: '/favicon.ico',
+    badge: '/favicon.ico',
+    tag: `teacher-calendar-reminder-${safeStudentTag}-${safeSlotTag}-${occurrenceTag || 'next'}`,
+    renotify: true,
+    data: {
+      type: 'teacher-calendar-reminder',
+      url: '/?view=teacher-calendar',
+      studentId: String(student?.id || entry?.studentId || '').trim() || null,
+      studentName,
+      slotId: reminder?.slotId || null,
+      startsAt: Number.isFinite(reminder?.startMs) ? new Date(reminder.startMs).toISOString() : null,
+    },
+  };
+};
+
 const isPushSubscriptionGoneError = (error) => {
   const code = Number(error?.statusCode || error?.status);
   return code === 404 || code === 410;
@@ -4102,6 +4427,165 @@ const runPushLessonReminderSweep = async () => {
     console.error('[push] lesson reminder sweep failed:', error);
   } finally {
     pushLessonSweepInFlight = false;
+  }
+};
+
+const runPushTeacherCalendarReminderSweep = async () => {
+  if (pushTeacherCalendarSweepInFlight) return;
+  if (!pushRuntimeEnabled) {
+    const runtime = ensurePushRuntimeConfigured();
+    if (!runtime.enabled) return;
+  }
+
+  pushTeacherCalendarSweepInFlight = true;
+  try {
+    const pushDb = readPushDb();
+    const subscriptionsByUser = normalizePushSubscriptionsByUser(pushDb.subscriptionsByUser);
+    const reminderSettingsByTeacher = normalizePushTeacherCalendarReminderSettingsByTeacher(pushDb.teacherCalendarReminderSettingsByTeacher);
+    const reminderStateByTeacher = normalizePushTeacherCalendarReminderStateByTeacher(pushDb.teacherCalendarReminderStateByTeacher);
+    const teachers = readTeachersDb();
+    const activeTeacherIds = new Set(
+      teachers
+        .map((teacher) => String(teacher?.id || '').trim())
+        .filter(Boolean)
+    );
+    let changed = false;
+    const nowMs = Date.now();
+
+    const candidateTeacherIds = Array.from(new Set([
+      ...Object.keys(reminderSettingsByTeacher),
+      ...Object.keys(reminderStateByTeacher),
+      ...Object.keys(subscriptionsByUser)
+        .filter((key) => key.startsWith('teacher:'))
+        .map((key) => key.slice('teacher:'.length)),
+    ]));
+
+    for (const teacherId of candidateTeacherIds) {
+      const normalizedTeacherId = String(teacherId || '').trim();
+      if (!normalizedTeacherId) continue;
+      const userKey = `teacher:${normalizedTeacherId}`;
+
+      if (!activeTeacherIds.has(normalizedTeacherId)) {
+        if (subscriptionsByUser[userKey]) {
+          delete subscriptionsByUser[userKey];
+          changed = true;
+        }
+        if (reminderSettingsByTeacher[normalizedTeacherId]) {
+          delete reminderSettingsByTeacher[normalizedTeacherId];
+          changed = true;
+        }
+        if (reminderStateByTeacher[normalizedTeacherId]) {
+          delete reminderStateByTeacher[normalizedTeacherId];
+          changed = true;
+        }
+        continue;
+      }
+
+      const enabled = Boolean(reminderSettingsByTeacher[normalizedTeacherId]?.enabled);
+      let subscriptions = Array.isArray(subscriptionsByUser[userKey]) ? subscriptionsByUser[userKey] : [];
+      const scheduleEntries = getTeacherScheduleEntries(normalizedTeacherId)
+        .map((entry) => {
+          const slotId = getScheduleSlotId(entry);
+          if (!slotId) return null;
+          const studentId = String(entry?.studentId || '').trim();
+          if (!studentId) {
+            return {
+              entry,
+              student: null,
+              slotKey: `trial:${slotId}`,
+            };
+          }
+          const student = findStudentById(studentId);
+          if (!student) return null;
+          return {
+            entry,
+            student,
+            slotKey: `${studentId}:${slotId}`,
+          };
+        })
+        .filter(Boolean);
+      const knownSlotKeys = new Set(scheduleEntries.map((item) => item.slotKey));
+
+      const previousState = Array.isArray(reminderStateByTeacher[normalizedTeacherId])
+        ? reminderStateByTeacher[normalizedTeacherId]
+        : [];
+      const nextState = previousState.filter((item) => knownSlotKeys.has(item.slotKey));
+      if (nextState.length !== previousState.length) {
+        reminderStateByTeacher[normalizedTeacherId] = nextState;
+        changed = true;
+      }
+
+      if (!enabled || subscriptions.length === 0 || scheduleEntries.length === 0) {
+        if (reminderStateByTeacher[normalizedTeacherId]?.length > 0) {
+          delete reminderStateByTeacher[normalizedTeacherId];
+          changed = true;
+        }
+        continue;
+      }
+
+      const stateBySlotKey = new Map(nextState.map((item) => [item.slotKey, item]));
+      const dueReminders = scheduleEntries
+        .map((item) => ({
+          ...item,
+          reminder: findDueLessonReminderOccurrence(item.entry, nowMs),
+        }))
+        .filter((item) => item.reminder && item.reminder.slotId);
+
+      for (const item of dueReminders) {
+        const { entry, student, slotKey, reminder } = item;
+        const previous = stateBySlotKey.get(slotKey);
+        if (previous?.occurrenceKey === reminder.occurrenceKey) continue;
+
+        const payload = buildTeacherCalendarReminderPushPayload(entry, reminder, student, { slotKey });
+        const result = await sendPushNotificationToSubscriptions(
+          subscriptions,
+          payload,
+          `teacher-calendar:${normalizedTeacherId}`
+        );
+
+        if (result.staleEndpoints.length > 0) {
+          const staleSet = new Set(result.staleEndpoints);
+          const filtered = subscriptions.filter((sub) => !staleSet.has(sub.endpoint));
+          if (filtered.length > 0) {
+            subscriptionsByUser[userKey] = filtered;
+            subscriptions = filtered;
+          } else {
+            delete subscriptionsByUser[userKey];
+            subscriptions = [];
+          }
+          changed = true;
+        }
+
+        if (result.successCount > 0) {
+          stateBySlotKey.set(slotKey, {
+            slotKey,
+            occurrenceKey: reminder.occurrenceKey,
+            sentAt: new Date().toISOString(),
+          });
+          changed = true;
+        }
+      }
+
+      if (stateBySlotKey.size > 0) {
+        reminderStateByTeacher[normalizedTeacherId] = Array.from(stateBySlotKey.values());
+      } else if (reminderStateByTeacher[normalizedTeacherId]) {
+        delete reminderStateByTeacher[normalizedTeacherId];
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      writePushDb({
+        ...pushDb,
+        subscriptionsByUser,
+        teacherCalendarReminderSettingsByTeacher: reminderSettingsByTeacher,
+        teacherCalendarReminderStateByTeacher: reminderStateByTeacher,
+      });
+    }
+  } catch (error) {
+    console.error('[push] teacher calendar reminder sweep failed:', error);
+  } finally {
+    pushTeacherCalendarSweepInFlight = false;
   }
 };
 
@@ -5623,6 +6107,7 @@ app.delete('/api/push/subscription', (req, res) => {
   const subscriptionsByUser = normalizePushSubscriptionsByUser(pushDb.subscriptionsByUser);
   const remindersByStudent = normalizePushRemindersByStudent(pushDb.remindersByStudent);
   const lessonReminderStateByStudent = normalizePushLessonReminderStateByStudent(pushDb.lessonReminderStateByStudent);
+  const teacherCalendarReminderStateByTeacher = normalizePushTeacherCalendarReminderStateByTeacher(pushDb.teacherCalendarReminderStateByTeacher);
   const current = student
     ? (Array.isArray(subscriptionsByStudent[student.id]) ? [...subscriptionsByStudent[student.id]] : [])
     : (Array.isArray(subscriptionsByUser[userKey]) ? [...subscriptionsByUser[userKey]] : []);
@@ -5640,6 +6125,12 @@ app.delete('/api/push/subscription', (req, res) => {
       if (lessonReminderStateByStudent[student.id]) delete lessonReminderStateByStudent[student.id];
     } else {
       delete subscriptionsByUser[userKey];
+      if (isTeacherRole(req.auth)) {
+        const teacherId = String(req.auth?.id || '').trim();
+        if (teacherId && teacherCalendarReminderStateByTeacher[teacherId]) {
+          delete teacherCalendarReminderStateByTeacher[teacherId];
+        }
+      }
     }
   }
 
@@ -5649,6 +6140,7 @@ app.delete('/api/push/subscription', (req, res) => {
     subscriptionsByUser,
     remindersByStudent,
     lessonReminderStateByStudent,
+    teacherCalendarReminderStateByTeacher,
   });
 
   return res.json({
@@ -5699,6 +6191,59 @@ app.patch('/api/push/lesson-reminder', (req, res) => {
     ...pushDb,
     lessonReminderSettingsByStudent,
     lessonReminderStateByStudent,
+  });
+
+  return res.json({
+    ok: true,
+    enabled: nextEnabled,
+    updatedAt: nowIso,
+  });
+});
+
+app.get('/api/push/teacher-calendar-reminder', (req, res) => {
+  const { teacherId } = req.query || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const effectiveTeacherId = isTeacherRole(req.auth)
+    ? req.auth.id
+    : teacherId;
+  const teacher = ensureTeacherAccess(req, res, effectiveTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  const pushDb = readPushDb();
+  const settingsByTeacher = normalizePushTeacherCalendarReminderSettingsByTeacher(pushDb.teacherCalendarReminderSettingsByTeacher);
+  const entry = settingsByTeacher[teacher.id] || null;
+  return res.json({
+    enabled: Boolean(entry?.enabled),
+    updatedAt: entry?.updatedAt || '',
+  });
+});
+
+app.patch('/api/push/teacher-calendar-reminder', (req, res) => {
+  const { teacherId, enabled } = req.body || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const effectiveTeacherId = isTeacherRole(req.auth)
+    ? req.auth.id
+    : teacherId;
+  const teacher = ensureTeacherAccess(req, res, effectiveTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+
+  const nextEnabled = Boolean(enabled);
+  const nowIso = new Date().toISOString();
+  const pushDb = readPushDb();
+  const reminderSettingsByTeacher = normalizePushTeacherCalendarReminderSettingsByTeacher(pushDb.teacherCalendarReminderSettingsByTeacher);
+  const reminderStateByTeacher = normalizePushTeacherCalendarReminderStateByTeacher(pushDb.teacherCalendarReminderStateByTeacher);
+
+  reminderSettingsByTeacher[teacher.id] = {
+    enabled: nextEnabled,
+    updatedAt: nowIso,
+  };
+  if (!nextEnabled && reminderStateByTeacher[teacher.id]) {
+    delete reminderStateByTeacher[teacher.id];
+  }
+
+  writePushDb({
+    ...pushDb,
+    teacherCalendarReminderSettingsByTeacher: reminderSettingsByTeacher,
+    teacherCalendarReminderStateByTeacher: reminderStateByTeacher,
   });
 
   return res.json({
@@ -6065,6 +6610,8 @@ app.delete('/api/teachers/:id', (req, res) => {
     writeStudentsDb(remaining);
     hardDeleteStudentData(toRemove.map((student) => student.id));
   }
+
+  purgePushDataForTeachers([id]);
 
   res.json({ ok: true, removedTeacher: { id: removed.id, name: removed.name } });
 });
@@ -6995,6 +7542,108 @@ app.get('/api/student-schedule', (req, res) => {
   res.json(data.schedule || []);
 });
 
+app.get('/api/teacher-schedule', (req, res) => {
+  const { teacherId } = req.query || {};
+  if (isStudentRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  return res.json(getTeacherScheduleEntries(teacher.id));
+});
+
+app.post('/api/teacher-schedule', (req, res) => {
+  const { teacherId } = req.body || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  const { entry, error } = buildTeacherScheduleEntry(req.body || {}, { auth: req.auth });
+  if (!entry) {
+    return res.status(400).json({ error: error || 'Не удалось сохранить занятие' });
+  }
+  const teachers = readTeachersDb();
+  const index = teachers.findIndex((item) => String(item?.id || '').trim() === teacher.id);
+  if (index < 0) {
+    return res.status(404).json({ error: 'Учитель не найден' });
+  }
+  const currentTeacher = teachers[index];
+  const currentSchedule = Array.isArray(currentTeacher?.calendarSchedule) ? currentTeacher.calendarSchedule : [];
+  teachers[index] = {
+    ...currentTeacher,
+    calendarSchedule: [entry, ...currentSchedule],
+  };
+  writeTeachersDb(teachers);
+  return res.json(entry);
+});
+
+app.put('/api/teacher-schedule/:id', (req, res) => {
+  const { id } = req.params || {};
+  const { teacherId } = req.body || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  const entryId = String(id || '').trim();
+  if (!entryId) {
+    return res.status(400).json({ error: 'id required' });
+  }
+  const teachers = readTeachersDb();
+  const index = teachers.findIndex((item) => String(item?.id || '').trim() === teacher.id);
+  if (index < 0) {
+    return res.status(404).json({ error: 'Учитель не найден' });
+  }
+  const currentTeacher = teachers[index];
+  const currentSchedule = Array.isArray(currentTeacher?.calendarSchedule) ? [...currentTeacher.calendarSchedule] : [];
+  const entryIndex = currentSchedule.findIndex((entry) => String(entry?.id || '').trim() === entryId);
+  if (entryIndex < 0) {
+    return res.status(404).json({ error: 'Занятие не найдено' });
+  }
+  const { entry, error } = buildTeacherScheduleEntry(req.body || {}, {
+    existing: currentSchedule[entryIndex],
+    auth: req.auth,
+  });
+  if (!entry) {
+    return res.status(400).json({ error: error || 'Не удалось обновить занятие' });
+  }
+  currentSchedule[entryIndex] = entry;
+  teachers[index] = {
+    ...currentTeacher,
+    calendarSchedule: currentSchedule,
+  };
+  writeTeachersDb(teachers);
+  return res.json(entry);
+});
+
+app.delete('/api/teacher-schedule/:id', (req, res) => {
+  const { id } = req.params || {};
+  const { teacherId } = req.query || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  const entryId = String(id || '').trim();
+  if (!entryId) {
+    return res.status(400).json({ error: 'id required' });
+  }
+  const teachers = readTeachersDb();
+  const index = teachers.findIndex((item) => String(item?.id || '').trim() === teacher.id);
+  if (index < 0) {
+    return res.status(404).json({ error: 'Учитель не найден' });
+  }
+  const currentTeacher = teachers[index];
+  const currentSchedule = Array.isArray(currentTeacher?.calendarSchedule) ? currentTeacher.calendarSchedule : [];
+  const nextSchedule = currentSchedule.filter((entry) => String(entry?.id || '').trim() !== entryId);
+  if (nextSchedule.length === currentSchedule.length) {
+    return res.status(404).json({ error: 'Занятие не найдено' });
+  }
+  teachers[index] = {
+    ...currentTeacher,
+    calendarSchedule: nextSchedule,
+  };
+  writeTeachersDb(teachers);
+  return res.json({ ok: true });
+});
+
 app.post('/api/student-schedule', (req, res) => {
   const { studentId } = req.body || {};
   const student = ensureStudentAccess(req, res, studentId);
@@ -7844,6 +8493,11 @@ const startPushReminderSweep = () => {
       await runPushLessonReminderSweep();
     } catch (error) {
       console.error('[push] lesson reminder sweep crashed:', error);
+    }
+    try {
+      await runPushTeacherCalendarReminderSweep();
+    } catch (error) {
+      console.error('[push] teacher calendar reminder sweep crashed:', error);
     }
   };
   runSweep().catch(() => {});

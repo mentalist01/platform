@@ -234,6 +234,25 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getPushTeacherCalendarReminderSetting: async (teacherId = '') => {
+    const params = new URLSearchParams();
+    if (teacherId) params.append('teacherId', String(teacherId));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/push/teacher-calendar-reminder?${qs}` : '/api/push/teacher-calendar-reminder');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updatePushTeacherCalendarReminderSetting: async (enabled, teacherId = '') => {
+    const payload = { enabled: Boolean(enabled) };
+    if (teacherId) payload.teacherId = String(teacherId);
+    const res = await apiFetch('/api/push/teacher-calendar-reminder', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   savePushSubscription: async (subscription) => {
     const payload = subscription && typeof subscription === 'object'
       ? { subscription }
@@ -637,6 +656,49 @@ export const api = {
     const res = await apiFetch(qs ? `/api/student-schedule?${qs}` : '/api/student-schedule');
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
+  },
+  getTeacherSchedule: async (teacherId) => {
+    const params = new URLSearchParams();
+    if (teacherId) params.append('teacherId', String(teacherId));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/teacher-schedule?${qs}` : '/api/teacher-schedule');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  addTeacherScheduleEntry: async (payload, teacherId) => {
+    const body = payload && typeof payload === 'object' ? { ...payload } : {};
+    if (teacherId) body.teacherId = String(teacherId);
+    const res = await apiFetch('/api/teacher-schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updateTeacherScheduleEntry: async (id, payload, teacherId) => {
+    const body = payload && typeof payload === 'object' ? { ...payload } : {};
+    if (teacherId) body.teacherId = String(teacherId);
+    const targetId = encodeURIComponent(String(id || '').trim());
+    const res = await apiFetch(`/api/teacher-schedule/${targetId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  deleteTeacherScheduleEntry: async (id, teacherId) => {
+    const params = new URLSearchParams();
+    if (teacherId) params.append('teacherId', String(teacherId));
+    const qs = params.toString();
+    const targetId = encodeURIComponent(String(id || '').trim());
+    const res = await apiFetch(
+      qs ? `/api/teacher-schedule/${targetId}?${qs}` : `/api/teacher-schedule/${targetId}`,
+      { method: 'DELETE' }
+    );
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
   },
   addScheduleEntry: async (studentId, payload) => {
     const res = await apiFetch('/api/student-schedule', {

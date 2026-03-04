@@ -13,7 +13,7 @@ import {
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   ChevronsLeft, ChevronsRight,
-  Bell, BellOff, MousePointer2, Code2, MoreHorizontal, MessageSquare
+  Bell, BellOff, MousePointer2, Code2, MoreHorizontal, MessageSquare, Users
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
 import mascotDisapproval from './assets/mascot/disapproval.png';
@@ -41,6 +41,7 @@ import StudentLeaderboardSection from './components/StudentLeaderboardSection';
 import StudentChatSection from './components/StudentChatSection';
 import StudentTour from './components/StudentTour';
 import SignupGuestChat from './components/SignupGuestChat';
+import TeacherCalendarSection from './components/TeacherCalendarSection';
 import TeacherPanel from './components/TeacherPanel';
 import TeacherStudentChatsSection from './components/TeacherStudentChatsSection';
 import ThemeToggleButton from './components/ThemeToggleButton';
@@ -8195,7 +8196,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const allowedViews = user.role === 'admin'
     ? ['admin']
     : user.role === 'teacher'
-      ? ['schedule', 'progress', 'python', 'rating', 'collab', 'call', 'board', 'teacher', TEACHER_COMMS_VIEW, 'notes']
+      ? ['schedule', 'teacher-calendar', 'progress', 'python', 'rating', 'collab', 'call', 'board', 'teacher', TEACHER_COMMS_VIEW, 'notes']
       : [
         'schedule',
         'progress',
@@ -8480,6 +8481,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : user.role === 'teacher'
       ? [
         { id: 'schedule', label: 'Моё расписание', icon: Calendar },
+        { id: 'teacher-calendar', label: 'Общий календарь', icon: Users },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
         { id: 'rating', label: 'Рейтинг', icon: Trophy },
@@ -8543,7 +8545,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : visibleNav;
   const teacherDesktopPrimaryNav = user.role === 'teacher'
     ? [
-      ...['schedule', 'progress', 'python', 'rating']
+      ...['schedule', 'teacher-calendar', 'progress', 'python', 'rating']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       teacherLessonNavItem,
@@ -8565,6 +8567,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : desktopPrimaryNav;
   const mobileNavLabels = {
     schedule: 'График',
+    'teacher-calendar': 'Календ.',
     progress: 'Тесты',
     lesson: '\u0423\u0440\u043e\u043a',
     rating: 'Рейтинг',
@@ -11538,7 +11541,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             <ScheduleSection
               role={user.role}
               studentId={user.id}
-              teacherId={user.role === 'teacher' ? user.id : user.teacherId}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
@@ -11574,6 +11576,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               pushReady={pushReady}
               pushError={pushError}
               onTogglePush={handleTogglePush}
+            />
+          )}
+          {view === 'teacher-calendar' && user.role === 'teacher' && (
+            <TeacherCalendarSection
+              teacherId={user.id}
+              students={studentsWithNicknames}
+              getStudentLabel={getStudentLabel}
+              pushSupported={teacherSignupNotifySupported}
+              pushPermission={teacherSignupNotifyPermission}
+              pushEnabled={teacherSignupNotifyEnabled}
+              pushSyncing={teacherSignupNotifySyncing}
+              pushBusy={teacherSignupNotifyBusy}
+              pushReady={teacherSignupNotifyReady}
+              pushError={teacherSignupNotifyError}
+              onTogglePush={handleToggleTeacherSignupNotify}
             />
           )}
           {view === 'progress' && (
