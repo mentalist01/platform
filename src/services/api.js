@@ -700,6 +700,39 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getStudentScheduleRequests: async (params = {}) => {
+    const search = new URLSearchParams();
+    if (params && typeof params === 'object') {
+      Object.entries(params).forEach(([key, value]) => {
+        const normalized = typeof value === 'string' ? value.trim() : String(value || '').trim();
+        if (normalized) search.append(key, normalized);
+      });
+    }
+    const qs = search.toString();
+    const res = await apiFetch(qs ? `/api/student-schedule-requests?${qs}` : '/api/student-schedule-requests');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  createStudentScheduleRequest: async (payload) => {
+    const body = payload && typeof payload === 'object' ? payload : {};
+    const res = await apiFetch('/api/student-schedule-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  resolveStudentScheduleRequest: async (id, action, resolutionNote = '') => {
+    const requestId = encodeURIComponent(String(id || '').trim());
+    const res = await apiFetch(`/api/student-schedule-requests/${requestId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, resolutionNote }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   addScheduleEntry: async (studentId, payload) => {
     const res = await apiFetch('/api/student-schedule', {
       method: 'POST',

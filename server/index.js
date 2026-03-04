@@ -57,6 +57,7 @@ const mockExamsFile = path.join(dataDir, 'mock-exams.json');
 const taskTitlesFile = path.join(dataDir, 'task-titles.json');
 const signupChatsFile = path.join(dataDir, 'signup-chats.json');
 const studentChatsFile = path.join(dataDir, 'student-chats.json');
+const scheduleRequestsFile = path.join(dataDir, 'schedule-requests.json');
 const authFile = path.join(dataDir, 'auth.json');
 const authSessionsFile = path.join(dataDir, 'auth-sessions.json');
 const usageFile = path.join(dataDir, 'usage.json');
@@ -234,6 +235,11 @@ const LESSON_REMINDER_SEND_WINDOW_MS = (() => {
   const raw = Number(process.env.LESSON_REMINDER_SEND_WINDOW_MS);
   if (Number.isFinite(raw) && raw >= 60 * 1000) return Math.floor(raw);
   return Math.max(10 * 60 * 1000, PUSH_SWEEP_INTERVAL_MS * 2);
+})();
+const SCHEDULE_SYNC_KEEPALIVE_INTERVAL_MS = (() => {
+  const raw = Number(process.env.SCHEDULE_SYNC_KEEPALIVE_INTERVAL_MS);
+  if (Number.isFinite(raw) && raw >= 5000) return Math.floor(raw);
+  return 25 * 1000;
 })();
 const STUDENT_SOLVED_EVENTS_LIMIT = (() => {
   const raw = Number(process.env.STUDENT_SOLVED_EVENTS_LIMIT);
@@ -608,6 +614,126 @@ const writeTaskTitlesDb = (data) => {
 
 const writeProgressDb = (data) => {
   fs.writeFileSync(progressFile, JSON.stringify(data, null, 2), 'utf8');
+};
+
+const SCHEDULE_CHANGE_REQUEST_TYPES = new Set(['create', 'update', 'delete']);
+const SCHEDULE_CHANGE_REQUEST_STATUSES = new Set(['pending', 'approved', 'rejected']);
+
+const normalizeScheduleChangeRequestType = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return SCHEDULE_CHANGE_REQUEST_TYPES.has(normalized) ? normalized : '';
+};
+
+const normalizeScheduleChangeRequestStatus = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return SCHEDULE_CHANGE_REQUEST_STATUSES.has(normalized) ? normalized : '';
+};
+
+const normalizeScheduleChangeRequestEntry = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const id = String(value.id || '').trim();
+  const type = normalizeScheduleChangeRequestType(value.type);
+  const status = normalizeScheduleChangeRequestStatus(value.status);
+  const teacherId = String(value.teacherId || '').trim();
+  const studentId = String(value.studentId || '').trim();
+  if (!id || !type || !status || !teacherId || !studentId) return null;
+  const targetEntryId = String(value.targetEntryId || '').trim();
+  const studentName = typeof value.studentName === 'string' ? value.studentName.trim() : '';
+  const createdAt = typeof value.createdAt === 'string' && value.createdAt.trim()
+    ? value.createdAt.trim()
+    : new Date().toISOString();
+  const resolvedAt = typeof value.resolvedAt === 'string' && value.resolvedAt.trim()
+    ? value.resolvedAt.trim()
+    : null;
+  const resolvedByRole = typeof value.resolvedByRole === 'string' && value.resolvedByRole.trim()
+    ? value.resolvedByRole.trim()
+    : null;
+  const resolvedById = typeof value.resolvedById === 'string' && value.resolvedById.trim()
+    ? value.resolvedById.trim()
+    : null;
+  const resolvedByName = typeof value.resolvedByName === 'string' && value.resolvedByName.trim()
+    ? value.resolvedByName.trim()
+    : null;
+  const resolutionNote = typeof value.resolutionNote === 'string'
+    ? value.resolutionNote.trim().slice(0, 500)
+    : '';
+  const previousEntry = value.previousEntry && typeof value.previousEntry === 'object' && !Array.isArray(value.previousEntry)
+    ? value.previousEntry
+    : null;
+  const proposedEntry = value.proposedEntry && typeof value.proposedEntry === 'object' && !Array.isArray(value.proposedEntry)
+    ? value.proposedEntry
+    : null;
+  return {
+    id,
+    type,
+    status,
+    teacherId,
+    studentId,
+    studentName,
+    targetEntryId,
+    previousEntry,
+    proposedEntry,
+    createdAt,
+    resolvedAt,
+    resolvedByRole,
+    resolvedById,
+    resolvedByName,
+    resolutionNote,
+  };
+};
+
+const normalizeScheduleChangeRequestList = (value) => {
+  const list = Array.isArray(value) ? value : [];
+  const normalized = [];
+  const seen = new Set();
+  list.forEach((item) => {
+    const entry = normalizeScheduleChangeRequestEntry(item);
+    if (!entry || seen.has(entry.id)) return;
+    seen.add(entry.id);
+    normalized.push(entry);
+  });
+  return normalized;
+};
+
+const readScheduleRequestsDb = () => {
+  try {
+    const raw = fs.readFileSync(scheduleRequestsFile, 'utf8');
+    const data = JSON.parse(raw);
+    return normalizeScheduleChangeRequestList(data);
+  } catch {
+    return [];
+  }
+};
+
+const writeScheduleRequestsDb = (data) => {
+  const normalized = normalizeScheduleChangeRequestList(data);
+  fs.writeFileSync(scheduleRequestsFile, JSON.stringify(normalized, null, 2), 'utf8');
+};
+
+const purgeScheduleRequestsForStudents = (studentIds = []) => {
+  const ids = Array.isArray(studentIds)
+    ? studentIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (ids.length === 0) return;
+  const idSet = new Set(ids);
+  const current = readScheduleRequestsDb();
+  const next = current.filter((entry) => !idSet.has(String(entry?.studentId || '').trim()));
+  if (next.length !== current.length) {
+    writeScheduleRequestsDb(next);
+  }
+};
+
+const purgeScheduleRequestsForTeachers = (teacherIds = []) => {
+  const ids = Array.isArray(teacherIds)
+    ? teacherIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (ids.length === 0) return;
+  const idSet = new Set(ids);
+  const current = readScheduleRequestsDb();
+  const next = current.filter((entry) => !idSet.has(String(entry?.teacherId || '').trim()));
+  if (next.length !== current.length) {
+    writeScheduleRequestsDb(next);
+  }
 };
 
 const readUsageDb = () => {
@@ -1016,6 +1142,7 @@ const hardDeleteStudentData = (studentIds = []) => {
 
   purgePushDataForStudents(ids);
   purgeStudentTeacherChatsForStudents(ids);
+  purgeScheduleRequestsForStudents(ids);
 };
 
 const purgeExpiredDeletedStudents = (students = []) => {
@@ -1686,6 +1813,8 @@ const ensureAdminAuth = () => {
 
 const authSessions = new Map();
 let authSessionsPersistTimer = null;
+const scheduleSyncClients = new Map();
+let scheduleSyncClientCounter = 0;
 
 const readAuthSessionsDb = () => {
   try {
@@ -2042,6 +2171,71 @@ const findStudentById = (studentId, options = {}) => {
   if (!student) return null;
   if (!allowDeleted && student.deletedAt) return null;
   return student;
+};
+
+const writeSseEvent = (res, eventName, payload) => {
+  const safeEventName = String(eventName || 'message').trim() || 'message';
+  const safePayload = payload && typeof payload === 'object' ? payload : {};
+  res.write(`event: ${safeEventName}\n`);
+  res.write(`data: ${JSON.stringify(safePayload)}\n\n`);
+};
+
+const removeScheduleSyncClient = (clientId) => {
+  const normalizedClientId = String(clientId || '').trim();
+  if (!normalizedClientId) return;
+  const client = scheduleSyncClients.get(normalizedClientId);
+  if (!client) return;
+  if (client.keepAliveTimer) {
+    clearInterval(client.keepAliveTimer);
+  }
+  scheduleSyncClients.delete(normalizedClientId);
+};
+
+const isScheduleSyncClientInterested = (client, payload) => {
+  if (!client || !payload || typeof payload !== 'object') return false;
+  const role = String(client.role || '').trim();
+  const teacherId = String(payload.teacherId || '').trim();
+  const studentId = String(payload.studentId || '').trim();
+  if (role === 'admin') return true;
+  if (role === 'teacher') {
+    return teacherId && teacherId === String(client.teacherId || '').trim();
+  }
+  if (role === 'student') {
+    return studentId && studentId === String(client.studentId || '').trim();
+  }
+  return false;
+};
+
+const notifyScheduleSyncUpdate = ({
+  scope = 'schedule',
+  action = 'updated',
+  teacherId = '',
+  studentId = '',
+  entryId = '',
+} = {}) => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  const normalizedStudentId = String(studentId || '').trim();
+  const normalizedEntryId = String(entryId || '').trim();
+  if (!normalizedTeacherId && !normalizedStudentId) return;
+  if (scheduleSyncClients.size === 0) return;
+
+  const payload = {
+    scope: String(scope || 'schedule').trim() || 'schedule',
+    action: String(action || 'updated').trim() || 'updated',
+    teacherId: normalizedTeacherId || null,
+    studentId: normalizedStudentId || null,
+    entryId: normalizedEntryId || null,
+    updatedAt: new Date().toISOString(),
+  };
+
+  scheduleSyncClients.forEach((client, clientId) => {
+    if (!isScheduleSyncClientInterested(client, payload)) return;
+    try {
+      writeSseEvent(client.res, 'schedule-sync', payload);
+    } catch {
+      removeScheduleSyncClient(clientId);
+    }
+  });
 };
 
 const resolveSignupTeacher = (requestedTeacherId = '') => {
@@ -2471,6 +2665,23 @@ const resolveScheduleWeekdayMeta = ({ weekdayKey, day, date }) => {
   return getScheduleWeekdayMetaFromDate(date);
 };
 
+const normalizeScheduleExcludedDates = (value) => {
+  if (!Array.isArray(value)) return [];
+  const unique = new Set();
+  value.forEach((item) => {
+    const normalized = normalizeDayKey(typeof item === 'string' ? item.trim() : String(item || '').trim());
+    if (normalized) unique.add(normalized);
+  });
+  return Array.from(unique).sort((left, right) => {
+    const leftNum = dayKeyToNumber(left);
+    const rightNum = dayKeyToNumber(right);
+    if (Number.isFinite(leftNum) && Number.isFinite(rightNum) && leftNum !== rightNum) {
+      return leftNum - rightNum;
+    }
+    return left.localeCompare(right, 'ru');
+  });
+};
+
 const buildStudentScheduleEntry = (payload = {}, options = {}) => {
   const existing = options?.existing && typeof options.existing === 'object' ? options.existing : null;
   const auth = options?.auth && typeof options.auth === 'object' ? options.auth : null;
@@ -2491,6 +2702,9 @@ const buildStudentScheduleEntry = (payload = {}, options = {}) => {
     payload?.durationMinutes ?? existing?.durationMinutes,
     existing?.durationMinutes
   );
+  const excludedDates = rawDate
+    ? []
+    : normalizeScheduleExcludedDates(payload?.excludedDates ?? existing?.excludedDates);
   if (!weekdayMeta) {
     return { error: 'Выберите день занятия' };
   }
@@ -2526,6 +2740,7 @@ const buildStudentScheduleEntry = (payload = {}, options = {}) => {
       day: weekdayMeta.label,
       weekdayKey: weekdayMeta.key,
       weekdayOrder: weekdayMeta.order,
+      excludedDates,
       time,
       durationMinutes,
       subject,
@@ -2554,6 +2769,7 @@ const normalizeTeacherCalendarEntry = (entry) => {
   });
   const time = normalizeScheduleTime(entry?.time);
   const durationMinutes = normalizeScheduleDurationMinutes(entry?.durationMinutes);
+  const excludedDates = rawDate ? [] : normalizeScheduleExcludedDates(entry?.excludedDates);
   if (!weekdayMeta || !time) return null;
   const subject = typeof entry?.subject === 'string' && entry.subject.trim()
     ? entry.subject.trim()
@@ -2568,6 +2784,7 @@ const normalizeTeacherCalendarEntry = (entry) => {
     day: weekdayMeta.label,
     weekdayKey: weekdayMeta.key,
     weekdayOrder: weekdayMeta.order,
+    excludedDates,
     time,
     durationMinutes,
     subject,
@@ -2598,6 +2815,9 @@ const buildTeacherScheduleEntry = (payload = {}, options = {}) => {
     payload?.durationMinutes ?? existing?.durationMinutes,
     existing?.durationMinutes
   );
+  const excludedDates = rawDate
+    ? []
+    : normalizeScheduleExcludedDates(payload?.excludedDates ?? existing?.excludedDates);
   if (!weekdayMeta) {
     return { error: 'Выберите день занятия' };
   }
@@ -2631,6 +2851,7 @@ const buildTeacherScheduleEntry = (payload = {}, options = {}) => {
       day: weekdayMeta.label,
       weekdayKey: weekdayMeta.key,
       weekdayOrder: weekdayMeta.order,
+      excludedDates,
       time,
       durationMinutes,
       subject,
@@ -2673,18 +2894,23 @@ const getTeacherScheduleEntries = (teacherId, options = {}) => {
     const schedule = Array.isArray(studentData?.schedule) ? studentData.schedule : [];
     schedule.forEach((entry) => {
       if (!entry || typeof entry !== 'object') return;
+      const rawDate = typeof entry?.date === 'string' ? entry.date.trim() : '';
+      if (rawDate && !/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) return;
       const weekdayMeta = resolveScheduleWeekdayMeta({
         weekdayKey: entry?.weekdayKey,
         day: entry?.day,
-        date: entry?.date,
+        date: rawDate,
       });
       const time = normalizeScheduleTime(entry?.time);
       if (!weekdayMeta || !time) return;
+      const excludedDates = rawDate ? [] : normalizeScheduleExcludedDates(entry?.excludedDates);
       entries.push({
         ...entry,
+        date: rawDate || null,
         day: weekdayMeta.label,
         weekdayKey: weekdayMeta.key,
         weekdayOrder: weekdayMeta.order,
+        excludedDates,
         time,
         studentId: student.id,
         studentName: student.name || 'Ученик',
@@ -3817,12 +4043,24 @@ const getScheduleTimeParts = (value) => {
   return { hours, minutes, normalized };
 };
 
+const toLocalScheduleDayKey = (value) => {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const getLessonReminderOccurrenceCandidatesMs = (entry, nowMs) => {
   const now = Number.isFinite(nowMs) ? new Date(nowMs) : new Date();
   const timeParts = getScheduleTimeParts(entry?.time);
   if (!timeParts) return [];
+  const excludedDates = normalizeScheduleExcludedDates(entry?.excludedDates);
+  const excludedDateSet = new Set(excludedDates);
   const dateRaw = typeof entry?.date === 'string' ? entry.date.trim() : '';
   if (dateRaw && /^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) {
+    if (excludedDateSet.has(dateRaw)) return [];
     const exactMs = Date.parse(`${dateRaw}T${timeParts.normalized}:00`);
     return Number.isFinite(exactMs) ? [exactMs] : [];
   }
@@ -3841,6 +4079,8 @@ const getLessonReminderOccurrenceCandidatesMs = (entry, nowMs) => {
     const candidate = new Date(now);
     candidate.setHours(0, 0, 0, 0);
     candidate.setDate(candidate.getDate() + baseDiffDays + (weekShift * 7));
+    const candidateDayKey = toLocalScheduleDayKey(candidate);
+    if (candidateDayKey && excludedDateSet.has(candidateDayKey)) continue;
     candidate.setHours(timeParts.hours, timeParts.minutes, 0, 0);
     const candidateMs = candidate.getTime();
     if (Number.isFinite(candidateMs)) list.push(candidateMs);
@@ -4080,6 +4320,46 @@ const buildStudentTeacherPushPayloadForStudent = (chat, message, teacher) => {
       chatId: String(chat?.id || '').trim() || null,
       teacherId: String(teacher?.id || '').trim() || null,
       teacherName,
+    },
+  };
+};
+
+const buildScheduleChangeRequestPushPayloadForTeacher = (student, requestEntry) => {
+  const studentName = String(student?.name || requestEntry?.studentName || 'Ученик').trim() || 'Ученик';
+  const type = normalizeScheduleChangeRequestType(requestEntry?.type);
+  const proposed = requestEntry?.proposedEntry && typeof requestEntry.proposedEntry === 'object'
+    ? requestEntry.proposedEntry
+    : null;
+  const previous = requestEntry?.previousEntry && typeof requestEntry.previousEntry === 'object'
+    ? requestEntry.previousEntry
+    : null;
+  const actionText = (
+    type === 'create' ? 'добавить слот'
+      : type === 'update' ? 'изменить слот'
+        : type === 'delete' ? 'удалить слот'
+          : 'изменить расписание'
+  );
+  const target = proposed || previous || null;
+  const dayLabel = String(target?.day || '').trim();
+  const timeLabel = String(target?.time || '').trim();
+  const slotText = [dayLabel, timeLabel].filter(Boolean).join(', ');
+  const body = slotText
+    ? `${studentName} хочет ${actionText}: ${slotText}.`
+    : `${studentName} хочет ${actionText}.`;
+
+  return {
+    title: `Запрос на изменение расписания`,
+    body: trimPushBodyText(body, 190) || `${studentName} отправил запрос на изменение расписания.`,
+    icon: '/favicon.ico',
+    badge: '/favicon.ico',
+    tag: `schedule-request-${String(requestEntry?.id || '').trim() || 'request'}`,
+    renotify: true,
+    data: {
+      type: 'schedule-request',
+      url: '/?view=schedule',
+      studentId: String(student?.id || requestEntry?.studentId || '').trim() || null,
+      requestId: String(requestEntry?.id || '').trim() || null,
+      action: type || null,
     },
   };
 };
@@ -5437,6 +5717,56 @@ app.use('/api', (req, res, next) => {
   return next();
 });
 
+app.get('/api/schedule-sync/stream', (req, res) => {
+  if (!isAdminRole(req.auth) && !isTeacherRole(req.auth) && !isStudentRole(req.auth)) {
+    return forbid(res);
+  }
+
+  scheduleSyncClientCounter += 1;
+  const clientId = `schedule-sync-${Date.now()}-${scheduleSyncClientCounter}`;
+  const role = String(req.auth?.role || '').trim();
+  const teacherId = role === 'teacher'
+    ? String(req.auth?.id || '').trim()
+    : (role === 'student' ? String(req.auth?.teacherId || '').trim() : '');
+  const studentId = role === 'student' ? String(req.auth?.id || '').trim() : '';
+
+  res.status(200);
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (typeof res.flushHeaders === 'function') {
+    res.flushHeaders();
+  }
+
+  const keepAliveTimer = setInterval(() => {
+    try {
+      res.write(`: keep-alive ${Date.now()}\n\n`);
+    } catch {
+      removeScheduleSyncClient(clientId);
+    }
+  }, SCHEDULE_SYNC_KEEPALIVE_INTERVAL_MS);
+  if (typeof keepAliveTimer.unref === 'function') keepAliveTimer.unref();
+
+  scheduleSyncClients.set(clientId, {
+    id: clientId,
+    role,
+    teacherId,
+    studentId,
+    res,
+    keepAliveTimer,
+  });
+
+  writeSseEvent(res, 'ready', { ok: true, ts: Date.now() });
+
+  const cleanup = () => {
+    removeScheduleSyncClient(clientId);
+  };
+  req.on('close', cleanup);
+  req.on('error', cleanup);
+  res.on('close', cleanup);
+});
+
 app.get('/api/rtc/presence', (req, res) => {
   const roomMeta = parseRtcRoomId(req.query?.roomId);
   if (!roomMeta) {
@@ -6612,6 +6942,7 @@ app.delete('/api/teachers/:id', (req, res) => {
   }
 
   purgePushDataForTeachers([id]);
+  purgeScheduleRequestsForTeachers([id]);
 
   res.json({ ok: true, removedTeacher: { id: removed.id, name: removed.name } });
 });
@@ -7573,6 +7904,12 @@ app.post('/api/teacher-schedule', (req, res) => {
     calendarSchedule: [entry, ...currentSchedule],
   };
   writeTeachersDb(teachers);
+  notifyScheduleSyncUpdate({
+    scope: 'teacher-schedule',
+    action: 'created',
+    teacherId: teacher.id,
+    entryId: entry.id,
+  });
   return res.json(entry);
 });
 
@@ -7611,6 +7948,12 @@ app.put('/api/teacher-schedule/:id', (req, res) => {
     calendarSchedule: currentSchedule,
   };
   writeTeachersDb(teachers);
+  notifyScheduleSyncUpdate({
+    scope: 'teacher-schedule',
+    action: 'updated',
+    teacherId: teacher.id,
+    entryId: entry.id,
+  });
   return res.json(entry);
 });
 
@@ -7641,10 +7984,286 @@ app.delete('/api/teacher-schedule/:id', (req, res) => {
     calendarSchedule: nextSchedule,
   };
   writeTeachersDb(teachers);
+  notifyScheduleSyncUpdate({
+    scope: 'teacher-schedule',
+    action: 'deleted',
+    teacherId: teacher.id,
+    entryId,
+  });
   return res.json({ ok: true });
 });
 
+app.get('/api/student-schedule-requests', (req, res) => {
+  const { studentId, teacherId, status } = req.query || {};
+  const requestedStatus = normalizeScheduleChangeRequestStatus(status);
+  const requestedStudentId = String(studentId || '').trim();
+  const requestedTeacherId = String(teacherId || '').trim();
+  let list = readScheduleRequestsDb();
+
+  if (isStudentRole(req.auth)) {
+    if (requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
+    list = list.filter((entry) => entry.studentId === req.auth.id);
+  } else if (isTeacherRole(req.auth)) {
+    if (requestedTeacherId && requestedTeacherId !== req.auth.id) return forbid(res);
+    list = list.filter((entry) => entry.teacherId === req.auth.id);
+    if (requestedStudentId) {
+      const student = ensureStudentAccess(req, res, requestedStudentId);
+      if (!student) return;
+      list = list.filter((entry) => entry.studentId === student.id);
+    }
+  } else if (isAdminRole(req.auth)) {
+    if (requestedTeacherId) {
+      list = list.filter((entry) => entry.teacherId === requestedTeacherId);
+    }
+    if (requestedStudentId) {
+      list = list.filter((entry) => entry.studentId === requestedStudentId);
+    }
+  } else {
+    return forbid(res);
+  }
+
+  if (requestedStatus) {
+    list = list.filter((entry) => entry.status === requestedStatus);
+  }
+
+  list.sort((left, right) => {
+    const leftTime = Date.parse(left?.createdAt || 0);
+    const rightTime = Date.parse(right?.createdAt || 0);
+    return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
+  });
+  return res.json(list);
+});
+
+app.post('/api/student-schedule-requests', async (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const requestedStudentId = String(req.body?.studentId || req.auth?.id || '').trim();
+  const student = ensureStudentAccess(req, res, requestedStudentId, { missingError: 'studentId required' });
+  if (!student) return;
+
+  const type = normalizeScheduleChangeRequestType(req.body?.type);
+  if (!type) {
+    return res.status(400).json({ error: 'Некорректный тип запроса' });
+  }
+
+  const payload = req.body?.payload && typeof req.body.payload === 'object' && !Array.isArray(req.body.payload)
+    ? req.body.payload
+    : {};
+  const targetEntryId = String(req.body?.entryId || '').trim();
+  const data = getStudentData(student.id);
+  const schedule = Array.isArray(data.schedule) ? data.schedule : [];
+  let previousEntry = null;
+  let proposedEntry = null;
+
+  if (type === 'create') {
+    const built = buildStudentScheduleEntry(payload, { auth: req.auth });
+    if (!built.entry) {
+      return res.status(400).json({ error: built.error || 'Не удалось сформировать слот' });
+    }
+    proposedEntry = built.entry;
+  } else if (type === 'update') {
+    if (!targetEntryId) {
+      return res.status(400).json({ error: 'entryId required' });
+    }
+    const existing = schedule.find((entry) => String(entry?.id || '').trim() === targetEntryId);
+    if (!existing) {
+      return res.status(404).json({ error: 'Занятие не найдено' });
+    }
+    previousEntry = existing;
+    const built = buildStudentScheduleEntry(payload, { existing, auth: req.auth });
+    if (!built.entry) {
+      return res.status(400).json({ error: built.error || 'Не удалось сформировать изменения' });
+    }
+    proposedEntry = built.entry;
+  } else if (type === 'delete') {
+    if (!targetEntryId) {
+      return res.status(400).json({ error: 'entryId required' });
+    }
+    const existing = schedule.find((entry) => String(entry?.id || '').trim() === targetEntryId);
+    if (!existing) {
+      return res.status(404).json({ error: 'Занятие не найдено' });
+    }
+    previousEntry = existing;
+  }
+
+  const nowIso = new Date().toISOString();
+  const requestEntry = {
+    id: crypto.randomUUID(),
+    type,
+    status: 'pending',
+    teacherId: String(student.teacherId || '').trim(),
+    studentId: student.id,
+    studentName: student.name || 'Ученик',
+    targetEntryId: targetEntryId || '',
+    previousEntry: previousEntry || null,
+    proposedEntry: proposedEntry || null,
+    createdAt: nowIso,
+    resolvedAt: null,
+    resolvedByRole: null,
+    resolvedById: null,
+    resolvedByName: null,
+    resolutionNote: '',
+  };
+  if (!requestEntry.teacherId) {
+    return res.status(400).json({ error: 'У ученика не назначен преподаватель' });
+  }
+
+  const requests = readScheduleRequestsDb();
+  requests.unshift(requestEntry);
+  writeScheduleRequestsDb(requests);
+
+  notifyScheduleSyncUpdate({
+    scope: 'schedule-request',
+    action: 'created',
+    teacherId: requestEntry.teacherId,
+    studentId: requestEntry.studentId,
+    entryId: requestEntry.id,
+  });
+
+  const teacherPushKey = requestEntry.teacherId ? `teacher:${requestEntry.teacherId}` : '';
+  if (teacherPushKey) {
+    const teacherPayload = buildScheduleChangeRequestPushPayloadForTeacher(student, requestEntry);
+    sendPushNotificationToUserKey(teacherPushKey, teacherPayload, { logTarget: teacherPushKey })
+      .catch((error) => {
+        console.error('[push] failed to send schedule-change request notification to teacher:', error);
+      });
+  }
+
+  return res.json(requestEntry);
+});
+
+app.patch('/api/student-schedule-requests/:id', (req, res) => {
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const requestId = String(req.params?.id || '').trim();
+  if (!requestId) {
+    return res.status(400).json({ error: 'id required' });
+  }
+  const action = String(req.body?.action || '').trim().toLowerCase();
+  const nextStatus = action === 'approve'
+    ? 'approved'
+    : (action === 'reject' ? 'rejected' : '');
+  if (!nextStatus) {
+    return res.status(400).json({ error: 'action must be approve or reject' });
+  }
+
+  const requests = readScheduleRequestsDb();
+  const index = requests.findIndex((entry) => entry.id === requestId);
+  if (index < 0) {
+    return res.status(404).json({ error: 'Запрос не найден' });
+  }
+  const current = requests[index];
+  if (isTeacherRole(req.auth) && current.teacherId !== req.auth.id) {
+    return forbid(res);
+  }
+  if (current.status !== 'pending') {
+    return res.status(409).json({ error: 'Запрос уже обработан' });
+  }
+
+  const student = findStudentById(current.studentId);
+  if (!student) {
+    return res.status(404).json({ error: 'Ученик не найден' });
+  }
+  if (isTeacherRole(req.auth) && student.teacherId !== req.auth.id) {
+    return forbid(res);
+  }
+
+  if (nextStatus === 'approved') {
+    const data = getStudentData(student.id);
+    const schedule = Array.isArray(data.schedule) ? [...data.schedule] : [];
+    const type = normalizeScheduleChangeRequestType(current.type);
+    if (type === 'create') {
+      const draftEntry = current.proposedEntry && typeof current.proposedEntry === 'object'
+        ? { ...current.proposedEntry }
+        : null;
+      if (!draftEntry) {
+        return res.status(400).json({ error: 'В запросе нет данных для добавления' });
+      }
+      const draftId = String(draftEntry.id || '').trim();
+      draftEntry.id = draftId && !schedule.some((item) => String(item?.id || '').trim() === draftId)
+        ? draftId
+        : crypto.randomUUID();
+      schedule.unshift(draftEntry);
+      setStudentData(student.id, { ...data, schedule });
+      notifyScheduleSyncUpdate({
+        scope: 'student-schedule',
+        action: 'created',
+        teacherId: student.teacherId,
+        studentId: student.id,
+        entryId: draftEntry.id,
+      });
+    } else if (type === 'update') {
+      const targetEntryId = String(current.targetEntryId || '').trim();
+      const slotIndex = schedule.findIndex((entry) => String(entry?.id || '').trim() === targetEntryId);
+      if (slotIndex < 0) {
+        return res.status(404).json({ error: 'Занятие для изменения не найдено' });
+      }
+      const existing = schedule[slotIndex];
+      const draftEntry = current.proposedEntry && typeof current.proposedEntry === 'object'
+        ? { ...current.proposedEntry }
+        : null;
+      if (!draftEntry) {
+        return res.status(400).json({ error: 'В запросе нет данных для изменения' });
+      }
+      draftEntry.id = targetEntryId;
+      if (!draftEntry.createdAt && existing?.createdAt) {
+        draftEntry.createdAt = existing.createdAt;
+      }
+      schedule[slotIndex] = draftEntry;
+      setStudentData(student.id, { ...data, schedule });
+      notifyScheduleSyncUpdate({
+        scope: 'student-schedule',
+        action: 'updated',
+        teacherId: student.teacherId,
+        studentId: student.id,
+        entryId: targetEntryId,
+      });
+    } else if (type === 'delete') {
+      const targetEntryId = String(current.targetEntryId || '').trim();
+      const nextSchedule = schedule.filter((entry) => String(entry?.id || '').trim() !== targetEntryId);
+      if (nextSchedule.length === schedule.length) {
+        return res.status(404).json({ error: 'Занятие для удаления не найдено' });
+      }
+      setStudentData(student.id, { ...data, schedule: nextSchedule });
+      notifyScheduleSyncUpdate({
+        scope: 'student-schedule',
+        action: 'deleted',
+        teacherId: student.teacherId,
+        studentId: student.id,
+        entryId: targetEntryId,
+      });
+    } else {
+      return res.status(400).json({ error: 'Некорректный тип запроса' });
+    }
+  }
+
+  const resolvedAt = new Date().toISOString();
+  requests[index] = {
+    ...current,
+    status: nextStatus,
+    resolvedAt,
+    resolvedByRole: String(req.auth?.role || '').trim() || null,
+    resolvedById: String(req.auth?.id || '').trim() || null,
+    resolvedByName: typeof req.auth?.name === 'string' && req.auth.name.trim() ? req.auth.name.trim() : null,
+    resolutionNote: typeof req.body?.resolutionNote === 'string'
+      ? req.body.resolutionNote.trim().slice(0, 500)
+      : '',
+  };
+  writeScheduleRequestsDb(requests);
+
+  notifyScheduleSyncUpdate({
+    scope: 'schedule-request',
+    action: nextStatus,
+    teacherId: current.teacherId,
+    studentId: current.studentId,
+    entryId: current.id,
+  });
+
+  return res.json(requests[index]);
+});
+
 app.post('/api/student-schedule', (req, res) => {
+  if (isStudentRole(req.auth)) {
+    return res.status(403).json({ error: 'Изменение расписания ученика требует подтверждения преподавателя' });
+  }
   const { studentId } = req.body || {};
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
@@ -7655,10 +8274,20 @@ app.post('/api/student-schedule', (req, res) => {
   const data = getStudentData(student.id);
   const schedule = [entry, ...(data.schedule || [])];
   setStudentData(student.id, { ...data, schedule });
+  notifyScheduleSyncUpdate({
+    scope: 'student-schedule',
+    action: 'created',
+    teacherId: student.teacherId,
+    studentId: student.id,
+    entryId: entry.id,
+  });
   res.json(entry);
 });
 
 app.put('/api/student-schedule/:id', (req, res) => {
+  if (isStudentRole(req.auth)) {
+    return res.status(403).json({ error: 'Изменение расписания ученика требует подтверждения преподавателя' });
+  }
   const { id } = req.params;
   const { studentId } = req.body || {};
   const student = ensureStudentAccess(req, res, studentId);
@@ -7678,10 +8307,20 @@ app.put('/api/student-schedule/:id', (req, res) => {
   }
   schedule[index] = entry;
   setStudentData(student.id, { ...data, schedule });
+  notifyScheduleSyncUpdate({
+    scope: 'student-schedule',
+    action: 'updated',
+    teacherId: student.teacherId,
+    studentId: student.id,
+    entryId: entry.id,
+  });
   res.json(entry);
 });
 
 app.delete('/api/student-schedule/:id', (req, res) => {
+  if (isStudentRole(req.auth)) {
+    return res.status(403).json({ error: 'Изменение расписания ученика требует подтверждения преподавателя' });
+  }
   const { id } = req.params;
   const { studentId } = req.query;
   const student = ensureStudentAccess(req, res, studentId);
@@ -7689,6 +8328,13 @@ app.delete('/api/student-schedule/:id', (req, res) => {
   const data = getStudentData(student.id);
   const schedule = (data.schedule || []).filter((item) => item.id !== id);
   setStudentData(student.id, { ...data, schedule });
+  notifyScheduleSyncUpdate({
+    scope: 'student-schedule',
+    action: 'deleted',
+    teacherId: student.teacherId,
+    studentId: student.id,
+    entryId: id,
+  });
   res.json({ ok: true });
 });
 

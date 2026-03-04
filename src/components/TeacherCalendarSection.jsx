@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell,
   BellOff,
@@ -10,7 +10,6 @@ import {
   Plus,
   RefreshCcw,
   Search,
-  Settings,
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -34,7 +33,7 @@ const CALENDAR_START_HOUR = 7;
 const CALENDAR_END_HOUR = 22;
 const MIN_CALENDAR_HOUR_HEIGHT = 24;
 const MAX_CALENDAR_HOUR_HEIGHT = 56;
-const CALENDAR_VIEWPORT_RESERVED_PX = 360;
+const CALENDAR_VIEWPORT_RESERVED_PX = 220;
 const DEFAULT_EVENT_DURATION_MINUTES = 60;
 const QUICK_CREATE_TIME_STEP_MINUTES = 30;
 const DEFAULT_ONE_TIME_LESSON_SUBJECT = 'Пробное занятие';
@@ -45,6 +44,8 @@ const QUICK_TIME_PRESETS = ['09:00', '12:00', '15:00', '17:00', '19:00'];
 const LESSON_FILTER_ALL = 'all';
 const LESSON_FILTER_TRIAL = 'trial';
 const LESSON_FILTER_STUDENT = 'student';
+const REPEAT_MODE_ONCE = 'once';
+const REPEAT_MODE_WEEKLY = 'weekly';
 
 const SCHEDULE_WEEKDAY_BY_KEY = SCHEDULE_WEEKDAYS.reduce((acc, weekday) => {
   acc[weekday.key] = weekday;
@@ -197,6 +198,16 @@ const resolveScheduleWeekdayMeta = (entry) => {
   return getScheduleWeekdayMetaFromDate(entry?.date);
 };
 
+const normalizeExcludedDayKeys = (value) => {
+  if (!Array.isArray(value)) return [];
+  const unique = new Set();
+  value.forEach((item) => {
+    const dayKey = String(item || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) unique.add(dayKey);
+  });
+  return Array.from(unique).sort((left, right) => left.localeCompare(right, 'ru'));
+};
+
 const normalizeScheduleEntry = (entry) => {
   if (!entry || typeof entry !== 'object') return null;
   const weekdayMeta = resolveScheduleWeekdayMeta(entry);
@@ -204,8 +215,11 @@ const normalizeScheduleEntry = (entry) => {
   const durationMinutes = Number.isFinite(durationRaw) && durationRaw > 0
     ? Math.round(durationRaw)
     : DEFAULT_EVENT_DURATION_MINUTES;
+  const dateRaw = String(entry?.date || '').trim();
+  const excludedDates = dateRaw ? [] : normalizeExcludedDayKeys(entry?.excludedDates);
   return {
     ...entry,
+    date: dateRaw || '',
     weekdayKey: weekdayMeta?.key || '',
     day: weekdayMeta?.label || String(entry?.day || '').trim(),
     weekdayOrder: Number.isFinite(Number(entry?.weekdayOrder))
@@ -215,6 +229,7 @@ const normalizeScheduleEntry = (entry) => {
     studentId: String(entry?.studentId || '').trim(),
     studentName: String(entry?.studentName || '').trim(),
     durationMinutes,
+    excludedDates,
   };
 };
 
@@ -324,9 +339,7 @@ const TeacherCalendarSection = ({
   const [teacherReminderLoading, setTeacherReminderLoading] = useState(false);
   const [teacherReminderSaving, setTeacherReminderSaving] = useState(false);
   const [teacherReminderError, setTeacherReminderError] = useState('');
-  const [viewportHeight, setViewportHeight] = useState(() => (
-    typeof window !== 'undefined' ? window.innerHeight : 900
-  ));
+  const [timelineViewportHeight, setTimelineViewportHeight] = useState(0);
   const [quickCreateDraft, setQuickCreateDraft] = useState(null);
   const [quickCreateSaving, setQuickCreateSaving] = useState(false);
   const [quickCreateError, setQuickCreateError] = useState('');
@@ -346,6 +359,13 @@ const TeacherCalendarSection = ({
   const [quickCreateFindingSlot, setQuickCreateFindingSlot] = useState(false);
   const [eventQuickActionBusy, setEventQuickActionBusy] = useState(false);
   const [eventQuickActionError, setEventQuickActionError] = useState('');
+  const [dragDropBusy, setDragDropBusy] = useState(false);
+  const [dragDropError, setDragDropError] = useState('');
+  const [draggingEvent, setDraggingEvent] = useState(null);
+  const [dragPreview, setDragPreview] = useState(null);
+  const [dragRecurringChoiceModal, setDragRecurringChoiceModal] = useState(null);
+  const quickCreateClickSuppressedUntilRef = useRef(0);
+  const timelineViewportRef = useRef(null);
 
   const weekStartDate = useMemo(() => getWeekStart(focusDate), [focusDate]);
   const weekDays = useMemo(
@@ -357,13 +377,15 @@ const TeacherCalendarSection = ({
   const dayEndMinutes = CALENDAR_END_HOUR * 60;
   const hoursCount = CALENDAR_END_HOUR - CALENDAR_START_HOUR;
   const hourHeight = useMemo(() => {
-    const safeViewportHeight = Number(viewportHeight) > 0 ? Number(viewportHeight) : 900;
-    const available = safeViewportHeight - CALENDAR_VIEWPORT_RESERVED_PX;
+    const safeViewportHeight = Number(timelineViewportHeight) > 0
+      ? Number(timelineViewportHeight)
+      : (typeof window !== 'undefined' ? (window.innerHeight - CALENDAR_VIEWPORT_RESERVED_PX) : 520);
+    const available = Math.max(120, safeViewportHeight);
     const raw = Math.floor(available / Math.max(1, hoursCount));
-    const minHourHeight = compactMode ? 18 : MIN_CALENDAR_HOUR_HEIGHT;
+    const minHourHeight = compactMode ? 8 : 10;
     const maxHourHeight = compactMode ? 38 : MAX_CALENDAR_HOUR_HEIGHT;
     return Math.max(minHourHeight, Math.min(maxHourHeight, raw));
-  }, [compactMode, hoursCount, viewportHeight]);
+  }, [compactMode, hoursCount, timelineViewportHeight]);
   const calendarHeight = hoursCount * hourHeight;
   const timezoneLabel = getTimezoneLabel();
   const todayKey = toDayKey(new Date());
@@ -426,14 +448,36 @@ const TeacherCalendarSection = ({
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
-    const handleResize = () => {
-      setViewportHeight(window.innerHeight || 900);
+    const element = timelineViewportRef.current;
+    if (!element) return undefined;
+
+    let rafId = 0;
+    const measure = () => {
+      const nextHeight = Math.max(0, Math.floor(element.clientHeight || 0));
+      setTimelineViewportHeight((prev) => (prev === nextHeight ? prev : nextHeight));
     };
-    window.addEventListener('resize', handleResize);
-    window.addEventListener('orientationchange', handleResize);
+    const scheduleMeasure = () => {
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+      }
+      rafId = window.requestAnimationFrame(measure);
+    };
+
+    measure();
+
+    let observer = null;
+    if (typeof window.ResizeObserver === 'function') {
+      observer = new window.ResizeObserver(scheduleMeasure);
+      observer.observe(element);
+    }
+    window.addEventListener('resize', scheduleMeasure);
+    window.addEventListener('orientationchange', scheduleMeasure);
+
     return () => {
-      window.removeEventListener('resize', handleResize);
-      window.removeEventListener('orientationchange', handleResize);
+      if (rafId) window.cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', scheduleMeasure);
+      window.removeEventListener('orientationchange', scheduleMeasure);
+      if (observer) observer.disconnect();
     };
   }, []);
 
@@ -497,6 +541,29 @@ const TeacherCalendarSection = ({
   useEffect(() => {
     loadTeacherCalendar();
   }, [loadTeacherCalendar]);
+
+  useEffect(() => {
+    if (!teacherId || typeof window === 'undefined' || typeof window.EventSource !== 'function') {
+      return undefined;
+    }
+    const source = new window.EventSource('/api/schedule-sync/stream');
+    const handleScheduleSync = (event) => {
+      let payload = null;
+      try {
+        payload = JSON.parse(event?.data || '{}');
+      } catch {
+        return;
+      }
+      const payloadTeacherId = String(payload?.teacherId || '').trim();
+      if (payloadTeacherId && payloadTeacherId !== String(teacherId || '').trim()) return;
+      loadTeacherCalendar({ silent: true });
+    };
+    source.addEventListener('schedule-sync', handleScheduleSync);
+    return () => {
+      source.removeEventListener('schedule-sync', handleScheduleSync);
+      source.close();
+    };
+  }, [loadTeacherCalendar, teacherId]);
 
   const loadTeacherReminderSetting = useCallback(async () => {
     if (!teacherId) {
@@ -687,6 +754,10 @@ const TeacherCalendarSection = ({
         }
       }
       if (!Number.isFinite(dayIndex) || dayIndex < 0 || dayIndex > 6) return;
+      if (!dateKey) {
+        const recurringDayKey = toDayKey(weekDays[dayIndex]);
+        if (entry.excludedDates?.includes(recurringDayKey)) return;
+      }
 
       const clampedStart = Math.max(dayStartMinutes, Math.min(dayEndMinutes - 15, startMinutesRaw));
       const endMinutesRaw = startMinutesRaw + Number(entry.durationMinutes || DEFAULT_EVENT_DURATION_MINUTES);
@@ -703,7 +774,7 @@ const TeacherCalendarSection = ({
     });
 
     return buckets.map((list) => assignOverlapLanes(list));
-  }, [dayEndMinutes, dayStartMinutes, filteredEntries, weekDayKeyToIndex]);
+  }, [dayEndMinutes, dayStartMinutes, filteredEntries, weekDayKeyToIndex, weekDays]);
 
   const displayEventsByDayIndex = useMemo(
     () => eventsByDayIndex.map((list) => (
@@ -809,6 +880,18 @@ const TeacherCalendarSection = ({
     [quickCreateDraft]
   );
 
+  const quickCreateRepeatMode = useMemo(
+    () => (String(quickCreateDraft?.repeatMode || REPEAT_MODE_ONCE).trim() === REPEAT_MODE_WEEKLY
+      ? REPEAT_MODE_WEEKLY
+      : REPEAT_MODE_ONCE),
+    [quickCreateDraft]
+  );
+
+  const quickCreateWeekdayLabel = useMemo(
+    () => getScheduleWeekdayMetaFromDate(quickCreateDateInputValue)?.label || '',
+    [quickCreateDateInputValue]
+  );
+
   const quickCreateIsTrialWithoutStudent = useMemo(
     () => String(quickCreateDraft?.studentId || '').trim() === TRIAL_WITHOUT_STUDENT_VALUE,
     [quickCreateDraft]
@@ -895,10 +978,19 @@ const TeacherCalendarSection = ({
         : fallbackDuration,
       note: typeof eventInfo?.note === 'string' ? eventInfo.note : '',
     };
-    if (overrides.date) {
-      payload.date = String(overrides.date).trim();
-    } else if (overrides.weekdayKey) {
-      payload.weekdayKey = String(overrides.weekdayKey).trim();
+    const hasDateOverride = Object.prototype.hasOwnProperty.call(overrides, 'date');
+    const hasWeekdayOverride = Object.prototype.hasOwnProperty.call(overrides, 'weekdayKey');
+    const hasExcludedDatesOverride = Object.prototype.hasOwnProperty.call(overrides, 'excludedDates');
+    if (hasDateOverride || hasWeekdayOverride) {
+      if (hasDateOverride) {
+        payload.date = String(overrides.date ?? '').trim();
+      }
+      if (hasWeekdayOverride) {
+        payload.weekdayKey = String(overrides.weekdayKey ?? '').trim();
+      } else if (hasDateOverride) {
+        const inferredFromDate = getScheduleWeekdayMetaFromDate(payload.date)?.key || '';
+        if (inferredFromDate) payload.weekdayKey = inferredFromDate;
+      }
     } else {
       const dateRaw = String(eventInfo?.date || '').trim();
       if (dateRaw) payload.date = dateRaw;
@@ -906,6 +998,9 @@ const TeacherCalendarSection = ({
         const weekdayRaw = String(eventInfo?.weekdayKey || '').trim();
         if (weekdayRaw) payload.weekdayKey = weekdayRaw;
       }
+    }
+    if (hasExcludedDatesOverride) {
+      payload.excludedDates = normalizeExcludedDayKeys(overrides.excludedDates);
     }
     return payload;
   }, []);
@@ -946,6 +1041,7 @@ const TeacherCalendarSection = ({
         && entryWeekday <= 7
         && entryWeekday === weekday;
       if (!isMatchingDate && !isRecurringMatch) return;
+      if (isRecurringMatch && entry.excludedDates?.includes(dateKey)) return;
       blockedIntervals.push({
         start: entryTime,
         end: entryTime + Math.max(15, duration),
@@ -1016,15 +1112,286 @@ const TeacherCalendarSection = ({
   }, [quickCreateFindingSlot, quickCreateSaving]);
 
   const closeEventDetails = useCallback(() => {
-    if (eventDeleteBusy || eventEditSaving || eventQuickActionBusy) return;
+    if (eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy) return;
     setEventDetails(null);
     setEventEditDraft(null);
     setEventDeleteError('');
     setEventEditError('');
     setEventQuickActionError('');
-  }, [eventDeleteBusy, eventEditSaving, eventQuickActionBusy]);
+  }, [dragDropBusy, eventDeleteBusy, eventEditSaving, eventQuickActionBusy]);
+
+  const resolveColumnStartMinutesByPointer = useCallback((
+    pointerEvent,
+    durationMinutes = DEFAULT_EVENT_DURATION_MINUTES,
+    cursorOffsetMinutes = 0
+  ) => {
+    const rect = pointerEvent?.currentTarget?.getBoundingClientRect?.();
+    if (!rect || !Number.isFinite(rect.height) || rect.height <= 0) return NaN;
+    const safeDuration = clampNumber(
+      Math.round(Number(durationMinutes) || DEFAULT_EVENT_DURATION_MINUTES),
+      15,
+      360
+    );
+    const safeCursorOffsetMinutes = clampNumber(Number(cursorOffsetMinutes) || 0, 0, safeDuration);
+    const offsetY = clampNumber((pointerEvent.clientY || 0) - rect.top, 0, rect.height);
+    const pointerMinutes = dayStartMinutes + ((offsetY / rect.height) * (dayEndMinutes - dayStartMinutes));
+    const rawStartMinutes = pointerMinutes - safeCursorOffsetMinutes;
+    const snappedMinutes = roundMinutesToStep(rawStartMinutes, QUICK_CREATE_TIME_STEP_MINUTES);
+    return clampNumber(
+      snappedMinutes,
+      dayStartMinutes,
+      Math.max(dayStartMinutes, dayEndMinutes - safeDuration)
+    );
+  }, [dayEndMinutes, dayStartMinutes]);
+
+  const handleEventDragStart = useCallback((dragEvent, calendarEvent, dayIndex, dayKey) => {
+    if (dragDropBusy || eventDeleteBusy || eventEditSaving || eventQuickActionBusy) {
+      dragEvent.preventDefault();
+      return;
+    }
+    const eventId = String(calendarEvent?.id || '').trim();
+    if (!eventId) {
+      dragEvent.preventDefault();
+      return;
+    }
+    const startMinutes = Number(calendarEvent?.startMinutes);
+    if (!Number.isFinite(startMinutes)) {
+      dragEvent.preventDefault();
+      return;
+    }
+    const durationMinutes = Number.isFinite(Number(calendarEvent?.durationMinutes))
+      ? Math.round(Number(calendarEvent.durationMinutes))
+      : DEFAULT_EVENT_DURATION_MINUTES;
+    const dragElementRect = dragEvent?.currentTarget?.getBoundingClientRect?.();
+    const cursorOffsetMinutes = (
+      dragElementRect
+      && Number.isFinite(dragElementRect.height)
+      && dragElementRect.height > 0
+    )
+      ? clampNumber(
+          (((dragEvent.clientY || 0) - dragElementRect.top) / dragElementRect.height) * durationMinutes,
+          0,
+          durationMinutes
+        )
+      : 0;
+    setQuickCreateDraft(null);
+    setQuickCreateError('');
+    setEventDetails(null);
+    setEventEditDraft(null);
+    setEventEditError('');
+    setEventDeleteError('');
+    setEventQuickActionError('');
+    setDragDropError('');
+    setDragRecurringChoiceModal(null);
+    setDraggingEvent({
+      eventId,
+      sourceDayIndex: dayIndex,
+      sourceDayKey: dayKey,
+      sourceStartMinutes: startMinutes,
+      durationMinutes,
+      cursorOffsetMinutes,
+      entry: calendarEvent,
+    });
+    setDragPreview({
+      dayKey,
+      startMinutes,
+      endMinutes: startMinutes + durationMinutes,
+    });
+    if (dragEvent.dataTransfer) {
+      dragEvent.dataTransfer.effectAllowed = 'move';
+      dragEvent.dataTransfer.dropEffect = 'move';
+      dragEvent.dataTransfer.setData('text/plain', eventId);
+    }
+  }, [dragDropBusy, eventDeleteBusy, eventEditSaving, eventQuickActionBusy]);
+
+  const handleEventDragEnd = useCallback(() => {
+    setDraggingEvent(null);
+    setDragPreview(null);
+    quickCreateClickSuppressedUntilRef.current = Date.now() + 180;
+  }, []);
+
+  const handleCalendarColumnDragOver = useCallback((dragEvent, dayIndex) => {
+    if (!draggingEvent || dragDropBusy) return;
+    const dayDate = weekDays[dayIndex];
+    if (!dayDate) return;
+    dragEvent.preventDefault();
+    dragEvent.stopPropagation();
+    if (dragEvent.dataTransfer) {
+      dragEvent.dataTransfer.dropEffect = 'move';
+    }
+    const startMinutes = resolveColumnStartMinutesByPointer(
+      dragEvent,
+      draggingEvent.durationMinutes,
+      draggingEvent.cursorOffsetMinutes
+    );
+    if (!Number.isFinite(startMinutes)) return;
+    const dayKey = toDayKey(dayDate);
+    setDragPreview({
+      dayKey,
+      startMinutes,
+      endMinutes: startMinutes + draggingEvent.durationMinutes,
+    });
+  }, [dragDropBusy, draggingEvent, resolveColumnStartMinutesByPointer, weekDays]);
+
+  const executeDragDropMove = useCallback(async ({
+    draggedEntry,
+    hasExplicitDate = false,
+    targetDayKey = '',
+    targetWeekdayKey = '',
+    targetTime = '',
+    durationMinutes = DEFAULT_EVENT_DURATION_MINUTES,
+    sourceOccurrenceDayKey = '',
+    moveRecurringSeries = true,
+  }) => {
+    if (!draggedEntry) return;
+    setDragDropBusy(true);
+    setDragDropError('');
+    try {
+      if (hasExplicitDate || moveRecurringSeries) {
+        const payload = buildEventUpdatePayload(draggedEntry, hasExplicitDate
+          ? {
+              date: targetDayKey,
+              time: targetTime,
+              durationMinutes,
+            }
+          : {
+              weekdayKey: targetWeekdayKey,
+              time: targetTime,
+              durationMinutes,
+            });
+        await updateEventOnServer(draggedEntry, payload);
+      } else {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(sourceOccurrenceDayKey)) {
+          throw new Error('Не удалось определить дату конкретного занятия для переноса.');
+        }
+        const subject = String(
+          draggedEntry?.subject
+          || draggedEntry?.subjectLabel
+          || draggedEntry?.studentName
+          || DEFAULT_ONE_TIME_LESSON_SUBJECT
+        ).trim() || DEFAULT_ONE_TIME_LESSON_SUBJECT;
+        const note = typeof draggedEntry?.note === 'string' ? draggedEntry.note : '';
+        const oneTimePayload = {
+          date: targetDayKey,
+          time: targetTime,
+          subject,
+          durationMinutes,
+          note,
+        };
+        const studentId = String(draggedEntry?.studentId || '').trim();
+        if (studentId) {
+          await api.addScheduleEntry(studentId, oneTimePayload);
+        } else {
+          const teacherStudentName = String(draggedEntry?.studentName || subject).trim() || subject;
+          await api.addTeacherScheduleEntry({
+            ...oneTimePayload,
+            studentName: teacherStudentName,
+          }, teacherId);
+        }
+        const nextExcludedDates = normalizeExcludedDayKeys([
+          ...(Array.isArray(draggedEntry?.excludedDates) ? draggedEntry.excludedDates : []),
+          sourceOccurrenceDayKey,
+        ]);
+        const recurringPayload = buildEventUpdatePayload(draggedEntry, {
+          excludedDates: nextExcludedDates,
+        });
+        await updateEventOnServer(draggedEntry, recurringPayload);
+      }
+      await loadTeacherCalendar({ silent: true });
+    } catch (err) {
+      setDragDropError(err?.message || 'Не удалось перенести занятие перетаскиванием.');
+    } finally {
+      setDragDropBusy(false);
+    }
+  }, [buildEventUpdatePayload, loadTeacherCalendar, teacherId, updateEventOnServer]);
+
+  const handleCalendarColumnDrop = useCallback(async (dragEvent, dayIndex) => {
+    if (!draggingEvent || dragDropBusy) return;
+    dragEvent.preventDefault();
+    dragEvent.stopPropagation();
+    const dayDate = weekDays[dayIndex];
+    if (!dayDate) {
+      setDraggingEvent(null);
+      setDragPreview(null);
+      return;
+    }
+    const targetDayKey = toDayKey(dayDate);
+    const targetStartMinutes = resolveColumnStartMinutesByPointer(
+      dragEvent,
+      draggingEvent.durationMinutes,
+      draggingEvent.cursorOffsetMinutes
+    );
+    if (!Number.isFinite(targetStartMinutes)) {
+      setDraggingEvent(null);
+      setDragPreview(null);
+      return;
+    }
+    const sourceDayKey = String(draggingEvent.sourceDayKey || '').trim();
+    const sourceStartMinutes = Number(draggingEvent.sourceStartMinutes);
+    const sameSlot = sourceDayKey === targetDayKey && sourceStartMinutes === targetStartMinutes;
+    if (sameSlot) {
+      setDraggingEvent(null);
+      setDragPreview(null);
+      quickCreateClickSuppressedUntilRef.current = Date.now() + 180;
+      return;
+    }
+    const draggedEntry = draggingEvent.entry;
+    const targetWeekdayKey = SCHEDULE_WEEKDAYS[dayIndex]?.key || '';
+    const hasExplicitDate = Boolean(String(draggedEntry?.date || '').trim());
+    const targetTime = formatMinutesAsTime(targetStartMinutes);
+    const dropPayload = {
+      draggedEntry,
+      hasExplicitDate,
+      targetDayKey,
+      targetWeekdayKey,
+      targetTime,
+      durationMinutes: draggingEvent.durationMinutes,
+      sourceOccurrenceDayKey: String(draggingEvent.sourceDayKey || '').trim(),
+    };
+    if (!hasExplicitDate) {
+      setDragRecurringChoiceModal(dropPayload);
+      setDraggingEvent(null);
+      setDragPreview(null);
+      quickCreateClickSuppressedUntilRef.current = Date.now() + 180;
+      return;
+    }
+    try {
+      await executeDragDropMove({
+        ...dropPayload,
+        moveRecurringSeries: true,
+      });
+    } finally {
+      setDraggingEvent(null);
+      setDragPreview(null);
+      quickCreateClickSuppressedUntilRef.current = Date.now() + 180;
+    }
+  }, [
+    dragDropBusy,
+    draggingEvent,
+    executeDragDropMove,
+    resolveColumnStartMinutesByPointer,
+    weekDays,
+  ]);
+
+  const closeDragRecurringChoiceModal = useCallback(() => {
+    if (dragDropBusy) return;
+    setDragRecurringChoiceModal(null);
+  }, [dragDropBusy]);
+
+  const handleDragRecurringChoice = useCallback(async (moveRecurringSeries) => {
+    if (dragDropBusy || !dragRecurringChoiceModal) return;
+    const payload = dragRecurringChoiceModal;
+    setDragRecurringChoiceModal(null);
+    await executeDragDropMove({
+      ...payload,
+      moveRecurringSeries: Boolean(moveRecurringSeries),
+    });
+    quickCreateClickSuppressedUntilRef.current = Date.now() + 180;
+  }, [dragDropBusy, dragRecurringChoiceModal, executeDragDropMove]);
 
   const openQuickCreate = useCallback((dayIndex, clickEvent) => {
+    if (draggingEvent || dragDropBusy) return;
+    if (Date.now() < quickCreateClickSuppressedUntilRef.current) return;
     const dayDate = weekDays[dayIndex];
     if (!dayDate) return;
     const rect = clickEvent?.currentTarget?.getBoundingClientRect?.();
@@ -1044,9 +1411,10 @@ const TeacherCalendarSection = ({
       studentId: TRIAL_WITHOUT_STUDENT_VALUE,
       title: DEFAULT_ONE_TIME_LESSON_SUBJECT,
       durationMinutes: DEFAULT_EVENT_DURATION_MINUTES,
+      repeatMode: REPEAT_MODE_ONCE,
     });
     setQuickCreateError('');
-  }, [dayEndMinutes, dayStartMinutes, weekDays]);
+  }, [dayEndMinutes, dayStartMinutes, dragDropBusy, draggingEvent, weekDays]);
 
   const openQuickCreateForFocusDate = useCallback(() => {
     const clampedMinutes = clampNumber(12 * 60, dayStartMinutes, dayEndMinutes - QUICK_CREATE_TIME_STEP_MINUTES);
@@ -1056,6 +1424,7 @@ const TeacherCalendarSection = ({
       studentId: TRIAL_WITHOUT_STUDENT_VALUE,
       title: DEFAULT_ONE_TIME_LESSON_SUBJECT,
       durationMinutes: DEFAULT_EVENT_DURATION_MINUTES,
+      repeatMode: REPEAT_MODE_ONCE,
     });
     setQuickCreateError('');
   }, [dayEndMinutes, dayStartMinutes, focusDate]);
@@ -1119,6 +1488,14 @@ const TeacherCalendarSection = ({
       setQuickCreateError('Некорректная дата занятия.');
       return;
     }
+    const repeatMode = String(quickCreateDraft.repeatMode || REPEAT_MODE_ONCE).trim() === REPEAT_MODE_WEEKLY
+      ? REPEAT_MODE_WEEKLY
+      : REPEAT_MODE_ONCE;
+    const weekdayMeta = getScheduleWeekdayMetaFromDate(dateKey);
+    if (repeatMode === REPEAT_MODE_WEEKLY && !weekdayMeta?.key) {
+      setQuickCreateError('Не удалось определить день недели для повтора.');
+      return;
+    }
 
     const time = String(quickCreateDraft.time || '').trim();
     const startMinutes = parseScheduleTimeToMinutes(time);
@@ -1141,9 +1518,12 @@ const TeacherCalendarSection = ({
     setQuickCreateError('');
     try {
       const subject = String(quickCreateDraft.title || '').trim() || DEFAULT_ONE_TIME_LESSON_SUBJECT;
+      const scheduleTarget = repeatMode === REPEAT_MODE_WEEKLY
+        ? { weekdayKey: weekdayMeta.key }
+        : { date: dateKey };
       if (isTrialWithoutStudent) {
         await api.addTeacherScheduleEntry({
-          date: dateKey,
+          ...scheduleTarget,
           time,
           subject,
           studentName: subject,
@@ -1152,7 +1532,7 @@ const TeacherCalendarSection = ({
         }, teacherId);
       } else {
         await api.addScheduleEntry(studentId, {
-          date: dateKey,
+          ...scheduleTarget,
           time,
           subject,
           durationMinutes,
@@ -1207,7 +1587,7 @@ const TeacherCalendarSection = ({
   }, [studentNameById, use24HourFormat]);
 
   const handleQuickShiftEvent = useCallback(async ({ dayShift = 0, minuteShift = 0 } = {}) => {
-    if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy) return;
+    if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy) return;
     const baseDateKey = resolveEventDateKey(eventDetails);
     const baseDate = parseDayKeyToDate(baseDateKey);
     if (!baseDate) {
@@ -1258,6 +1638,7 @@ const TeacherCalendarSection = ({
     buildEventUpdatePayload,
     dayEndMinutes,
     dayStartMinutes,
+    dragDropBusy,
     eventDeleteBusy,
     eventDetails,
     eventEditSaving,
@@ -1268,7 +1649,7 @@ const TeacherCalendarSection = ({
   ]);
 
   const handleMoveEventToNearestFreeSlot = useCallback(async () => {
-    if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy) return;
+    if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy) return;
     const baseDateKey = resolveEventDateKey(eventDetails);
     if (!baseDateKey) {
       setEventQuickActionError('Не удалось определить дату занятия.');
@@ -1311,6 +1692,7 @@ const TeacherCalendarSection = ({
     }
   }, [
     buildEventUpdatePayload,
+    dragDropBusy,
     eventDeleteBusy,
     eventDetails,
     eventEditSaving,
@@ -1322,7 +1704,7 @@ const TeacherCalendarSection = ({
   ]);
 
   const handleDuplicateEventNextWeek = useCallback(async () => {
-    if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy) return;
+    if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy) return;
     const baseDateKey = resolveEventDateKey(eventDetails);
     const baseDate = parseDayKeyToDate(baseDateKey);
     if (!baseDate) {
@@ -1369,6 +1751,7 @@ const TeacherCalendarSection = ({
       setEventQuickActionBusy(false);
     }
   }, [
+    dragDropBusy,
     eventDeleteBusy,
     eventDetails,
     eventEditSaving,
@@ -1379,24 +1762,30 @@ const TeacherCalendarSection = ({
   ]);
 
   const startEventEdit = useCallback(() => {
-    if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy) return;
+    if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy) return;
     const currentTitle = String(
       eventDetails.subject
       || eventDetails.subjectLabel
       || eventDetails.studentName
       || DEFAULT_ONE_TIME_LESSON_SUBJECT
     ).trim();
+    const baseDateKey = resolveEventDateKey(eventDetails) || toDayKey(new Date());
+    const repeatMode = String(eventDetails.date || '').trim()
+      ? REPEAT_MODE_ONCE
+      : REPEAT_MODE_WEEKLY;
     setEventEditDraft({
       title: currentTitle || DEFAULT_ONE_TIME_LESSON_SUBJECT,
       time: String(eventDetails.time || '').trim() || '09:00',
       durationMinutes: Number.isFinite(Number(eventDetails.durationMinutes))
         ? Math.round(Number(eventDetails.durationMinutes))
         : DEFAULT_EVENT_DURATION_MINUTES,
+      repeatMode,
+      dateKey: baseDateKey,
     });
     setEventDeleteError('');
     setEventEditError('');
     setEventQuickActionError('');
-  }, [eventDeleteBusy, eventDetails, eventEditSaving, eventQuickActionBusy]);
+  }, [dragDropBusy, eventDeleteBusy, eventDetails, eventEditSaving, eventQuickActionBusy, resolveEventDateKey]);
 
   const cancelEventEdit = useCallback(() => {
     if (eventEditSaving) return;
@@ -1405,7 +1794,7 @@ const TeacherCalendarSection = ({
   }, [eventEditSaving]);
 
   const handleSaveEventEdit = useCallback(async () => {
-    if (!eventDetails || !eventEditDraft || eventEditSaving || eventDeleteBusy || eventQuickActionBusy) return;
+    if (!eventDetails || !eventEditDraft || eventEditSaving || eventDeleteBusy || eventQuickActionBusy || dragDropBusy) return;
     const eventId = String(eventDetails.id || '').trim();
     if (!eventId) {
       setEventEditError('Не удалось определить занятие для редактирования.');
@@ -1430,11 +1819,28 @@ const TeacherCalendarSection = ({
       setEventEditError('Укажите длительность от 15 до 360 минут.');
       return;
     }
+    const repeatMode = String(eventEditDraft.repeatMode || REPEAT_MODE_ONCE).trim() === REPEAT_MODE_WEEKLY
+      ? REPEAT_MODE_WEEKLY
+      : REPEAT_MODE_ONCE;
+    const dateKey = String(eventEditDraft.dateKey || '').trim();
+    if (!dateKey || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+      setEventEditError('Укажите корректную дату занятия.');
+      return;
+    }
+    const weekdayMeta = getScheduleWeekdayMetaFromDate(dateKey);
+    if (!weekdayMeta?.key) {
+      setEventEditError('Не удалось определить день недели для повтора.');
+      return;
+    }
+    const repeatOverrides = repeatMode === REPEAT_MODE_WEEKLY
+      ? { date: '', weekdayKey: weekdayMeta.key }
+      : { date: dateKey, weekdayKey: weekdayMeta.key };
 
     const payload = buildEventUpdatePayload(eventDetails, {
       time,
       subject: title,
       durationMinutes,
+      ...repeatOverrides,
     });
     setEventEditSaving(true);
     setEventEditError('');
@@ -1453,6 +1859,7 @@ const TeacherCalendarSection = ({
     buildEventUpdatePayload,
     dayEndMinutes,
     dayStartMinutes,
+    dragDropBusy,
     eventDeleteBusy,
     eventDetails,
     eventEditDraft,
@@ -1463,7 +1870,7 @@ const TeacherCalendarSection = ({
   ]);
 
   const handleDeleteEvent = useCallback(async () => {
-    if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy) return;
+    if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy) return;
     const studentId = String(eventDetails.studentId || '').trim();
     const eventId = String(eventDetails.id || '').trim();
     if (!eventId) {
@@ -1493,7 +1900,7 @@ const TeacherCalendarSection = ({
     } finally {
       setEventDeleteBusy(false);
     }
-  }, [eventDeleteBusy, eventDetails, eventEditSaving, eventQuickActionBusy, loadTeacherCalendar, teacherId]);
+  }, [dragDropBusy, eventDeleteBusy, eventDetails, eventEditSaving, eventQuickActionBusy, loadTeacherCalendar, teacherId]);
 
   useEffect(() => {
     if (!quickCreateDraft) return undefined;
@@ -1508,10 +1915,21 @@ const TeacherCalendarSection = ({
   }, [quickCreateDraft, quickCreateFindingSlot, quickCreateSaving]);
 
   useEffect(() => {
+    if (!dragRecurringChoiceModal) return undefined;
+    const handleEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      if (dragDropBusy) return;
+      setDragRecurringChoiceModal(null);
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [dragDropBusy, dragRecurringChoiceModal]);
+
+  useEffect(() => {
     if (!eventDetails) return undefined;
     const handleEscape = (event) => {
       if (event.key !== 'Escape') return;
-      if (eventDeleteBusy || eventEditSaving || eventQuickActionBusy) return;
+      if (eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy) return;
       if (eventEditDraft) {
         setEventEditDraft(null);
         setEventEditError('');
@@ -1524,55 +1942,46 @@ const TeacherCalendarSection = ({
     };
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
-  }, [eventDeleteBusy, eventDetails, eventEditDraft, eventEditSaving, eventQuickActionBusy]);
+  }, [dragDropBusy, eventDeleteBusy, eventDetails, eventEditDraft, eventEditSaving, eventQuickActionBusy]);
 
   return (
-    <section className="relative h-[calc(var(--app-vh,1vh)*100-11rem)] overflow-hidden rounded-[28px] border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/60 to-fuchsia-50/45 shadow-[0_18px_38px_rgba(99,102,241,0.16)] md:h-[calc(var(--app-vh,1vh)*100-9.5rem)]">
+    <section className="relative h-[calc(var(--app-vh,1vh)*100-8.25rem)] overflow-hidden rounded-[28px] border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/60 to-fuchsia-50/45 shadow-[0_18px_38px_rgba(99,102,241,0.16)] md:h-[calc(var(--app-vh,1vh)*100-7rem)]">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_6%_0%,rgba(59,130,246,0.16),transparent_38%),radial-gradient(circle_at_96%_2%,rgba(217,70,239,0.15),transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.28),rgba(255,255,255,0))]" />
       <div className="relative z-10 flex h-full min-h-0 flex-col overflow-hidden rounded-[28px]">
-        <div className="flex h-16 items-center justify-between border-b border-purple-200/70 bg-white/75 px-4 backdrop-blur-xl">
-          <div className="flex items-center gap-3">
+        <div className="flex h-12 items-center justify-between border-b border-purple-200/70 bg-white/75 px-3 backdrop-blur-xl">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setSidebarCollapsed((prev) => !prev)}
-              className="grid h-9 w-9 place-items-center rounded-full border border-purple-200/75 bg-white/85 text-purple-600 shadow-sm hover:bg-purple-50"
+              className="grid h-8 w-8 place-items-center rounded-full border border-purple-200/75 bg-white/85 text-purple-600 shadow-sm hover:bg-purple-50"
               aria-label={sidebarCollapsed ? 'Развернуть боковую панель' : 'Свернуть боковую панель'}
               title={sidebarCollapsed ? 'Развернуть боковую панель' : 'Свернуть боковую панель'}
             >
-              <Menu size={18} />
+              <Menu size={16} />
             </button>
-            <div className="flex items-center gap-2">
-              <span className="grid h-8 w-8 place-items-center rounded-md bg-gradient-to-br from-violet-500 via-purple-500 to-fuchsia-500 text-white shadow-[0_10px_20px_rgba(124,58,237,0.32)]">
-                <CalendarDays size={16} />
-              </span>
-              <span className="font-display text-2xl font-semibold leading-none text-slate-900">Календарь</span>
-            </div>
+            <span className="grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-violet-500 via-purple-500 to-fuchsia-500 text-white shadow-[0_10px_20px_rgba(124,58,237,0.32)]">
+              <CalendarDays size={14} />
+            </span>
+            <span className="font-display text-xl font-semibold leading-none text-slate-900">Календарь</span>
           </div>
-          <div className="hidden items-center gap-2 lg:flex">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200/80 bg-white/90 px-3 py-1.5 text-xs font-semibold text-purple-700 shadow-sm">
-              <Search size={13} />
-              {normalizedSearchQuery ? `Найдено слотов: ${visibleLessonsCount}` : `Слотов: ${visibleLessonsCount}`}
-            </span>
-            <span className="rounded-full border border-purple-200/80 bg-white/90 px-3 py-1.5 text-xs font-semibold text-purple-700 shadow-sm">
-              {showWeekends ? '7 дней' : '5 дней'}
-            </span>
-            <span className="rounded-full border border-purple-200/80 bg-white/90 px-3 py-1.5 text-xs font-semibold text-purple-700 shadow-sm">
-              {use24HourFormat ? '24ч формат' : '12ч формат'}
-            </span>
-            <span className={`rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm ${
-              conflictStats.events > 0
-                ? 'border-rose-200 bg-rose-50 text-rose-700'
-                : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-            }`}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={openQuickCreateForFocusDate}
+              className="inline-flex items-center gap-1.5 rounded-full border border-violet-500/70 bg-gradient-to-r from-violet-600 to-purple-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_16px_rgba(124,58,237,0.22)] hover:from-violet-700 hover:to-purple-700"
             >
-              Конфликты: {conflictStats.events}
-            </span>
-            <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 shadow-sm">
-              Пробные: {trialEventsThisWeek.length}
-            </span>
-            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 shadow-sm">
-              С учениками: {studentEventsThisWeek.length}
-            </span>
+              <Plus size={14} />
+              Создать
+            </button>
+            <button
+              type="button"
+              onClick={() => loadTeacherCalendar({ silent: true })}
+              disabled={loading || refreshing}
+              className="inline-flex items-center gap-1.5 rounded-full border border-purple-200/80 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCcw size={13} className={refreshing ? 'animate-spin' : ''} />
+              {refreshing ? '...' : 'Обновить'}
+            </button>
           </div>
         </div>
 
@@ -1724,80 +2133,55 @@ const TeacherCalendarSection = ({
           </aside>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-white/72 backdrop-blur-[2px]">
-            <div className="border-b border-purple-200/70 bg-white/75 px-4 py-3 backdrop-blur-md">
+            <div className="border-b border-purple-200/70 bg-white/75 px-3 py-2 backdrop-blur-md">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => setFocusDate(cloneAsDateOnly(new Date()))}
-                    className="rounded-full border border-purple-200/85 bg-white/95 px-4 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-purple-300 hover:bg-purple-50"
+                    className="rounded-full border border-purple-200/85 bg-white/95 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:border-purple-300 hover:bg-purple-50"
                   >
                     Сегодня
                   </button>
                   <button
                     type="button"
                     onClick={() => setFocusDate((prev) => addDays(prev, -7))}
-                    className="grid h-8 w-8 place-items-center rounded-full border border-purple-200/75 bg-white/90 text-purple-600 shadow-sm hover:bg-purple-50"
+                    className="grid h-7 w-7 place-items-center rounded-full border border-purple-200/75 bg-white/90 text-purple-600 shadow-sm hover:bg-purple-50"
                     aria-label="Предыдущая неделя"
                   >
-                    <ChevronLeft size={16} />
+                    <ChevronLeft size={14} />
                   </button>
                   <button
                     type="button"
                     onClick={() => setFocusDate((prev) => addDays(prev, 7))}
-                    className="grid h-8 w-8 place-items-center rounded-full border border-purple-200/75 bg-white/90 text-purple-600 shadow-sm hover:bg-purple-50"
+                    className="grid h-7 w-7 place-items-center rounded-full border border-purple-200/75 bg-white/90 text-purple-600 shadow-sm hover:bg-purple-50"
                     aria-label="Следующая неделя"
                   >
-                    <ChevronRight size={16} />
+                    <ChevronRight size={14} />
                   </button>
-                  <div className="ml-1 font-display text-[30px] leading-none text-slate-800">{weekTitle}</div>
+                  <div className="ml-1 font-display text-[26px] leading-none text-slate-800">{weekTitle}</div>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  <span className="rounded-full border border-purple-200/80 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-purple-700">
+                  <span className="rounded-full border border-purple-200/80 bg-white/90 px-2 py-1 text-[10px] font-semibold text-purple-700">
                     {weekRangeLabel}
                   </span>
-                  <span className="rounded-full border border-purple-200/80 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-purple-700">
+                  <span className="rounded-full border border-purple-200/80 bg-white/90 px-2 py-1 text-[10px] font-semibold text-purple-700">
                     {timezoneLabel}
                   </span>
-                  <button
-                    type="button"
-                    onClick={handleToggleTeacherReminder}
-                    disabled={teacherReminderLoading || teacherReminderSaving || pushSyncing || pushBusy || !pushReady}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                      !pushEnabled
-                        ? 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100'
-                        : (teacherReminderEnabled
-                            ? 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
-                            : 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100')
-                    } disabled:cursor-not-allowed disabled:opacity-60`}
-                  >
-                    {(pushEnabled && teacherReminderEnabled) ? <BellOff size={13} /> : <Bell size={13} />}
-                    {teacherReminderSaving
-                      ? 'Сохраняем...'
-                      : (!pushEnabled
-                          ? 'Включить push'
-                          : (teacherReminderEnabled ? 'Отключить напоминания' : 'Включить напоминания'))}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => loadTeacherCalendar({ silent: true })}
-                    disabled={loading || refreshing}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-purple-200/80 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <RefreshCcw size={13} className={refreshing ? 'animate-spin' : ''} />
-                    {refreshing ? 'Обновляем...' : 'Обновить'}
-                  </button>
+                  <span className="rounded-full border border-purple-200/80 bg-white/90 px-2 py-1 text-[10px] font-semibold text-purple-700">
+                    Слотов: {visibleLessonsCount}
+                  </span>
                 </div>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <label className="relative min-w-[220px] flex-1 md:max-w-sm">
-                  <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder="Поиск по ученику, предмету, времени..."
-                    className="w-full rounded-full border border-purple-200/85 bg-white/95 py-1.5 pl-9 pr-3 text-xs text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
+                    placeholder="Поиск..."
+                    className="w-full rounded-full border border-purple-200/85 bg-white/95 py-1.5 pl-8 pr-3 text-xs text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
                   />
                 </label>
                 <input
@@ -1816,21 +2200,21 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={() => setLessonTypeFilter(LESSON_FILTER_ALL)}
-                    className={`px-3 py-1.5 ${lessonTypeFilter === LESSON_FILTER_ALL ? 'bg-purple-100 text-purple-700' : 'text-slate-700 hover:bg-slate-50'}`}
+                    className={`px-2.5 py-1.5 ${lessonTypeFilter === LESSON_FILTER_ALL ? 'bg-purple-100 text-purple-700' : 'text-slate-700 hover:bg-slate-50'}`}
                   >
                     Все
                   </button>
                   <button
                     type="button"
                     onClick={() => setLessonTypeFilter(LESSON_FILTER_TRIAL)}
-                    className={`border-l border-purple-100 px-3 py-1.5 ${lessonTypeFilter === LESSON_FILTER_TRIAL ? 'bg-sky-100 text-sky-700' : 'text-slate-700 hover:bg-slate-50'}`}
+                    className={`border-l border-purple-100 px-2.5 py-1.5 ${lessonTypeFilter === LESSON_FILTER_TRIAL ? 'bg-sky-100 text-sky-700' : 'text-slate-700 hover:bg-slate-50'}`}
                   >
                     Пробные
                   </button>
                   <button
                     type="button"
                     onClick={() => setLessonTypeFilter(LESSON_FILTER_STUDENT)}
-                    className={`border-l border-purple-100 px-3 py-1.5 ${lessonTypeFilter === LESSON_FILTER_STUDENT ? 'bg-emerald-100 text-emerald-700' : 'text-slate-700 hover:bg-slate-50'}`}
+                    className={`border-l border-purple-100 px-2.5 py-1.5 ${lessonTypeFilter === LESSON_FILTER_STUDENT ? 'bg-emerald-100 text-emerald-700' : 'text-slate-700 hover:bg-slate-50'}`}
                   >
                     С учениками
                   </button>
@@ -1838,18 +2222,18 @@ const TeacherCalendarSection = ({
                 <button
                   type="button"
                   onClick={() => setShowWeekends((prev) => !prev)}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                  className={`rounded-full border px-2.5 py-1.5 text-xs font-semibold ${
                     showWeekends
                       ? 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
                       : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                   }`}
                 >
-                  {showWeekends ? 'С выходными' : 'Без выходных'}
+                  {showWeekends ? '7 дней' : '5 дней'}
                 </button>
                 <button
                   type="button"
                   onClick={() => setUse24HourFormat((prev) => !prev)}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                  className={`rounded-full border px-2.5 py-1.5 text-xs font-semibold ${
                     use24HourFormat
                       ? 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
                       : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
@@ -1859,46 +2243,23 @@ const TeacherCalendarSection = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCompactMode((prev) => !prev)}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                    compactMode
-                      ? 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
+                  onClick={handleToggleTeacherReminder}
+                  disabled={teacherReminderLoading || teacherReminderSaving || pushSyncing || pushBusy || !pushReady}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-semibold transition ${
+                    !pushEnabled
+                      ? 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100'
+                      : (teacherReminderEnabled
+                          ? 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                          : 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100')
+                  } disabled:cursor-not-allowed disabled:opacity-60`}
                 >
-                  <Settings size={12} />
-                  {compactMode ? 'Компактный вид' : 'Обычный вид'}
+                  {(pushEnabled && teacherReminderEnabled) ? <BellOff size={12} /> : <Bell size={12} />}
+                  {teacherReminderSaving
+                    ? 'Сохраняем...'
+                    : (!pushEnabled
+                        ? 'Включить push'
+                        : (teacherReminderEnabled ? 'Отключить напоминания' : 'Включить напоминания'))}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setShowConflictsOnly((prev) => !prev)}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                    showConflictsOnly
-                      ? 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  {showConflictsOnly ? 'Только конфликты' : 'Все занятия'}
-                </button>
-              </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-                <span className="rounded-full border border-purple-200/80 bg-white/90 px-2.5 py-1 font-semibold text-purple-700">
-                  Отфильтровано слотов: {visibleLessonsCount}
-                </span>
-                <span className={`rounded-full border px-2.5 py-1 font-semibold ${
-                  conflictStats.events > 0
-                    ? 'border-rose-200 bg-rose-50 text-rose-700'
-                    : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                }`}
-                >
-                  Конфликтов: {conflictStats.events} в {conflictStats.days} дн.
-                </span>
-                <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 font-semibold text-sky-700">
-                  Следующее: {nextLessonLabel}
-                </span>
-              </div>
-              <div className="mt-2 text-xs text-slate-500">
-                {teacherReminderStatusText}
               </div>
               {(teacherReminderError || pushError) && (
                 <div className="mt-1 text-xs text-rose-600">
@@ -1910,10 +2271,20 @@ const TeacherCalendarSection = ({
                   {error}
                 </div>
               )}
+              {dragDropError && (
+                <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
+                  {dragDropError}
+                </div>
+              )}
+              {dragDropBusy && (
+                <div className="mt-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700">
+                  Сохраняем перенос занятия...
+                </div>
+              )}
             </div>
 
             <div className="min-h-0 flex-1 overflow-hidden">
-              <div className="h-full">
+              <div className="flex h-full min-h-0 flex-col">
                 <div
                   className="grid border-b border-purple-200/75 bg-gradient-to-r from-violet-50/70 via-white/95 to-fuchsia-50/60"
                   style={{ gridTemplateColumns: `72px repeat(${visibleDayIndexes.length}, minmax(0, 1fr))` }}
@@ -1944,150 +2315,194 @@ const TeacherCalendarSection = ({
                   })}
                 </div>
 
-                <div
-                  className="grid border-b border-purple-200/70 bg-white/85"
-                  style={{ gridTemplateColumns: `72px repeat(${visibleDayIndexes.length}, minmax(0, 1fr))` }}
-                >
-                  <div className="px-2 py-2 text-[11px] font-semibold text-slate-500">Весь день</div>
-                  {visibleDayIndexes.map((dayIndex) => {
-                    const date = weekDays[dayIndex];
-                    if (!date) return null;
-                    const dayKey = toDayKey(date);
-                    const holidays = holidaysByDayKey[dayKey] || [];
-                    return (
-                      <div key={`allday-${dayKey}`} className="flex min-h-[34px] items-center gap-1 border-l border-slate-200 px-1.5 py-1">
-                        {holidays.map((holiday) => (
-                          <span
-                            key={`holiday-${dayKey}-${holiday.title}`}
-                            className="truncate rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white"
-                            title={holiday.title}
-                          >
-                            {holiday.title}
-                          </span>
-                        ))}
-                      </div>
-                    );
-                  })}
-                </div>
+                <div ref={timelineViewportRef} className="min-h-0 flex-1 overflow-hidden">
+                  {loading && entries.length === 0 ? (
+                    <div className="flex h-full min-h-[180px] items-center justify-center gap-2 text-sm font-medium text-slate-600">
+                      <RefreshCcw size={15} className="animate-spin" />
+                      Загружаем календарь...
+                    </div>
+                  ) : (
+                    <>
+                      {visibleLessonsCount === 0 && (
+                        <div className="border-b border-slate-200 px-3 py-2 text-xs text-slate-500">
+                          {normalizedSearchQuery
+                            ? 'По текущему поиску и фильтрам ничего не найдено.'
+                            : 'Кликните по свободному месту в сетке, чтобы добавить разовое занятие.'}
+                        </div>
+                      )}
+                      <div
+                        className="grid"
+                        style={{ gridTemplateColumns: `72px repeat(${visibleDayIndexes.length}, minmax(0, 1fr))` }}
+                      >
+                        <div className="relative border-r border-purple-200/70 bg-white/85" style={{ height: `${calendarHeight}px` }}>
+                          {hourTicks.map((hour, index) => (
+                            <div
+                              key={`time-label-${hour}`}
+                              className="absolute left-0 right-0 -translate-y-1/2 px-2 text-right text-[11px] text-slate-500"
+                              style={{ top: `${index * hourHeight}px` }}
+                            >
+                              {formatHourLabel(hour, use24HourFormat)}
+                            </div>
+                          ))}
+                        </div>
 
-                {loading && entries.length === 0 ? (
-                  <div className="flex h-full min-h-[180px] items-center justify-center gap-2 text-sm font-medium text-slate-600">
-                    <RefreshCcw size={15} className="animate-spin" />
-                    Загружаем календарь...
-                  </div>
-                ) : (
-                  <>
-                    {visibleLessonsCount === 0 && (
-                      <div className="border-b border-slate-200 px-3 py-2 text-xs text-slate-500">
-                        {normalizedSearchQuery
-                          ? 'По текущему поиску и фильтрам ничего не найдено.'
-                          : 'Кликните по свободному месту в сетке, чтобы добавить разовое занятие.'}
-                      </div>
-                    )}
-                    <div
-                      className="grid"
-                      style={{ gridTemplateColumns: `72px repeat(${visibleDayIndexes.length}, minmax(0, 1fr))` }}
-                    >
-                      <div className="relative border-r border-purple-200/70 bg-white/85" style={{ height: `${calendarHeight}px` }}>
-                        {hourTicks.map((hour, index) => (
-                          <div
-                            key={`time-label-${hour}`}
-                            className="absolute left-0 right-0 -translate-y-1/2 px-2 text-right text-[11px] text-slate-500"
-                            style={{ top: `${index * hourHeight}px` }}
-                          >
-                            {formatHourLabel(hour, use24HourFormat)}
-                          </div>
-                        ))}
-                      </div>
-
-                      {visibleDayIndexes.map((dayIndex, dayColumnIndex) => {
-                        const date = weekDays[dayIndex];
-                        if (!date) return null;
-                        const dayKey = toDayKey(date);
-                        const isToday = dayKey === todayKey;
-                        const events = displayEventsByDayIndex[dayIndex] || [];
-                        return (
-                          <div
-                            key={`day-column-${dayKey}`}
-                            className={`relative cursor-pointer border-r border-purple-200/70 transition-colors ${dayColumnIndex === visibleDayIndexes.length - 1 ? 'border-r-0' : ''} ${
-                              isToday ? 'bg-violet-100/45' : 'bg-white/75 hover:bg-violet-50/55'
-                            }`}
-                            style={{ height: `${calendarHeight}px` }}
-                            onClick={(event) => openQuickCreate(dayIndex, event)}
-                            title="Кликните, чтобы добавить разовое занятие"
-                          >
-                            {hourTicks.map((hour, index) => (
-                              <div
-                                key={`grid-line-${dayKey}-${hour}`}
-                                className="absolute left-0 right-0 border-t border-purple-200/65"
-                                style={{ top: `${index * hourHeight}px` }}
-                              />
-                            ))}
-
-                            {events.map((event, index) => {
-                              const top = ((event.startMinutes - dayStartMinutes) / 60) * hourHeight + 1;
-                              const height = Math.max(
-                                26,
-                                ((event.endMinutes - event.startMinutes) / 60) * hourHeight - 2
-                              );
-                              const hasStudent = Boolean(String(event.studentId || '').trim());
-                              const studentName = studentNameById[event.studentId] || event.studentName || 'Ученик';
-                              const subject = String(event.subject || '').trim();
-                              const subjectLabel = subject && subject.toLowerCase() !== 'занятие'
-                                ? subject
-                                : '';
-                              const primaryLabel = hasStudent
-                                ? studentName
-                                : (subjectLabel || studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT);
-                              const showSubjectInCard = Boolean(hasStudent && subjectLabel && subjectLabel !== primaryLabel);
-                              const startLabel = formatMinutesAsDisplayTime(event.startMinutes, use24HourFormat);
-                              const endLabel = formatMinutesAsDisplayTime(event.endMinutes, use24HourFormat);
-                              const color = getEventColor(event.studentId || studentName || `${dayIndex}-${index}`);
-                              const laneWidth = 100 / Math.max(1, event.laneCount || 1);
-                              const left = (event.lane || 0) * laneWidth;
-                              const hasConflict = Number(event.laneCount || 1) > 1;
-                              return (
+                        {visibleDayIndexes.map((dayIndex, dayColumnIndex) => {
+                          const date = weekDays[dayIndex];
+                          if (!date) return null;
+                          const dayKey = toDayKey(date);
+                          const isToday = dayKey === todayKey;
+                          const events = displayEventsByDayIndex[dayIndex] || [];
+                          return (
+                            <div
+                              key={`day-column-${dayKey}`}
+                              className={`relative cursor-pointer border-r border-purple-200/70 transition-colors ${dayColumnIndex === visibleDayIndexes.length - 1 ? 'border-r-0' : ''} ${
+                                isToday ? 'bg-violet-100/45' : 'bg-white/75 hover:bg-violet-50/55'
+                              } ${dragPreview?.dayKey === dayKey ? 'bg-violet-100/65' : ''}`}
+                              style={{ height: `${calendarHeight}px` }}
+                              onClick={(event) => openQuickCreate(dayIndex, event)}
+                              onDragOver={(event) => handleCalendarColumnDragOver(event, dayIndex)}
+                              onDrop={(event) => handleCalendarColumnDrop(event, dayIndex)}
+                              title="Кликните, чтобы добавить разовое занятие"
+                            >
+                              {hourTicks.map((hour, index) => (
                                 <div
-                                  key={event.id || `${dayKey}-${event.time}-${event.studentId}-${index}`}
-                                  title={`${primaryLabel}${showSubjectInCard ? ` • ${subjectLabel}` : ''} • ${startLabel}-${endLabel}`}
-                                  className={`absolute z-10 overflow-hidden rounded-md border px-2 py-1 text-white shadow-sm ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
+                                  key={`grid-line-${dayKey}-${hour}`}
+                                  className="absolute left-0 right-0 border-t border-purple-200/65"
+                                  style={{ top: `${index * hourHeight}px` }}
+                                />
+                              ))}
+                              {dragPreview?.dayKey === dayKey && (
+                                <div
+                                  className="pointer-events-none absolute left-[3px] right-[3px] z-20 overflow-hidden rounded-md border-2 border-dashed border-violet-500 bg-violet-200/45"
                                   style={{
-                                    top: `${top}px`,
-                                    height: `${height}px`,
-                                    left: `calc(${left}% + 3px)`,
-                                    width: `calc(${laneWidth}% - 6px)`,
-                                    backgroundColor: color,
-                                    borderColor: color,
-                                  }}
-                                  onClick={(eventClick) => {
-                                    eventClick.stopPropagation();
-                                    openEventDetailsModal(event, dayKey);
+                                    top: `${((dragPreview.startMinutes - dayStartMinutes) / 60) * hourHeight + 1}px`,
+                                    height: `${Math.max(
+                                      26,
+                                      ((dragPreview.endMinutes - dragPreview.startMinutes) / 60) * hourHeight - 2
+                                    )}px`,
                                   }}
                                 >
-                                  <div className="truncate text-[11px] font-bold leading-tight">{primaryLabel}</div>
-                                  {showSubjectInCard && (
-                                    <div className="truncate text-[10px] font-semibold leading-tight text-white/95">
-                                      {subjectLabel}
-                                    </div>
-                                  )}
-                                  <div className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-white/90">
-                                    <Clock3 size={10} />
-                                    {`${startLabel}-${endLabel}`}
+                                  <div className="px-2 py-1 text-[10px] font-semibold text-violet-900">
+                                    {`${formatMinutesAsDisplayTime(dragPreview.startMinutes, use24HourFormat)}-${formatMinutesAsDisplayTime(dragPreview.endMinutes, use24HourFormat)}`}
                                   </div>
                                 </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
+                              )}
+
+                              {events.map((event, index) => {
+                                const top = ((event.startMinutes - dayStartMinutes) / 60) * hourHeight + 1;
+                                const height = Math.max(
+                                  26,
+                                  ((event.endMinutes - event.startMinutes) / 60) * hourHeight - 2
+                                );
+                                const hasStudent = Boolean(String(event.studentId || '').trim());
+                                const studentName = studentNameById[event.studentId] || event.studentName || 'Ученик';
+                                const subject = String(event.subject || '').trim();
+                                const subjectLabel = subject && subject.toLowerCase() !== 'занятие'
+                                  ? subject
+                                  : '';
+                                const primaryLabel = hasStudent
+                                  ? studentName
+                                  : (subjectLabel || studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT);
+                                const showSubjectInCard = Boolean(hasStudent && subjectLabel && subjectLabel !== primaryLabel);
+                                const startLabel = formatMinutesAsDisplayTime(event.startMinutes, use24HourFormat);
+                                const endLabel = formatMinutesAsDisplayTime(event.endMinutes, use24HourFormat);
+                                const color = getEventColor(event.studentId || studentName || `${dayIndex}-${index}`);
+                                const laneWidth = 100 / Math.max(1, event.laneCount || 1);
+                                const left = (event.lane || 0) * laneWidth;
+                                const hasConflict = Number(event.laneCount || 1) > 1;
+                                return (
+                                  <div
+                                    key={event.id || `${dayKey}-${event.time}-${event.studentId}-${index}`}
+                                    title={`${primaryLabel}${showSubjectInCard ? ` • ${subjectLabel}` : ''} • ${startLabel}-${endLabel}`}
+                                    className={`absolute z-10 overflow-hidden rounded-md border px-2 py-1 text-white shadow-sm ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
+                                    draggable={!dragDropBusy && !eventDeleteBusy && !eventEditSaving && !eventQuickActionBusy}
+                                    style={{
+                                      top: `${top}px`,
+                                      height: `${height}px`,
+                                      left: `calc(${left}% + 3px)`,
+                                      width: `calc(${laneWidth}% - 6px)`,
+                                      backgroundColor: color,
+                                      borderColor: color,
+                                      cursor: dragDropBusy ? 'progress' : 'grab',
+                                      opacity: draggingEvent?.eventId === String(event.id || '').trim() ? 0.65 : 1,
+                                    }}
+                                    onDragStart={(eventDrag) => handleEventDragStart(eventDrag, event, dayIndex, dayKey)}
+                                    onDragEnd={handleEventDragEnd}
+                                    onClick={(eventClick) => {
+                                      eventClick.stopPropagation();
+                                      if (dragDropBusy || Date.now() < quickCreateClickSuppressedUntilRef.current) return;
+                                      openEventDetailsModal(event, dayKey);
+                                    }}
+                                  >
+                                    <div className="truncate text-[11px] font-bold leading-tight">{primaryLabel}</div>
+                                    {showSubjectInCard && (
+                                      <div className="truncate text-[10px] font-semibold leading-tight text-white/95">
+                                        {subjectLabel}
+                                      </div>
+                                    )}
+                                    <div className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-white/90">
+                                      <Clock3 size={10} />
+                                      {`${startLabel}-${endLabel}`}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
+      {dragRecurringChoiceModal && (
+        <div
+          className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]"
+          onClick={closeDragRecurringChoiceModal}
+        >
+          <div
+            className="surface-panel modal-card w-full max-w-md rounded-2xl border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/65 to-fuchsia-50/55 p-4 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="text-lg font-semibold text-slate-900">Перенос повторяющегося занятия</div>
+            <div className="mt-2 text-sm text-slate-600">
+              Выберите, что именно перенести.
+            </div>
+            <div className="mt-4 grid gap-2">
+              <button
+                type="button"
+                onClick={() => handleDragRecurringChoice(true)}
+                disabled={dragDropBusy}
+                className="rounded-xl border border-violet-600 bg-gradient-to-r from-violet-600 to-purple-600 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(124,58,237,0.25)] hover:from-violet-700 hover:to-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Перенести все еженедельные повторы
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDragRecurringChoice(false)}
+                disabled={dragDropBusy}
+                className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm font-semibold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Перенести только это занятие
+              </button>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={closeDragRecurringChoiceModal}
+                disabled={dragDropBusy}
+                className="rounded-full border border-purple-200/80 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {quickCreateDraft && (
         <div
           className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]"
@@ -2100,7 +2515,7 @@ const TeacherCalendarSection = ({
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-lg font-semibold text-slate-900">Новое разовое занятие</div>
+                <div className="text-lg font-semibold text-slate-900">Новое занятие</div>
                 <div className="text-xs text-slate-500">{quickCreateDateLabel}</div>
               </div>
               <button
@@ -2167,6 +2582,36 @@ const TeacherCalendarSection = ({
             )}
 
             <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Повтор
+            </label>
+            <div className="mt-1 inline-flex w-full items-center overflow-hidden rounded-xl border border-purple-200/80 bg-white/95 text-sm font-semibold">
+              <button
+                type="button"
+                onClick={() => setQuickCreateDraft((prev) => (prev ? { ...prev, repeatMode: REPEAT_MODE_ONCE } : prev))}
+                disabled={quickCreateSaving || quickCreateFindingSlot}
+                className={`flex-1 px-3 py-2 ${
+                  quickCreateRepeatMode === REPEAT_MODE_ONCE
+                    ? 'bg-purple-100 text-purple-700'
+                    : 'text-slate-700 hover:bg-slate-50'
+                } disabled:cursor-not-allowed disabled:opacity-60`}
+              >
+                Единоразово
+              </button>
+              <button
+                type="button"
+                onClick={() => setQuickCreateDraft((prev) => (prev ? { ...prev, repeatMode: REPEAT_MODE_WEEKLY } : prev))}
+                disabled={quickCreateSaving || quickCreateFindingSlot}
+                className={`flex-1 border-l border-purple-100 px-3 py-2 ${
+                  quickCreateRepeatMode === REPEAT_MODE_WEEKLY
+                    ? 'bg-sky-100 text-sky-700'
+                    : 'text-slate-700 hover:bg-slate-50'
+                } disabled:cursor-not-allowed disabled:opacity-60`}
+              >
+                Еженедельно
+              </button>
+            </div>
+
+            <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
               Название
             </label>
             <input
@@ -2181,7 +2626,9 @@ const TeacherCalendarSection = ({
 
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Дата</span>
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  {quickCreateRepeatMode === REPEAT_MODE_WEEKLY ? 'Дата (для дня недели)' : 'Дата'}
+                </span>
                 <input
                   type="date"
                   value={quickCreateDateInputValue}
@@ -2189,6 +2636,11 @@ const TeacherCalendarSection = ({
                   disabled={quickCreateSaving || quickCreateFindingSlot}
                   className="mt-1 w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
                 />
+                {quickCreateRepeatMode === REPEAT_MODE_WEEKLY && quickCreateWeekdayLabel && (
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    {`Будет повторяться каждую ${quickCreateWeekdayLabel.toLowerCase()}.`}
+                  </div>
+                )}
               </label>
               <label className="block">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Время</span>
@@ -2305,7 +2757,7 @@ const TeacherCalendarSection = ({
               <button
                 type="button"
                 onClick={closeEventDetails}
-                disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy}
+                disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
                 className="rounded-md px-2 py-1 text-sm font-semibold text-slate-500 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Закрыть
@@ -2325,6 +2777,55 @@ const TeacherCalendarSection = ({
                   maxLength={80}
                   className="w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
                 />
+                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Повтор
+                </label>
+                <div className="inline-flex items-center overflow-hidden rounded-xl border border-purple-200/80 bg-white/95 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setEventEditDraft((prev) => (prev ? { ...prev, repeatMode: REPEAT_MODE_ONCE } : prev))}
+                    disabled={eventEditSaving || eventDeleteBusy}
+                    className={`px-3 py-2 ${
+                      String(eventEditDraft.repeatMode || REPEAT_MODE_ONCE).trim() === REPEAT_MODE_WEEKLY
+                        ? 'text-slate-700 hover:bg-slate-50'
+                        : 'bg-purple-100 text-purple-700'
+                    }`}
+                  >
+                    Единоразово
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEventEditDraft((prev) => (prev ? { ...prev, repeatMode: REPEAT_MODE_WEEKLY } : prev))}
+                    disabled={eventEditSaving || eventDeleteBusy}
+                    className={`border-l border-purple-100 px-3 py-2 ${
+                      String(eventEditDraft.repeatMode || REPEAT_MODE_ONCE).trim() === REPEAT_MODE_WEEKLY
+                        ? 'bg-purple-100 text-purple-700'
+                        : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    Еженедельно
+                  </button>
+                </div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Дата
+                </label>
+                <input
+                  type="date"
+                  value={String(eventEditDraft.dateKey || '').trim()}
+                  onChange={(event) => setEventEditDraft((prev) => (prev ? { ...prev, dateKey: event.target.value } : prev))}
+                  disabled={eventEditSaving || eventDeleteBusy}
+                  className="w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
+                />
+                {String(eventEditDraft.repeatMode || REPEAT_MODE_ONCE).trim() === REPEAT_MODE_WEEKLY && (
+                  <div className="text-[11px] text-slate-500">
+                    {(() => {
+                      const weekdayLabel = getScheduleWeekdayMetaFromDate(eventEditDraft.dateKey)?.label;
+                      return weekdayLabel
+                        ? `Повтор по дню недели: ${weekdayLabel}.`
+                        : 'Выберите дату, чтобы определить день недели.';
+                    })()}
+                  </div>
+                )}
                 <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Время
                 </label>
@@ -2377,6 +2878,12 @@ const TeacherCalendarSection = ({
                         : `${DEFAULT_EVENT_DURATION_MINUTES} мин`}
                     </span>
                   </div>
+                  <div>
+                    <span className="text-slate-500">Повтор: </span>
+                    <span className="font-semibold text-slate-900">
+                      {String(eventDetails.date || '').trim() ? 'Единоразово' : 'Еженедельно'}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="mt-3 rounded-xl border border-purple-200/80 bg-white/80 p-2">
@@ -2387,7 +2894,7 @@ const TeacherCalendarSection = ({
                     <button
                       type="button"
                       onClick={() => handleQuickShiftEvent({ minuteShift: -30 })}
-                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving}
+                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving || dragDropBusy}
                       className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       -30 мин
@@ -2395,7 +2902,7 @@ const TeacherCalendarSection = ({
                     <button
                       type="button"
                       onClick={() => handleQuickShiftEvent({ minuteShift: 30 })}
-                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving}
+                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving || dragDropBusy}
                       className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       +30 мин
@@ -2403,7 +2910,7 @@ const TeacherCalendarSection = ({
                     <button
                       type="button"
                       onClick={() => handleQuickShiftEvent({ dayShift: 1 })}
-                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving}
+                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving || dragDropBusy}
                       className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       +1 день
@@ -2411,7 +2918,7 @@ const TeacherCalendarSection = ({
                     <button
                       type="button"
                       onClick={() => handleQuickShiftEvent({ dayShift: 7 })}
-                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving}
+                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving || dragDropBusy}
                       className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       +1 неделя
@@ -2419,7 +2926,7 @@ const TeacherCalendarSection = ({
                     <button
                       type="button"
                       onClick={handleMoveEventToNearestFreeSlot}
-                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving}
+                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving || dragDropBusy}
                       className="rounded-full border border-purple-200 bg-purple-50 px-2.5 py-1 text-[11px] font-semibold text-purple-700 hover:bg-purple-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       Ближайший свободный
@@ -2427,7 +2934,7 @@ const TeacherCalendarSection = ({
                     <button
                       type="button"
                       onClick={handleDuplicateEventNextWeek}
-                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving}
+                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving || dragDropBusy}
                       className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       Копия через 7 дней
@@ -2462,7 +2969,7 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={cancelEventEdit}
-                    disabled={eventEditSaving || eventDeleteBusy || eventQuickActionBusy}
+                    disabled={eventEditSaving || eventDeleteBusy || eventQuickActionBusy || dragDropBusy}
                     className="rounded-full border border-purple-200/80 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Отменить
@@ -2470,7 +2977,7 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={handleSaveEventEdit}
-                    disabled={eventEditSaving || eventDeleteBusy || eventQuickActionBusy}
+                    disabled={eventEditSaving || eventDeleteBusy || eventQuickActionBusy || dragDropBusy}
                     className="rounded-full border border-violet-600 bg-gradient-to-r from-violet-600 to-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(124,58,237,0.25)] hover:from-violet-700 hover:to-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {eventEditSaving ? 'Сохраняем...' : 'Сохранить'}
@@ -2481,7 +2988,7 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={closeEventDetails}
-                    disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy}
+                    disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
                     className="rounded-full border border-purple-200/80 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Отмена
@@ -2489,7 +2996,7 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={startEventEdit}
-                    disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy}
+                    disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
                     className="rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Редактировать
@@ -2497,7 +3004,7 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={handleDeleteEvent}
-                    disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy}
+                    disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
                     className="rounded-full border border-rose-600 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {eventDeleteBusy ? 'Удаляем...' : 'Удалить'}
@@ -2513,3 +3020,5 @@ const TeacherCalendarSection = ({
 };
 
 export default TeacherCalendarSection;
+
+

@@ -27,6 +27,12 @@ const DEFAULT_SCHEDULE_FORM = {
   weekdayKey: 'monday',
   time: '',
 };
+const SCHEDULE_REQUEST_TYPE_CREATE = 'create';
+const SCHEDULE_REQUEST_TYPE_UPDATE = 'update';
+const SCHEDULE_REQUEST_TYPE_DELETE = 'delete';
+const SCHEDULE_REQUEST_STATUS_PENDING = 'pending';
+const SCHEDULE_REQUEST_STATUS_APPROVED = 'approved';
+const SCHEDULE_REQUEST_STATUS_REJECTED = 'rejected';
 
 const getScheduleWeekdayMetaFromDate = (value) => {
   const normalized = String(value || '').trim();
@@ -87,6 +93,41 @@ const getScheduleFormFromEntry = (entry) => {
     weekdayKey: normalized?.weekdayKey || DEFAULT_SCHEDULE_FORM.weekdayKey,
     time: normalized?.time || '',
   };
+};
+
+const normalizeScheduleRequest = (entry) => {
+  if (!entry || typeof entry !== 'object') return null;
+  const id = String(entry.id || '').trim();
+  if (!id) return null;
+  const type = String(entry.type || '').trim().toLowerCase();
+  const status = String(entry.status || '').trim().toLowerCase();
+  return {
+    ...entry,
+    id,
+    type,
+    status,
+    studentId: String(entry.studentId || '').trim(),
+    teacherId: String(entry.teacherId || '').trim(),
+    targetEntryId: String(entry.targetEntryId || '').trim(),
+    createdAt: String(entry.createdAt || '').trim(),
+    resolutionNote: String(entry.resolutionNote || '').trim(),
+    previousEntry: entry.previousEntry && typeof entry.previousEntry === 'object' ? entry.previousEntry : null,
+    proposedEntry: entry.proposedEntry && typeof entry.proposedEntry === 'object' ? entry.proposedEntry : null,
+  };
+};
+
+const formatScheduleRequestTypeLabel = (type) => {
+  if (type === SCHEDULE_REQUEST_TYPE_CREATE) return 'Добавить слот';
+  if (type === SCHEDULE_REQUEST_TYPE_UPDATE) return 'Изменить слот';
+  if (type === SCHEDULE_REQUEST_TYPE_DELETE) return 'Удалить слот';
+  return 'Изменение';
+};
+
+const formatScheduleRequestStatusLabel = (status) => {
+  if (status === SCHEDULE_REQUEST_STATUS_PENDING) return 'Ожидает';
+  if (status === SCHEDULE_REQUEST_STATUS_APPROVED) return 'Одобрено';
+  if (status === SCHEDULE_REQUEST_STATUS_REJECTED) return 'Отклонено';
+  return 'Неизвестно';
 };
 const ScheduleSection = ({
   role,
@@ -152,6 +193,11 @@ const ScheduleSection = ({
   const [scheduleEditingId, setScheduleEditingId] = useState(null);
   const [scheduleDeletingId, setScheduleDeletingId] = useState(null);
   const [scheduleError, setScheduleError] = useState('');
+  const [scheduleRequests, setScheduleRequests] = useState([]);
+  const [scheduleRequestsLoading, setScheduleRequestsLoading] = useState(false);
+  const [scheduleRequestsError, setScheduleRequestsError] = useState('');
+  const [scheduleRequestNotice, setScheduleRequestNotice] = useState('');
+  const [scheduleRequestActionBusyId, setScheduleRequestActionBusyId] = useState('');
   const [lessonReminderEnabled, setLessonReminderEnabled] = useState(false);
   const [lessonReminderLoading, setLessonReminderLoading] = useState(false);
   const [lessonReminderSaving, setLessonReminderSaving] = useState(false);
@@ -240,6 +286,32 @@ const ScheduleSection = ({
     }
   }, [effectiveStudentId]);
 
+  const loadScheduleRequests = useCallback(async () => {
+    if (!effectiveStudentId) {
+      setScheduleRequests([]);
+      setScheduleRequestsError('');
+      setScheduleRequestsLoading(false);
+      return;
+    }
+    setScheduleRequestsLoading(true);
+    try {
+      const params = role === 'teacher'
+        ? { studentId: effectiveStudentId, status: SCHEDULE_REQUEST_STATUS_PENDING }
+        : { studentId: effectiveStudentId };
+      const data = await api.getStudentScheduleRequests(params);
+      const list = Array.isArray(data)
+        ? data.map((entry) => normalizeScheduleRequest(entry)).filter(Boolean)
+        : [];
+      setScheduleRequests(list);
+      setScheduleRequestsError('');
+    } catch (err) {
+      setScheduleRequests([]);
+      setScheduleRequestsError(err?.message || err);
+    } finally {
+      setScheduleRequestsLoading(false);
+    }
+  }, [effectiveStudentId, role]);
+
   useEffect(() => {
     loadNextLesson();
   }, [effectiveStudentId]);
@@ -249,9 +321,44 @@ const ScheduleSection = ({
   }, [loadSchedule]);
 
   useEffect(() => {
+    loadScheduleRequests();
+  }, [loadScheduleRequests]);
+
+  useEffect(() => {
+    if (!effectiveStudentId || typeof window === 'undefined' || typeof window.EventSource !== 'function') {
+      return undefined;
+    }
+    const source = new window.EventSource('/api/schedule-sync/stream');
+    const handleScheduleSync = (event) => {
+      let payload = null;
+      try {
+        payload = JSON.parse(event?.data || '{}');
+      } catch {
+        return;
+      }
+      const payloadStudentId = String(payload?.studentId || '').trim();
+      if (!payloadStudentId || payloadStudentId !== String(effectiveStudentId || '').trim()) return;
+      const scope = String(payload?.scope || '').trim().toLowerCase();
+      if (scope === 'schedule-request') {
+        loadScheduleRequests();
+        return;
+      }
+      loadSchedule();
+      loadScheduleRequests();
+    };
+    source.addEventListener('schedule-sync', handleScheduleSync);
+    return () => {
+      source.removeEventListener('schedule-sync', handleScheduleSync);
+      source.close();
+    };
+  }, [effectiveStudentId, loadSchedule, loadScheduleRequests]);
+
+  useEffect(() => {
     setScheduleEditingId(null);
     setScheduleForm({ ...DEFAULT_SCHEDULE_FORM });
     setScheduleError('');
+    setScheduleRequestNotice('');
+    setScheduleRequestActionBusyId('');
   }, [effectiveStudentId]);
 
   const loadLessonReminderSetting = useCallback(async () => {
@@ -291,9 +398,13 @@ const ScheduleSection = ({
     if (!effectiveStudentId || refreshingData) return;
     setRefreshingData(true);
     try {
-      const [nextLessonResult, scheduleResult] = await Promise.allSettled([
+      const requestParams = role === 'teacher'
+        ? { studentId: effectiveStudentId, status: SCHEDULE_REQUEST_STATUS_PENDING }
+        : { studentId: effectiveStudentId };
+      const [nextLessonResult, scheduleResult, scheduleRequestsResult] = await Promise.allSettled([
         api.getStudentNextLesson(effectiveStudentId),
         api.getStudentSchedule(effectiveStudentId),
+        api.getStudentScheduleRequests(requestParams),
       ]);
       if (nextLessonResult.status === 'fulfilled') {
         const data = nextLessonResult.value;
@@ -312,10 +423,19 @@ const ScheduleSection = ({
       } else {
         setScheduleError(scheduleResult.reason?.message || scheduleResult.reason);
       }
+      if (scheduleRequestsResult.status === 'fulfilled') {
+        const list = Array.isArray(scheduleRequestsResult.value)
+          ? scheduleRequestsResult.value.map((entry) => normalizeScheduleRequest(entry)).filter(Boolean)
+          : [];
+        setScheduleRequests(list);
+        setScheduleRequestsError('');
+      } else {
+        setScheduleRequestsError(scheduleRequestsResult.reason?.message || scheduleRequestsResult.reason);
+      }
     } finally {
       setRefreshingData(false);
     }
-  }, [effectiveStudentId, refreshingData]);
+  }, [effectiveStudentId, refreshingData, role]);
 
   useEffect(() => {
     if (!effectiveStudentId) return;
@@ -524,6 +644,19 @@ const ScheduleSection = ({
         note: '',
         subject: DEFAULT_SCHEDULE_SUBJECT,
       };
+      if (role === 'student') {
+        await api.createStudentScheduleRequest({
+          studentId: effectiveStudentId,
+          type: scheduleEditingId ? SCHEDULE_REQUEST_TYPE_UPDATE : SCHEDULE_REQUEST_TYPE_CREATE,
+          entryId: scheduleEditingId || undefined,
+          payload,
+        });
+        resetScheduleForm();
+        setScheduleRequestNotice('Запрос отправлен преподавателю и ожидает одобрения.');
+        await loadScheduleRequests();
+        setScheduleError('');
+        return;
+      }
       const savedEntry = scheduleEditingId
         ? await api.updateScheduleEntry(effectiveStudentId, scheduleEditingId, payload)
         : await api.addScheduleEntry(effectiveStudentId, payload);
@@ -532,6 +665,7 @@ const ScheduleSection = ({
         savedEntry,
       ]));
       resetScheduleForm();
+      setScheduleRequestNotice('');
       setScheduleError('');
     } catch (err) {
       setScheduleError(err?.message || err);
@@ -545,16 +679,55 @@ const ScheduleSection = ({
     if (!window.confirm('Удалить этот слот из расписания?')) return;
     setScheduleDeletingId(entry.id);
     try {
+      if (role === 'student') {
+        await api.createStudentScheduleRequest({
+          studentId: effectiveStudentId,
+          type: SCHEDULE_REQUEST_TYPE_DELETE,
+          entryId: entry.id,
+        });
+        if (scheduleEditingId === entry.id) {
+          resetScheduleForm();
+        }
+        setScheduleRequestNotice('Запрос на удаление отправлен преподавателю.');
+        await loadScheduleRequests();
+        setScheduleError('');
+        return;
+      }
       await api.deleteScheduleEntry(effectiveStudentId, entry.id);
       setLessonSchedule((prev) => prev.filter((item) => item?.id !== entry.id));
       if (scheduleEditingId === entry.id) {
         resetScheduleForm();
       }
+      setScheduleRequestNotice('');
       setScheduleError('');
     } catch (err) {
       setScheduleError(err?.message || err);
     } finally {
       setScheduleDeletingId(null);
+    }
+  };
+
+  const handleResolveScheduleRequest = async (requestEntry, action) => {
+    if (role !== 'teacher') return;
+    const requestId = String(requestEntry?.id || '').trim();
+    if (!requestId) return;
+    const actionLabel = action === 'approve' ? 'одобрить' : 'отклонить';
+    if (!window.confirm(`Подтвердить действие: ${actionLabel} запрос?`)) return;
+    setScheduleRequestActionBusyId(requestId);
+    try {
+      await api.resolveStudentScheduleRequest(requestId, action);
+      await Promise.all([loadSchedule(), loadScheduleRequests()]);
+      setScheduleRequestNotice(
+        action === 'approve'
+          ? 'Запрос одобрен, расписание обновлено.'
+          : 'Запрос отклонён.'
+      );
+      setScheduleError('');
+      setScheduleRequestsError('');
+    } catch (err) {
+      setScheduleRequestsError(err?.message || err);
+    } finally {
+      setScheduleRequestActionBusyId('');
     }
   };
 
@@ -726,6 +899,14 @@ const ScheduleSection = ({
     return list.sort((a, b) => new Date(b?.issuedAt || 0) - new Date(a?.issuedAt || 0));
   }, [homeworks]);
   const sortedSchedule = useMemo(() => sortScheduleEntries(lessonSchedule), [lessonSchedule]);
+  const sortedScheduleRequests = useMemo(() => {
+    const list = Array.isArray(scheduleRequests) ? [...scheduleRequests] : [];
+    return list.sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0));
+  }, [scheduleRequests]);
+  const pendingScheduleRequests = useMemo(
+    () => sortedScheduleRequests.filter((entry) => entry.status === SCHEDULE_REQUEST_STATUS_PENDING),
+    [sortedScheduleRequests]
+  );
 
   const nextHomeworkEntry = sortedHomeworks[0] || null;
   const previousHomeworkEntries = sortedHomeworks.slice(1);
@@ -1519,7 +1700,7 @@ const ScheduleSection = ({
         </div>
       </div>
 
-      {(error || testsDbError || mockExamsError || scheduleError) && (
+      {(error || testsDbError || mockExamsError || scheduleError || scheduleRequestsError) && (
         <div className="space-y-2">
           {error && (
             <div className="rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-2 text-xs font-medium text-rose-600">
@@ -1541,6 +1722,11 @@ const ScheduleSection = ({
               {scheduleError}
             </div>
           )}
+          {scheduleRequestsError && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-700">
+              {scheduleRequestsError}
+            </div>
+          )}
         </div>
       )}
 
@@ -1554,7 +1740,7 @@ const ScheduleSection = ({
               <p className="text-xs text-slate-500">
                 {role === 'teacher'
                   ? `Задайте дни и время занятий${selectedStudent ? ` для ${getStudentLabel(selectedStudent)}` : ' для выбранного ученика'}.`
-                  : 'Здесь можно самому задать дни и время занятий. Преподаватель увидит их у себя в расписании.'}
+                  : 'Изменения отправляются преподавателю на подтверждение. Расписание обновится после одобрения.'}
               </p>
             </div>
             <span className="rounded-full border border-sky-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
@@ -1595,6 +1781,116 @@ const ScheduleSection = ({
             </div>
           )}
 
+          {scheduleRequestNotice && (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs font-semibold text-emerald-700">
+              {scheduleRequestNotice}
+            </div>
+          )}
+
+          {role === 'teacher' && effectiveStudentId && (
+            <div className="rounded-2xl border border-amber-200/80 bg-amber-50/70 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-amber-700">
+                  Запросы на изменение расписания
+                </div>
+                <span className="rounded-full border border-amber-300 bg-white/90 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                  {`Ожидают: ${pendingScheduleRequests.length}`}
+                </span>
+              </div>
+              {scheduleRequestsLoading ? (
+                <div className="mt-2 text-xs text-slate-600">Загружаем запросы...</div>
+              ) : pendingScheduleRequests.length === 0 ? (
+                <div className="mt-2 text-xs text-slate-600">Новых запросов нет.</div>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {pendingScheduleRequests.map((requestEntry) => {
+                    const before = requestEntry.previousEntry || null;
+                    const after = requestEntry.proposedEntry || null;
+                    const beforeLabel = [before?.day, before?.time].filter(Boolean).join(', ');
+                    const afterLabel = [after?.day, after?.time].filter(Boolean).join(', ');
+                    return (
+                      <div key={requestEntry.id} className="rounded-xl border border-amber-200 bg-white/95 p-2.5 text-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-semibold text-amber-700">
+                            {formatScheduleRequestTypeLabel(requestEntry.type)}
+                          </span>
+                          <span className="text-slate-500">
+                            {requestEntry.createdAt ? formatDate(requestEntry.createdAt) : ''}
+                          </span>
+                        </div>
+                        {requestEntry.type === SCHEDULE_REQUEST_TYPE_CREATE && (
+                          <div className="mt-1 text-slate-700">{`Новый слот: ${afterLabel || 'без времени'}`}</div>
+                        )}
+                        {requestEntry.type === SCHEDULE_REQUEST_TYPE_UPDATE && (
+                          <div className="mt-1 text-slate-700">
+                            {`Было: ${beforeLabel || '—'} → Стало: ${afterLabel || '—'}`}
+                          </div>
+                        )}
+                        {requestEntry.type === SCHEDULE_REQUEST_TYPE_DELETE && (
+                          <div className="mt-1 text-slate-700">{`Удалить слот: ${beforeLabel || '—'}`}</div>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleResolveScheduleRequest(requestEntry, 'approve')}
+                            disabled={scheduleRequestActionBusyId === requestEntry.id}
+                            className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+                          >
+                            {scheduleRequestActionBusyId === requestEntry.id ? 'Обработка...' : 'Одобрить'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleResolveScheduleRequest(requestEntry, 'reject')}
+                            disabled={scheduleRequestActionBusyId === requestEntry.id}
+                            className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                          >
+                            Отклонить
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {role === 'student' && (
+            <div className="rounded-2xl border border-purple-200/80 bg-white/90 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-purple-700">
+                  Запросы на изменение расписания
+                </div>
+                <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700">
+                  {`Ожидают: ${pendingScheduleRequests.length}`}
+                </span>
+              </div>
+              {scheduleRequestsLoading ? (
+                <div className="mt-2 text-xs text-slate-600">Проверяем статус запросов...</div>
+              ) : sortedScheduleRequests.length === 0 ? (
+                <div className="mt-2 text-xs text-slate-600">Вы ещё не отправляли запросы.</div>
+              ) : (
+                <div className="mt-2 space-y-1.5">
+                  {sortedScheduleRequests.slice(0, 4).map((requestEntry) => (
+                    <div key={requestEntry.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-purple-100 bg-white px-2.5 py-1.5 text-xs">
+                      <span className="text-slate-700">{formatScheduleRequestTypeLabel(requestEntry.type)}</span>
+                      <span className={`font-semibold ${
+                        requestEntry.status === SCHEDULE_REQUEST_STATUS_PENDING
+                          ? 'text-amber-700'
+                          : requestEntry.status === SCHEDULE_REQUEST_STATUS_APPROVED
+                            ? 'text-emerald-700'
+                            : 'text-rose-700'
+                      }`}
+                      >
+                        {formatScheduleRequestStatusLabel(requestEntry.status)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px]">
             <select
               value={scheduleForm.weekdayKey}
@@ -1615,7 +1911,11 @@ const ScheduleSection = ({
 
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={handleSaveSchedule} disabled={scheduleSaving || !effectiveStudentId} className="md:px-5">
-              <Save size={16} /> {scheduleSaving ? 'Сохранение...' : (scheduleEditingId ? 'Сохранить слот' : 'Добавить слот')}
+              <Save size={16} /> {scheduleSaving
+                ? 'Сохранение...'
+                : (role === 'student'
+                  ? (scheduleEditingId ? 'Отправить запрос на изменение' : 'Отправить запрос на добавление')
+                  : (scheduleEditingId ? 'Сохранить слот' : 'Добавить слот'))}
             </Button>
             {scheduleEditingId && (
               <button
@@ -1677,7 +1977,9 @@ const ScheduleSection = ({
                           className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50/80 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
                         >
                           <Trash2 size={13} />
-                          {scheduleDeletingId === entry.id ? 'Удаление...' : 'Удалить'}
+                          {scheduleDeletingId === entry.id
+                            ? (role === 'student' ? 'Отправка...' : 'Удаление...')
+                            : (role === 'student' ? 'Запросить удаление' : 'Удалить')}
                         </button>
                       </div>
                     </div>
