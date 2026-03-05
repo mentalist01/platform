@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, BarChart2, BookOpen, CheckCircle, Pencil, PlayCircle, RefreshCcw, Sparkles, Target, Trash2 } from 'lucide-react';
+import { ArrowUpRight, BarChart2, BookOpen, CheckCircle, Pencil, PlayCircle, Plus, RefreshCcw, Sparkles, Target, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import ProgressReviewModal from './ProgressReviewModal';
 import PythonReviewModal from './PythonReviewModal';
@@ -357,6 +357,7 @@ const PythonSection = ({
   const [showTeacherTaskToolsMobile, setShowTeacherTaskToolsMobile] = useState(false);
   const [showTeacherTheoryToolsMobile, setShowTeacherTheoryToolsMobile] = useState(false);
   const mobilePythonPathCanvasRef = useRef(null);
+  const teacherTaskToolsRef = useRef(null);
   const [mobilePythonPathCanvasWidth, setMobilePythonPathCanvasWidth] = useState(0);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
@@ -752,6 +753,31 @@ const PythonSection = ({
     setCardSectionId('topics');
     setCardShowInPath(true);
     setCardError('');
+  };
+
+  const scrollToTaskTools = () => {
+    if (typeof window === 'undefined') return;
+    window.requestAnimationFrame(() => {
+      teacherTaskToolsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const startCreateTaskCard = (sectionId = 'topics') => {
+    const nextSectionId = normalizePythonTaskSectionId(sectionId);
+    const currentSection = taskSections.find((section) => section.id === nextSectionId);
+    const nextManageTaskNumber = currentSection?.tasks?.[0]?.number ?? taskList[0]?.number ?? '';
+    setEditingCardNumber(null);
+    setCardTitle('');
+    setCardDisplayNumber('');
+    setCardSectionId(nextSectionId);
+    setCardShowInPath(nextSectionId === 'topics');
+    setCardError('');
+    if (Number.isFinite(Number(nextManageTaskNumber))) {
+      setManageTaskNumber(Number(nextManageTaskNumber));
+    }
+    setShowTeacherTheoryToolsMobile(false);
+    setShowTeacherTaskToolsMobile(true);
+    scrollToTaskTools();
   };
 
   const handleSaveTaskCard = async () => {
@@ -1959,7 +1985,17 @@ const PythonSection = ({
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {role === 'teacher' && (
+                          <button
+                            type="button"
+                            onClick={() => startCreateTaskCard(section.id)}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white/90 px-2.5 py-1 text-[11px] font-bold text-purple-700 transition hover:border-purple-300 hover:bg-purple-50"
+                          >
+                            <Plus size={13} />
+                            Добавить карточку
+                          </button>
+                        )}
                         <span className="inline-flex items-center rounded-full border border-white/85 bg-white/80 px-2.5 py-1 text-[11px] font-bold text-slate-700">
                           {`${sectionTasks.length} карточек`}
                         </span>
@@ -2028,7 +2064,8 @@ const PythonSection = ({
       )}
 
       {role === 'teacher' && (
-        <Card className={`python-mobile-panel python-mobile-panel--task space-y-4 border-purple-200/60 bg-gradient-to-br from-white via-white to-purple-50/40 ${showTeacherTaskToolsMobile ? 'python-mobile-panel--open' : 'python-mobile-panel--closed'}`}>
+        <div ref={teacherTaskToolsRef}>
+          <Card className={`python-mobile-panel python-mobile-panel--task space-y-4 border-purple-200/60 bg-gradient-to-br from-white via-white to-purple-50/40 ${showTeacherTaskToolsMobile ? 'python-mobile-panel--open' : 'python-mobile-panel--closed'}`}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-bold text-gray-800">
@@ -2358,7 +2395,8 @@ const PythonSection = ({
               ))
             )}
           </div>
-        </Card>
+          </Card>
+        </div>
       )}
 
       {role === 'teacher' && (
