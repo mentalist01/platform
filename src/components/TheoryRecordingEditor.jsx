@@ -1946,6 +1946,12 @@ const TheoryRecordingEditor = ({
     }
   }, [draft, onDraftChange]);
 
+  const handleSaveDraft = useCallback(() => {
+    if (typeof onSave === 'function') {
+      onSave(draft);
+    }
+  }, [draft, onSave]);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
@@ -2441,7 +2447,7 @@ const TheoryRecordingEditor = ({
               )}
               {canSave && (
                 <Button
-                  onClick={onSave}
+                  onClick={handleSaveDraft}
                   disabled={disabled || isRecording || isSaving || !hasDraft}
                   className="w-full sm:w-auto"
                 >

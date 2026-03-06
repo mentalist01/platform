@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, BarChart2, BookOpen, CheckCircle, Pencil, PlayCircle, Plus, RefreshCcw, Sparkles, Target, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import ProgressReviewModal from './ProgressReviewModal';
@@ -622,6 +622,11 @@ const PythonSection = ({
     () => manageSubsectionModel.subsections.filter((section) => section.count > 0),
     [manageSubsectionModel]
   );
+  const setActiveManageSubsection = useCallback((subsectionId) => {
+    const nextSubsectionId = normalizeTheorySubsectionId(subsectionId);
+    setSelectedSubsectionId(nextSubsectionId);
+    setTheorySubsectionId(nextSubsectionId);
+  }, []);
 
   useEffect(() => {
     if (!selectedSubsectionId || selectedSubsectionId === PYTHON_DEFAULT_SUBSECTION_ID) return;
@@ -743,7 +748,7 @@ const PythonSection = ({
     } else {
       setNewTests([{ input: '', output: '' }]);
     }
-    setSelectedSubsectionId(String(task?.subsectionId || '').trim() || PYTHON_DEFAULT_SUBSECTION_ID);
+    setActiveManageSubsection(String(task?.subsectionId || '').trim() || PYTHON_DEFAULT_SUBSECTION_ID);
     setQuestionError('');
     setTestsFileName('');
   };
@@ -995,7 +1000,7 @@ const PythonSection = ({
       setNewSubsectionTitle('');
       setEditingSubsectionId('');
       setEditingSubsectionTitle('');
-      setSelectedSubsectionId(nextId);
+      setActiveManageSubsection(nextId);
     } catch (err) {
       setSubsectionError(err?.message || err);
     } finally {
@@ -1105,7 +1110,7 @@ const PythonSection = ({
     reader.readAsText(file);
   };
 
-  const handleSavePythonTheory = async () => {
+  const handleSavePythonTheory = async (recordingOverride = null) => {
     if (role !== 'teacher') return;
     if (!manageTaskNumber) return;
     const safeTheorySubsectionId = normalizeTheorySubsectionId(theorySubsectionId);
@@ -1129,7 +1134,7 @@ const PythonSection = ({
     let nextTheory = null;
 
     if (theoryType === THEORY_RECORDING_TYPE) {
-      const normalizedDraft = normalizeTheoryRecording(theoryRecordingDraft);
+      const normalizedDraft = normalizeTheoryRecording(recordingOverride || theoryRecordingDraft);
       if (!normalizedDraft || normalizedDraft.events.length === 0) {
         setTheoryError('Сначала запишите видеоразбор: голос и действия в редакторе.');
         return;
@@ -2246,7 +2251,7 @@ const PythonSection = ({
                   <div key={subsection.id} className="inline-flex items-center gap-2 rounded-xl border border-purple-100 bg-purple-50/70 px-3 py-2 text-sm text-slate-700">
                     <button
                       type="button"
-                      onClick={() => setSelectedSubsectionId(subsection.id)}
+                      onClick={() => setActiveManageSubsection(subsection.id)}
                       className={`font-semibold ${selectedSubsectionId === subsection.id ? 'text-purple-700' : 'text-slate-700'}`}
                     >
                       {subsection.title}
@@ -2340,7 +2345,7 @@ const PythonSection = ({
                 <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Подраздел задачи</label>
                 <select
                   value={selectedSubsectionId}
-                  onChange={(e) => setSelectedSubsectionId(e.target.value || PYTHON_DEFAULT_SUBSECTION_ID)}
+                  onChange={(e) => setActiveManageSubsection(e.target.value || PYTHON_DEFAULT_SUBSECTION_ID)}
                   className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
                 >
                   <option value={PYTHON_DEFAULT_SUBSECTION_ID}>Без подраздела</option>
@@ -2504,7 +2509,7 @@ const PythonSection = ({
             </div>
             <select
               value={theorySubsectionId}
-              onChange={(event) => setTheorySubsectionId(normalizeTheorySubsectionId(event.target.value))}
+              onChange={(event) => setActiveManageSubsection(event.target.value)}
               disabled={theorySaving}
               className="w-full rounded-xl border border-purple-100 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-purple-500"
             >
