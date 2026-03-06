@@ -63,6 +63,22 @@ const normalizePythonTaskSectionId = (value) => {
   return sectionId === 'exam-prep' ? 'exam-prep' : 'topics';
 };
 
+const PYTHON_DISPLAY_NUMBER_COLLATOR = new Intl.Collator('ru', {
+  numeric: true,
+  sensitivity: 'base',
+});
+
+const comparePythonTaskDisplayNumber = (left, right) => {
+  const leftDisplay = String(left?.displayNumber || left?.number || '').trim();
+  const rightDisplay = String(right?.displayNumber || right?.number || '').trim();
+  if (!leftDisplay && !rightDisplay) return 0;
+  if (!leftDisplay) return 1;
+  if (!rightDisplay) return -1;
+  const byDisplay = PYTHON_DISPLAY_NUMBER_COLLATOR.compare(leftDisplay, rightDisplay);
+  if (byDisplay !== 0) return byDisplay;
+  return Number(left?.number || 0) - Number(right?.number || 0);
+};
+
 const normalizePythonTaskCatalog = (value, fallback = []) => {
   const source = Array.isArray(value) ? value : (Array.isArray(fallback) ? fallback : []);
   const usedNumbers = new Set();
@@ -95,7 +111,7 @@ const normalizePythonTaskCatalog = (value, fallback = []) => {
     const leftSafeOrder = leftSectionOrder === -1 ? Number.MAX_SAFE_INTEGER : leftSectionOrder;
     const rightSafeOrder = rightSectionOrder === -1 ? Number.MAX_SAFE_INTEGER : rightSectionOrder;
     if (leftSafeOrder !== rightSafeOrder) return leftSafeOrder - rightSafeOrder;
-    return Number(left.number) - Number(right.number);
+    return comparePythonTaskDisplayNumber(left, right);
   });
   return normalized;
 };
@@ -331,6 +347,7 @@ const PythonSection = ({
   const [cardSectionId, setCardSectionId] = useState('topics');
   const [cardShowInPath, setCardShowInPath] = useState(true);
   const [editingCardNumber, setEditingCardNumber] = useState(null);
+  const isEditingCard = Number.isFinite(editingCardNumber);
   const [cardSaving, setCardSaving] = useState(false);
   const [cardError, setCardError] = useState('');
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -790,8 +807,8 @@ const PythonSection = ({
     const sectionId = normalizePythonTaskSectionId(cardSectionId);
     const displayNumber = String(cardDisplayNumber || '').trim();
     const nextCatalogBase = Array.isArray(taskList) ? [...taskList] : [];
-    let targetNumber = Number(editingCardNumber);
-    if (Number.isFinite(targetNumber)) {
+    let targetNumber = isEditingCard ? editingCardNumber : NaN;
+    if (isEditingCard) {
       const idx = nextCatalogBase.findIndex((task) => Number(task?.number) === targetNumber);
       if (idx < 0) {
         setCardError('Не удалось найти карточку для редактирования.');
@@ -908,7 +925,7 @@ const PythonSection = ({
       recordingStorageNames.forEach((storageName) => {
         api.deleteTestFile(storageName).catch(() => {});
       });
-      if (Number(editingCardNumber) === taskNumber) {
+      if (isEditingCard && editingCardNumber === taskNumber) {
         cancelEditTaskCard();
       }
       setCardError('');
@@ -922,10 +939,10 @@ const PythonSection = ({
   };
 
   useEffect(() => {
-    if (!Number.isFinite(Number(editingCardNumber))) return;
-    if (taskList.some((task) => Number(task?.number) === Number(editingCardNumber))) return;
+    if (!isEditingCard) return;
+    if (taskList.some((task) => Number(task?.number) === editingCardNumber)) return;
     cancelEditTaskCard();
-  }, [editingCardNumber, taskList]);
+  }, [editingCardNumber, isEditingCard, taskList]);
 
   const handleSaveSubsection = async () => {
     if (role !== 'teacher' || !manageTaskNumber) return;
@@ -2093,7 +2110,7 @@ const PythonSection = ({
           <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3.5 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Карточки Python</div>
-              {Number.isFinite(Number(editingCardNumber)) && (
+              {isEditingCard && (
                 <span className="text-[11px] font-semibold text-purple-700">
                   {`Редактирование карточки №${editingCardNumber}`}
                 </span>
@@ -2141,7 +2158,7 @@ const PythonSection = ({
                 Показывать карточку в пути тем
               </label>
               <div className="flex flex-wrap items-center gap-2">
-                {Number.isFinite(Number(editingCardNumber)) && (
+                {isEditingCard && (
                   <Button
                     variant="secondary"
                     type="button"
@@ -2154,7 +2171,7 @@ const PythonSection = ({
                 <Button type="button" onClick={handleSaveTaskCard} disabled={cardSaving}>
                   {cardSaving
                     ? 'Сохранение...'
-                    : (Number.isFinite(Number(editingCardNumber)) ? 'Сохранить карточку' : 'Добавить карточку')}
+                    : (isEditingCard ? 'Сохранить карточку' : 'Добавить карточку')}
                 </Button>
               </div>
             </div>
