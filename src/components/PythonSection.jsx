@@ -2540,21 +2540,27 @@ const PythonSection = ({
                 ensurePyodideReady={ensurePyodideReady}
                 disabled={theorySaving}
                 theme={theme}
+                onSave={handleSavePythonTheory}
+                onClear={handleClearPythonTheory}
+                saveError={theoryError}
+                isSaving={theorySaving}
               />
             )}
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            {theoryError && <span className="text-xs text-red-500">{theoryError}</span>}
-            <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              <Button variant="secondary" onClick={handleClearPythonTheory} disabled={theorySaving} className="w-full sm:w-auto">
-                Очистить текущий тип
-              </Button>
-              <Button onClick={handleSavePythonTheory} disabled={theorySaving} className="w-full sm:w-auto">
-                {theorySaving ? 'Сохранение...' : 'Сохранить теорию'}
-              </Button>
+          {theoryType !== THEORY_RECORDING_TYPE && (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              {theoryError && <span className="text-xs text-red-500">{theoryError}</span>}
+              <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <Button variant="secondary" onClick={handleClearPythonTheory} disabled={theorySaving} className="w-full sm:w-auto">
+                  Очистить текущий тип
+                </Button>
+                <Button onClick={handleSavePythonTheory} disabled={theorySaving} className="w-full sm:w-auto">
+                  {theorySaving ? 'Сохранение...' : 'Сохранить теорию'}
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
         </Card>
       )}
 

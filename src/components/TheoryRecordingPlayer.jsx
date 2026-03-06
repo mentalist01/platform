@@ -177,6 +177,7 @@ const areTheoryPlayerPropsEqual = (prevProps, nextProps) => {
   if (String(prevProps?.className || '') !== String(nextProps?.className || '')) return false;
   if (String(prevProps?.progressStorageKey || '') !== String(nextProps?.progressStorageKey || '')) return false;
   if (String(prevProps?.theme || '') !== String(nextProps?.theme || '')) return false;
+  if (Boolean(prevProps?.compact) !== Boolean(nextProps?.compact)) return false;
   const prevMeta = getRecordingMemoMeta(prevProps?.recording);
   const nextMeta = getRecordingMemoMeta(nextProps?.recording);
   return (
@@ -193,7 +194,7 @@ const areTheoryPlayerPropsEqual = (prevProps, nextProps) => {
   );
 };
 
-const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey = '', theme = '' }) => {
+const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey = '', theme = '', compact = false }) => {
   const normalized = useMemo(() => normalizeTheoryRecording(recording), [recording]);
   const monacoTheme = resolveMonacoColorTheme(theme);
   const normalizedProgressStorageKey = useMemo(
@@ -583,8 +584,16 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
         // no-op
       }
     }
+    const resumeMs = Math.max(
+      0,
+      Math.round(Number(lastAppliedMsRef.current || currentMs || 0))
+    );
+    if (resumeMs > 0) {
+      rebuildTo(resumeMs);
+      return;
+    }
     resetCursorToStart(editor);
-  }, [normalized, resetCursorToStart]);
+  }, [currentMs, normalized, rebuildTo, resetCursorToStart]);
 
   const drawBoardStroke = useCallback((ctx, stroke, width, height) => {
     if (!ctx || !stroke || !Array.isArray(stroke.points) || stroke.points.length < 1) return;
@@ -629,18 +638,55 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     ctx.stroke();
   }, []);
 
-  useEffect(() => {
+  const renderBoardCanvas = useCallback(() => {
     const canvas = boardCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const width = Math.max(1, canvas.width || 1);
-    const height = Math.max(1, canvas.height || 1);
+    const rect = canvas.getBoundingClientRect();
+    const width = Math.max(1, Math.round(rect.width || canvas.clientWidth || 1));
+    const height = Math.max(1, Math.round(rect.height || canvas.clientHeight || 1));
+    const dpr = typeof window !== 'undefined'
+      ? Math.max(1, Number(window.devicePixelRatio) || 1)
+      : 1;
+    const pixelWidth = Math.max(1, Math.round(width * dpr));
+    const pixelHeight = Math.max(1, Math.round(height * dpr));
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = THEORY_PLAYER_BOARD_BG;
     ctx.fillRect(0, 0, width, height);
     boardStrokes.forEach((stroke) => drawBoardStroke(ctx, stroke, width, height));
   }, [boardStrokes, drawBoardStroke]);
+
+  const hasRunOutputFrame = Boolean(
+    runOutputFrame
+    && (runOutputFrame.input || runOutputFrame.output || runOutputFrame.error)
+  );
+  const hasBoardTimeline = useMemo(
+    () => Array.isArray(normalized?.events) && normalized.events.some((event) => event?.type === THEORY_RECORDING_EVENT_BOARD),
+    [normalized?.events]
+  );
+  const shouldShowBoard = hasBoardTimeline || boardStrokes.length > 0;
+
+  useEffect(() => {
+    renderBoardCanvas();
+  }, [isFullscreen, renderBoardCanvas, shouldShowBoard]);
+
+  useEffect(() => {
+    const canvas = boardCanvasRef.current;
+    if (!canvas || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(() => {
+      renderBoardCanvas();
+    });
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, [isFullscreen, renderBoardCanvas, shouldShowBoard]);
 
   const safeTimelineDurationMs = Math.max(
     1,
@@ -704,10 +750,6 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     ? 'bg-gradient-to-br from-fuchsia-500/86 via-violet-500/84 to-indigo-500/84 text-white shadow-[0_0_0_1px_rgba(196,181,253,0.42),0_12px_24px_rgba(124,58,237,0.52)] hover:from-fuchsia-400/92 hover:via-violet-400/90 hover:to-indigo-400/90'
     : 'bg-gradient-to-br from-sky-500/28 via-indigo-500/34 to-violet-500/30 text-sky-100 shadow-[0_10px_20px_rgba(79,70,229,0.3),inset_0_1px_0_rgba(255,255,255,0.18)] hover:from-sky-400/42 hover:via-indigo-400/46 hover:to-violet-400/42';
   const fullscreenIndicatorClass = isFullscreen ? 'opacity-100 scale-100' : 'opacity-0 scale-75';
-  const hasRunOutputFrame = Boolean(
-    runOutputFrame
-    && (runOutputFrame.input || runOutputFrame.output || runOutputFrame.error)
-  );
   const runOutputShellClass = isFullscreen
     ? 'absolute inset-x-5 bottom-28 z-20 md:left-6 md:right-auto md:w-[min(1040px,calc(100%-3rem))]'
     : 'absolute inset-x-3 bottom-24 z-20 md:left-4 md:right-auto md:w-[min(680px,calc(100%-2rem))]';
@@ -729,11 +771,6 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   const runOutputErrorTextClass = isFullscreen
     ? 'mt-1 max-h-[220px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-rose-950/30 px-3 py-2 font-mono text-[16px] leading-7 text-rose-200'
     : 'mt-1 max-h-[108px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-rose-950/30 px-2 py-1 font-mono text-[11px] leading-5 text-rose-200';
-  const hasBoardTimeline = useMemo(
-    () => Array.isArray(normalized?.events) && normalized.events.some((event) => event?.type === THEORY_RECORDING_EVENT_BOARD),
-    [normalized?.events]
-  );
-  const shouldShowBoard = hasBoardTimeline || boardStrokes.length > 0;
   const boardShellClass = isFullscreen
     ? (hasRunOutputFrame
         ? 'absolute right-5 top-14 z-20 w-[min(44vw,640px)]'
@@ -747,7 +784,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   const boardLabelClass = isFullscreen
     ? 'text-[12px] font-semibold uppercase tracking-wide text-slate-300'
     : 'text-[10px] font-semibold uppercase tracking-wide text-slate-400';
-  const boardCanvasHeightClass = isFullscreen ? 'h-[220px]' : 'h-[132px]';
+  const boardCanvasHeightClass = isFullscreen ? 'h-[220px]' : (compact ? 'h-[108px]' : 'h-[132px]');
   const editorViewportClass = isFullscreen
     ? [
         'pointer-events-auto h-full px-5 pt-5',
@@ -757,9 +794,11 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     : 'pointer-events-auto h-full min-h-0 min-w-0 overflow-hidden rounded-xl border border-slate-800/80 bg-[#020817]';
   const standardLayoutClass = !isFullscreen
     ? [
-        'relative z-0 grid h-[min(580px,calc(100vh-14rem))] min-h-0 gap-3 overflow-hidden p-3 pb-24',
+        compact
+          ? 'relative z-0 grid h-[min(460px,calc(100vh-18rem))] min-h-0 gap-2.5 overflow-hidden p-2.5 pb-22'
+          : 'relative z-0 grid h-[min(580px,calc(100vh-14rem))] min-h-0 gap-3 overflow-hidden p-3 pb-24',
         hasRunOutputFrame ? 'grid-rows-[minmax(0,1fr)_auto]' : 'grid-rows-[minmax(0,1fr)]',
-        shouldShowBoard ? 'md:grid-cols-[minmax(0,1fr)_320px] md:items-stretch' : '',
+        shouldShowBoard ? (compact ? 'md:grid-cols-[minmax(0,1fr)_280px] md:items-stretch' : 'md:grid-cols-[minmax(0,1fr)_320px] md:items-stretch') : '',
       ].filter(Boolean).join(' ')
     : '';
   const standardRunOutputWrapperClass = !isFullscreen && shouldShowBoard ? 'min-h-0 md:col-span-2' : 'min-h-0';
@@ -833,14 +872,14 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   const editorHeight = '100%';
   const playerEditorOptions = useMemo(() => ({
     ...PLAYER_EDITOR_OPTIONS,
-    fontSize: isFullscreen ? 30 : PLAYER_EDITOR_OPTIONS.fontSize,
+    fontSize: isFullscreen ? 30 : (compact ? 18 : PLAYER_EDITOR_OPTIONS.fontSize),
     padding: isFullscreen
       ? {
           top: 24,
           bottom: hasRunOutputFrame ? 40 : PLAYER_EDITOR_OPTIONS.padding.bottom,
         }
-      : PLAYER_EDITOR_OPTIONS.padding,
-  }), [hasRunOutputFrame, isFullscreen]);
+      : (compact ? { top: 14, bottom: 18 } : PLAYER_EDITOR_OPTIONS.padding),
+  }), [compact, hasRunOutputFrame, isFullscreen]);
 
   if (!normalized || !normalized.audio?.url || normalized.events.length === 0) {
     return (

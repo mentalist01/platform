@@ -298,7 +298,7 @@ const PythonTestModal = ({
 
   const theoryTypeForVisibility = String(activeTheoryType || '').trim();
   useEffect(() => {
-    setShowTheory(theoryTypeForVisibility === THEORY_RECORDING_TYPE);
+    setShowTheory(false);
   }, [task?.number, selectedSubsectionId, theoryTypeForVisibility]);
 
   const getQuestionIndexKey = () => {
@@ -1452,7 +1452,7 @@ const PythonTestModal = ({
   })();
   const editorOptions = {
     minimap: { enabled: false },
-    fontSize: 18,
+    fontSize: isMobileViewport ? 15 : 16,
     tabSize: 4,
     insertSpaces: true,
     wordWrap: 'on',
@@ -1465,7 +1465,7 @@ const PythonTestModal = ({
     formatOnType: true,
     formatOnPaste: true
   };
-  const codeEditorHeight = isMobileViewport ? '425px' : '650px';
+  const codeEditorHeight = isMobileViewport ? '320px' : 'min(52dvh, 560px)';
   const realtimeStatusLabel = buildRealtimeStatusLabel(realtimeStatus);
   const sharedRunTimeLabel = sharedRunState.ts
     ? new Date(sharedRunState.ts).toLocaleTimeString('ru-RU')
@@ -1487,11 +1487,18 @@ const PythonTestModal = ({
       setCurrentIndex(nextSubsection.items[0].questionIndex);
     }
   };
+  const handleHorizontalWheelScroll = (event) => {
+    const element = event.currentTarget;
+    if (!element || element.scrollWidth <= element.clientWidth) return;
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    event.preventDefault();
+    element.scrollLeft += event.deltaY;
+  };
 
   const modal = (
     <div className="python-runtime-modal-overlay fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-stretch justify-stretch p-0">
-      <div className="python-runtime-modal-shell surface-card modal-card modal-card--fullscreen rounded-none w-screen h-[100dvh] max-w-none max-h-none p-3.5 sm:p-4 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
-        <div className="python-runtime-modal-header flex flex-col gap-3 md:gap-4 mb-3 md:mb-4">
+      <div className="python-runtime-modal-shell surface-card modal-card modal-card--fullscreen rounded-none w-screen h-[100dvh] max-w-none max-h-none p-3 sm:p-3.5 md:p-5 lg:p-6 shadow-2xl relative flex flex-col overflow-hidden">
+        <div className="python-runtime-modal-header flex flex-col gap-2.5 md:gap-3 mb-2.5 md:mb-3">
           <div className="flex justify-between items-start">
             <div>
               <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Тема</div>
@@ -1501,15 +1508,15 @@ const PythonTestModal = ({
           </div>
 
           {showSubsectionNav && (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <div className="text-[11px] md:text-xs font-bold uppercase tracking-wide text-slate-400">Подразделы</div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1 pr-1" onWheel={handleHorizontalWheelScroll}>
                 {visibleSubsections.map((section) => (
                   <button
                     key={`py-subsection-${section.id}`}
                     type="button"
                     onClick={() => handleSelectSubsection(section.id)}
-                    className={`python-runtime-chip rounded-xl border px-3 py-2 text-xs md:text-sm font-semibold transition-colors ${
+                    className={`python-runtime-chip shrink-0 rounded-xl border px-3 py-1.5 text-xs md:text-sm font-semibold transition-colors ${
                       section.id === activeSubsection?.id
                         ? 'border-purple-500 bg-purple-600 text-white'
                         : 'border-purple-100 bg-white text-slate-600 hover:border-purple-300 hover:text-purple-700'
@@ -1521,11 +1528,11 @@ const PythonTestModal = ({
               </div>
             </div>
           )}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <div className="text-[11px] md:text-xs font-bold uppercase tracking-wide text-slate-400">
               {activeSubsection ? `Раздел: ${activeSubsection.title}` : 'Раздел'}
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1 pr-1" onWheel={handleHorizontalWheelScroll}>
               {visibleQuestionItems.map((item) => {
                 const qId = String(item.question?.id ?? item.questionIndex);
                 const solved = solvedIds.has(qId);
@@ -1543,7 +1550,7 @@ const PythonTestModal = ({
                     key={`py-question-${qId}`}
                     type="button"
                     onClick={() => setCurrentIndex(item.questionIndex)}
-                    className={`python-runtime-chip min-w-[132px] rounded-2xl border px-3 py-2 text-left transition-all ${buttonClass}`}
+                    className={`python-runtime-chip min-w-[148px] shrink-0 rounded-2xl border px-3 py-1.5 text-left transition-all ${buttonClass}`}
                     title={label}
                   >
                     <div className="text-[10px] font-bold uppercase tracking-wide opacity-70">{`Задача ${item.localNumber}`}</div>
@@ -1567,9 +1574,9 @@ const PythonTestModal = ({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto pr-0 md:pr-1">
+        <div className="flex-1 min-h-0 overflow-y-auto pr-0 md:pr-1">
           {theory?.content && (
-            <div className="python-runtime-theory-card mb-4 md:mb-6 rounded-3xl border border-violet-200/70 bg-gradient-to-br from-white via-violet-50/70 to-fuchsia-50/45 p-3.5 md:p-4 shadow-[0_14px_34px_rgba(124,58,237,0.12)]">
+            <div className="python-runtime-theory-card mb-3 md:mb-4 rounded-3xl border border-violet-200/70 bg-gradient-to-br from-white via-violet-50/70 to-fuchsia-50/45 p-3 md:p-3.5 shadow-[0_14px_34px_rgba(124,58,237,0.12)]">
               <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-col gap-1.5">
                   <div className="text-xs font-bold uppercase tracking-widest text-purple-600">
@@ -1630,6 +1637,7 @@ const PythonTestModal = ({
                       recording={theoryRecording}
                       progressStorageKey={theoryProgressStorageKey}
                       theme={theme}
+                      compact
                     />
                   </div>
                 ) : theoryType === 'gdoc' ? (
@@ -1638,7 +1646,7 @@ const PythonTestModal = ({
                       <iframe
                         title={`theory-${task.number}`}
                         src={theory.content}
-                        className="w-full h-[240px] md:h-[360px]"
+                        className="w-full h-[220px] md:h-[300px]"
                       />
                     </div>
                   ) : (
@@ -1647,7 +1655,7 @@ const PythonTestModal = ({
                     </div>
                   )
                 ) : (
-                  <div className="python-runtime-theory-body mt-3 whitespace-pre-wrap text-sm text-gray-700 leading-relaxed max-h-[34svh] overflow-y-auto pr-1 md:max-h-none md:overflow-visible md:pr-0">
+                  <div className="python-runtime-theory-body mt-3 whitespace-pre-wrap text-sm text-gray-700 leading-relaxed max-h-[26svh] overflow-y-auto pr-1 xl:max-h-[34svh]">
                     {theory.content}
                   </div>
                 )
@@ -1655,7 +1663,7 @@ const PythonTestModal = ({
             </div>
           )}
           {screenshots.length > 0 && (
-            <div className="space-y-2.5 md:space-y-3 mb-5 md:mb-6">
+            <div className="space-y-2.5 md:space-y-3 mb-4 md:mb-5">
               {screenshots.map((img) => (
                 <div
                   key={img.id || img.url}
@@ -1674,7 +1682,7 @@ const PythonTestModal = ({
           )}
 
           {extraFiles.length > 0 && (
-            <div className="mb-5 md:mb-6">
+            <div className="mb-4 md:mb-5">
               <p className="text-xs font-bold text-gray-400 uppercase mb-2">Доп. файлы</p>
               <div className="space-y-2">
                 {extraFiles.map((file) => (
@@ -1697,10 +1705,10 @@ const PythonTestModal = ({
             <div className="mb-2 text-xs font-semibold text-green-600 uppercase tracking-wide">Решено ранее</div>
           )}
           {currentQuestion?.question && (
-            <p className="text-[15px] md:text-lg font-medium leading-relaxed text-gray-900 mb-5 md:mb-6 whitespace-pre-wrap">{currentQuestion.question}</p>
+            <p className="text-[15px] md:text-lg font-medium leading-relaxed text-gray-900 mb-4 md:mb-5 whitespace-pre-wrap">{currentQuestion.question}</p>
           )}
 
-          <div className="space-y-3 mb-5 md:mb-6">
+          <div className="space-y-3 mb-4 md:mb-5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <label className="block text-xs font-bold text-gray-400 uppercase">Код</label>
@@ -1766,10 +1774,10 @@ const PythonTestModal = ({
           </div>
 
           {runnerError && (
-            <div className="mb-4 text-sm text-red-500">{runnerError}</div>
+            <div className="mb-3 text-sm text-red-500">{runnerError}</div>
           )}
 
-          <div className="space-y-3 mb-5 md:mb-6">
+          <div className="space-y-3 mb-4 md:mb-5">
             <div className="flex items-center justify-between gap-2">
               <div className="text-xs font-bold text-gray-400 uppercase">{'\u0422\u0435\u0441\u0442\u044b'}</div>
               {runnerLoading && (
@@ -1779,7 +1787,7 @@ const PythonTestModal = ({
             {testsToShow.length === 0 ? (
               <div className="text-sm text-gray-500">Учитель еще не добавил тесты.</div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-2 xl:max-h-[30svh] xl:overflow-y-auto xl:pr-1">
                 {testsToShow.map((item, idx) => {
                   const result = testResults[idx];
                   const passed = result?.passed ?? (solvedAllTests ? true : undefined);

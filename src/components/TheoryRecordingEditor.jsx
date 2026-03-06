@@ -28,6 +28,10 @@ const RECORDING_EDITOR_OPTIONS = {
   formatOnType: true,
   formatOnPaste: true,
 };
+const RECORDING_EDITOR_FONT_SIZE_STORAGE_KEY = 'theory-recording-editor-font-size';
+const RECORDING_EDITOR_FONT_SIZE_MIN = 12;
+const RECORDING_EDITOR_FONT_SIZE_MAX = 24;
+const RECORDING_EDITOR_FONT_SIZE_STEP = 1;
 
 const CODE_SNAPSHOT_DEBOUNCE_MS = 120;
 const SELECTION_SNAPSHOT_DEBOUNCE_MS = 90;
@@ -55,6 +59,29 @@ const getPreferredAudioMimeType = () => {
     }
   }
   return '';
+};
+
+const clampRecordingEditorFontSize = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return RECORDING_EDITOR_OPTIONS.fontSize;
+  return Math.max(
+    RECORDING_EDITOR_FONT_SIZE_MIN,
+    Math.min(
+      RECORDING_EDITOR_FONT_SIZE_MAX,
+      Math.round(num)
+    )
+  );
+};
+
+const getInitialRecordingEditorFontSize = () => {
+  if (typeof window === 'undefined') return RECORDING_EDITOR_OPTIONS.fontSize;
+  try {
+    return clampRecordingEditorFontSize(
+      window.localStorage.getItem(RECORDING_EDITOR_FONT_SIZE_STORAGE_KEY)
+    );
+  } catch {
+    return RECORDING_EDITOR_OPTIONS.fontSize;
+  }
 };
 
 const normalizeSelectionListForEvent = (selections) => (
@@ -162,6 +189,10 @@ const TheoryRecordingEditor = ({
   onDraftChange,
   ensurePyodideReady = null,
   theme = '',
+  onSave = null,
+  onClear = null,
+  saveError = '',
+  isSaving = false,
 }) => {
   const monacoTheme = resolveMonacoColorTheme(theme);
   const normalizedInitial = useMemo(() => normalizeTheoryRecording(initialRecording), [initialRecording]);
@@ -196,6 +227,8 @@ const TheoryRecordingEditor = ({
   const [boardTool, setBoardTool] = useState('pen');
   const [boardColor, setBoardColor] = useState(BOARD_DEFAULT_COLOR);
   const [boardWidth, setBoardWidth] = useState(BOARD_DEFAULT_WIDTH);
+  const [activeWorkspace, setActiveWorkspace] = useState('code');
+  const [editorFontSize, setEditorFontSize] = useState(() => getInitialRecordingEditorFontSize());
 
   const editorRef = useRef(null);
   const contentDisposableRef = useRef(null);
@@ -226,6 +259,10 @@ const TheoryRecordingEditor = ({
   const editorPath = useMemo(() => (
     `inmemory://theory-recording/editor-${String(editorId).replace(/[^0-9a-zA-Z_-]/g, '_')}`
   ), [editorId]);
+  const editorOptions = useMemo(() => ({
+    ...RECORDING_EDITOR_OPTIONS,
+    fontSize: editorFontSize,
+  }), [editorFontSize]);
 
   const stopMediaStream = useCallback(() => {
     const stream = mediaStreamRef.current;
@@ -429,20 +466,49 @@ const TheoryRecordingEditor = ({
     ctx.stroke();
   }, []);
 
-  const renderBoardCanvas = useCallback(() => {
+  const prepareBoardCanvas = useCallback(() => {
     const canvas = boardCanvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const cssWidth = Math.max(1, Math.round(rect.width || canvas.clientWidth || canvas.width || 1));
+    const cssHeight = Math.max(1, Math.round(rect.height || canvas.clientHeight || canvas.height || 1));
+    const pixelRatio = Math.max(
+      1,
+      Number(typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1
+    );
+    const targetWidth = Math.max(1, Math.round(cssWidth * pixelRatio));
+    const targetHeight = Math.max(1, Math.round(cssHeight * pixelRatio));
+    if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+    }
+    return {
+      canvas,
+      cssWidth,
+      cssHeight,
+      pixelRatio,
+      targetWidth,
+      targetHeight,
+    };
+  }, []);
+
+  const renderBoardCanvas = useCallback(() => {
+    const prepared = prepareBoardCanvas();
+    if (!prepared) return;
+    const { canvas, cssWidth, cssHeight, pixelRatio, targetWidth, targetHeight } = prepared;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const width = Math.max(1, canvas.width || 1);
-    const height = Math.max(1, canvas.height || 1);
-    ctx.clearRect(0, 0, width, height);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, targetWidth, targetHeight);
+    ctx.scale(pixelRatio, pixelRatio);
     ctx.fillStyle = BOARD_SNAPSHOT_BG;
-    ctx.fillRect(0, 0, width, height);
-    boardStrokesRef.current.forEach((stroke) => drawBoardStroke(ctx, stroke, width, height));
+    ctx.fillRect(0, 0, cssWidth, cssHeight);
+    boardStrokesRef.current.forEach((stroke) => drawBoardStroke(ctx, stroke, cssWidth, cssHeight));
     const previewStroke = boardDrawingRef.current?.stroke;
-    if (previewStroke) drawBoardStroke(ctx, previewStroke, width, height);
-  }, [drawBoardStroke]);
+    if (previewStroke) drawBoardStroke(ctx, previewStroke, cssWidth, cssHeight);
+    ctx.restore();
+  }, [drawBoardStroke, prepareBoardCanvas]);
 
   const getBoardPoint = useCallback((event) => {
     const canvas = boardCanvasRef.current;
@@ -567,6 +633,16 @@ const TheoryRecordingEditor = ({
     renderBoardCanvas();
   }, [boardStrokes, renderBoardCanvas]);
 
+  useEffect(() => {
+    const canvas = boardCanvasRef.current;
+    if (!canvas || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(() => {
+      renderBoardCanvas();
+    });
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, [renderBoardCanvas]);
+
   const finalizeRecording = useCallback((durationMs, mimeType = '') => {
     const chunks = Array.isArray(chunksRef.current) ? chunksRef.current : [];
     const resolvedMime = chunks[0]?.type || mimeType || 'audio/webm';
@@ -619,6 +695,7 @@ const TheoryRecordingEditor = ({
       createdAt: createdAtRef.current,
       updatedAt,
     });
+    setActiveWorkspace('preview');
     setElapsedMs(safeDuration);
     setEventCount(events.length);
     if (events.length >= THEORY_RECORDING_MAX_EVENTS) {
@@ -737,6 +814,7 @@ const TheoryRecordingEditor = ({
   const startRecording = useCallback(async () => {
     if (disabled || isRecordingRef.current) return;
     setRecordingError('');
+    setActiveWorkspace('code');
     const editor = editorRef.current;
     if (!editor) {
       setRecordingError('Редактор еще не готов. Попробуйте через секунду.');
@@ -973,6 +1051,45 @@ const TheoryRecordingEditor = ({
     }
   }, [draft, onDraftChange]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(
+        RECORDING_EDITOR_FONT_SIZE_STORAGE_KEY,
+        String(editorFontSize)
+      );
+    } catch {
+      /* no-op */
+    }
+  }, [editorFontSize]);
+
+  useEffect(() => {
+    try {
+      editorRef.current?.updateOptions?.({ fontSize: editorFontSize });
+      editorRef.current?.layout?.();
+    } catch {
+      /* no-op */
+    }
+  }, [editorFontSize]);
+
+  useEffect(() => {
+    if (typeof requestAnimationFrame !== 'function') return undefined;
+    const frameId = requestAnimationFrame(() => {
+      if (activeWorkspace === 'code') {
+        try {
+          editorRef.current?.layout?.();
+        } catch {
+          /* no-op */
+        }
+        return;
+      }
+      if (activeWorkspace === 'board') {
+        renderBoardCanvas();
+      }
+    });
+    return () => cancelAnimationFrame(frameId);
+  }, [activeWorkspace, renderBoardCanvas]);
+
   useEffect(() => () => {
     runRequestSeqRef.current += 1;
     isRecordingRef.current = false;
@@ -995,183 +1112,398 @@ const TheoryRecordingEditor = ({
     if (selectionDisposableRef.current) selectionDisposableRef.current.dispose();
   }, [clearRecordTimers, revokeLocalAudioUrl, stopMediaStream]);
 
+  const boardWidthValue = Math.max(1, Math.min(22, Math.round(Number(boardWidth) || BOARD_DEFAULT_WIDTH)));
+  const hasDraft = Boolean(draft);
+  const canSave = typeof onSave === 'function';
+  const canClearSavedTheory = typeof onClear === 'function';
+  const canDecreaseEditorFont = editorFontSize > RECORDING_EDITOR_FONT_SIZE_MIN;
+  const canIncreaseEditorFont = editorFontSize < RECORDING_EDITOR_FONT_SIZE_MAX;
+  const workspaceTabs = [
+    {
+      id: 'code',
+      label: 'Код',
+      hint: 'Пишите, запускайте и записывайте изменения редактора.',
+    },
+    {
+      id: 'board',
+      label: 'Доска',
+      hint: 'Рисуйте схемы и пометки поверх объяснения.',
+    },
+    {
+      id: 'preview',
+      label: 'Предпросмотр',
+      hint: 'Проверьте запись перед сохранением.',
+    },
+  ];
+  const recordingStatusLabel = !isRecording
+    ? 'Готово к записи'
+    : (isPaused ? 'Запись на паузе' : 'Идет запись');
+  const recordingStatusClass = !isRecording
+    ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100'
+    : (isPaused ? 'border-amber-400/30 bg-amber-500/10 text-amber-100' : 'border-cyan-400/30 bg-cyan-500/10 text-cyan-100');
+
   return (
     <div className="space-y-3">
-      <div className="rounded-2xl border border-purple-100 bg-purple-50/60 p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          {!isRecording ? (
-            <Button onClick={startRecording} disabled={disabled}>
-              Запись теории
-            </Button>
-          ) : (
-            <>
-              {!isPaused ? (
-                <Button variant="secondary" onClick={pauseRecording} disabled={disabled}>
-                  Пауза
-                </Button>
-              ) : (
-                <Button onClick={resumeRecording} disabled={disabled}>
-                  Продолжить
-                </Button>
-              )}
-              <Button onClick={stopRecording} disabled={disabled}>
-                Остановить запись
+      <div className="overflow-hidden rounded-[28px] border border-slate-800 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.16),_transparent_26%),linear-gradient(160deg,#071127_0%,#091a3f_48%,#050d1f_100%)] text-white shadow-[0_26px_80px_rgba(6,16,40,0.35)]">
+        <div className="border-b border-white/10 px-4 py-3 sm:px-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-200/80">Студия видео-теории</div>
+              <h4 className="mt-2 text-xl font-black tracking-tight text-white">Запись, код, доска и сохранение в одном месте</h4>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-300">
+                Переключайтесь между кодом и доской во время записи, запускайте примеры и сразу проверяйте готовый разбор перед сохранением.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className={`rounded-full border px-3 py-1 text-xs font-semibold ${recordingStatusClass}`}>
+                {recordingStatusLabel}
+              </div>
+              <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200">
+                {`Длительность: ${formatRecordingDuration(elapsedMs)}`}
+              </div>
+              <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200">
+                {`Событий: ${eventCount}`}
+              </div>
+              <div className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                hasDraft
+                  ? 'border-fuchsia-400/30 bg-fuchsia-500/10 text-fuchsia-100'
+                  : 'border-white/10 bg-white/5 text-slate-300'
+              }`}>
+                {hasDraft ? 'Черновик готов' : 'Черновик появится после остановки записи'}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {!isRecording ? (
+              <Button onClick={startRecording} disabled={disabled || isSaving} className="bg-emerald-500 text-white shadow-[0_14px_40px_rgba(16,185,129,0.26)] hover:bg-emerald-600">
+                Начать запись
               </Button>
-            </>
-          )}
-          <Button variant="secondary" onClick={handleResetDraft} disabled={disabled || isRecording}>
-            Сбросить черновик
-          </Button>
-          <div className="text-xs text-slate-500">
-            {!isRecording
-              ? 'Запись остановлена'
-              : (isPaused ? 'Запись на паузе' : 'Идет запись...')}
-          </div>
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-600">
-          <span>{`Длительность: ${formatRecordingDuration(elapsedMs)}`}</span>
-          <span>{`Событий: ${eventCount}`}</span>
-        </div>
-        {recordingError && (
-          <div className="mt-2 text-xs text-red-600">{recordingError}</div>
-        )}
-      </div>
+            ) : (
+              <>
+                {!isPaused ? (
+                  <Button variant="secondary" onClick={pauseRecording} disabled={disabled || isSaving} className="border-white/15 bg-white/10 text-white hover:bg-white/15">
+                    Пауза
+                  </Button>
+                ) : (
+                  <Button onClick={resumeRecording} disabled={disabled || isSaving} className="bg-cyan-500 text-slate-950 shadow-[0_14px_40px_rgba(34,211,238,0.24)] hover:bg-cyan-400">
+                    Продолжить
+                  </Button>
+                )}
+                <Button onClick={stopRecording} disabled={disabled || isSaving} className="bg-rose-500 text-white shadow-[0_14px_40px_rgba(244,63,94,0.22)] hover:bg-rose-600">
+                  Остановить запись
+                </Button>
+              </>
+            )}
 
-      <div className="overflow-hidden rounded-2xl border border-gray-800">
-        <Editor
-          height="260px"
-          language="python"
-          theme={monacoTheme}
-          beforeMount={ensureMonacoColorTheme}
-          defaultValue={code}
-          path={editorPath}
-          saveViewState={false}
-          onMount={handleEditorMount}
-          options={RECORDING_EDITOR_OPTIONS}
-        />
-      </div>
+            {activeWorkspace === 'code' && (
+              <Button
+                onClick={handleRunCode}
+                disabled={disabled || isRunningCode || isSaving}
+                variant="secondary"
+                className="border-white/15 bg-white/10 text-white hover:bg-white/15"
+              >
+                {isRunningCode ? 'Запуск...' : 'Запустить код'}
+              </Button>
+            )}
+          </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white/85 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Доска для видеоразбора</div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setBoardTool('pen')}
-              className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
-                boardTool === 'pen'
-                  ? 'border-purple-500 bg-purple-600 text-white'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-purple-300 hover:text-purple-700'
-              }`}
-            >
-              Перо
-            </button>
-            <button
-              type="button"
-              onClick={() => setBoardTool('eraser')}
-              className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
-                boardTool === 'eraser'
-                  ? 'border-purple-500 bg-purple-600 text-white'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-purple-300 hover:text-purple-700'
-              }`}
-            >
-              Ластик
-            </button>
-            <button
-              type="button"
-              onClick={handleClearBoard}
-              className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-100"
-            >
-              Очистить
-            </button>
-          </div>
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-600">
-          <label className="inline-flex items-center gap-2">
-            <span>Цвет</span>
-            <input
-              type="color"
-              value={boardColor}
-              onChange={(event) => setBoardColor(event.target.value || BOARD_DEFAULT_COLOR)}
-              disabled={boardTool === 'eraser'}
-              className="h-7 w-9 cursor-pointer rounded border border-slate-300 bg-white p-0.5 disabled:cursor-not-allowed disabled:opacity-60"
-            />
-          </label>
-          <label className="inline-flex items-center gap-2">
-            <span>Толщина</span>
-            <input
-              type="range"
-              min={1}
-              max={22}
-              step={1}
-              value={Math.max(1, Math.min(22, Math.round(Number(boardWidth) || BOARD_DEFAULT_WIDTH)))}
-              onChange={(event) => setBoardWidth(Math.max(1, Math.min(22, Number(event.target.value) || BOARD_DEFAULT_WIDTH)))}
-              className="w-28"
-            />
-            <span>{Math.max(1, Math.min(22, Math.round(Number(boardWidth) || BOARD_DEFAULT_WIDTH)))}</span>
-          </label>
-          <span>{`Штрихов: ${boardStrokes.length}`}</span>
-        </div>
-        <div className="mt-2 overflow-hidden rounded-xl border border-slate-300/80 bg-[#050d1f] shadow-[inset_0_1px_0_rgba(148,163,184,0.16)]">
-          <canvas
-            ref={boardCanvasRef}
-            width={960}
-            height={300}
-            onPointerDown={handleBoardPointerDown}
-            onPointerMove={handleBoardPointerMove}
-            onPointerUp={handleBoardPointerUp}
-            onPointerCancel={handleBoardPointerCancel}
-            className="h-[210px] w-full touch-none select-none cursor-crosshair"
-          />
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-slate-200 bg-white/80 p-3">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Ввод для запуска (stdin)</div>
-            <textarea
-              value={runInput}
-              onChange={(event) => setRunInput(event.target.value)}
-              placeholder="Необязательно. Можно оставить пустым."
-              spellCheck={false}
-              className="mt-1 w-full min-h-[72px] resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none focus:border-purple-400"
-            />
-          </div>
-          <div className="sm:pl-2">
-            <Button
-              onClick={handleRunCode}
-              disabled={disabled || isRunningCode}
-              variant="secondary"
-            >
-              {isRunningCode ? 'Запуск...' : 'Запустить код'}
-            </Button>
-          </div>
-        </div>
-        <div className="mt-2 rounded-xl border border-slate-200 bg-slate-950 px-3 py-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Вывод</div>
-          <pre className="mt-1 max-h-[160px] overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-slate-100">{runOutput || 'Вывод появится после запуска кода.'}</pre>
-          {runError && (
-            <div className="mt-2 border-t border-slate-800 pt-2">
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-rose-300">Ошибки</div>
-              <pre className="mt-1 max-h-[120px] overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-rose-200">{runError}</pre>
+          {(recordingError || saveError) && (
+            <div className="mt-3 rounded-2xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+              {recordingError || saveError}
             </div>
           )}
         </div>
-      </div>
 
-      <div className="text-[11px] text-slate-500">
-        Во время записи сохраняются аудио с микрофона, изменения кода, выделения в редакторе, рисунки на доске и результаты запусков (stdin/stdout/stderr).
-      </div>
+        <div className="px-4 py-3 sm:px-5">
+          <div className="grid gap-2 sm:grid-cols-3">
+            {workspaceTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveWorkspace(tab.id)}
+                className={`rounded-2xl border px-4 py-3 text-left transition ${
+                  activeWorkspace === tab.id
+                    ? 'border-cyan-300/50 bg-cyan-400/12 shadow-[0_12px_40px_rgba(34,211,238,0.16)]'
+                    : 'border-white/10 bg-white/[0.04] hover:border-white/20 hover:bg-white/[0.06]'
+                }`}
+              >
+                <div className="text-sm font-semibold text-white">{tab.label}</div>
+                <div className="mt-1 text-xs leading-5 text-slate-300">{tab.hint}</div>
+              </button>
+            ))}
+          </div>
 
-      {draft && (
-        <div className="rounded-2xl border border-slate-200 bg-white/80 p-3">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Предпросмотр видеоразбора</div>
-          <TheoryRecordingPlayer recording={draft} className="mt-2" theme={theme} />
+          {activeWorkspace === 'preview' ? (
+            <div className="mt-3 grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_320px]">
+              <div className="rounded-[24px] border border-white/10 bg-[#030b1d]/80 p-3">
+                {hasDraft ? (
+                  <>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Предпросмотр</div>
+                    <TheoryRecordingPlayer recording={draft} className="mt-3" theme={theme} />
+                  </>
+                ) : (
+                  <div className="flex min-h-[320px] items-center justify-center rounded-[20px] border border-dashed border-white/10 bg-white/[0.03] px-6 text-center text-sm leading-6 text-slate-300">
+                    Остановите запись, чтобы собрать черновик и проверить готовую видео-теорию перед сохранением.
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Что сохранится</div>
+                  <div className="mt-3 space-y-2 text-sm leading-6 text-slate-200">
+                    <div>Аудио с микрофона</div>
+                    <div>Изменения кода и выделения</div>
+                    <div>Рисунки и очистка доски</div>
+                    <div>Запуски кода, ввод и вывод</div>
+                  </div>
+                </div>
+
+                <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Сохранение</div>
+                  <p className="mt-3 text-sm leading-6 text-slate-300">
+                    Сохранение доступно после остановки записи. Если нужно, вернитесь в код или на доску, внесите правки и запишите новый дубль.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-3 grid gap-4 xl:grid-cols-[minmax(0,1.75fr)_320px]">
+              <div className="min-w-0 rounded-[24px] border border-white/10 bg-[#030b1d]/80 p-3">
+                {activeWorkspace === 'code' ? (
+                  <>
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-3">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Редактор Python</div>
+                        <div className="mt-1 text-sm text-slate-300">Код и выделения записываются автоматически во время записи.</div>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Шрифт</span>
+                          <button
+                            type="button"
+                            onClick={() => setEditorFontSize((prev) => clampRecordingEditorFontSize(prev - RECORDING_EDITOR_FONT_SIZE_STEP))}
+                            disabled={!canDecreaseEditorFont}
+                            className="rounded-lg border border-white/10 bg-white/[0.06] px-2 py-1 text-sm font-semibold text-white transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            A-
+                          </button>
+                          <div className="min-w-[58px] rounded-lg border border-cyan-300/20 bg-cyan-400/10 px-2 py-1 text-center text-sm font-semibold text-cyan-100">
+                            {`${editorFontSize}px`}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setEditorFontSize((prev) => clampRecordingEditorFontSize(prev + RECORDING_EDITOR_FONT_SIZE_STEP))}
+                            disabled={!canIncreaseEditorFont}
+                            className="rounded-lg border border-white/10 bg-white/[0.06] px-2 py-1 text-sm font-semibold text-white transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            A+
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditorFontSize(RECORDING_EDITOR_OPTIONS.fontSize)}
+                            disabled={editorFontSize === RECORDING_EDITOR_OPTIONS.fontSize}
+                            className="rounded-lg border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs font-semibold text-slate-200 transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Сброс
+                          </button>
+                        </div>
+                        <div className="mt-2 text-[11px] leading-5 text-slate-400">
+                          Только для вашего редактора. На запись и предпросмотр не влияет.
+                        </div>
+                      </div>
+                    </div>
+                    <div className="overflow-hidden rounded-[20px] border border-white/10 bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+                      <Editor
+                        height="460px"
+                        language="python"
+                        theme={monacoTheme}
+                        beforeMount={ensureMonacoColorTheme}
+                        defaultValue={code}
+                        path={editorPath}
+                        saveViewState={false}
+                        onMount={handleEditorMount}
+                        options={editorOptions}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-3">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Доска для объяснений</div>
+                        <div className="mt-1 text-sm text-slate-300">Переключайтесь на доску, когда нужно быстро нарисовать схему или подсветить идею.</div>
+                      </div>
+                    </div>
+                    <div className="overflow-hidden rounded-[20px] border border-white/10 bg-[#050d1f] shadow-[inset_0_1px_0_rgba(148,163,184,0.16)]">
+                      <canvas
+                        ref={boardCanvasRef}
+                        width={960}
+                        height={300}
+                        onPointerDown={handleBoardPointerDown}
+                        onPointerMove={handleBoardPointerMove}
+                        onPointerUp={handleBoardPointerUp}
+                        onPointerCancel={handleBoardPointerCancel}
+                        className="h-[460px] w-full touch-none select-none cursor-crosshair"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                {activeWorkspace === 'code' ? (
+                  <>
+                    <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Запуск кода</div>
+                          <div className="mt-1 text-sm text-slate-300">Введите данные и сразу получите вывод для записи.</div>
+                        </div>
+                      </div>
+                      <textarea
+                        value={runInput}
+                        onChange={(event) => setRunInput(event.target.value)}
+                        placeholder="Необязательно. Можно оставить пустым."
+                        spellCheck={false}
+                        className="mt-3 min-h-[120px] w-full resize-y rounded-2xl border border-white/10 bg-[#061127] px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-300/60"
+                      />
+                    </div>
+
+                    <div className="rounded-[24px] border border-white/10 bg-[#030b1d] p-4">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Вывод</div>
+                      <pre className="mt-3 max-h-[260px] overflow-y-auto whitespace-pre-wrap break-words rounded-2xl border border-white/10 bg-black/25 px-3 py-3 font-mono text-[12px] leading-6 text-slate-100">
+                        {runOutput || 'Вывод появится после запуска кода.'}
+                      </pre>
+                      {runError && (
+                        <div className="mt-3 rounded-2xl border border-rose-400/30 bg-rose-500/10 px-3 py-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-200">Ошибки</div>
+                          <pre className="mt-2 max-h-[160px] overflow-y-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-6 text-rose-100">{runError}</pre>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Инструменты доски</div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setBoardTool('pen')}
+                          className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${
+                            boardTool === 'pen'
+                              ? 'border-cyan-300/50 bg-cyan-400/12 text-white'
+                              : 'border-white/10 bg-white/[0.04] text-slate-300 hover:border-white/20 hover:text-white'
+                          }`}
+                        >
+                          Перо
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBoardTool('eraser')}
+                          className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${
+                            boardTool === 'eraser'
+                              ? 'border-cyan-300/50 bg-cyan-400/12 text-white'
+                              : 'border-white/10 bg-white/[0.04] text-slate-300 hover:border-white/20 hover:text-white'
+                          }`}
+                        >
+                          Ластик
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleClearBoard}
+                          className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/15"
+                        >
+                          Очистить доску
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Параметры</div>
+                      <div className="mt-3 space-y-4 text-sm text-slate-200">
+                        <label className="block">
+                          <span className="mb-2 block text-xs uppercase tracking-[0.16em] text-slate-400">Цвет линии</span>
+                          <input
+                            type="color"
+                            value={boardColor}
+                            onChange={(event) => setBoardColor(event.target.value || BOARD_DEFAULT_COLOR)}
+                            disabled={boardTool === 'eraser'}
+                            className="h-10 w-full cursor-pointer rounded-xl border border-white/10 bg-[#061127] p-1 disabled:cursor-not-allowed disabled:opacity-50"
+                          />
+                        </label>
+
+                        <label className="block">
+                          <div className="mb-2 flex items-center justify-between gap-3 text-xs uppercase tracking-[0.16em] text-slate-400">
+                            <span>Толщина</span>
+                            <span>{boardWidthValue}</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={1}
+                            max={22}
+                            step={1}
+                            value={boardWidthValue}
+                            onChange={(event) => setBoardWidth(Math.max(1, Math.min(22, Number(event.target.value) || BOARD_DEFAULT_WIDTH)))}
+                            className="w-full accent-cyan-400"
+                          />
+                        </label>
+
+                        <div className="rounded-2xl border border-white/10 bg-[#061127] px-3 py-3 text-sm text-slate-300">
+                          {`Штрихов на доске: ${boardStrokes.length}`}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+
+        <div className="border-t border-white/10 bg-black/15 px-4 py-3 sm:px-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="max-w-3xl text-sm leading-6 text-slate-300">
+              Если нужно записать новый дубль, остановите запись, откройте предпросмотр и только потом сохраняйте готовую видео-теорию.
+            </div>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <Button
+                variant="secondary"
+                onClick={handleResetDraft}
+                disabled={disabled || isRecording || isSaving}
+                className="w-full sm:w-auto border-white/15 bg-white/10 text-white hover:bg-white/15"
+              >
+                Сбросить черновик
+              </Button>
+              {canClearSavedTheory && (
+                <Button
+                  variant="danger"
+                  onClick={onClear}
+                  disabled={disabled || isRecording || isSaving}
+                  className="w-full sm:w-auto border border-rose-400/30 bg-rose-500/10 text-rose-100 hover:bg-rose-500/15"
+                >
+                  Очистить текущую теорию
+                </Button>
+              )}
+              {canSave && (
+                <Button
+                  onClick={onSave}
+                  disabled={disabled || isRecording || isSaving || !hasDraft}
+                  className="w-full sm:w-auto"
+                >
+                  {isSaving ? 'Сохранение...' : 'Сохранить видео-теорию'}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
 
 export default TheoryRecordingEditor;
+
