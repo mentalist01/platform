@@ -56,6 +56,20 @@ const BOARD_ERASER_WIDTH_MULTIPLIER = 2.6;
 const BOARD_ERASER_MIN_WIDTH = 10;
 const BOARD_TIMELINE_THROTTLE_MS = 60;
 const BOARD_TIMELINE_MIN_POINT_DELTA = 3;
+const BOARD_MAX_IMAGES = 10;
+const BOARD_IMAGE_MAX_DIMENSION_PX = 1600;
+const BOARD_IMAGE_MAX_DATA_URL_CHARS = 1_350_000;
+const BOARD_IMAGE_MAX_INPUT_BYTES = 16 * 1024 * 1024;
+const BOARD_IMAGE_DEFAULT_MAX_WIDTH = 0.78;
+const BOARD_IMAGE_DEFAULT_MAX_HEIGHT = 0.7;
+const BOARD_IMAGE_STACK_STEP = 0.035;
+const BOARD_ALLOWED_IMAGE_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
+  'image/gif',
+]);
 
 const normalizeBoardDisplayMode = (value) => (
   String(value || '').trim() === THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS
@@ -121,6 +135,12 @@ const cloneTheoryRecordingEvents = (events) => (
             ? stroke.points.map((point) => ({ ...point }))
             : [],
         }))
+      : undefined,
+    image: event?.image
+      ? { ...event.image }
+      : undefined,
+    images: Array.isArray(event?.images)
+      ? event.images.map((image) => ({ ...image }))
       : undefined,
     selections: Array.isArray(event?.selections)
       ? event.selections.map((selection) => ({ ...selection }))
@@ -258,6 +278,67 @@ const normalizeBoardStrokesForEvent = (strokes) => (
     .slice(0, BOARD_MAX_STROKES)
 );
 
+const clampBoardImageSize = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0.32;
+  return Math.max(0.04, Math.min(1, Number(num.toFixed(4))));
+};
+
+const clampBoardImageAspectRatio = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 1;
+  return Math.max(0.05, Math.min(20, Number(num.toFixed(4))));
+};
+
+const normalizeBoardImageSource = (value) => {
+  const source = String(value || '').trim();
+  if (!source) return '';
+  return source.slice(0, BOARD_IMAGE_MAX_DATA_URL_CHARS);
+};
+
+const normalizeBoardImageForEvent = (image) => {
+  if (!image || typeof image !== 'object') return null;
+  const src = normalizeBoardImageSource(image.src);
+  if (!src) return null;
+  return {
+    id: String(image.id || '').trim().slice(0, 64) || `image-${Date.now()}`,
+    src,
+    x: clampBoardUnit(image.x),
+    y: clampBoardUnit(image.y),
+    width: clampBoardImageSize(image.width),
+    height: clampBoardImageSize(image.height),
+    aspectRatio: clampBoardImageAspectRatio(image.aspectRatio),
+  };
+};
+
+const normalizeBoardImagesForEvent = (images) => (
+  (Array.isArray(images) ? images : [])
+    .map((image) => normalizeBoardImageForEvent(image))
+    .filter(Boolean)
+    .slice(0, BOARD_MAX_IMAGES)
+);
+
+const resolveBoardImageDrawRect = (image, canvasWidth, canvasHeight, aspectRatio) => {
+  const boxWidth = Math.max(12, Math.min(canvasWidth, Number(image?.width || 0.3) * canvasWidth));
+  const boxHeight = Math.max(12, Math.min(canvasHeight, Number(image?.height || 0.3) * canvasHeight));
+  const safeAspectRatio = Number(aspectRatio) > 0 ? clampBoardImageAspectRatio(aspectRatio) : 0;
+  let drawWidth = boxWidth;
+  let drawHeight = boxHeight;
+  if (safeAspectRatio > 0) {
+    const widthFromHeight = boxHeight * safeAspectRatio;
+    if (widthFromHeight <= boxWidth) {
+      drawWidth = widthFromHeight;
+      drawHeight = boxHeight;
+    } else {
+      drawWidth = boxWidth;
+      drawHeight = boxWidth / safeAspectRatio;
+    }
+  }
+  const x = Math.max(0, Math.min(Math.max(0, canvasWidth - drawWidth), Number(image?.x || 0) * canvasWidth));
+  const y = Math.max(0, Math.min(Math.max(0, canvasHeight - drawHeight), Number(image?.y || 0) * canvasHeight));
+  return { x, y, drawWidth, drawHeight, boxWidth, boxHeight };
+};
+
 const upsertBoardStrokeById = (list, stroke) => {
   if (!stroke?.id) return list;
   const idx = list.findIndex((item) => item?.id === stroke.id);
@@ -266,6 +347,17 @@ const upsertBoardStrokeById = (list, stroke) => {
     return list;
   }
   list[idx] = stroke;
+  return list;
+};
+
+const upsertBoardImageById = (list, image) => {
+  if (!image?.id) return list;
+  const idx = list.findIndex((item) => item?.id === image.id);
+  if (idx === -1) {
+    list.push(image);
+    return list;
+  }
+  list[idx] = image;
   return list;
 };
 
@@ -291,6 +383,112 @@ const buildBoardStrokesFromEvents = (events) => {
     }
   });
   return next;
+};
+
+const buildBoardImagesFromEvents = (events) => {
+  const next = [];
+  (Array.isArray(events) ? events : []).forEach((event) => {
+    if (!event || event.type !== THEORY_RECORDING_EVENT_BOARD) return;
+    if (event.action === 'clear') {
+      next.length = 0;
+      return;
+    }
+    if (event.action === 'snapshot') {
+      const snapshot = normalizeBoardImagesForEvent(event.images);
+      next.length = 0;
+      snapshot.forEach((image) => next.push(image));
+      return;
+    }
+    if (event.action === 'image') {
+      const image = normalizeBoardImageForEvent(event.image);
+      if (!image) return;
+      upsertBoardImageById(next, image);
+      if (next.length > BOARD_MAX_IMAGES) next.splice(0, next.length - BOARD_MAX_IMAGES);
+    }
+  });
+  return next;
+};
+
+const loadImageFromUrl = (url) => new Promise((resolve, reject) => {
+  if (typeof Image === 'undefined') {
+    reject(new Error('Браузер не поддерживает загрузку изображений.'));
+    return;
+  }
+  const img = new Image();
+  img.onload = () => resolve(img);
+  img.onerror = () => reject(new Error('Не удалось загрузить изображение.'));
+  img.decoding = 'async';
+  img.src = url;
+});
+
+const boardImageFileToDataUrl = async (file) => {
+  if (!(file instanceof File)) {
+    throw new Error('Файл изображения не выбран.');
+  }
+  if (file.size > BOARD_IMAGE_MAX_INPUT_BYTES) {
+    throw new Error('Картинка слишком большая. Выберите файл до 16 МБ.');
+  }
+  const mimeType = String(file.type || '').toLowerCase();
+  if (mimeType && !BOARD_ALLOWED_IMAGE_TYPES.has(mimeType)) {
+    throw new Error('Поддерживаются PNG, JPG, WEBP и GIF.');
+  }
+  if (typeof document === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+    throw new Error('Браузер не поддерживает обработку изображений.');
+  }
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await loadImageFromUrl(objectUrl);
+    const naturalWidth = Math.max(1, Number(image.naturalWidth || image.width || 1));
+    const naturalHeight = Math.max(1, Number(image.naturalHeight || image.height || 1));
+    let scale = Math.min(1, BOARD_IMAGE_MAX_DIMENSION_PX / Math.max(naturalWidth, naturalHeight));
+    let quality = 0.9;
+    let dataUrl = '';
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const width = Math.max(1, Math.round(naturalWidth * scale));
+      const height = Math.max(1, Math.round(naturalHeight * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Не удалось подготовить изображение для доски.');
+      ctx.clearRect(0, 0, width, height);
+      ctx.drawImage(image, 0, 0, width, height);
+      dataUrl = canvas.toDataURL('image/webp', quality);
+      if (dataUrl.length <= BOARD_IMAGE_MAX_DATA_URL_CHARS || (width <= 640 && height <= 640)) {
+        break;
+      }
+      scale *= 0.82;
+      quality = Math.max(0.55, quality - 0.08);
+    }
+    if (!dataUrl) {
+      throw new Error('Не удалось подготовить изображение для доски.');
+    }
+    if (dataUrl.length > BOARD_IMAGE_MAX_DATA_URL_CHARS) {
+      throw new Error('Картинка слишком тяжелая для видео-теории. Сожмите ее или выберите меньшее изображение.');
+    }
+    return {
+      src: dataUrl,
+      width: naturalWidth,
+      height: naturalHeight,
+    };
+  } finally {
+    try {
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      /* no-op */
+    }
+  }
+};
+
+const getClipboardImageFile = (clipboardData) => {
+  const directFile = Array.from(clipboardData?.files || []).find((file) => {
+    const mimeType = String(file?.type || '').toLowerCase();
+    return mimeType.startsWith('image/');
+  });
+  if (directFile) return directFile;
+  const items = Array.from(clipboardData?.items || []);
+  const imageItem = items.find((item) => item.kind === 'file' && String(item.type || '').toLowerCase().startsWith('image/'));
+  return imageItem?.getAsFile?.() || null;
 };
 
 const buildBoardDisplayModeFromEvents = (events) => {
@@ -341,6 +539,10 @@ const TheoryRecordingEditor = ({
     () => buildBoardStrokesFromEvents(initialDraft?.events),
     [initialDraft?.events]
   );
+  const initialBoardImages = useMemo(
+    () => buildBoardImagesFromEvents(initialDraft?.events),
+    [initialDraft?.events]
+  );
   const initialBoardDisplayMode = useMemo(
     () => buildBoardDisplayModeFromEvents(initialDraft?.events),
     [initialDraft?.events]
@@ -359,6 +561,7 @@ const TheoryRecordingEditor = ({
   const [runError, setRunError] = useState('');
   const [isRunningCode, setIsRunningCode] = useState(false);
   const [boardStrokes, setBoardStrokes] = useState(() => initialBoardStrokes);
+  const [boardImages, setBoardImages] = useState(() => initialBoardImages);
   const [boardTool, setBoardTool] = useState('pen');
   const [boardColor, setBoardColor] = useState(BOARD_DEFAULT_COLOR);
   const [boardWidth, setBoardWidth] = useState(BOARD_DEFAULT_WIDTH);
@@ -375,10 +578,14 @@ const TheoryRecordingEditor = ({
   const chunksRef = useRef([]);
   const eventsRef = useRef([]);
   const boardCanvasRef = useRef(null);
+  const boardImageInputRef = useRef(null);
   const boardDrawingRef = useRef({ active: false, pointerId: null, stroke: null });
   const boardStrokesRef = useRef(initialBoardStrokes);
+  const boardImagesRef = useRef(initialBoardImages);
   const boardDisplayModeRef = useRef(initialBoardDisplayMode);
   const boardTimelineEmitRef = useRef({ strokeId: '', points: 0, ts: 0 });
+  const boardImageCacheRef = useRef(new Map());
+  const renderBoardCanvasRef = useRef(() => {});
   const recordingBaseElapsedMsRef = useRef(0);
   const recordingStartedAtRef = useRef(0);
   const recordingPausedAtRef = useRef(0);
@@ -483,6 +690,7 @@ const TheoryRecordingEditor = ({
       ? String(payload.runError || '')
       : String(nextRunOutputFrame.error || '');
     const nextBoardStrokes = nextDraft ? buildBoardStrokesFromEvents(nextDraft.events) : [];
+    const nextBoardImages = nextDraft ? buildBoardImagesFromEvents(nextDraft.events) : [];
     const nextBoardDisplayMode = nextDraft
       ? buildBoardDisplayModeFromEvents(nextDraft.events)
       : THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI;
@@ -503,6 +711,7 @@ const TheoryRecordingEditor = ({
     recordingPausedAtRef.current = 0;
     recordingPausedAccumMsRef.current = 0;
     chunksRef.current = [];
+    boardImageCacheRef.current = new Map();
     setDraft(nextDraft);
     setCode(nextCode);
     setElapsedMs(nextDurationMs);
@@ -511,6 +720,7 @@ const TheoryRecordingEditor = ({
     setRunOutput(nextRunOutput);
     setRunError(nextRunError);
     setBoardStrokes(nextBoardStrokes);
+    setBoardImages(nextBoardImages);
     setBoardDisplayMode(nextBoardDisplayMode);
     setActiveWorkspace(String(payload.activeWorkspace || (nextDraft ? 'preview' : 'code')));
     setRecordingError('');
@@ -700,11 +910,25 @@ const TheoryRecordingEditor = ({
     }
     if (action === 'snapshot') {
       const strokes = normalizeBoardStrokesForEvent(payload.strokes);
+      const images = normalizeBoardImagesForEvent(payload.images);
       eventsRef.current.push({
         t: Math.max(0, Math.round(timestampMs)),
         type: THEORY_RECORDING_EVENT_BOARD,
         action: 'snapshot',
         strokes,
+        images,
+      });
+      setEventCount(eventsRef.current.length);
+      return;
+    }
+    if (action === 'image') {
+      const image = normalizeBoardImageForEvent(payload.image);
+      if (!image) return;
+      eventsRef.current.push({
+        t: Math.max(0, Math.round(timestampMs)),
+        type: THEORY_RECORDING_EVENT_BOARD,
+        action: 'image',
+        image,
       });
       setEventCount(eventsRef.current.length);
       return;
@@ -751,6 +975,62 @@ const TheoryRecordingEditor = ({
       ts: now,
     };
   }, [appendBoardEvent, getNowMs]);
+
+  const drawBoardImage = useCallback((ctx, image, width, height) => {
+    if (!ctx || !image || !image.src) return;
+    const cache = boardImageCacheRef.current;
+    const safeSrc = String(image.src || '').trim();
+    if (!safeSrc) return;
+    let entry = cache.get(safeSrc);
+    if (!entry && typeof Image !== 'undefined') {
+      const element = new Image();
+      entry = { image: element, status: 'loading' };
+      cache.set(safeSrc, entry);
+      element.onload = () => {
+        entry.status = 'loaded';
+        renderBoardCanvasRef.current?.();
+      };
+      element.onerror = () => {
+        entry.status = 'error';
+        renderBoardCanvasRef.current?.();
+      };
+      element.decoding = 'async';
+      element.src = safeSrc;
+    }
+    const naturalWidth = Number(entry?.image?.naturalWidth || entry?.image?.width || 0);
+    const naturalHeight = Number(entry?.image?.naturalHeight || entry?.image?.height || 0);
+    const naturalAspectRatio = naturalWidth > 0 && naturalHeight > 0 ? naturalWidth / naturalHeight : 0;
+    const storedAspectRatio = Number(image.aspectRatio || 0);
+    const effectiveAspectRatio = naturalAspectRatio > 0
+      ? clampBoardImageAspectRatio(naturalAspectRatio)
+      : storedAspectRatio > 0
+        ? clampBoardImageAspectRatio(storedAspectRatio)
+        : 0;
+    const { x, y, drawWidth, drawHeight, boxWidth, boxHeight } = resolveBoardImageDrawRect(
+      image,
+      width,
+      height,
+      effectiveAspectRatio
+    );
+    if (!entry || entry.status !== 'loaded' || !entry.image) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(15,23,42,0.78)';
+      ctx.strokeStyle = 'rgba(148,163,184,0.42)';
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(x, y, boxWidth, boxHeight);
+      ctx.strokeRect(x + 0.75, y + 0.75, Math.max(0, boxWidth - 1.5), Math.max(0, boxHeight - 1.5));
+      ctx.fillStyle = 'rgba(226,232,240,0.8)';
+      ctx.font = '12px sans-serif';
+      ctx.fillText('Картинка...', x + 10, y + 22);
+      ctx.restore();
+      return;
+    }
+    try {
+      ctx.drawImage(entry.image, x, y, drawWidth, drawHeight);
+    } catch {
+      /* no-op */
+    }
+  }, []);
 
   const drawBoardStroke = useCallback((ctx, stroke, width, height) => {
     if (!ctx || !stroke || !Array.isArray(stroke.points) || stroke.points.length < 1) return;
@@ -834,11 +1114,16 @@ const TheoryRecordingEditor = ({
     ctx.scale(pixelRatio, pixelRatio);
     ctx.fillStyle = BOARD_SNAPSHOT_BG;
     ctx.fillRect(0, 0, cssWidth, cssHeight);
+    boardImagesRef.current.forEach((image) => drawBoardImage(ctx, image, cssWidth, cssHeight));
     boardStrokesRef.current.forEach((stroke) => drawBoardStroke(ctx, stroke, cssWidth, cssHeight));
     const previewStroke = boardDrawingRef.current?.stroke;
     if (previewStroke) drawBoardStroke(ctx, previewStroke, cssWidth, cssHeight);
     ctx.restore();
-  }, [drawBoardStroke, prepareBoardCanvas]);
+  }, [drawBoardImage, drawBoardStroke, prepareBoardCanvas]);
+
+  useEffect(() => {
+    renderBoardCanvasRef.current = renderBoardCanvas;
+  }, [renderBoardCanvas]);
 
   const getBoardPoint = useCallback((event) => {
     const canvas = boardCanvasRef.current;
@@ -938,12 +1223,127 @@ const TheoryRecordingEditor = ({
   const handleClearBoard = useCallback(() => {
     boardDrawingRef.current = { active: false, pointerId: null, stroke: null };
     boardTimelineEmitRef.current = { strokeId: '', points: 0, ts: 0 };
+    boardStrokesRef.current = [];
+    boardImagesRef.current = [];
     setBoardStrokes([]);
+    setBoardImages([]);
     if (isRecordingRef.current && !isRecordingPausedRef.current) {
       appendBoardEvent(getNowMs(), { action: 'clear' });
     }
     renderBoardCanvas();
   }, [appendBoardEvent, getNowMs, renderBoardCanvas]);
+
+  const appendBoardImage = useCallback((image) => {
+    const safeImage = normalizeBoardImageForEvent(image);
+    if (!safeImage) return false;
+    const next = [...(Array.isArray(boardImagesRef.current) ? boardImagesRef.current : [])];
+    upsertBoardImageById(next, safeImage);
+    if (next.length > BOARD_MAX_IMAGES) {
+      next.splice(0, next.length - BOARD_MAX_IMAGES);
+    }
+    boardImagesRef.current = next;
+    setBoardImages(next);
+    if (isRecordingRef.current && !isRecordingPausedRef.current) {
+      appendBoardEvent(getNowMs(), { action: 'image', image: safeImage });
+    }
+    return true;
+  }, [appendBoardEvent, getNowMs]);
+
+  const buildBoardImagePlacement = useCallback((sourceMeta, existingCount = 0) => {
+    const naturalWidth = Math.max(1, Number(sourceMeta?.width || 1));
+    const naturalHeight = Math.max(1, Number(sourceMeta?.height || 1));
+    const aspectRatio = clampBoardImageAspectRatio(naturalWidth / naturalHeight);
+    const canvasRect = boardCanvasRef.current?.getBoundingClientRect?.();
+    const boardWidth = Math.max(1, Number(canvasRect?.width || boardCanvasRef.current?.clientWidth || 16));
+    const boardHeight = Math.max(1, Number(canvasRect?.height || boardCanvasRef.current?.clientHeight || 9));
+    const boardAspectRatio = boardWidth / boardHeight;
+    let width = BOARD_IMAGE_DEFAULT_MAX_WIDTH;
+    let height = width * (boardAspectRatio / aspectRatio);
+    if (height > BOARD_IMAGE_DEFAULT_MAX_HEIGHT) {
+      height = BOARD_IMAGE_DEFAULT_MAX_HEIGHT;
+      width = height * (aspectRatio / boardAspectRatio);
+    }
+    width = clampBoardImageSize(width);
+    height = clampBoardImageSize(height);
+    const layerIndex = Math.max(0, Number(existingCount) || 0);
+    const offsetBase = ((layerIndex % 4) - 1.5) * BOARD_IMAGE_STACK_STEP;
+    const verticalOffset = (Math.floor(layerIndex / 4) % 3) * (BOARD_IMAGE_STACK_STEP * 0.55);
+    const x = clampBoardUnit(((1 - width) / 2) + offsetBase);
+    const y = clampBoardUnit(((1 - height) / 2) + verticalOffset);
+    return {
+      id: `board-image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      src: sourceMeta?.src || '',
+      x,
+      y,
+      width,
+      height,
+      aspectRatio,
+    };
+  }, []);
+
+  const handleBoardImageFile = useCallback(async (file) => {
+    if (disabled) return;
+    if (boardImagesRef.current.length >= BOARD_MAX_IMAGES) {
+      setRecordingError(`На доске может быть максимум ${BOARD_MAX_IMAGES} картинок одновременно.`);
+      return;
+    }
+    try {
+      const preparedImage = await boardImageFileToDataUrl(file);
+      const placedImage = buildBoardImagePlacement(preparedImage, boardImagesRef.current.length);
+      const appended = appendBoardImage(placedImage);
+      if (!appended) {
+        throw new Error('Не удалось добавить картинку на доску.');
+      }
+      setRecordingError('');
+    } catch (error) {
+      setRecordingError(error?.message || 'Не удалось добавить картинку на доску.');
+    }
+  }, [appendBoardImage, buildBoardImagePlacement, disabled]);
+
+  const handleBoardImageInputChange = useCallback(async (event) => {
+    const file = event.target.files?.[0];
+    if (event.target) {
+      event.target.value = '';
+    }
+    if (!file) return;
+    await handleBoardImageFile(file);
+  }, [handleBoardImageFile]);
+
+  const handleRemoveLastBoardImage = useCallback(() => {
+    const safePrev = Array.isArray(boardImagesRef.current) ? boardImagesRef.current : [];
+    if (safePrev.length === 0) return;
+    const nextImagesSnapshot = safePrev.slice(0, -1);
+    boardImagesRef.current = nextImagesSnapshot;
+    setBoardImages(nextImagesSnapshot);
+    if (isRecordingRef.current && !isRecordingPausedRef.current) {
+      appendBoardEvent(getNowMs(), {
+        action: 'snapshot',
+        strokes: boardStrokesRef.current,
+        images: nextImagesSnapshot,
+      });
+    }
+  }, [appendBoardEvent, getNowMs]);
+
+  const handleBoardPaste = useCallback((event) => {
+    const file = getClipboardImageFile(event.clipboardData);
+    if (!file) return;
+    event.preventDefault();
+    handleBoardImageFile(file);
+  }, [handleBoardImageFile]);
+
+  useEffect(() => {
+    if (activeWorkspace !== 'board' || typeof document === 'undefined') return undefined;
+    const handleDocumentPaste = (event) => {
+      const file = getClipboardImageFile(event.clipboardData);
+      if (!file) return;
+      event.preventDefault();
+      handleBoardImageFile(file);
+    };
+    document.addEventListener('paste', handleDocumentPaste);
+    return () => {
+      document.removeEventListener('paste', handleDocumentPaste);
+    };
+  }, [activeWorkspace, handleBoardImageFile]);
 
   const handleToggleBoardDisplayMode = useCallback(() => {
     const nextMode = boardDisplayModeRef.current === THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS
@@ -976,6 +1376,11 @@ const TheoryRecordingEditor = ({
     boardStrokesRef.current = Array.isArray(boardStrokes) ? boardStrokes : [];
     renderBoardCanvas();
   }, [boardStrokes, renderBoardCanvas]);
+
+  useEffect(() => {
+    boardImagesRef.current = Array.isArray(boardImages) ? boardImages : [];
+    renderBoardCanvas();
+  }, [boardImages, renderBoardCanvas]);
 
   useEffect(() => {
     boardDisplayModeRef.current = normalizeBoardDisplayMode(boardDisplayMode);
@@ -1239,7 +1644,11 @@ const TheoryRecordingEditor = ({
       action: 'display_mode',
       mode: boardDisplayModeRef.current,
     });
-    appendBoardEvent(resumeMs, { action: 'snapshot', strokes: boardStrokesRef.current });
+    appendBoardEvent(resumeMs, {
+      action: 'snapshot',
+      strokes: boardStrokesRef.current,
+      images: boardImagesRef.current,
+    });
     setElapsedMs(resumeMs);
     startElapsedTimer();
     setRecordingError('');
@@ -1338,8 +1747,12 @@ const TheoryRecordingEditor = ({
         action: 'display_mode',
         mode: boardDisplayModeRef.current,
       });
-      if (boardStrokesRef.current.length > 0) {
-        appendBoardEvent(startStampMs, { action: 'snapshot', strokes: boardStrokesRef.current });
+      if (boardStrokesRef.current.length > 0 || boardImagesRef.current.length > 0) {
+        appendBoardEvent(startStampMs, {
+          action: 'snapshot',
+          strokes: boardStrokesRef.current,
+          images: boardImagesRef.current,
+        });
       }
       recorder.start(250);
       startElapsedTimer();
@@ -1502,11 +1915,15 @@ const TheoryRecordingEditor = ({
   const handleResetDraft = useCallback(() => {
     if (isRecordingRef.current) return;
     setDraft(null);
+    boardStrokesRef.current = [];
+    boardImagesRef.current = [];
     setBoardStrokes([]);
+    setBoardImages([]);
     boardDisplayModeRef.current = THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI;
     setBoardDisplayMode(THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI);
     boardDrawingRef.current = { active: false, pointerId: null, stroke: null };
     boardTimelineEmitRef.current = { strokeId: '', points: 0, ts: 0 };
+    boardImageCacheRef.current = new Map();
     setEventCount(0);
     setElapsedMs(0);
     setRunOutput('');
@@ -1608,7 +2025,7 @@ const TheoryRecordingEditor = ({
     {
       id: 'board',
       label: 'Доска',
-      hint: 'Рисуйте схемы и пометки поверх объяснения.',
+      hint: 'Рисуйте схемы, добавляйте картинки и пометки поверх объяснения.',
     },
     {
       id: 'preview',
@@ -1741,12 +2158,12 @@ const TheoryRecordingEditor = ({
               <div className="space-y-4">
                 <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Что сохранится</div>
-                  <div className="mt-3 space-y-2 text-sm leading-6 text-slate-200">
-                    <div>Аудио с микрофона</div>
-                    <div>Изменения кода и выделения</div>
-                    <div>Рисунки и очистка доски</div>
-                    <div>Запуски кода, ввод и вывод</div>
-                  </div>
+                    <div className="mt-3 space-y-2 text-sm leading-6 text-slate-200">
+                      <div>Аудио с микрофона</div>
+                      <div>Изменения кода и выделения</div>
+                      <div>Рисунки, картинки и очистка доски</div>
+                      <div>Запуски кода, ввод и вывод</div>
+                    </div>
                 </div>
 
                 <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
@@ -1822,10 +2239,22 @@ const TheoryRecordingEditor = ({
                     <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-3">
                       <div>
                         <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Доска для объяснений</div>
-                        <div className="mt-1 text-sm text-slate-300">Переключайтесь на доску, когда нужно быстро нарисовать схему или подсветить идею.</div>
+                        <div className="mt-1 text-sm text-slate-300">Переключайтесь на доску, когда нужно быстро нарисовать схему, добавить картинку или подсветить идею.</div>
                       </div>
                     </div>
-                    <div className="overflow-hidden rounded-[20px] border border-white/10 bg-[#050d1f] shadow-[inset_0_1px_0_rgba(148,163,184,0.16)]">
+                    <div
+                      className="overflow-hidden rounded-[20px] border border-white/10 bg-[#050d1f] shadow-[inset_0_1px_0_rgba(148,163,184,0.16)] outline-none focus:ring-2 focus:ring-cyan-400/40"
+                      onPaste={handleBoardPaste}
+                      onMouseDown={(event) => event.currentTarget.focus()}
+                      tabIndex={0}
+                    >
+                      <input
+                        ref={boardImageInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                        className="hidden"
+                        onChange={handleBoardImageInputChange}
+                      />
                       <canvas
                         ref={boardCanvasRef}
                         width={960}
@@ -1836,6 +2265,9 @@ const TheoryRecordingEditor = ({
                         onPointerCancel={handleBoardPointerCancel}
                         className="h-[460px] w-full touch-none select-none cursor-crosshair"
                       />
+                    </div>
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-[#061127] px-3 py-3 text-sm leading-6 text-slate-300">
+                      Картинку можно загрузить кнопкой справа или вставить через <span className="font-semibold text-white">Ctrl+V</span>, если изображение уже скопировано.
                     </div>
                   </>
                 )}
@@ -1909,6 +2341,21 @@ const TheoryRecordingEditor = ({
                         </button>
                         <button
                           type="button"
+                          onClick={() => boardImageInputRef.current?.click?.()}
+                          className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/15"
+                        >
+                          Добавить картинку
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleRemoveLastBoardImage}
+                          disabled={boardImages.length === 0}
+                          className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-slate-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          Убрать последнюю картинку
+                        </button>
+                        <button
+                          type="button"
                           onClick={handleToggleBoardDisplayMode}
                           className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${
                             isBoardFocusMode
@@ -1957,7 +2404,7 @@ const TheoryRecordingEditor = ({
                         </label>
 
                         <div className="rounded-2xl border border-white/10 bg-[#061127] px-3 py-3 text-sm text-slate-300">
-                          {`Штрихов на доске: ${boardStrokes.length}`}
+                          {`Штрихов: ${boardStrokes.length} · Картинок: ${boardImages.length}`}
                         </div>
                       </div>
                     </div>
@@ -2010,5 +2457,6 @@ const TheoryRecordingEditor = ({
 };
 
 export default TheoryRecordingEditor;
+
 
 

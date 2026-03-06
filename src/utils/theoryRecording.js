@@ -13,6 +13,8 @@ const THEORY_RECORDING_MAX_RUN_INPUT_CHARS = 8000;
 const THEORY_RECORDING_MAX_RUN_OUTPUT_CHARS = 120000;
 const THEORY_RECORDING_MAX_BOARD_POINTS = 2400;
 const THEORY_RECORDING_MAX_BOARD_STROKES = 360;
+const THEORY_RECORDING_MAX_BOARD_IMAGES = 12;
+const THEORY_RECORDING_MAX_BOARD_IMAGE_SRC_CHARS = 1_600_000;
 
 const clampUnit = (value) => {
   const num = Number(value);
@@ -72,6 +74,46 @@ const normalizeBoardStrokeList = (value) => (
     .map((item) => normalizeBoardStroke(item))
     .filter(Boolean)
     .slice(0, THEORY_RECORDING_MAX_BOARD_STROKES)
+);
+
+const clampBoardImageSize = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0.32;
+  return Math.max(0.04, Math.min(1, Number(num.toFixed(4))));
+};
+
+const clampBoardImageAspectRatio = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 1;
+  return Math.max(0.05, Math.min(20, Number(num.toFixed(4))));
+};
+
+const normalizeBoardImageSource = (value) => {
+  const source = normalizeText(value).trim();
+  if (!source) return '';
+  return source.slice(0, THEORY_RECORDING_MAX_BOARD_IMAGE_SRC_CHARS);
+};
+
+const normalizeBoardImage = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const src = normalizeBoardImageSource(value.src);
+  if (!src) return null;
+  return {
+    id: normalizeText(value.id || '').trim().slice(0, 64) || `image-${Date.now()}`,
+    src,
+    x: clampUnit(value.x),
+    y: clampUnit(value.y),
+    width: clampBoardImageSize(value.width),
+    height: clampBoardImageSize(value.height),
+    aspectRatio: clampBoardImageAspectRatio(value.aspectRatio),
+  };
+};
+
+const normalizeBoardImageList = (value) => (
+  (Array.isArray(value) ? value : [])
+    .map((item) => normalizeBoardImage(item))
+    .filter(Boolean)
+    .slice(0, THEORY_RECORDING_MAX_BOARD_IMAGES)
 );
 
 const clampNonNegativeInt = (value) => {
@@ -166,6 +208,17 @@ const normalizeEvent = (value) => {
         type: THEORY_RECORDING_EVENT_BOARD,
         action: 'snapshot',
         strokes: normalizeBoardStrokeList(value.strokes),
+        images: normalizeBoardImageList(value.images),
+      };
+    }
+    if (action === 'image') {
+      const image = normalizeBoardImage(value.image);
+      if (!image) return null;
+      return {
+        t,
+        type: THEORY_RECORDING_EVENT_BOARD,
+        action: 'image',
+        image,
       };
     }
     if (action === 'display_mode') {

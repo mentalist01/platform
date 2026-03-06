@@ -38,6 +38,7 @@ const FALLBACK_EMPTY_STATE_TEXT = 'Видеоразбор пока не гото
 const PLAYBACK_RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const THEORY_PLAYER_BOARD_BG = '#050d1f';
 const THEORY_PLAYER_BOARD_MAX_STROKES = 900;
+const THEORY_PLAYER_BOARD_MAX_IMAGES = 12;
 
 const normalizeBoardDisplayModeForPlayer = (value) => (
   String(value || '').trim() === THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS
@@ -65,6 +66,56 @@ const normalizeBoardStrokeForPlayer = (stroke) => {
   };
 };
 
+const clampBoardImageSizeForPlayer = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0.32;
+  return Math.max(0.04, Math.min(1, num));
+};
+
+const clampBoardImageAspectRatioForPlayer = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 1;
+  return Math.max(0.05, Math.min(20, num));
+};
+
+const normalizeBoardImageForPlayer = (image) => {
+  if (!image || typeof image !== 'object') return null;
+  const src = String(image.src || '').trim();
+  if (!src) return null;
+  const x = Math.max(0, Math.min(1, Number(image.x)));
+  const y = Math.max(0, Math.min(1, Number(image.y)));
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return {
+    id: String(image.id || '').trim().slice(0, 64) || `image-${Math.random().toString(36).slice(2, 9)}`,
+    src: src.slice(0, 1_600_000),
+    x,
+    y,
+    width: clampBoardImageSizeForPlayer(image.width),
+    height: clampBoardImageSizeForPlayer(image.height),
+    aspectRatio: clampBoardImageAspectRatioForPlayer(image.aspectRatio),
+  };
+};
+const resolveBoardImageDrawRectForPlayer = (image, canvasWidth, canvasHeight, aspectRatio) => {
+  const boxWidth = Math.max(12, Math.min(canvasWidth, Number(image?.width || 0.3) * canvasWidth));
+  const boxHeight = Math.max(12, Math.min(canvasHeight, Number(image?.height || 0.3) * canvasHeight));
+  const safeAspectRatio = Number(aspectRatio) > 0 ? clampBoardImageAspectRatioForPlayer(aspectRatio) : 0;
+  let drawWidth = boxWidth;
+  let drawHeight = boxHeight;
+  if (safeAspectRatio > 0) {
+    const widthFromHeight = boxHeight * safeAspectRatio;
+    if (widthFromHeight <= boxWidth) {
+      drawWidth = widthFromHeight;
+      drawHeight = boxHeight;
+    } else {
+      drawWidth = boxWidth;
+      drawHeight = boxWidth / safeAspectRatio;
+    }
+  }
+  const x = Math.max(0, Math.min(Math.max(0, canvasWidth - drawWidth), Number(image?.x || 0) * canvasWidth));
+  const y = Math.max(0, Math.min(Math.max(0, canvasHeight - drawHeight), Number(image?.y || 0) * canvasHeight));
+  return { x, y, drawWidth, drawHeight, boxWidth, boxHeight };
+};
+
 const upsertBoardStrokeById = (list, stroke) => {
   if (!stroke?.id) return list;
   const idx = list.findIndex((item) => item?.id === stroke.id);
@@ -73,6 +124,17 @@ const upsertBoardStrokeById = (list, stroke) => {
     return list;
   }
   list[idx] = stroke;
+  return list;
+};
+
+const upsertBoardImageById = (list, image) => {
+  if (!image?.id) return list;
+  const idx = list.findIndex((item) => item?.id === image.id);
+  if (idx === -1) {
+    list.push(image);
+    return list;
+  }
+  list[idx] = image;
   return list;
 };
 
@@ -133,6 +195,27 @@ const asEditorSelection = (selection) => {
     positionColumn: endColumn,
   };
 };
+
+const cloneSelectionFrames = (selections) => (
+  (Array.isArray(selections) ? selections : [])
+    .map((selection) => (
+      selection && typeof selection === 'object'
+        ? {
+            startLineNumber: Number(selection.startLineNumber) || 1,
+            startColumn: Number(selection.startColumn) || 1,
+            endLineNumber: Number(selection.endLineNumber) || 1,
+            endColumn: Number(selection.endColumn) || 1,
+          }
+        : null
+    ))
+    .filter(Boolean)
+);
+
+const isCollapsedSelection = (selection) => (
+  Boolean(selection)
+  && Number(selection.startLineNumber) === Number(selection.endLineNumber)
+  && Number(selection.startColumn) === Number(selection.endColumn)
+);
 
 const mapDurationPositionMs = (valueMs, sourceDurationMs, targetDurationMs) => {
   const rawValue = Number(valueMs);
@@ -274,6 +357,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [runOutputFrame, setRunOutputFrame] = useState(null);
   const [boardStrokes, setBoardStrokes] = useState([]);
+  const [boardImages, setBoardImages] = useState([]);
   const [boardDisplayMode, setBoardDisplayMode] = useState(THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI);
   const [activeAudioSegmentIndex, setActiveAudioSegmentIndex] = useState(0);
   const [supportsHover, setSupportsHover] = useState(() => {
@@ -285,6 +369,11 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   const editorRef = useRef(null);
   const audioRef = useRef(null);
   const boardCanvasRef = useRef(null);
+  const monacoRef = useRef(null);
+  const boardImageCacheRef = useRef(new Map());
+  const renderBoardCanvasRef = useRef(() => {});
+  const selectionDecorationsRef = useRef([]);
+  const selectionSnapshotRef = useRef([{ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }]);
   const lastAppliedIndexRef = useRef(-1);
   const lastAppliedMsRef = useRef(0);
   const rafRef = useRef(null);
@@ -393,6 +482,106 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     }
   }, [canPersistProgress, normalizedProgressStorageKey]);
 
+  const applySelectionVisuals = useCallback((editorInstance, selections, options = {}) => {
+    const editor = editorInstance || editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco) return;
+    const model = editor.getModel();
+    if (!model) return;
+    const fallbackSelection = [{ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }];
+    const safeSelections = clampSelectionsToModel(model, selections);
+    const effectiveSelections = safeSelections.length > 0 ? safeSelections : fallbackSelection;
+    selectionSnapshotRef.current = cloneSelectionFrames(effectiveSelections);
+    const editorSelections = effectiveSelections
+      .map((selection) => asEditorSelection(selection))
+      .filter(Boolean);
+    if (editorSelections.length > 0) {
+      try {
+        editor.setSelections(editorSelections);
+      } catch {
+        // Ignore bad timeline selection frames to keep playback alive.
+      }
+    }
+    const stickiness = monaco.editor?.TrackedRangeStickiness?.NeverGrowsWhenTypingAtEdges ?? 1;
+    const decorations = [];
+    const primarySelection = effectiveSelections[0] || null;
+    if (primarySelection) {
+      decorations.push({
+        range: new monaco.Range(primarySelection.endLineNumber, 1, primarySelection.endLineNumber, 1),
+        options: {
+          isWholeLine: true,
+          className: 'theory-player-cursor-line',
+          stickiness,
+        },
+      });
+    }
+    effectiveSelections.forEach((selection, index) => {
+      const selectionRange = new monaco.Range(
+        selection.startLineNumber,
+        selection.startColumn,
+        selection.endLineNumber,
+        selection.endColumn
+      );
+      if (!isCollapsedSelection(selection)) {
+        decorations.push({
+          range: selectionRange,
+          options: {
+            className: index === 0
+              ? 'theory-player-selection-range theory-player-selection-range--primary'
+              : 'theory-player-selection-range',
+            inlineClassName: index === 0
+              ? 'theory-player-selection-inline theory-player-selection-inline--primary'
+              : 'theory-player-selection-inline',
+            stickiness,
+          },
+        });
+      }
+      decorations.push({
+        range: new monaco.Range(
+          selection.endLineNumber,
+          selection.endColumn,
+          selection.endLineNumber,
+          selection.endColumn
+        ),
+        options: {
+          afterContentClassName: index === 0
+            ? 'theory-player-cursor-marker theory-player-cursor-marker--primary'
+            : 'theory-player-cursor-marker theory-player-cursor-marker--secondary',
+          stickiness,
+        },
+      });
+    });
+    try {
+      selectionDecorationsRef.current = editor.deltaDecorations(selectionDecorationsRef.current, decorations);
+    } catch {
+      selectionDecorationsRef.current = [];
+    }
+    if (options.reveal === false || !primarySelection) return;
+    try {
+      if (typeof editor.revealRangeInCenterIfOutsideViewport === 'function') {
+        editor.revealRangeInCenterIfOutsideViewport(
+          new monaco.Range(
+            primarySelection.startLineNumber,
+            primarySelection.startColumn,
+            primarySelection.endLineNumber,
+            primarySelection.endColumn
+          )
+        );
+      } else if (typeof editor.revealRange === 'function') {
+        editor.revealRange(
+          new monaco.Range(
+            primarySelection.startLineNumber,
+            primarySelection.startColumn,
+            primarySelection.endLineNumber,
+            primarySelection.endColumn
+          )
+        );
+      }
+    } catch {
+      // Ignore reveal errors caused by transient models.
+    }
+  }, []);
+
   const applyEvent = useCallback((event) => {
     const editor = editorRef.current;
     if (!editor || !event) return;
@@ -401,6 +590,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
       if (model && model.getValue() !== event.code) {
         try {
           model.setValue(typeof event.code === 'string' ? event.code : String(event.code ?? ''));
+          applySelectionVisuals(editor, selectionSnapshotRef.current, { reveal: false });
         } catch {
           // Ignore malformed code frame.
         }
@@ -408,19 +598,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
       return;
     }
     if (event.type === THEORY_RECORDING_EVENT_SELECTION) {
-      if (Array.isArray(event.selections) && event.selections.length > 0) {
-        const model = editor.getModel();
-        const safeSelections = clampSelectionsToModel(model, event.selections)
-          .map((selection) => asEditorSelection(selection))
-          .filter(Boolean);
-        if (safeSelections.length > 0) {
-          try {
-            editor.setSelections(safeSelections);
-          } catch {
-            // Ignore bad timeline selection frames to keep playback alive.
-          }
-        }
-      }
+      applySelectionVisuals(editor, event.selections, { reveal: true });
       return;
     }
     if (event.type === THEORY_RECORDING_EVENT_BOARD) {
@@ -431,6 +609,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
       }
       if (action === 'clear') {
         setBoardStrokes([]);
+        setBoardImages([]);
         return;
       }
       if (action === 'snapshot') {
@@ -438,7 +617,25 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
           .map((stroke) => normalizeBoardStrokeForPlayer(stroke))
           .filter(Boolean)
           .slice(-THEORY_PLAYER_BOARD_MAX_STROKES);
+        const nextImages = (Array.isArray(event.images) ? event.images : [])
+          .map((image) => normalizeBoardImageForPlayer(image))
+          .filter(Boolean)
+          .slice(-THEORY_PLAYER_BOARD_MAX_IMAGES);
         setBoardStrokes(nextStrokes);
+        setBoardImages(nextImages);
+        return;
+      }
+      if (action === 'image') {
+        const image = normalizeBoardImageForPlayer(event.image);
+        if (!image) return;
+        setBoardImages((prev) => {
+          const next = [...(Array.isArray(prev) ? prev : [])];
+          upsertBoardImageById(next, image);
+          if (next.length > THEORY_PLAYER_BOARD_MAX_IMAGES) {
+            next.splice(0, next.length - THEORY_PLAYER_BOARD_MAX_IMAGES);
+          }
+          return next;
+        });
         return;
       }
       if (action === 'stroke') {
@@ -462,7 +659,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
         error: String(event.error ?? ''),
       });
     }
-  }, []);
+  }, [applySelectionVisuals]);
 
   const rebuildTo = useCallback((targetMs) => {
     const editor = editorRef.current;
@@ -478,7 +675,9 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     lastAppliedIndexRef.current = -1;
     setRunOutputFrame(null);
     setBoardStrokes([]);
+    setBoardImages([]);
     setBoardDisplayMode(THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI);
+    applySelectionVisuals(editor, [{ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }], { reveal: false });
     const events = normalized.events || [];
     for (let index = 0; index < events.length; index += 1) {
       const event = events[index];
@@ -488,7 +687,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     }
     lastAppliedMsRef.current = targetMs;
     setCurrentMs(targetMs);
-  }, [applyEvent, normalized]);
+  }, [applyEvent, applySelectionVisuals, normalized]);
 
   const syncTo = useCallback((targetMsRaw) => {
     if (!normalized) return;
@@ -618,12 +817,15 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
 
   useEffect(() => {
     if (!hasNormalizedRecording) {
+      selectionSnapshotRef.current = [{ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }];
+      boardImageCacheRef.current = new Map();
       resumePositionMsRef.current = 0;
       setCurrentMs(0);
       setDurationMs(0);
       setIsPlaying(false);
       setPlaybackRate(1);
       setHasPlaybackStarted(false);
+      setBoardImages([]);
       setActiveAudioSegmentIndex(0);
       return;
     }
@@ -632,6 +834,8 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     const resumeMs = Math.max(0, Math.min(storedMs, maxResumableMs));
     const resumeTimelineMs = mapDurationPositionMs(resumeMs, totalAudioDurationMs, timelineDurationMs);
     const resumeSegment = resolveSegmentAtPlaybackMs(resumeMs);
+    selectionSnapshotRef.current = [{ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }];
+    boardImageCacheRef.current = new Map();
     resumePositionMsRef.current = resumeMs;
     pendingSeekPlaybackMsRef.current = resumeMs;
     autoplayAfterSegmentLoadRef.current = false;
@@ -643,6 +847,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     setIsFullscreen(false);
     setRunOutputFrame(null);
     setBoardStrokes([]);
+    setBoardImages([]);
     setActiveAudioSegmentIndex(resumeSegment?.index || 0);
     lastAppliedIndexRef.current = -1;
     lastAppliedMsRef.current = 0;
@@ -710,6 +915,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   }, [isMuted, playbackRate, volume]);
 
   const handleEditorBeforeMount = useCallback((monaco) => {
+    monacoRef.current = monaco;
     ensureMonacoColorTheme(monaco);
   }, []);
 
@@ -732,8 +938,65 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
       rebuildTo(resumeMs);
       return;
     }
+    applySelectionVisuals(editor, selectionSnapshotRef.current, { reveal: false });
     resetCursorToStart(editor);
-  }, [currentMs, normalized, rebuildTo, resetCursorToStart]);
+  }, [applySelectionVisuals, currentMs, normalized, rebuildTo, resetCursorToStart]);
+
+  const drawBoardImage = useCallback((ctx, image, width, height) => {
+    if (!ctx || !image || !image.src) return;
+    const cache = boardImageCacheRef.current;
+    const safeSrc = String(image.src || '').trim();
+    if (!safeSrc) return;
+    let entry = cache.get(safeSrc);
+    if (!entry && typeof Image !== 'undefined') {
+      const element = new Image();
+      entry = { image: element, status: 'loading' };
+      cache.set(safeSrc, entry);
+      element.onload = () => {
+        entry.status = 'loaded';
+        renderBoardCanvasRef.current?.();
+      };
+      element.onerror = () => {
+        entry.status = 'error';
+        renderBoardCanvasRef.current?.();
+      };
+      element.decoding = 'async';
+      element.src = safeSrc;
+    }
+    const naturalWidth = Number(entry?.image?.naturalWidth || entry?.image?.width || 0);
+    const naturalHeight = Number(entry?.image?.naturalHeight || entry?.image?.height || 0);
+    const naturalAspectRatio = naturalWidth > 0 && naturalHeight > 0 ? naturalWidth / naturalHeight : 0;
+    const storedAspectRatio = Number(image.aspectRatio || 0);
+    const effectiveAspectRatio = naturalAspectRatio > 0
+      ? clampBoardImageAspectRatioForPlayer(naturalAspectRatio)
+      : storedAspectRatio > 0
+        ? clampBoardImageAspectRatioForPlayer(storedAspectRatio)
+        : 0;
+    const { x, y, drawWidth, drawHeight, boxWidth, boxHeight } = resolveBoardImageDrawRectForPlayer(
+      image,
+      width,
+      height,
+      effectiveAspectRatio
+    );
+    if (!entry || entry.status !== 'loaded' || !entry.image) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(15,23,42,0.78)';
+      ctx.strokeStyle = 'rgba(148,163,184,0.42)';
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(x, y, boxWidth, boxHeight);
+      ctx.strokeRect(x + 0.75, y + 0.75, Math.max(0, boxWidth - 1.5), Math.max(0, boxHeight - 1.5));
+      ctx.fillStyle = 'rgba(226,232,240,0.8)';
+      ctx.font = '12px sans-serif';
+      ctx.fillText('Картинка...', x + 10, y + 22);
+      ctx.restore();
+      return;
+    }
+    try {
+      ctx.drawImage(entry.image, x, y, drawWidth, drawHeight);
+    } catch {
+      // no-op
+    }
+  }, []);
 
   const drawBoardStroke = useCallback((ctx, stroke, width, height) => {
     if (!ctx || !stroke || !Array.isArray(stroke.points) || stroke.points.length < 1) return;
@@ -801,14 +1064,19 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = THEORY_PLAYER_BOARD_BG;
     ctx.fillRect(0, 0, width, height);
+    boardImages.forEach((image) => drawBoardImage(ctx, image, width, height));
     boardStrokes.forEach((stroke) => drawBoardStroke(ctx, stroke, width, height));
-  }, [boardStrokes, drawBoardStroke]);
+  }, [boardImages, boardStrokes, drawBoardImage, drawBoardStroke]);
+
+  useEffect(() => {
+    renderBoardCanvasRef.current = renderBoardCanvas;
+  }, [renderBoardCanvas]);
 
   const hasRunOutputFrame = Boolean(
     runOutputFrame
     && (runOutputFrame.input || runOutputFrame.output || runOutputFrame.error)
   );
-  const hasBoardStrokeTimeline = useMemo(
+  const hasBoardTimeline = useMemo(
     () => Array.isArray(normalized?.events) && normalized.events.some((event) => (
       event?.type === THEORY_RECORDING_EVENT_BOARD
       && String(event?.action || '').trim() !== 'display_mode'
@@ -816,7 +1084,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     [normalized?.events]
   );
   const isBoardFocused = boardDisplayMode === THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS;
-  const shouldShowBoard = isBoardFocused || hasBoardStrokeTimeline || boardStrokes.length > 0;
+  const shouldShowBoard = isBoardFocused || hasBoardTimeline || boardStrokes.length > 0 || boardImages.length > 0;
   const showBoardSidebar = shouldShowBoard && !isBoardFocused;
 
   useEffect(() => {
@@ -1399,3 +1667,4 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
 };
 
 export default React.memo(TheoryRecordingPlayer, areTheoryPlayerPropsEqual);
+
