@@ -1345,10 +1345,7 @@ const TheoryRecordingEditor = ({
     };
   }, [activeWorkspace, handleBoardImageFile]);
 
-  const handleToggleBoardDisplayMode = useCallback(() => {
-    const nextMode = boardDisplayModeRef.current === THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS
-      ? THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI
-      : THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS;
+  const applyBoardDisplayMode = useCallback((nextMode) => {
     boardDisplayModeRef.current = nextMode;
     setBoardDisplayMode(nextMode);
     if (isRecordingRef.current && !isRecordingPausedRef.current) {
@@ -1358,6 +1355,31 @@ const TheoryRecordingEditor = ({
       });
     }
   }, [appendBoardEvent, getNowMs]);
+
+  const handleToggleBoardDisplayMode = useCallback(() => {
+    const nextMode = boardDisplayModeRef.current === THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS
+      ? THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI
+      : THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS;
+    applyBoardDisplayMode(nextMode);
+  }, [applyBoardDisplayMode]);
+
+  const handleSelectWorkspace = useCallback((nextWorkspace) => {
+    const safeWorkspace = String(nextWorkspace || '').trim() || 'code';
+    setActiveWorkspace(safeWorkspace);
+    if (safeWorkspace === 'board') {
+      if (boardDisplayModeRef.current !== THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS) {
+        applyBoardDisplayMode(THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS);
+      }
+      return;
+    }
+    if (
+      activeWorkspace === 'board'
+      && safeWorkspace === 'code'
+      && boardDisplayModeRef.current !== THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI
+    ) {
+      applyBoardDisplayMode(THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI);
+    }
+  }, [activeWorkspace, applyBoardDisplayMode]);
 
   const flushScheduledSnapshots = useCallback(() => {
     if (codeDebounceTimerRef.current) {
@@ -2133,7 +2155,7 @@ const TheoryRecordingEditor = ({
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setActiveWorkspace(tab.id)}
+                onClick={() => handleSelectWorkspace(tab.id)}
                 className={`rounded-2xl border px-4 py-3 text-left transition ${
                   activeWorkspace === tab.id
                     ? 'border-cyan-300/50 bg-cyan-400/12 shadow-[0_12px_40px_rgba(34,211,238,0.16)]'
@@ -2183,84 +2205,99 @@ const TheoryRecordingEditor = ({
           ) : (
             <div className="mt-3 grid gap-4 xl:grid-cols-[minmax(0,1.75fr)_320px]">
               <div className="min-w-0 rounded-[24px] border border-white/10 bg-[#030b1d]/80 p-3">
-                {activeWorkspace === 'code' ? (
-                  <>
-                    <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-3">
-                      <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Редактор Python</div>
-                        <div className="mt-1 text-sm text-slate-300">Код и выделения записываются автоматически во время записи.</div>
-                      </div>
-                      <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Шрифт</span>
-                          <button
-                            type="button"
-                            onClick={() => setEditorFontSize((prev) => clampRecordingEditorFontSize(prev - RECORDING_EDITOR_FONT_SIZE_STEP))}
-                            disabled={!canDecreaseEditorFont}
-                            className="rounded-lg border border-white/10 bg-white/[0.06] px-2 py-1 text-sm font-semibold text-white transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            A-
-                          </button>
-                          <div className="min-w-[58px] rounded-lg border border-cyan-300/20 bg-cyan-400/10 px-2 py-1 text-center text-sm font-semibold text-cyan-100">
-                            {`${editorFontSize}px`}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setEditorFontSize((prev) => clampRecordingEditorFontSize(prev + RECORDING_EDITOR_FONT_SIZE_STEP))}
-                            disabled={!canIncreaseEditorFont}
-                            className="rounded-lg border border-white/10 bg-white/[0.06] px-2 py-1 text-sm font-semibold text-white transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            A+
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditorFontSize(RECORDING_EDITOR_OPTIONS.fontSize)}
-                            disabled={editorFontSize === RECORDING_EDITOR_OPTIONS.fontSize}
-                            className="rounded-lg border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs font-semibold text-slate-200 transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            Сброс
-                          </button>
+                <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-3">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      {activeWorkspace === 'board' ? 'Доска поверх кода' : 'Редактор Python'}
+                    </div>
+                    <div className="mt-1 text-sm text-slate-300">
+                      {activeWorkspace === 'board'
+                        ? 'Код остается на своем месте, а доска временно разворачивается на весь рабочий экран.'
+                        : 'Код и выделения записываются автоматически во время записи.'}
+                    </div>
+                  </div>
+                  {activeWorkspace === 'code' ? (
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Шрифт</span>
+                        <button
+                          type="button"
+                          onClick={() => setEditorFontSize((prev) => clampRecordingEditorFontSize(prev - RECORDING_EDITOR_FONT_SIZE_STEP))}
+                          disabled={!canDecreaseEditorFont}
+                          className="rounded-lg border border-white/10 bg-white/[0.06] px-2 py-1 text-sm font-semibold text-white transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          A-
+                        </button>
+                        <div className="min-w-[58px] rounded-lg border border-cyan-300/20 bg-cyan-400/10 px-2 py-1 text-center text-sm font-semibold text-cyan-100">
+                          {`${editorFontSize}px`}
                         </div>
-                        <div className="mt-2 text-[11px] leading-5 text-slate-400">
-                          Только для вашего редактора. На запись и предпросмотр не влияет.
+                        <button
+                          type="button"
+                          onClick={() => setEditorFontSize((prev) => clampRecordingEditorFontSize(prev + RECORDING_EDITOR_FONT_SIZE_STEP))}
+                          disabled={!canIncreaseEditorFont}
+                          className="rounded-lg border border-white/10 bg-white/[0.06] px-2 py-1 text-sm font-semibold text-white transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          A+
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditorFontSize(RECORDING_EDITOR_OPTIONS.fontSize)}
+                          disabled={editorFontSize === RECORDING_EDITOR_OPTIONS.fontSize}
+                          className="rounded-lg border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs font-semibold text-slate-200 transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Сброс
+                        </button>
+                      </div>
+                      <div className="mt-2 text-[11px] leading-5 text-slate-400">
+                        Только для вашего редактора. На запись и предпросмотр не влияет.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-right">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">Полноэкранная доска</div>
+                      <div className="mt-1 text-[11px] leading-5 text-cyan-50/80">
+                        Вернитесь во вкладку «Код», когда снова нужно показать редактор без наложения.
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div
+                  className={`relative overflow-hidden rounded-[20px] border border-white/10 bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] ${
+                    activeWorkspace === 'board' ? 'outline-none ring-2 ring-cyan-400/30' : ''
+                  }`}
+                  onPaste={activeWorkspace === 'board' ? handleBoardPaste : undefined}
+                  onMouseDown={activeWorkspace === 'board' ? ((event) => event.currentTarget.focus()) : undefined}
+                  tabIndex={activeWorkspace === 'board' ? 0 : -1}
+                >
+                  <input
+                    ref={boardImageInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                    className="hidden"
+                    onChange={handleBoardImageInputChange}
+                  />
+                  <Editor
+                    height="460px"
+                    language="python"
+                    theme={monacoTheme}
+                    beforeMount={ensureMonacoColorTheme}
+                    defaultValue={code}
+                    path={editorPath}
+                    saveViewState={false}
+                    onMount={handleEditorMount}
+                    options={editorOptions}
+                  />
+                  {activeWorkspace === 'board' && (
+                    <div className="absolute inset-0 z-10 overflow-hidden bg-[#050d1f]/96 backdrop-blur-[2px]">
+                      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-3 border-b border-white/10 bg-slate-950/55 px-4 py-3">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100">Доска на весь экран</div>
+                          <div className="mt-1 text-sm text-slate-200">Код остается под ней и вернется без переключения состояния записи.</div>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-100">
+                          Ctrl+V для вставки
                         </div>
                       </div>
-                    </div>
-                    <div className="overflow-hidden rounded-[20px] border border-white/10 bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-                      <Editor
-                        height="460px"
-                        language="python"
-                        theme={monacoTheme}
-                        beforeMount={ensureMonacoColorTheme}
-                        defaultValue={code}
-                        path={editorPath}
-                        saveViewState={false}
-                        onMount={handleEditorMount}
-                        options={editorOptions}
-                      />
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-3">
-                      <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Доска для объяснений</div>
-                        <div className="mt-1 text-sm text-slate-300">Переключайтесь на доску, когда нужно быстро нарисовать схему, добавить картинку или подсветить идею.</div>
-                      </div>
-                    </div>
-                    <div
-                      className="overflow-hidden rounded-[20px] border border-white/10 bg-[#050d1f] shadow-[inset_0_1px_0_rgba(148,163,184,0.16)] outline-none focus:ring-2 focus:ring-cyan-400/40"
-                      onPaste={handleBoardPaste}
-                      onMouseDown={(event) => event.currentTarget.focus()}
-                      tabIndex={0}
-                    >
-                      <input
-                        ref={boardImageInputRef}
-                        type="file"
-                        accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
-                        className="hidden"
-                        onChange={handleBoardImageInputChange}
-                      />
                       <canvas
                         ref={boardCanvasRef}
                         width={960}
@@ -2272,10 +2309,12 @@ const TheoryRecordingEditor = ({
                         className="h-[460px] w-full touch-none select-none cursor-crosshair"
                       />
                     </div>
-                    <div className="mt-3 rounded-2xl border border-white/10 bg-[#061127] px-3 py-3 text-sm leading-6 text-slate-300">
-                      Картинку можно загрузить кнопкой справа или вставить через <span className="font-semibold text-white">Ctrl+V</span>, если изображение уже скопировано.
-                    </div>
-                  </>
+                  )}
+                </div>
+                {activeWorkspace === 'board' && (
+                  <div className="mt-3 rounded-2xl border border-white/10 bg-[#061127] px-3 py-3 text-sm leading-6 text-slate-300">
+                    Картинку можно загрузить кнопкой справа или вставить через <span className="font-semibold text-white">Ctrl+V</span>, если изображение уже скопировано.
+                  </div>
                 )}
               </div>
 
