@@ -3,7 +3,10 @@ import Editor from '@monaco-editor/react';
 import { Maximize2, Minimize2, Pause, Play, Volume2, VolumeX } from 'lucide-react';
 import {
   formatRecordingDuration,
+  getTheoryRecordingAudioSegments,
   normalizeTheoryRecording,
+  THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS,
+  THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI,
   THEORY_RECORDING_EVENT_BOARD,
   THEORY_RECORDING_EVENT_CODE,
   THEORY_RECORDING_EVENT_RUN_OUTPUT,
@@ -35,6 +38,12 @@ const FALLBACK_EMPTY_STATE_TEXT = 'Видеоразбор пока не гото
 const PLAYBACK_RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const THEORY_PLAYER_BOARD_BG = '#050d1f';
 const THEORY_PLAYER_BOARD_MAX_STROKES = 900;
+
+const normalizeBoardDisplayModeForPlayer = (value) => (
+  String(value || '').trim() === THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS
+    ? THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS
+    : THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI
+);
 
 const normalizeBoardStrokeForPlayer = (stroke) => {
   if (!stroke || typeof stroke !== 'object') return null;
@@ -158,14 +167,19 @@ const getRecordingMemoMeta = (recording) => {
     };
   }
   const events = Array.isArray(normalized.events) ? normalized.events : [];
+  const audioSegments = getTheoryRecordingAudioSegments(normalized);
   const lastEvent = events.length > 0 ? events[events.length - 1] : null;
   return {
     ready: true,
     updatedAt: String(normalized.updatedAt || ''),
     createdAt: String(normalized.createdAt || ''),
     durationMs: Number(normalized.durationMs || 0),
-    audioUrl: String(normalized.audio?.url || ''),
-    audioStorage: String(normalized.audio?.storageName || ''),
+    audioUrl: String(audioSegments[0]?.url || ''),
+    audioStorage: String(audioSegments[0]?.storageName || ''),
+    audioSegmentsLength: audioSegments.length,
+    audioSegmentsDurationMs: audioSegments.reduce((sum, segment) => sum + Math.max(0, Number(segment?.durationMs) || 0), 0),
+    lastAudioSegmentUrl: String(audioSegments[audioSegments.length - 1]?.url || ''),
+    lastAudioSegmentStorage: String(audioSegments[audioSegments.length - 1]?.storageName || ''),
     initialCode: String(normalized.initialCode || ''),
     eventsLength: events.length,
     lastEventT: Number(lastEvent?.t || 0),
@@ -187,6 +201,10 @@ const areTheoryPlayerPropsEqual = (prevProps, nextProps) => {
     && prevMeta.durationMs === nextMeta.durationMs
     && prevMeta.audioUrl === nextMeta.audioUrl
     && prevMeta.audioStorage === nextMeta.audioStorage
+    && prevMeta.audioSegmentsLength === nextMeta.audioSegmentsLength
+    && prevMeta.audioSegmentsDurationMs === nextMeta.audioSegmentsDurationMs
+    && prevMeta.lastAudioSegmentUrl === nextMeta.lastAudioSegmentUrl
+    && prevMeta.lastAudioSegmentStorage === nextMeta.lastAudioSegmentStorage
     && prevMeta.initialCode === nextMeta.initialCode
     && prevMeta.eventsLength === nextMeta.eventsLength
     && prevMeta.lastEventT === nextMeta.lastEventT
@@ -213,6 +231,37 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     const lastEventMs = Math.max(0, Math.round(Number(lastEvent?.t) || 0));
     return Math.max(0, Math.round(Number(normalized?.durationMs) || 0), lastEventMs);
   }, [normalized?.durationMs, normalized?.events]);
+  const audioSegments = useMemo(
+    () => getTheoryRecordingAudioSegments(normalized).filter((segment) => Boolean(String(segment?.url || '').trim())),
+    [normalized]
+  );
+  const audioSegmentRanges = useMemo(() => {
+    let cursorMs = 0;
+    return audioSegments.map((segment, index) => {
+      const safeDurationMs = Math.max(0, Math.round(Number(segment?.durationMs) || 0));
+      const startMs = cursorMs;
+      const isLast = index === audioSegments.length - 1;
+      const endMs = isLast
+        ? Math.max(startMs + safeDurationMs, timelineDurationMs)
+        : (startMs + safeDurationMs);
+      cursorMs = endMs;
+      return {
+        ...segment,
+        index,
+        startMs,
+        endMs,
+        durationMs: Math.max(0, endMs - startMs),
+      };
+    });
+  }, [audioSegments, timelineDurationMs]);
+  const totalAudioDurationMs = useMemo(
+    () => (
+      audioSegmentRanges.length > 0
+        ? Math.max(audioSegmentRanges[audioSegmentRanges.length - 1].endMs, timelineDurationMs)
+        : timelineDurationMs
+    ),
+    [audioSegmentRanges, timelineDurationMs]
+  );
 
   const [currentMs, setCurrentMs] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
@@ -225,6 +274,8 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [runOutputFrame, setRunOutputFrame] = useState(null);
   const [boardStrokes, setBoardStrokes] = useState([]);
+  const [boardDisplayMode, setBoardDisplayMode] = useState(THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI);
+  const [activeAudioSegmentIndex, setActiveAudioSegmentIndex] = useState(0);
   const [supportsHover, setSupportsHover] = useState(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
     return window.matchMedia('(hover: hover)').matches;
@@ -239,6 +290,10 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   const rafRef = useRef(null);
   const resumePositionMsRef = useRef(0);
   const lastPersistMetaRef = useRef({ ms: -1, ts: 0 });
+  const activeAudioSegmentIndexRef = useRef(0);
+  const pendingSeekPlaybackMsRef = useRef(null);
+  const autoplayAfterSegmentLoadRef = useRef(false);
+  const suppressPausePersistRef = useRef(false);
 
   const mapPlaybackMsToTimelineMs = useCallback((playbackMs, sourceDurationOverride = 0) => {
     const sourceDurationMs = Math.max(0, Math.round(Number(sourceDurationOverride) || 0))
@@ -272,6 +327,31 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
       rafRef.current = null;
     }
   }, []);
+
+  useEffect(() => {
+    activeAudioSegmentIndexRef.current = activeAudioSegmentIndex;
+  }, [activeAudioSegmentIndex]);
+
+  const resolveSegmentAtPlaybackMs = useCallback((valueMs) => {
+    const safePlaybackMs = Math.max(0, Math.round(Number(valueMs) || 0));
+    if (audioSegmentRanges.length === 0) return null;
+    for (let index = 0; index < audioSegmentRanges.length; index += 1) {
+      const segment = audioSegmentRanges[index];
+      if (safePlaybackMs < segment.endMs || index === audioSegmentRanges.length - 1) {
+        const localMs = Math.max(
+          0,
+          Math.min(segment.durationMs, safePlaybackMs - segment.startMs)
+        );
+        return { ...segment, localMs, globalMs: safePlaybackMs };
+      }
+    }
+    const lastSegment = audioSegmentRanges[audioSegmentRanges.length - 1];
+    return {
+      ...lastSegment,
+      localMs: Math.max(0, Math.min(lastSegment.durationMs, safePlaybackMs - lastSegment.startMs)),
+      globalMs: safePlaybackMs,
+    };
+  }, [audioSegmentRanges]);
 
   const readPersistedProgressMs = useCallback(() => {
     if (!canPersistProgress || typeof window === 'undefined') return 0;
@@ -345,6 +425,10 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     }
     if (event.type === THEORY_RECORDING_EVENT_BOARD) {
       const action = String(event.action || '').trim();
+      if (action === 'display_mode') {
+        setBoardDisplayMode(normalizeBoardDisplayModeForPlayer(event.mode));
+        return;
+      }
       if (action === 'clear') {
         setBoardStrokes([]);
         return;
@@ -394,6 +478,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     lastAppliedIndexRef.current = -1;
     setRunOutputFrame(null);
     setBoardStrokes([]);
+    setBoardDisplayMode(THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI);
     const events = normalized.events || [];
     for (let index = 0; index < events.length; index += 1) {
       const event = events[index];
@@ -423,30 +508,73 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     setCurrentMs(targetMs);
   }, [applyEvent, normalized, rebuildTo]);
 
+  const seekAudioToPlaybackMs = useCallback(async (valueMs, options = {}) => {
+    const audio = audioRef.current;
+    const targetSegment = resolveSegmentAtPlaybackMs(valueMs);
+    if (!audio || !targetSegment) return;
+    const shouldAutoplay = options.autoplay === true;
+    pendingSeekPlaybackMsRef.current = targetSegment.globalMs;
+    autoplayAfterSegmentLoadRef.current = shouldAutoplay;
+    if (activeAudioSegmentIndexRef.current !== targetSegment.index) {
+      suppressPausePersistRef.current = !audio.paused && !audio.ended;
+      stopFrameLoop();
+      try {
+        audio.pause();
+      } catch {
+        // Ignore pause errors while switching segments.
+      }
+      setActiveAudioSegmentIndex(targetSegment.index);
+      return;
+    }
+    try {
+      audio.currentTime = targetSegment.localMs / 1000;
+    } catch {
+      // Ignore seek failures while metadata is being resolved.
+    }
+    const nextTimelineMs = mapPlaybackMsToTimelineMs(targetSegment.globalMs, totalAudioDurationMs);
+    syncTo(nextTimelineMs);
+    persistProgressMs(targetSegment.globalMs, { force: true });
+    if (shouldAutoplay) {
+      try {
+        await audio.play();
+      } catch {
+        // Ignore autoplay policy failures.
+      }
+    }
+  }, [
+    mapPlaybackMsToTimelineMs,
+    persistProgressMs,
+    resolveSegmentAtPlaybackMs,
+    stopFrameLoop,
+    syncTo,
+    totalAudioDurationMs,
+  ]);
+
   const runFrameLoop = useCallback(function frameLoop() {
     const audio = audioRef.current;
     if (!audio || audio.paused || audio.ended) {
       stopFrameLoop();
       return;
     }
-    const nextPlaybackMs = (Number(audio.currentTime) || 0) * 1000;
-    syncTo(mapPlaybackMsToTimelineMs(nextPlaybackMs));
+    const activeSegment = audioSegmentRanges[activeAudioSegmentIndexRef.current] || null;
+    const nextPlaybackMs = (activeSegment?.startMs || 0) + ((Number(audio.currentTime) || 0) * 1000);
+    syncTo(mapPlaybackMsToTimelineMs(nextPlaybackMs, totalAudioDurationMs));
     rafRef.current = requestAnimationFrame(frameLoop);
-  }, [mapPlaybackMsToTimelineMs, stopFrameLoop, syncTo]);
+  }, [audioSegmentRanges, mapPlaybackMsToTimelineMs, stopFrameLoop, syncTo, totalAudioDurationMs]);
 
   const recordingResetKey = useMemo(() => (
     [
       String(normalized?.updatedAt || ''),
       String(normalized?.createdAt || ''),
-      String(normalized?.audio?.url || ''),
+      String(audioSegments.map((segment) => `${segment.url}|${segment.storageName}|${segment.durationMs}`).join('||')),
       String(normalized?.durationMs || 0),
       String(Number(normalized?.events?.length || 0)),
       String(normalized?.initialCode || ''),
     ].join('|')
   ), [
+    audioSegments,
     normalized?.updatedAt,
     normalized?.createdAt,
-    normalized?.audio?.url,
     normalized?.durationMs,
     normalized?.events?.length,
     normalized?.initialCode,
@@ -496,31 +624,38 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
       setIsPlaying(false);
       setPlaybackRate(1);
       setHasPlaybackStarted(false);
+      setActiveAudioSegmentIndex(0);
       return;
     }
     const storedMs = readPersistedProgressMs();
-    const maxResumableMs = Math.max(0, timelineDurationMs - 1200);
+    const maxResumableMs = Math.max(0, totalAudioDurationMs - 1200);
     const resumeMs = Math.max(0, Math.min(storedMs, maxResumableMs));
-    const resumeTimelineMs = mapDurationPositionMs(resumeMs, timelineDurationMs, timelineDurationMs);
+    const resumeTimelineMs = mapDurationPositionMs(resumeMs, totalAudioDurationMs, timelineDurationMs);
+    const resumeSegment = resolveSegmentAtPlaybackMs(resumeMs);
     resumePositionMsRef.current = resumeMs;
+    pendingSeekPlaybackMsRef.current = resumeMs;
+    autoplayAfterSegmentLoadRef.current = false;
     setCurrentMs(resumeTimelineMs);
-    setDurationMs(timelineDurationMs);
+    setDurationMs(totalAudioDurationMs);
     setIsPlaying(false);
     setPlaybackRate(1);
     setHasPlaybackStarted(false);
     setIsFullscreen(false);
     setRunOutputFrame(null);
     setBoardStrokes([]);
+    setActiveAudioSegmentIndex(resumeSegment?.index || 0);
     lastAppliedIndexRef.current = -1;
     lastAppliedMsRef.current = 0;
     lastPersistMetaRef.current = { ms: -1, ts: 0 };
     const audio = audioRef.current;
     if (audio) {
       audio.pause();
-      try {
-        audio.currentTime = resumeMs > 0 ? (resumeMs / 1000) : 0;
-      } catch {
-        audio.currentTime = 0;
+      if (resumeSegment && activeAudioSegmentIndexRef.current === resumeSegment.index) {
+        try {
+          audio.currentTime = resumeSegment.localMs / 1000;
+        } catch {
+          // Ignore seek failures while metadata is being resolved.
+        }
       }
     }
     if (editorRef.current) {
@@ -545,21 +680,26 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     recordingResetKey,
     rebuildTo,
     resetCursorToStart,
+    resolveSegmentAtPlaybackMs,
     timelineDurationMs,
+    totalAudioDurationMs,
   ]);
 
   useEffect(() => () => {
     const audio = audioRef.current;
     if (!audio) return;
-    const mediaDurationMs = Number.isFinite(Number(audio.duration)) ? Math.round(Number(audio.duration) * 1000) : 0;
-    const currentTimeMs = Math.max(0, Math.round((Number(audio.currentTime) || 0) * 1000));
-    const nearEndThresholdMs = Math.max(0, mediaDurationMs - 1200);
-    if (audio.ended || (mediaDurationMs > 0 && currentTimeMs >= nearEndThresholdMs)) {
+    const activeSegment = audioSegmentRanges[activeAudioSegmentIndexRef.current] || null;
+    const currentPlaybackMs = Math.max(
+      0,
+      Math.round((activeSegment?.startMs || 0) + ((Number(audio.currentTime) || 0) * 1000))
+    );
+    const nearEndThresholdMs = Math.max(0, totalAudioDurationMs - 1200);
+    if (audio.ended || (totalAudioDurationMs > 0 && currentPlaybackMs >= nearEndThresholdMs)) {
       clearPersistedProgress();
       return;
     }
-    persistProgressMs(currentTimeMs, { force: true });
-  }, [clearPersistedProgress, persistProgressMs]);
+    persistProgressMs(currentPlaybackMs, { force: true });
+  }, [audioSegmentRanges, clearPersistedProgress, persistProgressMs, totalAudioDurationMs]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -668,15 +808,20 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     runOutputFrame
     && (runOutputFrame.input || runOutputFrame.output || runOutputFrame.error)
   );
-  const hasBoardTimeline = useMemo(
-    () => Array.isArray(normalized?.events) && normalized.events.some((event) => event?.type === THEORY_RECORDING_EVENT_BOARD),
+  const hasBoardStrokeTimeline = useMemo(
+    () => Array.isArray(normalized?.events) && normalized.events.some((event) => (
+      event?.type === THEORY_RECORDING_EVENT_BOARD
+      && String(event?.action || '').trim() !== 'display_mode'
+    )),
     [normalized?.events]
   );
-  const shouldShowBoard = hasBoardTimeline || boardStrokes.length > 0;
+  const isBoardFocused = boardDisplayMode === THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS;
+  const shouldShowBoard = isBoardFocused || hasBoardStrokeTimeline || boardStrokes.length > 0;
+  const showBoardSidebar = shouldShowBoard && !isBoardFocused;
 
   useEffect(() => {
     renderBoardCanvas();
-  }, [isFullscreen, renderBoardCanvas, shouldShowBoard]);
+  }, [boardDisplayMode, isFullscreen, renderBoardCanvas, shouldShowBoard]);
 
   useEffect(() => {
     const canvas = boardCanvasRef.current;
@@ -686,7 +831,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     });
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [isFullscreen, renderBoardCanvas, shouldShowBoard]);
+  }, [boardDisplayMode, isFullscreen, renderBoardCanvas, shouldShowBoard]);
 
   const safeTimelineDurationMs = Math.max(
     1,
@@ -785,23 +930,29 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     ? 'text-[12px] font-semibold uppercase tracking-wide text-slate-300'
     : 'text-[10px] font-semibold uppercase tracking-wide text-slate-400';
   const boardCanvasHeightClass = isFullscreen ? 'h-[220px]' : (compact ? 'h-[108px]' : 'h-[132px]');
+  const boardFocusOverlayClass = isFullscreen
+    ? 'pointer-events-none absolute inset-0 z-10 p-5'
+    : 'pointer-events-none absolute inset-0 z-10 p-2.5';
+  const boardFocusCardClass = isFullscreen
+    ? 'flex h-full min-h-0 flex-col overflow-hidden rounded-[1.35rem] border border-slate-700/80 bg-[#050d1f]/98 shadow-[0_18px_40px_rgba(2,6,23,0.56)]'
+    : 'flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-700/80 bg-[#050d1f]/98 shadow-[0_14px_32px_rgba(2,6,23,0.5)]';
   const editorViewportClass = isFullscreen
     ? [
-        'pointer-events-auto h-full px-5 pt-5',
+        'pointer-events-auto relative h-full px-5 pt-5',
         hasRunOutputFrame ? 'pb-[22rem]' : 'pb-28',
-        shouldShowBoard ? 'md:pr-[calc(min(44vw,640px)+2.25rem)]' : '',
+        showBoardSidebar ? 'md:pr-[calc(min(44vw,640px)+2.25rem)]' : '',
       ].filter(Boolean).join(' ')
-    : 'pointer-events-auto h-full min-h-0 min-w-0 overflow-hidden rounded-xl border border-slate-800/80 bg-[#020817]';
+    : 'pointer-events-auto relative h-full min-h-0 min-w-0 overflow-hidden rounded-xl border border-slate-800/80 bg-[#020817]';
   const standardLayoutClass = !isFullscreen
     ? [
         compact
           ? 'relative z-0 grid h-[min(460px,calc(100vh-18rem))] min-h-0 gap-2.5 overflow-hidden p-2.5 pb-22'
           : 'relative z-0 grid h-[min(580px,calc(100vh-14rem))] min-h-0 gap-3 overflow-hidden p-3 pb-24',
         hasRunOutputFrame ? 'grid-rows-[minmax(0,1fr)_auto]' : 'grid-rows-[minmax(0,1fr)]',
-        shouldShowBoard ? (compact ? 'md:grid-cols-[minmax(0,1fr)_280px] md:items-stretch' : 'md:grid-cols-[minmax(0,1fr)_320px] md:items-stretch') : '',
+        showBoardSidebar ? (compact ? 'md:grid-cols-[minmax(0,1fr)_280px] md:items-stretch' : 'md:grid-cols-[minmax(0,1fr)_320px] md:items-stretch') : '',
       ].filter(Boolean).join(' ')
     : '';
-  const standardRunOutputWrapperClass = !isFullscreen && shouldShowBoard ? 'min-h-0 md:col-span-2' : 'min-h-0';
+  const standardRunOutputWrapperClass = !isFullscreen && showBoardSidebar ? 'min-h-0 md:col-span-2' : 'min-h-0';
   const playbackActionLabel = isPlaying ? 'Пауза' : 'Воспроизвести';
   const soundActionLabel = isMuted ? 'Включить звук' : 'Выключить звук';
 
@@ -810,23 +961,19 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     if (!audio) return;
     try {
       if (audio.paused || audio.ended) {
-        await audio.play();
+        await seekAudioToPlaybackMs(clampedCurrentPlaybackMs, { autoplay: true });
         return;
       }
       audio.pause();
     } catch {
       // Ignore autoplay and playback policy errors.
     }
-  }, []);
+  }, [clampedCurrentPlaybackMs, seekAudioToPlaybackMs]);
 
   const handleSeek = useCallback((event) => {
     const nextPlaybackMs = Math.max(0, Math.round(Number(event.target?.value) || 0));
-    const audio = audioRef.current;
-    if (audio) {
-      audio.currentTime = nextPlaybackMs / 1000;
-    }
-    syncTo(mapPlaybackMsToTimelineMs(nextPlaybackMs, safePlaybackDurationMs));
-  }, [mapPlaybackMsToTimelineMs, safePlaybackDurationMs, syncTo]);
+    seekAudioToPlaybackMs(nextPlaybackMs, { autoplay: isPlaying });
+  }, [isPlaying, seekAudioToPlaybackMs]);
 
   const handleToggleMute = useCallback(() => {
     setIsMuted((prev) => !prev);
@@ -870,6 +1017,8 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
 
   const fullscreenActionLabel = isFullscreen ? 'Выйти из полноэкранного режима' : 'Открыть полноэкранный режим';
   const editorHeight = '100%';
+  const currentAudioSegment = audioSegmentRanges[activeAudioSegmentIndex] || audioSegmentRanges[0] || null;
+  const hasPlayableAudio = Boolean(currentAudioSegment?.url);
   const playerEditorOptions = useMemo(() => ({
     ...PLAYER_EDITOR_OPTIONS,
     fontSize: isFullscreen ? 30 : (compact ? 18 : PLAYER_EDITOR_OPTIONS.fontSize),
@@ -881,7 +1030,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
       : (compact ? { top: 14, bottom: 18 } : PLAYER_EDITOR_OPTIONS.padding),
   }), [compact, hasRunOutputFrame, isFullscreen]);
 
-  if (!normalized || !normalized.audio?.url || normalized.events.length === 0) {
+  if (!normalized || !hasPlayableAudio || normalized.events.length === 0) {
     return (
       <div
         className={`mt-3 overflow-hidden rounded-2xl bg-gradient-to-br from-white via-violet-50/65 to-fuchsia-50/45 px-4 py-4 text-xs text-slate-600 shadow-[0_10px_24px_rgba(124,58,237,0.09)] ${className}`}
@@ -906,7 +1055,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
             ref={audioRef}
             className="sr-only"
             preload="metadata"
-            src={normalized.audio.url}
+            src={currentAudioSegment?.url || ''}
             onPlay={() => {
               setIsPlaying(true);
               setHasPlaybackStarted(true);
@@ -914,53 +1063,68 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
               rafRef.current = requestAnimationFrame(runFrameLoop);
             }}
             onPause={(event) => {
+              if (suppressPausePersistRef.current) {
+                suppressPausePersistRef.current = false;
+                stopFrameLoop();
+                return;
+              }
               setIsPlaying(false);
               stopFrameLoop();
-              const mediaDurationMs = Number.isFinite(Number(event.currentTarget?.duration))
-                ? Math.round(Number(event.currentTarget.duration) * 1000)
-                : 0;
-              const currentTimeMs = Math.max(0, Math.round((Number(event.currentTarget?.currentTime) || 0) * 1000));
-              const nearEndThresholdMs = Math.max(0, mediaDurationMs - 1200);
-              if (event.currentTarget?.ended || (mediaDurationMs > 0 && currentTimeMs >= nearEndThresholdMs)) {
+              const currentPlaybackMs = Math.max(
+                0,
+                Math.round((currentAudioSegment?.startMs || 0) + ((Number(event.currentTarget?.currentTime) || 0) * 1000))
+              );
+              const nearEndThresholdMs = Math.max(0, totalAudioDurationMs - 1200);
+              if (event.currentTarget?.ended || (totalAudioDurationMs > 0 && currentPlaybackMs >= nearEndThresholdMs)) {
                 clearPersistedProgress();
                 return;
               }
-              persistProgressMs(currentTimeMs, { force: true });
+              persistProgressMs(currentPlaybackMs, { force: true });
             }}
             onEnded={() => {
+              const nextSegment = audioSegmentRanges[activeAudioSegmentIndexRef.current + 1] || null;
+              if (nextSegment) {
+                pendingSeekPlaybackMsRef.current = nextSegment.startMs;
+                autoplayAfterSegmentLoadRef.current = true;
+                suppressPausePersistRef.current = false;
+                setActiveAudioSegmentIndex(nextSegment.index);
+                return;
+              }
               setIsPlaying(false);
               stopFrameLoop();
               syncTo(safeTimelineDurationMs);
               clearPersistedProgress();
             }}
             onTimeUpdate={(event) => {
-              const nextPlaybackMs = (Number(event.currentTarget?.currentTime) || 0) * 1000;
-              syncTo(mapPlaybackMsToTimelineMs(nextPlaybackMs, safePlaybackDurationMs));
+              const nextPlaybackMs = (currentAudioSegment?.startMs || 0) + ((Number(event.currentTarget?.currentTime) || 0) * 1000);
+              syncTo(mapPlaybackMsToTimelineMs(nextPlaybackMs, totalAudioDurationMs));
               persistProgressMs(nextPlaybackMs);
             }}
             onSeeked={(event) => {
-              const nextPlaybackMs = (Number(event.currentTarget?.currentTime) || 0) * 1000;
-              syncTo(mapPlaybackMsToTimelineMs(nextPlaybackMs, safePlaybackDurationMs));
+              const nextPlaybackMs = (currentAudioSegment?.startMs || 0) + ((Number(event.currentTarget?.currentTime) || 0) * 1000);
+              syncTo(mapPlaybackMsToTimelineMs(nextPlaybackMs, totalAudioDurationMs));
               persistProgressMs(nextPlaybackMs, { force: true });
             }}
             onLoadedMetadata={(event) => {
-              const duration = Number(event.currentTarget?.duration);
-              if (Number.isFinite(duration) && duration > 0) {
-                const durationFromAudio = Math.round(duration * 1000);
-                setDurationMs(durationFromAudio);
-                const maxResumableMs = Math.max(0, durationFromAudio - 1200);
-                const targetMs = Math.max(0, Math.min(Math.round(resumePositionMsRef.current || 0), maxResumableMs));
-                if (targetMs > 0) {
-                  try {
-                    event.currentTarget.currentTime = targetMs / 1000;
-                  } catch {
-                    // Ignore seek failures while metadata is being resolved.
-                  }
-                  const targetTimelineMs = mapPlaybackMsToTimelineMs(targetMs, durationFromAudio);
-                  syncTo(targetTimelineMs);
-                  setCurrentMs(targetTimelineMs);
-                }
+              setDurationMs(totalAudioDurationMs);
+              const requestedPlaybackMs = pendingSeekPlaybackMsRef.current ?? Math.max(0, Math.round(resumePositionMsRef.current || 0));
+              const targetSegment = resolveSegmentAtPlaybackMs(requestedPlaybackMs);
+              if (!targetSegment) return;
+              try {
+                event.currentTarget.currentTime = targetSegment.localMs / 1000;
+              } catch {
+                // Ignore seek failures while metadata is being resolved.
               }
+              const targetTimelineMs = mapPlaybackMsToTimelineMs(targetSegment.globalMs, totalAudioDurationMs);
+              syncTo(targetTimelineMs);
+              setCurrentMs(targetTimelineMs);
+              pendingSeekPlaybackMsRef.current = null;
+              if (autoplayAfterSegmentLoadRef.current) {
+                autoplayAfterSegmentLoadRef.current = false;
+                event.currentTarget.play().catch(() => {});
+                return;
+              }
+              autoplayAfterSegmentLoadRef.current = false;
             }}
           />
 
@@ -977,6 +1141,24 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
                 onMount={handleEditorMount}
                 options={playerEditorOptions}
               />
+              {isBoardFocused && (
+                <div className={boardFocusOverlayClass}>
+                  <div className={boardFocusCardClass}>
+                    <div className="flex items-center justify-between gap-3 border-b border-slate-700/70 px-4 py-3">
+                      <div className={boardLabelClass}>Доска</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-200/90">На весь экран</div>
+                    </div>
+                    <div className="min-h-0 flex-1">
+                      <canvas
+                        ref={boardCanvasRef}
+                        width={1280}
+                        height={720}
+                        className="h-full w-full"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className={standardLayoutClass}>
@@ -992,9 +1174,27 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
                   onMount={handleEditorMount}
                   options={playerEditorOptions}
                 />
+                {isBoardFocused && (
+                  <div className={boardFocusOverlayClass}>
+                    <div className={boardFocusCardClass}>
+                      <div className="flex items-center justify-between gap-3 border-b border-slate-700/70 px-3 py-2.5">
+                        <div className={boardLabelClass}>Доска</div>
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-200/90">На весь экран</div>
+                      </div>
+                      <div className="min-h-0 flex-1">
+                        <canvas
+                          ref={boardCanvasRef}
+                          width={1280}
+                          height={720}
+                          className="h-full w-full"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {shouldShowBoard && (
+              {showBoardSidebar && (
                 <div className="pointer-events-none min-w-0">
                   <div className={boardCardClass}>
                     <div className={boardLabelClass}>Доска</div>
@@ -1074,7 +1274,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
             </div>
           )}
 
-          {isFullscreen && shouldShowBoard && (
+          {isFullscreen && showBoardSidebar && (
             <div className={`${boardShellClass} pointer-events-none`}>
               <div className={boardCardClass}>
                 <div className={boardLabelClass}>Доска</div>

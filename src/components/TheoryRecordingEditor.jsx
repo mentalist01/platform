@@ -5,7 +5,11 @@ import TheoryRecordingPlayer from './TheoryRecordingPlayer';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import {
   formatRecordingDuration,
+  getTheoryRecordingAudioSegments,
   normalizeTheoryRecording,
+  THEORY_RECORDING_DRAFT_SNAPSHOT_VERSION,
+  THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS,
+  THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI,
   THEORY_RECORDING_EVENT_BOARD,
   THEORY_RECORDING_EVENT_CODE,
   THEORY_RECORDING_EVENT_RUN_OUTPUT,
@@ -13,6 +17,12 @@ import {
   THEORY_RECORDING_MAX_EVENTS,
   THEORY_RECORDING_VERSION,
 } from '../utils/theoryRecording';
+import {
+  deleteTheoryRecordingDraftSnapshot,
+  isTheoryRecordingDraftStoreSupported,
+  loadTheoryRecordingDraftSnapshot,
+  saveTheoryRecordingDraftSnapshot,
+} from '../utils/theoryRecordingDraftStore';
 
 const RECORDING_EDITOR_OPTIONS = {
   minimap: { enabled: false },
@@ -32,6 +42,7 @@ const RECORDING_EDITOR_FONT_SIZE_STORAGE_KEY = 'theory-recording-editor-font-siz
 const RECORDING_EDITOR_FONT_SIZE_MIN = 12;
 const RECORDING_EDITOR_FONT_SIZE_MAX = 24;
 const RECORDING_EDITOR_FONT_SIZE_STEP = 1;
+const RECORDING_AUTOSAVE_INTERVAL_MS = 3000;
 
 const CODE_SNAPSHOT_DEBOUNCE_MS = 120;
 const SELECTION_SNAPSHOT_DEBOUNCE_MS = 90;
@@ -45,6 +56,12 @@ const BOARD_ERASER_WIDTH_MULTIPLIER = 2.6;
 const BOARD_ERASER_MIN_WIDTH = 10;
 const BOARD_TIMELINE_THROTTLE_MS = 60;
 const BOARD_TIMELINE_MIN_POINT_DELTA = 3;
+
+const normalizeBoardDisplayMode = (value) => (
+  String(value || '').trim() === THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS
+    ? THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS
+    : THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI
+);
 
 const getPreferredAudioMimeType = () => {
   if (typeof MediaRecorder === 'undefined') return '';
@@ -82,6 +99,99 @@ const getInitialRecordingEditorFontSize = () => {
   } catch {
     return RECORDING_EDITOR_OPTIONS.fontSize;
   }
+};
+
+const normalizeRecordingDraftStorageKey = (value) => String(value || '').trim();
+
+const cloneTheoryRecordingEvents = (events) => (
+  (Array.isArray(events) ? events : []).map((event) => ({
+    ...event,
+    stroke: event?.stroke
+      ? {
+          ...event.stroke,
+          points: Array.isArray(event.stroke.points)
+            ? event.stroke.points.map((point) => ({ ...point }))
+            : [],
+        }
+      : undefined,
+    strokes: Array.isArray(event?.strokes)
+      ? event.strokes.map((stroke) => ({
+          ...stroke,
+          points: Array.isArray(stroke.points)
+            ? stroke.points.map((point) => ({ ...point }))
+            : [],
+        }))
+      : undefined,
+    selections: Array.isArray(event?.selections)
+      ? event.selections.map((selection) => ({ ...selection }))
+      : undefined,
+  }))
+);
+
+const cloneTheoryRecordingAudioSegments = (segments) => (
+  (Array.isArray(segments) ? segments : [])
+    .map((segment) => {
+      if (!segment || typeof segment !== 'object') return null;
+      const hasFile = typeof File !== 'undefined' && segment.file instanceof File;
+      return {
+        url: String(segment.url || ''),
+        storageName: String(segment.storageName || ''),
+        name: String(segment.name || ''),
+        sizeBytes: Math.max(0, Number(segment.sizeBytes) || 0),
+        durationMs: Math.max(0, Number(segment.durationMs) || 0),
+        isNew: Boolean(segment.isNew || hasFile),
+        file: hasFile ? segment.file : null,
+      };
+    })
+    .filter(Boolean)
+);
+
+const createRecordingAudioPayload = (segments) => ({
+  segments: cloneTheoryRecordingAudioSegments(segments),
+});
+
+const buildRecordingFromParts = (recording, segments) => {
+  const normalizedRecording = normalizeTheoryRecording(recording);
+  if (!normalizedRecording) return null;
+  return {
+    ...normalizedRecording,
+    events: cloneTheoryRecordingEvents(normalizedRecording.events),
+    audio: createRecordingAudioPayload(segments),
+  };
+};
+
+const deriveLatestCodeFromRecording = (recording, fallbackCode = '') => {
+  let nextCode = String(recording?.initialCode || fallbackCode || '');
+  (Array.isArray(recording?.events) ? recording.events : []).forEach((event) => {
+    if (event?.type === THEORY_RECORDING_EVENT_CODE) {
+      nextCode = String(event.code || '');
+    }
+  });
+  return nextCode;
+};
+
+const deriveLatestSelectionSignatureFromRecording = (recording) => {
+  let latestSelections = [];
+  (Array.isArray(recording?.events) ? recording.events : []).forEach((event) => {
+    if (event?.type === THEORY_RECORDING_EVENT_SELECTION) {
+      latestSelections = normalizeSelectionListForEvent(event.selections);
+    }
+  });
+  return selectionSignature(latestSelections);
+};
+
+const deriveLatestRunOutputFrameFromRecording = (recording) => {
+  let nextFrame = { input: '', output: '', error: '' };
+  (Array.isArray(recording?.events) ? recording.events : []).forEach((event) => {
+    if (event?.type === THEORY_RECORDING_EVENT_RUN_OUTPUT) {
+      nextFrame = {
+        input: String(event.input ?? ''),
+        output: String(event.output ?? ''),
+        error: String(event.error ?? ''),
+      };
+    }
+  });
+  return nextFrame;
 };
 
 const normalizeSelectionListForEvent = (selections) => (
@@ -183,8 +293,19 @@ const buildBoardStrokesFromEvents = (events) => {
   return next;
 };
 
+const buildBoardDisplayModeFromEvents = (events) => {
+  let mode = THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI;
+  (Array.isArray(events) ? events : []).forEach((event) => {
+    if (!event || event.type !== THEORY_RECORDING_EVENT_BOARD) return;
+    if (String(event.action || '').trim() !== 'display_mode') return;
+    mode = normalizeBoardDisplayMode(event.mode);
+  });
+  return mode;
+};
+
 const TheoryRecordingEditor = ({
   initialRecording,
+  draftStorageKey = '',
   disabled = false,
   onDraftChange,
   ensurePyodideReady = null,
@@ -200,14 +321,28 @@ const TheoryRecordingEditor = ({
     normalizedInitial
       ? {
           ...normalizedInitial,
-          audio: normalizedInitial.audio
-            ? { ...normalizedInitial.audio, isNew: false, file: null }
+          audio: normalizedInitial.audio?.segments
+            ? createRecordingAudioPayload(
+                normalizedInitial.audio.segments.map((segment) => ({
+                  ...segment,
+                  isNew: false,
+                  file: null,
+                }))
+              )
             : null,
         }
       : null
   ), [normalizedInitial]);
+  const normalizedDraftStorageKey = useMemo(
+    () => normalizeRecordingDraftStorageKey(draftStorageKey),
+    [draftStorageKey]
+  );
   const initialBoardStrokes = useMemo(
     () => buildBoardStrokesFromEvents(initialDraft?.events),
+    [initialDraft?.events]
+  );
+  const initialBoardDisplayMode = useMemo(
+    () => buildBoardDisplayModeFromEvents(initialDraft?.events),
     [initialDraft?.events]
   );
   const [draft, setDraft] = useState(() => initialDraft);
@@ -227,8 +362,10 @@ const TheoryRecordingEditor = ({
   const [boardTool, setBoardTool] = useState('pen');
   const [boardColor, setBoardColor] = useState(BOARD_DEFAULT_COLOR);
   const [boardWidth, setBoardWidth] = useState(BOARD_DEFAULT_WIDTH);
+  const [boardDisplayMode, setBoardDisplayMode] = useState(() => initialBoardDisplayMode);
   const [activeWorkspace, setActiveWorkspace] = useState('code');
   const [editorFontSize, setEditorFontSize] = useState(() => getInitialRecordingEditorFontSize());
+  const [recoveredDraftStatus, setRecoveredDraftStatus] = useState('');
 
   const editorRef = useRef(null);
   const contentDisposableRef = useRef(null);
@@ -240,7 +377,9 @@ const TheoryRecordingEditor = ({
   const boardCanvasRef = useRef(null);
   const boardDrawingRef = useRef({ active: false, pointerId: null, stroke: null });
   const boardStrokesRef = useRef(initialBoardStrokes);
+  const boardDisplayModeRef = useRef(initialBoardDisplayMode);
   const boardTimelineEmitRef = useRef({ strokeId: '', points: 0, ts: 0 });
+  const recordingBaseElapsedMsRef = useRef(0);
   const recordingStartedAtRef = useRef(0);
   const recordingPausedAtRef = useRef(0);
   const recordingPausedAccumMsRef = useRef(0);
@@ -253,7 +392,9 @@ const TheoryRecordingEditor = ({
   const lastSelectionSignatureRef = useRef('');
   const initialCodeAtStartRef = useRef('');
   const createdAtRef = useRef(initialDraft?.createdAt || '');
-  const localAudioUrlRef = useRef('');
+  const localAudioUrlsRef = useRef([]);
+  const persistedAudioSegmentsRef = useRef([]);
+  const currentAudioMimeTypeRef = useRef('');
   const runRequestSeqRef = useRef(0);
   const editorId = useId();
   const editorPath = useMemo(() => (
@@ -263,6 +404,205 @@ const TheoryRecordingEditor = ({
     ...RECORDING_EDITOR_OPTIONS,
     fontSize: editorFontSize,
   }), [editorFontSize]);
+
+  const registerLocalAudioUrl = useCallback((url) => {
+    const safeUrl = String(url || '').trim();
+    if (!safeUrl || !safeUrl.startsWith('blob:')) return safeUrl;
+    if (!localAudioUrlsRef.current.includes(safeUrl)) {
+      localAudioUrlsRef.current.push(safeUrl);
+    }
+    return safeUrl;
+  }, []);
+
+  const revokeLocalAudioUrl = useCallback(() => {
+    const urls = Array.isArray(localAudioUrlsRef.current) ? localAudioUrlsRef.current : [];
+    urls.forEach((url) => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        /* no-op */
+      }
+    });
+    localAudioUrlsRef.current = [];
+  }, []);
+
+  const getNowMs = useCallback(
+    () => {
+      const baseElapsed = Math.max(0, Number(recordingBaseElapsedMsRef.current || 0));
+      const startedAt = Number(recordingStartedAtRef.current || 0);
+      if (!startedAt) return baseElapsed;
+      const pausedAccum = Math.max(0, Number(recordingPausedAccumMsRef.current || 0));
+      const nowRaw = isRecordingPausedRef.current
+        ? Number(recordingPausedAtRef.current || startedAt)
+        : performance.now();
+      return Math.max(0, Math.round(baseElapsed + nowRaw - startedAt - pausedAccum));
+    },
+    []
+  );
+  const canUseDraftStore = useMemo(
+    () => Boolean(normalizedDraftStorageKey) && isTheoryRecordingDraftStoreSupported(),
+    [normalizedDraftStorageKey]
+  );
+
+  const hydrateAudioSegmentsForDraft = useCallback((segments) => (
+    cloneTheoryRecordingAudioSegments(segments).map((segment) => {
+      if (segment.file) {
+        return {
+          ...segment,
+          url: registerLocalAudioUrl(URL.createObjectURL(segment.file)),
+        };
+      }
+      return {
+        ...segment,
+        url: String(segment.url || ''),
+      };
+    })
+  ), [registerLocalAudioUrl]);
+
+  const applyDraftState = useCallback((payload = {}) => {
+    const nextRecording = normalizeTheoryRecording(payload.recording);
+    const continuable = payload.continuable === true;
+    revokeLocalAudioUrl();
+    const nextDraftSegments = nextRecording
+      ? hydrateAudioSegmentsForDraft(getTheoryRecordingAudioSegments(nextRecording))
+      : [];
+    const nextDraft = nextRecording
+      ? buildRecordingFromParts(nextRecording, nextDraftSegments)
+      : null;
+    const nextCode = payload.code !== undefined
+      ? String(payload.code || '')
+      : deriveLatestCodeFromRecording(nextDraft, '');
+    const nextRunOutputFrame = deriveLatestRunOutputFrameFromRecording(nextDraft);
+    const nextRunInput = payload.runInput !== undefined
+      ? String(payload.runInput || '')
+      : String(nextRunOutputFrame.input || '');
+    const nextRunOutput = payload.runOutput !== undefined
+      ? String(payload.runOutput || '')
+      : String(nextRunOutputFrame.output || '');
+    const nextRunError = payload.runError !== undefined
+      ? String(payload.runError || '')
+      : String(nextRunOutputFrame.error || '');
+    const nextBoardStrokes = nextDraft ? buildBoardStrokesFromEvents(nextDraft.events) : [];
+    const nextBoardDisplayMode = nextDraft
+      ? buildBoardDisplayModeFromEvents(nextDraft.events)
+      : THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI;
+    const nextDurationMs = Math.max(0, Number(nextDraft?.durationMs || 0));
+    persistedAudioSegmentsRef.current = continuable ? cloneTheoryRecordingAudioSegments(nextDraftSegments) : [];
+    eventsRef.current = continuable ? cloneTheoryRecordingEvents(nextDraft?.events) : [];
+    lastCodeRef.current = deriveLatestCodeFromRecording(nextDraft, nextCode);
+    lastSelectionSignatureRef.current = deriveLatestSelectionSignatureFromRecording(nextDraft);
+    initialCodeAtStartRef.current = String(nextDraft?.initialCode || nextCode || '');
+    createdAtRef.current = String(nextDraft?.createdAt || '');
+    recordingBaseElapsedMsRef.current = continuable ? nextDurationMs : 0;
+    currentAudioMimeTypeRef.current = String(nextDraftSegments[nextDraftSegments.length - 1]?.file?.type || '');
+    boardDrawingRef.current = { active: false, pointerId: null, stroke: null };
+    boardTimelineEmitRef.current = { strokeId: '', points: 0, ts: 0 };
+    isRecordingRef.current = false;
+    isRecordingPausedRef.current = false;
+    recordingStartedAtRef.current = 0;
+    recordingPausedAtRef.current = 0;
+    recordingPausedAccumMsRef.current = 0;
+    chunksRef.current = [];
+    setDraft(nextDraft);
+    setCode(nextCode);
+    setElapsedMs(nextDurationMs);
+    setEventCount(Array.isArray(nextDraft?.events) ? nextDraft.events.length : 0);
+    setRunInput(nextRunInput);
+    setRunOutput(nextRunOutput);
+    setRunError(nextRunError);
+    setBoardStrokes(nextBoardStrokes);
+    setBoardDisplayMode(nextBoardDisplayMode);
+    setActiveWorkspace(String(payload.activeWorkspace || (nextDraft ? 'preview' : 'code')));
+    setRecordingError('');
+    setIsRecording(false);
+    setIsPaused(false);
+    setRecoveredDraftStatus(String(payload.recoveredStatus || ''));
+  }, [hydrateAudioSegmentsForDraft, registerLocalAudioUrl, revokeLocalAudioUrl]);
+
+  const buildCurrentSessionAudioSegment = useCallback((durationMs, options = {}) => {
+    const chunks = Array.isArray(chunksRef.current) ? chunksRef.current : [];
+    if (chunks.length === 0) return null;
+    const resolvedMime = chunks[0]?.type || currentAudioMimeTypeRef.current || 'audio/webm';
+    const blob = new Blob(chunks, { type: resolvedMime });
+    if (!blob.size) return null;
+    const extension = resolvedMime.includes('ogg') ? 'ogg' : 'webm';
+    const file = new File([blob], `theory-recording-${Date.now()}.${extension}`, { type: resolvedMime });
+    const persistedDurationMs = cloneTheoryRecordingAudioSegments(persistedAudioSegmentsRef.current)
+      .reduce((sum, segment) => sum + Math.max(0, Number(segment.durationMs) || 0), 0);
+    const safeSegmentDurationMs = Math.max(
+      0,
+      Math.round(Number(durationMs) || 0) - persistedDurationMs
+    );
+    return {
+      url: options.createPreviewUrl === false ? '' : registerLocalAudioUrl(URL.createObjectURL(blob)),
+      storageName: '',
+      name: file.name,
+      sizeBytes: file.size,
+      durationMs: safeSegmentDurationMs,
+      isNew: true,
+      file,
+    };
+  }, [registerLocalAudioUrl]);
+
+  const buildRuntimeRecording = useCallback((options = {}) => {
+    const durationMs = Math.max(0, Math.round(Number(options.durationMs) || 0));
+    const updatedAt = String(options.updatedAt || new Date().toISOString());
+    const currentCode = String(options.code ?? (editorRef.current?.getValue?.() || code || ''));
+    if (!createdAtRef.current) createdAtRef.current = updatedAt;
+    const baseSegments = cloneTheoryRecordingAudioSegments(persistedAudioSegmentsRef.current);
+    const includeCurrentSession = options.includeCurrentSession !== false;
+    const currentSegment = includeCurrentSession
+      ? buildCurrentSessionAudioSegment(durationMs, {
+          createPreviewUrl: options.withPreviewUrls === true,
+        })
+      : null;
+    const audioSegments = currentSegment ? [...baseSegments, currentSegment] : baseSegments;
+    return buildRecordingFromParts({
+      version: THEORY_RECORDING_VERSION,
+      initialCode: initialCodeAtStartRef.current || currentCode,
+      durationMs,
+      events: cloneTheoryRecordingEvents(eventsRef.current),
+      audio: createRecordingAudioPayload(audioSegments),
+      createdAt: createdAtRef.current || updatedAt,
+      updatedAt,
+    }, audioSegments);
+  }, [buildCurrentSessionAudioSegment, code]);
+
+  const persistDraftSnapshot = useCallback(async (status, options = {}) => {
+    if (!canUseDraftStore) return false;
+    const normalizedStatus = String(status || '').trim();
+    const recording = options.recording
+      ? buildRecordingFromParts(options.recording, getTheoryRecordingAudioSegments(options.recording))
+      : buildRuntimeRecording({
+          durationMs: options.durationMs ?? getNowMs(),
+          code: options.code,
+          includeCurrentSession: options.includeCurrentSession !== false,
+          withPreviewUrls: false,
+          updatedAt: options.updatedAt,
+        });
+    if (!recording || !Array.isArray(recording.audio?.segments) || recording.audio.segments.length === 0) return false;
+    return saveTheoryRecordingDraftSnapshot(normalizedDraftStorageKey, {
+      version: THEORY_RECORDING_DRAFT_SNAPSHOT_VERSION,
+      status: normalizedStatus || 'draft',
+      updatedAt: String(options.updatedAt || recording.updatedAt || new Date().toISOString()),
+      activeWorkspace: String(options.activeWorkspace || activeWorkspace || 'code'),
+      code: String(options.code ?? (editorRef.current?.getValue?.() || code || '')),
+      runInput: String(options.runInput ?? runInput ?? ''),
+      runOutput: String(options.runOutput ?? runOutput ?? ''),
+      runError: String(options.runError ?? runError ?? ''),
+      recording,
+    });
+  }, [
+    activeWorkspace,
+    buildRuntimeRecording,
+    canUseDraftStore,
+    code,
+    getNowMs,
+    normalizedDraftStorageKey,
+    runError,
+    runInput,
+    runOutput,
+  ]);
 
   const stopMediaStream = useCallback(() => {
     const stream = mediaStreamRef.current;
@@ -288,26 +628,6 @@ const TheoryRecordingEditor = ({
       selectionDebounceTimerRef.current = null;
     }
   }, []);
-
-  const revokeLocalAudioUrl = useCallback(() => {
-    if (localAudioUrlRef.current) {
-      URL.revokeObjectURL(localAudioUrlRef.current);
-      localAudioUrlRef.current = '';
-    }
-  }, []);
-
-  const getNowMs = useCallback(
-    () => {
-      const startedAt = Number(recordingStartedAtRef.current || 0);
-      if (!startedAt) return 0;
-      const pausedAccum = Math.max(0, Number(recordingPausedAccumMsRef.current || 0));
-      const nowRaw = isRecordingPausedRef.current
-        ? Number(recordingPausedAtRef.current || startedAt)
-        : performance.now();
-      return Math.max(0, Math.round(nowRaw - startedAt - pausedAccum));
-    },
-    []
-  );
 
   const startElapsedTimer = useCallback(() => {
     if (elapsedTimerRef.current) {
@@ -385,6 +705,16 @@ const TheoryRecordingEditor = ({
         type: THEORY_RECORDING_EVENT_BOARD,
         action: 'snapshot',
         strokes,
+      });
+      setEventCount(eventsRef.current.length);
+      return;
+    }
+    if (action === 'display_mode') {
+      eventsRef.current.push({
+        t: Math.max(0, Math.round(timestampMs)),
+        type: THEORY_RECORDING_EVENT_BOARD,
+        action: 'display_mode',
+        mode: normalizeBoardDisplayMode(payload.mode),
       });
       setEventCount(eventsRef.current.length);
       return;
@@ -615,6 +945,20 @@ const TheoryRecordingEditor = ({
     renderBoardCanvas();
   }, [appendBoardEvent, getNowMs, renderBoardCanvas]);
 
+  const handleToggleBoardDisplayMode = useCallback(() => {
+    const nextMode = boardDisplayModeRef.current === THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS
+      ? THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI
+      : THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS;
+    boardDisplayModeRef.current = nextMode;
+    setBoardDisplayMode(nextMode);
+    if (isRecordingRef.current && !isRecordingPausedRef.current) {
+      appendBoardEvent(getNowMs(), {
+        action: 'display_mode',
+        mode: nextMode,
+      });
+    }
+  }, [appendBoardEvent, getNowMs]);
+
   const flushScheduledSnapshots = useCallback(() => {
     if (codeDebounceTimerRef.current) {
       clearTimeout(codeDebounceTimerRef.current);
@@ -634,6 +978,10 @@ const TheoryRecordingEditor = ({
   }, [boardStrokes, renderBoardCanvas]);
 
   useEffect(() => {
+    boardDisplayModeRef.current = normalizeBoardDisplayMode(boardDisplayMode);
+  }, [boardDisplayMode]);
+
+  useEffect(() => {
     const canvas = boardCanvasRef.current;
     if (!canvas || typeof ResizeObserver === 'undefined') return undefined;
     const observer = new ResizeObserver(() => {
@@ -642,6 +990,92 @@ const TheoryRecordingEditor = ({
     observer.observe(canvas);
     return () => observer.disconnect();
   }, [renderBoardCanvas]);
+
+  useEffect(() => {
+    let cancelled = false;
+    applyDraftState({
+      recording: initialDraft,
+      activeWorkspace: initialDraft ? 'preview' : 'code',
+      continuable: false,
+      recoveredStatus: '',
+      recoveredUpdatedAt: '',
+    });
+    if (!canUseDraftStore) return () => {
+      cancelled = true;
+    };
+    (async () => {
+      const snapshot = await loadTheoryRecordingDraftSnapshot(normalizedDraftStorageKey);
+      if (cancelled || !snapshot || typeof snapshot !== 'object') return;
+      const snapshotRecording = normalizeTheoryRecording(snapshot.recording);
+      if (!snapshotRecording) return;
+      const snapshotUpdatedMs = Date.parse(
+        String(snapshot.updatedAt || snapshotRecording.updatedAt || snapshotRecording.createdAt || '')
+      ) || 0;
+      const initialUpdatedMs = Date.parse(
+        String(initialDraft?.updatedAt || initialDraft?.createdAt || '')
+      ) || 0;
+      if (snapshotUpdatedMs < initialUpdatedMs) return;
+      applyDraftState({
+        recording: snapshotRecording,
+        code: snapshot.code,
+        runInput: snapshot.runInput,
+        runOutput: snapshot.runOutput,
+        runError: snapshot.runError,
+        activeWorkspace: snapshot.activeWorkspace || 'code',
+        continuable: true,
+        recoveredStatus: String(snapshot.status || 'draft'),
+        recoveredUpdatedAt: String(snapshot.updatedAt || snapshotRecording.updatedAt || ''),
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyDraftState, canUseDraftStore, initialDraft, normalizedDraftStorageKey]);
+
+  useEffect(() => {
+    if (!canUseDraftStore || !isRecording) return undefined;
+    const timerId = setInterval(() => {
+      flushScheduledSnapshots();
+      const nowMs = getNowMs();
+      appendCodeEvent(nowMs, editorRef.current?.getValue?.() || '', true);
+      appendSelectionEvent(nowMs, getEditorSelections(), true);
+      persistDraftSnapshot('recording', {
+        durationMs: nowMs,
+        activeWorkspace,
+        code: editorRef.current?.getValue?.() || '',
+        runInput,
+        runOutput,
+        runError,
+      }).catch(() => {});
+    }, RECORDING_AUTOSAVE_INTERVAL_MS);
+    return () => clearInterval(timerId);
+  }, [
+    activeWorkspace,
+    appendCodeEvent,
+    appendSelectionEvent,
+    canUseDraftStore,
+    flushScheduledSnapshots,
+    getEditorSelections,
+    getNowMs,
+    isRecording,
+    persistDraftSnapshot,
+    runError,
+    runInput,
+    runOutput,
+  ]);
+
+  useEffect(() => {
+    if (!canUseDraftStore || isRecording || !draft) return;
+    persistDraftSnapshot(recoveredDraftStatus || 'draft', {
+      recording: draft,
+      activeWorkspace,
+      code,
+      runInput,
+      runOutput,
+      runError,
+      updatedAt: draft.updatedAt,
+    }).catch(() => {});
+  }, [activeWorkspace, canUseDraftStore, code, draft, isRecording, persistDraftSnapshot, recoveredDraftStatus, runError, runInput, runOutput]);
 
   const finalizeRecording = useCallback((durationMs, mimeType = '') => {
     const chunks = Array.isArray(chunksRef.current) ? chunksRef.current : [];
@@ -652,13 +1086,7 @@ const TheoryRecordingEditor = ({
       setRecordingError('Аудио не записалось. Попробуйте еще раз.');
       return;
     }
-    revokeLocalAudioUrl();
-    const localAudioUrl = URL.createObjectURL(blob);
-    localAudioUrlRef.current = localAudioUrl;
-    const extension = resolvedMime.includes('ogg') ? 'ogg' : 'webm';
-    const file = new File([blob], `theory-recording-${Date.now()}.${extension}`, { type: resolvedMime });
-    const events = (Array.isArray(eventsRef.current) ? eventsRef.current : [])
-      .map((event) => ({ ...event }))
+    const events = cloneTheoryRecordingEvents(eventsRef.current)
       .sort((left, right) => {
         const delta = left.t - right.t;
         if (delta !== 0) return delta;
@@ -679,32 +1107,41 @@ const TheoryRecordingEditor = ({
     );
     const updatedAt = new Date().toISOString();
     if (!createdAtRef.current) createdAtRef.current = updatedAt;
-    setDraft({
+    const currentSegment = buildCurrentSessionAudioSegment(safeDuration, { createPreviewUrl: true });
+    const nextAudioSegments = [
+      ...cloneTheoryRecordingAudioSegments(persistedAudioSegmentsRef.current),
+      ...(currentSegment ? [currentSegment] : []),
+    ];
+    const nextDraft = buildRecordingFromParts({
       version: THEORY_RECORDING_VERSION,
       initialCode: initialCodeAtStartRef.current,
       durationMs: safeDuration,
       events,
-      audio: {
-        url: localAudioUrl,
-        storageName: '',
-        name: file.name,
-        sizeBytes: file.size,
-        isNew: true,
-        file,
-      },
+      audio: createRecordingAudioPayload(nextAudioSegments),
       createdAt: createdAtRef.current,
       updatedAt,
-    });
+    }, nextAudioSegments);
+    persistedAudioSegmentsRef.current = cloneTheoryRecordingAudioSegments(nextAudioSegments);
+    setDraft(nextDraft);
     setActiveWorkspace('preview');
     setElapsedMs(safeDuration);
     setEventCount(events.length);
+    setRecoveredDraftStatus((prev) => (prev ? 'draft' : prev));
     if (events.length >= THEORY_RECORDING_MAX_EVENTS) {
       setRecordingError('Запись достигла лимита событий. Сократите длительность или количество действий.');
     } else {
       setRecordingError('');
     }
-  }, [revokeLocalAudioUrl, stopMediaStream]);
-
+    persistDraftSnapshot('draft', {
+      recording: nextDraft,
+      activeWorkspace: 'preview',
+      code: editorRef.current?.getValue?.() || '',
+      runInput,
+      runOutput,
+      runError,
+      updatedAt,
+    }).catch(() => {});
+  }, [buildCurrentSessionAudioSegment, persistDraftSnapshot, runError, runInput, runOutput, stopMediaStream]);
   const stopRecording = useCallback(() => {
     if (!isRecordingRef.current) return;
     finishBoardDrawing();
@@ -798,6 +1235,10 @@ const TheoryRecordingEditor = ({
     const resumeMs = getNowMs();
     appendCodeEvent(resumeMs, editorRef.current?.getValue?.() || '', true);
     appendSelectionEvent(resumeMs, getEditorSelections(), true);
+    appendBoardEvent(resumeMs, {
+      action: 'display_mode',
+      mode: boardDisplayModeRef.current,
+    });
     appendBoardEvent(resumeMs, { action: 'snapshot', strokes: boardStrokesRef.current });
     setElapsedMs(resumeMs);
     startElapsedTimer();
@@ -838,14 +1279,12 @@ const TheoryRecordingEditor = ({
       });
       mediaStreamRef.current = stream;
       chunksRef.current = [];
-      eventsRef.current = [];
-      lastCodeRef.current = '';
-      lastSelectionSignatureRef.current = '';
       const mimeType = getPreferredAudioMimeType();
       const recorder = mimeType
         ? new MediaRecorder(stream, { mimeType })
         : new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
+      currentAudioMimeTypeRef.current = recorder.mimeType || mimeType || 'audio/webm';
       recorder.ondataavailable = (event) => {
         if (event?.data && event.data.size > 0) {
           chunksRef.current.push(event.data);
@@ -858,7 +1297,32 @@ const TheoryRecordingEditor = ({
         finalizeRecording(getNowMs(), recorder.mimeType || mimeType);
       };
 
-      initialCodeAtStartRef.current = editor.getValue() || '';
+      const shouldContinueRecoveredDraft = Boolean(recoveredDraftStatus) && Boolean(draft);
+      if (shouldContinueRecoveredDraft) {
+        const recoveredRecording = normalizeTheoryRecording(draft);
+        const recoveredDurationMs = Math.max(0, Number(recoveredRecording?.durationMs || 0));
+        persistedAudioSegmentsRef.current = cloneTheoryRecordingAudioSegments(
+          getTheoryRecordingAudioSegments(recoveredRecording)
+        );
+        eventsRef.current = cloneTheoryRecordingEvents(recoveredRecording?.events);
+        initialCodeAtStartRef.current = String(recoveredRecording?.initialCode || editor.getValue() || '');
+        createdAtRef.current = String(recoveredRecording?.createdAt || new Date().toISOString());
+        recordingBaseElapsedMsRef.current = recoveredDurationMs;
+        lastCodeRef.current = deriveLatestCodeFromRecording(recoveredRecording, editor.getValue() || '');
+        lastSelectionSignatureRef.current = deriveLatestSelectionSignatureFromRecording(recoveredRecording);
+        setElapsedMs(recoveredDurationMs);
+        setEventCount(Array.isArray(recoveredRecording?.events) ? recoveredRecording.events.length : 0);
+      } else {
+        persistedAudioSegmentsRef.current = [];
+        eventsRef.current = [];
+        lastCodeRef.current = '';
+        lastSelectionSignatureRef.current = '';
+        initialCodeAtStartRef.current = editor.getValue() || '';
+        recordingBaseElapsedMsRef.current = 0;
+        createdAtRef.current = '';
+        setElapsedMs(0);
+        setEventCount(0);
+      }
       recordingStartedAtRef.current = performance.now();
       recordingPausedAtRef.current = 0;
       recordingPausedAccumMsRef.current = 0;
@@ -866,13 +1330,16 @@ const TheoryRecordingEditor = ({
       isRecordingRef.current = true;
       setIsRecording(true);
       setIsPaused(false);
-      setElapsedMs(0);
-      setEventCount(0);
       boardTimelineEmitRef.current = { strokeId: '', points: 0, ts: 0 };
-      appendCodeEvent(0, initialCodeAtStartRef.current, true);
-      appendSelectionEvent(0, getEditorSelections(), true);
+      const startStampMs = Math.max(0, Number(recordingBaseElapsedMsRef.current || 0));
+      appendCodeEvent(startStampMs, editor.getValue() || initialCodeAtStartRef.current, true);
+      appendSelectionEvent(startStampMs, getEditorSelections(), true);
+      appendBoardEvent(startStampMs, {
+        action: 'display_mode',
+        mode: boardDisplayModeRef.current,
+      });
       if (boardStrokesRef.current.length > 0) {
-        appendBoardEvent(0, { action: 'snapshot', strokes: boardStrokesRef.current });
+        appendBoardEvent(startStampMs, { action: 'snapshot', strokes: boardStrokesRef.current });
       }
       recorder.start(250);
       startElapsedTimer();
@@ -885,9 +1352,11 @@ const TheoryRecordingEditor = ({
     appendBoardEvent,
     appendSelectionEvent,
     disabled,
+    draft,
     finalizeRecording,
     getEditorSelections,
     getNowMs,
+    recoveredDraftStatus,
     startElapsedTimer,
     stopMediaStream,
   ]);
@@ -1034,6 +1503,8 @@ const TheoryRecordingEditor = ({
     if (isRecordingRef.current) return;
     setDraft(null);
     setBoardStrokes([]);
+    boardDisplayModeRef.current = THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI;
+    setBoardDisplayMode(THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI);
     boardDrawingRef.current = { active: false, pointerId: null, stroke: null };
     boardTimelineEmitRef.current = { strokeId: '', points: 0, ts: 0 };
     setEventCount(0);
@@ -1041,9 +1512,16 @@ const TheoryRecordingEditor = ({
     setRunOutput('');
     setRunError('');
     setRecordingError('');
+    setRecoveredDraftStatus('');
+    persistedAudioSegmentsRef.current = [];
+    eventsRef.current = [];
+    recordingBaseElapsedMsRef.current = 0;
     revokeLocalAudioUrl();
     renderBoardCanvas();
-  }, [renderBoardCanvas, revokeLocalAudioUrl]);
+    if (canUseDraftStore) {
+      deleteTheoryRecordingDraftSnapshot(normalizedDraftStorageKey).catch(() => {});
+    }
+  }, [canUseDraftStore, normalizedDraftStorageKey, renderBoardCanvas, revokeLocalAudioUrl]);
 
   useEffect(() => {
     if (typeof onDraftChange === 'function') {
@@ -1116,6 +1594,9 @@ const TheoryRecordingEditor = ({
   const hasDraft = Boolean(draft);
   const canSave = typeof onSave === 'function';
   const canClearSavedTheory = typeof onClear === 'function';
+  const isBoardFocusMode = boardDisplayMode === THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS;
+  const hasRecoveredDraft = Boolean(recoveredDraftStatus);
+  const startRecordingLabel = hasRecoveredDraft ? 'Продолжить запись' : 'Начать запись';
   const canDecreaseEditorFont = editorFontSize > RECORDING_EDITOR_FONT_SIZE_MIN;
   const canIncreaseEditorFont = editorFontSize < RECORDING_EDITOR_FONT_SIZE_MAX;
   const workspaceTabs = [
@@ -1172,13 +1653,20 @@ const TheoryRecordingEditor = ({
               }`}>
                 {hasDraft ? 'Черновик готов' : 'Черновик появится после остановки записи'}
               </div>
+              <div className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                isBoardFocusMode
+                  ? 'border-sky-300/30 bg-sky-400/10 text-sky-100'
+                  : 'border-white/10 bg-white/5 text-slate-300'
+              }`}>
+                {isBoardFocusMode ? 'Доска в видео: на весь экран' : 'Доска в видео: мини'}
+              </div>
             </div>
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {!isRecording ? (
               <Button onClick={startRecording} disabled={disabled || isSaving} className="bg-emerald-500 text-white shadow-[0_14px_40px_rgba(16,185,129,0.26)] hover:bg-emerald-600">
-                Начать запись
+                {startRecordingLabel}
               </Button>
             ) : (
               <>
@@ -1419,6 +1907,22 @@ const TheoryRecordingEditor = ({
                         >
                           Очистить доску
                         </button>
+                        <button
+                          type="button"
+                          onClick={handleToggleBoardDisplayMode}
+                          className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${
+                            isBoardFocusMode
+                              ? 'border-sky-300/40 bg-sky-400/12 text-sky-100 hover:bg-sky-400/18'
+                              : 'border-white/10 bg-white/[0.04] text-slate-300 hover:border-white/20 hover:text-white'
+                          }`}
+                        >
+                          {isBoardFocusMode ? 'Вернуть мини-доску' : 'Показать в видео на весь экран'}
+                        </button>
+                      </div>
+                      <div className="mt-3 rounded-2xl border border-white/10 bg-[#061127] px-3 py-3 text-sm leading-6 text-slate-300">
+                        {isBoardFocusMode
+                          ? 'Во время воспроизведения доска сейчас занимает все окно видео-теории. Нажмите кнопку еще раз, чтобы вернуть обычный мини-режим.'
+                          : 'Сейчас доска показывается как мини-панель справа. Можно временно развернуть ее на все окно видео-теории для важных объяснений.'}
                       </div>
                     </div>
 
@@ -1506,4 +2010,5 @@ const TheoryRecordingEditor = ({
 };
 
 export default TheoryRecordingEditor;
+
 

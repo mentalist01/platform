@@ -4,8 +4,11 @@ export const THEORY_RECORDING_EVENT_CODE = 'code';
 export const THEORY_RECORDING_EVENT_SELECTION = 'selection';
 export const THEORY_RECORDING_EVENT_BOARD = 'board';
 export const THEORY_RECORDING_EVENT_RUN_OUTPUT = 'run_output';
+export const THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI = 'mini';
+export const THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS = 'focus';
 export const THEORY_RECORDING_MAX_EVENTS = 12000;
 export const THEORY_RECORDING_MAX_JSON_BYTES = 6 * 1024 * 1024;
+export const THEORY_RECORDING_DRAFT_SNAPSHOT_VERSION = 1;
 const THEORY_RECORDING_MAX_RUN_INPUT_CHARS = 8000;
 const THEORY_RECORDING_MAX_RUN_OUTPUT_CHARS = 120000;
 const THEORY_RECORDING_MAX_BOARD_POINTS = 2400;
@@ -27,6 +30,13 @@ const normalizeBoardColor = (value) => {
   const color = normalizeText(value).trim();
   if (!color) return '#38bdf8';
   return color.slice(0, 40);
+};
+
+const normalizeBoardDisplayMode = (value) => {
+  const mode = normalizeText(value).trim();
+  return mode === THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS
+    ? THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS
+    : THEORY_RECORDING_BOARD_DISPLAY_MODE_MINI;
 };
 
 const normalizeBoardPoint = (value) => {
@@ -158,17 +168,26 @@ const normalizeEvent = (value) => {
         strokes: normalizeBoardStrokeList(value.strokes),
       };
     }
+    if (action === 'display_mode') {
+      return {
+        t,
+        type: THEORY_RECORDING_EVENT_BOARD,
+        action: 'display_mode',
+        mode: normalizeBoardDisplayMode(value.mode),
+      };
+    }
     return null;
   }
   return null;
 };
 
-const normalizeAudio = (value) => {
+const normalizeAudioSegment = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const url = typeof value.url === 'string' ? value.url.trim() : '';
   const storageName = typeof value.storageName === 'string' ? value.storageName.trim() : '';
   const name = typeof value.name === 'string' ? value.name.trim() : '';
   const sizeBytes = clampNonNegativeInt(value.sizeBytes);
+  const durationMs = clampNonNegativeInt(value.durationMs);
   const hasFile = typeof File !== 'undefined' && value.file instanceof File;
   const file = hasFile ? value.file : null;
   const isNew = Boolean(value.isNew || hasFile);
@@ -178,13 +197,59 @@ const normalizeAudio = (value) => {
     storageName,
     name,
     sizeBytes,
+    durationMs,
     isNew,
     file,
   };
 };
 
+const normalizeAudio = (value, fallbackDurationMs = 0) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const rawSegments = Array.isArray(value.segments) ? value.segments : [];
+  const normalizedSegments = rawSegments
+    .map((item) => normalizeAudioSegment(item))
+    .filter(Boolean);
+  if (normalizedSegments.length === 0) {
+    const legacySegment = normalizeAudioSegment({
+      ...value,
+      durationMs: clampNonNegativeInt(value.durationMs) || clampNonNegativeInt(fallbackDurationMs),
+    });
+    if (!legacySegment) return null;
+    normalizedSegments.push(legacySegment);
+  }
+  const withDurations = normalizedSegments.map((segment, index) => {
+    if (segment.durationMs > 0) return segment;
+    if (normalizedSegments.length === 1) {
+      return {
+        ...segment,
+        durationMs: clampNonNegativeInt(fallbackDurationMs),
+      };
+    }
+    return {
+      ...segment,
+      durationMs: index === normalizedSegments.length - 1 ? clampNonNegativeInt(fallbackDurationMs) : 0,
+    };
+  });
+  const firstSegment = withDurations[0] || null;
+  const totalSizeBytes = withDurations.reduce((sum, segment) => sum + clampNonNegativeInt(segment.sizeBytes), 0);
+  const hasAnyNewSegment = withDurations.some((segment) => segment.isNew);
+  return {
+    url: withDurations.length === 1 ? String(firstSegment?.url || '') : '',
+    storageName: withDurations.length === 1 ? String(firstSegment?.storageName || '') : '',
+    name: withDurations.length === 1
+      ? String(firstSegment?.name || '')
+      : `segments-${withDurations.length}`,
+    sizeBytes: totalSizeBytes,
+    durationMs: withDurations.reduce((sum, segment) => sum + clampNonNegativeInt(segment.durationMs), 0),
+    isNew: hasAnyNewSegment,
+    file: withDurations.length === 1 ? (firstSegment?.file || null) : null,
+    segments: withDurations,
+  };
+};
+
 export const normalizeTheoryRecording = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const fallbackDurationMs = clampNonNegativeInt(value.durationMs);
   const events = (Array.isArray(value.events) ? value.events : [])
     .map((event) => normalizeEvent(event))
     .filter(Boolean)
@@ -201,11 +266,11 @@ export const normalizeTheoryRecording = (value) => {
       return (order[left.type] ?? 99) - (order[right.type] ?? 99);
     })
     .slice(0, THEORY_RECORDING_MAX_EVENTS);
-  const audio = normalizeAudio(value.audio);
+  const audio = normalizeAudio(value.audio, fallbackDurationMs);
   return {
     version: clampNonNegativeInt(value.version) || THEORY_RECORDING_VERSION,
     initialCode: normalizeText(value.initialCode),
-    durationMs: clampNonNegativeInt(value.durationMs),
+    durationMs: fallbackDurationMs,
     events,
     audio,
     createdAt: typeof value.createdAt === 'string' ? value.createdAt : '',
@@ -216,8 +281,15 @@ export const normalizeTheoryRecording = (value) => {
 export const isTheoryRecordingReady = (value) => {
   const recording = normalizeTheoryRecording(value);
   if (!recording) return false;
-  if (!recording.audio?.url && !recording.audio?.file) return false;
+  if (!Array.isArray(recording.audio?.segments) || recording.audio.segments.length === 0) return false;
+  if (!recording.audio.segments.some((segment) => segment?.url || segment?.file)) return false;
   return recording.events.length > 0;
+};
+
+export const getTheoryRecordingAudioSegments = (value) => {
+  const recording = normalizeTheoryRecording(value);
+  if (!recording || !Array.isArray(recording.audio?.segments)) return [];
+  return recording.audio.segments.map((segment) => ({ ...segment }));
 };
 
 export const getTheoryRecordingStorageName = (theory) => {
@@ -226,7 +298,18 @@ export const getTheoryRecordingStorageName = (theory) => {
   const content = theory.content && typeof theory.content === 'object' ? theory.content : null;
   if (!content) return '';
   const normalized = normalizeTheoryRecording(content);
-  return normalized?.audio?.storageName || '';
+  return normalized?.audio?.segments?.[0]?.storageName || '';
+};
+
+export const getTheoryRecordingStorageNames = (theory) => {
+  if (!theory || typeof theory !== 'object') return [];
+  if (String(theory.type || '').trim() !== THEORY_RECORDING_TYPE) return [];
+  const content = theory.content && typeof theory.content === 'object' ? theory.content : null;
+  if (!content) return [];
+  const normalized = normalizeTheoryRecording(content);
+  return (Array.isArray(normalized?.audio?.segments) ? normalized.audio.segments : [])
+    .map((segment) => String(segment?.storageName || '').trim())
+    .filter(Boolean);
 };
 
 export const estimateTheoryRecordingSizeBytes = (value) => {

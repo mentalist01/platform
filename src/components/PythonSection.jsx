@@ -15,11 +15,13 @@ import {
 } from '../utils/pythonSubsections';
 import {
   estimateTheoryRecordingSizeBytes,
-  getTheoryRecordingStorageName,
+  getTheoryRecordingAudioSegments,
+  getTheoryRecordingStorageNames,
   normalizeTheoryRecording,
   THEORY_RECORDING_MAX_JSON_BYTES,
   THEORY_RECORDING_TYPE,
 } from '../utils/theoryRecording';
+import { deleteTheoryRecordingDraftSnapshot } from '../utils/theoryRecordingDraftStore';
 
 const PYTHON_TASK_SECTION_META = {
   topics: {
@@ -77,6 +79,13 @@ const comparePythonTaskDisplayNumber = (left, right) => {
   const byDisplay = PYTHON_DISPLAY_NUMBER_COLLATOR.compare(leftDisplay, rightDisplay);
   if (byDisplay !== 0) return byDisplay;
   return Number(left?.number || 0) - Number(right?.number || 0);
+};
+
+const buildTheoryRecordingDraftStorageKey = (taskNumber, subsectionId) => {
+  const safeTaskNumber = String(taskNumber || '').trim();
+  const safeSubsectionId = normalizeTheorySubsectionId(subsectionId);
+  if (!safeTaskNumber) return '';
+  return `python-theory-recording-draft:${safeTaskNumber}:${safeSubsectionId}`;
 };
 
 const normalizePythonTaskCatalog = (value, fallback = []) => {
@@ -888,14 +897,16 @@ const PythonSection = ({
     const theoryBySubsection = normalizeTheoryBySubsectionMap(currentTaskEntry?.pythonTheoryBySubsection);
     Object.values(theoryBySubsection).forEach((variants) => {
       Object.values(variants || {}).forEach((theory) => {
-        const storageName = getTheoryRecordingStorageName(theory);
-        if (storageName) recordingStorageNames.add(storageName);
+        getTheoryRecordingStorageNames(theory).forEach((storageName) => {
+          if (storageName) recordingStorageNames.add(storageName);
+        });
       });
     });
     const legacyTheoryVariants = normalizeTheoryVariantMap(currentTaskEntry?.pythonTheory);
     Object.values(legacyTheoryVariants).forEach((theory) => {
-      const storageName = getTheoryRecordingStorageName(theory);
-      if (storageName) recordingStorageNames.add(storageName);
+      getTheoryRecordingStorageNames(theory).forEach((storageName) => {
+        if (storageName) recordingStorageNames.add(storageName);
+      });
     });
 
     const nextCatalog = normalizePythonTaskCatalog(
@@ -1018,8 +1029,8 @@ const PythonSection = ({
     const removedRecordingStorageNames = Array.from(
       new Set(
         Object.values(removedTheoryVariants)
-          .map((theory) => getTheoryRecordingStorageName(theory))
-          .filter((storageName) => Boolean(storageName))
+          .flatMap((theory) => getTheoryRecordingStorageNames(theory))
+          .filter(Boolean)
       )
     );
     const nextTheoryBySubsection = { ...currentTheoryBySubsection };
@@ -1107,13 +1118,13 @@ const PythonSection = ({
           : {}
       );
     const currentTheory = currentTheoryVariants[theoryType] || null;
-    const previousRecordingStorageName = (
+    const previousRecordingStorageNames = (
       theoryType === THEORY_RECORDING_TYPE
-        ? getTheoryRecordingStorageName(currentTheory)
-        : ''
+        ? getTheoryRecordingStorageNames(currentTheory)
+        : []
     );
-    let uploadedStorageName = '';
-    let nextRecordingStorageName = '';
+    const uploadedStorageNames = [];
+    let nextRecordingStorageNames = [];
     let recordingDraftToPersist = null;
     let nextTheory = null;
 
@@ -1123,37 +1134,53 @@ const PythonSection = ({
         setTheoryError('Сначала запишите видеоразбор: голос и действия в редакторе.');
         return;
       }
-      if (!normalizedDraft.audio || (!normalizedDraft.audio.url && !normalizedDraft.audio.file)) {
+      const rawAudioSegments = getTheoryRecordingAudioSegments(normalizedDraft);
+      if (rawAudioSegments.length === 0) {
         setTheoryError('Для видеоразбора нужно записать аудио.');
         return;
       }
-
-      let audioMeta = { ...normalizedDraft.audio };
-      if (audioMeta.isNew && audioMeta.file) {
-        let uploaded = null;
-        try {
-          uploaded = await api.uploadTestFile(audioMeta.file);
-        } catch (error) {
-          setTheoryError(error?.message || 'Не удалось загрузить аудио для видеоразбора.');
-          return;
+      const finalizedAudioSegments = [];
+      for (const segment of rawAudioSegments) {
+        if (segment.isNew && segment.file) {
+          let uploaded = null;
+          try {
+            uploaded = await api.uploadTestFile(segment.file);
+          } catch (error) {
+            uploadedStorageNames.forEach((storageName) => {
+              api.deleteTestFile(storageName).catch(() => {});
+            });
+            setTheoryError(error?.message || 'Не удалось загрузить аудио для видеоразбора.');
+            return;
+          }
+          const uploadedStorageName = String(uploaded?.storageName || '').trim();
+          if (uploadedStorageName) uploadedStorageNames.push(uploadedStorageName);
+          finalizedAudioSegments.push({
+            url: String(uploaded?.url || ''),
+            storageName: uploadedStorageName,
+            name: String(uploaded?.name || segment.name || segment.file.name || ''),
+            sizeBytes: Math.max(0, Number(uploaded?.sizeBytes || segment.sizeBytes || segment.file.size || 0)),
+            durationMs: Math.max(0, Number(segment.durationMs) || 0),
+          });
+          continue;
         }
-        uploadedStorageName = String(uploaded?.storageName || '').trim();
-        audioMeta = {
-          url: String(uploaded?.url || ''),
-          storageName: uploadedStorageName,
-          name: String(uploaded?.name || audioMeta.file.name || ''),
-          sizeBytes: Number(uploaded?.sizeBytes || audioMeta.file.size || 0),
-          isNew: false,
-          file: null,
-        };
+        finalizedAudioSegments.push({
+          url: String(segment.url || ''),
+          storageName: String(segment.storageName || ''),
+          name: String(segment.name || ''),
+          sizeBytes: Math.max(0, Number(segment.sizeBytes) || 0),
+          durationMs: Math.max(0, Number(segment.durationMs) || 0),
+        });
       }
-      if (!audioMeta.url) {
-        if (uploadedStorageName) {
-          api.deleteTestFile(uploadedStorageName).catch(() => {});
-        }
+      if (!finalizedAudioSegments.every((segment) => segment.url)) {
+        uploadedStorageNames.forEach((storageName) => {
+          api.deleteTestFile(storageName).catch(() => {});
+        });
         setTheoryError('Не удалось подготовить аудио для видеоразбора.');
         return;
       }
+      nextRecordingStorageNames = finalizedAudioSegments
+        .map((segment) => String(segment.storageName || '').trim())
+        .filter(Boolean);
 
       const nowIso = new Date().toISOString();
       const persistedRecording = {
@@ -1162,10 +1189,7 @@ const PythonSection = ({
         durationMs: Math.max(0, Number(normalizedDraft.durationMs) || 0),
         events: normalizedDraft.events.map((event) => ({ ...event })),
         audio: {
-          url: String(audioMeta.url || ''),
-          storageName: String(audioMeta.storageName || ''),
-          name: String(audioMeta.name || ''),
-          sizeBytes: Math.max(0, Number(audioMeta.sizeBytes) || 0),
+          segments: finalizedAudioSegments,
         },
         createdAt: normalizedDraft.createdAt || nowIso,
         updatedAt: nowIso,
@@ -1173,20 +1197,21 @@ const PythonSection = ({
 
       const jsonSizeBytes = estimateTheoryRecordingSizeBytes(persistedRecording);
       if (!Number.isFinite(jsonSizeBytes) || jsonSizeBytes > THEORY_RECORDING_MAX_JSON_BYTES) {
-        if (uploadedStorageName) {
-          api.deleteTestFile(uploadedStorageName).catch(() => {});
-        }
+        uploadedStorageNames.forEach((storageName) => {
+          api.deleteTestFile(storageName).catch(() => {});
+        });
         setTheoryError('Видеоразбор слишком большой. Сократите запись или уменьшите количество действий.');
         return;
       }
 
-      nextRecordingStorageName = String(persistedRecording.audio.storageName || '').trim();
       recordingDraftToPersist = {
         ...persistedRecording,
         audio: {
-          ...persistedRecording.audio,
-          isNew: false,
-          file: null,
+          segments: finalizedAudioSegments.map((segment) => ({
+            ...segment,
+            isNew: false,
+            file: null,
+          })),
         },
       };
       nextTheory = { type: THEORY_RECORDING_TYPE, content: persistedRecording };
@@ -1232,17 +1257,21 @@ const PythonSection = ({
       await api.saveTests(updatedDb);
       if (recordingDraftToPersist) {
         setTheoryRecordingDraft(recordingDraftToPersist);
+        await deleteTheoryRecordingDraftSnapshot(buildTheoryRecordingDraftStorageKey(manageTaskNumber, safeTheorySubsectionId));
       } else {
         setTheoryRecordingDraft(null);
       }
-      if (previousRecordingStorageName && previousRecordingStorageName !== nextRecordingStorageName) {
-        api.deleteTestFile(previousRecordingStorageName).catch(() => {});
-      }
+      const nextStorageNameSet = new Set(nextRecordingStorageNames);
+      previousRecordingStorageNames.forEach((storageName) => {
+        if (!nextStorageNameSet.has(storageName)) {
+          api.deleteTestFile(storageName).catch(() => {});
+        }
+      });
       setTheoryError('');
     } catch (err) {
-      if (uploadedStorageName) {
-        api.deleteTestFile(uploadedStorageName).catch(() => {});
-      }
+      uploadedStorageNames.forEach((storageName) => {
+        api.deleteTestFile(storageName).catch(() => {});
+      });
       setTheoryError(err?.message || err);
     } finally {
       setTheorySaving(false);
@@ -1262,10 +1291,10 @@ const PythonSection = ({
           : {}
       );
     const currentTheory = currentTheoryVariants[theoryType] || null;
-    const previousRecordingStorageName = (
+    const previousRecordingStorageNames = (
       theoryType === THEORY_RECORDING_TYPE
-        ? getTheoryRecordingStorageName(currentTheory)
-        : ''
+        ? getTheoryRecordingStorageNames(currentTheory)
+        : []
     );
     const nextTheoryVariants = { ...currentTheoryVariants };
     delete nextTheoryVariants[theoryType];
@@ -1290,12 +1319,15 @@ const PythonSection = ({
     setTestsDb(updatedDb);
     try {
       await api.saveTests(updatedDb);
-      if (previousRecordingStorageName) {
-        api.deleteTestFile(previousRecordingStorageName).catch(() => {});
-      }
+      previousRecordingStorageNames.forEach((storageName) => {
+        api.deleteTestFile(storageName).catch(() => {});
+      });
       if (theoryType === 'text') setTheoryText('');
       if (theoryType === 'gdoc') setTheoryUrl('');
-      if (theoryType === THEORY_RECORDING_TYPE) setTheoryRecordingDraft(null);
+      if (theoryType === THEORY_RECORDING_TYPE) {
+        setTheoryRecordingDraft(null);
+        await deleteTheoryRecordingDraftSnapshot(buildTheoryRecordingDraftStorageKey(manageTaskNumber, safeTheorySubsectionId));
+      }
       setTheoryError('');
     } catch (err) {
       setTheoryError(err?.message || err);
@@ -2536,6 +2568,7 @@ const PythonSection = ({
               <TheoryRecordingEditor
                 key={`theory-recording-editor-${manageTaskNumber}-${theorySubsectionId}-${savedTheoryRecording?.updatedAt || savedTheoryRecording?.createdAt || 'new'}`}
                 initialRecording={theoryType === THEORY_RECORDING_TYPE ? savedTheoryRecording : null}
+                draftStorageKey={buildTheoryRecordingDraftStorageKey(manageTaskNumber, theorySubsectionId)}
                 onDraftChange={setTheoryRecordingDraft}
                 ensurePyodideReady={ensurePyodideReady}
                 disabled={theorySaving}
