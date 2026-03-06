@@ -2083,35 +2083,55 @@ const PythonSection = ({
       {role === 'teacher' && (
         <div ref={teacherTaskToolsRef}>
           <Card className={`python-mobile-panel python-mobile-panel--task space-y-4 border-purple-200/60 bg-gradient-to-br from-white via-white to-purple-50/40 ${showTeacherTaskToolsMobile ? 'python-mobile-panel--open' : 'python-mobile-panel--closed'}`}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="text-lg font-bold text-gray-800">
-                {editingQuestionId ? 'Редактировать задачу' : 'Добавить задачу'}
-              </h3>
-              <p className="text-xs text-gray-500">Задачи для тестирования по теме</p>
-            </div>
-            <select
-              value={manageTaskNumber || ''}
-              onChange={(e) => setManageTaskNumber(Number(e.target.value))}
-              className="w-full sm:w-auto px-3 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none text-sm"
-            >
-              {taskSections.map((section) => (
-                <optgroup key={`manage-section-${section.id}`} label={section.title}>
-                  {section.tasks.map((task) => (
-                    <option key={task.id} value={task.number}>
-                      {getTaskDisplayNumber(task)} · {task.title}
-                    </option>
+          <div className="rounded-2xl border border-white/10 bg-slate-950/30 p-4 shadow-[0_14px_30px_rgba(15,23,42,0.16)]">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+              <div className="space-y-2">
+                <div className="inline-flex items-center rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-violet-200">
+                  Конструктор Python
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-white">
+                    {editingQuestionId ? 'Редактирование задачи' : 'Добавление задачи'}
+                  </h3>
+                  <p className="mt-1 max-w-2xl text-sm text-slate-300">
+                    Сначала создайте или выберите карточку, затем соберите подразделы и только после этого добавляйте задачу с тестами.
+                  </p>
+                </div>
+              </div>
+              <div className="w-full xl:w-[360px]">
+                <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                  Активная карточка
+                </div>
+                <select
+                  value={manageTaskNumber || ''}
+                  onChange={(e) => setManageTaskNumber(Number(e.target.value))}
+                  className="w-full rounded-xl border border-purple-100 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-purple-500"
+                >
+                  {taskSections.map((section) => (
+                    <optgroup key={`manage-section-${section.id}`} label={section.title}>
+                      {section.tasks.map((task) => (
+                        <option key={task.id} value={task.number}>
+                          {getTaskDisplayNumber(task)} · {task.title}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
-                </optgroup>
-              ))}
-            </select>
+                </select>
+              </div>
+            </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3.5 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Карточки Python</div>
+          <div className="rounded-3xl border border-cyan-200/20 bg-gradient-to-br from-cyan-500/8 via-slate-950/20 to-sky-500/8 p-4 md:p-5 space-y-4 shadow-[0_18px_36px_rgba(8,47,73,0.18)]">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-200">Шаг 1</div>
+                <h4 className="mt-1 text-lg font-black text-white">Карточка</h4>
+                <p className="mt-1 max-w-2xl text-sm text-slate-300">
+                  Здесь создается сама карточка темы. Это контейнер, внутри которого потом будут подразделы и задачи.
+                </p>
+              </div>
               {isEditingCard && (
-                <span className="text-[11px] font-semibold text-purple-700">
+                <span className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-[11px] font-semibold text-cyan-100">
                   {`Редактирование карточки №${editingCardNumber}`}
                 </span>
               )}
@@ -2178,29 +2198,17 @@ const PythonSection = ({
             {cardError && <div className="text-xs text-red-500">{cardError}</div>}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <input
-              type="text"
-              value={newTaskTitle}
-              onChange={(e) => setNewTaskTitle(e.target.value)}
-              placeholder="Название задачи (необязательно)"
-              className="md:col-span-1 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
-            />
-            <textarea
-              value={newTaskPrompt}
-              onChange={(e) => setNewTaskPrompt(e.target.value)}
-              placeholder="Условие задачи"
-              className="md:col-span-2 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none min-h-[80px]"
-            />
-          </div>
-          <div className="rounded-2xl border border-purple-100/90 bg-white/80 p-3.5 space-y-3">
+          <div className="rounded-3xl border border-emerald-200/20 bg-gradient-to-br from-emerald-500/8 via-slate-950/20 to-teal-500/8 p-4 md:p-5 space-y-4 shadow-[0_18px_36px_rgba(6,78,59,0.16)]">
             <div className="flex flex-col gap-1">
-              <div className="text-xs font-bold uppercase tracking-wide text-gray-400">Подразделы</div>
-              <div className="text-xs text-gray-500">Создавайте группы задач внутри карточки и распределяйте задачи по этим подразделам.</div>
+              <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-200">Шаг 2</div>
+              <h4 className="text-lg font-black text-white">Подразделы карточки</h4>
+              <div className="text-sm text-slate-300">Подразделы помогают разбить одну карточку на понятные группы задач: например, “Генераторы”, “Списки”, “Строки”.</div>
             </div>
             <div className="flex flex-wrap gap-2">
               {manageSubsections.length === 0 ? (
-                <div className="text-sm text-gray-500">Пока нет подразделов. Можно начать с задач без подраздела или добавить первый подраздел ниже.</div>
+                <div className="rounded-2xl border border-dashed border-emerald-300/20 bg-slate-950/20 px-3 py-3 text-sm text-slate-300">
+                  Пока нет подразделов. Можно начать с задач без подраздела или сразу добавить первую группу ниже.
+                </div>
               ) : (
                 manageSubsections.map((subsection) => (
                   <div key={subsection.id} className="inline-flex items-center gap-2 rounded-xl border border-purple-100 bg-purple-50/70 px-3 py-2 text-sm text-slate-700">
@@ -2260,157 +2268,190 @@ const PythonSection = ({
             </div>
             {subsectionError && <div className="text-xs text-red-500">{subsectionError}</div>}
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_260px] gap-3">
-            <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Стартовый код</label>
+          <div className="rounded-3xl border border-violet-200/20 bg-gradient-to-br from-violet-500/8 via-slate-950/20 to-fuchsia-500/8 p-4 md:p-5 space-y-4 shadow-[0_18px_36px_rgba(88,28,135,0.18)]">
+            <div className="flex flex-col gap-1">
+              <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-violet-200">Шаг 3</div>
+              <h4 className="text-lg font-black text-white">{editingQuestionId ? 'Редактирование задачи' : 'Задача внутри карточки'}</h4>
+              <div className="text-sm text-slate-300">
+                Здесь создается отдельная задача: название, условие, стартовый код, привязка к подразделу и тесты для проверки.
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <input
+                type="text"
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+                placeholder="Короткое название задачи"
+                className="md:col-span-1 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+              />
               <textarea
-                value={newStarterCode}
-                onChange={(e) => setNewStarterCode(e.target.value)}
-                placeholder="Например: print('Hello')"
-                className="w-full px-4 py-2 rounded-xl bg-gray-900 text-gray-100 font-mono text-sm border border-gray-800 focus:border-purple-400 outline-none min-h-[120px]"
-                spellCheck={false}
+                value={newTaskPrompt}
+                onChange={(e) => setNewTaskPrompt(e.target.value)}
+                placeholder="Полное условие задачи"
+                className="md:col-span-2 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none min-h-[96px]"
               />
             </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Подраздел задачи</label>
-              <select
-                value={selectedSubsectionId}
-                onChange={(e) => setSelectedSubsectionId(e.target.value || PYTHON_DEFAULT_SUBSECTION_ID)}
-                className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
-              >
-                <option value={PYTHON_DEFAULT_SUBSECTION_ID}>Без подраздела</option>
-                {manageSubsections.map((subsection) => (
-                  <option key={subsection.id} value={subsection.id}>
-                    {subsection.title}
-                  </option>
-                ))}
-              </select>
-              <div className="mt-2 text-xs text-gray-500">
-                Ученик увидит подразделы внутри карточки и сможет выбирать задачи по группам.
-              </div>
-            </div>
-          </div>
 
-          <div className="space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <span className="text-xs font-bold text-gray-400 uppercase">Тесты</span>
-              <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
-                <label className="cursor-pointer text-purple-600 hover:text-purple-700">
-                  Загрузить из файла
-                  <input
-                    type="file"
-                    accept=".json,.txt"
-                    className="hidden"
-                    onChange={(e) => handleTestsFileUpload(e.target.files?.[0])}
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setNewTests((prev) => [...prev, { input: '', output: '' }])}
-                  className="text-purple-600 hover:text-purple-700"
+            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_260px] gap-3">
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Стартовый код</label>
+                <textarea
+                  value={newStarterCode}
+                  onChange={(e) => setNewStarterCode(e.target.value)}
+                  placeholder="Например: print('Hello')"
+                  className="w-full px-4 py-2 rounded-xl bg-gray-900 text-gray-100 font-mono text-sm border border-gray-800 focus:border-purple-400 outline-none min-h-[140px]"
+                  spellCheck={false}
+                />
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/25 p-3">
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Подраздел задачи</label>
+                <select
+                  value={selectedSubsectionId}
+                  onChange={(e) => setSelectedSubsectionId(e.target.value || PYTHON_DEFAULT_SUBSECTION_ID)}
+                  className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
                 >
-                  Добавить тест
-                </button>
+                  <option value={PYTHON_DEFAULT_SUBSECTION_ID}>Без подраздела</option>
+                  {manageSubsections.map((subsection) => (
+                    <option key={subsection.id} value={subsection.id}>
+                      {subsection.title}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-2 text-xs text-gray-500">
+                  Ученик увидит эти группы внутри карточки и сможет выбирать задачи более осмысленно.
+                </div>
               </div>
             </div>
-            {testsFileName && (
-              <div className="text-[11px] text-gray-400">Файл: {testsFileName}</div>
-            )}
-            <div className="space-y-2">
-              {newTests.map((test, idx) => (
-                <div key={idx} className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  <textarea
-                    value={test.input}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setNewTests((prev) => prev.map((item, i) => (i === idx ? { ...item, input: value } : item)));
-                    }}
-                    placeholder="Входные данные"
-                    className="px-3 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none min-h-[60px]"
-                  />
-                  <div className="relative">
+
+            <div className="rounded-2xl border border-white/10 bg-slate-950/25 p-3.5 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <div className="text-xs font-bold text-gray-400 uppercase">Тесты задачи</div>
+                  <div className="mt-1 text-xs text-slate-400">Каждый тест состоит из входных данных и ожидаемого вывода.</div>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                  <label className="cursor-pointer text-purple-600 hover:text-purple-700">
+                    Загрузить из файла
+                    <input
+                      type="file"
+                      accept=".json,.txt"
+                      className="hidden"
+                      onChange={(e) => handleTestsFileUpload(e.target.files?.[0])}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setNewTests((prev) => [...prev, { input: '', output: '' }])}
+                    className="text-purple-600 hover:text-purple-700"
+                  >
+                    Добавить тест
+                  </button>
+                </div>
+              </div>
+              {testsFileName && (
+                <div className="text-[11px] text-gray-400">Файл: {testsFileName}</div>
+              )}
+              <div className="space-y-2">
+                {newTests.map((test, idx) => (
+                  <div key={idx} className="grid grid-cols-1 md:grid-cols-2 gap-2">
                     <textarea
-                      value={test.output}
+                      value={test.input}
                       onChange={(e) => {
                         const value = e.target.value;
-                        setNewTests((prev) => prev.map((item, i) => (i === idx ? { ...item, output: value } : item)));
+                        setNewTests((prev) => prev.map((item, i) => (i === idx ? { ...item, input: value } : item)));
                       }}
-                      placeholder="Ожидаемый вывод"
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none min-h-[60px]"
+                      placeholder="Входные данные"
+                      className="px-3 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none min-h-[60px]"
                     />
-                    {newTests.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => setNewTests((prev) => prev.filter((_, i) => i !== idx))}
-                        className="absolute top-2 right-2 text-xs text-red-500 hover:text-red-600"
-                      >
-                        Удалить
-                      </button>
-                    )}
+                    <div className="relative">
+                      <textarea
+                        value={test.output}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setNewTests((prev) => prev.map((item, i) => (i === idx ? { ...item, output: value } : item)));
+                        }}
+                        placeholder="Ожидаемый вывод"
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none min-h-[60px]"
+                      />
+                      {newTests.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setNewTests((prev) => prev.filter((_, i) => i !== idx))}
+                          className="absolute top-2 right-2 text-xs text-red-500 hover:text-red-600"
+                        >
+                          Удалить
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            {questionError && <span className="text-xs text-red-500">{questionError}</span>}
-            <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              {editingQuestionId && (
-                <Button variant="secondary" onClick={cancelEditPythonTask} disabled={questionSaving} className="w-full sm:w-auto">
-                  Отменить
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-2">
+              {questionError && <span className="text-xs text-red-500">{questionError}</span>}
+              <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                {editingQuestionId && (
+                  <Button variant="secondary" onClick={cancelEditPythonTask} disabled={questionSaving} className="w-full sm:w-auto">
+                    Отменить
+                  </Button>
+                )}
+                <Button onClick={handleSavePythonTask} disabled={questionSaving} className="w-full sm:w-auto">
+                  {questionSaving ? 'Сохранение...' : (editingQuestionId ? 'Сохранить' : 'Добавить задачу')}
                 </Button>
-              )}
-              <Button onClick={handleSavePythonTask} disabled={questionSaving} className="w-full sm:w-auto">
-                {questionSaving ? 'Сохранение...' : (editingQuestionId ? 'Сохранить' : 'Добавить задачу')}
-              </Button>
+              </div>
             </div>
-          </div>
 
-          <div className="space-y-3">
-            {manageQuestions.length === 0 ? (
-              <div className="text-sm text-gray-500">Пока нет задач для выбранной темы.</div>
-            ) : (
-              manageQuestionGroups.map((group) => (
-                <div key={`manage-group-${group.id}`} className="space-y-2">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700">
-                    <span>{group.title}</span>
-                    <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-purple-600">{group.count}</span>
-                  </div>
-                  {group.items.map((item) => {
-                    const q = item.question;
-                    return (
-                      <div key={q.id || item.questionIndex} className="p-3 rounded-xl border border-purple-100 bg-white/85 flex items-start justify-between gap-2.5">
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-gray-800">{q.title || q.question || `Задача ${item.globalNumber}`}</p>
-                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                            <span>{`Задача ${item.localNumber} в подразделе`}</span>
-                            <span>{`Тестов: ${Array.isArray(q.tests) ? q.tests.length : (q.answer ? 1 : 0)}`}</span>
+            <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-3.5 space-y-3">
+              <div>
+                <div className="text-xs font-bold uppercase tracking-wide text-gray-400">Уже добавленные задачи</div>
+                <div className="mt-1 text-xs text-slate-400">Быстрый список всего, что уже лежит в выбранной карточке.</div>
+              </div>
+              {manageQuestions.length === 0 ? (
+                <div className="text-sm text-gray-500">Пока нет задач для выбранной темы.</div>
+              ) : (
+                manageQuestionGroups.map((group) => (
+                  <div key={`manage-group-${group.id}`} className="space-y-2">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700">
+                      <span>{group.title}</span>
+                      <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-purple-600">{group.count}</span>
+                    </div>
+                    {group.items.map((item) => {
+                      const q = item.question;
+                      return (
+                        <div key={q.id || item.questionIndex} className="p-3 rounded-xl border border-purple-100 bg-white/85 flex items-start justify-between gap-2.5">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-gray-800">{q.title || q.question || `Задача ${item.globalNumber}`}</p>
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                              <span>{`Задача ${item.localNumber} в подразделе`}</span>
+                              <span>{`Тестов: ${Array.isArray(q.tests) ? q.tests.length : (q.answer ? 1 : 0)}`}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => startEditPythonTask(q)}
+                              className="p-2 rounded-lg text-gray-500 hover:text-purple-600 hover:bg-purple-50"
+                              title="Редактировать"
+                            >
+                              <Pencil size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePythonQuestion(manageTaskNumber, q.id)}
+                              className="p-2 rounded-lg text-red-500 hover:bg-red-50"
+                              title="Удалить"
+                            >
+                              <Trash2 size={16} />
+                            </button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => startEditPythonTask(q)}
-                            className="p-2 rounded-lg text-gray-500 hover:text-purple-600 hover:bg-purple-50"
-                            title="Редактировать"
-                          >
-                            <Pencil size={16} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeletePythonQuestion(manageTaskNumber, q.id)}
-                            className="p-2 rounded-lg text-red-500 hover:bg-red-50"
-                            title="Удалить"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ))
-            )}
+                      );
+                    })}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
           </Card>
         </div>

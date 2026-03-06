@@ -1465,7 +1465,14 @@ const PythonReviewModal = ({
             <div className="python-runtime-theory-card mb-6 rounded-3xl border border-violet-200/70 bg-gradient-to-br from-white via-violet-50/70 to-fuchsia-50/45 p-4 shadow-[0_14px_34px_rgba(124,58,237,0.12)]">
               <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-col gap-1.5">
-                  <div className="text-xs font-bold uppercase tracking-widest text-purple-700">{'\u0422\u0435\u043e\u0440\u0438\u044f'}</div>
+                  <div className="text-xs font-bold uppercase tracking-widest text-purple-700">
+                    {theoryType === THEORY_RECORDING_TYPE ? 'Видео-теория' : 'Теория'}
+                  </div>
+                  {theoryType === THEORY_RECORDING_TYPE && (
+                    <div className="text-[11px] text-slate-500">
+                      Если код не помещается целиком, его можно прокручивать.
+                    </div>
+                  )}
                   {availableTheoryTypes.length > 1 && (
                     <div className="flex flex-wrap gap-1.5">
                       {availableTheoryTypes.map((type) => (

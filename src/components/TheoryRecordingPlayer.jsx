@@ -19,7 +19,7 @@ const PLAYER_EDITOR_OPTIONS = {
   wordWrap: 'on',
   automaticLayout: true,
   scrollBeyondLastLine: false,
-  handleMouseWheel: false,
+  handleMouseWheel: true,
   alwaysConsumeMouseWheel: false,
   renderLineHighlight: 'line',
   glyphMargin: false,
@@ -673,13 +673,21 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   const volumeTrackStyle = useMemo(() => ({
     background: `linear-gradient(90deg, rgba(226,232,240,0.94) 0%, rgba(226,232,240,0.94) ${volumeProgressPercent}%, rgba(148,163,184,0.3) ${volumeProgressPercent}%, rgba(148,163,184,0.3) 100%)`,
   }), [volumeProgressPercent]);
-  const centerButtonVisibilityClass = isPlaying
-    ? (
-      supportsHover
-        ? (isPlayerHovered ? 'opacity-95 scale-100 pointer-events-auto' : 'opacity-0 scale-90 pointer-events-none')
-        : 'opacity-0 scale-90 pointer-events-none'
-    )
-    : 'opacity-100 scale-100 pointer-events-auto';
+  const centerButtonVisibilityClass = !hasPlaybackStarted
+    ? 'opacity-100 scale-100 pointer-events-auto'
+    : (
+      isPlaying
+        ? (
+          supportsHover
+            ? (isPlayerHovered ? 'opacity-95 scale-100 pointer-events-auto' : 'opacity-0 scale-90 pointer-events-none')
+            : 'opacity-0 scale-90 pointer-events-none'
+        )
+        : (
+          supportsHover
+            ? (isPlayerHovered ? 'opacity-90 scale-100 pointer-events-auto' : 'opacity-0 scale-90 pointer-events-none')
+            : 'opacity-0 scale-90 pointer-events-none'
+        )
+    );
   const timelineControlsVisibilityClass = isPlaying && supportsHover
     ? (isPlayerHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3 pointer-events-none')
     : 'opacity-100 translate-y-0';
@@ -740,6 +748,21 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     ? 'text-[12px] font-semibold uppercase tracking-wide text-slate-300'
     : 'text-[10px] font-semibold uppercase tracking-wide text-slate-400';
   const boardCanvasHeightClass = isFullscreen ? 'h-[220px]' : 'h-[132px]';
+  const editorViewportClass = isFullscreen
+    ? [
+        'pointer-events-auto h-full px-5 pt-5',
+        hasRunOutputFrame ? 'pb-[22rem]' : 'pb-28',
+        shouldShowBoard ? 'md:pr-[calc(min(44vw,640px)+2.25rem)]' : '',
+      ].filter(Boolean).join(' ')
+    : 'pointer-events-auto h-full min-h-0 min-w-0 overflow-hidden rounded-xl border border-slate-800/80 bg-[#020817]';
+  const standardLayoutClass = !isFullscreen
+    ? [
+        'relative z-0 grid h-[min(580px,calc(100vh-14rem))] min-h-0 gap-3 overflow-hidden p-3 pb-24',
+        hasRunOutputFrame ? 'grid-rows-[minmax(0,1fr)_auto]' : 'grid-rows-[minmax(0,1fr)]',
+        shouldShowBoard ? 'md:grid-cols-[minmax(0,1fr)_320px] md:items-stretch' : '',
+      ].filter(Boolean).join(' ')
+    : '';
+  const standardRunOutputWrapperClass = !isFullscreen && shouldShowBoard ? 'min-h-0 md:col-span-2' : 'min-h-0';
   const playbackActionLabel = isPlaying ? 'Пауза' : 'Воспроизвести';
   const soundActionLabel = isMuted ? 'Включить звук' : 'Выключить звук';
 
@@ -807,11 +830,17 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   }, []);
 
   const fullscreenActionLabel = isFullscreen ? 'Выйти из полноэкранного режима' : 'Открыть полноэкранный режим';
-  const editorHeight = isFullscreen ? '100vh' : '360px';
+  const editorHeight = '100%';
   const playerEditorOptions = useMemo(() => ({
     ...PLAYER_EDITOR_OPTIONS,
     fontSize: isFullscreen ? 30 : PLAYER_EDITOR_OPTIONS.fontSize,
-  }), [isFullscreen]);
+    padding: isFullscreen
+      ? {
+          top: 24,
+          bottom: hasRunOutputFrame ? 40 : PLAYER_EDITOR_OPTIONS.padding.bottom,
+        }
+      : PLAYER_EDITOR_OPTIONS.padding,
+  }), [hasRunOutputFrame, isFullscreen]);
 
   if (!normalized || !normalized.audio?.url || normalized.events.length === 0) {
     return (
@@ -896,19 +925,76 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
             }}
           />
 
-          <div className="pointer-events-none select-none">
-            <Editor
-              height={editorHeight}
-              language="python"
-              theme={monacoTheme}
-              defaultValue={normalized.initialCode || ''}
-              path={modelPath}
-              saveViewState={false}
-              beforeMount={handleEditorBeforeMount}
-              onMount={handleEditorMount}
-              options={playerEditorOptions}
-            />
-          </div>
+          {isFullscreen ? (
+            <div className={editorViewportClass}>
+              <Editor
+                height={editorHeight}
+                language="python"
+                theme={monacoTheme}
+                defaultValue={normalized.initialCode || ''}
+                path={modelPath}
+                saveViewState={false}
+                beforeMount={handleEditorBeforeMount}
+                onMount={handleEditorMount}
+                options={playerEditorOptions}
+              />
+            </div>
+          ) : (
+            <div className={standardLayoutClass}>
+              <div className={editorViewportClass}>
+                <Editor
+                  height={editorHeight}
+                  language="python"
+                  theme={monacoTheme}
+                  defaultValue={normalized.initialCode || ''}
+                  path={modelPath}
+                  saveViewState={false}
+                  beforeMount={handleEditorBeforeMount}
+                  onMount={handleEditorMount}
+                  options={playerEditorOptions}
+                />
+              </div>
+
+              {shouldShowBoard && (
+                <div className="pointer-events-none min-w-0">
+                  <div className={boardCardClass}>
+                    <div className={boardLabelClass}>Доска</div>
+                    <div className="mt-1 overflow-hidden rounded-lg border border-slate-700/80 bg-[#050d1f]">
+                      <canvas
+                        ref={boardCanvasRef}
+                        width={960}
+                        height={320}
+                        className={`w-full ${boardCanvasHeightClass}`}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {hasRunOutputFrame && (
+                <div className={standardRunOutputWrapperClass}>
+                  <div className={runOutputCardClass}>
+                    {runOutputFrame?.input && (
+                      <div className="mb-2">
+                        <div className={runOutputLabelClass}>stdin</div>
+                        <pre className={runOutputInputTextClass}>{runOutputFrame.input}</pre>
+                      </div>
+                    )}
+                    <div>
+                      <div className={runOutputLabelClass}>Вывод</div>
+                      <pre className={runOutputMainTextClass}>{runOutputFrame?.output || 'Пусто'}</pre>
+                    </div>
+                    {runOutputFrame?.error && (
+                      <div className="mt-2 border-t border-slate-800 pt-2">
+                        <div className={runOutputErrorLabelClass}>stderr</div>
+                        <pre className={runOutputErrorTextClass}>{runOutputFrame.error}</pre>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className={`pointer-events-none absolute inset-0 z-10 transition-opacity duration-300 ${(!hasPlaybackStarted && isPrePlaybackState) ? 'opacity-100' : 'opacity-0'}`}>
             <div
@@ -926,7 +1012,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
             <span>{formatRecordingDuration(safePlaybackDurationMs)}</span>
           </div>
 
-          {hasRunOutputFrame && (
+          {isFullscreen && hasRunOutputFrame && (
             <div className={runOutputShellClass}>
               <div className={runOutputCardClass}>
                 {runOutputFrame?.input && (
@@ -936,7 +1022,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
                   </div>
                 )}
                 <div>
-                  <div className={runOutputLabelClass}>stdout</div>
+                  <div className={runOutputLabelClass}>Вывод</div>
                   <pre className={runOutputMainTextClass}>{runOutputFrame?.output || 'Пусто'}</pre>
                 </div>
                 {runOutputFrame?.error && (
@@ -949,7 +1035,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
             </div>
           )}
 
-          {shouldShowBoard && (
+          {isFullscreen && shouldShowBoard && (
             <div className={`${boardShellClass} pointer-events-none`}>
               <div className={boardCardClass}>
                 <div className={boardLabelClass}>Доска</div>
