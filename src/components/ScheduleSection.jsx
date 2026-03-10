@@ -1,6 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bell, BellOff, BookOpen, Calendar, CheckCircle, ChevronRight, Clock3, Pencil, RefreshCcw, Save, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
+import ScheduleProgressTree from './ScheduleProgressTree';
 import { Button, Card } from './ui';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
 
@@ -139,6 +140,7 @@ const ScheduleSection = ({
   onOpenTask,
   onOpenMockGoal,
   solvedRefreshKey,
+  progress = {},
   tasks,
   nextHomeworkFlyRef,
   GOAL_TYPE_TASK,
@@ -171,6 +173,7 @@ const ScheduleSection = ({
   const [homeworks, setHomeworks] = useState([]);
   const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '', daysToComplete: 7, issuedAt: '', taskNumber: null, levelId: null, targetQuestions: [], goals: [] });
   const [form, setForm] = useState({ homeWork: DEFAULT_HOMEWORK, lessonLink: '', boardLink: '', daysToComplete: 7, goals: [{ ...DEFAULT_GOAL }] });
+  const [studentProgress, setStudentProgress] = useState({});
   const [loading, setLoading] = useState(false);
   const [refreshingData, setRefreshingData] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -266,6 +269,23 @@ const ScheduleSection = ({
     }
   };
 
+  const loadStudentProgress = useCallback(async () => {
+    if (!effectiveStudentId) {
+      setStudentProgress({});
+      return;
+    }
+    if (role === 'student' && progress && typeof progress === 'object' && Object.keys(progress).length > 0) {
+      setStudentProgress(progress);
+      return;
+    }
+    try {
+      const data = await api.getStudentData(effectiveStudentId);
+      setStudentProgress(data?.progress && typeof data.progress === 'object' ? data.progress : {});
+    } catch {
+      setStudentProgress({});
+    }
+  }, [effectiveStudentId, progress, role]);
+
   const loadSchedule = useCallback(async () => {
     if (!effectiveStudentId) {
       setLessonSchedule([]);
@@ -325,6 +345,10 @@ const ScheduleSection = ({
   }, [loadScheduleRequests]);
 
   useEffect(() => {
+    loadStudentProgress();
+  }, [loadStudentProgress, solvedRefreshKey]);
+
+  useEffect(() => {
     if (!effectiveStudentId || typeof window === 'undefined' || typeof window.EventSource !== 'function') {
       return undefined;
     }
@@ -359,7 +383,12 @@ const ScheduleSection = ({
     setScheduleError('');
     setScheduleRequestNotice('');
     setScheduleRequestActionBusyId('');
-  }, [effectiveStudentId]);
+    if (role === 'student' && progress && typeof progress === 'object' && Object.keys(progress).length > 0) {
+      setStudentProgress(progress);
+      return;
+    }
+    setStudentProgress({});
+  }, [effectiveStudentId, progress, role]);
 
   const loadLessonReminderSetting = useCallback(async () => {
     if (role !== 'student' || !effectiveStudentId) {
@@ -401,10 +430,11 @@ const ScheduleSection = ({
       const requestParams = role === 'teacher'
         ? { studentId: effectiveStudentId, status: SCHEDULE_REQUEST_STATUS_PENDING }
         : { studentId: effectiveStudentId };
-      const [nextLessonResult, scheduleResult, scheduleRequestsResult] = await Promise.allSettled([
+      const [nextLessonResult, scheduleResult, scheduleRequestsResult, studentDataResult] = await Promise.allSettled([
         api.getStudentNextLesson(effectiveStudentId),
         api.getStudentSchedule(effectiveStudentId),
         api.getStudentScheduleRequests(requestParams),
+        api.getStudentData(effectiveStudentId),
       ]);
       if (nextLessonResult.status === 'fulfilled') {
         const data = nextLessonResult.value;
@@ -431,6 +461,10 @@ const ScheduleSection = ({
         setScheduleRequestsError('');
       } else {
         setScheduleRequestsError(scheduleRequestsResult.reason?.message || scheduleRequestsResult.reason);
+      }
+      if (studentDataResult.status === 'fulfilled') {
+        const nextProgress = studentDataResult.value?.progress;
+        setStudentProgress(nextProgress && typeof nextProgress === 'object' ? nextProgress : {});
       }
     } finally {
       setRefreshingData(false);
@@ -903,6 +937,12 @@ const ScheduleSection = ({
     const list = Array.isArray(scheduleRequests) ? [...scheduleRequests] : [];
     return list.sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0));
   }, [scheduleRequests]);
+  const effectiveProgressMap = useMemo(() => {
+    if (role === 'student' && progress && typeof progress === 'object' && Object.keys(progress).length > 0) {
+      return progress;
+    }
+    return studentProgress;
+  }, [progress, role, studentProgress]);
   const pendingScheduleRequests = useMemo(
     () => sortedScheduleRequests.filter((entry) => entry.status === SCHEDULE_REQUEST_STATUS_PENDING),
     [sortedScheduleRequests]
@@ -911,6 +951,16 @@ const ScheduleSection = ({
   const nextHomeworkEntry = sortedHomeworks[0] || null;
   const previousHomeworkEntries = sortedHomeworks.slice(1);
   const totalHomeworkCount = sortedHomeworks.length;
+  const roadmapFocusTaskNumbers = useMemo(() => {
+    const next = new Set();
+    normalizeEntryGoals(nextHomeworkEntry)
+      .filter((goal) => goal.type === GOAL_TYPE_TASK)
+      .forEach((goal) => {
+        const taskNumber = Number(goal?.taskNumber);
+        if (Number.isFinite(taskNumber)) next.add(taskNumber);
+      });
+    return next;
+  }, [nextHomeworkEntry]);
 
   const buildGoalView = (goal, goalIndex = 0) => {
     const goalType = normalizeGoalType(goal);
@@ -1989,6 +2039,16 @@ const ScheduleSection = ({
             </div>
           )}
         </Card>
+      )}
+
+      {(role === 'teacher' || role === 'student') && (
+        <ScheduleProgressTree
+          progressMap={effectiveProgressMap}
+          focusTaskNumbers={roadmapFocusTaskNumbers}
+          onOpenTask={role === 'student' ? onOpenTask : null}
+          tasks={taskOptions}
+          pythonTasks={pythonTaskOptions}
+        />
       )}
 
       {role === 'teacher' && (

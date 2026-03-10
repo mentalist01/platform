@@ -11548,6 +11548,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onOpenTask={user.role === 'student' ? handleOpenTask : null}
               onOpenMockGoal={user.role === 'student' ? handleOpenMockGoal : null}
               solvedRefreshKey={goalRefreshTick}
+              progress={progress}
               tasks={tasksWithTitles}
               nextHomeworkFlyRef={scheduleHomeworkFlyRef}
               GOAL_TYPE_TASK={GOAL_TYPE_TASK}
