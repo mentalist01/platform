@@ -13,7 +13,7 @@ import {
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   ChevronsLeft, ChevronsRight,
-  Bell, BellOff, MousePointer2, Code2, MoreHorizontal, MessageSquare, Users
+  Bell, BellOff, MousePointer2, Code2, MoreHorizontal, MessageSquare, Users, Wallet
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
 import mascotDisapproval from './assets/mascot/disapproval.png';
@@ -42,6 +42,7 @@ import StudentChatSection from './components/StudentChatSection';
 import StudentTour from './components/StudentTour';
 import SignupGuestChat from './components/SignupGuestChat';
 import TeacherCalendarSection from './components/TeacherCalendarSection';
+import TeacherFinanceSection from './components/TeacherFinanceSection';
 import TeacherPanel from './components/TeacherPanel';
 import TeacherStudentChatsSection from './components/TeacherStudentChatsSection';
 import ThemeToggleButton from './components/ThemeToggleButton';
@@ -8482,6 +8483,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ? [
         { id: 'schedule', label: 'Моё расписание', icon: Calendar },
         { id: 'teacher-calendar', label: 'Общий календарь', icon: Users },
+        { id: 'finance', label: 'Финансы', icon: Wallet },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
         { id: 'rating', label: 'Рейтинг', icon: Trophy },
@@ -8545,7 +8547,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : visibleNav;
   const teacherDesktopPrimaryNav = user.role === 'teacher'
     ? [
-      ...['schedule', 'teacher-calendar', 'progress', 'python', 'rating']
+      ...['schedule', 'teacher-calendar', 'finance', 'progress', 'python', 'rating']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       teacherLessonNavItem,
@@ -8568,6 +8570,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const mobileNavLabels = {
     schedule: 'График',
     'teacher-calendar': 'Календ.',
+    finance: 'Фин.',
     progress: 'Тесты',
     lesson: '\u0423\u0440\u043e\u043a',
     rating: 'Рейтинг',
@@ -11592,6 +11595,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               pushReady={teacherSignupNotifyReady}
               pushError={teacherSignupNotifyError}
               onTogglePush={handleToggleTeacherSignupNotify}
+            />
+          )}
+          {view === 'finance' && user.role === 'teacher' && (
+            <TeacherFinanceSection
+              teacherId={user.id}
+              students={studentsWithNicknames}
+              studentsLoading={studentsLoading}
             />
           )}
           {view === 'progress' && (

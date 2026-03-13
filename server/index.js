@@ -58,6 +58,7 @@ const taskTitlesFile = path.join(dataDir, 'task-titles.json');
 const signupChatsFile = path.join(dataDir, 'signup-chats.json');
 const studentChatsFile = path.join(dataDir, 'student-chats.json');
 const scheduleRequestsFile = path.join(dataDir, 'schedule-requests.json');
+const teacherFinanceFile = path.join(dataDir, 'teacher-finances.json');
 const authFile = path.join(dataDir, 'auth.json');
 const authSessionsFile = path.join(dataDir, 'auth-sessions.json');
 const usageFile = path.join(dataDir, 'usage.json');
@@ -417,13 +418,25 @@ fs.mkdirSync(dataDir, { recursive: true });
 fs.mkdirSync(collabDir, { recursive: true });
 fs.mkdirSync(rtcPresenceDir, { recursive: true });
 const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+const isCollabPersistenceEnabled = (() => {
+  const raw = String(process.env.COLLAB_PERSISTENCE || '').trim().toLowerCase();
+  if (raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on') return true;
+  if (raw === '0' || raw === 'false' || raw === 'no' || raw === 'off') return false;
+  // In development we prefer stability over persistence to avoid LevelDB lock crashes.
+  return isProduction;
+})();
 if (isProduction && dataDir === defaultDataDir) {
   console.warn('[storage] PLATFORM_DATA_DIR is not set. Data can be lost after a clean deploy.');
 }
 if (isProduction && uploadsDir === defaultUploadsDir) {
   console.warn('[storage] PLATFORM_UPLOADS_DIR is not set. Uploads can be lost after a clean deploy.');
 }
-const rawCollabPersistence = LeveldbPersistence ? new LeveldbPersistence(collabDir) : null;
+if (!isCollabPersistenceEnabled && LeveldbPersistence) {
+  console.warn('[collab] persistence disabled (set COLLAB_PERSISTENCE=1 to enable in development).');
+}
+const rawCollabPersistence = (LeveldbPersistence && isCollabPersistenceEnabled)
+  ? new LeveldbPersistence(collabDir)
+  : null;
 const isPersistedCollabDoc = (docName) => {
   if (typeof docName !== 'string') return false;
   const normalized = docName.trim();
@@ -619,6 +632,402 @@ const writeTaskTitlesDb = (data) => {
 
 const writeProgressDb = (data) => {
   fs.writeFileSync(progressFile, JSON.stringify(data, null, 2), 'utf8');
+};
+
+const TEACHER_FINANCE_PRICING_MODES = new Set(['perLesson', 'monthly']);
+const TEACHER_FINANCE_HISTORY_LIMIT = 12;
+const TEACHER_FINANCE_PROFILE_NOTE_MAX_LENGTH = 400;
+const TEACHER_FINANCE_STUDENT_NOTE_MAX_LENGTH = 1200;
+const TEACHER_FINANCE_MONTH_NOTE_MAX_LENGTH = 2000;
+
+const roundTeacherFinanceNumber = (value, { allowNegative = false } = {}) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  const rounded = Math.round(num * 100) / 100;
+  return allowNegative ? rounded : Math.max(0, rounded);
+};
+
+const normalizeTeacherFinanceMonthKey = (value) => {
+  const trimmed = String(value || '').trim();
+  const match = trimmed.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return '';
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return '';
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`;
+};
+
+const getCurrentTeacherFinanceMonthKey = () => new Date().toISOString().slice(0, 7);
+
+const normalizeTeacherFinanceText = (value, maxLength) => {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, Math.max(0, Number(maxLength) || 0));
+};
+
+const normalizeTeacherFinancePricingMode = (value, fallback = 'perLesson') => {
+  const normalized = String(value || '').trim();
+  if (TEACHER_FINANCE_PRICING_MODES.has(normalized)) return normalized;
+  return TEACHER_FINANCE_PRICING_MODES.has(fallback) ? fallback : 'perLesson';
+};
+
+const normalizeTeacherFinancePaymentDay = (value) => {
+  if (value === null || value === '' || typeof value === 'undefined') return null;
+  const numeric = Math.round(Number(value));
+  if (!Number.isFinite(numeric) || numeric < 1 || numeric > 31) return null;
+  return numeric;
+};
+
+const getDefaultTeacherFinanceProfile = () => ({
+  pricingMode: 'perLesson',
+  lessonPrice: 0,
+  monthlyRate: 0,
+  plannedLessons: 0,
+  paymentDay: null,
+  note: '',
+});
+
+const normalizeTeacherFinanceProfile = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const fallback = getDefaultTeacherFinanceProfile();
+  return {
+    pricingMode: normalizeTeacherFinancePricingMode(source.pricingMode, fallback.pricingMode),
+    lessonPrice: roundTeacherFinanceNumber(source.lessonPrice),
+    monthlyRate: roundTeacherFinanceNumber(source.monthlyRate),
+    plannedLessons: roundTeacherFinanceNumber(source.plannedLessons),
+    paymentDay: normalizeTeacherFinancePaymentDay(source.paymentDay),
+    note: normalizeTeacherFinanceText(source.note, TEACHER_FINANCE_PROFILE_NOTE_MAX_LENGTH),
+  };
+};
+
+const getDefaultTeacherFinanceStudentRecord = (profile = getDefaultTeacherFinanceProfile()) => ({
+  pricingMode: profile.pricingMode,
+  lessonPrice: profile.lessonPrice,
+  monthlyRate: profile.monthlyRate,
+  plannedLessons: profile.plannedLessons,
+  completedLessons: 0,
+  cancelledLessons: 0,
+  paidAmount: 0,
+  extraCharge: 0,
+  discount: 0,
+  expenses: 0,
+  paymentDay: profile.paymentDay,
+  note: '',
+  updatedAt: '',
+});
+
+const normalizeTeacherFinanceStudentRecord = (value, profile = getDefaultTeacherFinanceProfile()) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const fallback = getDefaultTeacherFinanceStudentRecord(profile);
+  const hasOwn = (key) => Object.prototype.hasOwnProperty.call(source, key);
+  return {
+    pricingMode: normalizeTeacherFinancePricingMode(source.pricingMode, fallback.pricingMode),
+    lessonPrice: hasOwn('lessonPrice') ? roundTeacherFinanceNumber(source.lessonPrice) : fallback.lessonPrice,
+    monthlyRate: hasOwn('monthlyRate') ? roundTeacherFinanceNumber(source.monthlyRate) : fallback.monthlyRate,
+    plannedLessons: hasOwn('plannedLessons') ? roundTeacherFinanceNumber(source.plannedLessons) : fallback.plannedLessons,
+    completedLessons: roundTeacherFinanceNumber(source.completedLessons),
+    cancelledLessons: roundTeacherFinanceNumber(source.cancelledLessons),
+    paidAmount: roundTeacherFinanceNumber(source.paidAmount),
+    extraCharge: roundTeacherFinanceNumber(source.extraCharge),
+    discount: roundTeacherFinanceNumber(source.discount),
+    expenses: roundTeacherFinanceNumber(source.expenses),
+    paymentDay: hasOwn('paymentDay') ? normalizeTeacherFinancePaymentDay(source.paymentDay) : fallback.paymentDay,
+    note: normalizeTeacherFinanceText(source.note, TEACHER_FINANCE_STUDENT_NOTE_MAX_LENGTH),
+    updatedAt: typeof source.updatedAt === 'string' && source.updatedAt.trim() ? source.updatedAt.trim() : '',
+  };
+};
+
+const getDefaultTeacherFinanceMonthSettings = () => ({
+  otherIncome: 0,
+  otherExpenses: 0,
+  incomeGoal: 0,
+  note: '',
+  updatedAt: '',
+});
+
+const normalizeTeacherFinanceMonthSettings = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    otherIncome: roundTeacherFinanceNumber(source.otherIncome),
+    otherExpenses: roundTeacherFinanceNumber(source.otherExpenses),
+    incomeGoal: roundTeacherFinanceNumber(source.incomeGoal),
+    note: normalizeTeacherFinanceText(source.note, TEACHER_FINANCE_MONTH_NOTE_MAX_LENGTH),
+    updatedAt: typeof source.updatedAt === 'string' && source.updatedAt.trim() ? source.updatedAt.trim() : '',
+  };
+};
+
+const getDefaultTeacherFinanceTeacherEntry = () => ({
+  studentProfiles: {},
+  months: {},
+});
+
+const normalizeTeacherFinanceTeacherEntry = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const studentProfilesSource = source.studentProfiles && typeof source.studentProfiles === 'object' && !Array.isArray(source.studentProfiles)
+    ? source.studentProfiles
+    : {};
+  const studentProfiles = {};
+  Object.entries(studentProfilesSource).forEach(([studentId, profileValue]) => {
+    const normalizedStudentId = String(studentId || '').trim();
+    if (!normalizedStudentId) return;
+    studentProfiles[normalizedStudentId] = normalizeTeacherFinanceProfile(profileValue);
+  });
+
+  const monthsSource = source.months && typeof source.months === 'object' && !Array.isArray(source.months)
+    ? source.months
+    : {};
+  const months = {};
+  Object.entries(monthsSource).forEach(([monthKey, monthValue]) => {
+    const normalizedMonth = normalizeTeacherFinanceMonthKey(monthKey);
+    if (!normalizedMonth) return;
+    const monthSource = monthValue && typeof monthValue === 'object' && !Array.isArray(monthValue) ? monthValue : {};
+    const studentsSource = monthSource.students && typeof monthSource.students === 'object' && !Array.isArray(monthSource.students)
+      ? monthSource.students
+      : {};
+    const students = {};
+    Object.entries(studentsSource).forEach(([studentId, studentValue]) => {
+      const normalizedStudentId = String(studentId || '').trim();
+      if (!normalizedStudentId) return;
+      students[normalizedStudentId] = normalizeTeacherFinanceStudentRecord(
+        studentValue,
+        studentProfiles[normalizedStudentId] || getDefaultTeacherFinanceProfile()
+      );
+    });
+    months[normalizedMonth] = {
+      settings: normalizeTeacherFinanceMonthSettings(monthSource.settings),
+      students,
+    };
+  });
+
+  return {
+    studentProfiles,
+    months,
+  };
+};
+
+const normalizeTeacherFinanceDb = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const normalized = {};
+  Object.entries(source).forEach(([teacherId, teacherValue]) => {
+    const normalizedTeacherId = String(teacherId || '').trim();
+    if (!normalizedTeacherId) return;
+    normalized[normalizedTeacherId] = normalizeTeacherFinanceTeacherEntry(teacherValue);
+  });
+  return normalized;
+};
+
+const readTeacherFinanceDb = () => {
+  try {
+    const raw = fs.readFileSync(teacherFinanceFile, 'utf8');
+    const data = JSON.parse(raw);
+    return normalizeTeacherFinanceDb(data);
+  } catch {
+    return {};
+  }
+};
+
+const writeTeacherFinanceDb = (data) => {
+  const normalized = normalizeTeacherFinanceDb(data);
+  fs.writeFileSync(teacherFinanceFile, JSON.stringify(normalized, null, 2), 'utf8');
+};
+
+const getTeacherFinanceTeacherEntry = (db, teacherId) => {
+  const normalizedDb = normalizeTeacherFinanceDb(db);
+  const normalizedTeacherId = String(teacherId || '').trim();
+  if (!normalizedTeacherId) return getDefaultTeacherFinanceTeacherEntry();
+  return normalizeTeacherFinanceTeacherEntry(normalizedDb[normalizedTeacherId]);
+};
+
+const calculateTeacherFinanceStudentMetrics = (record) => {
+  const pricingMode = normalizeTeacherFinancePricingMode(record?.pricingMode);
+  const lessonPrice = roundTeacherFinanceNumber(record?.lessonPrice);
+  const monthlyRate = roundTeacherFinanceNumber(record?.monthlyRate);
+  const plannedLessons = roundTeacherFinanceNumber(record?.plannedLessons);
+  const completedLessons = roundTeacherFinanceNumber(record?.completedLessons);
+  const cancelledLessons = roundTeacherFinanceNumber(record?.cancelledLessons);
+  const paidAmount = roundTeacherFinanceNumber(record?.paidAmount);
+  const extraCharge = roundTeacherFinanceNumber(record?.extraCharge);
+  const discount = roundTeacherFinanceNumber(record?.discount);
+  const expenses = roundTeacherFinanceNumber(record?.expenses);
+  const plannedRevenue = pricingMode === 'monthly'
+    ? monthlyRate
+    : roundTeacherFinanceNumber(lessonPrice * plannedLessons);
+  const accruedRevenue = pricingMode === 'monthly'
+    ? monthlyRate
+    : roundTeacherFinanceNumber(lessonPrice * completedLessons);
+  const netAccrued = roundTeacherFinanceNumber(accruedRevenue + extraCharge - discount - expenses, { allowNegative: true });
+  const outstanding = roundTeacherFinanceNumber(netAccrued - paidAmount, { allowNegative: true });
+  const completionRate = plannedLessons > 0
+    ? Math.max(0, Math.min(999, Math.round((completedLessons / plannedLessons) * 100)))
+    : 0;
+  const hasActivity = Boolean(
+    plannedLessons > 0
+    || completedLessons > 0
+    || cancelledLessons > 0
+    || paidAmount > 0
+    || extraCharge > 0
+    || discount > 0
+    || expenses > 0
+    || lessonPrice > 0
+    || monthlyRate > 0
+    || String(record?.note || '').trim()
+  );
+  const paymentStatus = netAccrued <= 0
+    ? 'empty'
+    : (outstanding <= 0 ? 'paid' : (paidAmount > 0 ? 'partial' : 'unpaid'));
+  return {
+    plannedRevenue,
+    accruedRevenue,
+    netAccrued,
+    outstanding,
+    completionRate,
+    hasActivity,
+    paymentStatus,
+  };
+};
+
+const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, teacherStudents = []) => {
+  const normalizedMonthKey = normalizeTeacherFinanceMonthKey(monthKey) || getCurrentTeacherFinanceMonthKey();
+  const currentEntry = normalizeTeacherFinanceTeacherEntry(teacherEntry);
+  const monthData = currentEntry.months[normalizedMonthKey] || {
+    settings: getDefaultTeacherFinanceMonthSettings(),
+    students: {},
+  };
+  const monthSettings = normalizeTeacherFinanceMonthSettings(monthData.settings);
+  const studentList = Array.isArray(teacherStudents) ? teacherStudents : [];
+  const studentIds = new Set();
+  studentList.forEach((student) => {
+    const id = String(student?.id || '').trim();
+    if (id) studentIds.add(id);
+  });
+  Object.keys(currentEntry.studentProfiles || {}).forEach((studentId) => studentIds.add(studentId));
+  Object.keys(monthData.students || {}).forEach((studentId) => studentIds.add(studentId));
+
+  const studentsById = new Map(
+    studentList.map((student) => [String(student?.id || '').trim(), student])
+  );
+
+  const students = Array.from(studentIds).map((studentId) => {
+    const student = studentsById.get(studentId) || null;
+    const profile = normalizeTeacherFinanceProfile(currentEntry.studentProfiles[studentId]);
+    const record = normalizeTeacherFinanceStudentRecord(monthData.students[studentId], profile);
+    const metrics = calculateTeacherFinanceStudentMetrics(record);
+    const fullName = typeof student?.name === 'string' && student.name.trim()
+      ? student.name.trim()
+      : 'Удалённый ученик';
+    const nickname = typeof student?.nickname === 'string' ? student.nickname.trim() : '';
+    const displayName = nickname || fullName;
+    return {
+      id: studentId,
+      name: fullName,
+      nickname,
+      displayName,
+      deletedAt: typeof student?.deletedAt === 'string' && student.deletedAt.trim() ? student.deletedAt.trim() : '',
+      createdAt: typeof student?.createdAt === 'string' ? student.createdAt : '',
+      profile,
+      record,
+      metrics,
+    };
+  }).sort((left, right) => {
+    const leftDeleted = Boolean(left.deletedAt);
+    const rightDeleted = Boolean(right.deletedAt);
+    if (leftDeleted !== rightDeleted) return leftDeleted ? 1 : -1;
+    const debtDiff = (right.metrics?.outstanding || 0) - (left.metrics?.outstanding || 0);
+    if (debtDiff !== 0) return debtDiff;
+    return String(left.displayName || '').localeCompare(String(right.displayName || ''), 'ru');
+  });
+
+  const studentTotals = students.reduce((acc, student) => {
+    const record = student.record || getDefaultTeacherFinanceStudentRecord();
+    const metrics = student.metrics || calculateTeacherFinanceStudentMetrics(record);
+    acc.studentsCount += 1;
+    if (!student.deletedAt) acc.activeStudentsCount += 1;
+    if (metrics.hasActivity) acc.studentsWithActivityCount += 1;
+    if (metrics.outstanding > 0) acc.studentsWithDebtCount += 1;
+    acc.plannedLessons = roundTeacherFinanceNumber(acc.plannedLessons + roundTeacherFinanceNumber(record.plannedLessons));
+    acc.completedLessons = roundTeacherFinanceNumber(acc.completedLessons + roundTeacherFinanceNumber(record.completedLessons));
+    acc.cancelledLessons = roundTeacherFinanceNumber(acc.cancelledLessons + roundTeacherFinanceNumber(record.cancelledLessons));
+    acc.plannedRevenue = roundTeacherFinanceNumber(acc.plannedRevenue + metrics.plannedRevenue);
+    acc.accruedRevenue = roundTeacherFinanceNumber(acc.accruedRevenue + metrics.accruedRevenue);
+    acc.netAccrued = roundTeacherFinanceNumber(acc.netAccrued + metrics.netAccrued, { allowNegative: true });
+    acc.cashflow = roundTeacherFinanceNumber(acc.cashflow + roundTeacherFinanceNumber(record.paidAmount), { allowNegative: true });
+    acc.outstanding = roundTeacherFinanceNumber(acc.outstanding + metrics.outstanding, { allowNegative: true });
+    return acc;
+  }, {
+    studentsCount: 0,
+    activeStudentsCount: 0,
+    studentsWithActivityCount: 0,
+    studentsWithDebtCount: 0,
+    plannedLessons: 0,
+    completedLessons: 0,
+    cancelledLessons: 0,
+    plannedRevenue: 0,
+    accruedRevenue: 0,
+    netAccrued: 0,
+    cashflow: 0,
+    outstanding: 0,
+  });
+
+  const totalNetAccrued = roundTeacherFinanceNumber(
+    studentTotals.netAccrued + monthSettings.otherIncome - monthSettings.otherExpenses,
+    { allowNegative: true }
+  );
+  const totalCashflow = roundTeacherFinanceNumber(
+    studentTotals.cashflow + monthSettings.otherIncome - monthSettings.otherExpenses,
+    { allowNegative: true }
+  );
+  const goalProgress = monthSettings.incomeGoal > 0
+    ? Math.max(0, Math.round((totalCashflow / monthSettings.incomeGoal) * 100))
+    : 0;
+
+  return {
+    month: normalizedMonthKey,
+    monthSettings,
+    students,
+    summary: {
+      ...studentTotals,
+      otherIncome: monthSettings.otherIncome,
+      otherExpenses: monthSettings.otherExpenses,
+      incomeGoal: monthSettings.incomeGoal,
+      note: monthSettings.note,
+      goalProgress,
+      totalNetAccrued,
+      totalCashflow,
+    },
+  };
+};
+
+const buildTeacherFinanceResponse = (teacherId, monthKey) => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  const normalizedMonthKey = normalizeTeacherFinanceMonthKey(monthKey) || getCurrentTeacherFinanceMonthKey();
+  const teacherStudents = readStudentsDb().filter(
+    (student) => normalizeTeacherId(student?.teacherId) === normalizedTeacherId
+  );
+  const financeDb = readTeacherFinanceDb();
+  const teacherEntry = getTeacherFinanceTeacherEntry(financeDb, normalizedTeacherId);
+  const snapshot = buildTeacherFinanceMonthSnapshot(normalizedTeacherId, normalizedMonthKey, teacherEntry, teacherStudents);
+  const availableMonths = Array.from(new Set([
+    getCurrentTeacherFinanceMonthKey(),
+    ...Object.keys(teacherEntry.months || {}),
+  ])).filter(Boolean).sort((left, right) => right.localeCompare(left, 'ru'));
+  const history = availableMonths
+    .slice(0, TEACHER_FINANCE_HISTORY_LIMIT)
+    .map((historyMonthKey) => {
+      const monthSnapshot = buildTeacherFinanceMonthSnapshot(normalizedTeacherId, historyMonthKey, teacherEntry, teacherStudents);
+      return {
+        month: historyMonthKey,
+        ...monthSnapshot.summary,
+      };
+    });
+
+  return {
+    teacherId: normalizedTeacherId,
+    month: snapshot.month,
+    availableMonths,
+    history,
+    monthSettings: snapshot.monthSettings,
+    summary: snapshot.summary,
+    students: snapshot.students,
+  };
 };
 
 const SCHEDULE_CHANGE_REQUEST_TYPES = new Set(['create', 'update', 'delete']);
@@ -8105,6 +8514,94 @@ app.delete('/api/teacher-schedule/:id', (req, res) => {
     entryId,
   });
   return res.json({ ok: true });
+});
+
+app.get('/api/teacher-finance', (req, res) => {
+  const { teacherId, month } = req.query || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  const resolvedMonth = normalizeTeacherFinanceMonthKey(month) || getCurrentTeacherFinanceMonthKey();
+  return res.json(buildTeacherFinanceResponse(teacher.id, resolvedMonth));
+});
+
+app.patch('/api/teacher-finance/month', (req, res) => {
+  const { teacherId, month, otherIncome, otherExpenses, incomeGoal, note } = req.body || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  const resolvedMonth = normalizeTeacherFinanceMonthKey(month);
+  if (!resolvedMonth) {
+    return res.status(400).json({ error: 'Некорректный месяц' });
+  }
+  const nowIso = new Date().toISOString();
+  const financeDb = readTeacherFinanceDb();
+  const teacherEntry = getTeacherFinanceTeacherEntry(financeDb, teacher.id);
+  const currentMonth = teacherEntry.months[resolvedMonth] || {
+    settings: getDefaultTeacherFinanceMonthSettings(),
+    students: {},
+  };
+  teacherEntry.months[resolvedMonth] = {
+    settings: {
+      ...normalizeTeacherFinanceMonthSettings({
+        otherIncome,
+        otherExpenses,
+        incomeGoal,
+        note,
+      }),
+      updatedAt: nowIso,
+    },
+    students: currentMonth.students || {},
+  };
+  financeDb[teacher.id] = teacherEntry;
+  writeTeacherFinanceDb(financeDb);
+  return res.json(buildTeacherFinanceResponse(teacher.id, resolvedMonth));
+});
+
+app.patch('/api/teacher-finance/students/:studentId', (req, res) => {
+  const { studentId } = req.params || {};
+  const { teacherId, month } = req.body || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  const student = ensureStudentAccess(req, res, studentId, { allowDeleted: true });
+  if (!student) return;
+  if (normalizeTeacherId(student.teacherId) !== teacher.id) {
+    return res.status(403).json({ error: 'Ученик закреплён за другим преподавателем' });
+  }
+  const resolvedMonth = normalizeTeacherFinanceMonthKey(month);
+  if (!resolvedMonth) {
+    return res.status(400).json({ error: 'Некорректный месяц' });
+  }
+
+  const profile = normalizeTeacherFinanceProfile(req.body || {});
+  const nowIso = new Date().toISOString();
+  const record = {
+    ...normalizeTeacherFinanceStudentRecord(req.body || {}, profile),
+    updatedAt: nowIso,
+  };
+  const financeDb = readTeacherFinanceDb();
+  const teacherEntry = getTeacherFinanceTeacherEntry(financeDb, teacher.id);
+  const currentMonth = teacherEntry.months[resolvedMonth] || {
+    settings: getDefaultTeacherFinanceMonthSettings(),
+    students: {},
+  };
+
+  teacherEntry.studentProfiles[student.id] = profile;
+  teacherEntry.months[resolvedMonth] = {
+    settings: normalizeTeacherFinanceMonthSettings(currentMonth.settings),
+    students: {
+      ...(currentMonth.students || {}),
+      [student.id]: record,
+    },
+  };
+
+  financeDb[teacher.id] = teacherEntry;
+  writeTeacherFinanceDb(financeDb);
+  return res.json(buildTeacherFinanceResponse(teacher.id, resolvedMonth));
 });
 
 app.get('/api/student-schedule-requests', (req, res) => {
