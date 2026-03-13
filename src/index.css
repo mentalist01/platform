@@ -1572,6 +1572,378 @@
 @keyframes mobilePopoverFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
 @keyframes mobileOptionIn { from { opacity: 0; transform: translateY(7px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes mobileArrowIn { from { opacity: 0; transform: translateY(-2px) scale(0.84); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes scheduleSkillTreeUnlock {
+  0% { opacity: 0.55; transform: translateY(12px) scale(0.84); filter: blur(3px) saturate(0.78); }
+  58% { opacity: 1; transform: translateY(-4px) scale(1.05); filter: blur(0) saturate(1.06); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0) saturate(1); }
+}
+@keyframes scheduleSkillTreeCharge {
+  0%, 100% { box-shadow: 0 14px 28px rgba(14, 165, 233, 0.16), 0 0 0 0 rgba(56, 189, 248, 0.22); }
+  50% { box-shadow: 0 18px 34px rgba(14, 165, 233, 0.22), 0 0 0 7px rgba(56, 189, 248, 0); }
+}
+@keyframes scheduleSkillTreeBurst {
+  0% { opacity: 0.78; transform: translate(-50%, -50%) scale(0.56); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(2.2); }
+}
+@keyframes scheduleSkillTreeLinkFlow {
+  from { stroke-dashoffset: 48; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes scheduleSkillTreeProgressShimmer {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(120%); }
+}
+@keyframes scheduleSkillTreeOrbFloat {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(0, -10px, 0) scale(1.06); }
+}
+@keyframes scheduleSkillTreeLanePulse {
+  0%, 100% { opacity: 0.38; }
+  50% { opacity: 0.72; }
+}
+
+.schedule-skill-tree__panel {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.schedule-skill-tree__panel--collapsed {
+  border-radius: 18px !important;
+}
+
+.schedule-skill-tree__panel--collapsed::before,
+.schedule-skill-tree__panel--collapsed::after {
+  opacity: 0.14;
+}
+
+.schedule-skill-tree__panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 14% -10%, rgba(56, 189, 248, 0.08), transparent 28%),
+    radial-gradient(circle at 86% -14%, rgba(99, 102, 241, 0.06), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 30%);
+}
+
+.schedule-skill-tree__panel::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 24%);
+  opacity: 0.5;
+}
+
+.schedule-skill-tree__header-icon {
+  backdrop-filter: blur(18px) saturate(136%);
+  -webkit-backdrop-filter: blur(18px) saturate(136%);
+}
+
+.schedule-skill-tree__collapse-chip {
+  backdrop-filter: blur(10px) saturate(108%);
+  -webkit-backdrop-filter: blur(10px) saturate(108%);
+}
+
+.schedule-skill-tree__collapse-chip-icon {
+  box-shadow: none;
+}
+
+.schedule-skill-tree__summary {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  backdrop-filter: blur(14px) saturate(124%);
+  -webkit-backdrop-filter: blur(14px) saturate(124%);
+}
+
+.schedule-skill-tree__summary::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.26), transparent 34%);
+  opacity: 0.56;
+}
+
+.schedule-skill-tree__summary-track {
+  position: relative;
+  box-shadow: inset 0 1px 2px rgba(148, 163, 184, 0.16);
+}
+
+.schedule-skill-tree__focus-banner {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.schedule-skill-tree__focus-banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 36%);
+  opacity: 0.52;
+}
+
+.schedule-skill-tree__canvas {
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    0 24px 48px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.62);
+}
+
+.schedule-skill-tree__canvas::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 20% -10%, rgba(56, 189, 248, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent 36%);
+}
+
+.schedule-skill-tree__canvas::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 18%);
+  opacity: 0.36;
+}
+
+.schedule-skill-tree__canvas-orb {
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+  filter: blur(40px);
+  opacity: 0.2;
+  animation: none;
+}
+
+.schedule-skill-tree__canvas-orb--left {
+  width: 160px;
+  height: 160px;
+  left: -42px;
+  top: 26px;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.22), transparent 68%);
+}
+
+.schedule-skill-tree__canvas-orb--right {
+  width: 180px;
+  height: 180px;
+  right: -56px;
+  bottom: 14px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.18), transparent 72%);
+  animation-delay: -5.5s;
+}
+
+.schedule-skill-tree__lane {
+  position: absolute;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 999px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(148, 163, 184, 0), rgba(148, 163, 184, 0.26) 20%, rgba(148, 163, 184, 0.18) 80%, rgba(148, 163, 184, 0) 100%);
+  opacity: 0.72;
+}
+
+.schedule-skill-tree__lane--glow {
+  display: none;
+}
+
+.schedule-skill-tree__link-halo {
+  display: none;
+}
+
+.schedule-skill-tree__link-halo--ready {
+  opacity: 0.54;
+}
+
+.schedule-skill-tree__link-halo--active {
+  opacity: 0.78;
+}
+
+.schedule-skill-tree__link {
+  transition: stroke 0.24s ease, opacity 0.24s ease, filter 0.24s ease;
+  opacity: 0.56;
+}
+
+.schedule-skill-tree__link--ready {
+  opacity: 0.72;
+  filter: none;
+}
+
+.schedule-skill-tree__link--active {
+  opacity: 0.88;
+  filter: none;
+  animation: scheduleSkillTreeLinkFlow 2.1s linear infinite;
+}
+
+.schedule-skill-tree__node {
+  isolation: isolate;
+  transform-origin: center;
+  backdrop-filter: blur(12px) saturate(112%);
+  -webkit-backdrop-filter: blur(12px) saturate(112%);
+  will-change: transform, box-shadow, filter;
+  border-color: var(--tree-node-border, rgba(203, 213, 225, 0.82));
+  background: var(--tree-node-bg, linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.9)));
+  box-shadow: var(--tree-node-shadow, 0 10px 20px rgba(15, 23, 42, 0.06));
+}
+
+.schedule-skill-tree__node::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 26%);
+  opacity: 0.5;
+}
+
+.schedule-skill-tree__node::after {
+  content: none;
+}
+
+.schedule-skill-tree__node--locked {
+  opacity: 0.76;
+  filter: saturate(0.72);
+}
+
+.schedule-skill-tree__node--focus {
+  box-shadow: var(--tree-node-shadow, 0 10px 20px rgba(15, 23, 42, 0.06));
+}
+
+.schedule-skill-tree__node--locked::before {
+  opacity: 0.26;
+}
+
+.schedule-skill-tree__node--charged {
+  animation: scheduleSkillTreeCharge 2.4s ease-in-out infinite;
+}
+
+.schedule-skill-tree__node--unlocking {
+  animation: scheduleSkillTreeUnlock 0.95s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.schedule-skill-tree__node-burst {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 74px;
+  height: 74px;
+  pointer-events: none;
+  border-radius: 999px;
+  border: 2px solid rgba(56, 189, 248, 0.5);
+  transform: translate(-50%, -50%);
+  animation: scheduleSkillTreeBurst 0.96s ease-out both;
+}
+
+.schedule-skill-tree__node-burst--delay {
+  width: 92px;
+  height: 92px;
+  border-color: rgba(167, 139, 250, 0.42);
+  animation-delay: 0.12s;
+}
+
+.schedule-skill-tree__node--tone-base {
+  --tree-node-border: rgba(203, 213, 225, 0.9);
+  --tree-node-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.9));
+  --tree-node-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+  --tree-node-badge-border: rgba(203, 213, 225, 0.92);
+  --tree-node-badge-bg: rgba(241, 245, 249, 0.94);
+  --tree-node-badge-color: rgba(71, 85, 105, 0.92);
+  --tree-node-bar-start: #94a3b8;
+  --tree-node-bar-end: #64748b;
+}
+
+.schedule-skill-tree__node--tone-active {
+  --tree-node-border: rgba(125, 211, 252, 0.84);
+  --tree-node-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(240, 249, 255, 0.92));
+  --tree-node-shadow: 0 12px 24px rgba(14, 165, 233, 0.08);
+  --tree-node-badge-border: rgba(186, 230, 253, 0.94);
+  --tree-node-badge-bg: rgba(240, 249, 255, 0.96);
+  --tree-node-badge-color: rgba(3, 105, 161, 0.96);
+  --tree-node-bar-start: #38bdf8;
+  --tree-node-bar-end: #2563eb;
+}
+
+.schedule-skill-tree__node--tone-ready {
+  --tree-node-border: rgba(103, 232, 249, 0.84);
+  --tree-node-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(236, 254, 255, 0.92));
+  --tree-node-shadow: 0 12px 24px rgba(6, 182, 212, 0.08);
+  --tree-node-badge-border: rgba(165, 243, 252, 0.94);
+  --tree-node-badge-bg: rgba(236, 254, 255, 0.96);
+  --tree-node-badge-color: rgba(14, 116, 144, 0.96);
+  --tree-node-bar-start: #22d3ee;
+  --tree-node-bar-end: #0891b2;
+}
+
+.schedule-skill-tree__node--tone-complete {
+  --tree-node-border: rgba(167, 243, 208, 0.88);
+  --tree-node-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(236, 253, 245, 0.92));
+  --tree-node-shadow: 0 12px 24px rgba(16, 185, 129, 0.08);
+  --tree-node-badge-border: rgba(167, 243, 208, 0.94);
+  --tree-node-badge-bg: rgba(236, 253, 245, 0.96);
+  --tree-node-badge-color: rgba(5, 150, 105, 0.96);
+  --tree-node-bar-start: #34d399;
+  --tree-node-bar-end: #0f766e;
+}
+
+.schedule-skill-tree__node--tone-focus {
+  --tree-node-border: rgba(253, 230, 138, 0.88);
+  --tree-node-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 251, 235, 0.92));
+  --tree-node-shadow: 0 12px 24px rgba(245, 158, 11, 0.08);
+  --tree-node-badge-border: rgba(253, 230, 138, 0.94);
+  --tree-node-badge-bg: rgba(255, 251, 235, 0.96);
+  --tree-node-badge-color: rgba(180, 83, 9, 0.96);
+  --tree-node-bar-start: #fbbf24;
+  --tree-node-bar-end: #d97706;
+}
+
+.schedule-skill-tree__node--tone-locked {
+  --tree-node-border: rgba(203, 213, 225, 0.7);
+  --tree-node-bg: rgba(241, 245, 249, 0.78);
+  --tree-node-shadow: 0 8px 18px rgba(148, 163, 184, 0.08);
+  --tree-node-badge-border: rgba(203, 213, 225, 0.86);
+  --tree-node-badge-bg: rgba(226, 232, 240, 0.92);
+  --tree-node-badge-color: rgba(100, 116, 139, 0.84);
+  --tree-node-bar-start: #cbd5e1;
+  --tree-node-bar-end: #94a3b8;
+}
+
+.schedule-skill-tree__node-badge {
+  border-color: var(--tree-node-badge-border);
+  background: var(--tree-node-badge-bg);
+  color: var(--tree-node-badge-color);
+}
+
+.schedule-skill-tree__node-progress-track {
+  position: relative;
+  box-shadow: inset 0 1px 2px rgba(148, 163, 184, 0.18);
+}
+
+.schedule-skill-tree__node-progress {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(90deg, var(--tree-node-bar-start), var(--tree-node-bar-end));
+}
+
+.schedule-skill-tree__node-progress::after {
+  content: none;
+}
+
+.schedule-skill-tree__legend-shell {
+  backdrop-filter: blur(14px) saturate(124%);
+  -webkit-backdrop-filter: blur(14px) saturate(124%);
+}
 
 .animate-fadeIn { animation: fadeIn 0.45s ease-out both; }
 .call-panel-root {
@@ -3506,6 +3878,241 @@ html[data-theme='dark'] .schedule-shell__slot-delete {
 
 html[data-theme='dark'] .schedule-shell__field {
   color-scheme: dark;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__panel {
+  border-color: rgba(129, 140, 248, 0.36) !important;
+  background:
+    radial-gradient(circle at 12% -14%, rgba(56, 189, 248, 0.1), transparent 32%),
+    radial-gradient(circle at 92% -18%, rgba(99, 102, 241, 0.1), transparent 36%),
+    linear-gradient(165deg, rgba(15, 23, 42, 0.94), rgba(2, 6, 23, 0.92)) !important;
+  box-shadow:
+    0 22px 44px rgba(2, 6, 23, 0.58),
+    inset 0 1px 0 rgba(148, 163, 184, 0.12);
+}
+
+html[data-theme='dark'] .schedule-skill-tree__panel--collapsed {
+  border-color: rgba(71, 85, 105, 0.32) !important;
+  background: rgba(15, 23, 42, 0.18) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__panel::after {
+  opacity: 0.28;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__header-icon {
+  border-color: rgba(125, 211, 252, 0.24) !important;
+  background: rgba(15, 23, 42, 0.8) !important;
+  box-shadow:
+    0 14px 28px rgba(2, 6, 23, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme='dark'] .schedule-skill-tree__collapse-chip {
+  border-color: rgba(71, 85, 105, 0.28) !important;
+  background: rgba(15, 23, 42, 0.28) !important;
+  color: rgba(148, 163, 184, 0.82) !important;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__collapse-chip:hover {
+  border-color: rgba(56, 189, 248, 0.26) !important;
+  background: rgba(15, 23, 42, 0.42) !important;
+  color: rgba(226, 232, 240, 0.9) !important;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__collapse-chip-icon {
+  border-color: rgba(71, 85, 105, 0.24) !important;
+  background: rgba(15, 23, 42, 0.34) !important;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__summary {
+  border-color: rgba(100, 116, 139, 0.44) !important;
+  background: rgba(15, 23, 42, 0.82) !important;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__summary::before {
+  background: linear-gradient(180deg, rgba(148, 163, 184, 0.1), transparent 32%);
+}
+
+html[data-theme='dark'] .schedule-skill-tree__summary-title {
+  color: rgba(148, 163, 184, 0.9) !important;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__summary-value {
+  color: rgba(241, 245, 249, 0.96) !important;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__summary-icon {
+  border-color: rgba(148, 163, 184, 0.16) !important;
+  background: rgba(15, 23, 42, 0.68) !important;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__summary-track {
+  background: rgba(30, 41, 59, 0.92) !important;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__focus-banner {
+  border-color: rgba(245, 158, 11, 0.22) !important;
+  background:
+    radial-gradient(circle at 10% -20%, rgba(245, 158, 11, 0.12), transparent 40%),
+    linear-gradient(135deg, rgba(38, 28, 11, 0.78), rgba(15, 23, 42, 0.82)) !important;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__focus-icon {
+  border-color: rgba(245, 158, 11, 0.16) !important;
+  background: rgba(15, 23, 42, 0.68) !important;
+  box-shadow:
+    0 12px 24px rgba(2, 6, 23, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme='dark'] .schedule-skill-tree__focus-banner .text-fuchsia-500 {
+  color: rgba(251, 191, 36, 0.9) !important;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__focus-banner .text-fuchsia-800 {
+  color: rgba(255, 247, 237, 0.88) !important;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__canvas {
+  border-color: rgba(100, 116, 139, 0.4) !important;
+  background:
+    radial-gradient(circle at 18% -8%, rgba(56, 189, 248, 0.14), transparent 34%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.88)) !important;
+  box-shadow:
+    0 28px 56px rgba(2, 6, 23, 0.56),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+html[data-theme='dark'] .schedule-skill-tree__canvas::before {
+  background:
+    radial-gradient(circle at 18% -8%, rgba(56, 189, 248, 0.1), transparent 30%),
+    linear-gradient(180deg, rgba(148, 163, 184, 0.06), transparent 34%);
+}
+
+html[data-theme='dark'] .schedule-skill-tree__canvas::after {
+  opacity: 0.24;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__canvas-orb {
+  opacity: 0.14;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__lane {
+  background: linear-gradient(180deg, rgba(100, 116, 139, 0), rgba(100, 116, 139, 0.28) 20%, rgba(100, 116, 139, 0.18) 80%, rgba(100, 116, 139, 0) 100%);
+}
+
+html[data-theme='dark'] .schedule-skill-tree__node {
+  box-shadow: var(--tree-node-shadow, 0 12px 22px rgba(2, 6, 23, 0.44));
+}
+
+html[data-theme='dark'] .schedule-skill-tree__node::before {
+  background: linear-gradient(180deg, rgba(148, 163, 184, 0.08), transparent 24%);
+}
+
+html[data-theme='dark'] .schedule-skill-tree__node--focus {
+  box-shadow: var(--tree-node-shadow, 0 12px 22px rgba(2, 6, 23, 0.44));
+}
+
+html[data-theme='dark'] .schedule-skill-tree__node--locked {
+  opacity: 0.54;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__link {
+  opacity: 0.62;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__node-progress-track {
+  background: rgba(30, 41, 59, 0.9) !important;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__node-badge {
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__node .text-slate-900 {
+  color: rgba(241, 245, 249, 0.96) !important;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__node .text-slate-700 {
+  color: rgba(203, 213, 225, 0.88) !important;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__node .text-slate-500,
+html[data-theme='dark'] .schedule-skill-tree__node .text-slate-400 {
+  color: rgba(148, 163, 184, 0.84) !important;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__node--tone-base {
+  --tree-node-border: rgba(71, 85, 105, 0.76);
+  --tree-node-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(15, 23, 42, 0.82));
+  --tree-node-shadow: 0 12px 22px rgba(2, 6, 23, 0.44);
+  --tree-node-badge-border: rgba(71, 85, 105, 0.74);
+  --tree-node-badge-bg: rgba(30, 41, 59, 0.86);
+  --tree-node-badge-color: rgba(203, 213, 225, 0.9);
+  --tree-node-bar-start: #64748b;
+  --tree-node-bar-end: #94a3b8;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__node--tone-active {
+  --tree-node-border: rgba(56, 189, 248, 0.42);
+  --tree-node-bg: linear-gradient(180deg, rgba(11, 29, 46, 0.9), rgba(8, 37, 60, 0.82));
+  --tree-node-shadow: 0 12px 24px rgba(8, 47, 73, 0.3);
+  --tree-node-badge-border: rgba(56, 189, 248, 0.22);
+  --tree-node-badge-bg: rgba(8, 47, 73, 0.58);
+  --tree-node-badge-color: rgba(186, 230, 253, 0.94);
+  --tree-node-bar-start: #38bdf8;
+  --tree-node-bar-end: #2563eb;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__node--tone-ready {
+  --tree-node-border: rgba(34, 211, 238, 0.38);
+  --tree-node-bg: linear-gradient(180deg, rgba(8, 32, 43, 0.9), rgba(8, 37, 49, 0.82));
+  --tree-node-shadow: 0 12px 24px rgba(8, 47, 73, 0.26);
+  --tree-node-badge-border: rgba(34, 211, 238, 0.18);
+  --tree-node-badge-bg: rgba(8, 47, 73, 0.52);
+  --tree-node-badge-color: rgba(207, 250, 254, 0.94);
+  --tree-node-bar-start: #22d3ee;
+  --tree-node-bar-end: #0891b2;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__node--tone-complete {
+  --tree-node-border: rgba(52, 211, 153, 0.34);
+  --tree-node-bg: linear-gradient(180deg, rgba(7, 43, 31, 0.86), rgba(8, 35, 28, 0.8));
+  --tree-node-shadow: 0 12px 24px rgba(6, 78, 59, 0.26);
+  --tree-node-badge-border: rgba(52, 211, 153, 0.16);
+  --tree-node-badge-bg: rgba(6, 78, 59, 0.5);
+  --tree-node-badge-color: rgba(209, 250, 229, 0.94);
+  --tree-node-bar-start: #34d399;
+  --tree-node-bar-end: #0f766e;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__node--tone-focus {
+  --tree-node-border: rgba(251, 191, 36, 0.34);
+  --tree-node-bg: linear-gradient(180deg, rgba(55, 38, 10, 0.72), rgba(31, 22, 8, 0.68));
+  --tree-node-shadow: 0 12px 24px rgba(120, 53, 15, 0.24);
+  --tree-node-badge-border: rgba(251, 191, 36, 0.16);
+  --tree-node-badge-bg: rgba(120, 53, 15, 0.4);
+  --tree-node-badge-color: rgba(254, 243, 199, 0.94);
+  --tree-node-bar-start: #fbbf24;
+  --tree-node-bar-end: #d97706;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__node--tone-locked {
+  --tree-node-border: rgba(71, 85, 105, 0.62);
+  --tree-node-bg: rgba(15, 23, 42, 0.72);
+  --tree-node-shadow: 0 10px 18px rgba(2, 6, 23, 0.3);
+  --tree-node-badge-border: rgba(71, 85, 105, 0.68);
+  --tree-node-badge-bg: rgba(30, 41, 59, 0.82);
+  --tree-node-badge-color: rgba(148, 163, 184, 0.84);
+  --tree-node-bar-start: #475569;
+  --tree-node-bar-end: #64748b;
+}
+
+html[data-theme='dark'] .schedule-skill-tree__legend-shell {
+  border-color: rgba(148, 163, 184, 0.16) !important;
+  background: rgba(15, 23, 42, 0.72) !important;
 }
 
 html[data-theme='dark'] .call-controls-wrap::before {

@@ -2048,6 +2048,7 @@ const ScheduleSection = ({
           onOpenTask={role === 'student' ? onOpenTask : null}
           tasks={taskOptions}
           pythonTasks={pythonTaskOptions}
+          showDebugUnlockButton={role === 'teacher'}
         />
       )}
 
