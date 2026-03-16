@@ -9603,6 +9603,7 @@ app.patch('/api/folders/:id', (req, res) => {
 });
 
 app.delete('/api/folders/:id', (req, res) => {
+  if (!isTeacherRole(req.auth)) return forbid(res);
   const { id } = req.params;
   const folderId = String(id || '').trim();
   if (!folderId) return res.status(400).json({ error: 'Некорректный идентификатор папки' });

@@ -839,11 +839,11 @@ const NotesSection = ({
 
   const canDeleteFolder = (folder) => {
     if (!folder?.id) return false;
+    if (role !== 'teacher') return false;
     if (folder?.isSystem) return false;
     if (isLessonSharedFolder(folder) && String(folder?.name || '').trim().toLowerCase() === LESSON_SHARED_FOLDER_NAME) {
       return false;
     }
-    if (isLessonSharedFolder(folder) && role === 'student') return false;
     return true;
   };
 
