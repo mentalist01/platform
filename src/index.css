@@ -5325,6 +5325,30 @@ html[data-theme='dark'] .to-sky-50\/70 {
   flex-shrink: 0;
 }
 
+.notes-explorer-shell .notes-explorer-folder-delete-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  background: transparent;
+  transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.notes-explorer-shell .notes-explorer-folder-delete-btn:hover:not(:disabled) {
+  color: #e11d48;
+  border-color: rgba(251, 113, 133, 0.45);
+  background: rgba(255, 241, 242, 0.9);
+}
+
+.notes-explorer-shell .notes-explorer-folder-delete-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .notes-explorer-shell .notes-explorer-folder-count {
   min-width: 24px;
   height: 24px;
@@ -5464,6 +5488,16 @@ html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-count {
   color: rgba(191, 219, 254, 0.95);
   background: rgba(30, 41, 59, 0.75);
   border-color: rgba(96, 165, 250, 0.4);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-delete-btn {
+  color: rgba(148, 163, 184, 0.94);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-delete-btn:hover:not(:disabled) {
+  color: rgba(251, 113, 133, 0.98);
+  border-color: rgba(251, 113, 133, 0.5);
+  background: rgba(127, 29, 29, 0.38);
 }
 
 html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-row.is-current .notes-explorer-folder-count,

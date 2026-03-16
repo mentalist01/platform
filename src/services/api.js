@@ -856,6 +856,11 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
+  deleteFolder: async (id) => {
+    const res = await apiFetch(`/api/folders/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
   uploadFile: async (file, taskNumber, category, folderId, studentId) => {
     const form = new FormData();
     form.append('file', file);

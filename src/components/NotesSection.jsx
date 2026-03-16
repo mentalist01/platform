@@ -80,6 +80,7 @@ const NotesSection = ({
   const [renamingFolderId, setRenamingFolderId] = useState(null);
   const [renameFolderValue, setRenameFolderValue] = useState('');
   const [isRenamingFolder, setIsRenamingFolder] = useState(false);
+  const [deletingFolderId, setDeletingFolderId] = useState(null);
   const [expandedFolderIds, setExpandedFolderIds] = useState({});
   const [renamingId, setRenamingId] = useState(null);
   const [renameBase, setRenameBase] = useState('');
@@ -482,6 +483,7 @@ const NotesSection = ({
     setRenamingFolderId(null);
     setRenameFolderValue('');
     setIsRenamingFolder(false);
+    setDeletingFolderId(null);
     setRenamingId(null);
     setRenameBase('');
     setRenameExt('');
@@ -519,6 +521,7 @@ const NotesSection = ({
       setExpandedPyIds({});
       setExpandedPdfIds({});
       setExpandedImageIds({});
+      setDeletingFolderId(null);
       setEditingPyId(null);
       setPyEditDraft('');
       setPyEditSaving(false);
@@ -546,6 +549,7 @@ const NotesSection = ({
     setExpandedPyIds({});
     setExpandedPdfIds({});
     setExpandedImageIds({});
+    setDeletingFolderId(null);
     setEditingPyId(null);
     setPyEditDraft('');
     setPyEditSaving(false);
@@ -830,6 +834,80 @@ const NotesSection = ({
       alert(err?.message || err);
     } finally {
       setIsRenamingFolder(false);
+    }
+  };
+
+  const canDeleteFolder = (folder) => {
+    if (!folder?.id) return false;
+    if (folder?.isSystem) return false;
+    if (isLessonSharedFolder(folder) && String(folder?.name || '').trim().toLowerCase() === LESSON_SHARED_FOLDER_NAME) {
+      return false;
+    }
+    if (isLessonSharedFolder(folder) && role === 'student') return false;
+    return true;
+  };
+
+  const handleDeleteFolder = async (folder) => {
+    if (!canDeleteFolder(folder)) return;
+    const folderName = String(folder?.name || 'Папка').trim() || 'Папка';
+    const confirmed = window.confirm(`Удалить папку "${folderName}" и всё внутри?`);
+    if (!confirmed) return;
+    setDeletingFolderId(folder.id);
+    try {
+      const response = await api.deleteFolder(folder.id);
+      const deletedFolderIds = Array.isArray(response?.deletedFolderIds)
+        ? response.deletedFolderIds.map((item) => String(item || '').trim()).filter(Boolean)
+        : [String(folder.id || '').trim()];
+      const deletedFolderIdSet = new Set(deletedFolderIds);
+      const deletedFileIdSet = new Set(
+        Array.isArray(response?.deletedFileIds)
+          ? response.deletedFileIds.map((item) => String(item || '').trim()).filter(Boolean)
+          : []
+      );
+
+      setFolders((prev) => prev.filter((entry) => !deletedFolderIdSet.has(String(entry?.id || '').trim())));
+      setFiles((prev) => prev.filter((entry) => {
+        const fileId = String(entry?.id || '').trim();
+        const fileFolderId = String(entry?.folderId || '').trim();
+        if (deletedFileIdSet.has(fileId)) return false;
+        if (fileFolderId && deletedFolderIdSet.has(fileFolderId)) return false;
+        return true;
+      }));
+      setExpandedFolderIds((prev) => {
+        const next = { ...(prev || {}) };
+        let changed = false;
+        Object.keys(next).forEach((folderKey) => {
+          if (!deletedFolderIdSet.has(String(folderKey || '').trim())) return;
+          delete next[folderKey];
+          changed = true;
+        });
+        return changed ? next : prev;
+      });
+      setSelectedFileIds((prev) => {
+        if (!prev || !Object.keys(prev).length) return prev;
+        const next = { ...prev };
+        let changed = false;
+        deletedFileIdSet.forEach((fileId) => {
+          if (!next[fileId]) return;
+          delete next[fileId];
+          changed = true;
+        });
+        return changed ? next : prev;
+      });
+      setCurrentFolderId((prev) => {
+        const currentId = String(prev || '').trim();
+        if (!currentId) return prev;
+        if (deletedFolderIdSet.has(currentId)) return null;
+        return prev;
+      });
+      if (renamingFolderId && deletedFolderIdSet.has(String(renamingFolderId || '').trim())) {
+        cancelRenameFolder();
+      }
+      setFoldersError('');
+    } catch (err) {
+      setFoldersError(err?.message || err);
+    } finally {
+      setDeletingFolderId(null);
     }
   };
 
@@ -1978,6 +2056,7 @@ const NotesSection = ({
               {folderTreeEntries.map(({ folder, depth, hasChildren, isExpanded }) => {
                 const sharedFolder = isLessonSharedFolder(folder);
                 const isCurrentFolder = currentFolderId === folder.id;
+                const canDeleteCurrentFolder = canDeleteFolder(folder);
                 const indent = Math.min(depth, 8) * 16;
                 return (
                   <div
@@ -2055,6 +2134,22 @@ const NotesSection = ({
                     </div>
                     {renamingFolderId === folder.id && !sharedFolder ? null : (
                       <span className="notes-explorer-folder-row-meta">
+                        {canDeleteCurrentFolder && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteFolder(folder);
+                            }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            disabled={deletingFolderId === folder.id}
+                            className="notes-explorer-folder-delete-btn"
+                            title="Удалить папку"
+                            aria-label="Удалить папку"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
                         <span className="notes-explorer-folder-count">{folderCounts.map.get(folder.id) || 0}</span>
                       </span>
                     )}
