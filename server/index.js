@@ -67,6 +67,7 @@ const rtcPresenceDir = path.join(dataDir, 'rtc-presence');
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
 const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_FOLDER_BYTES = 30 * 1024 * 1024;
+const MAX_SHARED_FOLDER_BYTES = 200 * 1024 * 1024;
 const LESSON_SHARED_SCOPE = 'lesson-files';
 const LESSON_SHARED_FOLDER_NAME = 'файлы к уроку';
 const LESSON_SHARED_STUDENT_ID_PREFIX = 'lesson-shared';
@@ -6004,6 +6005,14 @@ const getFolderTotalBytes = (filesDb, folderId, excludeFileId = '') => {
     .reduce((sum, file) => sum + getEntrySizeBytes(file), 0);
 };
 
+const getFolderLimitBytes = (isLessonSharedFolder) => (
+  isLessonSharedFolder ? MAX_SHARED_FOLDER_BYTES : MAX_FOLDER_BYTES
+);
+
+const getFolderLimitError = (limitBytes) => (
+  `Превышен лимит ${Math.round(limitBytes / (1024 * 1024))} МБ для этой папки`
+);
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadsDir),
   filename: (req, file, cb) => {
@@ -9796,12 +9805,13 @@ app.post('/api/files', upload.single('file'), (req, res) => {
   }
 
   if (folderRef) {
+    const folderLimitBytes = getFolderLimitBytes(isLessonSharedUpload);
     const currentFolderTotal = getFolderTotalBytes(db, folderRef.id);
-    if (currentFolderTotal + req.file.size > MAX_FOLDER_BYTES) {
+    if (currentFolderTotal + req.file.size > folderLimitBytes) {
       try {
         fs.unlinkSync(req.file.path);
       } catch {}
-      return res.status(413).json({ error: '\u041f\u0440\u0435\u0432\u044b\u0448\u0435\u043d \u043b\u0438\u043c\u0438\u0442 30 \u041c\u0411 \u0434\u043b\u044f \u044d\u0442\u043e\u0439 \u043f\u0430\u043f\u043a\u0438' });
+      return res.status(413).json({ error: getFolderLimitError(folderLimitBytes) });
     }
   }
   const id = req.fileId || crypto.randomUUID();
@@ -9897,9 +9907,10 @@ app.patch('/api/files/:id', (req, res) => {
       if (!canWriteLessonSharedByTeacher(req.auth, ownerTeacherId)) return forbid(res);
       const movingSizeBytes = getEntrySizeBytes(db[idx]);
       const sharedFolderId = buildLessonSharedFolderId(ownerTeacherId, updated.taskNumber);
+      const folderLimitBytes = getFolderLimitBytes(true);
       const currentFolderTotal = getFolderTotalBytes(db, sharedFolderId, id);
-      if (currentFolderTotal + movingSizeBytes > MAX_FOLDER_BYTES) {
-        return res.status(413).json({ error: 'Превышен лимит 30 МБ для этой папки' });
+      if (currentFolderTotal + movingSizeBytes > folderLimitBytes) {
+        return res.status(413).json({ error: getFolderLimitError(folderLimitBytes) });
       }
       const sharedTaskTotal = db
         .filter((file) => (
@@ -9936,11 +9947,12 @@ app.patch('/api/files/:id', (req, res) => {
       );
       if (!folderRef) return res.status(400).json({ error: 'Папка не найдена' });
       const movingSizeBytes = getEntrySizeBytes(db[idx]);
-      const currentFolderTotal = getFolderTotalBytes(db, folderRef.id, id);
-      if (currentFolderTotal + movingSizeBytes > MAX_FOLDER_BYTES) {
-        return res.status(413).json({ error: '\u041f\u0440\u0435\u0432\u044b\u0448\u0435\u043d \u043b\u0438\u043c\u0438\u0442 30 \u041c\u0411 \u0434\u043b\u044f \u044d\u0442\u043e\u0439 \u043f\u0430\u043f\u043a\u0438' });
-      }
       const folderIsLessonShared = isFolderInLessonSharedTree(foldersById, folderRef, ownerTeacherId, updated.taskNumber);
+      const folderLimitBytes = getFolderLimitBytes(folderIsLessonShared);
+      const currentFolderTotal = getFolderTotalBytes(db, folderRef.id, id);
+      if (currentFolderTotal + movingSizeBytes > folderLimitBytes) {
+        return res.status(413).json({ error: getFolderLimitError(folderLimitBytes) });
+      }
       if (isCurrentLessonShared && !folderIsLessonShared) {
         return res.status(400).json({ error: `Файл из папки "${LESSON_SHARED_FOLDER_NAME}" можно перемещать только внутри общей папки` });
       }
@@ -10001,9 +10013,10 @@ app.patch('/api/files/:id', (req, res) => {
       return res.status(413).json({ error: 'Превышен лимит 200 МБ для этого задания' });
     }
     if (updated.folderId) {
+      const folderLimitBytes = getFolderLimitBytes(updatedIsLessonShared);
       const currentFolderTotal = getFolderTotalBytes(db, updated.folderId, id);
-      if (currentFolderTotal + nextSizeBytes > MAX_FOLDER_BYTES) {
-        return res.status(413).json({ error: '\u041f\u0440\u0435\u0432\u044b\u0448\u0435\u043d \u043b\u0438\u043c\u0438\u0442 30 \u041c\u0411 \u0434\u043b\u044f \u044d\u0442\u043e\u0439 \u043f\u0430\u043f\u043a\u0438' });
+      if (currentFolderTotal + nextSizeBytes > folderLimitBytes) {
+        return res.status(413).json({ error: getFolderLimitError(folderLimitBytes) });
       }
     }
     fs.writeFileSync(filePath, content, 'utf8');
