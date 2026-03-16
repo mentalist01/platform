@@ -1,7 +1,18 @@
 [
-      { "input": "1\n2\n3\n4\n5\n6\n", "output": "2\n4\n6\n" },
-      { "input": "1\n3\n5\n", "output": "" },
-      { "input": "0\n-2\n7\n8\n", "output": "0\n-2\n8\n" },
-      { "input": "-1\n-3\n-4\n-6\n", "output": "-4\n-6\n" },
-      { "input": "2\n2\n2\n", "output": "2\n2\n2\n" }
-    ]
+  {
+    "input": "18",
+    "output": "6"
+  },
+  {
+    "input": "10",
+    "output": "4"
+  },
+  {
+    "input": "13",
+    "output": "2"
+  },
+  {
+    "input": "36",
+    "output": "9"
+  }
+]

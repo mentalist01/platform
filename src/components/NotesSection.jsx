@@ -10,8 +10,6 @@ import {
   Monitor,
   Pencil,
   Plus,
-  RefreshCcw,
-  Search,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -89,6 +87,7 @@ const NotesSection = ({
   const [isRenaming, setIsRenaming] = useState(false);
   const [draggingFileId, setDraggingFileId] = useState(null);
   const [dragOverFolderId, setDragOverFolderId] = useState(null);
+  const [selectedFileIds, setSelectedFileIds] = useState({});
   const [expandedPyIds, setExpandedPyIds] = useState({});
   const [expandedPdfIds, setExpandedPdfIds] = useState({});
   const [expandedImageIds, setExpandedImageIds] = useState({});
@@ -108,7 +107,6 @@ const NotesSection = ({
   const [pyDraftCode, setPyDraftCode] = useState('');
   const [pyDraftError, setPyDraftError] = useState('');
   const [pyDraftSaving, setPyDraftSaving] = useState(false);
-  const [showMobilePyTools, setShowMobilePyTools] = useState(false);
   const [showMobileFolderTools, setShowMobileFolderTools] = useState(false);
   const restoringRef = useRef(false);
   const didRestoreRef = useRef(false);
@@ -490,6 +488,7 @@ const NotesSection = ({
     setIsRenaming(false);
     setDraggingFileId(null);
     setDragOverFolderId(null);
+    setSelectedFileIds({});
     setExpandedPyIds({});
     setExpandedPdfIds({});
     setExpandedImageIds({});
@@ -506,7 +505,6 @@ const NotesSection = ({
     setPyDraftCode('');
     setPyDraftError('');
     setPyDraftSaving(false);
-    setShowMobilePyTools(false);
     setShowMobileFolderTools(false);
     if (restoringRef.current && (currentTask || currentCategory)) {
       restoringRef.current = false;
@@ -517,6 +515,7 @@ const NotesSection = ({
     if (restoringRef.current) {
       setFolders([]);
       setFiles([]);
+      setSelectedFileIds({});
       setExpandedPyIds({});
       setExpandedPdfIds({});
       setExpandedImageIds({});
@@ -533,7 +532,6 @@ const NotesSection = ({
       setPyDraftCode('');
       setPyDraftError('');
       setPyDraftSaving(false);
-      setShowMobilePyTools(false);
       setShowMobileFolderTools(false);
       didRestoreRef.current = false;
       skipNullSaveRef.current = true;
@@ -544,6 +542,7 @@ const NotesSection = ({
     setCurrentFolderId(null);
     setFolders([]);
     setFiles([]);
+    setSelectedFileIds({});
     setExpandedPyIds({});
     setExpandedPdfIds({});
     setExpandedImageIds({});
@@ -560,7 +559,6 @@ const NotesSection = ({
     setPyDraftCode('');
     setPyDraftError('');
     setPyDraftSaving(false);
-    setShowMobilePyTools(false);
     setShowMobileFolderTools(false);
     pendingFolderIdRef.current = null;
     restoringRef.current = false;
@@ -588,6 +586,29 @@ const NotesSection = ({
     if (!currentTask || currentCategory) return;
     setCurrentCategory(DEFAULT_NOTES_CATEGORY);
   }, [currentTask, currentCategory]);
+
+  useEffect(() => {
+    setSelectedFileIds((prev) => {
+      const validIds = new Set((files || []).map((entry) => String(entry?.id || '').trim()).filter(Boolean));
+      const next = {};
+      let changed = false;
+      Object.keys(prev || {}).forEach((id) => {
+        if (!prev[id]) return;
+        if (!validIds.has(id)) {
+          changed = true;
+          return;
+        }
+        next[id] = true;
+      });
+      const prevKeys = Object.keys(prev || {}).filter((id) => prev[id]);
+      if (!changed && prevKeys.length === Object.keys(next).length) return prev;
+      return next;
+    });
+  }, [files]);
+
+  useEffect(() => {
+    setSelectedFileIds({});
+  }, [currentFolderId]);
 
   const isImageMimeType = (value) => String(value || '').toLowerCase().startsWith('image/');
   const isImageFileName = (name) => /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico|heic|heif)$/i.test(String(name || ''));
@@ -814,8 +835,15 @@ const NotesSection = ({
 
   const handleDragStartFile = (e, file) => {
     if (renamingId === file.id) return;
+    const selectedIds = Object.keys(selectedFileIds || {}).filter((id) => selectedFileIds[id]);
+    const isDraggingSelected = Boolean(selectedFileIds?.[file.id]);
+    const dragIds = isDraggingSelected && selectedIds.length ? selectedIds : [file.id];
+    if (!isDraggingSelected) {
+      setSelectedFileIds({ [file.id]: true });
+    }
     setDraggingFileId(file.id);
     e.dataTransfer.setData('text/plain', file.id);
+    e.dataTransfer.setData('application/x-notes-file-ids', JSON.stringify(dragIds));
     e.dataTransfer.effectAllowed = 'move';
   };
 
@@ -837,43 +865,88 @@ const NotesSection = ({
 
   const handleFolderDrop = async (e, folderId) => {
     e.preventDefault();
-    const fileId = e.dataTransfer.getData('text/plain');
-    if (!fileId) return;
-    const file = files.find((item) => item.id === fileId);
-    if (!file) return;
-    if (!canManageFile(file)) {
-      alert('Недостаточно прав для изменения этого файла.');
+    let fileIds = [];
+    const rawMulti = e.dataTransfer.getData('application/x-notes-file-ids');
+    if (rawMulti) {
+      try {
+        const parsed = JSON.parse(rawMulti);
+        if (Array.isArray(parsed)) {
+          fileIds = parsed.map((id) => String(id || '').trim()).filter(Boolean);
+        }
+      } catch {
+        fileIds = [];
+      }
+    }
+    if (!fileIds.length) {
+      const fallbackId = String(e.dataTransfer.getData('text/plain') || '').trim();
+      if (fallbackId) fileIds = [fallbackId];
+    }
+    const uniqueFileIds = Array.from(new Set(fileIds));
+    if (!uniqueFileIds.length) return;
+    const draggedFiles = uniqueFileIds
+      .map((fileId) => files.find((item) => item.id === fileId))
+      .filter(Boolean);
+    if (!draggedFiles.length) return;
+    const unmanageableFile = draggedFiles.find((file) => !canManageFile(file));
+    if (unmanageableFile) {
+      alert('Недостаточно прав для изменения одного или нескольких файлов.');
       setDragOverFolderId(null);
       return;
     }
-    if (isLessonSharedFile(file)) {
-      alert(`Файлы из папки "${LESSON_SHARED_FOLDER_NAME}" нельзя перемещать.`);
-      setDragOverFolderId(null);
-      return;
-    }
+    const destinationFolderId = folderId || null;
     if (folderId) {
       const folder = folders.find((item) => item.id === folderId);
-      if (folder && isLessonSharedFolder(folder)) {
+      const destinationIsLessonShared = folder ? isFolderInLessonSharedTree(folder.id) : false;
+      if (destinationIsLessonShared) {
         if (role === 'student') {
           alert(`В папку "${LESSON_SHARED_FOLDER_NAME}" может перемещать файлы только учитель.`);
           setDragOverFolderId(null);
           return;
         }
       }
-      const fileTask = Number(file?.taskNumber);
-      const folderTask = Number(folder?.taskNumber);
-      if (Number.isFinite(fileTask) && Number.isFinite(folderTask) && fileTask !== folderTask) {
+      const mismatchedTaskFile = draggedFiles.find((file) => {
+        const fileTask = Number(file?.taskNumber);
+        const folderTask = Number(folder?.taskNumber);
+        return Number.isFinite(fileTask) && Number.isFinite(folderTask) && fileTask !== folderTask;
+      });
+      if (mismatchedTaskFile) {
         alert('Нельзя переместить файл в папку другого задания.');
         setDragOverFolderId(null);
         return;
       }
     }
-    try {
-      const updated = await api.moveFile(fileId, folderId);
-      setFiles((prev) => prev.map((f) => (f.id === updated.id ? { ...f, ...updated } : f)));
+    const filesToMove = draggedFiles.filter((file) => (
+      (file?.folderId || null) !== destinationFolderId
+    ));
+    if (!filesToMove.length) {
+      setDragOverFolderId(null);
       setDraggingFileId(null);
-    } catch (err) {
-      alert(err?.message || err);
+      return;
+    }
+    try {
+      const movedFiles = [];
+      const errors = [];
+      for (const file of filesToMove) {
+        try {
+          const updated = await api.moveFile(file.id, folderId);
+          movedFiles.push(updated);
+        } catch (err) {
+          errors.push(`${file.name}: ${err?.message || err}`);
+        }
+      }
+      if (movedFiles.length) {
+        const movedById = new Map(movedFiles.map((entry) => [entry.id, entry]));
+        setFiles((prev) => prev.map((f) => (
+          movedById.has(f.id) ? { ...f, ...movedById.get(f.id) } : f
+        )));
+        setSelectedFileIds({});
+      }
+      if (errors.length) {
+        const details = errors.slice(0, 3).join('\n');
+        const suffix = errors.length > 3 ? `\nи ещё ${errors.length - 3}` : '';
+        alert(`Не удалось переместить часть файлов:\n${details}${suffix}`);
+      }
+      setDraggingFileId(null);
     } finally {
       setDragOverFolderId(null);
     }
@@ -1370,6 +1443,12 @@ const NotesSection = ({
     try {
       await api.deleteFile(file.id);
       setFiles(prev => prev.filter(x => x.id !== file.id));
+      setSelectedFileIds((prev) => {
+        if (!prev[file.id]) return prev;
+        const next = { ...prev };
+        delete next[file.id];
+        return next;
+      });
       setExpandedPyIds((prev) => {
         if (!prev[file.id]) return prev;
         const next = { ...prev };
@@ -1737,7 +1816,6 @@ const NotesSection = ({
   const uploadButtonLabel = isUploading
     ? 'Загрузка...'
     : (uploadBlockedByRole ? 'Только учитель' : 'Загрузить');
-  const explorerSearchPlaceholder = `Поиск: ${currentFolderLabel === 'Без папки' ? 'На уроке' : currentFolderLabel}`;
   const handleExplorerBack = () => {
     if (currentFolderId) {
       setCurrentFolderId(currentFolderParentId);
@@ -1769,16 +1847,6 @@ const NotesSection = ({
             </div>
             <div className="notes-explorer-quick-actions flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
               {renderStudentPicker()}
-              <Button
-                variant="secondary"
-                onClick={handleRefreshData}
-                disabled={isRefreshingData}
-                className="notes-explorer-refresh-btn w-full sm:w-auto"
-                title={isRefreshingData ? 'Обновление...' : 'Обновить'}
-              >
-                <RefreshCcw size={16} className={isRefreshingData ? 'animate-spin' : ''} />
-                {isRefreshingData ? 'Обновление...' : 'Обновить'}
-              </Button>
               <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} multiple disabled={uploadBlockedByRole} />
               <Button
                 onClick={() => fileRef.current?.click()}
@@ -1813,16 +1881,6 @@ const NotesSection = ({
                 </>
               )}
             </div>
-            <label className="notes-explorer-search hidden min-w-[260px] items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 lg:flex">
-              <Search size={14} className="text-slate-400" />
-              <input
-                type="text"
-                value={explorerSearchPlaceholder}
-                readOnly
-                className="w-full bg-transparent text-sm text-slate-500 outline-none"
-                aria-label="Поиск в проводнике"
-              />
-            </label>
           </div>
           {role !== 'student' && (
             <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold md:text-xs">
@@ -1844,15 +1902,11 @@ const NotesSection = ({
         </div>
       </div>
 
-      <div className="md:hidden grid grid-cols-2 gap-2">
+      <div className="md:hidden grid grid-cols-1 gap-2">
         <button
           type="button"
           onClick={() => {
-            setShowMobileFolderTools((prev) => {
-              const next = !prev;
-              if (next) setShowMobilePyTools(false);
-              return next;
-            });
+            setShowMobileFolderTools((prev) => !prev);
           }}
           className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
             showMobileFolderTools
@@ -1862,219 +1916,154 @@ const NotesSection = ({
         >
           {showMobileFolderTools ? 'Скрыть папки' : `Папки (${normalizedFolders.length})`}
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            setShowMobilePyTools((prev) => {
-              const next = !prev;
-              if (next) setShowMobileFolderTools(false);
-              return next;
-            });
-          }}
-          className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
-            showMobilePyTools
-              ? 'border-purple-500 bg-purple-50 text-purple-700'
-              : 'border-slate-200 bg-white text-slate-600'
-          }`}
-        >
-          {showMobilePyTools ? 'Скрыть Python' : 'Python файл'}
-        </button>
       </div>
 
       <div className="grid gap-3 md:grid-cols-[320px,minmax(0,1fr)] md:items-start">
         <div className="space-y-3">
-          <Card className={`space-y-4 border-purple-200/70 bg-gradient-to-br from-white via-white to-purple-50/45 ${showMobilePyTools ? 'block' : 'hidden'} md:block`}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          <Card className={`notes-explorer-panel notes-explorer-folder-panel space-y-4 border-slate-200 bg-white/90 ${showMobileFolderTools ? 'block' : 'hidden'} md:block`}>
+            <div className="notes-explorer-folder-header flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="font-bold text-gray-800">Python файл</h3>
-                <p className="text-xs text-slate-500">Создайте .py файл сразу в текущей папке</p>
+                <h3 className="notes-explorer-folder-title font-bold text-gray-800">Папки</h3>
+                <p className="notes-explorer-folder-subtitle text-xs text-slate-500">Создавайте папки и подпапки</p>
               </div>
-              <Button variant="secondary" onClick={() => setShowPyCreator((v) => !v)} disabled={uploadBlockedByRole} className="w-full sm:w-auto">
-                <Plus size={16} /> {showPyCreator ? 'Скрыть' : 'Создать'}
+              <Button
+                variant="secondary"
+                onClick={() => setIsCreatingFolder((v) => !v)}
+                disabled={uploadBlockedByRole}
+                className="notes-explorer-folder-add-btn w-full sm:w-auto"
+              >
+                <FolderPlus size={16} /> Новая папка
               </Button>
             </div>
-            {showPyCreator && (
-              <div className="space-y-3">
-                <div className="flex flex-col md:flex-row gap-2">
-                  <input
-                    type="text"
-                    value={pyDraftName}
-                    onChange={(e) => { setPyDraftName(e.target.value); setPyDraftError(''); }}
-                    placeholder="Название файла (без .py)"
-                    className="flex-1 min-w-0 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
-                  />
-                  <Button onClick={handleCreatePyFile} disabled={pyDraftSaving || !pyDraftName.trim() || uploadBlockedByRole} className="w-full md:w-auto">
-                    {pyDraftSaving ? 'Сохранение...' : 'Сохранить файл'}
-                  </Button>
-                </div>
-                <div className="rounded-2xl overflow-hidden border border-gray-800">
-                  <Editor
-                    height={pyDraftEditorHeight}
-                    language="python"
-                    theme={monacoTheme}
-                    beforeMount={ensureMonacoColorTheme}
-                    value={pyDraftCode}
-                    onChange={(value) => {
-                      setPyDraftCode(value ?? '');
-                      if (pyDraftError) setPyDraftError('');
-                    }}
-                    options={pyEditorOptions}
-                    loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
-                  />
-                </div>
-                <div className="flex flex-wrap items-center justify-between text-xs text-gray-400 gap-2">
-                  <span>Файл сохранится в папке: {currentFolderLabel}</span>
-                  <span>Размер: {formatBytes(getPyDraftSize(pyDraftCode))}</span>
-                </div>
-                {pyDraftError && <p className="text-xs text-red-500">{pyDraftError}</p>}
+
+            {isCreatingFolder && (
+              <div className="flex flex-col md:flex-row gap-2 mb-3">
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => { setNewFolderName(e.target.value); setFoldersError(''); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); }}
+                  placeholder={currentFolderId ? 'Название подпапки' : 'Название папки'}
+                  className="notes-explorer-folder-input flex-1 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+                />
+                <Button onClick={handleCreateFolder} disabled={!newFolderName.trim() || uploadBlockedByRole} className="notes-explorer-folder-create-submit w-full md:w-auto">
+                  Создать
+                </Button>
               </div>
             )}
-          </Card>
 
-      <Card className={`notes-explorer-panel space-y-4 border-slate-200 bg-white/90 ${showMobileFolderTools ? 'block' : 'hidden'} md:block`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="font-bold text-gray-800">Папки</h3>
-            <p className="text-xs text-slate-500">Создавайте папки и подпапки</p>
-          </div>
-          <Button
-            variant="secondary"
-            onClick={() => setIsCreatingFolder((v) => !v)}
-            disabled={uploadBlockedByRole}
-            className="w-full sm:w-auto"
-          >
-            <FolderPlus size={16} /> Новая папка
-          </Button>
-        </div>
-
-        {isCreatingFolder && (
-          <div className="flex flex-col md:flex-row gap-2 mb-3">
-            <input
-              type="text"
-              value={newFolderName}
-              onChange={(e) => { setNewFolderName(e.target.value); setFoldersError(''); }}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); }}
-              placeholder={currentFolderId ? 'Название подпапки' : 'Название папки'}
-              className="flex-1 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
-            />
-            <Button onClick={handleCreateFolder} disabled={!newFolderName.trim() || uploadBlockedByRole} className="w-full md:w-auto">
-              Создать
-            </Button>
-          </div>
-        )}
-
-        <div className="notes-explorer-folder-tree space-y-1 rounded-2xl border border-slate-200 bg-slate-50/80 p-2">
-          <button
-            onClick={() => setCurrentFolderId(null)}
-            onDragOver={(e) => handleFolderDragOver(e, 'root')}
-            onDragLeave={(e) => handleFolderDragLeave(e, 'root')}
-            onDrop={(e) => handleFolderDrop(e, null)}
-            className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm font-medium transition-all ${
-              dragOverFolderId === 'root'
-                ? 'border-blue-500 bg-blue-50 text-blue-700 ring-1 ring-blue-200'
-                : currentFolderId === null
-                  ? 'border-blue-500 bg-blue-50 text-blue-800 ring-2 ring-blue-200/90 shadow-sm'
-                  : 'border-transparent text-slate-700 hover:border-slate-300 hover:bg-white'
-            }`}
-            type="button"
-          >
-            <span className="flex items-center gap-2">
-              <Folder size={16} className="text-amber-500" />
-              <span>На уроке (корень)</span>
-            </span>
-            <span className="ml-2 flex items-center gap-2">
-              <span className="text-xs opacity-70">{folderCounts.root}</span>
-            </span>
-          </button>
-          {folderTreeEntries.map(({ folder, depth, hasChildren, isExpanded }) => {
-            const sharedFolder = isLessonSharedFolder(folder);
-            const isCurrentFolder = currentFolderId === folder.id;
-            const indent = Math.min(depth, 8) * 16;
-            return (
-              <div
-                key={folder.id}
-                onClick={() => {
-                  if (renamingFolderId !== folder.id) setCurrentFolderId(folder.id);
-                }}
-                onKeyDown={(e) => {
-                  if (renamingFolderId === folder.id) return;
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setCurrentFolderId(folder.id);
-                  }
-                }}
-                onDoubleClick={() => {
-                  if (!sharedFolder) startRenameFolder(folder);
-                }}
-                onDragOver={(e) => handleFolderDragOver(e, folder.id)}
-                onDragLeave={(e) => handleFolderDragLeave(e, folder.id)}
-                onDrop={(e) => handleFolderDrop(e, folder.id)}
-                className={`flex w-full cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-left text-sm font-medium transition-all ${
-                  dragOverFolderId === folder.id
-                    ? 'border-blue-500 bg-blue-50 text-blue-700 ring-1 ring-blue-200'
-                    : isCurrentFolder
-                      ? 'border-blue-500 bg-blue-50 text-blue-800 ring-2 ring-blue-200/90 shadow-sm'
-                      : 'border-transparent text-slate-700 hover:border-slate-300 hover:bg-white'
+            <div className="notes-explorer-folder-tree space-y-1 rounded-2xl p-2">
+              <button
+                onClick={() => setCurrentFolderId(null)}
+                onDragOver={(e) => handleFolderDragOver(e, 'root')}
+                onDragLeave={(e) => handleFolderDragLeave(e, 'root')}
+                onDrop={(e) => handleFolderDrop(e, null)}
+                className={`notes-explorer-folder-row notes-explorer-folder-row-root ${
+                  dragOverFolderId === 'root'
+                    ? 'is-drop-target'
+                    : currentFolderId === null
+                      ? 'is-current'
+                      : ''
                 }`}
-                style={{ paddingLeft: `${12 + indent}px` }}
-                role="button"
-                tabIndex={renamingFolderId === folder.id ? -1 : 0}
+                type="button"
               >
-                <div className="flex min-w-0 items-center gap-1.5">
-                  {hasChildren ? (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setExpandedFolderIds((prev) => {
-                          const next = { ...(prev || {}) };
-                          if (next[folder.id]) delete next[folder.id];
-                          else next[folder.id] = true;
-                          return next;
-                        });
-                      }}
-                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 transition hover:bg-slate-200/70 hover:text-slate-700"
-                      aria-label={isExpanded ? 'Свернуть папку' : 'Развернуть папку'}
-                      title={isExpanded ? 'Свернуть папку' : 'Развернуть папку'}
-                    >
-                      <ChevronRight size={14} className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                    </button>
-                  ) : (
-                    <span className="inline-flex h-5 w-5 shrink-0" />
-                  )}
-                  {renamingFolderId === folder.id && !sharedFolder ? (
-                    <input
-                      value={renameFolderValue}
-                      onChange={(e) => setRenameFolderValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') saveRenameFolder(folder);
-                        if (e.key === 'Escape') cancelRenameFolder();
-                      }}
-                      onBlur={() => {
-                        if (!isRenamingFolder) saveRenameFolder(folder);
-                      }}
-                      className="px-2 py-1 rounded-lg bg-white border border-purple-100 focus:border-purple-500 outline-none text-sm"
-                      autoFocus
-                    />
-                  ) : (
-                    <span className="flex min-w-0 items-center gap-2">
-                      <Folder size={16} className="text-amber-500" />
-                      <span className="truncate">{folder.name}</span>
-                      {sharedFolder && <span className="text-[10px] uppercase tracking-wide opacity-70">общая</span>}
-                    </span>
-                  )}
-                </div>
-                {renamingFolderId === folder.id && !sharedFolder ? null : (
-                  <span className="ml-2 flex items-center gap-2">
-                    <span className="text-xs opacity-70">{folderCounts.map.get(folder.id) || 0}</span>
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        {foldersError && <p className="text-xs text-red-500 mt-2">{foldersError}</p>}
-      </Card>
+                <span className="notes-explorer-folder-label">
+                  <Folder size={16} className="notes-explorer-folder-icon" />
+                  <span className="notes-explorer-folder-name">На уроке (корень)</span>
+                </span>
+                <span className="notes-explorer-folder-row-meta">
+                  <span className="notes-explorer-folder-count">{folderCounts.root}</span>
+                </span>
+              </button>
+              {folderTreeEntries.map(({ folder, depth, hasChildren, isExpanded }) => {
+                const sharedFolder = isLessonSharedFolder(folder);
+                const isCurrentFolder = currentFolderId === folder.id;
+                const indent = Math.min(depth, 8) * 16;
+                return (
+                  <div
+                    key={folder.id}
+                    onClick={() => {
+                      if (renamingFolderId !== folder.id) setCurrentFolderId(folder.id);
+                    }}
+                    onKeyDown={(e) => {
+                      if (renamingFolderId === folder.id) return;
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setCurrentFolderId(folder.id);
+                      }
+                    }}
+                    onDoubleClick={() => {
+                      if (!sharedFolder) startRenameFolder(folder);
+                    }}
+                    onDragOver={(e) => handleFolderDragOver(e, folder.id)}
+                    onDragLeave={(e) => handleFolderDragLeave(e, folder.id)}
+                    onDrop={(e) => handleFolderDrop(e, folder.id)}
+                    className={`notes-explorer-folder-row ${
+                      dragOverFolderId === folder.id
+                        ? 'is-drop-target'
+                        : isCurrentFolder
+                          ? 'is-current'
+                          : ''
+                    } ${sharedFolder ? 'is-shared' : ''}`}
+                    style={{ paddingLeft: `${12 + indent}px` }}
+                    role="button"
+                    tabIndex={renamingFolderId === folder.id ? -1 : 0}
+                  >
+                    <div className="notes-explorer-folder-label">
+                      {hasChildren ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedFolderIds((prev) => {
+                              const next = { ...(prev || {}) };
+                              if (next[folder.id]) delete next[folder.id];
+                              else next[folder.id] = true;
+                              return next;
+                            });
+                          }}
+                          className="notes-explorer-folder-toggle"
+                          aria-label={isExpanded ? 'Свернуть папку' : 'Развернуть папку'}
+                          title={isExpanded ? 'Свернуть папку' : 'Развернуть папку'}
+                        >
+                          <ChevronRight size={14} className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                        </button>
+                      ) : (
+                        <span className="notes-explorer-folder-toggle-spacer" />
+                      )}
+                      {renamingFolderId === folder.id && !sharedFolder ? (
+                        <input
+                          value={renameFolderValue}
+                          onChange={(e) => setRenameFolderValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveRenameFolder(folder);
+                            if (e.key === 'Escape') cancelRenameFolder();
+                          }}
+                          onBlur={() => {
+                            if (!isRenamingFolder) saveRenameFolder(folder);
+                          }}
+                          className="notes-explorer-folder-rename-input px-2 py-1 rounded-lg bg-white border border-purple-100 focus:border-purple-500 outline-none text-sm"
+                          autoFocus
+                        />
+                      ) : (
+                        <span className="notes-explorer-folder-label">
+                          <Folder size={16} className="notes-explorer-folder-icon" />
+                          <span className="notes-explorer-folder-name">{folder.name}</span>
+                          {sharedFolder && <span className="notes-explorer-folder-shared-badge">Общая</span>}
+                        </span>
+                      )}
+                    </div>
+                    {renamingFolderId === folder.id && !sharedFolder ? null : (
+                      <span className="notes-explorer-folder-row-meta">
+                        <span className="notes-explorer-folder-count">{folderCounts.map.get(folder.id) || 0}</span>
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {foldersError && <p className="text-xs text-red-500 mt-2">{foldersError}</p>}
+          </Card>
         </div>
 
       <div
@@ -2090,6 +2079,54 @@ const NotesSection = ({
             : 'border-slate-200 bg-gradient-to-br from-white via-white to-slate-50/70'
         }`}
       >
+        <div className="mb-3 rounded-2xl border border-slate-200/80 bg-white/85 p-3 md:mb-4 md:p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div>
+              <h3 className="text-sm font-bold text-gray-800">Python файл</h3>
+              <p className="text-xs text-slate-500">Создайте .py файл сразу в текущей папке</p>
+            </div>
+            <Button variant="secondary" onClick={() => setShowPyCreator((v) => !v)} disabled={uploadBlockedByRole} className="w-full sm:w-auto">
+              <Plus size={16} /> {showPyCreator ? 'Скрыть' : 'Создать'}
+            </Button>
+          </div>
+          {showPyCreator && (
+            <div className="mt-3 space-y-3">
+              <div className="flex flex-col md:flex-row gap-2">
+                <input
+                  type="text"
+                  value={pyDraftName}
+                  onChange={(e) => { setPyDraftName(e.target.value); setPyDraftError(''); }}
+                  placeholder="Название файла (без .py)"
+                  className="flex-1 min-w-0 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+                />
+                <Button onClick={handleCreatePyFile} disabled={pyDraftSaving || !pyDraftName.trim() || uploadBlockedByRole} className="w-full md:w-auto">
+                  {pyDraftSaving ? 'Сохранение...' : 'Сохранить файл'}
+                </Button>
+              </div>
+              <div className="rounded-2xl overflow-hidden border border-gray-800">
+                <Editor
+                  height={pyDraftEditorHeight}
+                  language="python"
+                  theme={monacoTheme}
+                  beforeMount={ensureMonacoColorTheme}
+                  value={pyDraftCode}
+                  onChange={(value) => {
+                    setPyDraftCode(value ?? '');
+                    if (pyDraftError) setPyDraftError('');
+                  }}
+                  options={pyEditorOptions}
+                  loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+                />
+              </div>
+              <div className="flex flex-wrap items-center justify-between text-xs text-gray-400 gap-2">
+                <span>Файл сохранится в папке: {currentFolderLabel}</span>
+                <span>Размер: {formatBytes(getPyDraftSize(pyDraftCode))}</span>
+              </div>
+              {pyDraftError && <p className="text-xs text-red-500">{pyDraftError}</p>}
+            </div>
+          )}
+        </div>
+
         <div className="mb-3 md:mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
           {uploadBlockedByRole ? (
             <span>Загрузка в эту папку доступна только учителю</span>
@@ -2127,11 +2164,14 @@ const NotesSection = ({
                     const manageable = canManageFile(f);
                     const isPreviewable = isPyFile(f.name) || isPdfFile(f.name) || isImageFile(f);
                     const isExpanded = Boolean(expandedPyIds[f.id] || expandedPdfIds[f.id] || expandedImageIds[f.id]);
+                    const isSelected = Boolean(selectedFileIds[f.id]);
                     return (
                       <React.Fragment key={f.id}>
                         <tr
                           className={`border-t border-slate-100 ${
-                            isExpanded ? 'notes-row-expanded bg-blue-50/55' : 'hover:bg-slate-50'
+                            isSelected
+                              ? 'bg-blue-100/80'
+                              : (isExpanded ? 'notes-row-expanded bg-blue-50/55' : 'hover:bg-slate-50')
                           } ${isPreviewable ? 'cursor-pointer' : ''}`}
                           draggable={renamingId !== f.id && manageable}
                           onDragStart={(e) => {
@@ -2139,7 +2179,17 @@ const NotesSection = ({
                             handleDragStartFile(e, f);
                           }}
                           onDragEnd={handleDragEndFile}
-                          onClick={() => {
+                          onClick={(e) => {
+                            if (e.ctrlKey || e.metaKey) {
+                              if (!manageable) return;
+                              setSelectedFileIds((prev) => {
+                                const next = { ...(prev || {}) };
+                                if (next[f.id]) delete next[f.id];
+                                else next[f.id] = true;
+                                return next;
+                              });
+                              return;
+                            }
                             if (isPreviewable) toggleFilePreview(f);
                           }}
                           onKeyDown={(e) => {

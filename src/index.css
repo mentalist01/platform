@@ -5173,26 +5173,319 @@ html[data-theme='dark'] .to-sky-50\/70 {
   --tw-gradient-to: rgba(8, 47, 73, 0.44) var(--tw-gradient-to-position) !important;
 }
 
+.notes-explorer-shell .notes-explorer-back-btn {
+  border: 1px solid rgba(37, 99, 235, 0.66);
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #ffffff !important;
+  box-shadow: 0 14px 30px rgba(37, 99, 235, 0.36), 0 0 0 1px rgba(147, 197, 253, 0.58) inset;
+}
+
+.notes-explorer-shell .notes-explorer-back-btn:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.01);
+  box-shadow: 0 18px 34px rgba(37, 99, 235, 0.44), 0 0 0 1px rgba(191, 219, 254, 0.66) inset;
+}
+
 .notes-explorer-shell .notes-explorer-upload-btn {
-  border: 1px solid rgba(139, 92, 246, 0.45);
-  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
-  box-shadow: 0 10px 24px rgba(124, 58, 237, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.9));
+  color: #334155;
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.08);
 }
 
 .notes-explorer-shell .notes-explorer-upload-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 14px 28px rgba(124, 58, 237, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.24);
-}
-
-.notes-explorer-shell .notes-explorer-back-btn {
-  border-color: rgba(148, 163, 184, 0.52);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.92));
-  color: #0f172a;
+  border-color: rgba(100, 116, 139, 0.62);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.92));
 }
 
 .notes-explorer-shell .notes-explorer-refresh-btn {
   border-color: rgba(203, 213, 225, 0.85);
   color: #334155;
+}
+
+.notes-explorer-shell .notes-explorer-panel.notes-explorer-folder-panel {
+  border-color: rgba(148, 163, 184, 0.45) !important;
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.9)),
+    radial-gradient(circle at 18% 8%, rgba(59, 130, 246, 0.08), transparent 55%);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.14);
+}
+
+.notes-explorer-shell .notes-explorer-folder-header {
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.notes-explorer-shell .notes-explorer-folder-title {
+  color: #0f172a;
+  letter-spacing: 0.01em;
+}
+
+.notes-explorer-shell .notes-explorer-folder-subtitle {
+  color: #475569;
+}
+
+.notes-explorer-shell .notes-explorer-folder-add-btn {
+  border-color: rgba(148, 163, 184, 0.52);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(248, 250, 252, 0.92));
+  color: #1e293b;
+}
+
+.notes-explorer-shell .notes-explorer-folder-add-btn:hover:not(:disabled) {
+  border-color: rgba(59, 130, 246, 0.5);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(241, 245, 249, 0.95));
+}
+
+.notes-explorer-shell .notes-explorer-folder-input,
+.notes-explorer-shell .notes-explorer-folder-rename-input {
+  border-color: rgba(148, 163, 184, 0.44) !important;
+  color: #0f172a;
+}
+
+.notes-explorer-shell .notes-explorer-folder-input::placeholder,
+.notes-explorer-shell .notes-explorer-folder-rename-input::placeholder {
+  color: #64748b;
+}
+
+.notes-explorer-shell .notes-explorer-folder-create-submit {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.notes-explorer-shell .notes-explorer-panel.notes-explorer-folder-panel .notes-explorer-folder-tree {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.9), rgba(241, 245, 249, 0.86)),
+    radial-gradient(circle at 78% 12%, rgba(59, 130, 246, 0.05), transparent 52%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.notes-explorer-shell .notes-explorer-folder-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  padding: 9px 10px;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.notes-explorer-shell .notes-explorer-folder-row:hover {
+  border-color: rgba(148, 163, 184, 0.42);
+  background: rgba(255, 255, 255, 0.74);
+  color: #0f172a;
+}
+
+.notes-explorer-shell .notes-explorer-folder-row.is-current {
+  border-color: rgba(37, 99, 235, 0.62);
+  background: linear-gradient(120deg, rgba(219, 234, 254, 0.78), rgba(239, 246, 255, 0.86));
+  color: #0b3a82;
+  box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.5) inset, 0 6px 14px rgba(37, 99, 235, 0.14);
+}
+
+.notes-explorer-shell .notes-explorer-folder-row.is-drop-target {
+  border-color: rgba(37, 99, 235, 0.65);
+  background: linear-gradient(120deg, rgba(191, 219, 254, 0.52), rgba(224, 242, 254, 0.6));
+  color: #0b3a82;
+  box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.48) inset;
+}
+
+.notes-explorer-shell .notes-explorer-folder-row-root {
+  margin-bottom: 4px;
+}
+
+.notes-explorer-shell .notes-explorer-folder-label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.notes-explorer-shell .notes-explorer-folder-icon {
+  color: #f59e0b;
+  flex-shrink: 0;
+}
+
+.notes-explorer-shell .notes-explorer-folder-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notes-explorer-shell .notes-explorer-folder-row-meta {
+  margin-left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.notes-explorer-shell .notes-explorer-folder-count {
+  min-width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 7px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #334155;
+  background: rgba(148, 163, 184, 0.22);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.notes-explorer-shell .notes-explorer-folder-row.is-current .notes-explorer-folder-count,
+.notes-explorer-shell .notes-explorer-folder-row.is-drop-target .notes-explorer-folder-count {
+  color: #1d4ed8;
+  background: rgba(219, 234, 254, 0.95);
+  border-color: rgba(147, 197, 253, 0.9);
+}
+
+.notes-explorer-shell .notes-explorer-folder-toggle {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: #64748b;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.notes-explorer-shell .notes-explorer-folder-toggle:hover {
+  color: #1e293b;
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.notes-explorer-shell .notes-explorer-folder-toggle-spacer {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.notes-explorer-shell .notes-explorer-folder-shared-badge {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #854d0e;
+  background: rgba(254, 240, 138, 0.45);
+  border: 1px solid rgba(245, 158, 11, 0.38);
+  text-transform: uppercase;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-panel.notes-explorer-folder-panel {
+  background:
+    linear-gradient(168deg, rgba(15, 23, 42, 0.95), rgba(15, 23, 42, 0.84)),
+    radial-gradient(circle at 16% 8%, rgba(56, 189, 248, 0.12), transparent 54%);
+  border-color: rgba(100, 116, 139, 0.58) !important;
+  box-shadow: 0 14px 30px rgba(2, 6, 23, 0.5);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-header {
+  border-bottom-color: rgba(71, 85, 105, 0.55);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-title {
+  color: rgba(241, 245, 249, 0.98);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-subtitle {
+  color: rgba(148, 163, 184, 0.9);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-add-btn {
+  border-color: rgba(100, 116, 139, 0.56) !important;
+  background: rgba(15, 23, 42, 0.72) !important;
+  color: rgba(226, 232, 240, 0.92) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-add-btn:hover:not(:disabled) {
+  border-color: rgba(125, 211, 252, 0.44) !important;
+  background: rgba(30, 41, 59, 0.9) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-input,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-rename-input {
+  border-color: rgba(100, 116, 139, 0.6) !important;
+  background: rgba(2, 6, 23, 0.5) !important;
+  color: rgba(241, 245, 249, 0.95) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-input::placeholder,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-rename-input::placeholder {
+  color: rgba(148, 163, 184, 0.92);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-panel.notes-explorer-folder-panel .notes-explorer-folder-tree {
+  border-color: rgba(71, 85, 105, 0.56) !important;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(15, 23, 42, 0.8)),
+    radial-gradient(circle at 82% 10%, rgba(56, 189, 248, 0.08), transparent 52%) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.12);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-row {
+  color: rgba(203, 213, 225, 0.95);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-row:hover {
+  border-color: rgba(100, 116, 139, 0.66);
+  background: rgba(30, 41, 59, 0.7);
+  color: rgba(241, 245, 249, 0.98);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-row.is-current {
+  border-color: rgba(96, 165, 250, 0.8);
+  background: linear-gradient(120deg, rgba(30, 64, 175, 0.34), rgba(8, 47, 73, 0.38));
+  color: rgba(191, 219, 254, 0.98);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.4) inset, 0 10px 22px rgba(2, 6, 23, 0.45);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-row.is-drop-target {
+  border-color: rgba(125, 211, 252, 0.72);
+  background: linear-gradient(120deg, rgba(12, 74, 110, 0.5), rgba(30, 64, 175, 0.42));
+  color: rgba(186, 230, 253, 0.98);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-icon {
+  color: rgba(251, 191, 36, 0.95);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-count {
+  color: rgba(191, 219, 254, 0.95);
+  background: rgba(30, 41, 59, 0.75);
+  border-color: rgba(96, 165, 250, 0.4);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-row.is-current .notes-explorer-folder-count,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-row.is-drop-target .notes-explorer-folder-count {
+  color: rgba(219, 234, 254, 0.98);
+  background: rgba(37, 99, 235, 0.48);
+  border-color: rgba(125, 211, 252, 0.55);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-toggle {
+  color: rgba(148, 163, 184, 0.9);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-toggle:hover {
+  color: rgba(226, 232, 240, 0.96);
+  background: rgba(71, 85, 105, 0.5);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-shared-badge {
+  color: rgba(253, 230, 138, 0.95);
+  background: rgba(120, 53, 15, 0.45);
+  border-color: rgba(245, 158, 11, 0.52);
 }
 
 html[data-theme='dark'] .notes-explorer-shell .notes-explorer-window {
@@ -5281,27 +5574,39 @@ html[data-theme='dark'] .notes-explorer-shell .notes-explorer-address svg {
   color: rgba(148, 163, 184, 0.85) !important;
 }
 
-html[data-theme='dark'] .notes-explorer-shell .notes-explorer-back-btn,
-html[data-theme='dark'] .notes-explorer-shell .notes-explorer-refresh-btn {
-  border-color: rgba(100, 116, 139, 0.58) !important;
-  background: rgba(15, 23, 42, 0.78) !important;
-  color: rgba(226, 232, 240, 0.9) !important;
-}
-
-html[data-theme='dark'] .notes-explorer-shell .notes-explorer-back-btn:hover:not(:disabled),
-html[data-theme='dark'] .notes-explorer-shell .notes-explorer-refresh-btn:hover:not(:disabled) {
-  border-color: rgba(125, 211, 252, 0.48) !important;
-  background: rgba(30, 41, 59, 0.9) !important;
-}
-
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-refresh-btn,
 html[data-theme='dark'] .notes-explorer-shell .notes-explorer-upload-btn {
-  border-color: rgba(167, 139, 250, 0.62) !important;
-  background: linear-gradient(135deg, rgba(147, 51, 234, 0.95), rgba(124, 58, 237, 0.95)) !important;
-  box-shadow: 0 12px 26px rgba(124, 58, 237, 0.34), 0 0 0 1px rgba(167, 139, 250, 0.3) inset !important;
+  border-color: rgba(100, 116, 139, 0.56) !important;
+  background: rgba(15, 23, 42, 0.78) !important;
+  color: rgba(226, 232, 240, 0.84) !important;
 }
 
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-refresh-btn:hover:not(:disabled),
 html[data-theme='dark'] .notes-explorer-shell .notes-explorer-upload-btn:hover:not(:disabled) {
-  box-shadow: 0 16px 30px rgba(124, 58, 237, 0.42), 0 0 0 1px rgba(196, 181, 253, 0.35) inset !important;
+  border-color: rgba(125, 211, 252, 0.4) !important;
+  background: rgba(30, 41, 59, 0.88) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-back-btn {
+  border-color: rgba(96, 165, 250, 0.76) !important;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.98), rgba(29, 78, 216, 0.98)) !important;
+  color: rgba(255, 255, 255, 0.98) !important;
+  box-shadow: 0 18px 36px rgba(37, 99, 235, 0.44), 0 0 0 1px rgba(147, 197, 253, 0.56) inset !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-back-btn:hover:not(:disabled) {
+  border-color: rgba(147, 197, 253, 0.92) !important;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 1), rgba(37, 99, 235, 1)) !important;
+  box-shadow: 0 22px 40px rgba(37, 99, 235, 0.52), 0 0 0 1px rgba(191, 219, 254, 0.72) inset !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-back-btn svg {
+  color: rgba(255, 255, 255, 0.98) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-refresh-btn svg,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-upload-btn svg {
+  color: rgba(186, 206, 233, 0.9) !important;
 }
 
 html[data-theme='dark'] .to-gray-100,

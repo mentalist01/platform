@@ -9716,10 +9716,10 @@ app.patch('/api/files/:id', (req, res) => {
   if (Object.prototype.hasOwnProperty.call(req.body || {}, 'folderId')) {
     const folderIdRaw = req.body.folderId;
     const folderId = normalizeParentFolderId(folderIdRaw);
-    if (isCurrentLessonShared) {
-      return res.status(400).json({ error: `Файл из папки "${LESSON_SHARED_FOLDER_NAME}" нельзя перемещать` });
-    }
     if (!folderId) {
+      if (isCurrentLessonShared) {
+        return res.status(400).json({ error: `Файл из папки "${LESSON_SHARED_FOLDER_NAME}" можно перемещать только внутри общей папки` });
+      }
       updated.folderId = null;
       updated.folderName = null;
     } else if (isLessonSharedFolderIdForTeacher(folderId, ownerTeacherId, updated.taskNumber)) {
@@ -9753,9 +9753,13 @@ app.patch('/api/files/:id', (req, res) => {
       const folderRef = folders.find(
         (f) =>
           f.id === folderId &&
-          f.studentId === updated.studentId &&
           f.taskNumber === updated.taskNumber &&
-          f.category === updated.category
+          f.category === updated.category &&
+          (
+            !isCurrentLessonShared
+            ? f.studentId === updated.studentId
+            : true
+          )
       );
       if (!folderRef) return res.status(400).json({ error: 'Папка не найдена' });
       const movingSizeBytes = getEntrySizeBytes(db[idx]);
@@ -9764,6 +9768,9 @@ app.patch('/api/files/:id', (req, res) => {
         return res.status(413).json({ error: '\u041f\u0440\u0435\u0432\u044b\u0448\u0435\u043d \u043b\u0438\u043c\u0438\u0442 30 \u041c\u0411 \u0434\u043b\u044f \u044d\u0442\u043e\u0439 \u043f\u0430\u043f\u043a\u0438' });
       }
       const folderIsLessonShared = isFolderInLessonSharedTree(foldersById, folderRef, ownerTeacherId, updated.taskNumber);
+      if (isCurrentLessonShared && !folderIsLessonShared) {
+        return res.status(400).json({ error: `Файл из папки "${LESSON_SHARED_FOLDER_NAME}" можно перемещать только внутри общей папки` });
+      }
       if (folderIsLessonShared) {
         if (!canWriteLessonSharedByTeacher(req.auth, ownerTeacherId)) return forbid(res);
         const sharedTaskTotal = db
