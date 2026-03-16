@@ -1,17 +1,17 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
-  BookOpen,
   ChevronRight,
   Download,
   FileText,
   Folder,
   FolderPlus,
   Image as ImageIcon,
+  Monitor,
   Pencil,
   Plus,
   RefreshCcw,
-  Save,
+  Search,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -34,6 +34,7 @@ const mergeFolderLists = (lists) => {
   return merged;
 };
 const AUTO_REFRESH_INTERVAL_MS = 5000;
+const DEFAULT_NOTES_CATEGORY = 'class';
 
 const NotesSection = ({
   theme = '',
@@ -81,6 +82,7 @@ const NotesSection = ({
   const [renamingFolderId, setRenamingFolderId] = useState(null);
   const [renameFolderValue, setRenameFolderValue] = useState('');
   const [isRenamingFolder, setIsRenamingFolder] = useState(false);
+  const [expandedFolderIds, setExpandedFolderIds] = useState({});
   const [renamingId, setRenamingId] = useState(null);
   const [renameBase, setRenameBase] = useState('');
   const [renameExt, setRenameExt] = useState('');
@@ -139,6 +141,10 @@ const NotesSection = ({
     if (entry.isLessonShared === true) return true;
     return String(entry.name || '').trim().toLowerCase() === LESSON_SHARED_FOLDER_NAME;
   };
+  const normalizeParentFolderId = (value) => {
+    const id = typeof value === 'string' ? value.trim() : '';
+    return id || null;
+  };
 
   useEffect(() => {
     editingPyIdRef.current = editingPyId;
@@ -159,7 +165,7 @@ const NotesSection = ({
     }
     const normalizedTask = normalizeTaskNumber(entry.taskNumber);
     const nextTask = Number.isFinite(normalizedTask) ? normalizedTask : null;
-    const nextCategory = entry.category === 'class' || entry.category === 'home' ? entry.category : null;
+    const nextCategory = nextTask ? DEFAULT_NOTES_CATEGORY : null;
     const nextFolderId = entry.folderId || null;
     if (!nextTask && !nextCategory && !nextFolderId) {
       didRestoreRef.current = true;
@@ -236,17 +242,6 @@ const NotesSection = ({
     return chosen;
   };
 
-  const categoryCounts = useMemo(() => {
-    if (!Number.isFinite(normalizedCurrentTask)) return { class: 0, home: 0 };
-    const counts = { class: 0, home: 0 };
-    for (const f of files) {
-      if (getNotesTaskNumber(f?.taskNumber) !== normalizedCurrentTask) continue;
-      if (f?.category === 'class') counts.class += 1;
-      if (f?.category === 'home') counts.home += 1;
-    }
-    return counts;
-  }, [files, normalizedCurrentTask]);
-
   const folderCounts = useMemo(() => {
     if (!Number.isFinite(normalizedCurrentTask) || !currentCategory) return { root: 0, map: new Map() };
     const map = new Map();
@@ -259,14 +254,146 @@ const NotesSection = ({
     return { root, map };
   }, [files, normalizedCurrentTask, currentCategory]);
 
-  const currentFolder = useMemo(
-    () => folders.find((folder) => folder.id === currentFolderId) || null,
-    [folders, currentFolderId]
-  );
-  const isCurrentFolderLessonShared = Boolean(currentFolder && isLessonSharedFolder(currentFolder));
+  const normalizedFolders = useMemo(() => {
+    const ids = new Set((folders || []).map((folder) => String(folder?.id || '').trim()).filter(Boolean));
+    return (folders || []).map((folder) => {
+      const folderId = String(folder?.id || '').trim();
+      let parentFolderId = normalizeParentFolderId(folder?.parentFolderId);
+      if (parentFolderId === folderId) parentFolderId = null;
+      if (parentFolderId && !ids.has(parentFolderId)) parentFolderId = null;
+      return { ...folder, parentFolderId };
+    });
+  }, [folders]);
+
+  const foldersById = useMemo(() => {
+    const map = new Map();
+    normalizedFolders.forEach((folder) => {
+      const folderId = String(folder?.id || '').trim();
+      if (!folderId || map.has(folderId)) return;
+      map.set(folderId, folder);
+    });
+    return map;
+  }, [normalizedFolders]);
+
+  const folderChildrenByParent = useMemo(() => {
+    const childrenByParent = new Map();
+    const addChild = (parentId, folder) => {
+      const key = parentId || '__root__';
+      const list = childrenByParent.get(key) || [];
+      list.push(folder);
+      childrenByParent.set(key, list);
+    };
+    normalizedFolders.forEach((folder) => {
+      addChild(normalizeParentFolderId(folder?.parentFolderId), folder);
+    });
+    const sortFolders = (left, right) => {
+      const leftShared = isLessonSharedFolder(left);
+      const rightShared = isLessonSharedFolder(right);
+      if (leftShared !== rightShared) return leftShared ? -1 : 1;
+      return String(left?.name || '').localeCompare(String(right?.name || ''), 'ru');
+    };
+    childrenByParent.forEach((list, key) => {
+      childrenByParent.set(key, [...list].sort(sortFolders));
+    });
+    return childrenByParent;
+  }, [normalizedFolders]);
+
+  const folderTreeEntries = useMemo(() => {
+    const result = [];
+    const walk = (parentId, depth, chain) => {
+      const key = parentId || '__root__';
+      const children = folderChildrenByParent.get(key) || [];
+      children.forEach((folder) => {
+        const folderId = String(folder?.id || '').trim();
+        if (!folderId || chain.has(folderId)) return;
+        const childrenCount = (folderChildrenByParent.get(folderId) || []).length;
+        const isExpanded = Boolean(expandedFolderIds[folderId]);
+        result.push({
+          folder,
+          depth,
+          hasChildren: childrenCount > 0,
+          isExpanded
+        });
+        if (!childrenCount || !isExpanded) return;
+        const nextChain = new Set(chain);
+        nextChain.add(folderId);
+        walk(folderId, depth + 1, nextChain);
+      });
+    };
+    walk(null, 0, new Set());
+    return result;
+  }, [folderChildrenByParent, expandedFolderIds]);
+
+  const currentFolder = useMemo(() => (
+    currentFolderId ? (foldersById.get(currentFolderId) || null) : null
+  ), [foldersById, currentFolderId]);
+
+  const isFolderInLessonSharedTree = useCallback((folderId) => {
+    if (!folderId) return false;
+    const visited = new Set();
+    let cursor = foldersById.get(folderId) || null;
+    while (cursor && typeof cursor === 'object') {
+      const cursorId = String(cursor?.id || '').trim();
+      if (!cursorId || visited.has(cursorId)) break;
+      visited.add(cursorId);
+      if (isLessonSharedFolder(cursor)) return true;
+      const parentId = normalizeParentFolderId(cursor?.parentFolderId);
+      if (!parentId) break;
+      cursor = foldersById.get(parentId) || null;
+    }
+    return false;
+  }, [foldersById]);
+
+  const isCurrentFolderLessonShared = isFolderInLessonSharedTree(currentFolderId);
+  const currentFolderParentId = normalizeParentFolderId(currentFolder?.parentFolderId);
   const canUploadToCurrentFolder = !(role === 'student' && isCurrentFolderLessonShared);
   const canManageFile = (file) => !(role === 'student' && isLessonSharedFile(file));
   const activeUsageByNumber = isCurrentFolderLessonShared ? sharedTaskUsageByNumber : taskUsageByNumber;
+
+  useEffect(() => {
+    setExpandedFolderIds((prev) => {
+      const next = {};
+      let changed = false;
+      Object.entries(prev || {}).forEach(([folderId, isExpanded]) => {
+        if (!isExpanded) return;
+        if (!foldersById.has(folderId)) {
+          changed = true;
+          return;
+        }
+        next[folderId] = true;
+      });
+      const prevExpanded = Object.keys(prev || {}).filter((folderId) => prev[folderId]);
+      if (!changed && prevExpanded.length === Object.keys(next).length) return prev;
+      return next;
+    });
+  }, [foldersById]);
+
+  useEffect(() => {
+    if (!currentFolderId) return;
+    const idsToExpand = [];
+    const visited = new Set();
+    let cursor = foldersById.get(currentFolderId) || null;
+    while (cursor && typeof cursor === 'object') {
+      const cursorId = String(cursor?.id || '').trim();
+      if (!cursorId || visited.has(cursorId)) break;
+      visited.add(cursorId);
+      const parentId = normalizeParentFolderId(cursor?.parentFolderId);
+      if (!parentId) break;
+      idsToExpand.push(parentId);
+      cursor = foldersById.get(parentId) || null;
+    }
+    if (!idsToExpand.length) return;
+    setExpandedFolderIds((prev) => {
+      const next = { ...(prev || {}) };
+      let changed = false;
+      idsToExpand.forEach((folderId) => {
+        if (next[folderId]) return;
+        next[folderId] = true;
+        changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, [currentFolderId, foldersById]);
 
   const taskUsageBytes = useMemo(() => {
     if (!Number.isFinite(normalizedCurrentTask)) return 0;
@@ -457,6 +584,11 @@ const NotesSection = ({
     });
   }, [effectiveStudentId, currentTask, currentCategory, currentFolderId, onLocationChange]);
 
+  useEffect(() => {
+    if (!currentTask || currentCategory) return;
+    setCurrentCategory(DEFAULT_NOTES_CATEGORY);
+  }, [currentTask, currentCategory]);
+
   const isImageMimeType = (value) => String(value || '').toLowerCase().startsWith('image/');
   const isImageFileName = (name) => /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico|heic|heif)$/i.test(String(name || ''));
 
@@ -622,8 +754,18 @@ const NotesSection = ({
     }
     const uploadTaskNumber = normalizedCurrentTask;
     if (!Number.isFinite(uploadTaskNumber) || !currentCategory || !effectiveStudentId) return;
+    if (!canUploadToCurrentFolder) {
+      setFoldersError(`В папке "${LESSON_SHARED_FOLDER_NAME}" может создавать подпапки только учитель.`);
+      return;
+    }
     try {
-      const created = await api.createFolder(uploadTaskNumber, currentCategory, name, effectiveStudentId);
+      const created = await api.createFolder(
+        uploadTaskNumber,
+        currentCategory,
+        name,
+        effectiveStudentId,
+        currentFolderId || null
+      );
       setFolders(prev => [created, ...prev]);
       setNewFolderName('');
       setIsCreatingFolder(false);
@@ -857,49 +999,56 @@ const NotesSection = ({
     </svg>
   );
 
-  const FileIcon = ({ name }) => {
+  const FileIcon = ({ name, compact = false }) => {
+    const badgeClass = compact
+      ? 'h-8 w-8 rounded-lg border border-slate-200 bg-white'
+      : 'w-10 h-10 bg-transparent';
+    const typeClass = compact
+      ? 'mt-0 text-[9px]'
+      : 'mt-1 text-[10px]';
+
     if (isImageFile(name)) {
       return (
-        <div className="flex flex-col items-center w-12">
-          <div className="w-10 h-10 flex items-center justify-center bg-transparent">
+        <div className={`flex flex-col items-center ${compact ? 'w-8' : 'w-12'}`}>
+          <div className={`flex items-center justify-center ${badgeClass}`}>
             <ImageIcon size={22} className="text-violet-600" />
           </div>
-          <span className="text-[10px] font-bold text-violet-700 mt-1">IMG</span>
+          {!compact && <span className={`font-bold text-violet-700 ${typeClass}`}>IMG</span>}
         </div>
       );
     }
     if (isPdfFile(name)) {
       return (
-        <div className="flex flex-col items-center w-12">
-          <div className="w-10 h-10 flex items-center justify-center bg-transparent">
+        <div className={`flex flex-col items-center ${compact ? 'w-8' : 'w-12'}`}>
+          <div className={`flex items-center justify-center ${badgeClass}`}>
             <PdfLogo />
           </div>
-          <span className="text-[10px] font-bold text-red-600 mt-1">PDF</span>
+          {!compact && <span className={`font-bold text-red-600 ${typeClass}`}>PDF</span>}
         </div>
       );
     }
     if (isExcelFile(name)) {
       return (
-        <div className="flex flex-col items-center w-12">
-          <div className="w-10 h-10 flex items-center justify-center bg-transparent">
+        <div className={`flex flex-col items-center ${compact ? 'w-8' : 'w-12'}`}>
+          <div className={`flex items-center justify-center ${badgeClass}`}>
             <ExcelLogo />
           </div>
-          <span className="text-[10px] font-bold text-green-700 mt-1">XLS</span>
+          {!compact && <span className={`font-bold text-green-700 ${typeClass}`}>XLS</span>}
         </div>
       );
     }
     if (isPyFile(name)) {
       return (
-        <div className="flex flex-col items-center w-12">
-          <div className="w-10 h-10 flex items-center justify-center bg-transparent">
+        <div className={`flex flex-col items-center ${compact ? 'w-8' : 'w-12'}`}>
+          <div className={`flex items-center justify-center ${badgeClass}`}>
             <PyLogo />
           </div>
-          <span className="text-[10px] font-bold text-blue-600 mt-1">PY</span>
+          {!compact && <span className={`font-bold text-blue-600 ${typeClass}`}>PY</span>}
         </div>
       );
     }
     return (
-      <div className="w-10 h-10 flex items-center justify-center bg-transparent">
+      <div className={`flex items-center justify-center ${badgeClass}`}>
         <FileText size={20} className="text-gray-600"/>
       </div>
     );
@@ -1414,6 +1563,28 @@ const NotesSection = ({
     return sum + ((taskCounts.get(task.number) || 0) > 0 ? 1 : 0);
   }, 0);
 
+  const openTaskExplorer = (taskNumber) => {
+    const normalized = normalizeTaskNumber(taskNumber);
+    if (!Number.isFinite(normalized)) return;
+    setCurrentTask(normalized);
+    setCurrentCategory(DEFAULT_NOTES_CATEGORY);
+    setCurrentFolderId(null);
+  };
+
+  const closeTaskExplorer = () => {
+    setCurrentTask(null);
+    setCurrentCategory(null);
+    setCurrentFolderId(null);
+  };
+
+  const getFileTypeLabel = (file) => {
+    if (isPyFile(file?.name)) return 'Python';
+    if (isPdfFile(file?.name)) return 'PDF';
+    if (isImageFile(file)) return 'Изображение';
+    if (isExcelFile(file?.name)) return 'Таблица';
+    return 'Файл';
+  };
+
   const renderNotesIntro = (message) => (
     <div className="animate-fadeIn space-y-4">
       <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-4 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
@@ -1454,7 +1625,7 @@ const NotesSection = ({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-xl md:text-2xl font-bold text-gray-900">Конспекты</h2>
-              <p className="hidden md:block text-sm text-slate-600">Выберите задание, чтобы открыть материалы</p>
+              <p className="hidden md:block text-sm text-slate-600">Выберите задание, чтобы открыть файловый проводник</p>
             </div>
             {renderStudentPicker()}
           </div>
@@ -1477,7 +1648,7 @@ const NotesSection = ({
           return (
             <Card
               key={task.number}
-              onClick={() => setCurrentTask(normalizeTaskNumber(task.number))}
+              onClick={() => openTaskExplorer(task.number)}
               className={`group space-y-2.5 md:space-y-3 p-3 sm:p-5 ${
                 hasFiles
                   ? 'border-purple-200/80 bg-gradient-to-br from-purple-50/65 via-white to-fuchsia-50/35'
@@ -1518,96 +1689,32 @@ const NotesSection = ({
     </div>
   );
 
-  if (!currentCategory) return (
-    <div className="animate-fadeIn space-y-4 md:space-y-5" data-tour="notes">
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-4 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
-        <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
-        <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
-        <div className="relative z-10 flex flex-col gap-3 md:gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <button
-              onClick={() => setCurrentTask(null)}
-              className="inline-flex items-center gap-1 rounded-xl border border-purple-100 bg-white/90 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-purple-300 hover:text-purple-700"
-            >
-              <ArrowLeft size={16} />
-              К заданиям
-            </button>
-            {renderStudentPicker()}
-          </div>
-          <div className="flex flex-wrap gap-1.5 md:gap-2 text-[11px] md:text-xs font-semibold">
-            <span className="inline-flex items-center rounded-full border border-purple-200 bg-white/90 px-2 py-1 md:px-2.5 text-purple-700">
-              {`Задание ${formatTaskNumber(currentTask) || currentTask}`}
-            </span>
-            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-white/90 px-2 py-1 md:px-2.5 text-emerald-700">
-              {`Файлов: ${taskCounts.get(normalizedCurrentTask) || 0}`}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-        <Card
-          onClick={() => setCurrentCategory('class')}
-          className={`p-4 md:p-7 flex items-center gap-3 md:gap-4 ${
-            categoryCounts.class > 0
-              ? 'border-orange-200/80 bg-gradient-to-br from-orange-50/70 via-white to-amber-50/45'
-              : 'border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-slate-100/70'
-          }`}
-        >
-          <div className={`inline-flex h-11 w-11 md:h-14 md:w-14 items-center justify-center rounded-xl md:rounded-2xl border ${
-            categoryCounts.class > 0 ? 'border-orange-200 bg-white text-orange-500' : 'border-slate-200 bg-white text-slate-400'
-          }`}>
-            <BookOpen size={24} />
-          </div>
-          <div>
-            <h3 className="font-bold text-base md:text-lg text-gray-800">На уроке</h3>
-            <p className="hidden md:block text-gray-500 text-sm">Презентации и скрипты</p>
-            <span className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
-              categoryCounts.class > 0
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                : 'border-slate-200 bg-slate-100 text-slate-500'
-            }`}>
-              {categoryCounts.class > 0 ? `Файлов: ${categoryCounts.class}` : 'Пусто'}
-            </span>
-          </div>
-        </Card>
-        <Card
-          onClick={() => setCurrentCategory('home')}
-          className={`p-4 md:p-7 flex items-center gap-3 md:gap-4 ${
-            categoryCounts.home > 0
-              ? 'border-emerald-200/80 bg-gradient-to-br from-emerald-50/70 via-white to-lime-50/45'
-              : 'border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-slate-100/70'
-          }`}
-        >
-          <div className={`inline-flex h-11 w-11 md:h-14 md:w-14 items-center justify-center rounded-xl md:rounded-2xl border ${
-            categoryCounts.home > 0 ? 'border-emerald-200 bg-white text-emerald-500' : 'border-slate-200 bg-white text-slate-400'
-          }`}>
-            <FileText size={24} />
-          </div>
-          <div>
-            <h3 className="font-bold text-base md:text-lg text-gray-800">Домашка</h3>
-            <p className="hidden md:block text-gray-500 text-sm">Файлы заданий</p>
-            <span className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
-              categoryCounts.home > 0
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                : 'border-slate-200 bg-slate-100 text-slate-500'
-            }`}>
-              {categoryCounts.home > 0 ? `Файлов: ${categoryCounts.home}` : 'Пусто'}
-            </span>
-          </div>
-        </Card>
-      </div>
-    </div>
-  );
-
+  const effectiveCategory = currentCategory || DEFAULT_NOTES_CATEGORY;
   const filtered = files.filter((f) =>
     getNotesTaskNumber(f?.taskNumber) === normalizedCurrentTask &&
-    f.category === currentCategory &&
+    f.category === effectiveCategory &&
     (currentFolderId ? f.folderId === currentFolderId : !f.folderId)
   );
-  const currentFolderLabel = currentFolder
-    ? (currentFolder.name || 'Папка')
+  const currentFolderPath = (() => {
+    if (!currentFolderId) return [];
+    const labels = [];
+    const visited = new Set();
+    let cursorId = currentFolderId;
+    while (cursorId && !visited.has(cursorId)) {
+      visited.add(cursorId);
+      const folder = foldersById.get(cursorId);
+      if (!folder) break;
+      labels.push(folder.name || 'Папка');
+      cursorId = normalizeParentFolderId(folder.parentFolderId);
+    }
+    return labels.reverse();
+  })();
+  const currentFolderLabel = currentFolderPath.length
+    ? currentFolderPath[currentFolderPath.length - 1]
     : 'Без папки';
+  const currentFolderPathLabel = currentFolderPath.length
+    ? `На уроке (корень) / ${currentFolderPath.join(' / ')}`
+    : 'На уроке (корень)';
   const pyEditorOptions = {
     minimap: { enabled: false },
     fontSize: 14,
@@ -1625,78 +1732,115 @@ const NotesSection = ({
   const pdfPreviewHeight = isMobileViewport ? '48vh' : '60vh';
   const imagePreviewMaxHeight = isMobileViewport ? '56vh' : '72vh';
   const currentTaskLabel = formatTaskNumber(currentTask) || currentTask;
-  const currentCategoryLabel = currentCategory === 'class' ? 'На уроке' : 'Домашка';
+  const currentCategoryLabel = 'На уроке';
   const uploadBlockedByRole = !canUploadToCurrentFolder;
   const uploadButtonLabel = isUploading
     ? 'Загрузка...'
     : (uploadBlockedByRole ? 'Только учитель' : 'Загрузить');
+  const explorerSearchPlaceholder = `Поиск: ${currentFolderLabel === 'Без папки' ? 'На уроке' : currentFolderLabel}`;
+  const handleExplorerBack = () => {
+    if (currentFolderId) {
+      setCurrentFolderId(currentFolderParentId);
+      return;
+    }
+    closeTaskExplorer();
+  };
 
   return (
-    <div className="animate-fadeIn space-y-4 md:space-y-5" data-tour="notes">
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-4 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
-        <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
-        <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
-        <div className="relative z-10 space-y-3 md:space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <button
-              onClick={() => setCurrentCategory(null)}
-              className="inline-flex items-center gap-1 rounded-xl border border-purple-100 bg-white/90 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-purple-300 hover:text-purple-700"
-            >
-              <ArrowLeft size={16} />
-              Назад
-            </button>
-            {renderStudentPicker()}
-          </div>
-          <div className="flex flex-col gap-3 md:gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="space-y-2">
-              <div className="hidden md:flex text-base md:text-lg font-semibold text-gray-700 flex-wrap items-center gap-2">
-                <button
-                  onClick={() => setCurrentCategory(null)}
-                  className="hover:text-purple-600"
-                  type="button"
-                >
-                  Задание {currentTaskLabel}
-                </button>
-                <ChevronRight size={16} className="text-gray-300" />
-                <button
-                  onClick={() => setCurrentFolderId(null)}
-                  className="hover:text-purple-600"
-                  type="button"
-                >
-                  {currentCategoryLabel}
-                </button>
-                <ChevronRight size={16} className="text-gray-300" />
-                <span className={currentFolderId ? 'text-gray-700' : 'text-gray-400'}>
-                  {currentFolderLabel}
-                </span>
-              </div>
-              <div className="md:hidden text-sm font-semibold text-gray-700">
-                {`Задание ${currentTaskLabel} · ${currentCategoryLabel}`}
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5 md:gap-2 text-[11px] md:text-xs font-semibold">
-                <span className="inline-flex items-center rounded-full border border-purple-200 bg-white/90 px-2 py-1 md:px-2.5 text-purple-700">
-                  <span className="md:hidden">{`Исп.: ${formatBytes(taskUsageBytes)}`}</span>
-                  <span className="hidden md:inline">{`Использовано: ${formatBytes(taskUsageBytes)} из ${formatBytes(totalLimitBytes)}`}</span>
-                </span>
-                <span className={`inline-flex items-center rounded-full border px-2 py-1 md:px-2.5 ${
-                  remainingBytes <= 10 * 1024 * 1024
-                    ? 'border-rose-200 bg-rose-50 text-rose-600'
-                    : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                }`}>
-                  Осталось: {formatBytes(remainingBytes)}
-                </span>
-                <span className="hidden md:inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-slate-600">
-                  {`Файлов в разделе: ${filtered.length}`}
-                </span>
+    <div className="notes-explorer-shell animate-fadeIn space-y-4 md:space-y-5" data-tour="notes">
+      <div className="notes-explorer-window overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-[0_14px_28px_rgba(15,23,42,0.08)]">
+        <div className="notes-explorer-toolbar border-b border-slate-200 bg-gradient-to-b from-slate-50 to-white px-3 py-3 md:px-4 md:py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-2">
+              <Button
+                variant="secondary"
+                onClick={handleExplorerBack}
+                className="notes-explorer-back-btn shrink-0"
+                title="Назад"
+              >
+                <ArrowLeft size={16} />
+                Назад
+              </Button>
+              <div className="space-y-1">
+                <h3 className="text-base font-semibold text-slate-900 md:text-lg">
+                  {`Проводник: задание ${currentTaskLabel}`}
+                </h3>
               </div>
             </div>
-            <div className="flex gap-2 w-full sm:w-auto">
+            <div className="notes-explorer-quick-actions flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+              {renderStudentPicker()}
+              <Button
+                variant="secondary"
+                onClick={handleRefreshData}
+                disabled={isRefreshingData}
+                className="notes-explorer-refresh-btn w-full sm:w-auto"
+                title={isRefreshingData ? 'Обновление...' : 'Обновить'}
+              >
+                <RefreshCcw size={16} className={isRefreshingData ? 'animate-spin' : ''} />
+                {isRefreshingData ? 'Обновление...' : 'Обновить'}
+              </Button>
               <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} multiple disabled={uploadBlockedByRole} />
-              <Button onClick={() => fileRef.current?.click()} disabled={isUploading || uploadBlockedByRole} className="w-full sm:w-auto min-w-[128px]">
+              <Button
+                onClick={() => fileRef.current?.click()}
+                disabled={isUploading || uploadBlockedByRole}
+                className="notes-explorer-upload-btn w-full sm:w-auto min-w-[156px]"
+              >
                 <Upload size={18} /> {uploadButtonLabel}
               </Button>
             </div>
           </div>
+          <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center">
+            <div className="notes-explorer-address flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm whitespace-nowrap text-slate-600">
+              <Monitor size={14} className="shrink-0 text-slate-500" />
+              <span className="shrink-0 text-slate-700">Конспекты</span>
+              <ChevronRight size={13} className="shrink-0 text-slate-300" />
+              <span className="shrink-0">{`Задание ${currentTaskLabel}`}</span>
+              <ChevronRight size={13} className="shrink-0 text-slate-300" />
+              <span className="shrink-0">{currentCategoryLabel}</span>
+              {currentFolderPath.length > 0 ? (
+                currentFolderPath.map((segment, index) => (
+                  <React.Fragment key={`address-path-segment-${index}`}>
+                    <ChevronRight size={13} className="shrink-0 text-slate-300" />
+                    <span className={`shrink-0 ${index === currentFolderPath.length - 1 ? 'text-slate-900' : 'text-slate-600'}`}>
+                      {segment}
+                    </span>
+                  </React.Fragment>
+                ))
+              ) : (
+                <>
+                  <ChevronRight size={13} className="shrink-0 text-slate-300" />
+                  <span className="shrink-0 text-slate-500">Без папки</span>
+                </>
+              )}
+            </div>
+            <label className="notes-explorer-search hidden min-w-[260px] items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 lg:flex">
+              <Search size={14} className="text-slate-400" />
+              <input
+                type="text"
+                value={explorerSearchPlaceholder}
+                readOnly
+                className="w-full bg-transparent text-sm text-slate-500 outline-none"
+                aria-label="Поиск в проводнике"
+              />
+            </label>
+          </div>
+          {role !== 'student' && (
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold md:text-xs">
+              <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700 md:px-2.5">
+                {`Файлов в папке: ${filtered.length}`}
+              </span>
+              <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700 md:px-2.5">
+                {`Использовано: ${formatBytes(taskUsageBytes)} / ${formatBytes(totalLimitBytes)}`}
+              </span>
+              <span className={`inline-flex items-center rounded-full border px-2 py-1 md:px-2.5 ${
+                remainingBytes <= 10 * 1024 * 1024
+                  ? 'border-rose-200 bg-rose-50 text-rose-600'
+                  : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+              }`}>
+                Осталось: {formatBytes(remainingBytes)}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1716,7 +1860,7 @@ const NotesSection = ({
               : 'border-slate-200 bg-white text-slate-600'
           }`}
         >
-          {showMobileFolderTools ? 'Скрыть папки' : `Папки (${folders.length})`}
+          {showMobileFolderTools ? 'Скрыть папки' : `Папки (${normalizedFolders.length})`}
         </button>
         <button
           type="button"
@@ -1737,61 +1881,68 @@ const NotesSection = ({
         </button>
       </div>
 
-      <Card className={`space-y-4 border-purple-200/70 bg-gradient-to-br from-white via-white to-purple-50/45 ${showMobilePyTools ? 'block' : 'hidden'} md:block`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="font-bold text-gray-800">Python файл</h3>
-            <p className="text-xs text-slate-500">Создайте .py файл сразу в текущей папке</p>
-          </div>
-          <Button variant="secondary" onClick={() => setShowPyCreator((v) => !v)} disabled={uploadBlockedByRole}>
-            <Plus size={16} /> {showPyCreator ? 'Скрыть' : 'Создать'}
-          </Button>
-        </div>
-        {showPyCreator && (
-          <div className="space-y-3">
-            <div className="flex flex-col md:flex-row gap-2">
-              <input
-                type="text"
-                value={pyDraftName}
-                onChange={(e) => { setPyDraftName(e.target.value); setPyDraftError(''); }}
-                placeholder="Название файла (без .py)"
-                className="flex-1 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
-              />
-              <Button onClick={handleCreatePyFile} disabled={pyDraftSaving || !pyDraftName.trim() || uploadBlockedByRole} className="w-full md:w-auto">
-                {pyDraftSaving ? 'Сохранение...' : 'Сохранить файл'}
+      <div className="grid gap-3 md:grid-cols-[320px,minmax(0,1fr)] md:items-start">
+        <div className="space-y-3">
+          <Card className={`space-y-4 border-purple-200/70 bg-gradient-to-br from-white via-white to-purple-50/45 ${showMobilePyTools ? 'block' : 'hidden'} md:block`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-gray-800">Python файл</h3>
+                <p className="text-xs text-slate-500">Создайте .py файл сразу в текущей папке</p>
+              </div>
+              <Button variant="secondary" onClick={() => setShowPyCreator((v) => !v)} disabled={uploadBlockedByRole} className="w-full sm:w-auto">
+                <Plus size={16} /> {showPyCreator ? 'Скрыть' : 'Создать'}
               </Button>
             </div>
-            <div className="rounded-2xl overflow-hidden border border-gray-800">
-              <Editor
-                height={pyDraftEditorHeight}
-                language="python"
-                theme={monacoTheme}
-                beforeMount={ensureMonacoColorTheme}
-                value={pyDraftCode}
-                onChange={(value) => {
-                  setPyDraftCode(value ?? '');
-                  if (pyDraftError) setPyDraftError('');
-                }}
-                options={pyEditorOptions}
-                loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
-              />
-            </div>
-            <div className="flex flex-wrap items-center justify-between text-xs text-gray-400 gap-2">
-              <span>Файл сохранится в папке: {currentFolderLabel}</span>
-              <span>Размер: {formatBytes(getPyDraftSize(pyDraftCode))}</span>
-            </div>
-            {pyDraftError && <p className="text-xs text-red-500">{pyDraftError}</p>}
-          </div>
-        )}
-      </Card>
+            {showPyCreator && (
+              <div className="space-y-3">
+                <div className="flex flex-col md:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={pyDraftName}
+                    onChange={(e) => { setPyDraftName(e.target.value); setPyDraftError(''); }}
+                    placeholder="Название файла (без .py)"
+                    className="flex-1 min-w-0 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+                  />
+                  <Button onClick={handleCreatePyFile} disabled={pyDraftSaving || !pyDraftName.trim() || uploadBlockedByRole} className="w-full md:w-auto">
+                    {pyDraftSaving ? 'Сохранение...' : 'Сохранить файл'}
+                  </Button>
+                </div>
+                <div className="rounded-2xl overflow-hidden border border-gray-800">
+                  <Editor
+                    height={pyDraftEditorHeight}
+                    language="python"
+                    theme={monacoTheme}
+                    beforeMount={ensureMonacoColorTheme}
+                    value={pyDraftCode}
+                    onChange={(value) => {
+                      setPyDraftCode(value ?? '');
+                      if (pyDraftError) setPyDraftError('');
+                    }}
+                    options={pyEditorOptions}
+                    loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+                  />
+                </div>
+                <div className="flex flex-wrap items-center justify-between text-xs text-gray-400 gap-2">
+                  <span>Файл сохранится в папке: {currentFolderLabel}</span>
+                  <span>Размер: {formatBytes(getPyDraftSize(pyDraftCode))}</span>
+                </div>
+                {pyDraftError && <p className="text-xs text-red-500">{pyDraftError}</p>}
+              </div>
+            )}
+          </Card>
 
-      <Card className={`space-y-4 border-slate-200 bg-white/90 ${showMobileFolderTools ? 'block' : 'hidden'} md:block`}>
+      <Card className={`notes-explorer-panel space-y-4 border-slate-200 bg-white/90 ${showMobileFolderTools ? 'block' : 'hidden'} md:block`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="font-bold text-gray-800">Папки</h3>
-            <p className="text-xs text-slate-500">Организуйте материалы внутри выбранного раздела</p>
+            <p className="text-xs text-slate-500">Создавайте папки и подпапки</p>
           </div>
-          <Button variant="secondary" onClick={() => setIsCreatingFolder((v) => !v)} className="w-full sm:w-auto">
+          <Button
+            variant="secondary"
+            onClick={() => setIsCreatingFolder((v) => !v)}
+            disabled={uploadBlockedByRole}
+            className="w-full sm:w-auto"
+          >
             <FolderPlus size={16} /> Новая папка
           </Button>
         </div>
@@ -1803,39 +1954,54 @@ const NotesSection = ({
               value={newFolderName}
               onChange={(e) => { setNewFolderName(e.target.value); setFoldersError(''); }}
               onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); }}
-              placeholder="Название папки"
+              placeholder={currentFolderId ? 'Название подпапки' : 'Название папки'}
               className="flex-1 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
             />
-            <Button onClick={handleCreateFolder} disabled={!newFolderName.trim()} className="w-full md:w-auto">
+            <Button onClick={handleCreateFolder} disabled={!newFolderName.trim() || uploadBlockedByRole} className="w-full md:w-auto">
               Создать
             </Button>
           </div>
         )}
 
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="notes-explorer-folder-tree space-y-1 rounded-2xl border border-slate-200 bg-slate-50/80 p-2">
           <button
             onClick={() => setCurrentFolderId(null)}
             onDragOver={(e) => handleFolderDragOver(e, 'root')}
             onDragLeave={(e) => handleFolderDragLeave(e, 'root')}
             onDrop={(e) => handleFolderDrop(e, null)}
-            className={`px-3 py-2 rounded-xl border text-sm font-medium transition-all ${
+            className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm font-medium transition-all ${
               dragOverFolderId === 'root'
-                ? 'border-purple-500 bg-purple-50 text-purple-700 ring-2 ring-purple-200'
+                ? 'border-blue-500 bg-blue-50 text-blue-700 ring-1 ring-blue-200'
                 : currentFolderId === null
-                  ? 'border-purple-500 bg-purple-50 text-purple-700'
-                  : 'border-gray-200 text-gray-600 hover:border-purple-300'
+                  ? 'border-blue-500 bg-blue-50 text-blue-800 ring-2 ring-blue-200/90 shadow-sm'
+                  : 'border-transparent text-slate-700 hover:border-slate-300 hover:bg-white'
             }`}
+            type="button"
           >
-            Без папки
-            <span className="ml-2 text-xs opacity-70">{folderCounts.root}</span>
+            <span className="flex items-center gap-2">
+              <Folder size={16} className="text-amber-500" />
+              <span>На уроке (корень)</span>
+            </span>
+            <span className="ml-2 flex items-center gap-2">
+              <span className="text-xs opacity-70">{folderCounts.root}</span>
+            </span>
           </button>
-          {folders.map((folder) => {
+          {folderTreeEntries.map(({ folder, depth, hasChildren, isExpanded }) => {
             const sharedFolder = isLessonSharedFolder(folder);
+            const isCurrentFolder = currentFolderId === folder.id;
+            const indent = Math.min(depth, 8) * 16;
             return (
-              <button
+              <div
                 key={folder.id}
                 onClick={() => {
                   if (renamingFolderId !== folder.id) setCurrentFolderId(folder.id);
+                }}
+                onKeyDown={(e) => {
+                  if (renamingFolderId === folder.id) return;
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setCurrentFolderId(folder.id);
+                  }
                 }}
                 onDoubleClick={() => {
                   if (!sharedFolder) startRenameFolder(folder);
@@ -1843,50 +2009,80 @@ const NotesSection = ({
                 onDragOver={(e) => handleFolderDragOver(e, folder.id)}
                 onDragLeave={(e) => handleFolderDragLeave(e, folder.id)}
                 onDrop={(e) => handleFolderDrop(e, folder.id)}
-                className={`px-3 py-2 rounded-xl border text-sm font-medium transition-all ${
+                className={`flex w-full cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-left text-sm font-medium transition-all ${
                   dragOverFolderId === folder.id
-                    ? 'border-purple-500 bg-purple-50 text-purple-700 ring-2 ring-purple-200'
-                    : currentFolderId === folder.id
-                      ? 'border-purple-500 bg-purple-50 text-purple-700'
-                      : sharedFolder
-                        ? 'border-amber-200 bg-amber-50 text-amber-700'
-                        : 'border-gray-200 text-gray-600 hover:border-purple-300'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700 ring-1 ring-blue-200'
+                    : isCurrentFolder
+                      ? 'border-blue-500 bg-blue-50 text-blue-800 ring-2 ring-blue-200/90 shadow-sm'
+                      : 'border-transparent text-slate-700 hover:border-slate-300 hover:bg-white'
                 }`}
+                style={{ paddingLeft: `${12 + indent}px` }}
+                role="button"
+                tabIndex={renamingFolderId === folder.id ? -1 : 0}
               >
-                {renamingFolderId === folder.id && !sharedFolder ? (
-                  <input
-                    value={renameFolderValue}
-                    onChange={(e) => setRenameFolderValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') saveRenameFolder(folder);
-                      if (e.key === 'Escape') cancelRenameFolder();
-                    }}
-                    onBlur={() => {
-                      if (!isRenamingFolder) saveRenameFolder(folder);
-                    }}
-                    className="px-2 py-1 rounded-lg bg-white border border-purple-100 focus:border-purple-500 outline-none text-sm"
-                    autoFocus
-                  />
-                ) : (
-                  <>
-                    {folder.name}
-                    {sharedFolder && <span className="ml-2 text-[10px] uppercase tracking-wide opacity-70">общая</span>}
-                    <span className="ml-2 text-xs opacity-70">{folderCounts.map.get(folder.id) || 0}</span>
-                  </>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  {hasChildren ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedFolderIds((prev) => {
+                          const next = { ...(prev || {}) };
+                          if (next[folder.id]) delete next[folder.id];
+                          else next[folder.id] = true;
+                          return next;
+                        });
+                      }}
+                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 transition hover:bg-slate-200/70 hover:text-slate-700"
+                      aria-label={isExpanded ? 'Свернуть папку' : 'Развернуть папку'}
+                      title={isExpanded ? 'Свернуть папку' : 'Развернуть папку'}
+                    >
+                      <ChevronRight size={14} className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                    </button>
+                  ) : (
+                    <span className="inline-flex h-5 w-5 shrink-0" />
+                  )}
+                  {renamingFolderId === folder.id && !sharedFolder ? (
+                    <input
+                      value={renameFolderValue}
+                      onChange={(e) => setRenameFolderValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') saveRenameFolder(folder);
+                        if (e.key === 'Escape') cancelRenameFolder();
+                      }}
+                      onBlur={() => {
+                        if (!isRenamingFolder) saveRenameFolder(folder);
+                      }}
+                      className="px-2 py-1 rounded-lg bg-white border border-purple-100 focus:border-purple-500 outline-none text-sm"
+                      autoFocus
+                    />
+                  ) : (
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Folder size={16} className="text-amber-500" />
+                      <span className="truncate">{folder.name}</span>
+                      {sharedFolder && <span className="text-[10px] uppercase tracking-wide opacity-70">общая</span>}
+                    </span>
+                  )}
+                </div>
+                {renamingFolderId === folder.id && !sharedFolder ? null : (
+                  <span className="ml-2 flex items-center gap-2">
+                    <span className="text-xs opacity-70">{folderCounts.map.get(folder.id) || 0}</span>
+                  </span>
                 )}
-              </button>
+              </div>
             );
           })}
         </div>
         {foldersError && <p className="text-xs text-red-500 mt-2">{foldersError}</p>}
       </Card>
+        </div>
 
       <div
         onDrop={uploadBlockedByRole ? undefined : handleDrop}
         onDragOver={uploadBlockedByRole ? undefined : handleDragOver}
         onDragLeave={uploadBlockedByRole ? undefined : handleDragLeave}
         data-tour="files"
-        className={`rounded-3xl border-2 border-dashed p-3.5 md:p-5 transition-all ${
+        className={`notes-explorer-files rounded-3xl border-2 border-dashed p-3.5 md:p-5 transition-all ${
           uploadBlockedByRole
             ? 'border-slate-200 bg-slate-50/70'
             : isDragging
@@ -1904,7 +2100,7 @@ const NotesSection = ({
             </>
           )}
           <span className="text-[11px] md:text-xs text-slate-400">
-            Папка: {currentFolderLabel} • Осталось {formatBytes(remainingBytes)}
+            Папка: {currentFolderPathLabel} • Осталось {formatBytes(remainingBytes)}
           </span>
           {isUploading && <span className="text-xs font-bold text-purple-600">Загрузка...</span>}
         </div>
@@ -1914,247 +2110,280 @@ const NotesSection = ({
             {filesError || 'Пусто'}
           </div>
         ) : (
-          <div className="space-y-3">
-            {filtered.map((f) => {
-              const manageable = canManageFile(f);
-              return (
-              <div key={f.id} className="space-y-2">
-                <div
-                className={`flex items-start justify-between rounded-2xl border border-slate-200 bg-white/90 p-3 md:p-4 shadow-sm transition-all ${
-                  draggingFileId === f.id ? 'opacity-60' : 'hover:border-purple-200 hover:shadow-md'
-                }`}
-                draggable={renamingId !== f.id && manageable}
-                onDragStart={(e) => {
-                  if (!manageable) return;
-                  handleDragStartFile(e, f);
-                }}
-                onDragEnd={handleDragEndFile}
-                onClick={() => toggleFilePreview(f)}
-                role={(isPyFile(f.name) || isPdfFile(f.name) || isImageFile(f)) ? 'button' : undefined}
-                tabIndex={(isPyFile(f.name) || isPdfFile(f.name) || isImageFile(f)) ? 0 : undefined}
-                onKeyDown={(e) => {
-                  if ((e.key === 'Enter' || e.key === ' ') && (isPyFile(f.name) || isPdfFile(f.name) || isImageFile(f))) {
-                    e.preventDefault();
-                    toggleFilePreview(f);
-                  }
-                }}
-              >
-                  <div className="flex items-start gap-3 min-w-0">
-                    <FileIcon name={f.name} />
-                    <div className="min-w-0">
-                      {renamingId === f.id ? (
-                        <div className="flex items-center gap-1 w-full">
-                          <input
-                            value={renameBase}
-                            onChange={(e) => setRenameBase(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') saveRename(f);
-                              if (e.key === 'Escape') cancelRename();
-                            }}
-                            onBlur={() => {
-                              if (!isRenaming) saveRename(f);
-                            }}
-                            className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
-                            autoFocus
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                          {renameExt ? (
-                            <span className="text-sm text-gray-500 select-none">.{renameExt}</span>
-                          ) : null}
-                        </div>
-                      ) : manageable ? (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startRename(f);
+          <div className="notes-explorer-table overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-100 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Имя</th>
+                    <th className="px-3 py-2 text-left">Тип</th>
+                    <th className="px-3 py-2 text-left">Размер</th>
+                    <th className="px-3 py-2 text-left">Дата</th>
+                    <th className="px-3 py-2 text-right">Действия</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((f) => {
+                    const manageable = canManageFile(f);
+                    const isPreviewable = isPyFile(f.name) || isPdfFile(f.name) || isImageFile(f);
+                    const isExpanded = Boolean(expandedPyIds[f.id] || expandedPdfIds[f.id] || expandedImageIds[f.id]);
+                    return (
+                      <React.Fragment key={f.id}>
+                        <tr
+                          className={`border-t border-slate-100 ${
+                            isExpanded ? 'notes-row-expanded bg-blue-50/55' : 'hover:bg-slate-50'
+                          } ${isPreviewable ? 'cursor-pointer' : ''}`}
+                          draggable={renamingId !== f.id && manageable}
+                          onDragStart={(e) => {
+                            if (!manageable) return;
+                            handleDragStartFile(e, f);
                           }}
-                          className="font-medium text-sm md:text-base text-gray-800 truncate text-left hover:text-purple-600"
-                          title="Переименовать"
+                          onDragEnd={handleDragEndFile}
+                          onClick={() => {
+                            if (isPreviewable) toggleFilePreview(f);
+                          }}
+                          onKeyDown={(e) => {
+                            if ((e.key === 'Enter' || e.key === ' ') && isPreviewable) {
+                              e.preventDefault();
+                              toggleFilePreview(f);
+                            }
+                          }}
+                          role={isPreviewable ? 'button' : undefined}
+                          tabIndex={isPreviewable ? 0 : undefined}
                         >
-                          {f.name}
-                        </button>
-                      ) : (
-                        <span className="font-medium text-sm md:text-base text-gray-800 truncate text-left">
-                          {f.name}
-                        </span>
-                      )}
-                      <p className="text-xs text-gray-500">
-                        {f.size}
-                        <span className="hidden sm:inline">{` • ${f.date}`}</span>
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex gap-1.5 md:gap-2">
-                    {renamingId === f.id ? null : (
-                      <>
-                        {!isPyFile(f.name) && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDownload(f); }}
-                            className="p-1.5 md:p-2 hover:bg-gray-100 rounded text-gray-500"
-                            title="Скачать файл"
-                          >
-                            <Download size={17}/>
-                          </button>
-                        )}
-                        {manageable && (
-                          <button onClick={(e) => { e.stopPropagation(); handleDelete(f); }} className="p-1.5 md:p-2 hover:bg-red-50 rounded text-red-500"><Trash2 size={17}/></button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-                {isPyFile(f.name) && (
-                  <div className={`overflow-hidden transition-all duration-300 ease-out ${
-                    expandedPyIds[f.id] ? 'max-h-[80vh] opacity-100' : 'max-h-0 opacity-0'
-                  }`}>
-                    <div className="bg-white border rounded-xl p-2 space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-xs text-gray-500">
-                          {editingPyId === f.id
-                            ? `Размер: ${formatBytes(getPyFileSize(pyEditDraft))}`
-                            : 'Просмотр Python'}
-                        </span>
-                        {editingPyId === f.id ? (
-                          <div className="flex w-full sm:w-auto items-center gap-2">
-                            <Button
-                              variant="secondary"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                cancelEditingPyFile();
-                              }}
-                              disabled={pyEditSaving}
-                              className="w-full sm:w-auto"
-                            >
-                              Отмена
-                            </Button>
-                            <Button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                saveEditingPyFile(f);
-                              }}
-                              disabled={pyEditSaving}
-                              className="w-full sm:w-auto"
-                            >
-                              {pyEditSaving ? 'Сохранение...' : 'Сохранить'}
-                            </Button>
-                          </div>
-                        ) : (
-                          <Button
-                            variant="secondary"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              startEditingPyFile(f);
-                            }}
-                            disabled={pyLoadingId === f.id || Boolean(pyError[f.id]) || !manageable}
-                            className="w-full sm:w-auto"
-                          >
-                            Редактировать
-                          </Button>
-                        )}
-                      </div>
-                      {editingPyId === f.id ? (
-                        <div className="space-y-2">
-                          <div className="rounded-xl overflow-hidden border border-gray-800">
-                            <Editor
-                              height={pyFileEditorHeight}
-                              language="python"
-                              theme={monacoTheme}
-                              beforeMount={ensureMonacoColorTheme}
-                              value={pyEditDraft}
-                              onChange={(value) => {
-                                setPyEditDraft(value ?? '');
-                                if (pyEditError) setPyEditError('');
-                                if (pyRunOutput) setPyRunOutput('');
-                                if (pyRunError) setPyRunError('');
-                              }}
-                              options={pyEditorOptions}
-                              loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
-                            />
-                          </div>
-                          <div className="rounded-xl border p-2 bg-gray-50 space-y-2">
-                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                              <span className="text-xs font-semibold text-gray-600">
-                                Консоль (IDLE): редактируйте секцию `{PY_IDLE_STDIN_HEADER}`
-                              </span>
-                              <Button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleRunEditedPyFile();
-                                }}
-                                disabled={pyRunLoading || pyEditSaving}
-                                className="w-full sm:w-auto"
-                              >
-                                {pyRunLoading ? 'Запуск...' : 'Запустить'}
-                              </Button>
+                          <td className="px-3 py-2.5">
+                            <div className="flex min-w-[220px] items-center gap-2">
+                              <FileIcon name={f.name} compact />
+                              <div className="min-w-0">
+                                {renamingId === f.id ? (
+                                  <div className="flex items-center gap-1 w-full">
+                                    <input
+                                      value={renameBase}
+                                      onChange={(e) => setRenameBase(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') saveRename(f);
+                                        if (e.key === 'Escape') cancelRename();
+                                      }}
+                                      onBlur={() => {
+                                        if (!isRenaming) saveRename(f);
+                                      }}
+                                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm outline-none focus:border-blue-500"
+                                      autoFocus
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                    {renameExt ? (
+                                      <span className="text-sm text-gray-500 select-none">.{renameExt}</span>
+                                    ) : null}
+                                  </div>
+                                ) : (
+                                  <span className="block truncate font-medium text-slate-800">{f.name}</span>
+                                )}
+                              </div>
                             </div>
-                            <textarea
-                              value={pyIdleConsoleText}
-                              onChange={(e) => {
-                                setPyRunInput(parseIdleConsoleInput(e.target.value, pyRunInput));
-                              }}
-                              readOnly={pyRunLoading}
-                              spellCheck={false}
-                              className="w-full min-h-[220px] text-xs font-mono leading-5 px-3 py-2 rounded-lg border border-gray-200 bg-white outline-none focus:border-purple-500 resize-y"
-                            />
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="rounded-xl max-h-[55vh] overflow-auto">
-                          {pyLoadingId === f.id && (
-                            <pre className="language-python m-0 p-4 text-sm"><code>Загрузка...</code></pre>
-                          )}
-                          {pyLoadingId !== f.id && pyError[f.id] && (
-                            <pre className="language-python m-0 p-4 text-sm"><code>{pyError[f.id]}</code></pre>
-                          )}
-                          {pyLoadingId !== f.id && !pyError[f.id] && (
-                            pyContent[f.id]
-                              ? (
-                                <pre className="language-python m-0 p-4 text-sm">
-                                  <code dangerouslySetInnerHTML={{ __html: highlightPython(pyContent[f.id]) }} />
-                                </pre>
-                              )
-                              : (
-                                <pre className="language-python m-0 p-4 text-sm"><code># Пустой файл</code></pre>
-                              )
-                          )}
-                        </div>
-                      )}
-                      {editingPyId === f.id && pyEditError && (
-                        <p className="text-xs text-red-500">{pyEditError}</p>
-                      )}
-                    </div>
-                  </div>
-                )}
-                {isPdfFile(f.name) && (
-                  <div className={`overflow-hidden transition-all duration-300 ease-out ${
-                    expandedPdfIds[f.id] ? 'max-h-[70vh] opacity-100' : 'max-h-0 opacity-0'
-                  }`}>
-                    <div className="bg-white border rounded-xl overflow-hidden">
-                      <iframe
-                        title={f.name}
-                        src={getFileUrl(f)}
-                        className="w-full"
-                        style={{ height: pdfPreviewHeight }}
-                      />
-                    </div>
-                  </div>
-                )}
-                {isImageFile(f) && (
-                  <div className={`overflow-hidden transition-all duration-300 ease-out ${
-                    expandedImageIds[f.id] ? 'max-h-[80vh] opacity-100' : 'max-h-0 opacity-0'
-                  }`}>
-                    <ImageViewer
-                      src={getFileUrl(f)}
-                      alt={f.name || 'Изображение'}
-                      maxHeight={imagePreviewMaxHeight}
-                    />
-                  </div>
-                )}
-              </div>
-              );
-            })}
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-600">{getFileTypeLabel(f)}</td>
+                          <td className="px-3 py-2.5 text-slate-600">{f.size}</td>
+                          <td className="px-3 py-2.5 text-slate-500">{f.date}</td>
+                          <td className="px-3 py-2.5">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {!isPyFile(f.name) && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDownload(f);
+                                  }}
+                                  className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                                  title="Скачать файл"
+                                  type="button"
+                                >
+                                  <Download size={16} />
+                                </button>
+                              )}
+                              {manageable && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    startRename(f);
+                                  }}
+                                  className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                                  title="Переименовать"
+                                  type="button"
+                                >
+                                  <Pencil size={16} />
+                                </button>
+                              )}
+                              {manageable && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDelete(f);
+                                  }}
+                                  className="rounded-md p-1.5 text-rose-500 hover:bg-rose-50"
+                                  title="Удалить файл"
+                                  type="button"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                        {isPyFile(f.name) && (
+                          <tr className={`${expandedPyIds[f.id] ? '' : 'hidden'}`}>
+                            <td colSpan={5} className="border-t border-slate-100 bg-white px-3 py-3">
+                              <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="text-xs text-gray-500">
+                                    {editingPyId === f.id
+                                      ? `Размер: ${formatBytes(getPyFileSize(pyEditDraft))}`
+                                      : 'Просмотр Python'}
+                                  </span>
+                                  {editingPyId === f.id ? (
+                                    <div className="flex w-full sm:w-auto items-center gap-2">
+                                      <Button
+                                        variant="secondary"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          cancelEditingPyFile();
+                                        }}
+                                        disabled={pyEditSaving}
+                                        className="w-full sm:w-auto"
+                                      >
+                                        Отмена
+                                      </Button>
+                                      <Button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          saveEditingPyFile(f);
+                                        }}
+                                        disabled={pyEditSaving}
+                                        className="w-full sm:w-auto"
+                                      >
+                                        {pyEditSaving ? 'Сохранение...' : 'Сохранить'}
+                                      </Button>
+                                    </div>
+                                  ) : (
+                                    <Button
+                                      variant="secondary"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        startEditingPyFile(f);
+                                      }}
+                                      disabled={pyLoadingId === f.id || Boolean(pyError[f.id]) || !manageable}
+                                      className="w-full sm:w-auto"
+                                    >
+                                      Редактировать
+                                    </Button>
+                                  )}
+                                </div>
+                                {editingPyId === f.id ? (
+                                  <div className="space-y-2">
+                                    <div className="overflow-hidden rounded-xl border border-gray-800">
+                                      <Editor
+                                        height={pyFileEditorHeight}
+                                        language="python"
+                                        theme={monacoTheme}
+                                        beforeMount={ensureMonacoColorTheme}
+                                        value={pyEditDraft}
+                                        onChange={(value) => {
+                                          setPyEditDraft(value ?? '');
+                                          if (pyEditError) setPyEditError('');
+                                          if (pyRunOutput) setPyRunOutput('');
+                                          if (pyRunError) setPyRunError('');
+                                        }}
+                                        options={pyEditorOptions}
+                                        loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+                                      />
+                                    </div>
+                                    <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                        <span className="text-xs font-semibold text-gray-600">
+                                          Консоль (IDLE): редактируйте секцию `{PY_IDLE_STDIN_HEADER}`
+                                        </span>
+                                        <Button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleRunEditedPyFile();
+                                          }}
+                                          disabled={pyRunLoading || pyEditSaving}
+                                          className="w-full sm:w-auto"
+                                        >
+                                          {pyRunLoading ? 'Запуск...' : 'Запустить'}
+                                        </Button>
+                                      </div>
+                                      <textarea
+                                        value={pyIdleConsoleText}
+                                        onChange={(e) => {
+                                          setPyRunInput(parseIdleConsoleInput(e.target.value, pyRunInput));
+                                        }}
+                                        readOnly={pyRunLoading}
+                                        spellCheck={false}
+                                        className="min-h-[220px] w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-xs leading-5 outline-none focus:border-purple-500"
+                                      />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="max-h-[55vh] overflow-auto rounded-xl">
+                                    {pyLoadingId === f.id && (
+                                      <pre className="language-python m-0 p-4 text-sm"><code>Загрузка...</code></pre>
+                                    )}
+                                    {pyLoadingId !== f.id && pyError[f.id] && (
+                                      <pre className="language-python m-0 p-4 text-sm"><code>{pyError[f.id]}</code></pre>
+                                    )}
+                                    {pyLoadingId !== f.id && !pyError[f.id] && (
+                                      pyContent[f.id]
+                                        ? (
+                                          <pre className="language-python m-0 p-4 text-sm">
+                                            <code dangerouslySetInnerHTML={{ __html: highlightPython(pyContent[f.id]) }} />
+                                          </pre>
+                                        )
+                                        : (
+                                          <pre className="language-python m-0 p-4 text-sm"><code># Пустой файл</code></pre>
+                                        )
+                                    )}
+                                  </div>
+                                )}
+                                {editingPyId === f.id && pyEditError && (
+                                  <p className="text-xs text-red-500">{pyEditError}</p>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                        {isPdfFile(f.name) && (
+                          <tr className={`${expandedPdfIds[f.id] ? '' : 'hidden'}`}>
+                            <td colSpan={5} className="border-t border-slate-100 bg-white px-3 py-3">
+                              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                                <iframe
+                                  title={f.name}
+                                  src={getFileUrl(f)}
+                                  className="w-full"
+                                  style={{ height: pdfPreviewHeight }}
+                                />
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                        {isImageFile(f) && (
+                          <tr className={`${expandedImageIds[f.id] ? '' : 'hidden'}`}>
+                            <td colSpan={5} className="border-t border-slate-100 bg-white px-3 py-3">
+                              <ImageViewer
+                                src={getFileUrl(f)}
+                                alt={f.name || 'Изображение'}
+                                maxHeight={imagePreviewMaxHeight}
+                              />
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

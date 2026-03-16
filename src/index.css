@@ -5173,6 +5173,137 @@ html[data-theme='dark'] .to-sky-50\/70 {
   --tw-gradient-to: rgba(8, 47, 73, 0.44) var(--tw-gradient-to-position) !important;
 }
 
+.notes-explorer-shell .notes-explorer-upload-btn {
+  border: 1px solid rgba(139, 92, 246, 0.45);
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+  box-shadow: 0 10px 24px rgba(124, 58, 237, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.notes-explorer-shell .notes-explorer-upload-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(124, 58, 237, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+
+.notes-explorer-shell .notes-explorer-back-btn {
+  border-color: rgba(148, 163, 184, 0.52);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.92));
+  color: #0f172a;
+}
+
+.notes-explorer-shell .notes-explorer-refresh-btn {
+  border-color: rgba(203, 213, 225, 0.85);
+  color: #334155;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-window {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.8));
+  border-color: rgba(100, 116, 139, 0.66) !important;
+  box-shadow: 0 20px 38px rgba(2, 6, 23, 0.5), 0 8px 20px rgba(8, 47, 73, 0.3);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-toolbar {
+  background:
+    linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.9)),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.08), rgba(167, 139, 250, 0.08));
+  border-color: rgba(100, 116, 139, 0.5) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-panel {
+  background: linear-gradient(165deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.78));
+  border-color: rgba(100, 116, 139, 0.54) !important;
+  box-shadow: 0 12px 24px rgba(2, 6, 23, 0.38);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-tree {
+  background: rgba(15, 23, 42, 0.72) !important;
+  border-color: rgba(100, 116, 139, 0.5) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-files {
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.84), rgba(30, 41, 59, 0.76));
+  border-color: rgba(100, 116, 139, 0.55) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table {
+  background: rgba(2, 6, 23, 0.28);
+  border-color: rgba(100, 116, 139, 0.54) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table thead {
+  background: rgba(30, 41, 59, 0.88) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table tbody tr {
+  border-color: rgba(71, 85, 105, 0.42) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table tbody tr:hover {
+  background: rgba(51, 65, 85, 0.34) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table tbody tr.notes-row-expanded {
+  background: rgba(37, 99, 235, 0.22) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table td,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table th {
+  border-color: rgba(71, 85, 105, 0.35);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-nav,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-address,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-search {
+  border-color: rgba(100, 116, 139, 0.56) !important;
+  background: rgba(15, 23, 42, 0.84) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-nav-btn {
+  color: rgba(226, 232, 240, 0.86) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-nav-btn:hover:not(:disabled) {
+  border-color: rgba(125, 211, 252, 0.45) !important;
+  background: rgba(30, 41, 59, 0.9) !important;
+  color: rgba(248, 250, 252, 0.95) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-address,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-address span {
+  color: rgba(226, 232, 240, 0.9) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-search input {
+  color: rgba(148, 163, 184, 0.96) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-search svg,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-address svg {
+  color: rgba(148, 163, 184, 0.85) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-back-btn,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-refresh-btn {
+  border-color: rgba(100, 116, 139, 0.58) !important;
+  background: rgba(15, 23, 42, 0.78) !important;
+  color: rgba(226, 232, 240, 0.9) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-back-btn:hover:not(:disabled),
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-refresh-btn:hover:not(:disabled) {
+  border-color: rgba(125, 211, 252, 0.48) !important;
+  background: rgba(30, 41, 59, 0.9) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-upload-btn {
+  border-color: rgba(167, 139, 250, 0.62) !important;
+  background: linear-gradient(135deg, rgba(147, 51, 234, 0.95), rgba(124, 58, 237, 0.95)) !important;
+  box-shadow: 0 12px 26px rgba(124, 58, 237, 0.34), 0 0 0 1px rgba(167, 139, 250, 0.3) inset !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-upload-btn:hover:not(:disabled) {
+  box-shadow: 0 16px 30px rgba(124, 58, 237, 0.42), 0 0 0 1px rgba(196, 181, 253, 0.35) inset !important;
+}
+
 html[data-theme='dark'] .to-gray-100,
 html[data-theme='dark'] .to-slate-50\/70,
 html[data-theme='dark'] .to-slate-50\/85,

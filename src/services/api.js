@@ -836,11 +836,13 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
-  createFolder: async (taskNumber, category, name, studentId) => {
+  createFolder: async (taskNumber, category, name, studentId, parentFolderId = null) => {
+    const payload = { taskNumber, category, name, studentId };
+    if (parentFolderId) payload.parentFolderId = String(parentFolderId);
     const res = await apiFetch('/api/folders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ taskNumber, category, name, studentId }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();

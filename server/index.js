@@ -3415,6 +3415,40 @@ const isLessonSharedFolderIdForTeacher = (folderId, teacherId, taskNumber) => {
   return String(folderId || '').trim() === expectedId;
 };
 
+const normalizeParentFolderId = (value) => {
+  const id = typeof value === 'string' ? value.trim() : '';
+  return id || null;
+};
+
+const buildFoldersMapById = (folders) => {
+  const map = new Map();
+  const list = Array.isArray(folders) ? folders : [];
+  list.forEach((folder) => {
+    const id = String(folder?.id || '').trim();
+    if (!id || map.has(id)) return;
+    map.set(id, folder);
+  });
+  return map;
+};
+
+const isFolderInLessonSharedTree = (foldersById, folder, teacherId, taskNumber) => {
+  if (!folder || typeof folder !== 'object') return false;
+  const sharedRootId = buildLessonSharedFolderId(teacherId, taskNumber);
+  const visited = new Set();
+  let cursor = folder;
+  while (cursor && typeof cursor === 'object') {
+    const cursorId = String(cursor.id || '').trim();
+    if (cursor?.isLessonShared === true) return true;
+    if (sharedRootId && cursorId === sharedRootId) return true;
+    const parentId = normalizeParentFolderId(cursor.parentFolderId);
+    if (!parentId || visited.has(parentId)) return false;
+    if (sharedRootId && parentId === sharedRootId) return true;
+    visited.add(parentId);
+    cursor = foldersById.get(parentId) || null;
+  }
+  return false;
+};
+
 const normalizeTeacherSolvedEventIds = (value) => {
   const list = Array.isArray(value) ? value : [];
   const seen = new Set();
@@ -5834,6 +5868,12 @@ const ensureStudentIds = () => {
   for (const folder of folders) {
     if (!folder.studentId) {
       folder.studentId = defaultStudentId;
+      foldersChanged = true;
+    }
+    const normalizedParentId = normalizeParentFolderId(folder.parentFolderId);
+    const nextParentId = normalizedParentId === folder.id ? null : normalizedParentId;
+    if (folder.parentFolderId !== nextParentId) {
+      folder.parentFolderId = nextParentId;
       foldersChanged = true;
     }
   }
@@ -9315,10 +9355,11 @@ app.get('/api/folders', (req, res) => {
 });
 
 app.post('/api/folders', (req, res) => {
-  const { taskNumber, category, name, studentId } = req.body || {};
+  const { taskNumber, category, name, studentId, parentFolderId } = req.body || {};
   const taskNum = Number(taskNumber);
   const normalizedCategory = String(category || '').trim();
   const folderName = normalizeFolderName(name);
+  const normalizedParentFolderId = normalizeParentFolderId(parentFolderId);
 
   if (!Number.isFinite(taskNum) || !normalizedCategory || !folderName) {
     return res.status(400).json({ error: 'Некорректные параметры' });
@@ -9336,11 +9377,39 @@ app.post('/api/folders', (req, res) => {
   }
 
   const folders = readFoldersDb();
+  const foldersById = buildFoldersMapById(folders);
+  const studentTeacherId = normalizeTeacherId(student?.teacherId);
+  let parentIsLessonShared = false;
+  if (normalizedParentFolderId) {
+    if (
+      isLessonSharedCategory(normalizedCategory)
+      && isLessonSharedFolderIdForTeacher(normalizedParentFolderId, studentTeacherId, taskNum)
+    ) {
+      parentIsLessonShared = true;
+    } else {
+      const parentRef = folders.find(
+        (f) =>
+          f.id === normalizedParentFolderId &&
+          f.studentId === student.id &&
+          f.taskNumber === taskNum &&
+          f.category === normalizedCategory
+      );
+      if (!parentRef) {
+        return res.status(400).json({ error: 'Родительская папка не найдена' });
+      }
+      parentIsLessonShared = isFolderInLessonSharedTree(foldersById, parentRef, studentTeacherId, taskNum);
+    }
+    if (parentIsLessonShared && !canWriteLessonSharedByTeacher(req.auth, studentTeacherId)) {
+      return res.status(403).json({ error: `В папке "${LESSON_SHARED_FOLDER_NAME}" может создавать подпапки только учитель` });
+    }
+  }
+
   const exists = folders.some(
     (f) =>
       f.studentId === student.id &&
       f.taskNumber === taskNum &&
       f.category === normalizedCategory &&
+      normalizeParentFolderId(f.parentFolderId) === normalizedParentFolderId &&
       f.name?.toLowerCase() === folderName.toLowerCase()
   );
   if (exists) {
@@ -9352,8 +9421,14 @@ app.post('/api/folders', (req, res) => {
     studentId: student.id,
     taskNumber: taskNum,
     category: normalizedCategory,
+    parentFolderId: normalizedParentFolderId,
     name: folderName,
     date: new Date().toLocaleDateString('ru-RU'),
+    ...(parentIsLessonShared ? {
+      teacherId: studentTeacherId,
+      sharedScope: LESSON_SHARED_SCOPE,
+      isLessonShared: true,
+    } : {}),
   };
 
   folders.unshift(entry);
@@ -9378,6 +9453,14 @@ app.patch('/api/folders/:id', (req, res) => {
 
   const current = folders[idx];
   if (!ensureStudentAccess(req, res, current.studentId, { allowDeleted: true })) return;
+  const ownerStudent = findStudentById(current?.studentId, { allowDeleted: true });
+  const ownerTeacherId = normalizeTeacherId(current?.teacherId || ownerStudent?.teacherId);
+  const foldersById = buildFoldersMapById(folders);
+  const currentParentFolderId = normalizeParentFolderId(current.parentFolderId);
+  const isCurrentSharedFolder = isFolderInLessonSharedTree(foldersById, current, ownerTeacherId, current.taskNumber);
+  if (isCurrentSharedFolder && !canWriteLessonSharedByTeacher(req.auth, ownerTeacherId)) {
+    return forbid(res);
+  }
   if (isLessonSharedCategory(current.category) && folderName.toLowerCase() === LESSON_SHARED_FOLDER_NAME.toLowerCase()) {
     return res.status(409).json({ error: 'Папка с таким названием уже создана системой' });
   }
@@ -9387,13 +9470,23 @@ app.patch('/api/folders/:id', (req, res) => {
       f.studentId === current.studentId &&
       f.taskNumber === current.taskNumber &&
       f.category === current.category &&
+      normalizeParentFolderId(f.parentFolderId) === currentParentFolderId &&
       f.name?.toLowerCase() === folderName.toLowerCase()
   );
   if (exists) {
     return res.status(409).json({ error: 'Такая папка уже существует' });
   }
 
-  const updated = { ...current, name: folderName };
+  const updated = {
+    ...current,
+    parentFolderId: currentParentFolderId,
+    name: folderName,
+    ...(isCurrentSharedFolder ? {
+      teacherId: ownerTeacherId,
+      sharedScope: LESSON_SHARED_SCOPE,
+      isLessonShared: true,
+    } : {}),
+  };
   folders[idx] = updated;
   writeFoldersDb(folders);
 
@@ -9465,7 +9558,7 @@ app.post('/api/files', upload.single('file'), (req, res) => {
   }
 
   const studentTeacherId = normalizeTeacherId(student.teacherId);
-  const normalizedFolderId = typeof folderId === 'string' ? folderId.trim() : '';
+  const normalizedFolderId = normalizeParentFolderId(folderId);
   let folderName = null;
   let folderRef = null;
   let isLessonSharedUpload = false;
@@ -9488,6 +9581,7 @@ app.post('/api/files', upload.single('file'), (req, res) => {
       isLessonSharedUpload = true;
     } else {
       const folders = readFoldersDb();
+      const foldersById = buildFoldersMapById(folders);
       folderRef = folders.find(
         (f) =>
           f.id === normalizedFolderId &&
@@ -9501,7 +9595,15 @@ app.post('/api/files', upload.single('file'), (req, res) => {
         } catch {}
         return res.status(400).json({ error: 'Папка не найдена' });
       }
+      const folderIsLessonShared = isFolderInLessonSharedTree(foldersById, folderRef, studentTeacherId, taskNum);
+      if (folderIsLessonShared && !canWriteLessonSharedByTeacher(req.auth, studentTeacherId)) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch {}
+        return res.status(403).json({ error: `В папку "${LESSON_SHARED_FOLDER_NAME}" может загружать только учитель` });
+      }
       folderName = folderRef.name;
+      isLessonSharedUpload = folderIsLessonShared;
     }
   }
 
@@ -9613,7 +9715,7 @@ app.patch('/api/files/:id', (req, res) => {
 
   if (Object.prototype.hasOwnProperty.call(req.body || {}, 'folderId')) {
     const folderIdRaw = req.body.folderId;
-    const folderId = typeof folderIdRaw === 'string' ? folderIdRaw.trim() : '';
+    const folderId = normalizeParentFolderId(folderIdRaw);
     if (isCurrentLessonShared) {
       return res.status(400).json({ error: `Файл из папки "${LESSON_SHARED_FOLDER_NAME}" нельзя перемещать` });
     }
@@ -9647,6 +9749,7 @@ app.patch('/api/files/:id', (req, res) => {
       updated.isLessonShared = true;
     } else {
       const folders = readFoldersDb();
+      const foldersById = buildFoldersMapById(folders);
       const folderRef = folders.find(
         (f) =>
           f.id === folderId &&
@@ -9660,8 +9763,30 @@ app.patch('/api/files/:id', (req, res) => {
       if (currentFolderTotal + movingSizeBytes > MAX_FOLDER_BYTES) {
         return res.status(413).json({ error: '\u041f\u0440\u0435\u0432\u044b\u0448\u0435\u043d \u043b\u0438\u043c\u0438\u0442 30 \u041c\u0411 \u0434\u043b\u044f \u044d\u0442\u043e\u0439 \u043f\u0430\u043f\u043a\u0438' });
       }
-      updated.folderId = folderRef.id;
-      updated.folderName = folderRef.name;
+      const folderIsLessonShared = isFolderInLessonSharedTree(foldersById, folderRef, ownerTeacherId, updated.taskNumber);
+      if (folderIsLessonShared) {
+        if (!canWriteLessonSharedByTeacher(req.auth, ownerTeacherId)) return forbid(res);
+        const sharedTaskTotal = db
+          .filter((file) => (
+            file.id !== id
+            && file.taskNumber === updated.taskNumber
+            && isLessonSharedFile(file)
+            && normalizeTeacherId(file.teacherId) === ownerTeacherId
+          ))
+          .reduce((sum, file) => sum + getEntrySizeBytes(file), 0);
+        if (sharedTaskTotal + movingSizeBytes > MAX_TASK_BYTES) {
+          return res.status(413).json({ error: 'Превышен лимит 200 МБ для этого задания' });
+        }
+        updated.folderId = folderRef.id;
+        updated.folderName = folderRef.name;
+        updated.studentId = buildLessonSharedStudentId(ownerTeacherId);
+        updated.teacherId = ownerTeacherId;
+        updated.sharedScope = LESSON_SHARED_SCOPE;
+        updated.isLessonShared = true;
+      } else {
+        updated.folderId = folderRef.id;
+        updated.folderName = folderRef.name;
+      }
     }
   }
 
