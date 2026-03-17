@@ -3137,6 +3137,40 @@ const CollabSection = ({
     return folderPath ? `${folderPath}/${safeName}` : safeName;
   }, []);
 
+  const getRuntimePathVariantsForTaskFile = useCallback((file) => {
+    const primaryPath = getRuntimePathForTaskFile(file);
+    if (!primaryPath) return [];
+    const parts = primaryPath.split('/').filter(Boolean);
+    const variants = [];
+    const seen = new Set();
+    for (let start = 0; start < parts.length; start += 1) {
+      const candidate = normalizeRuntimePath(parts.slice(start).join('/'));
+      const lowerCandidate = candidate.toLowerCase();
+      if (!candidate || seen.has(lowerCandidate)) continue;
+      seen.add(lowerCandidate);
+      variants.push(candidate);
+    }
+    return variants;
+  }, [getRuntimePathForTaskFile]);
+
+  const getPreferredRuntimePathForTaskFile = useCallback((file, scopeFiles = []) => {
+    const variants = getRuntimePathVariantsForTaskFile(file);
+    if (!variants.length) return '';
+    const counts = new Map();
+    const filesScope = Array.isArray(scopeFiles) && scopeFiles.length ? scopeFiles : [file];
+    filesScope.forEach((scopeFile) => {
+      getRuntimePathVariantsForTaskFile(scopeFile).forEach((candidate) => {
+        const lowerCandidate = candidate.toLowerCase();
+        counts.set(lowerCandidate, (counts.get(lowerCandidate) || 0) + 1);
+      });
+    });
+    for (let index = variants.length - 1; index >= 0; index -= 1) {
+      const candidate = variants[index];
+      if ((counts.get(candidate.toLowerCase()) || 0) === 1) return candidate;
+    }
+    return variants[0] || '';
+  }, [getRuntimePathVariantsForTaskFile]);
+
   const getRunTaskNumberForUpload = () => {
     const num = Number(runTaskNumber);
     if (Number.isFinite(num) && num > 0) return num;
@@ -3207,16 +3241,32 @@ const CollabSection = ({
 
   const resolveSelectedRuntimeFiles = useCallback(async () => {
     if (!selectedTaskFiles.length) return [];
-    const selectedPaths = new Set();
+    const selectedEntries = selectedTaskFiles.map((file) => {
+      const primaryPath = getRuntimePathForTaskFile(file);
+      return {
+        file,
+        primaryPath,
+        variants: getRuntimePathVariantsForTaskFile(file),
+      };
+    }).filter((entry) => entry.primaryPath);
+    const pathCounts = new Map();
+    selectedEntries.forEach((entry) => {
+      entry.variants.forEach((candidate) => {
+        const lowerCandidate = candidate.toLowerCase();
+        pathCounts.set(lowerCandidate, (pathCounts.get(lowerCandidate) || 0) + 1);
+      });
+    });
+    const mountedPaths = new Set();
     const payload = [];
-    for (const file of selectedTaskFiles) {
-      const runtimePath = getRuntimePathForTaskFile(file);
+    for (const entry of selectedEntries) {
+      const { file, primaryPath, variants } = entry;
+      const runtimePath = primaryPath;
       if (!runtimePath) continue;
       const lowerPath = runtimePath.toLowerCase();
-      if (selectedPaths.has(lowerPath)) {
+      if (mountedPaths.has(lowerPath)) {
         throw new Error(`\u0412\u044b\u0431\u0440\u0430\u043d\u043e \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0444\u0430\u0439\u043b\u043e\u0432 \u0441 \u043f\u0443\u0442\u0435\u043c ${runtimePath}. \u041e\u0441\u0442\u0430\u0432\u044c\u0442\u0435 \u043e\u0434\u0438\u043d.`);
       }
-      selectedPaths.add(lowerPath);
+      mountedPaths.add(lowerPath);
       const fileUrl = getTaskFileUrl(file);
       if (!fileUrl) {
         throw new Error(`\u041d\u0435\u0442 \u0441\u0441\u044b\u043b\u043a\u0438 \u0434\u043b\u044f \u0444\u0430\u0439\u043b\u0430 ${runtimePath}.`);
@@ -3226,13 +3276,25 @@ const CollabSection = ({
         throw new Error(`\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0444\u0430\u0439\u043b ${runtimePath}.`);
       }
       const buffer = await response.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
       payload.push({
         name: runtimePath,
-        bytes: new Uint8Array(buffer),
+        bytes,
+      });
+      variants.forEach((candidate) => {
+        const lowerCandidate = candidate.toLowerCase();
+        if (lowerCandidate === lowerPath) return;
+        if ((pathCounts.get(lowerCandidate) || 0) !== 1) return;
+        if (mountedPaths.has(lowerCandidate)) return;
+        mountedPaths.add(lowerCandidate);
+        payload.push({
+          name: candidate,
+          bytes,
+        });
       });
     }
     return payload;
-  }, [selectedTaskFiles, getTaskFileUrl, getRuntimePathForTaskFile]);
+  }, [selectedTaskFiles, getTaskFileUrl, getRuntimePathForTaskFile, getRuntimePathVariantsForTaskFile]);
 
   const handleUploadTaskFiles = async (fileList) => {
     const filesToUpload = Array.from(fileList || []).filter(Boolean);
@@ -4786,38 +4848,39 @@ const CollabSection = ({
                     <div className={`px-2 py-1.5 text-[11px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
                       Файлы не найдены.
                     </div>
-                  ) : (
-                    filteredTaskFiles.map((file) => {
-                      const runtimePath = getRuntimePathForTaskFile(file) || file?.name || 'file';
-                      return (
-                        <label
-                          key={file.id}
-                          className={`flex cursor-pointer items-start gap-2 border-b px-2 py-1.5 text-[11px] last:border-b-0 ${
-                            isFullscreenDark
+                   ) : (
+                     filteredTaskFiles.map((file) => {
+                       const runtimePath = getRuntimePathForTaskFile(file) || file?.name || 'file';
+                       const displayRuntimePath = getPreferredRuntimePathForTaskFile(file, filteredTaskFiles) || runtimePath;
+                       return (
+                         <label
+                           key={file.id}
+                           className={`flex cursor-pointer items-start gap-2 border-b px-2 py-1.5 text-[11px] last:border-b-0 ${
+                             isFullscreenDark
                               ? 'border-slate-800 text-slate-100'
                               : 'border-gray-200 text-gray-700'
                           }`}
                         >
-                          <input
-                            type="checkbox"
-                            checked={selectedTaskFileIds.includes(file.id)}
-                            onChange={() => handleToggleTaskFile(file.id)}
-                            className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300"
-                          />
-                          <span className="min-w-0 flex-1 truncate" title={runtimePath}>{runtimePath}</span>
-                        </label>
-                      );
-                    })
-                  )}
-                </>
-              )}
-            </div>
-            <div className={`text-[10px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
-              Выбранные файлы доступны в Python, включая пути подпапок.
-            </div>
-          </>
-        )}
-      </div>
+                           <input
+                             type="checkbox"
+                             checked={selectedTaskFileIds.includes(file.id)}
+                             onChange={() => handleToggleTaskFile(file.id)}
+                             className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300"
+                           />
+                           <span className="min-w-0 flex-1 truncate" title={runtimePath}>{displayRuntimePath}</span>
+                         </label>
+                       );
+                     })
+                   )}
+                 </>
+               )}
+             </div>
+             <div className={`text-[10px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
+               Выбранные файлы доступны по пути из списка. Если имя уникально, можно открыть просто файл, иначе используйте путь с подпапкой.
+             </div>
+           </>
+         )}
+       </div>
     </div>
   );
   const notesPdfPane = (
