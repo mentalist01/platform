@@ -2128,7 +2128,6 @@ const NotesSection = ({
                         <span className="notes-explorer-folder-label">
                           <Folder size={16} className="notes-explorer-folder-icon" />
                           <span className="notes-explorer-folder-name">{folder.name}</span>
-                          {sharedFolder && <span className="notes-explorer-folder-shared-badge">Общая</span>}
                         </span>
                       )}
                     </div>
