@@ -2072,6 +2072,11 @@ const CollabSection = ({
     const selectedSet = new Set(selectedTaskFileIds);
     return filteredTaskFiles.filter((file) => selectedSet.has(file.id));
   }, [filteredTaskFiles, selectedTaskFileIds]);
+  const allFilteredTaskFilesSelected = useMemo(() => {
+    if (!filteredTaskFiles.length) return false;
+    const selectedSet = new Set(selectedTaskFileIds);
+    return filteredTaskFiles.every((file) => selectedSet.has(file?.id));
+  }, [filteredTaskFiles, selectedTaskFileIds]);
   const notesPdfFiles = useMemo(() => {
     const files = Array.isArray(taskFiles) ? taskFiles : [];
     return files
@@ -3270,6 +3275,24 @@ const CollabSection = ({
       return [...prev, fileId];
     });
   };
+
+  const handleToggleSelectAllTaskFiles = useCallback(() => {
+    if (!filteredTaskFiles.length) return;
+    const visibleIds = filteredTaskFiles
+      .map((file) => file?.id)
+      .filter(Boolean);
+    if (!visibleIds.length) return;
+    setSelectedTaskFileIds((prev) => {
+      const next = new Set(prev);
+      const isAllSelected = visibleIds.every((id) => next.has(id));
+      if (isAllSelected) {
+        visibleIds.forEach((id) => next.delete(id));
+      } else {
+        visibleIds.forEach((id) => next.add(id));
+      }
+      return Array.from(next);
+    });
+  }, [filteredTaskFiles]);
 
   const handleCreateFolder = async () => {
     const name = newFolderName.trim();
@@ -4723,6 +4746,24 @@ const CollabSection = ({
                 {taskFilesError}
               </div>
             )}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={handleToggleSelectAllTaskFiles}
+                disabled={taskFilesLoading || !filteredTaskFiles.length}
+                className={`inline-flex items-center rounded-xl border transition ${
+                  isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-[11px]'
+                } ${
+                  taskFilesLoading || !filteredTaskFiles.length
+                    ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : (isFullscreenDark
+                      ? 'border-slate-600 bg-slate-950 text-slate-100 hover:border-violet-400'
+                      : 'border-purple-200 bg-white text-purple-700 hover:border-purple-300 hover:bg-purple-50')
+                }`}
+              >
+                {allFilteredTaskFilesSelected ? 'Снять всё' : 'Выделить всё'}
+              </button>
+            </div>
             <div className={`rounded-xl border ${
               isSplitCollabLayout ? 'max-h-20' : 'max-h-28'
             } overflow-auto ${
