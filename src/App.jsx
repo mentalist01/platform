@@ -1453,12 +1453,27 @@ const createPyodideWorker = () => {
       return new Uint8Array(0);
     };
 
-    const sanitizeRuntimeFileName = (value) => {
+    const sanitizeRuntimeFilePath = (value) => {
       const text = toText(value).replace(/\\0/g, '').trim();
       if (!text) return '';
-      const parts = text.split(/[\\\\/]+/).filter(Boolean);
+      const parts = text
+        .split(/[\\\\/]+/)
+        .map((part) => toText(part).trim())
+        .filter((part) => part && part !== '.' && part !== '..');
       if (!parts.length) return '';
-      return parts[parts.length - 1];
+      return parts.join('/');
+    };
+
+    const ensureRuntimeDir = (pyodide, dirPath) => {
+      if (!pyodide?.FS || !dirPath) return;
+      const parts = String(dirPath).split('/').filter(Boolean);
+      let current = '';
+      parts.forEach((part) => {
+        current = current ? current + '/' + part : part;
+        try {
+          pyodide.FS.mkdir(current);
+        } catch { /* no-op */ }
+      });
     };
 
     let mountedRuntimeFiles = [];
@@ -1480,13 +1495,17 @@ const createPyodideWorker = () => {
       if (!pyodide?.FS || !Array.isArray(files) || !files.length) return;
       const seen = new Set();
       files.forEach((file) => {
-        const safeName = sanitizeRuntimeFileName(file?.name);
-        if (!safeName || seen.has(safeName)) return;
-        seen.add(safeName);
+        const safePath = sanitizeRuntimeFilePath(file?.name);
+        if (!safePath) return;
+        const dedupeKey = safePath.toLowerCase();
+        if (seen.has(dedupeKey)) return;
+        seen.add(dedupeKey);
         const bytes = toBytes(file?.bytes);
+        const dirPath = safePath.includes('/') ? safePath.slice(0, safePath.lastIndexOf('/')) : '';
+        if (dirPath) ensureRuntimeDir(pyodide, dirPath);
         try {
-          pyodide.FS.writeFile(safeName, bytes);
-          mountedRuntimeFiles.push(safeName);
+          pyodide.FS.writeFile(safePath, bytes);
+          mountedRuntimeFiles.push(safePath);
         } catch { /* no-op */ }
       });
     };
@@ -3083,13 +3102,30 @@ const CollabSection = ({
     return trimmed.replace(/[\\/]+/g, '').replace(/\0/g, '');
   };
 
-  const normalizeRuntimeFileName = (value) => {
+  const normalizeRuntimePath = (value) => {
     const text = String(value || '').replace(/\0/g, '').trim();
     if (!text) return '';
-    const parts = text.split(/[\\/]+/).filter(Boolean);
+    const parts = text
+      .split(/[\\/]+/)
+      .map((part) => String(part || '').trim())
+      .filter((part) => part && part !== '.' && part !== '..');
     if (!parts.length) return '';
+    return parts.join('/');
+  };
+
+  const normalizeRuntimeFileName = (value) => {
+    const normalizedPath = normalizeRuntimePath(value);
+    if (!normalizedPath) return '';
+    const parts = normalizedPath.split('/');
     return parts[parts.length - 1];
   };
+
+  const getRuntimePathForTaskFile = useCallback((file) => {
+    const safeName = normalizeRuntimeFileName(file?.name);
+    if (!safeName) return '';
+    const folderPath = normalizeRuntimePath(file?.folderPath || file?.folderName);
+    return folderPath ? `${folderPath}/${safeName}` : safeName;
+  }, []);
 
   const getRunTaskNumberForUpload = () => {
     const num = Number(runTaskNumber);
@@ -3101,19 +3137,32 @@ const CollabSection = ({
 
   const mountRuntimeFilesInPyodide = useCallback((pyodide, runtimeFiles = []) => {
     if (!pyodide?.FS) return;
+    const ensureRuntimeDir = (dirPath) => {
+      if (!dirPath) return;
+      const parts = String(dirPath).split('/').filter(Boolean);
+      let current = '';
+      parts.forEach((part) => {
+        current = current ? `${current}/${part}` : part;
+        try {
+          pyodide.FS.mkdir(current);
+        } catch { /* no-op */ }
+      });
+    };
     const mounted = mountedRuntimeFilesRef.current || [];
-    mounted.forEach((name) => {
+    mounted.forEach((filePath) => {
       try {
-        pyodide.FS.unlink(name);
+        pyodide.FS.unlink(filePath);
       } catch { /* no-op */ }
     });
     mountedRuntimeFilesRef.current = [];
     if (!Array.isArray(runtimeFiles) || !runtimeFiles.length) return;
     const seen = new Set();
     runtimeFiles.forEach((file) => {
-      const safeName = normalizeRuntimeFileName(file?.name);
-      if (!safeName || seen.has(safeName)) return;
-      seen.add(safeName);
+      const safePath = normalizeRuntimePath(file?.name);
+      if (!safePath) return;
+      const dedupeKey = safePath.toLowerCase();
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
       const bytesSource = file?.bytes;
       let bytes = null;
       if (bytesSource instanceof Uint8Array) {
@@ -3137,41 +3186,43 @@ const CollabSection = ({
       } else {
         bytes = new Uint8Array(0);
       }
+      const dirPath = safePath.includes('/') ? safePath.slice(0, safePath.lastIndexOf('/')) : '';
+      if (dirPath) ensureRuntimeDir(dirPath);
       try {
-        pyodide.FS.writeFile(safeName, bytes);
-        mountedRuntimeFilesRef.current.push(safeName);
+        pyodide.FS.writeFile(safePath, bytes);
+        mountedRuntimeFilesRef.current.push(safePath);
       } catch { /* no-op */ }
     });
   }, []);
 
   const resolveSelectedRuntimeFiles = useCallback(async () => {
     if (!selectedTaskFiles.length) return [];
-    const selectedNames = new Set();
+    const selectedPaths = new Set();
     const payload = [];
     for (const file of selectedTaskFiles) {
-      const safeName = normalizeRuntimeFileName(file?.name);
-      if (!safeName) continue;
-      const lowerName = safeName.toLowerCase();
-      if (selectedNames.has(lowerName)) {
-        throw new Error(`\u0412\u044b\u0431\u0440\u0430\u043d\u043e \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0444\u0430\u0439\u043b\u043e\u0432 \u0441 \u0438\u043c\u0435\u043d\u0435\u043c ${safeName}. \u041e\u0441\u0442\u0430\u0432\u044c\u0442\u0435 \u043e\u0434\u0438\u043d.`);
+      const runtimePath = getRuntimePathForTaskFile(file);
+      if (!runtimePath) continue;
+      const lowerPath = runtimePath.toLowerCase();
+      if (selectedPaths.has(lowerPath)) {
+        throw new Error(`\u0412\u044b\u0431\u0440\u0430\u043d\u043e \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0444\u0430\u0439\u043b\u043e\u0432 \u0441 \u043f\u0443\u0442\u0435\u043c ${runtimePath}. \u041e\u0441\u0442\u0430\u0432\u044c\u0442\u0435 \u043e\u0434\u0438\u043d.`);
       }
-      selectedNames.add(lowerName);
+      selectedPaths.add(lowerPath);
       const fileUrl = getTaskFileUrl(file);
       if (!fileUrl) {
-        throw new Error(`\u041d\u0435\u0442 \u0441\u0441\u044b\u043b\u043a\u0438 \u0434\u043b\u044f \u0444\u0430\u0439\u043b\u0430 ${safeName}.`);
+        throw new Error(`\u041d\u0435\u0442 \u0441\u0441\u044b\u043b\u043a\u0438 \u0434\u043b\u044f \u0444\u0430\u0439\u043b\u0430 ${runtimePath}.`);
       }
       const response = await fetch(fileUrl, { credentials: 'include' });
       if (!response.ok) {
-        throw new Error(`\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0444\u0430\u0439\u043b ${safeName}.`);
+        throw new Error(`\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0444\u0430\u0439\u043b ${runtimePath}.`);
       }
       const buffer = await response.arrayBuffer();
       payload.push({
-        name: safeName,
+        name: runtimePath,
         bytes: new Uint8Array(buffer),
       });
     }
     return payload;
-  }, [selectedTaskFiles, getTaskFileUrl]);
+  }, [selectedTaskFiles, getTaskFileUrl, getRuntimePathForTaskFile]);
 
   const handleUploadTaskFiles = async (fileList) => {
     const filesToUpload = Array.from(fileList || []).filter(Boolean);
@@ -4690,30 +4741,33 @@ const CollabSection = ({
                       Файлы не найдены.
                     </div>
                   ) : (
-                    filteredTaskFiles.map((file) => (
-                      <label
-                        key={file.id}
-                        className={`flex cursor-pointer items-start gap-2 border-b px-2 py-1.5 text-[11px] last:border-b-0 ${
-                          isFullscreenDark
-                            ? 'border-slate-800 text-slate-100'
-                            : 'border-gray-200 text-gray-700'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedTaskFileIds.includes(file.id)}
-                          onChange={() => handleToggleTaskFile(file.id)}
-                          className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300"
-                        />
-                        <span className="min-w-0 flex-1 truncate">{file.name || 'file'}</span>
-                      </label>
-                    ))
+                    filteredTaskFiles.map((file) => {
+                      const runtimePath = getRuntimePathForTaskFile(file) || file?.name || 'file';
+                      return (
+                        <label
+                          key={file.id}
+                          className={`flex cursor-pointer items-start gap-2 border-b px-2 py-1.5 text-[11px] last:border-b-0 ${
+                            isFullscreenDark
+                              ? 'border-slate-800 text-slate-100'
+                              : 'border-gray-200 text-gray-700'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedTaskFileIds.includes(file.id)}
+                            onChange={() => handleToggleTaskFile(file.id)}
+                            className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300"
+                          />
+                          <span className="min-w-0 flex-1 truncate" title={runtimePath}>{runtimePath}</span>
+                        </label>
+                      );
+                    })
                   )}
                 </>
               )}
             </div>
             <div className={`text-[10px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
-              Выбранные файлы доступны в Python как обычные файлы.
+              Выбранные файлы доступны в Python, включая пути подпапок.
             </div>
           </>
         )}

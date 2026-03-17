@@ -3443,6 +3443,63 @@ const buildFoldersMapById = (folders) => {
   return map;
 };
 
+const normalizeFolderPathSegment = (value) => {
+  const text = typeof value === 'string' ? value.replace(/\0/g, '').trim() : '';
+  if (!text) return '';
+  return text.replace(/[\\/]+/g, ' ');
+};
+
+const buildFolderPathResolver = (foldersById) => {
+  const cache = new Map();
+  const resolve = (folderId, visited = new Set()) => {
+    const normalizedFolderId = normalizeParentFolderId(folderId);
+    if (!normalizedFolderId) return '';
+    if (cache.has(normalizedFolderId)) return cache.get(normalizedFolderId) || '';
+    if (visited.has(normalizedFolderId)) return '';
+    const folder = foldersById.get(normalizedFolderId);
+    if (!folder) {
+      cache.set(normalizedFolderId, '');
+      return '';
+    }
+    const folderName = normalizeFolderPathSegment(folder?.name);
+    if (!folderName) {
+      cache.set(normalizedFolderId, '');
+      return '';
+    }
+    const nextVisited = new Set(visited);
+    nextVisited.add(normalizedFolderId);
+    const parentPath = resolve(folder?.parentFolderId, nextVisited);
+    const resultPath = parentPath ? `${parentPath}/${folderName}` : folderName;
+    cache.set(normalizedFolderId, resultPath);
+    return resultPath;
+  };
+  return resolve;
+};
+
+const enrichFilesWithFolderPath = (files, folders) => {
+  const list = Array.isArray(files) ? files : [];
+  if (!list.length) return [];
+  const foldersById = buildFoldersMapById(folders);
+  list.forEach((file) => {
+    if (!isLessonSharedFile(file)) return;
+    const teacherId = normalizeTeacherId(file?.teacherId);
+    const taskNumber = normalizeTaskNumber(file?.taskNumber);
+    const sharedRootFolder = createLessonSharedFolderEntry(teacherId, taskNumber);
+    const sharedRootId = String(sharedRootFolder?.id || '').trim();
+    if (!sharedRootId || foldersById.has(sharedRootId)) return;
+    foldersById.set(sharedRootId, sharedRootFolder);
+  });
+  const resolveFolderPath = buildFolderPathResolver(foldersById);
+  return list.map((file) => {
+    const folderPath = resolveFolderPath(file?.folderId);
+    if ((file?.folderPath || '') === folderPath) return file;
+    return {
+      ...file,
+      folderPath,
+    };
+  });
+};
+
 const collectFolderSubtreeIds = (folders, startFolderId) => {
   const rootId = String(startFolderId || '').trim();
   if (!rootId) return new Set();
@@ -9708,7 +9765,8 @@ app.get('/api/files', (req, res) => {
   if (category) {
     files = files.filter((f) => f.category === category);
   }
-  res.json(files);
+  const folders = readFoldersDb();
+  res.json(enrichFilesWithFolderPath(files, folders));
 });
 
 app.post('/api/files', upload.single('file'), (req, res) => {
@@ -9838,7 +9896,8 @@ app.post('/api/files', upload.single('file'), (req, res) => {
   db.unshift(entry);
   writeFilesDb(db);
 
-  res.json(entry);
+  const [entryWithFolderPath] = enrichFilesWithFolderPath([entry], readFoldersDb());
+  res.json(entryWithFolderPath || entry);
 });
 
 app.delete('/api/files/:id', (req, res) => {
@@ -10027,7 +10086,8 @@ app.patch('/api/files/:id', (req, res) => {
 
   db[idx] = updated;
   writeFilesDb(db);
-  res.json(updated);
+  const [updatedWithFolderPath] = enrichFilesWithFolderPath([updated], readFoldersDb());
+  res.json(updatedWithFolderPath || updated);
 });
 
 const distDir = path.join(__dirname, '..', 'dist');
