@@ -113,6 +113,7 @@ const NotesSection = ({
   const didRestoreRef = useRef(false);
   const skipNullSaveRef = useRef(true);
   const pendingFolderIdRef = useRef(null);
+  const dragDepthRef = useRef(0);
   const fileRef = useRef(null);
   const pyRunnerWorkerRef = useRef(null);
   const pyRunnerPendingRef = useRef(new Map());
@@ -730,9 +731,17 @@ const NotesSection = ({
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
+    dragDepthRef.current = 0;
     setIsDragging(false);
     const dropped = getDataTransferFiles(e.dataTransfer);
     handleUploadFiles(dropped);
+  };
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current += 1;
+    if (!isDragging) setIsDragging(true);
   };
 
   const handleDragOver = (e) => {
@@ -745,7 +754,8 @@ const NotesSection = ({
   const handleDragLeave = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragging(false);
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDragging(false);
   };
 
   useEffect(() => {
@@ -1694,7 +1704,7 @@ const NotesSection = ({
   const renderStudentPicker = () => {
     if (role !== 'teacher') return null;
     return (
-      <div className="inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-purple-100/40">
+      <div className="notes-explorer-student-picker inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-purple-100/40">
         <span className="text-[11px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
         <select
           value={activeStudentId || ''}
@@ -1703,7 +1713,7 @@ const NotesSection = ({
             onSelectStudent?.(value || null);
           }}
           disabled={studentsLoading || studentsList.length === 0}
-          className="w-full min-w-0 sm:min-w-[180px] rounded-xl border border-purple-100 bg-white px-3 py-1.5 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
+          className="notes-explorer-student-picker-select w-full min-w-0 sm:min-w-[180px] rounded-xl border border-purple-100 bg-white px-3 py-1.5 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
         >
           <option value="" disabled>Выберите ученика</option>
           {studentsList.map((student) => (
@@ -1918,7 +1928,7 @@ const NotesSection = ({
                 Назад
               </Button>
               <div className="space-y-1">
-                <h3 className="text-base font-semibold text-slate-900 md:text-lg">
+                <h3 className="notes-explorer-title text-base font-semibold text-slate-900 md:text-lg">
                   {`Проводник: задание ${currentTaskLabel}`}
                 </h3>
               </div>
@@ -1947,7 +1957,7 @@ const NotesSection = ({
                 currentFolderPath.map((segment, index) => (
                   <React.Fragment key={`address-path-segment-${index}`}>
                     <ChevronRight size={13} className="shrink-0 text-slate-300" />
-                    <span className={`shrink-0 ${index === currentFolderPath.length - 1 ? 'text-slate-900' : 'text-slate-600'}`}>
+                    <span className={`shrink-0 ${index === currentFolderPath.length - 1 ? 'notes-explorer-address-current text-slate-900' : 'text-slate-600'}`}>
                       {segment}
                     </span>
                   </React.Fragment>
@@ -1955,20 +1965,20 @@ const NotesSection = ({
               ) : (
                 <>
                   <ChevronRight size={13} className="shrink-0 text-slate-300" />
-                  <span className="shrink-0 text-slate-500">Без папки</span>
+                  <span className="notes-explorer-address-empty shrink-0 text-slate-500">Без папки</span>
                 </>
               )}
             </div>
           </div>
           {role !== 'student' && (
             <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold md:text-xs">
-              <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700 md:px-2.5">
+              <span className="notes-explorer-stat inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700 md:px-2.5">
                 {`Файлов в папке: ${filtered.length}`}
               </span>
-              <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700 md:px-2.5">
+              <span className="notes-explorer-stat inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700 md:px-2.5">
                 {`Использовано: ${formatBytes(taskUsageBytes)} / ${formatBytes(totalLimitBytes)}`}
               </span>
-              <span className={`inline-flex items-center rounded-full border px-2 py-1 md:px-2.5 ${
+              <span className={`notes-explorer-stat notes-explorer-stat-remaining inline-flex items-center rounded-full border px-2 py-1 md:px-2.5 ${
                 remainingBytes <= 10 * 1024 * 1024
                   ? 'border-rose-200 bg-rose-50 text-rose-600'
                   : 'border-emerald-200 bg-emerald-50 text-emerald-700'
@@ -1986,7 +1996,7 @@ const NotesSection = ({
           onClick={() => {
             setShowMobileFolderTools((prev) => !prev);
           }}
-          className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
+          className={`notes-explorer-mobile-toggle rounded-xl border px-3 py-2 text-xs font-semibold ${
             showMobileFolderTools
               ? 'border-purple-500 bg-purple-50 text-purple-700'
               : 'border-slate-200 bg-white text-slate-600'
@@ -2162,10 +2172,13 @@ const NotesSection = ({
 
       <div
         onDrop={uploadBlockedByRole ? undefined : handleDrop}
+        onDragEnter={uploadBlockedByRole ? undefined : handleDragEnter}
         onDragOver={uploadBlockedByRole ? undefined : handleDragOver}
         onDragLeave={uploadBlockedByRole ? undefined : handleDragLeave}
         data-tour="files"
         className={`notes-explorer-files rounded-3xl border-2 border-dashed p-3.5 md:p-5 transition-all ${
+          isDragging ? 'is-dragging' : ''
+        } ${
           uploadBlockedByRole
             ? 'border-slate-200 bg-slate-50/70'
             : isDragging
@@ -2173,13 +2186,13 @@ const NotesSection = ({
             : 'border-slate-200 bg-gradient-to-br from-white via-white to-slate-50/70'
         }`}
       >
-        <div className="mb-3 rounded-2xl border border-slate-200/80 bg-white/85 p-3 md:mb-4 md:p-4">
+        <div className="notes-explorer-python-card mb-3 rounded-2xl border border-slate-200/80 bg-white/85 p-3 md:mb-4 md:p-4">
           <div className="flex flex-wrap items-center justify-between gap-2.5">
             <div>
-              <h3 className="text-sm font-bold text-gray-800">Python файл</h3>
-              <p className="text-xs text-slate-500">Создайте .py файл сразу в текущей папке</p>
+              <h3 className="notes-explorer-python-title text-sm font-bold text-gray-800">Python файл</h3>
+              <p className="notes-explorer-python-subtitle text-xs text-slate-500">Создайте .py файл сразу в текущей папке</p>
             </div>
-            <Button variant="secondary" onClick={() => setShowPyCreator((v) => !v)} disabled={uploadBlockedByRole} className="w-full sm:w-auto">
+            <Button variant="secondary" onClick={() => setShowPyCreator((v) => !v)} disabled={uploadBlockedByRole} className="notes-explorer-python-toggle w-full sm:w-auto">
               <Plus size={16} /> {showPyCreator ? 'Скрыть' : 'Создать'}
             </Button>
           </div>
@@ -2191,9 +2204,9 @@ const NotesSection = ({
                   value={pyDraftName}
                   onChange={(e) => { setPyDraftName(e.target.value); setPyDraftError(''); }}
                   placeholder="Название файла (без .py)"
-                  className="flex-1 min-w-0 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+                  className="notes-explorer-python-input flex-1 min-w-0 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
                 />
-                <Button onClick={handleCreatePyFile} disabled={pyDraftSaving || !pyDraftName.trim() || uploadBlockedByRole} className="w-full md:w-auto">
+                <Button onClick={handleCreatePyFile} disabled={pyDraftSaving || !pyDraftName.trim() || uploadBlockedByRole} className="notes-explorer-python-save-btn w-full md:w-auto">
                   {pyDraftSaving ? 'Сохранение...' : 'Сохранить файл'}
                 </Button>
               </div>
@@ -2212,7 +2225,7 @@ const NotesSection = ({
                   loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
                 />
               </div>
-              <div className="flex flex-wrap items-center justify-between text-xs text-gray-400 gap-2">
+              <div className="notes-explorer-python-meta flex flex-wrap items-center justify-between text-xs text-gray-400 gap-2">
                 <span>Файл сохранится в папке: {currentFolderLabel}</span>
                 <span>Размер: {formatBytes(getPyDraftSize(pyDraftCode))}</span>
               </div>
@@ -2221,7 +2234,7 @@ const NotesSection = ({
           )}
         </div>
 
-        <div className="mb-3 md:mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
+        <div className="notes-explorer-files-meta mb-3 md:mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
           {uploadBlockedByRole ? (
             <span>Загрузка в эту папку доступна только учителю</span>
           ) : (
@@ -2230,14 +2243,14 @@ const NotesSection = ({
               <span className="md:hidden">Загрузите файл или вставьте изображение</span>
             </>
           )}
-          <span className="text-[11px] md:text-xs text-slate-400">
+          <span className="notes-explorer-files-meta-path text-[11px] md:text-xs text-slate-400">
             Папка: {currentFolderPathLabel} • Осталось {formatBytes(remainingBytes)}
           </span>
-          {isUploading && <span className="text-xs font-bold text-purple-600">Загрузка...</span>}
+          {isUploading && <span className="notes-explorer-files-meta-progress text-xs font-bold text-purple-600">Загрузка...</span>}
         </div>
 
         {filtered.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-white/80 p-6 md:p-10 text-center text-sm text-slate-400">
+          <div className="notes-explorer-empty-state rounded-2xl border border-dashed border-slate-200 bg-white/80 p-6 md:p-10 text-center text-sm text-slate-400">
             {filesError || 'Пусто'}
           </div>
         ) : (
@@ -2264,7 +2277,7 @@ const NotesSection = ({
                         <tr
                           className={`border-t border-slate-100 ${
                             isSelected
-                              ? 'bg-blue-100/80'
+                              ? 'notes-row-selected bg-blue-100/80'
                               : (isExpanded ? 'notes-row-expanded bg-blue-50/55' : 'hover:bg-slate-50')
                           } ${isPreviewable ? 'cursor-pointer' : ''}`}
                           draggable={renamingId !== f.id && manageable}
@@ -2320,7 +2333,7 @@ const NotesSection = ({
                                     ) : null}
                                   </div>
                                 ) : (
-                                  <span className="block truncate font-medium text-slate-800">{f.name}</span>
+                                  <span className="notes-explorer-file-name block truncate font-medium text-slate-800">{f.name}</span>
                                 )}
                               </div>
                             </div>
@@ -2336,7 +2349,7 @@ const NotesSection = ({
                                     e.stopPropagation();
                                     handleDownload(f);
                                   }}
-                                  className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                                  className="notes-explorer-file-action-btn rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                                   title="Скачать файл"
                                   type="button"
                                 >
@@ -2349,7 +2362,7 @@ const NotesSection = ({
                                     e.stopPropagation();
                                     startRename(f);
                                   }}
-                                  className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                                  className="notes-explorer-file-action-btn rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                                   title="Переименовать"
                                   type="button"
                                 >
@@ -2362,7 +2375,7 @@ const NotesSection = ({
                                     e.stopPropagation();
                                     handleDelete(f);
                                   }}
-                                  className="rounded-md p-1.5 text-rose-500 hover:bg-rose-50"
+                                  className="notes-explorer-file-action-btn notes-explorer-file-action-btn-danger rounded-md p-1.5 text-rose-500 hover:bg-rose-50"
                                   title="Удалить файл"
                                   type="button"
                                 >
@@ -2374,8 +2387,8 @@ const NotesSection = ({
                         </tr>
                         {isPyFile(f.name) && (
                           <tr className={`${expandedPyIds[f.id] ? '' : 'hidden'}`}>
-                            <td colSpan={5} className="border-t border-slate-100 bg-white px-3 py-3">
-                              <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-2">
+                            <td colSpan={5} className="notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3">
+                              <div className="notes-explorer-preview-panel space-y-2 rounded-xl border border-slate-200 bg-white p-2">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                   <span className="text-xs text-gray-500">
                                     {editingPyId === f.id
@@ -2439,7 +2452,7 @@ const NotesSection = ({
                                         loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
                                       />
                                     </div>
-                                    <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                                    <div className="notes-explorer-console-panel space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
                                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                         <span className="text-xs font-semibold text-gray-600">
                                           Консоль (IDLE): редактируйте секцию `{PY_IDLE_STDIN_HEADER}`
@@ -2462,7 +2475,7 @@ const NotesSection = ({
                                         }}
                                         readOnly={pyRunLoading}
                                         spellCheck={false}
-                                        className="min-h-[220px] w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-xs leading-5 outline-none focus:border-purple-500"
+                                        className="notes-explorer-console-input min-h-[220px] w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-xs leading-5 outline-none focus:border-purple-500"
                                       />
                                     </div>
                                   </div>
@@ -2496,8 +2509,8 @@ const NotesSection = ({
                         )}
                         {isPdfFile(f.name) && (
                           <tr className={`${expandedPdfIds[f.id] ? '' : 'hidden'}`}>
-                            <td colSpan={5} className="border-t border-slate-100 bg-white px-3 py-3">
-                              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                            <td colSpan={5} className="notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3">
+                              <div className="notes-explorer-preview-panel overflow-hidden rounded-xl border border-slate-200 bg-white">
                                 <iframe
                                   title={f.name}
                                   src={getFileUrl(f)}
@@ -2510,7 +2523,7 @@ const NotesSection = ({
                         )}
                         {isImageFile(f) && (
                           <tr className={`${expandedImageIds[f.id] ? '' : 'hidden'}`}>
-                            <td colSpan={5} className="border-t border-slate-100 bg-white px-3 py-3">
+                            <td colSpan={5} className="notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3">
                               <ImageViewer
                                 src={getFileUrl(f)}
                                 alt={f.name || 'Изображение'}

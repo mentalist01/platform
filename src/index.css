@@ -5643,6 +5643,360 @@ html[data-theme='dark'] .notes-explorer-shell .notes-explorer-upload-btn svg {
   color: rgba(186, 206, 233, 0.9) !important;
 }
 
+html[data-theme='dark'] .notes-explorer-shell {
+  --notes-surface-0: rgba(5, 11, 24, 0.96);
+  --notes-surface-1: rgba(10, 19, 34, 0.93);
+  --notes-surface-2: rgba(15, 27, 46, 0.9);
+  --notes-surface-3: rgba(22, 37, 61, 0.84);
+  --notes-surface-4: rgba(31, 49, 79, 0.9);
+  --notes-border-soft: rgba(100, 116, 139, 0.34);
+  --notes-border: rgba(100, 116, 139, 0.54);
+  --notes-border-strong: rgba(96, 165, 250, 0.44);
+  --notes-text: rgba(237, 244, 255, 0.96);
+  --notes-text-muted: rgba(156, 173, 196, 0.94);
+  --notes-text-dim: rgba(122, 141, 168, 0.9);
+  --notes-accent: rgba(96, 165, 250, 0.96);
+  --notes-accent-soft: rgba(59, 130, 246, 0.18);
+  --notes-accent-cyan: rgba(34, 211, 238, 0.16);
+  --notes-glow: rgba(56, 189, 248, 0.12);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-window {
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.14), transparent 28%),
+    radial-gradient(circle at bottom left, rgba(14, 165, 233, 0.1), transparent 26%),
+    linear-gradient(180deg, rgba(8, 15, 29, 0.98), rgba(10, 17, 31, 0.94)) !important;
+  border-color: rgba(95, 118, 153, 0.62) !important;
+  box-shadow:
+    0 26px 54px rgba(2, 6, 23, 0.56),
+    0 10px 28px rgba(8, 47, 73, 0.24),
+    inset 0 1px 0 rgba(148, 163, 184, 0.12) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-toolbar {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(20, 31, 53, 0.96), rgba(11, 20, 36, 0.96)),
+    linear-gradient(90deg, rgba(14, 165, 233, 0.06), rgba(59, 130, 246, 0.08), rgba(37, 99, 235, 0.04)) !important;
+  border-color: rgba(95, 118, 153, 0.46) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-toolbar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.05), transparent),
+    radial-gradient(circle at 12% 18%, rgba(56, 189, 248, 0.1), transparent 26%);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-title {
+  color: var(--notes-text) !important;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 0 rgba(2, 6, 23, 0.4);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-student-picker {
+  border-color: rgba(124, 58, 237, 0.42) !important;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(12, 20, 36, 0.94)) !important;
+  box-shadow:
+    0 12px 24px rgba(2, 6, 23, 0.34),
+    inset 0 1px 0 rgba(168, 85, 247, 0.14) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-student-picker span {
+  color: rgba(196, 181, 253, 0.96) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-student-picker-select {
+  border-color: rgba(100, 116, 139, 0.58) !important;
+  background: rgba(9, 16, 29, 0.92) !important;
+  color: var(--notes-text) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-address {
+  border-color: rgba(86, 106, 139, 0.56) !important;
+  background:
+    linear-gradient(180deg, rgba(8, 15, 28, 0.92), rgba(13, 22, 38, 0.9)) !important;
+  color: var(--notes-text-muted) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.08),
+    0 1px 0 rgba(2, 6, 23, 0.24);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-address-current {
+  color: var(--notes-text) !important;
+  font-weight: 700;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-address-empty {
+  color: var(--notes-text-dim) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-stat {
+  border-color: rgba(88, 104, 131, 0.64) !important;
+  background:
+    linear-gradient(180deg, rgba(13, 22, 39, 0.92), rgba(9, 17, 31, 0.88)) !important;
+  color: var(--notes-text-muted) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-stat-remaining {
+  border-color: rgba(16, 185, 129, 0.42) !important;
+  background:
+    linear-gradient(180deg, rgba(6, 78, 59, 0.26), rgba(6, 95, 70, 0.18)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(110, 231, 183, 0.08),
+    0 0 0 1px rgba(16, 185, 129, 0.08);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-mobile-toggle {
+  border-color: rgba(88, 104, 131, 0.62) !important;
+  background: linear-gradient(180deg, rgba(12, 21, 37, 0.94), rgba(8, 16, 29, 0.9)) !important;
+  color: var(--notes-text-muted) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-mobile-toggle:hover {
+  border-color: rgba(96, 165, 250, 0.46) !important;
+  color: var(--notes-text) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-panel.notes-explorer-folder-panel {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(14, 165, 233, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(11, 20, 35, 0.95), rgba(10, 18, 31, 0.92)) !important;
+  border-color: rgba(95, 118, 153, 0.46) !important;
+  box-shadow:
+    0 20px 40px rgba(2, 6, 23, 0.34),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-panel.notes-explorer-folder-panel .notes-explorer-folder-tree {
+  border-color: rgba(79, 97, 125, 0.6) !important;
+  background:
+    linear-gradient(180deg, rgba(10, 19, 35, 0.92), rgba(11, 19, 33, 0.84)),
+    radial-gradient(circle at 100% 0%, rgba(37, 99, 235, 0.09), transparent 34%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.07),
+    inset 0 0 0 1px rgba(15, 23, 42, 0.2);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-row {
+  border-color: rgba(255, 255, 255, 0);
+  color: rgba(213, 225, 240, 0.95);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-row:hover {
+  border-color: rgba(88, 104, 131, 0.76);
+  background: linear-gradient(180deg, rgba(23, 36, 58, 0.94), rgba(19, 31, 51, 0.9)) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.05);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-row.is-current {
+  border-color: rgba(96, 165, 250, 0.92);
+  background:
+    linear-gradient(135deg, rgba(19, 60, 126, 0.56), rgba(8, 47, 73, 0.44)),
+    linear-gradient(180deg, rgba(23, 37, 63, 0.98), rgba(16, 29, 50, 0.96)) !important;
+  color: rgba(226, 239, 255, 0.99);
+  box-shadow:
+    0 14px 28px rgba(8, 15, 29, 0.42),
+    inset 0 0 0 1px rgba(147, 197, 253, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-count {
+  min-width: 26px;
+  padding: 0 8px;
+  color: rgba(221, 234, 253, 0.96);
+  background: linear-gradient(180deg, rgba(22, 38, 63, 0.92), rgba(17, 30, 50, 0.84)) !important;
+  border-color: rgba(96, 165, 250, 0.32);
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.06);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-python-card {
+  border-color: rgba(82, 101, 130, 0.64) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(96, 165, 250, 0.1), transparent 26%),
+    linear-gradient(180deg, rgba(15, 25, 43, 0.96), rgba(11, 20, 35, 0.94)) !important;
+  box-shadow:
+    0 18px 38px rgba(2, 6, 23, 0.3),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-python-title {
+  color: var(--notes-text) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-python-subtitle,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-python-meta {
+  color: var(--notes-text-muted) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-python-toggle {
+  border-color: rgba(88, 104, 131, 0.62) !important;
+  background: linear-gradient(180deg, rgba(12, 21, 37, 0.96), rgba(8, 16, 29, 0.94)) !important;
+  color: var(--notes-text) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-python-toggle:hover:not(:disabled) {
+  border-color: rgba(96, 165, 250, 0.44) !important;
+  background: linear-gradient(180deg, rgba(21, 35, 57, 0.98), rgba(10, 19, 34, 0.96)) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-python-input,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-console-input {
+  border-color: rgba(82, 101, 130, 0.66) !important;
+  background: rgba(6, 12, 24, 0.92) !important;
+  color: var(--notes-text) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.06);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-python-input::placeholder,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-console-input::placeholder {
+  color: var(--notes-text-dim);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-files {
+  background:
+    linear-gradient(180deg, rgba(11, 20, 35, 0.88), rgba(7, 14, 28, 0.84)),
+    radial-gradient(circle at 100% 0%, rgba(37, 99, 235, 0.08), transparent 32%) !important;
+  border-color: rgba(88, 104, 131, 0.56) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.06),
+    0 18px 34px rgba(2, 6, 23, 0.26);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-files.is-dragging {
+  border-color: rgba(125, 211, 252, 0.96) !important;
+  background:
+    radial-gradient(circle at 12% 16%, rgba(56, 189, 248, 0.24), transparent 24%),
+    radial-gradient(circle at 88% 82%, rgba(59, 130, 246, 0.18), transparent 28%),
+    linear-gradient(180deg, rgba(14, 27, 48, 0.96), rgba(8, 18, 34, 0.94)) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(147, 197, 253, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 0 4px rgba(37, 99, 235, 0.08),
+    0 24px 48px rgba(2, 6, 23, 0.34),
+    0 0 34px rgba(56, 189, 248, 0.18) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-files.is-dragging .notes-explorer-files-meta,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-files.is-dragging .notes-explorer-files-meta-path {
+  color: rgba(219, 234, 254, 0.98) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-files-meta {
+  color: var(--notes-text-muted) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-files-meta-path {
+  color: var(--notes-text-dim) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-files-meta-progress {
+  color: rgba(147, 197, 253, 0.98) !important;
+  text-shadow: 0 0 18px rgba(59, 130, 246, 0.32);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-empty-state {
+  border-color: rgba(77, 95, 123, 0.7) !important;
+  background:
+    linear-gradient(180deg, rgba(8, 16, 29, 0.94), rgba(10, 17, 31, 0.88)) !important;
+  color: var(--notes-text-dim) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.06);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table {
+  background:
+    linear-gradient(180deg, rgba(8, 15, 28, 0.9), rgba(7, 13, 24, 0.86)) !important;
+  border-color: rgba(84, 103, 131, 0.66) !important;
+  box-shadow:
+    0 14px 32px rgba(2, 6, 23, 0.28),
+    inset 0 1px 0 rgba(148, 163, 184, 0.06);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table thead {
+  background:
+    linear-gradient(180deg, rgba(32, 45, 67, 0.96), rgba(24, 35, 56, 0.96)) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  backdrop-filter: blur(14px);
+  color: var(--notes-text-dim) !important;
+  box-shadow: inset 0 -1px 0 rgba(71, 85, 105, 0.34);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table tbody tr {
+  border-color: rgba(57, 72, 96, 0.58) !important;
+  background: transparent;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table tbody tr:hover {
+  background:
+    linear-gradient(180deg, rgba(20, 31, 49, 0.92), rgba(17, 27, 44, 0.9)) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table tbody tr.notes-row-selected {
+  background:
+    linear-gradient(180deg, rgba(16, 56, 119, 0.42), rgba(9, 42, 83, 0.36)) !important;
+  box-shadow: inset 0 1px 0 rgba(147, 197, 253, 0.08);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table tbody tr.notes-row-expanded {
+  background:
+    linear-gradient(180deg, rgba(19, 41, 77, 0.34), rgba(12, 28, 52, 0.3)) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-name {
+  color: var(--notes-text) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-action-btn {
+  border: 1px solid rgba(71, 85, 105, 0.54);
+  background: rgba(10, 18, 32, 0.72);
+  color: rgba(191, 203, 220, 0.9) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.04);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-action-btn:hover {
+  border-color: rgba(125, 211, 252, 0.42);
+  background: rgba(22, 36, 58, 0.94) !important;
+  color: var(--notes-text) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-action-btn-danger {
+  border-color: rgba(190, 24, 93, 0.28);
+  color: rgba(251, 113, 133, 0.96) !important;
+  background: rgba(76, 5, 25, 0.18);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-action-btn-danger:hover {
+  border-color: rgba(251, 113, 133, 0.5);
+  background: rgba(127, 29, 29, 0.42) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-preview-cell {
+  background: rgba(8, 14, 27, 0.88) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-preview-panel,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-console-panel {
+  border-color: rgba(82, 101, 130, 0.64) !important;
+  background:
+    linear-gradient(180deg, rgba(10, 18, 33, 0.96), rgba(8, 15, 28, 0.92)) !important;
+  box-shadow:
+    0 14px 30px rgba(2, 6, 23, 0.24),
+    inset 0 1px 0 rgba(148, 163, 184, 0.05);
+}
+
 html[data-theme='dark'] .to-gray-100,
 html[data-theme='dark'] .to-slate-50\/70,
 html[data-theme='dark'] .to-slate-50\/85,
