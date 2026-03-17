@@ -257,6 +257,8 @@ const PythonTestModal = ({
   const runnerWorkerRef = useRef(null);
   const runnerPendingRef = useRef(new Map());
   const runnerWarmupStartedRef = useRef(false);
+  const runnerReadyRef = useRef(false);
+  const runnerWarmupPromiseRef = useRef(null);
   const questionCodeByIdRef = useRef({});
   const questionCodeLoadingByIdRef = useRef({});
   const questionCodeSavingByIdRef = useRef({});
@@ -265,6 +267,7 @@ const PythonTestModal = ({
   const questionCodeLocalVersionRef = useRef({});
   const pendingSaveQuestionIdRef = useRef('');
   const saveTimerRef = useRef(null);
+  const runnerWarmupTimeoutMs = Math.max(PYODIDE_RUN_TIMEOUT_MS * 2, 20000);
 
   const currentMastery = progress[task.id] || 0;
   const taskEntry = useMemo(() => getPythonTaskEntry(testDb, task?.number), [testDb, task?.number]);
@@ -1024,6 +1027,8 @@ const PythonTestModal = ({
   };
 
   const disposeRunnerWorker = (message) => {
+    runnerReadyRef.current = false;
+    runnerWarmupPromiseRef.current = null;
     if (runnerWorkerRef.current) {
       runnerWorkerRef.current.terminate();
       runnerWorkerRef.current = null;
@@ -1038,9 +1043,13 @@ const PythonTestModal = ({
       const worker = createPyodideWorker();
       worker.onmessage = (event) => {
         const data = event.data || {};
+        const messageType = typeof data.type === 'string' ? data.type : 'result';
+        if (!data.id) {
+          if (messageType === 'ready') runnerReadyRef.current = true;
+          return;
+        }
         const pending = runnerPendingRef.current.get(data.id);
         if (!pending) return;
-        const messageType = typeof data.type === 'string' ? data.type : 'result';
         if (messageType === 'stdout' || messageType === 'stderr') {
           const chunk = typeof data.chunk === 'string' ? data.chunk : String(data.chunk ?? '');
           if (!chunk) return;
@@ -1058,6 +1067,7 @@ const PythonTestModal = ({
           }
           return;
         }
+        if (messageType === 'ready') runnerReadyRef.current = true;
         clearTimeout(pending.timer);
         runnerPendingRef.current.delete(data.id);
         const output = typeof data.output === 'string'
@@ -1078,6 +1088,40 @@ const PythonTestModal = ({
     } catch {
       return null;
     }
+  };
+
+  const warmupRunnerWorker = async () => {
+    if (runnerReadyRef.current) return true;
+    if (runnerWarmupPromiseRef.current) return runnerWarmupPromiseRef.current;
+    const worker = ensureRunnerWorker();
+    if (!worker) return false;
+    const id = `warmup_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const warmupTimeoutMessage = '\u041f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u043a\u0430 Python \u0437\u0430\u043d\u044f\u043b\u0430 \u0441\u043b\u0438\u0448\u043a\u043e\u043c \u043c\u043d\u043e\u0433\u043e \u0432\u0440\u0435\u043c\u0435\u043d\u0438. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0435\u0449\u0451 \u0440\u0430\u0437.';
+    const promise = new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        const pending = runnerPendingRef.current.get(id);
+        if (!pending) return;
+        runnerPendingRef.current.delete(id);
+        resolve(false);
+        disposeRunnerWorker(warmupTimeoutMessage);
+      }, runnerWarmupTimeoutMs);
+      runnerPendingRef.current.set(id, {
+        resolve: ({ error }) => {
+          resolve(!String(error || '').trim());
+        },
+        timer,
+        output: '',
+        error: '',
+        onProgress: null,
+      });
+      worker.postMessage({ id, type: 'warmup' });
+    });
+    runnerWarmupPromiseRef.current = promise.finally(() => {
+      if (!runnerReadyRef.current) {
+        runnerWarmupPromiseRef.current = null;
+      }
+    });
+    return runnerWarmupPromiseRef.current;
   };
 
   useEffect(() => () => disposeRunnerWorker('Python runner stopped.'), []);
@@ -1109,7 +1153,8 @@ const PythonTestModal = ({
   };
 
   const runPythonCode = async (source, inputValue, onProgress = null) => {
-    const worker = ensureRunnerWorker();
+    const warmedUp = await warmupRunnerWorker();
+    const worker = warmedUp ? runnerWorkerRef.current : null;
     if (worker) {
       const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       return new Promise((resolve) => {
@@ -1148,7 +1193,7 @@ const PythonTestModal = ({
   useEffect(() => {
     if (runnerWarmupStartedRef.current) return;
     runnerWarmupStartedRef.current = true;
-    runPythonCode('pass', '').catch(() => {});
+    warmupRunnerWorker().catch(() => {});
   }, []);
 
   const handleRunTests = async (sourceRect = null) => {

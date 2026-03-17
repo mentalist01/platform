@@ -1194,7 +1194,7 @@ const ensurePyodideReady = (() => {
   };
 })();
 
-const PYODIDE_RUN_TIMEOUT_MS = 8000;
+const PYODIDE_RUN_TIMEOUT_MS = 40000;
 const ALLOW_MAIN_THREAD_PYTHON_FALLBACK = false;
 const PYODIDE_STREAM_FLUSH_MS = 35;
 const PYODIDE_STREAM_CHUNK_CHARS = 2048;
@@ -1746,6 +1746,11 @@ const createPyodideWorker = () => {
       const id = data.id;
       if (!id) return;
       try {
+        if (data.type === 'warmup') {
+          await ensurePyodide();
+          self.postMessage({ id, type: 'ready' });
+          return;
+        }
         const result = await runPython(id, data.source, data.input, data.debug, data.files);
         if (result?.debug) {
           self.postMessage({
