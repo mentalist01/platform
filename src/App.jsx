@@ -1205,6 +1205,10 @@ const COLLAB_DEBUG_TRACE_LIMIT = 2500;
 const COLLAB_DEBUG_AUTOPLAY_MS = 75;
 const COLLAB_DEBUG_INLINE_HINT_MAX_CHARS = 90;
 const COLLAB_DEBUG_INLINE_HINT_LINES_MAX = 120;
+const COLLAB_AUX_PANEL_MODE_INPUT = 'input';
+const COLLAB_AUX_PANEL_MODE_TEST_FILE = 'test-file';
+const COLLAB_TEST_FILE_RUNTIME_NAME = 'test.txt';
+const COLLAB_TEST_FILE_DOC_KEY = 'collab-test-file';
 const COLLAB_EDITOR_CURSOR_ENABLED = false;
 const COLLAB_EDITOR_CURSOR_SYNC_MS = 45;
 const COLLAB_EDITOR_CURSOR_STALE_MS = 6500;
@@ -1228,6 +1232,20 @@ const mergeRuntimeErrorText = (base, next) => {
   if (!nextText) return baseText;
   if (!baseText) return nextText;
   return `${baseText}${baseText.endsWith('\n') ? '' : '\n'}${nextText}`;
+};
+
+const normalizeCollabTextFileContent = (value) => String(value ?? '').replace(/\r\n?/g, '\n');
+
+const normalizeCollabAuxPanelMode = (value) => (
+  String(value || '').trim() === COLLAB_AUX_PANEL_MODE_TEST_FILE
+    ? COLLAB_AUX_PANEL_MODE_TEST_FILE
+    : COLLAB_AUX_PANEL_MODE_INPUT
+);
+
+const normalizeCollabTestFileHeight = (value) => {
+  const height = Math.round(Number(value));
+  if (!Number.isFinite(height)) return 0;
+  return Math.max(120, Math.min(1200, height));
 };
 
 const normalizeDebugLocals = (value) => {
@@ -1340,6 +1358,23 @@ const areNumberArraysEqual = (a, b) => {
     if (Number(a[i]) !== Number(b[i])) return false;
   }
   return true;
+};
+
+const areStringArraysEqual = (a, b) => {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (String(a[i] ?? '') !== String(b[i] ?? '')) return false;
+  }
+  return true;
+};
+
+const normalizeSharedTaskFileIds = (value) => {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value
+    .map((item) => String(item ?? '').trim())
+    .filter(Boolean))];
 };
 
 const normalizeDebugBreakpoints = (value) => {
@@ -1965,6 +2000,8 @@ const CollabSection = ({
   const [saveSuccess, setSaveSuccess] = useState('');
   const [saveNameError, setSaveNameError] = useState(false);
   const [runInput, setRunInput] = useState('');
+  const [collabAuxPanelMode, setCollabAuxPanelMode] = useState(COLLAB_AUX_PANEL_MODE_INPUT);
+  const [testFileText, setTestFileText] = useState('');
   const [runOutput, setRunOutput] = useState('');
   const [runError, setRunError] = useState('');
   const [runStatus, setRunStatus] = useState('idle');
@@ -1982,10 +2019,12 @@ const CollabSection = ({
   const [editorFontSize, setEditorFontSize] = useState(23);
   const [isCollabFullscreen, setIsCollabFullscreen] = useState(false);
   const [splitLeftWidth, setSplitLeftWidth] = useState(80);
+  const [testFileTextareaHeight, setTestFileTextareaHeight] = useState(0);
   const [runTaskNumber, setRunTaskNumber] = useState(() => String(taskOptions[0]?.number || ''));
   const [runTaskCategory, setRunTaskCategory] = useState('class');
   const [taskFiles, setTaskFiles] = useState([]);
   const [taskFilesLoading, setTaskFilesLoading] = useState(false);
+  const [taskFilesLoaded, setTaskFilesLoaded] = useState(false);
   const [taskFilesError, setTaskFilesError] = useState('');
   const [taskFileUploadBusy, setTaskFileUploadBusy] = useState(false);
   const [selectedTaskFileIds, setSelectedTaskFileIds] = useState([]);
@@ -2016,6 +2055,7 @@ const CollabSection = ({
   const notesPdfPanelHeightRef = useRef(notesPdfPanelHeight);
   const notesPdfDragHeightRef = useRef(notesPdfPanelHeight);
   const collabDocRef = useRef(null);
+  const collabTestFileRef = useRef(null);
   const runMapRef = useRef(null);
   const collabAwarenessRef = useRef(null);
   const runWorkerRef = useRef(null);
@@ -2029,6 +2069,13 @@ const CollabSection = ({
   const runOutputRef = useRef(runOutput);
   const runErrorRef = useRef(runError);
   const runStatusRef = useRef(runStatus);
+  const collabAuxPanelModeRef = useRef(collabAuxPanelMode);
+  const testFileTextareaHeightRef = useRef(testFileTextareaHeight);
+  const taskFilesPanelOpenRef = useRef(taskFilesPanelOpen);
+  const runTaskNumberRef = useRef(runTaskNumber);
+  const runTaskCategoryRef = useRef(runTaskCategory);
+  const selectedTaskFileIdsRef = useRef(selectedTaskFileIds);
+  const testFileTextareaRef = useRef(null);
   const taskFileInputRef = useRef(null);
   const mountedRuntimeFilesRef = useRef([]);
   const debugTraceRef = useRef([]);
@@ -2040,7 +2087,11 @@ const CollabSection = ({
   const debugInlayProviderRef = useRef(null);
   const debugBreakpointDecorationsRef = useRef([]);
   const debugGutterDisposableRef = useRef(null);
+  const suppressAuxPanelModeSyncRef = useRef(false);
+  const suppressTestFileHeightSyncRef = useRef(false);
   const suppressBreakpointSyncRef = useRef(false);
+  const suppressTaskFilesSyncRef = useRef(false);
+  const taskFilesSyncReadyRef = useRef(false);
   const collabSnippetProviderRef = useRef(null);
   const collabCursorMoveDisposableRef = useRef(null);
   const collabCursorLeaveDisposableRef = useRef(null);
@@ -2864,11 +2915,13 @@ const CollabSection = ({
       setTaskFiles([]);
       setTaskFilesError('');
       setTaskFilesLoading(false);
+      setTaskFilesLoaded(false);
       setSelectedTaskFileIds([]);
       return;
     }
     let cancelled = false;
     setTaskFilesLoading(true);
+    setTaskFilesLoaded(false);
     api.getFiles(effectiveStudentId)
       .then((data) => {
         if (cancelled) return;
@@ -2881,15 +2934,22 @@ const CollabSection = ({
         setTaskFilesError(err?.message || '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0444\u0430\u0439\u043b\u044b \u0437\u0430\u0434\u0430\u043d\u0438\u044f.');
       })
       .finally(() => {
-        if (!cancelled) setTaskFilesLoading(false);
+        if (!cancelled) {
+          setTaskFilesLoading(false);
+          setTaskFilesLoaded(true);
+        }
       });
     return () => { cancelled = true; };
   }, [effectiveStudentId]);
 
   useEffect(() => {
+    if (!taskFilesLoaded) return;
     const availableIds = new Set(filteredTaskFiles.map((file) => file.id));
-    setSelectedTaskFileIds((prev) => prev.filter((id) => availableIds.has(id)));
-  }, [filteredTaskFiles]);
+    setSelectedTaskFileIds((prev) => {
+      const next = prev.filter((id) => availableIds.has(id));
+      return areStringArraysEqual(prev, next) ? prev : next;
+    });
+  }, [filteredTaskFiles, taskFilesLoaded]);
 
   useEffect(() => {
     if (!notesPdfFolders.length) {
@@ -2995,6 +3055,49 @@ const CollabSection = ({
   }, [runStatus]);
 
   useEffect(() => {
+    collabAuxPanelModeRef.current = collabAuxPanelMode;
+  }, [collabAuxPanelMode]);
+
+  useEffect(() => {
+    testFileTextareaHeightRef.current = testFileTextareaHeight;
+  }, [testFileTextareaHeight]);
+
+  useEffect(() => {
+    taskFilesPanelOpenRef.current = taskFilesPanelOpen;
+  }, [taskFilesPanelOpen]);
+
+  useEffect(() => {
+    runTaskNumberRef.current = runTaskNumber;
+  }, [runTaskNumber]);
+
+  useEffect(() => {
+    runTaskCategoryRef.current = runTaskCategory;
+  }, [runTaskCategory]);
+
+  useEffect(() => {
+    selectedTaskFileIdsRef.current = selectedTaskFileIds;
+  }, [selectedTaskFileIds]);
+
+  useEffect(() => {
+    if (collabAuxPanelMode !== COLLAB_AUX_PANEL_MODE_TEST_FILE) return undefined;
+    const textarea = testFileTextareaRef.current;
+    if (!textarea) return undefined;
+    const syncHeightFromDom = () => {
+      const nextHeight = normalizeCollabTestFileHeight(textarea.offsetHeight);
+      if (!nextHeight || testFileTextareaHeightRef.current === nextHeight) return;
+      testFileTextareaHeightRef.current = nextHeight;
+      setTestFileTextareaHeight(nextHeight);
+    };
+    syncHeightFromDom();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(() => {
+      syncHeightFromDom();
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, [collabAuxPanelMode]);
+
+  useEffect(() => {
     debugTraceRef.current = Array.isArray(debugTrace) ? debugTrace : [];
   }, [debugTrace]);
 
@@ -3012,6 +3115,44 @@ const CollabSection = ({
     }
     publishRunStateRef.current?.({ debugBreakpoints: normalized });
   }, [debugBreakpoints, applyBreakpointDecorations]);
+
+  useEffect(() => {
+    if (!roomId || !taskFilesSyncReadyRef.current) return;
+    if (suppressAuxPanelModeSyncRef.current) {
+      suppressAuxPanelModeSyncRef.current = false;
+      return;
+    }
+    publishRunStateRef.current?.({
+      auxPanelMode: normalizeCollabAuxPanelMode(collabAuxPanelMode),
+    });
+  }, [roomId, collabAuxPanelMode]);
+
+  useEffect(() => {
+    if (!roomId || !taskFilesSyncReadyRef.current) return;
+    const normalizedHeight = normalizeCollabTestFileHeight(testFileTextareaHeight);
+    if (!normalizedHeight) return;
+    if (suppressTestFileHeightSyncRef.current) {
+      suppressTestFileHeightSyncRef.current = false;
+      return;
+    }
+    publishRunStateRef.current?.({
+      testFileHeight: normalizedHeight,
+    });
+  }, [roomId, testFileTextareaHeight]);
+
+  useEffect(() => {
+    if (!roomId || !taskFilesSyncReadyRef.current) return;
+    if (suppressTaskFilesSyncRef.current) {
+      suppressTaskFilesSyncRef.current = false;
+      return;
+    }
+    publishRunStateRef.current?.({
+      taskFilesPanelOpen,
+      taskFilesTaskNumber: runTaskNumber,
+      taskFilesCategory: runTaskCategory,
+      taskFilesSelectedIds: normalizeSharedTaskFileIds(selectedTaskFileIds),
+    });
+  }, [roomId, taskFilesPanelOpen, runTaskNumber, runTaskCategory, selectedTaskFileIds]);
 
   useEffect(() => () => {
     if (runStreamTimerRef.current) {
@@ -3179,6 +3320,28 @@ const CollabSection = ({
     return Number(taskOptions[0]?.number) || NaN;
   };
 
+  const handleTestFileTextChange = useCallback((value) => {
+    const normalized = normalizeCollabTextFileContent(value);
+    setTestFileText((prev) => (prev === normalized ? prev : normalized));
+    const ytext = collabTestFileRef.current;
+    if (!ytext) return;
+    const current = normalizeCollabTextFileContent(ytext.toString());
+    if (current === normalized) return;
+    const applyChange = () => {
+      if (ytext.length > 0) {
+        ytext.delete(0, ytext.length);
+      }
+      if (normalized) {
+        ytext.insert(0, normalized);
+      }
+    };
+    if (ytext.doc?.transact) {
+      ytext.doc.transact(applyChange, 'collab-test-file');
+      return;
+    }
+    applyChange();
+  }, []);
+
   const mountRuntimeFilesInPyodide = useCallback((pyodide, runtimeFiles = []) => {
     if (!pyodide?.FS) return;
     const ensureRuntimeDir = (dirPath) => {
@@ -3240,7 +3403,12 @@ const CollabSection = ({
   }, []);
 
   const resolveSelectedRuntimeFiles = useCallback(async () => {
-    if (!selectedTaskFiles.length) return [];
+    const reservedRuntimePath = COLLAB_TEST_FILE_RUNTIME_NAME.toLowerCase();
+    const payload = [{
+      name: COLLAB_TEST_FILE_RUNTIME_NAME,
+      bytes: new TextEncoder().encode(normalizeCollabTextFileContent(testFileText)),
+    }];
+    if (!selectedTaskFiles.length) return payload;
     const selectedEntries = selectedTaskFiles.map((file) => {
       const primaryPath = getRuntimePathForTaskFile(file);
       return {
@@ -3256,14 +3424,14 @@ const CollabSection = ({
         pathCounts.set(lowerCandidate, (pathCounts.get(lowerCandidate) || 0) + 1);
       });
     });
-    const mountedPaths = new Set();
-    const payload = [];
+    const mountedPaths = new Set([reservedRuntimePath]);
     for (const entry of selectedEntries) {
       const { file, primaryPath, variants } = entry;
       const runtimePath = primaryPath;
       if (!runtimePath) continue;
       const lowerPath = runtimePath.toLowerCase();
       if (mountedPaths.has(lowerPath)) {
+        if (lowerPath === reservedRuntimePath) continue;
         throw new Error(`\u0412\u044b\u0431\u0440\u0430\u043d\u043e \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0444\u0430\u0439\u043b\u043e\u0432 \u0441 \u043f\u0443\u0442\u0435\u043c ${runtimePath}. \u041e\u0441\u0442\u0430\u0432\u044c\u0442\u0435 \u043e\u0434\u0438\u043d.`);
       }
       mountedPaths.add(lowerPath);
@@ -3283,6 +3451,7 @@ const CollabSection = ({
       });
       variants.forEach((candidate) => {
         const lowerCandidate = candidate.toLowerCase();
+        if (lowerCandidate === reservedRuntimePath) return;
         if (lowerCandidate === lowerPath) return;
         if ((pathCounts.get(lowerCandidate) || 0) !== 1) return;
         if (mountedPaths.has(lowerCandidate)) return;
@@ -3294,7 +3463,7 @@ const CollabSection = ({
       });
     }
     return payload;
-  }, [selectedTaskFiles, getTaskFileUrl, getRuntimePathForTaskFile, getRuntimePathVariantsForTaskFile]);
+  }, [selectedTaskFiles, getTaskFileUrl, getRuntimePathForTaskFile, getRuntimePathVariantsForTaskFile, testFileText]);
 
   const handleUploadTaskFiles = async (fileList) => {
     const filesToUpload = Array.from(fileList || []).filter(Boolean);
@@ -3447,6 +3616,14 @@ const CollabSection = ({
       setDebugPlaying(false);
       setDebugSourceSnapshot('');
       setDebugStep(-1);
+      collabAuxPanelModeRef.current = COLLAB_AUX_PANEL_MODE_INPUT;
+      testFileTextareaHeightRef.current = 0;
+      taskFilesPanelOpenRef.current = false;
+      selectedTaskFileIdsRef.current = [];
+      setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_INPUT);
+      setTestFileTextareaHeight(0);
+      setTaskFilesPanelOpen(false);
+      setSelectedTaskFileIds([]);
       setNotesPdfPanelOpen(false);
       setNotesPdfFolderKey('');
       setNotesPdfFileId('');
@@ -3492,6 +3669,65 @@ const CollabSection = ({
       suppressBreakpointSyncRef.current = true;
       debugBreakpointsRef.current = nextBreakpoints;
       setDebugBreakpoints(nextBreakpoints);
+    }
+
+    if (runMap.has('auxPanelMode')) {
+      const nextAuxPanelMode = normalizeCollabAuxPanelMode(runMap.get('auxPanelMode'));
+      if (collabAuxPanelModeRef.current !== nextAuxPanelMode) {
+        suppressAuxPanelModeSyncRef.current = true;
+        collabAuxPanelModeRef.current = nextAuxPanelMode;
+        setCollabAuxPanelMode(nextAuxPanelMode);
+      }
+    }
+    if (runMap.has('testFileHeight')) {
+      const nextTestFileHeight = normalizeCollabTestFileHeight(runMap.get('testFileHeight'));
+      if (nextTestFileHeight && testFileTextareaHeightRef.current !== nextTestFileHeight) {
+        suppressTestFileHeightSyncRef.current = true;
+        testFileTextareaHeightRef.current = nextTestFileHeight;
+        setTestFileTextareaHeight(nextTestFileHeight);
+      }
+    }
+
+    let shouldSuppressTaskFilesSync = false;
+    if (runMap.has('taskFilesPanelOpen')) {
+      const nextTaskFilesPanelOpen = Boolean(runMap.get('taskFilesPanelOpen'));
+      if (taskFilesPanelOpenRef.current !== nextTaskFilesPanelOpen) {
+        shouldSuppressTaskFilesSync = true;
+        taskFilesPanelOpenRef.current = nextTaskFilesPanelOpen;
+        setTaskFilesPanelOpen(nextTaskFilesPanelOpen);
+      }
+    }
+    if (runMap.has('taskFilesTaskNumber')) {
+      const nextTaskNumber = typeof runMap.get('taskFilesTaskNumber') === 'string'
+        ? runMap.get('taskFilesTaskNumber')
+        : String(runMap.get('taskFilesTaskNumber') ?? '');
+      if (runTaskNumberRef.current !== nextTaskNumber) {
+        shouldSuppressTaskFilesSync = true;
+        runTaskNumberRef.current = nextTaskNumber;
+        setRunTaskNumber(nextTaskNumber);
+      }
+    }
+    if (runMap.has('taskFilesCategory')) {
+      const rawCategory = typeof runMap.get('taskFilesCategory') === 'string'
+        ? runMap.get('taskFilesCategory')
+        : String(runMap.get('taskFilesCategory') ?? '');
+      const nextTaskCategory = rawCategory === 'home' ? 'home' : 'class';
+      if (runTaskCategoryRef.current !== nextTaskCategory) {
+        shouldSuppressTaskFilesSync = true;
+        runTaskCategoryRef.current = nextTaskCategory;
+        setRunTaskCategory(nextTaskCategory);
+      }
+    }
+    if (runMap.has('taskFilesSelectedIds')) {
+      const nextSelectedIds = normalizeSharedTaskFileIds(runMap.get('taskFilesSelectedIds'));
+      if (!areStringArraysEqual(selectedTaskFileIdsRef.current, nextSelectedIds)) {
+        shouldSuppressTaskFilesSync = true;
+        selectedTaskFileIdsRef.current = nextSelectedIds;
+        setSelectedTaskFileIds(nextSelectedIds);
+      }
+    }
+    if (shouldSuppressTaskFilesSync) {
+      suppressTaskFilesSyncRef.current = true;
     }
 
     if (runMap.has('notesPdfOpen')) {
@@ -3561,6 +3797,26 @@ const CollabSection = ({
           setDebugBreakpoints(nextBreakpoints);
         }
       }
+      if (Object.prototype.hasOwnProperty.call(payload, 'auxPanelMode')) {
+        setCollabAuxPanelMode(normalizeCollabAuxPanelMode(payload.auxPanelMode));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'testFileHeight')) {
+        const nextTestFileHeight = normalizeCollabTestFileHeight(payload.testFileHeight);
+        setTestFileTextareaHeight(nextTestFileHeight);
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'taskFilesPanelOpen')) {
+        setTaskFilesPanelOpen(Boolean(payload.taskFilesPanelOpen));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'taskFilesTaskNumber')) {
+        setRunTaskNumber(String(payload.taskFilesTaskNumber || ''));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'taskFilesCategory')) {
+        setRunTaskCategory(payload.taskFilesCategory === 'home' ? 'home' : 'class');
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'taskFilesSelectedIds')) {
+        const nextSelectedIds = normalizeSharedTaskFileIds(payload.taskFilesSelectedIds);
+        setSelectedTaskFileIds((prev) => (areStringArraysEqual(prev, nextSelectedIds) ? prev : nextSelectedIds));
+      }
       if (Object.prototype.hasOwnProperty.call(payload, 'notesPdfOpen')) {
         setNotesPdfPanelOpen(Boolean(payload.notesPdfOpen));
       }
@@ -3612,6 +3868,24 @@ const CollabSection = ({
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'debugBreakpoints')) {
         runMap.set('debugBreakpoints', normalizeDebugBreakpoints(payload.debugBreakpoints));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'auxPanelMode')) {
+        runMap.set('auxPanelMode', normalizeCollabAuxPanelMode(payload.auxPanelMode));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'testFileHeight')) {
+        runMap.set('testFileHeight', normalizeCollabTestFileHeight(payload.testFileHeight));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'taskFilesPanelOpen')) {
+        runMap.set('taskFilesPanelOpen', Boolean(payload.taskFilesPanelOpen));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'taskFilesTaskNumber')) {
+        runMap.set('taskFilesTaskNumber', String(payload.taskFilesTaskNumber || ''));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'taskFilesCategory')) {
+        runMap.set('taskFilesCategory', payload.taskFilesCategory === 'home' ? 'home' : 'class');
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'taskFilesSelectedIds')) {
+        runMap.set('taskFilesSelectedIds', normalizeSharedTaskFileIds(payload.taskFilesSelectedIds));
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'notesPdfOpen')) {
         runMap.set('notesPdfOpen', Boolean(payload.notesPdfOpen));
@@ -4178,6 +4452,7 @@ const CollabSection = ({
   };
 
   useEffect(() => {
+    taskFilesSyncReadyRef.current = false;
     if (!roomId || !editorReady || !wsUrl) {
       setStatus('disconnected');
       setPeerCount(0);
@@ -4197,8 +4472,10 @@ const CollabSection = ({
       }
       collabCursorPendingRef.current = null;
       collabDocRef.current = null;
+      collabTestFileRef.current = null;
       collabAwarenessRef.current = null;
       runMapRef.current = null;
+      setTestFileText('');
       clearDebugSession(false);
       updateRunStateFromMap(null);
       return;
@@ -4233,6 +4510,16 @@ const CollabSection = ({
     const handleRunMapChange = () => updateRunStateFromMap(runMap);
     runMap.observe(handleRunMapChange);
     handleRunMapChange();
+    taskFilesSyncReadyRef.current = true;
+
+    const testFileYText = doc.getText(COLLAB_TEST_FILE_DOC_KEY);
+    collabTestFileRef.current = testFileYText;
+    const syncTestFileFromDoc = () => {
+      const next = normalizeCollabTextFileContent(testFileYText.toString());
+      setTestFileText((prev) => (prev === next ? prev : next));
+    };
+    testFileYText.observe(syncTestFileFromDoc);
+    syncTestFileFromDoc();
 
     const handleStatus = (event) => {
       if (event?.status) setStatus(event.status);
@@ -4296,13 +4583,17 @@ const CollabSection = ({
         clearTimeout(collabCursorClearTimerRef.current);
         collabCursorClearTimerRef.current = null;
       }
+      testFileYText.unobserve(syncTestFileFromDoc);
       runMap.unobserve(handleRunMapChange);
       binding.destroy();
       provider.destroy();
       doc.destroy();
+      taskFilesSyncReadyRef.current = false;
       runMapRef.current = null;
       collabDocRef.current = null;
+      collabTestFileRef.current = null;
       collabAwarenessRef.current = null;
+      setTestFileText('');
       setRemoteEditorCursors([]);
       clearDebugSession(false);
       updateRunStateFromMap(null);
@@ -4378,6 +4669,10 @@ const CollabSection = ({
       })
       .filter(Boolean);
   }, [remoteEditorCursors, editorViewportVersion]);
+  const isTestFileMode = collabAuxPanelMode === COLLAB_AUX_PANEL_MODE_TEST_FILE;
+  const auxTextareaRows = isTestFileMode
+    ? (isSplitCollabLayout ? (isCollabFullscreen ? 5 : 4) : (isCollabFullscreen ? (isMobileViewport ? 5 : 6) : (isMobileViewport ? 6 : 8)))
+    : (isSplitCollabLayout ? (isCollabFullscreen ? 3 : 2) : (isCollabFullscreen ? (isMobileViewport ? 3 : 4) : (isMobileViewport ? 4 : 6)));
   const handleSplitResizeStart = useCallback((event) => {
     if (!isSplitCollabLayout) return;
     event.preventDefault();
@@ -4690,24 +4985,110 @@ const CollabSection = ({
     <div className={`${isSplitCollabLayout ? 'space-y-1' : 'space-y-2'} ${
       isCollabFullscreen
         ? (isFullscreenDark
-          ? 'rounded-2xl border border-slate-700/80 bg-slate-900/68 p-2.5 shadow-[inset_0_1px_0_rgba(148,163,184,0.12)]'
+          ? `rounded-2xl border p-2.5 shadow-[inset_0_1px_0_rgba(148,163,184,0.12)] ${
+            isTestFileMode
+              ? 'border-cyan-400/30 bg-slate-900/78 ring-1 ring-cyan-300/12'
+              : 'border-slate-700/80 bg-slate-900/68'
+          }`
           : 'rounded-2xl border border-slate-200/90 bg-white/92 p-2.5 shadow-[0_10px_28px_rgba(148,163,184,0.14)]')
         : ''
     }`}>
-      <div className={`${isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>Ввод (stdin)</div>
-      <textarea
-        value={runInput}
-        onChange={(e) => setRunInput(e.target.value)}
-        rows={isSplitCollabLayout ? (isCollabFullscreen ? 3 : 2) : (isCollabFullscreen ? (isMobileViewport ? 3 : 4) : (isMobileViewport ? 4 : 6))}
-        placeholder="Если нужен ввод, вставьте его сюда."
-        className={`w-full rounded-2xl border outline-none ${
-          isSplitCollabLayout ? 'px-2.5 py-1.5 text-[11px]' : 'px-3 py-2 text-xs'
-        } ${
+      <div className="flex items-center justify-between gap-2">
+        <div className={`${isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>
+          {isTestFileMode ? 'test.txt' : 'Ввод (stdin)'}
+        </div>
+        <div className={`inline-flex items-center rounded-xl border p-0.5 ${
           isFullscreenDark
-            ? 'border-slate-700/80 bg-slate-900/70 text-slate-100 focus:border-violet-400'
-            : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
-        }`}
-      />
+            ? 'border-slate-700/80 bg-slate-950/70'
+            : 'border-gray-200 bg-gray-100'
+        }`}>
+          <button
+            type="button"
+            onClick={() => setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_INPUT)}
+            className={`rounded-lg transition ${
+              isSplitCollabLayout ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1 text-[11px]'
+            } ${
+              !isTestFileMode
+                ? (isFullscreenDark
+                  ? 'bg-violet-500/25 text-violet-100 shadow-[0_4px_14px_rgba(139,92,246,0.24)]'
+                  : 'bg-white text-violet-700 shadow-sm')
+                : (isFullscreenDark
+                  ? 'text-slate-300 hover:text-slate-100'
+                  : 'text-gray-500 hover:text-gray-700')
+            }`}
+          >
+            stdin
+          </button>
+          <button
+            type="button"
+            onClick={() => setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_TEST_FILE)}
+            className={`rounded-lg transition ${
+              isSplitCollabLayout ? 'px-2.5 py-1 text-[10px]' : 'px-3 py-1.5 text-[11px]'
+            } ${
+              isTestFileMode
+                ? (isFullscreenDark
+                  ? 'bg-cyan-400/22 text-cyan-50 ring-1 ring-cyan-300/45 shadow-[0_0_0_1px_rgba(34,211,238,0.14),0_8px_24px_rgba(6,182,212,0.22)]'
+                  : 'bg-cyan-50 text-cyan-800 ring-1 ring-cyan-300 shadow-[0_8px_20px_rgba(34,211,238,0.18)]')
+                : (isFullscreenDark
+                  ? 'text-slate-300 hover:text-slate-100'
+                  : 'text-gray-500 hover:text-gray-700')
+            }`}
+          >
+            test.txt
+          </button>
+        </div>
+      </div>
+      <div className={isTestFileMode ? (
+        isFullscreenDark
+          ? 'rounded-2xl border border-cyan-400/25 bg-slate-950/72'
+          : 'rounded-2xl border border-cyan-200 bg-white'
+      ) : ''}>
+        <div>
+          {isTestFileMode && (
+            <div className={`flex items-center justify-between gap-2 px-3 pt-2.5 ${
+              isFullscreenDark ? 'text-cyan-100' : 'text-cyan-900'
+            }`}>
+              <div className="flex items-center gap-2">
+                <span className={`inline-flex h-2 w-2 rounded-full ${
+                  isFullscreenDark ? 'bg-cyan-300' : 'bg-cyan-500'
+                }`} />
+                <span className="text-[11px] font-semibold">`test.txt`</span>
+              </div>
+              <span className={`text-[10px] ${isFullscreenDark ? 'text-cyan-100/70' : 'text-cyan-800/70'}`}>
+                файл
+              </span>
+            </div>
+          )}
+          <textarea
+            ref={isTestFileMode ? testFileTextareaRef : null}
+            value={isTestFileMode ? testFileText : runInput}
+            onChange={(e) => {
+              if (isTestFileMode) {
+                handleTestFileTextChange(e.target.value);
+                return;
+              }
+              setRunInput(e.target.value);
+            }}
+            rows={auxTextareaRows}
+            disabled={isTestFileMode && !roomId}
+            placeholder={isTestFileMode
+              ? (roomId ? 'Введите содержимое test.txt.' : 'Выберите ученика, чтобы редактировать test.txt.')
+              : 'Если нужен ввод, вставьте его сюда.'}
+            style={isTestFileMode && testFileTextareaHeight ? { height: `${testFileTextareaHeight}px` } : undefined}
+            className={`w-full rounded-2xl border outline-none ${
+              isSplitCollabLayout ? 'px-2.5 py-1.5 text-[11px]' : 'px-3 py-2 text-xs'
+            } ${
+              isTestFileMode
+                ? (isFullscreenDark
+                  ? 'mt-2 resize-y border-cyan-300/25 bg-slate-900/92 text-slate-50 focus:border-cyan-300 focus:ring-1 focus:ring-cyan-300/20'
+                  : 'mt-2 resize-y border-cyan-200 bg-white text-slate-800 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-200')
+                : (isFullscreenDark
+                  ? 'border-slate-700/80 bg-slate-900/70 text-slate-100 focus:border-violet-400'
+                  : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500')
+            } disabled:cursor-not-allowed disabled:opacity-70`}
+          />
+        </div>
+      </div>
       <div className={`rounded-2xl border p-2 ${isSplitCollabLayout ? 'space-y-1' : 'space-y-2'} ${
         isFullscreenDark
           ? 'border-slate-700/80 bg-slate-900/70'
@@ -4874,13 +5255,13 @@ const CollabSection = ({
                    )}
                  </>
                )}
-             </div>
-             <div className={`text-[10px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
-               Выбранные файлы доступны по пути из списка. Если имя уникально, можно открыть просто файл, иначе используйте путь с подпапкой.
-             </div>
-           </>
-         )}
-       </div>
+              </div>
+              <div className={`text-[10px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
+                Выбранные файлы доступны по пути из списка. Если имя уникально, можно открыть просто файл, иначе используйте путь с подпапкой. <code>test.txt</code> доступен всегда и редактируется во вкладке выше.
+              </div>
+            </>
+          )}
+        </div>
     </div>
   );
   const notesPdfPane = (
