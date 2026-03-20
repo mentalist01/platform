@@ -12,7 +12,7 @@ import {
   X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
-  ChevronsLeft, ChevronsRight,
+  ChevronsLeft, ChevronsRight, ChevronsUpDown,
   Bell, BellOff, MousePointer2, Code2, MoreHorizontal, MessageSquare, Users, Wallet
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
@@ -1207,6 +1207,8 @@ const COLLAB_DEBUG_INLINE_HINT_MAX_CHARS = 90;
 const COLLAB_DEBUG_INLINE_HINT_LINES_MAX = 120;
 const COLLAB_AUX_PANEL_MODE_INPUT = 'input';
 const COLLAB_AUX_PANEL_MODE_TEST_FILE = 'test-file';
+const COLLAB_TOP_PANE_MODE_PDF = 'pdf';
+const COLLAB_TOP_PANE_MODE_BOARD = 'board';
 const COLLAB_TEST_FILE_RUNTIME_NAME = 'test.txt';
 const COLLAB_TEST_FILE_DOC_KEY = 'collab-test-file';
 const COLLAB_EDITOR_CURSOR_ENABLED = false;
@@ -1240,6 +1242,12 @@ const normalizeCollabAuxPanelMode = (value) => (
   String(value || '').trim() === COLLAB_AUX_PANEL_MODE_TEST_FILE
     ? COLLAB_AUX_PANEL_MODE_TEST_FILE
     : COLLAB_AUX_PANEL_MODE_INPUT
+);
+
+const normalizeCollabTopPaneMode = (value) => (
+  String(value || '').trim() === COLLAB_TOP_PANE_MODE_BOARD
+    ? COLLAB_TOP_PANE_MODE_BOARD
+    : COLLAB_TOP_PANE_MODE_PDF
 );
 
 const normalizeCollabTestFileHeight = (value) => {
@@ -2092,6 +2100,7 @@ const CollabSection = ({
   const [selectedTaskFileIds, setSelectedTaskFileIds] = useState([]);
   const [taskFilesPanelOpen, setTaskFilesPanelOpen] = useState(false);
   const [notesPdfPanelOpen, setNotesPdfPanelOpen] = useState(false);
+  const [notesPanelMode, setNotesPanelMode] = useState(COLLAB_TOP_PANE_MODE_PDF);
   const [notesPdfFolderKey, setNotesPdfFolderKey] = useState('');
   const [notesPdfFileId, setNotesPdfFileId] = useState('');
   const [notesPdfPanelHeight, setNotesPdfPanelHeight] = useState(190);
@@ -2305,6 +2314,12 @@ const CollabSection = ({
     (value) => Math.max(notesPdfMinHeight, Math.min(notesPdfMaxHeight, Math.round(value))),
     [notesPdfMinHeight, notesPdfMaxHeight]
   );
+  const preferredBoardTopPaneHeight = useMemo(
+    () => clampNotesPdfHeight(isMobileViewport ? 260 : (isCollabFullscreen ? 360 : 320)),
+    [clampNotesPdfHeight, isMobileViewport, isCollabFullscreen]
+  );
+  const isNotesBoardMode = notesPanelMode === COLLAB_TOP_PANE_MODE_BOARD;
+  const canResizeTopPane = notesPdfPanelOpen && (isNotesBoardMode || Boolean(selectedNotesPdfFile));
   const clampFontSize = (value) => Math.min(36, Math.max(12, Math.round(value)));
   const isFullscreenDark = isCollabFullscreen && isDarkTheme;
   const isFullscreenLight = isCollabFullscreen && !isDarkTheme;
@@ -3043,6 +3058,11 @@ const CollabSection = ({
   useEffect(() => {
     setNotesPdfPanelHeight((prev) => clampNotesPdfHeight(prev));
   }, [clampNotesPdfHeight]);
+
+  useEffect(() => {
+    if (!notesPdfPanelOpen || !isNotesBoardMode) return;
+    setNotesPdfPanelHeight((prev) => Math.max(prev, preferredBoardTopPaneHeight));
+  }, [notesPdfPanelOpen, isNotesBoardMode, preferredBoardTopPaneHeight]);
 
   useEffect(() => {
     notesPdfPanelHeightRef.current = notesPdfPanelHeight;
@@ -3808,6 +3828,7 @@ const CollabSection = ({
       setTaskFilesPanelOpen(false);
       setSelectedTaskFileIds([]);
       setNotesPdfPanelOpen(false);
+      setNotesPanelMode(COLLAB_TOP_PANE_MODE_PDF);
       setNotesPdfFolderKey('');
       setNotesPdfFileId('');
       return;
@@ -3916,6 +3937,9 @@ const CollabSection = ({
     if (runMap.has('notesPdfOpen')) {
       setNotesPdfPanelOpen(Boolean(runMap.get('notesPdfOpen')));
     }
+    if (runMap.has('notesPanelMode')) {
+      setNotesPanelMode(normalizeCollabTopPaneMode(runMap.get('notesPanelMode')));
+    }
     if (runMap.has('notesPdfFolderKey')) {
       const nextFolderKey = typeof runMap.get('notesPdfFolderKey') === 'string'
         ? runMap.get('notesPdfFolderKey')
@@ -4003,6 +4027,9 @@ const CollabSection = ({
       if (Object.prototype.hasOwnProperty.call(payload, 'notesPdfOpen')) {
         setNotesPdfPanelOpen(Boolean(payload.notesPdfOpen));
       }
+      if (Object.prototype.hasOwnProperty.call(payload, 'notesPanelMode')) {
+        setNotesPanelMode(normalizeCollabTopPaneMode(payload.notesPanelMode));
+      }
       if (Object.prototype.hasOwnProperty.call(payload, 'notesPdfFolderKey')) {
         setNotesPdfFolderKey(String(payload.notesPdfFolderKey || ''));
       }
@@ -4072,6 +4099,9 @@ const CollabSection = ({
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'notesPdfOpen')) {
         runMap.set('notesPdfOpen', Boolean(payload.notesPdfOpen));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'notesPanelMode')) {
+        runMap.set('notesPanelMode', normalizeCollabTopPaneMode(payload.notesPanelMode));
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'notesPdfFolderKey')) {
         runMap.set('notesPdfFolderKey', String(payload.notesPdfFolderKey || ''));
@@ -4930,7 +4960,7 @@ const CollabSection = ({
     setSplitLeftWidth(80);
   }, []);
   const handleNotesPdfResizeStart = useCallback((event) => {
-    if (!notesPdfPanelOpen || !selectedNotesPdfFile) return;
+    if (!canResizeTopPane) return;
     event.preventDefault();
     const handleNode = event.currentTarget;
     const pointerId = event.pointerId;
@@ -4974,10 +5004,14 @@ const CollabSection = ({
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', stopDragging);
     window.addEventListener('pointercancel', stopDragging);
-  }, [notesPdfPanelOpen, selectedNotesPdfFile, clampNotesPdfHeight]);
+  }, [canResizeTopPane, clampNotesPdfHeight]);
   const handleNotesPdfResizeReset = useCallback(() => {
-    setNotesPdfPanelHeight(clampNotesPdfHeight(isMobileViewport ? 150 : 190));
-  }, [clampNotesPdfHeight, isMobileViewport]);
+    setNotesPdfPanelHeight(
+      isNotesBoardMode
+        ? preferredBoardTopPaneHeight
+        : clampNotesPdfHeight(isMobileViewport ? 150 : 190)
+    );
+  }, [clampNotesPdfHeight, isMobileViewport, isNotesBoardMode, preferredBoardTopPaneHeight]);
 
   const renderStudentPicker = () => {
     if (!isTeacher) return null;
@@ -5481,32 +5515,117 @@ const CollabSection = ({
         </div>
     </div>
   );
+  const handleTopPaneModeChange = (nextMode) => {
+    const normalizedMode = normalizeCollabTopPaneMode(nextMode);
+    setNotesPanelMode(normalizedMode);
+    setNotesPdfPanelOpen(true);
+    if (normalizedMode === COLLAB_TOP_PANE_MODE_BOARD) {
+      setNotesPdfPanelHeight((prev) => Math.max(prev, preferredBoardTopPaneHeight));
+    }
+    publishRunStateRef.current?.({
+      notesPdfOpen: true,
+      notesPanelMode: normalizedMode,
+      notesPdfFolderKey: selectedNotesPdfFolderKey || '',
+      notesPdfFileId: notesPdfFileId || selectedNotesPdfFile?.id || '',
+    });
+  };
+  const notesTopPaneResizeHandle = (
+    <div
+      role="separator"
+      aria-label="Изменить высоту верхней панели"
+      aria-orientation="horizontal"
+      aria-valuemin={notesPdfMinHeight}
+      aria-valuemax={notesPdfMaxHeight}
+      aria-valuenow={Math.round(notesPdfPanelHeight)}
+      onPointerDown={handleNotesPdfResizeStart}
+      onDoubleClick={handleNotesPdfResizeReset}
+      className="group -mt-1 flex h-7 cursor-row-resize select-none touch-none items-center justify-center"
+      title="Тяните вверх или вниз, чтобы изменить высоту. Двойной клик — сброс."
+    >
+      <div className="relative flex w-full items-center justify-center">
+        <div className={`absolute inset-x-0 top-1/2 h-[2px] -translate-y-1/2 rounded-full transition ${
+          isFullscreenDark
+            ? 'bg-slate-700/80 group-hover:bg-violet-400/80'
+            : 'bg-gray-300 group-hover:bg-purple-400'
+        }`} />
+        <div className={`relative inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold shadow-sm transition-all duration-150 group-hover:-translate-y-[1px] ${
+          isFullscreenDark
+            ? 'border-slate-600 bg-slate-950 text-slate-100 group-hover:border-violet-400'
+            : 'border-purple-200 bg-white text-purple-700 group-hover:border-purple-300'
+        }`}>
+          <ChevronsUpDown size={12} />
+          <span className="hidden sm:inline">Тяни вверх/вниз</span>
+          <span className="sm:hidden">Тяни</span>
+        </div>
+      </div>
+    </div>
+  );
   const notesPdfPane = (
     <div className={`rounded-xl border ${isCollabFullscreen ? 'px-2 py-1.5' : 'px-1.5 py-1'} ${isSplitCollabLayout ? 'space-y-0.5' : 'space-y-1'} ${
       isFullscreenDark
         ? 'border-slate-700/80 bg-slate-900/70'
         : 'border-gray-200 bg-white'
     }`}>
-      <div className="flex items-center justify-between gap-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-1.5">
         <div className={`flex min-w-0 items-center gap-1 ${isSplitCollabLayout ? 'text-[9px]' : 'text-[10px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>
-          <FileText size={11} />
-          <span className="truncate">PDF из конспектов</span>
+          {isNotesBoardMode ? <Brush size={11} /> : <FileText size={11} />}
+          <span className="truncate">Материалы урока</span>
         </div>
-        <div className="flex items-center gap-1">
-          <span className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-semibold ${
+        <div className="flex flex-wrap items-center justify-end gap-1">
+          <div className={`inline-flex items-center rounded-xl border p-0.5 ${
             isFullscreenDark
-              ? 'border-slate-600 text-slate-200'
-              : 'border-purple-200 text-purple-700'
+              ? 'border-slate-700 bg-slate-950/70'
+              : 'border-gray-200 bg-gray-50'
           }`}>
-            {notesPdfFiles.length}
-          </span>
+            {[
+              { id: COLLAB_TOP_PANE_MODE_PDF, label: 'PDF', icon: FileText },
+              { id: COLLAB_TOP_PANE_MODE_BOARD, label: 'Доска', icon: Brush },
+            ].map((modeOption) => {
+              const Icon = modeOption.icon;
+              const active = notesPanelMode === modeOption.id;
+              return (
+                <button
+                  key={modeOption.id}
+                  type="button"
+                  onClick={() => handleTopPaneModeChange(modeOption.id)}
+                  className={`inline-flex items-center gap-1 rounded-lg transition ${
+                    isSplitCollabLayout ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-0.5 text-[10px]'
+                  } ${
+                    active
+                      ? (isFullscreenDark
+                        ? 'bg-violet-500/20 text-slate-50'
+                        : 'bg-white text-purple-700 shadow-sm')
+                      : (isFullscreenDark
+                        ? 'text-slate-300 hover:text-slate-100'
+                        : 'text-gray-500 hover:text-gray-700')
+                  }`}
+                >
+                  <Icon size={11} />
+                  {modeOption.label}
+                </button>
+              );
+            })}
+          </div>
+          {!isNotesBoardMode && (
+            <span className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-semibold ${
+              isFullscreenDark
+                ? 'border-slate-600 text-slate-200'
+                : 'border-purple-200 text-purple-700'
+            }`}>
+              {notesPdfFiles.length}
+            </span>
+          )}
           <button
             type="button"
             onClick={() => {
               const nextOpen = !notesPdfPanelOpen;
               setNotesPdfPanelOpen(nextOpen);
+              if (nextOpen && isNotesBoardMode) {
+                setNotesPdfPanelHeight((prev) => Math.max(prev, preferredBoardTopPaneHeight));
+              }
               publishRunStateRef.current?.({
                 notesPdfOpen: nextOpen,
+                notesPanelMode,
                 notesPdfFolderKey: selectedNotesPdfFolderKey || '',
                 notesPdfFileId: notesPdfFileId || selectedNotesPdfFile?.id || '',
               });
@@ -5530,134 +5649,124 @@ const CollabSection = ({
       </div>
       {notesPdfPanelOpen && (
         <>
-          <div className="flex min-w-0 items-center gap-1">
-            <select
-              value={selectedNotesPdfFolderKey}
-              onChange={(e) => {
-                const nextFolderKey = e.target.value;
-                const folderFiles = notesPdfFiles.filter((file) => getNotesPdfFolderKey(file) === nextFolderKey);
-                const nextFileId = folderFiles.some((file) => file.id === notesPdfFileId)
-                  ? notesPdfFileId
-                  : String(folderFiles[0]?.id || '');
-                setNotesPdfFolderKey(nextFolderKey);
-                setNotesPdfFileId(nextFileId);
-                publishRunStateRef.current?.({
-                  notesPdfOpen: true,
-                  notesPdfFolderKey: nextFolderKey,
-                  notesPdfFileId: nextFileId,
-                });
-              }}
-              disabled={!notesPdfFolders.length}
-              className={`min-w-0 flex-[1.05] rounded-xl border outline-none ${
-                isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2 py-1 text-[11px]'
-              } ${
-                isFullscreenDark
-                  ? 'border-slate-700 bg-slate-950 text-slate-100 focus:border-violet-400 disabled:opacity-60'
-                  : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500 disabled:opacity-60'
-              }`}
-            >
-              {!notesPdfFolders.length ? (
-                <option value="">Папки не найдены</option>
-              ) : (
-                notesPdfFolders.map((folder) => (
-                  <option key={folder.key} value={folder.key}>
-                    {folder.label}
-                  </option>
-                ))
-              )}
-            </select>
-            <select
-              value={notesPdfFileId}
-              onChange={(e) => {
-                const nextFileId = e.target.value;
-                setNotesPdfFileId(nextFileId);
-                publishRunStateRef.current?.({
-                  notesPdfOpen: true,
-                  notesPdfFolderKey: selectedNotesPdfFolderKey || '',
-                  notesPdfFileId: nextFileId,
-                });
-              }}
-              disabled={!notesPdfFilesInSelectedFolder.length}
-              className={`min-w-0 flex-[1.35] rounded-xl border outline-none ${
-                isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2 py-1 text-[11px]'
-              } ${
-                isFullscreenDark
-                  ? 'border-slate-700 bg-slate-950 text-slate-100 focus:border-violet-400 disabled:opacity-60'
-                  : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500 disabled:opacity-60'
-              }`}
-            >
-              {!notesPdfFilesInSelectedFolder.length ? (
-                <option value="">Файлы в папке не найдены</option>
-              ) : (
-                notesPdfFilesInSelectedFolder.map((file) => (
-                  <option key={file.id} value={file.id}>
-                    {file.name || 'pdf'}
-                  </option>
-                ))
-              )}
-            </select>
-            <button
-              type="button"
-              onClick={() => {
-                if (!selectedNotesPdfUrl || typeof window === 'undefined') return;
-                window.open(selectedNotesPdfUrl, '_blank', 'noopener,noreferrer');
-              }}
-              disabled={!selectedNotesPdfUrl}
-              className={`shrink-0 inline-flex items-center justify-center rounded-xl border transition ${
-                isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2 py-1 text-[11px]'
-              } ${
-                selectedNotesPdfUrl
-                  ? (isFullscreenDark
-                    ? 'border-slate-600 bg-slate-950 text-slate-100 hover:border-violet-400'
-                    : 'border-purple-200 bg-white text-purple-700 hover:border-purple-300 hover:bg-purple-50')
-                  : 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
-              }`}
-            >
-              Открыть отдельно
-            </button>
-            <div className={`shrink-0 inline-flex items-center rounded-xl border ${
-              isSplitCollabLayout ? 'gap-0.5 px-1 py-0.5 text-[10px]' : 'gap-1 px-1.5 py-0.5 text-[10px]'
-            } ${
-              isFullscreenDark
-                ? 'border-slate-700 bg-slate-950 text-slate-200'
-                : 'border-gray-200 bg-gray-50 text-gray-700'
-            }`}>
+          {!isNotesBoardMode && (
+            <div className="flex min-w-0 flex-wrap items-center gap-1">
+              <select
+                value={selectedNotesPdfFolderKey}
+                onChange={(e) => {
+                  const nextFolderKey = e.target.value;
+                  const folderFiles = notesPdfFiles.filter((file) => getNotesPdfFolderKey(file) === nextFolderKey);
+                  const nextFileId = folderFiles.some((file) => file.id === notesPdfFileId)
+                    ? notesPdfFileId
+                    : String(folderFiles[0]?.id || '');
+                  setNotesPdfFolderKey(nextFolderKey);
+                  setNotesPdfFileId(nextFileId);
+                  publishRunStateRef.current?.({
+                    notesPdfOpen: true,
+                    notesPanelMode: COLLAB_TOP_PANE_MODE_PDF,
+                    notesPdfFolderKey: nextFolderKey,
+                    notesPdfFileId: nextFileId,
+                  });
+                }}
+                disabled={!notesPdfFolders.length}
+                className={`min-w-0 flex-[1.05] rounded-xl border outline-none ${
+                  isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2 py-1 text-[11px]'
+                } ${
+                  isFullscreenDark
+                    ? 'border-slate-700 bg-slate-950 text-slate-100 focus:border-violet-400 disabled:opacity-60'
+                    : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500 disabled:opacity-60'
+                }`}
+              >
+                {!notesPdfFolders.length ? (
+                  <option value="">Папки не найдены</option>
+                ) : (
+                  notesPdfFolders.map((folder) => (
+                    <option key={folder.key} value={folder.key}>
+                      {folder.label}
+                    </option>
+                  ))
+                )}
+              </select>
+              <select
+                value={notesPdfFileId}
+                onChange={(e) => {
+                  const nextFileId = e.target.value;
+                  setNotesPdfFileId(nextFileId);
+                  publishRunStateRef.current?.({
+                    notesPdfOpen: true,
+                    notesPanelMode: COLLAB_TOP_PANE_MODE_PDF,
+                    notesPdfFolderKey: selectedNotesPdfFolderKey || '',
+                    notesPdfFileId: nextFileId,
+                  });
+                }}
+                disabled={!notesPdfFilesInSelectedFolder.length}
+                className={`min-w-0 flex-[1.35] rounded-xl border outline-none ${
+                  isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2 py-1 text-[11px]'
+                } ${
+                  isFullscreenDark
+                    ? 'border-slate-700 bg-slate-950 text-slate-100 focus:border-violet-400 disabled:opacity-60'
+                    : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500 disabled:opacity-60'
+                }`}
+              >
+                {!notesPdfFilesInSelectedFolder.length ? (
+                  <option value="">Файлы в папке не найдены</option>
+                ) : (
+                  notesPdfFilesInSelectedFolder.map((file) => (
+                    <option key={file.id} value={file.id}>
+                      {file.name || 'pdf'}
+                    </option>
+                  ))
+                )}
+              </select>
               <button
                 type="button"
-                onClick={() => setNotesPdfPanelHeight((prev) => clampNotesPdfHeight(prev - 40))}
-                disabled={!selectedNotesPdfFile}
-                className={`inline-flex h-4 w-4 items-center justify-center rounded border transition ${
-                  selectedNotesPdfFile
+                onClick={() => {
+                  if (!selectedNotesPdfUrl || typeof window === 'undefined') return;
+                  window.open(selectedNotesPdfUrl, '_blank', 'noopener,noreferrer');
+                }}
+                disabled={!selectedNotesPdfUrl}
+                className={`shrink-0 inline-flex items-center justify-center rounded-xl border transition ${
+                  isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2 py-1 text-[11px]'
+                } ${
+                  selectedNotesPdfUrl
                     ? (isFullscreenDark
-                      ? 'border-slate-600 hover:border-violet-400'
-                      : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50')
-                    : 'border-gray-200 text-gray-400 cursor-not-allowed'
+                      ? 'border-slate-600 bg-slate-950 text-slate-100 hover:border-violet-400'
+                      : 'border-purple-200 bg-white text-purple-700 hover:border-purple-300 hover:bg-purple-50')
+                    : 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
                 }`}
-                title="Уменьшить высоту"
-                aria-label="Уменьшить высоту PDF"
               >
-                <Minus size={12} />
-              </button>
-              <span className="tabular-nums">{notesPdfPanelHeight}px</span>
-              <button
-                type="button"
-                onClick={() => setNotesPdfPanelHeight((prev) => clampNotesPdfHeight(prev + 40))}
-                disabled={!selectedNotesPdfFile}
-                className={`inline-flex h-4 w-4 items-center justify-center rounded border transition ${
-                  selectedNotesPdfFile
-                    ? (isFullscreenDark
-                      ? 'border-slate-600 hover:border-violet-400'
-                      : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50')
-                    : 'border-gray-200 text-gray-400 cursor-not-allowed'
-                }`}
-                title="Увеличить высоту"
-                aria-label="Увеличить высоту PDF"
-              >
-                <Plus size={12} />
+                Открыть отдельно
               </button>
             </div>
-          </div>
-          {selectedNotesPdfFile && selectedNotesPdfEmbedUrl ? (
+          )}
+          {isNotesBoardMode ? (
+            <>
+              <div
+                ref={notesPdfPreviewRef}
+                className={`overflow-hidden rounded-lg border ${
+                  isFullscreenDark
+                    ? 'border-slate-700/80 bg-slate-950/30'
+                    : 'border-gray-200 bg-gray-50'
+                }`}
+                style={{ height: `${notesPdfPanelHeight}px` }}
+              >
+                <BoardSection
+                  embedded
+                  hideStudentPicker
+                  role={role}
+                  userId={userId}
+                  userName={userName}
+                  teacherId={teacherId}
+                  tasks={tasks}
+                  students={students}
+                  activeStudentId={activeStudentId}
+                  onSelectStudent={onSelectStudent}
+                  studentsLoading={studentsLoading}
+                />
+              </div>
+              {notesTopPaneResizeHandle}
+            </>
+          ) : selectedNotesPdfFile && selectedNotesPdfEmbedUrl ? (
             <>
               <div className={`overflow-hidden rounded-lg border ${
                 isFullscreenDark
@@ -5670,24 +5779,7 @@ const CollabSection = ({
                   className="h-full w-full"
                 />
               </div>
-              <div
-                role="separator"
-                aria-label="Изменить высоту PDF"
-                aria-orientation="horizontal"
-                aria-valuemin={notesPdfMinHeight}
-                aria-valuemax={notesPdfMaxHeight}
-                aria-valuenow={Math.round(notesPdfPanelHeight)}
-                onPointerDown={handleNotesPdfResizeStart}
-                onDoubleClick={handleNotesPdfResizeReset}
-                className="group -mt-0.5 flex h-3 cursor-row-resize select-none touch-none items-center justify-center"
-                title="Тяните за нижний край, чтобы изменить высоту. Двойной клик — сброс."
-              >
-                <div className={`h-[2px] w-full rounded-full transition ${
-                  isFullscreenDark
-                    ? 'bg-slate-700/80 group-hover:bg-violet-400/80'
-                    : 'bg-gray-300 group-hover:bg-purple-400'
-                }`} />
-              </div>
+              {notesTopPaneResizeHandle}
             </>
           ) : (
             <div className={`rounded-lg border px-2 py-1.5 text-[10px] ${
@@ -6305,6 +6397,8 @@ const BoardSection = ({
   activeStudentId,
   onSelectStudent,
   studentsLoading,
+  embedded = false,
+  hideStudentPicker = false,
 }) => {
   const isTeacher = role === 'teacher';
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
@@ -7705,7 +7799,7 @@ const BoardSection = ({
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const canvas = canvasRef.current;
     const overlay = overlayRef.current;
     if (!canvas || !overlay) return;
@@ -8415,12 +8509,17 @@ const BoardSection = ({
   const statusClass = status === 'connected'
     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
     : 'border-amber-200 bg-amber-50 text-amber-700';
+  const isCompactBoardChrome = isFullscreen || embedded;
   const boardShellClass = isFullscreen
     ? 'animate-fadeIn h-full min-h-0 flex flex-col overflow-hidden'
-    : 'animate-fadeIn pb-2 md:pb-0 md:flex md:flex-1 md:min-h-0 md:flex-col md:overflow-hidden';
+    : (embedded
+      ? 'animate-fadeIn h-full min-h-0 flex flex-col overflow-hidden'
+      : 'animate-fadeIn pb-2 md:pb-0 md:flex md:flex-1 md:min-h-0 md:flex-col md:overflow-hidden');
   const boardCardClass = isFullscreen
     ? 'p-1 md:p-1.5 h-full min-h-0 flex flex-col overflow-hidden'
-    : 'p-2.5 md:p-3 md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-hidden';
+    : (embedded
+      ? 'h-full min-h-0 rounded-[1rem] border border-gray-200 bg-white p-2 md:p-2.5 shadow-sm flex flex-col overflow-hidden'
+      : 'p-2.5 md:p-3 md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-hidden');
   const activeWidth = tool === 'line' ? lineWidth : penWidth;
   const widthTargetLabel = tool === 'line' ? 'Линия' : 'Карандаш';
   const showWidthControls = tool === 'pen' || tool === 'line';
@@ -8435,10 +8534,10 @@ const BoardSection = ({
     else setPenWidth(nextValue);
   };
   const renderStudentPicker = () => {
-    if (!isTeacher) return null;
+    if (!isTeacher || hideStudentPicker) return null;
     return (
       <div className={`inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 shadow-sm shadow-purple-100/40 ${
-        isFullscreen ? 'px-2 py-1' : 'px-2.5 py-1.5'
+        isCompactBoardChrome ? 'px-2 py-1' : 'px-2.5 py-1.5'
       }`}>
         <span className="text-[10px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
         <select
@@ -8449,7 +8548,7 @@ const BoardSection = ({
           }}
           disabled={studentsLoading || (students || []).length === 0}
           className={`w-full min-w-0 rounded-xl border border-purple-100 bg-white px-3 py-1 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70 ${
-            isFullscreen ? 'sm:min-w-[150px]' : 'sm:min-w-[180px]'
+            isCompactBoardChrome ? 'sm:min-w-[150px]' : 'sm:min-w-[180px]'
           }`}
         >
           <option value="" disabled>Выберите ученика</option>
@@ -8469,7 +8568,7 @@ const BoardSection = ({
         variant="secondary"
         onClick={() => setSaveModalOpen(true)}
         className={`flex items-center gap-2 text-xs ${
-          isFullscreen ? 'h-7 px-2 py-0.5' : 'h-8 px-2.5 py-1'
+          isCompactBoardChrome ? 'h-7 px-2 py-0.5' : 'h-8 px-2.5 py-1'
         }`}
         disabled={!roomId}
       >
@@ -8482,20 +8581,20 @@ const BoardSection = ({
           onClick={handleSummonStudent}
           disabled={!roomId}
           className={`inline-flex items-center gap-2 rounded-full border border-purple-200 bg-white text-[11px] font-semibold text-purple-700 hover:bg-purple-50 disabled:opacity-60 ${
-            isFullscreen ? 'px-2 py-0.5' : 'px-2.5 py-0.5'
+            isCompactBoardChrome ? 'px-2 py-0.5' : 'px-2.5 py-0.5'
           }`}
         >
           Призвать ко мне
         </button>
       )}
       <span className={`inline-flex items-center rounded-full border text-[11px] font-semibold ${statusClass} ${
-        isFullscreen ? 'px-2 py-0.5' : 'px-2.5 py-0.5'
+        isCompactBoardChrome ? 'px-2 py-0.5' : 'px-2.5 py-0.5'
       }`}>
         {statusLabel}
       </span>
       {roomId && (
         <span className={`inline-flex items-center rounded-full border border-slate-200 bg-white text-[11px] font-semibold text-slate-600 ${
-          isFullscreen ? 'px-2 py-0.5' : 'px-2.5 py-0.5'
+          isCompactBoardChrome ? 'px-2 py-0.5' : 'px-2.5 py-0.5'
         }`}>
           Онлайн: {peerCount}
         </span>
@@ -8625,6 +8724,341 @@ const BoardSection = ({
       </div>
     </div>
   ) : null;
+  const boardCardContent = (
+    <>
+      <div className={`flex flex-wrap items-center ${isFullscreen ? 'mt-0 gap-1.5' : 'mt-0 gap-1'}`}>
+        {!isFullscreen && !embedded && (
+          <div className="hidden xl:inline-flex max-w-full items-center gap-1 rounded-lg border border-purple-100 bg-purple-50/60 px-2 py-1 text-[10px] text-gray-700">
+            <span className="font-bold uppercase tracking-wide text-purple-600">Сессия</span>
+            <span className="max-w-[220px] truncate font-semibold text-gray-800 lg:max-w-[320px]">{sessionTitle}</span>
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => setTool('pen')}
+          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
+            tool === 'pen' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+          }`}
+          aria-label="Карандаш"
+          title="Карандаш"
+        >
+          <Pencil size={13} />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTool('line')}
+          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
+            tool === 'line' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+          }`}
+          aria-label="Линия"
+          title="Линия"
+        >
+          <Minus size={13} />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTool('select')}
+          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
+            tool === 'select' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+          }`}
+          aria-label="Выделение"
+          title="Выделение"
+        >
+          <MousePointer2 size={13} />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTool('move')}
+          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
+            tool === 'move' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+          }`}
+          aria-label="Перемещение"
+          title="Перемещение"
+        >
+          <Hand size={13} />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTool('eraser')}
+          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
+            tool === 'eraser' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+          }`}
+          aria-label="Ластик"
+          title="Ластик"
+        >
+          <Eraser size={13} />
+        </button>
+
+        <div className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white p-0.5">
+          <button
+            type="button"
+            onClick={handleUndo}
+            disabled={!canUndo}
+            className="inline-flex items-center justify-center rounded-lg px-1.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            aria-label="Отменить"
+            title="Отменить"
+          >
+            <Undo2 size={13} />
+          </button>
+          <button
+            type="button"
+            onClick={handleRedo}
+            disabled={!canRedo}
+            className="inline-flex items-center justify-center rounded-lg px-1.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            aria-label="Вернуть"
+            title="Вернуть"
+          >
+            <RefreshCcw size={13} />
+          </button>
+          <button
+            type="button"
+            onClick={handleClearBoard}
+            disabled={!canClear}
+            className="inline-flex items-center justify-center rounded-lg px-1.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+            aria-label="Очистить доску"
+            title="Очистить доску"
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
+
+        <div ref={settingsRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen((prev) => !prev)}
+            className="inline-flex h-8 items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
+          >
+            <Settings size={13} />
+            Цвет и размер
+            <span
+              className="ml-1 inline-flex h-2.5 w-2.5 rounded-full border border-white/80"
+              style={{ backgroundColor: color }}
+            />
+          </button>
+          {isSettingsOpen && (
+            <div className="absolute right-0 z-30 mt-2 w-72 rounded-2xl border border-gray-200 bg-white p-3 shadow-lg">
+              <div className="space-y-3">
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-gray-500">{`Толщина (${widthTargetLabel})`}</div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <input
+                      type="range"
+                      min={BOARD_MIN_WIDTH}
+                      max={BOARD_MAX_WIDTH}
+                      step={BOARD_WIDTH_STEP}
+                      value={activeWidth}
+                      onChange={handleWidthChange}
+                      disabled={!showWidthControls}
+                      className={`w-full accent-purple-600 ${showWidthControls ? '' : 'opacity-40'}`}
+                    />
+                    <span className="w-8 text-right text-xs font-semibold text-gray-600">{formattedWidth}</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-gray-500">Цвет</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    {BOARD_COLORS.map((swatch) => (
+                      <button
+                        key={swatch}
+                        type="button"
+                        onClick={() => setColor(swatch)}
+                        className={`h-7 w-7 rounded-full border-2 transition ${
+                          color === swatch ? 'border-gray-900 scale-110' : 'border-white/80'
+                        }`}
+                        style={{ backgroundColor: swatch }}
+                        aria-label={`Цвет ${swatch}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div className="border-t border-gray-100 pt-3">
+                  <label className="flex items-center gap-2 text-xs text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={shareMyCursor}
+                      onChange={(event) => setShareMyCursor(event.target.checked)}
+                      className="h-4 w-4 accent-purple-600"
+                    />
+                    Показывать мой курсор
+                  </label>
+                </div>
+                <div className="border-t border-gray-100 pt-3">
+                  <label className="flex items-center gap-2 text-xs text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={lowBandwidthMode}
+                      onChange={(event) => setLowBandwidthMode(event.target.checked)}
+                      className="h-4 w-4 accent-purple-600"
+                    />
+                    Режим слабого интернета
+                  </label>
+                  <div className="mt-1 text-[11px] text-gray-400">
+                    Реже отправляет курсор и превью линий, чтобы снизить трафик.
+                  </div>
+                </div>
+                {tool === 'move' && selectedImage && (
+                  <div className="border-t border-gray-100 pt-3">
+                    <div className="text-[11px] uppercase tracking-wide text-gray-500">Изображение</div>
+                    <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
+                      <span>{selectedImageLabel}</span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => resizeImageByFactor(selectedImage.id, 1 - BOARD_IMAGE_SCALE_STEP)}
+                          className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                        >
+                          -
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => resizeImageByFactor(selectedImage.id, 1 + BOARD_IMAGE_SCALE_STEP)}
+                          className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => zoomBy(1 / 1.12)}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50"
+          aria-label="Отдалить"
+          title="Отдалить"
+        >
+          <Minus size={13} />
+        </button>
+
+        <div className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 min-w-[56px]">
+          {zoomLabel}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => zoomBy(1.12)}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50"
+          aria-label="Приблизить"
+          title="Приблизить"
+        >
+          <Plus size={13} />
+        </button>
+
+        <button
+          type="button"
+          onClick={resetView}
+          className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
+          aria-label="Сброс масштаба"
+          title="Сброс масштаба"
+        >
+          Сброс
+        </button>
+
+        {!isFullscreen && (
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
+            {boardSessionActions}
+          </div>
+        )}
+        {isFullscreen && (
+          <div className="ml-auto flex flex-wrap items-center gap-1">
+            {boardSessionActions}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-purple-500 bg-purple-600 text-xs font-semibold text-white hover:bg-purple-700"
+          aria-label={isFullscreen ? 'Обычный экран' : 'Полный экран'}
+          title={isFullscreen ? 'Обычный экран' : 'Полный экран'}
+        >
+          {isFullscreen ? <Minimize2 size={13} /> : <Expand size={13} />}
+        </button>
+      </div>
+
+      {pasteError && (
+        <div className="mt-2 text-xs text-rose-600">{pasteError}</div>
+      )}
+
+      <div
+        ref={containerRef}
+        className={`${isFullscreen ? 'mt-1 flex-1 min-h-0 h-auto' : (embedded ? 'mt-2 flex-1 min-h-0 h-full' : 'mt-2 h-[68vh] min-h-[320px] sm:min-h-[360px] md:h-auto md:min-h-[54vh] md:flex-1')} relative w-full rounded-2xl border border-gray-200 bg-white overflow-hidden ${
+          summonNotice ? 'ring-2 ring-amber-400/70 ring-offset-2 ring-offset-white' : ''
+        }`}
+        title={!isFullscreen ? 'Вставка картинки: Ctrl+V. Лимит 10 МБ. Панорамирование: удерживайте Space и тяните.' : undefined}
+      >
+        {!roomId && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
+            Выберите ученика, чтобы открыть доску.
+          </div>
+        )}
+        {!isTeacher && summonNotice && (
+          <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border border-amber-200 bg-amber-50 px-4 py-1.5 text-xs font-semibold text-amber-700 shadow-sm">
+            Учитель переместил вас к себе
+          </div>
+        )}
+        <canvas
+          ref={canvasRef}
+          className="absolute inset-0 w-full h-full"
+        />
+        <canvas
+          ref={overlayRef}
+          className="absolute inset-0 w-full h-full"
+          style={{
+            touchAction: 'none',
+            cursor: isSpaceDown
+              ? (panStateRef.current.active ? 'grabbing' : 'grab')
+              : (tool === 'pen' || tool === 'line' || tool === 'eraser' ? 'crosshair' : (tool === 'move' ? 'grab' : 'default'))
+          }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerLeave}
+          onPointerCancel={handlePointerLeave}
+          onWheel={handleWheel}
+          onContextMenu={(e) => e.preventDefault()}
+        />
+        {remoteCursorMarkers.map((cursor) => (
+          <div
+            key={cursor.id}
+            className="pointer-events-none absolute z-20 select-none"
+            style={{
+              left: `${cursor.left}px`,
+              top: `${cursor.top}px`,
+              transform: 'translate(-2px, -2px)',
+            }}
+          >
+            <div
+              className="h-3 w-3 rounded-full border border-white shadow"
+              style={{ backgroundColor: cursor.color }}
+            />
+            <div
+              className="mt-1 rounded-md px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm"
+              style={{ backgroundColor: cursor.color }}
+            >
+              {cursor.name}
+            </div>
+          </div>
+        ))}
+        <div className="board-minimap-shell absolute right-3 top-3 z-20">
+          <canvas
+            ref={minimapRef}
+            width={160}
+            height={120}
+            className="board-minimap-canvas block"
+          />
+        </div>
+      </div>
+    </>
+  );
 
   return (
     <div ref={boardRootRef} className={boardShellClass}>
@@ -8638,339 +9072,15 @@ const BoardSection = ({
         </div>
       )}
 
-      <Card className={boardCardClass}>
-        <div className={`flex flex-wrap items-center ${isFullscreen ? 'mt-0 gap-1.5' : 'mt-0 gap-1'}`}>
-          {!isFullscreen && (
-            <div className="hidden xl:inline-flex max-w-full items-center gap-1 rounded-lg border border-purple-100 bg-purple-50/60 px-2 py-1 text-[10px] text-gray-700">
-              <span className="font-bold uppercase tracking-wide text-purple-600">Сессия</span>
-              <span className="max-w-[220px] truncate font-semibold text-gray-800 lg:max-w-[320px]">{sessionTitle}</span>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => setTool('pen')}
-            className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
-              tool === 'pen' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-            }`}
-            aria-label="Карандаш"
-            title="Карандаш"
-          >
-            <Pencil size={13} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setTool('line')}
-            className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
-              tool === 'line' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-            }`}
-            aria-label="Линия"
-            title="Линия"
-          >
-            <Minus size={13} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setTool('select')}
-            className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
-              tool === 'select' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-            }`}
-            aria-label="Выделение"
-            title="Выделение"
-          >
-            <MousePointer2 size={13} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setTool('move')}
-            className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
-              tool === 'move' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-            }`}
-            aria-label="Перемещение"
-            title="Перемещение"
-          >
-            <Hand size={13} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setTool('eraser')}
-            className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
-              tool === 'eraser' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-            }`}
-            aria-label="Ластик"
-            title="Ластик"
-          >
-            <Eraser size={13} />
-          </button>
-
-          <div className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white p-0.5">
-            <button
-              type="button"
-              onClick={handleUndo}
-              disabled={!canUndo}
-              className="inline-flex items-center justify-center rounded-lg px-1.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-              aria-label="Отменить"
-              title="Отменить"
-            >
-              <Undo2 size={13} />
-            </button>
-            <button
-              type="button"
-              onClick={handleRedo}
-              disabled={!canRedo}
-              className="inline-flex items-center justify-center rounded-lg px-1.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-              aria-label="Вернуть"
-              title="Вернуть"
-            >
-              <RefreshCcw size={13} />
-            </button>
-            <button
-              type="button"
-              onClick={handleClearBoard}
-              disabled={!canClear}
-              className="inline-flex items-center justify-center rounded-lg px-1.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-              aria-label="Очистить доску"
-              title="Очистить доску"
-            >
-              <Trash2 size={13} />
-            </button>
-          </div>
-
-          <div ref={settingsRef} className="relative">
-            <button
-              type="button"
-              onClick={() => setIsSettingsOpen((prev) => !prev)}
-              className="inline-flex h-8 items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
-            >
-              <Settings size={13} />
-              Цвет и размер
-              <span
-                className="ml-1 inline-flex h-2.5 w-2.5 rounded-full border border-white/80"
-                style={{ backgroundColor: color }}
-              />
-            </button>
-            {isSettingsOpen && (
-              <div className="absolute right-0 z-30 mt-2 w-72 rounded-2xl border border-gray-200 bg-white p-3 shadow-lg">
-                <div className="space-y-3">
-                  <div>
-                    <div className="text-[11px] uppercase tracking-wide text-gray-500">{`Толщина (${widthTargetLabel})`}</div>
-                    <div className="mt-1 flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={BOARD_MIN_WIDTH}
-                        max={BOARD_MAX_WIDTH}
-                        step={BOARD_WIDTH_STEP}
-                        value={activeWidth}
-                        onChange={handleWidthChange}
-                        disabled={!showWidthControls}
-                        className={`w-full accent-purple-600 ${showWidthControls ? '' : 'opacity-40'}`}
-                      />
-                      <span className="w-8 text-right text-xs font-semibold text-gray-600">{formattedWidth}</span>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] uppercase tracking-wide text-gray-500">Цвет</div>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                      {BOARD_COLORS.map((swatch) => (
-                        <button
-                          key={swatch}
-                          type="button"
-                          onClick={() => setColor(swatch)}
-                          className={`h-7 w-7 rounded-full border-2 transition ${
-                            color === swatch ? 'border-gray-900 scale-110' : 'border-white/80'
-                          }`}
-                          style={{ backgroundColor: swatch }}
-                          aria-label={`Цвет ${swatch}`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  <div className="border-t border-gray-100 pt-3">
-                    <label className="flex items-center gap-2 text-xs text-gray-600">
-                      <input
-                        type="checkbox"
-                        checked={shareMyCursor}
-                        onChange={(event) => setShareMyCursor(event.target.checked)}
-                        className="h-4 w-4 accent-purple-600"
-                      />
-                      Показывать мой курсор
-                    </label>
-                  </div>
-                  <div className="border-t border-gray-100 pt-3">
-                    <label className="flex items-center gap-2 text-xs text-gray-600">
-                      <input
-                        type="checkbox"
-                        checked={lowBandwidthMode}
-                        onChange={(event) => setLowBandwidthMode(event.target.checked)}
-                        className="h-4 w-4 accent-purple-600"
-                      />
-                      Режим слабого интернета
-                    </label>
-                    <div className="mt-1 text-[11px] text-gray-400">
-                      Реже отправляет курсор и превью линий, чтобы снизить трафик.
-                    </div>
-                  </div>
-                  {tool === 'move' && selectedImage && (
-                    <div className="border-t border-gray-100 pt-3">
-                      <div className="text-[11px] uppercase tracking-wide text-gray-500">Изображение</div>
-                      <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
-                        <span>{selectedImageLabel}</span>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => resizeImageByFactor(selectedImage.id, 1 - BOARD_IMAGE_SCALE_STEP)}
-                            className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-                          >
-                            -
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => resizeImageByFactor(selectedImage.id, 1 + BOARD_IMAGE_SCALE_STEP)}
-                            className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-                          >
-                            +
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => zoomBy(1 / 1.12)}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50"
-            aria-label="Отдалить"
-            title="Отдалить"
-          >
-            <Minus size={13} />
-          </button>
-
-          <div className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 min-w-[56px]">
-            {zoomLabel}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => zoomBy(1.12)}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50"
-            aria-label="Приблизить"
-            title="Приблизить"
-          >
-            <Plus size={13} />
-          </button>
-
-          <button
-            type="button"
-            onClick={resetView}
-            className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
-            aria-label="Сброс масштаба"
-            title="Сброс масштаба"
-          >
-            Сброс
-          </button>
-
-          {!isFullscreen && (
-            <div className="ml-auto flex flex-wrap items-center gap-1.5">
-              {boardSessionActions}
-            </div>
-          )}
-          {isFullscreen && (
-            <div className="ml-auto flex flex-wrap items-center gap-1">
-              {boardSessionActions}
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-purple-500 bg-purple-600 text-xs font-semibold text-white hover:bg-purple-700"
-            aria-label={isFullscreen ? 'Обычный экран' : 'Полный экран'}
-            title={isFullscreen ? 'Обычный экран' : 'Полный экран'}
-          >
-            {isFullscreen ? <Minimize2 size={13} /> : <Expand size={13} />}
-          </button>
+      {embedded ? (
+        <div className={boardCardClass}>
+          {boardCardContent}
         </div>
-
-        {pasteError && (
-          <div className="mt-2 text-xs text-rose-600">{pasteError}</div>
-        )}
-
-        <div
-          ref={containerRef}
-          className={`${isFullscreen ? 'mt-1 flex-1 min-h-0 h-auto' : 'mt-2 h-[68vh] min-h-[320px] sm:min-h-[360px] md:h-auto md:min-h-[54vh] md:flex-1'} relative w-full rounded-2xl border border-gray-200 bg-white overflow-hidden ${
-            summonNotice ? 'ring-2 ring-amber-400/70 ring-offset-2 ring-offset-white' : ''
-          }`}
-          title={!isFullscreen ? 'Вставка картинки: Ctrl+V. Лимит 10 МБ. Панорамирование: удерживайте Space и тяните.' : undefined}
-        >
-          {!roomId && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
-              Выберите ученика, чтобы открыть доску.
-            </div>
-          )}
-          {!isTeacher && summonNotice && (
-            <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border border-amber-200 bg-amber-50 px-4 py-1.5 text-xs font-semibold text-amber-700 shadow-sm">
-              Учитель переместил вас к себе
-            </div>
-          )}
-          <canvas
-            ref={canvasRef}
-            className="absolute inset-0 w-full h-full"
-          />
-          <canvas
-            ref={overlayRef}
-            className="absolute inset-0 w-full h-full"
-            style={{
-              touchAction: 'none',
-              cursor: isSpaceDown
-                ? (panStateRef.current.active ? 'grabbing' : 'grab')
-                : (tool === 'pen' || tool === 'line' || tool === 'eraser' ? 'crosshair' : (tool === 'move' ? 'grab' : 'default'))
-            }}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerLeave={handlePointerLeave}
-            onPointerCancel={handlePointerLeave}
-            onWheel={handleWheel}
-            onContextMenu={(e) => e.preventDefault()}
-          />
-          {remoteCursorMarkers.map((cursor) => (
-            <div
-              key={cursor.id}
-              className="pointer-events-none absolute z-20 select-none"
-              style={{
-                left: `${cursor.left}px`,
-                top: `${cursor.top}px`,
-                transform: 'translate(-2px, -2px)',
-              }}
-            >
-              <div
-                className="h-3 w-3 rounded-full border border-white shadow"
-                style={{ backgroundColor: cursor.color }}
-              />
-              <div
-                className="mt-1 rounded-md px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm"
-                style={{ backgroundColor: cursor.color }}
-              >
-                {cursor.name}
-              </div>
-            </div>
-          ))}
-          <div className="board-minimap-shell absolute right-3 top-3 z-20">
-            <canvas
-              ref={minimapRef}
-              width={160}
-              height={120}
-              className="board-minimap-canvas block"
-            />
-          </div>
-        </div>
-      </Card>
+      ) : (
+        <Card className={boardCardClass}>
+          {boardCardContent}
+        </Card>
+      )}
       {isFullscreen
         ? saveModal
         : (typeof document !== 'undefined' ? createPortal(saveModal, document.body) : null)}
