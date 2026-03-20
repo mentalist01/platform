@@ -1370,6 +1370,59 @@ const areStringArraysEqual = (a, b) => {
   return true;
 };
 
+const normalizeCollabOutputSelection = (value, textLength = Number.MAX_SAFE_INTEGER) => {
+  if (!value || typeof value !== 'object') return null;
+  const maxLength = Number.isFinite(Number(textLength)) && Number(textLength) >= 0
+    ? Math.max(0, Math.floor(Number(textLength)))
+    : Number.MAX_SAFE_INTEGER;
+  const startRaw = Number(value.start);
+  const endRaw = Number(value.end);
+  if (!Number.isInteger(startRaw) || !Number.isInteger(endRaw)) return null;
+  const start = Math.max(0, Math.min(maxLength, startRaw));
+  const end = Math.max(0, Math.min(maxLength, endRaw));
+  if (end <= start) return null;
+  return {
+    start,
+    end,
+    ts: Number.isFinite(Number(value?.ts)) ? Number(value.ts) : Date.now(),
+  };
+};
+
+const buildCollabTextSelectionSegments = (text, selections = []) => {
+  const source = String(text ?? '');
+  const normalizedSelections = (Array.isArray(selections) ? selections : [])
+    .map((selection) => {
+      const range = normalizeCollabOutputSelection(selection, source.length);
+      return range ? { ...selection, ...range } : null;
+    })
+    .filter(Boolean);
+  if (!source || !normalizedSelections.length) return [];
+  const boundaries = new Set([0, source.length]);
+  normalizedSelections.forEach((selection) => {
+    boundaries.add(selection.start);
+    boundaries.add(selection.end);
+  });
+  const points = Array.from(boundaries).sort((a, b) => a - b);
+  const segments = [];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+    if (end <= start) continue;
+    const selection = normalizedSelections.find((item) => item.start < end && item.end > start) || null;
+    segments.push({
+      key: `${start}-${end}`,
+      text: source.slice(start, end),
+      selection,
+    });
+  }
+  return segments;
+};
+
+const COLLAB_OUTPUT_SELECTION_STYLE = {
+  backgroundColor: 'rgba(56, 189, 248, 0.2)',
+  boxShadow: 'inset 0 0 0 1px rgba(125, 211, 252, 0.45)',
+};
+
 const normalizeSharedTaskFileIds = (value) => {
   if (!Array.isArray(value)) return [];
   return [...new Set(value
@@ -1573,46 +1626,50 @@ const createPyodideWorker = () => {
       const useDebugMode = Boolean(debugMode);
       const stdoutEmitter = createChunkEmitter(id, 'stdout');
       const stderrEmitter = createChunkEmitter(id, 'stderr');
+      const stdoutDecoder = typeof TextDecoder === 'function' ? new TextDecoder() : null;
+      const stderrDecoder = typeof TextDecoder === 'function' ? new TextDecoder() : null;
       let output = '';
       let error = '';
-      let stdoutNeedsLineBreak = false;
-      let stderrNeedsLineBreak = false;
       let debugTrace = [];
       let debugTraceTruncated = false;
 
       const appendStdout = (value) => {
-        let safe = toText(value);
+        const safe = toText(value);
         if (!safe) return;
-        if (stdoutNeedsLineBreak && !safe.startsWith('\\n') && !safe.startsWith('\\r')) {
-          safe = '\\n' + safe;
-        }
-        stdoutNeedsLineBreak = !safe.endsWith('\\n') && !safe.endsWith('\\r');
         output += safe;
         stdoutEmitter.push(safe);
       };
 
       const appendStderr = (value) => {
-        let safe = toText(value);
+        const safe = toText(value);
         if (!safe) return;
-        if (stderrNeedsLineBreak && !safe.startsWith('\\n') && !safe.startsWith('\\r')) {
-          safe = '\\n' + safe;
-        }
-        stderrNeedsLineBreak = !safe.endsWith('\\n') && !safe.endsWith('\\r');
         error += safe;
         stderrEmitter.push(safe);
       };
 
       if (typeof pyodide.setStdout === 'function') {
         pyodide.setStdout({
-          batched: (text) => {
+          write: (buffer) => {
+            if (!buffer) return 0;
+            const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+            const text = stdoutDecoder
+              ? stdoutDecoder.decode(bytes, { stream: true })
+              : toText(bytes);
             appendStdout(text);
+            return bytes.length;
           }
         });
       }
       if (typeof pyodide.setStderr === 'function') {
         pyodide.setStderr({
-          batched: (text) => {
+          write: (buffer) => {
+            if (!buffer) return 0;
+            const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+            const text = stderrDecoder
+              ? stderrDecoder.decode(bytes, { stream: true })
+              : toText(bytes);
             appendStderr(text);
+            return bytes.length;
           }
         });
       }
@@ -1760,6 +1817,10 @@ const createPyodideWorker = () => {
           pyodide.globals.delete('__collab_debug_events');
           pyodide.globals.delete('__collab_debug_events_json');
           pyodide.globals.delete('__collab_debug_truncated');
+        } catch { /* no-op */ }
+        try {
+          if (stdoutDecoder) appendStdout(stdoutDecoder.decode());
+          if (stderrDecoder) appendStderr(stderrDecoder.decode());
         } catch { /* no-op */ }
         stdoutEmitter.close();
         stderrEmitter.close();
@@ -1980,6 +2041,7 @@ const CollabSection = ({
   const [status, setStatus] = useState('disconnected');
   const [peerCount, setPeerCount] = useState(0);
   const [remoteEditorCursors, setRemoteEditorCursors] = useState([]);
+  const [remoteOutputSelections, setRemoteOutputSelections] = useState([]);
   const [editorReady, setEditorReady] = useState(false);
   const [editorViewportVersion, setEditorViewportVersion] = useState(0);
   const [editorMountVersion, setEditorMountVersion] = useState(0);
@@ -2052,6 +2114,10 @@ const CollabSection = ({
   const splitDragCleanupRef = useRef(null);
   const notesPdfResizeCleanupRef = useRef(null);
   const notesPdfPreviewRef = useRef(null);
+  const outputViewportRef = useRef(null);
+  const outputTextareaRef = useRef(null);
+  const outputSelectionTrackingStopRef = useRef(null);
+  const outputSelectionSyncFrameRef = useRef(null);
   const notesPdfPanelHeightRef = useRef(notesPdfPanelHeight);
   const notesPdfDragHeightRef = useRef(notesPdfPanelHeight);
   const collabDocRef = useRef(null);
@@ -2067,6 +2133,7 @@ const CollabSection = ({
   const runStreamPendingRef = useRef(null);
   const runInputRef = useRef(runInput);
   const runOutputRef = useRef(runOutput);
+  const outputSelectionRef = useRef(null);
   const runErrorRef = useRef(runError);
   const runStatusRef = useRef(runStatus);
   const collabAuxPanelModeRef = useRef(collabAuxPanelMode);
@@ -3045,6 +3112,122 @@ const CollabSection = ({
   useEffect(() => {
     runOutputRef.current = runOutput;
   }, [runOutput]);
+
+  const clearCollabOutputSelection = useCallback(() => {
+    outputSelectionRef.current = null;
+    collabAwarenessRef.current?.setLocalStateField?.('outputSelection', null);
+  }, []);
+
+  const cancelCollabOutputSelectionSync = useCallback(() => {
+    if (outputSelectionSyncFrameRef.current == null || typeof window === 'undefined') return;
+    window.cancelAnimationFrame(outputSelectionSyncFrameRef.current);
+    outputSelectionSyncFrameRef.current = null;
+  }, []);
+
+  const publishCollabOutputSelection = useCallback((start, end) => {
+    const normalized = normalizeCollabOutputSelection({
+      start: Number(start),
+      end: Number(end),
+    }, String(runOutputRef.current || '').length);
+    const previous = outputSelectionRef.current;
+    const isSameRange = (previous == null && normalized == null)
+      || (
+        previous
+        && normalized
+        && previous.start === normalized.start
+        && previous.end === normalized.end
+      );
+    if (isSameRange) return;
+    outputSelectionRef.current = normalized
+      ? { start: normalized.start, end: normalized.end }
+      : null;
+    collabAwarenessRef.current?.setLocalStateField?.('outputSelection', normalized ? {
+      start: normalized.start,
+      end: normalized.end,
+      ts: Date.now(),
+    } : null);
+  }, []);
+
+  const syncCollabOutputSelectionFromTextarea = useCallback(() => {
+    const textarea = outputTextareaRef.current;
+    if (!textarea) {
+      clearCollabOutputSelection();
+      return;
+    }
+    publishCollabOutputSelection(textarea.selectionStart, textarea.selectionEnd);
+  }, [clearCollabOutputSelection, publishCollabOutputSelection]);
+
+  const queueCollabOutputSelectionSync = useCallback(() => {
+    if (typeof window === 'undefined') {
+      syncCollabOutputSelectionFromTextarea();
+      return;
+    }
+    if (outputSelectionSyncFrameRef.current != null) return;
+    outputSelectionSyncFrameRef.current = window.requestAnimationFrame(() => {
+      outputSelectionSyncFrameRef.current = null;
+      syncCollabOutputSelectionFromTextarea();
+    });
+  }, [syncCollabOutputSelectionFromTextarea]);
+
+  const stopCollabOutputSelectionTracking = useCallback(() => {
+    outputSelectionTrackingStopRef.current?.();
+    outputSelectionTrackingStopRef.current = null;
+    cancelCollabOutputSelectionSync();
+  }, [cancelCollabOutputSelectionSync]);
+
+  const handleCollabOutputPointerDown = useCallback((event) => {
+    if (event.button !== 0) return;
+    queueCollabOutputSelectionSync();
+    if (typeof window === 'undefined') return;
+    const handlePointerMove = () => {
+      queueCollabOutputSelectionSync();
+    };
+    const stopTracking = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopTracking);
+      window.removeEventListener('pointercancel', stopTracking);
+      window.removeEventListener('blur', stopTracking);
+      queueCollabOutputSelectionSync();
+      if (outputSelectionTrackingStopRef.current === stopTracking) {
+        outputSelectionTrackingStopRef.current = null;
+      }
+    };
+    stopCollabOutputSelectionTracking();
+    outputSelectionTrackingStopRef.current = stopTracking;
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopTracking);
+    window.addEventListener('pointercancel', stopTracking);
+    window.addEventListener('blur', stopTracking);
+  }, [queueCollabOutputSelectionSync, stopCollabOutputSelectionTracking]);
+
+  const syncOutputTextareaHeight = useCallback(() => {
+    const textarea = outputTextareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = '0px';
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, []);
+
+  useLayoutEffect(() => {
+    syncOutputTextareaHeight();
+  }, [runOutput, syncOutputTextareaHeight]);
+
+  useEffect(() => {
+    const target = outputViewportRef.current?.parentElement || outputViewportRef.current;
+    if (!target || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(() => {
+      syncOutputTextareaHeight();
+    });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [runOutput, syncOutputTextareaHeight]);
+
+  useEffect(() => {
+    clearCollabOutputSelection();
+  }, [runOutput, clearCollabOutputSelection]);
+
+  useEffect(() => () => {
+    stopCollabOutputSelectionTracking();
+  }, [stopCollabOutputSelectionTracking]);
 
   useEffect(() => {
     runErrorRef.current = runError;
@@ -4457,9 +4640,12 @@ const CollabSection = ({
       setStatus('disconnected');
       setPeerCount(0);
       setRemoteEditorCursors([]);
+      setRemoteOutputSelections([]);
+      stopCollabOutputSelectionTracking();
       if (COLLAB_EDITOR_CURSOR_ENABLED) {
         collabAwarenessRef.current?.setLocalStateField?.('editorCursor', null);
       }
+      collabAwarenessRef.current?.setLocalStateField?.('outputSelection', null);
       collabCursorWindowStopRef.current?.();
       collabCursorWindowStopRef.current = null;
       if (collabCursorClearTimerRef.current) {
@@ -4475,6 +4661,7 @@ const CollabSection = ({
       collabTestFileRef.current = null;
       collabAwarenessRef.current = null;
       runMapRef.current = null;
+      outputSelectionRef.current = null;
       setTestFileText('');
       clearDebugSession(false);
       updateRunStateFromMap(null);
@@ -4494,13 +4681,16 @@ const CollabSection = ({
       collabAwarenessRef.current = null;
       collabCursorWindowStopRef.current?.();
       collabCursorWindowStopRef.current = null;
+      stopCollabOutputSelectionTracking();
       setRemoteEditorCursors([]);
+      setRemoteOutputSelections([]);
       return;
     }
 
     const ytext = doc.getText('monaco');
     const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]), provider.awareness);
     provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
+    provider.awareness.setLocalStateField('outputSelection', null);
     if (COLLAB_EDITOR_CURSOR_ENABLED) {
       provider.awareness.setLocalStateField('editorCursor', null);
     }
@@ -4528,25 +4718,12 @@ const CollabSection = ({
       const states = provider.awareness.getStates();
       const total = states.size;
       setPeerCount(Math.max(0, total - 1));
-      if (!COLLAB_EDITOR_CURSOR_ENABLED) {
-        setRemoteEditorCursors([]);
-        return;
-      }
       const now = Date.now();
       const cursors = [];
+      const outputSelections = [];
+      const outputLength = String(runOutputRef.current || '').length;
       states.forEach((state, clientId) => {
         if (clientId === provider.awareness.clientID) return;
-        const cursor = state?.editorCursor;
-        const cursorX = Number(cursor?.x);
-        const cursorY = Number(cursor?.y);
-        if (!Number.isFinite(cursorX) || !Number.isFinite(cursorY)) return;
-        const cursorTsRaw = Number(cursor?.ts);
-        const cursorTs = Number.isFinite(cursorTsRaw) ? cursorTsRaw : now;
-        if ((now - cursorTs) > COLLAB_EDITOR_CURSOR_STALE_MS) return;
-        const cursorLineNumber = Number(cursor?.lineNumber);
-        const cursorColumn = Number(cursor?.column);
-        const hasCursorPosition = Number.isInteger(cursorLineNumber) && cursorLineNumber > 0
-          && Number.isInteger(cursorColumn) && cursorColumn > 0;
         const remoteUser = state?.user;
         const remoteName = typeof remoteUser?.name === 'string' && remoteUser.name.trim()
           ? remoteUser.name.trim()
@@ -4554,17 +4731,41 @@ const CollabSection = ({
         const remoteColor = typeof remoteUser?.color === 'string' && remoteUser.color
           ? remoteUser.color
           : '#6366f1';
-        cursors.push({
-          id: String(clientId),
-          x: Math.max(0, Math.min(1, cursorX)),
-          y: Math.max(0, Math.min(1, cursorY)),
-          ts: cursorTs,
-          ...(hasCursorPosition ? { lineNumber: cursorLineNumber, column: cursorColumn } : {}),
-          name: remoteName,
-          color: remoteColor,
-        });
+        const outputSelection = normalizeCollabOutputSelection(state?.outputSelection, outputLength);
+        if (outputSelection) {
+          outputSelections.push({
+            id: String(clientId),
+            start: outputSelection.start,
+            end: outputSelection.end,
+            name: remoteName,
+            color: remoteColor,
+          });
+        }
+        if (COLLAB_EDITOR_CURSOR_ENABLED) {
+          const cursor = state?.editorCursor;
+          const cursorX = Number(cursor?.x);
+          const cursorY = Number(cursor?.y);
+          if (!Number.isFinite(cursorX) || !Number.isFinite(cursorY)) return;
+          const cursorTsRaw = Number(cursor?.ts);
+          const cursorTs = Number.isFinite(cursorTsRaw) ? cursorTsRaw : now;
+          if ((now - cursorTs) > COLLAB_EDITOR_CURSOR_STALE_MS) return;
+          const cursorLineNumber = Number(cursor?.lineNumber);
+          const cursorColumn = Number(cursor?.column);
+          const hasCursorPosition = Number.isInteger(cursorLineNumber) && cursorLineNumber > 0
+            && Number.isInteger(cursorColumn) && cursorColumn > 0;
+          cursors.push({
+            id: String(clientId),
+            x: Math.max(0, Math.min(1, cursorX)),
+            y: Math.max(0, Math.min(1, cursorY)),
+            ts: cursorTs,
+            ...(hasCursorPosition ? { lineNumber: cursorLineNumber, column: cursorColumn } : {}),
+            name: remoteName,
+            color: remoteColor,
+          });
+        }
       });
-      setRemoteEditorCursors(cursors);
+      setRemoteEditorCursors(COLLAB_EDITOR_CURSOR_ENABLED ? cursors : []);
+      setRemoteOutputSelections(outputSelections);
     };
 
     provider.on('status', handleStatus);
@@ -4577,6 +4778,8 @@ const CollabSection = ({
       if (COLLAB_EDITOR_CURSOR_ENABLED) {
         provider.awareness.setLocalStateField('editorCursor', null);
       }
+      provider.awareness.setLocalStateField('outputSelection', null);
+      stopCollabOutputSelectionTracking();
       collabCursorWindowStopRef.current?.();
       collabCursorWindowStopRef.current = null;
       if (collabCursorClearTimerRef.current) {
@@ -4595,10 +4798,12 @@ const CollabSection = ({
       collabAwarenessRef.current = null;
       setTestFileText('');
       setRemoteEditorCursors([]);
+      setRemoteOutputSelections([]);
+      outputSelectionRef.current = null;
       clearDebugSession(false);
       updateRunStateFromMap(null);
     };
-  }, [roomId, editorReady, wsUrl, localName, localColor, clearDebugSession, editorMountVersion]);
+  }, [roomId, editorReady, wsUrl, localName, localColor, clearDebugSession, editorMountVersion, stopCollabOutputSelectionTracking]);
 
   const statusLabel = status === 'connected'
     ? 'Подключено'
@@ -4669,6 +4874,18 @@ const CollabSection = ({
       })
       .filter(Boolean);
   }, [remoteEditorCursors, editorViewportVersion]);
+  const visibleRemoteOutputSelections = useMemo(() => (
+    (Array.isArray(remoteOutputSelections) ? remoteOutputSelections : [])
+      .map((selection) => {
+        const range = normalizeCollabOutputSelection(selection, runOutput.length);
+        return range ? { ...selection, start: range.start, end: range.end } : null;
+      })
+      .filter(Boolean)
+  ), [remoteOutputSelections, runOutput]);
+  const remoteOutputSelectionSegments = useMemo(
+    () => buildCollabTextSelectionSegments(runOutput, visibleRemoteOutputSelections),
+    [runOutput, visibleRemoteOutputSelections]
+  );
   const isTestFileMode = collabAuxPanelMode === COLLAB_AUX_PANEL_MODE_TEST_FILE;
   const auxTextareaRows = isTestFileMode
     ? (isSplitCollabLayout ? (isCollabFullscreen ? 5 : 4) : (isCollabFullscreen ? (isMobileViewport ? 5 : 6) : (isMobileViewport ? 6 : 8)))
@@ -5505,7 +5722,7 @@ const CollabSection = ({
     </div>
   );
 
-  const resultConsoleClass = `rounded-2xl border p-3 text-xs font-mono ${
+  const resultConsoleClass = `rounded-2xl border p-3 text-sm font-mono ${
     isFullscreenDark
       ? 'bg-slate-950/92 text-slate-100'
       : (isFullscreenLight ? 'bg-slate-900 text-slate-100' : 'bg-slate-950 text-slate-100')
@@ -5537,7 +5754,45 @@ const CollabSection = ({
       {(runOutput || runError) ? (
         <>
           {runOutput && (
-            <pre className="whitespace-pre-wrap break-words">{runOutput}</pre>
+            <div className="mt-1">
+              <div ref={outputViewportRef} className="relative">
+                {remoteOutputSelectionSegments.length > 0 && (
+                  <pre
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
+                  >
+                    {remoteOutputSelectionSegments.map((segment) => (
+                      <span
+                        key={segment.key}
+                        style={segment.selection ? COLLAB_OUTPUT_SELECTION_STYLE : undefined}
+                      >
+                        {segment.text}
+                      </span>
+                    ))}
+                  </pre>
+                )}
+                <textarea
+                  ref={outputTextareaRef}
+                  value={runOutput}
+                  readOnly
+                  rows={1}
+                  spellCheck={false}
+                  aria-label="Вывод программы"
+                  onPointerDown={handleCollabOutputPointerDown}
+                  onSelect={syncCollabOutputSelectionFromTextarea}
+                  onKeyUp={syncCollabOutputSelectionFromTextarea}
+                  onMouseUp={syncCollabOutputSelectionFromTextarea}
+                  onBlur={clearCollabOutputSelection}
+                  className="relative z-[1] block w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-inherit outline-none"
+                  style={{
+                    fontFamily: 'inherit',
+                    fontSize: 'inherit',
+                    fontWeight: 'inherit',
+                    lineHeight: 'inherit',
+                  }}
+                />
+              </div>
+            </div>
           )}
           {runError && (
             <pre className="mt-2 whitespace-pre-wrap break-words text-rose-300">{runError}</pre>
