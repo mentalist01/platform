@@ -34,6 +34,7 @@ import LoginPage from './components/LoginPage';
 import NotesSection from './components/NotesSection';
 import NewHomeworkModal from './components/NewHomeworkModal';
 import { LogoMark, PythonLogoIcon } from './components/Identity';
+import MobileStrategyGame from './components/MobileStrategyGame';
 import ProgressSection from './components/ProgressSection';
 import PythonSection from './components/PythonSection';
 import ScheduleSection from './components/ScheduleSection';
@@ -13125,7 +13126,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   );
 };
 
-const App = () => {
+const GAME_ROUTE_PATH = '/game';
+
+const normalizePathname = (value) => {
+  if (typeof value !== 'string' || !value.trim()) return '/';
+  const trimmed = value.trim();
+  const normalized = trimmed.replace(/\/+$/, '');
+  return normalized || '/';
+};
+
+const isStandaloneGameRoute = () => {
+  if (typeof window === 'undefined') return false;
+  return normalizePathname(window.location.pathname) === GAME_ROUTE_PATH;
+};
+
+const MainApp = () => {
   const [theme, setTheme] = useState(() => {
     if (typeof localStorage !== 'undefined') {
       try {
@@ -13265,6 +13280,14 @@ const App = () => {
       <ThemeToggleButton theme={theme} onToggle={handleThemeToggle} className="theme-toggle--desktop" />
     </>
   );
+};
+
+const App = () => {
+  if (isStandaloneGameRoute()) {
+    return <MobileStrategyGame />;
+  }
+
+  return <MainApp />;
 };
 
 export default App;
