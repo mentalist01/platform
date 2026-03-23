@@ -2058,6 +2058,28 @@ const withUploadsAuthToken = (url) => {
   return resolveUploadsUrl(url);
 };
 
+const extractResponseErrorMessage = async (response, fallback = 'Не удалось выполнить запрос.') => {
+  if (!response) return fallback;
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    try {
+      const data = await response.clone().json();
+      const error = typeof data?.error === 'string' ? data.error.trim() : '';
+      if (error) return error;
+    } catch {
+      // Ignore invalid JSON and fall through to text parsing.
+    }
+  }
+  try {
+    const text = (await response.clone().text()).trim();
+    if (text && text.length <= 240) return text;
+  } catch {
+    // Ignore unreadable bodies and return the fallback below.
+  }
+  if (response.status === 429) return 'Превышен лимит трафика для ученика';
+  return fallback;
+};
+
 const highlightPython = (code) => Prism.highlight(code, Prism.languages.python, 'python');
 
 const MASCOT_IMAGES = {
@@ -2207,6 +2229,7 @@ const CollabSection = ({
   const [notesPdfFolderKey, setNotesPdfFolderKey] = useState('');
   const [notesPdfFileId, setNotesPdfFileId] = useState('');
   const [notesPdfPanelHeight, setNotesPdfPanelHeight] = useState(190);
+  const [notesPdfPreviewState, setNotesPdfPreviewState] = useState({ status: 'idle', message: '' });
 
   const isMobileViewport = typeof window !== 'undefined'
     ? window.matchMedia('(max-width: 767px)').matches
@@ -2381,6 +2404,7 @@ const CollabSection = ({
     const joiner = selectedNotesPdfUrl.includes('#') ? '&' : '#';
     return `${selectedNotesPdfUrl}${joiner}toolbar=0&navpanes=0&scrollbar=1&view=FitH`;
   }, [selectedNotesPdfUrl]);
+  const canOpenSelectedNotesPdf = Boolean(selectedNotesPdfUrl) && notesPdfPreviewState.status === 'ready';
   const editorOptions = useMemo(() => ({
     minimap: { enabled: false },
     fontSize: editorFontSize,
@@ -2426,7 +2450,6 @@ const CollabSection = ({
   );
   const isNotesBoardMode = notesPanelMode === COLLAB_TOP_PANE_MODE_BOARD;
   const canResizeTopPane = notesPdfPanelOpen && (isNotesBoardMode || Boolean(selectedNotesPdfFile));
-  const clampFontSize = (value) => Math.min(36, Math.max(12, Math.round(value)));
   const isFullscreenDark = isCollabFullscreen && isDarkTheme;
   const isFullscreenLight = isCollabFullscreen && !isDarkTheme;
   const collabShellClass = isCollabFullscreen
@@ -3160,6 +3183,53 @@ const CollabSection = ({
       return notesPdfFilesInSelectedFolder[0].id;
     });
   }, [notesPdfFilesInSelectedFolder]);
+
+  useEffect(() => {
+    if (!notesPdfPanelOpen || isNotesBoardMode) {
+      setNotesPdfPreviewState({ status: 'idle', message: '' });
+      return undefined;
+    }
+    if (!selectedNotesPdfUrl || !selectedNotesPdfFile) {
+      setNotesPdfPreviewState({ status: 'idle', message: '' });
+      return undefined;
+    }
+
+    let cancelled = false;
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    setNotesPdfPreviewState({ status: 'checking', message: '' });
+
+    fetch(selectedNotesPdfUrl, {
+      method: 'HEAD',
+      credentials: 'include',
+      cache: 'no-store',
+      signal: controller?.signal,
+    })
+      .then(async (response) => {
+        if (cancelled) return;
+        if (!response.ok) {
+          const fileName = selectedNotesPdfFile?.name || 'PDF';
+          const message = await extractResponseErrorMessage(
+            response,
+            `Не удалось открыть ${fileName}.`
+          );
+          setNotesPdfPreviewState({ status: 'error', message });
+          return;
+        }
+        setNotesPdfPreviewState({ status: 'ready', message: '' });
+      })
+      .catch((error) => {
+        if (cancelled || error?.name === 'AbortError') return;
+        setNotesPdfPreviewState({
+          status: 'error',
+          message: error?.message || 'Не удалось открыть PDF.',
+        });
+      });
+
+    return () => {
+      cancelled = true;
+      controller?.abort?.();
+    };
+  }, [notesPdfPanelOpen, isNotesBoardMode, selectedNotesPdfUrl, selectedNotesPdfFile]);
 
   useEffect(() => {
     setNotesPdfPanelHeight((prev) => clampNotesPdfHeight(prev));
@@ -5831,14 +5901,14 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => {
-                  if (!selectedNotesPdfUrl || typeof window === 'undefined') return;
+                  if (!canOpenSelectedNotesPdf || typeof window === 'undefined') return;
                   window.open(selectedNotesPdfUrl, '_blank', 'noopener,noreferrer');
                 }}
-                disabled={!selectedNotesPdfUrl}
+                disabled={!canOpenSelectedNotesPdf}
                 className={`shrink-0 inline-flex items-center justify-center rounded-xl border transition ${
                   isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2 py-1 text-[11px]'
                 } ${
-                  selectedNotesPdfUrl
+                  canOpenSelectedNotesPdf
                     ? (isFullscreenDark
                       ? 'border-slate-600 bg-slate-950 text-slate-100 hover:border-violet-400'
                       : 'border-purple-200 bg-white text-purple-700 hover:border-purple-300 hover:bg-purple-50')
@@ -5876,18 +5946,30 @@ const CollabSection = ({
               </div>
               {notesTopPaneResizeHandle}
             </>
-          ) : selectedNotesPdfFile && selectedNotesPdfEmbedUrl ? (
+          ) : selectedNotesPdfFile ? (
             <>
               <div className={`overflow-hidden rounded-lg border ${
                 isFullscreenDark
                   ? 'border-slate-700/80 bg-slate-950/60'
                   : 'border-gray-200 bg-gray-50'
               }`} style={{ height: `${notesPdfPanelHeight}px` }} ref={notesPdfPreviewRef}>
-                <iframe
-                  title={selectedNotesPdfFile.name || 'PDF из конспектов'}
-                  src={selectedNotesPdfEmbedUrl}
-                  className="h-full w-full"
-                />
+                {notesPdfPreviewState.status === 'ready' && selectedNotesPdfEmbedUrl ? (
+                  <iframe
+                    title={selectedNotesPdfFile.name || 'PDF из конспектов'}
+                    src={selectedNotesPdfEmbedUrl}
+                    className="h-full w-full"
+                  />
+                ) : (
+                  <div className={`flex h-full items-center justify-center px-4 text-center text-sm ${
+                    notesPdfPreviewState.status === 'error'
+                      ? 'text-rose-500'
+                      : (isFullscreenDark ? 'text-slate-300' : 'text-gray-500')
+                  }`}>
+                    {notesPdfPreviewState.status === 'checking'
+                      ? 'Проверяем доступ к PDF...'
+                      : (notesPdfPreviewState.message || 'Не удалось открыть PDF.')}
+                  </div>
+                )}
               </div>
               {notesTopPaneResizeHandle}
             </>
