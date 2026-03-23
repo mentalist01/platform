@@ -1,16 +1,34 @@
 ﻿import { clearStoredSession } from '../utils/theme';
 
 import { hasConfiguredApiBaseUrl, isNativeAppRuntime, resolveApiUrl } from '../utils/runtimeUrls';
+import { USER_SESSION_KEY } from '../utils/theme';
 
 const getStoredAuthToken = () => {
   if (typeof localStorage === 'undefined') return '';
   try {
-    const raw = localStorage.getItem('ege_user_session');
+    const raw = localStorage.getItem(USER_SESSION_KEY);
     if (!raw) return '';
     const parsed = JSON.parse(raw);
     return typeof parsed?.authToken === 'string' ? parsed.authToken.trim() : '';
   } catch {
     return '';
+  }
+};
+
+const appendAuthTokenToUrl = (value, authToken) => {
+  const token = typeof authToken === 'string' ? authToken.trim() : '';
+  if (!token) return value;
+  const raw = String(value || '').trim();
+  if (!raw) return value;
+  try {
+    const url = new URL(raw);
+    if (!url.searchParams.get('_auth')) {
+      url.searchParams.set('_auth', token);
+    }
+    return url.toString();
+  } catch {
+    const separator = raw.includes('?') ? '&' : '?';
+    return `${raw}${separator}_auth=${encodeURIComponent(token)}`;
   }
 };
 
@@ -53,6 +71,19 @@ export const setUnauthorizedHandler = (handler) => {
   unauthorizedHandler = typeof handler === 'function' ? handler : null;
 };
 
+export const resolveAuthenticatedApiUrl = (input) => {
+  const requestUrl = typeof input === 'string' ? resolveApiUrl(input) : input;
+  const authToken = getStoredAuthToken();
+  if (!authToken || !isNativeAppRuntime()) return requestUrl;
+  if (typeof requestUrl === 'string') {
+    return appendAuthTokenToUrl(requestUrl, authToken);
+  }
+  if (requestUrl instanceof URL) {
+    return new URL(appendAuthTokenToUrl(requestUrl.toString(), authToken));
+  }
+  return requestUrl;
+};
+
 const apiFetch = async (input, init = {}) => {
   const method = String(init?.method || 'GET').toUpperCase();
   const requestInit = { ...init };
@@ -71,7 +102,7 @@ const apiFetch = async (input, init = {}) => {
   if (method === 'GET' && !Object.prototype.hasOwnProperty.call(requestInit, 'cache')) {
     requestInit.cache = 'no-store';
   }
-  const requestUrl = typeof input === 'string' ? resolveApiUrl(input) : input;
+  const requestUrl = resolveAuthenticatedApiUrl(input);
   const res = await fetch(requestUrl, requestInit);
   if (res.status === 401) {
     clearStoredSession();
@@ -98,6 +129,11 @@ const normalizeStudentChatMessagePayload = (payloadOrText) => {
 };
 
 export const api = {
+  getCurrentSession: async () => {
+    const res = await apiFetch('/api/session');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   login: async (code) => {
     const res = await apiFetch('/api/login', {
       method: 'POST',

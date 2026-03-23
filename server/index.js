@@ -3050,6 +3050,30 @@ const respondWithSession = (res, session) => {
   return res.json(serializeAuthSession(session));
 };
 
+const getAuthTokenFromQueryParams = (paramsLike) => {
+  if (!paramsLike) return '';
+  const readToken = (value) => {
+    const normalized = typeof value === 'string'
+      ? value.trim()
+      : (Array.isArray(value) ? String(value[0] || '').trim() : '');
+    return normalized;
+  };
+  const direct = readToken(paramsLike._auth) || readToken(paramsLike.authToken);
+  if (direct) return direct;
+  return '';
+};
+
+const getAuthTokenFromUrl = (rawUrl) => {
+  const normalizedUrl = typeof rawUrl === 'string' ? rawUrl.trim() : '';
+  if (!normalizedUrl) return '';
+  try {
+    const url = new URL(normalizedUrl, 'http://local.ege-platform');
+    return url.searchParams.get('_auth')?.trim() || url.searchParams.get('authToken')?.trim() || '';
+  } catch {
+    return '';
+  }
+};
+
 const getAuthTokenFromRequest = (req) => {
   const header = req.headers.authorization;
   if (typeof header === 'string') {
@@ -3063,6 +3087,14 @@ const getAuthTokenFromRequest = (req) => {
   if (Array.isArray(customHeader)) {
     const firstToken = String(customHeader[0] || '').trim();
     if (firstToken) return firstToken;
+  }
+  const queryToken = getAuthTokenFromQueryParams(req?.query);
+  if (queryToken) {
+    return queryToken;
+  }
+  const urlToken = getAuthTokenFromUrl(req?.originalUrl || req?.url);
+  if (urlToken) {
+    return urlToken;
   }
   const cookies = parseCookies(req.headers.cookie);
   const cookieToken = typeof cookies?.[AUTH_COOKIE_NAME] === 'string'
@@ -7107,6 +7139,13 @@ app.use('/api', (req, res, next) => {
     return forbid(res);
   }
   return next();
+});
+
+app.get('/api/session', (req, res) => {
+  return res.json({
+    ...req.auth,
+    token: String(req.authToken || '').trim(),
+  });
 });
 
 app.post('/api/board/reset', async (req, res) => {

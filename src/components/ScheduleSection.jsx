@@ -1,11 +1,10 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bell, BellOff, BookOpen, Calendar, CheckCircle, ChevronRight, Clock3, Pencil, RefreshCcw, Save, Trash2 } from 'lucide-react';
-import { api } from '../services/api';
+import { api, resolveAuthenticatedApiUrl } from '../services/api';
 import ScheduleProgressTree from './ScheduleProgressTree';
 import { Button, Card } from './ui';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
-import { resolveApiUrl } from '../utils/runtimeUrls';
 
 const AUTO_REFRESH_INTERVAL_MS = 5000;
 const DEFAULT_SCHEDULE_SUBJECT = 'Занятие';
@@ -356,7 +355,7 @@ const ScheduleSection = ({
     if (!effectiveStudentId || typeof window === 'undefined' || typeof window.EventSource !== 'function') {
       return undefined;
     }
-    const source = new window.EventSource(resolveApiUrl('/api/schedule-sync/stream'), { withCredentials: true });
+    const source = new window.EventSource(resolveAuthenticatedApiUrl('/api/schedule-sync/stream'), { withCredentials: true });
     const handleScheduleSync = (event) => {
       let payload = null;
       try {
@@ -964,6 +963,44 @@ const ScheduleSection = ({
     () => sortedScheduleRequests.filter((entry) => entry.status === SCHEDULE_REQUEST_STATUS_PENDING),
     [sortedScheduleRequests]
   );
+  const topErrorBanners = useMemo(() => ([
+    {
+      key: 'next-lesson',
+      message: error,
+      tone: 'rose',
+      label: 'Домашка и следующее занятие',
+    },
+    {
+      key: 'tests-db',
+      message: testsDbError,
+      tone: 'amber',
+      label: 'База заданий',
+    },
+    {
+      key: 'mock-exams',
+      message: mockExamsError,
+      tone: 'amber',
+      label: 'Пробники',
+    },
+    {
+      key: 'schedule',
+      message: scheduleError,
+      tone: 'rose',
+      label: 'График занятий',
+    },
+    {
+      key: 'schedule-requests',
+      message: scheduleRequestsError,
+      tone: 'amber',
+      label: 'Запросы на изменение расписания',
+    },
+  ].filter((entry) => String(entry.message || '').trim())), [
+    error,
+    mockExamsError,
+    scheduleError,
+    scheduleRequestsError,
+    testsDbError,
+  ]);
 
   const nextHomeworkEntry = sortedHomeworks[0] || null;
   const previousHomeworkEntries = sortedHomeworks.slice(1);
@@ -1767,33 +1804,21 @@ const ScheduleSection = ({
         </div>
       </div>
 
-      {(error || testsDbError || mockExamsError || scheduleError || scheduleRequestsError) && (
+      {topErrorBanners.length > 0 && (
         <div className="space-y-2">
-          {error && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-2 text-xs font-medium text-rose-600">
-              {error}
+          {topErrorBanners.map((entry) => (
+            <div
+              key={entry.key}
+              className={`rounded-xl border px-3 py-2 text-xs font-medium ${
+                entry.tone === 'rose'
+                  ? 'border-rose-200 bg-rose-50/80 text-rose-600'
+                  : 'border-amber-200 bg-amber-50/80 text-amber-700'
+              }`}
+            >
+              <span className="font-semibold">{entry.label}:</span>{' '}
+              <span>{entry.message}</span>
             </div>
-          )}
-          {testsDbError && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-700">
-              {testsDbError}
-            </div>
-          )}
-          {mockExamsError && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-700">
-              {mockExamsError}
-            </div>
-          )}
-          {scheduleError && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-2 text-xs font-medium text-rose-600">
-              {scheduleError}
-            </div>
-          )}
-          {scheduleRequestsError && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-700">
-              {scheduleRequestsError}
-            </div>
-          )}
+          ))}
         </div>
       )}
 

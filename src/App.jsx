@@ -14192,6 +14192,35 @@ const MainApp = () => {
   });
   const [progress, setProgress] = useState({});
 
+  const persistNormalizedUser = useCallback((value) => {
+    const normalized = sanitizeAuthUserPayload(value);
+    if (!normalized) {
+      clearStoredSession();
+      setUser(null);
+      setProgress({});
+      return null;
+    }
+    setUser((current) => {
+      if (
+        current
+        && current.id === normalized.id
+        && current.role === normalized.role
+        && current.name === normalized.name
+        && current.teacherId === normalized.teacherId
+        && current.chatId === normalized.chatId
+        && current.authToken === normalized.authToken
+      ) {
+        return current;
+      }
+      return normalized;
+    });
+    setProgress({});
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(USER_SESSION_KEY, JSON.stringify(normalized));
+    }
+    return normalized;
+  }, []);
+
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const root = document.documentElement;
@@ -14213,6 +14242,23 @@ const MainApp = () => {
     });
     return () => setUnauthorizedHandler(null);
   }, []);
+
+  useEffect(() => {
+    if (!isNativeAppRuntime() || !user?.authToken) return undefined;
+    let cancelled = false;
+    api.getCurrentSession()
+      .then((session) => {
+        if (cancelled) return;
+        persistNormalizedUser(session);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error('[apk-auth] session sync failed:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [persistNormalizedUser, user?.authToken]);
 
   useEffect(() => {
     const updateVh = () => {
@@ -14246,16 +14292,7 @@ const MainApp = () => {
   }, [user?.id, user?.role]);
 
   const handleLogin = (u) => {
-    const normalized = sanitizeAuthUserPayload(u);
-    if (!normalized) {
-      clearStoredSession();
-      setUser(null);
-      setProgress({});
-      return;
-    }
-    setUser(normalized);
-    setProgress({});
-    localStorage.setItem(USER_SESSION_KEY, JSON.stringify(normalized));
+    persistNormalizedUser(u);
   };
 
   const handleLogout = () => {
