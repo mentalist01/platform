@@ -10565,10 +10565,20 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         if (permission !== 'granted') {
           const permissionResult = await requestNativePushPermission();
           permission = permissionResult?.permission || 'default';
+          const refreshedNativeStatus = await getNativePushStatus().catch(() => null);
+          if (refreshedNativeStatus) {
+            const refreshedSupported = Boolean(
+              refreshedNativeStatus?.supported
+              && refreshedNativeStatus?.configured
+              && refreshedNativeStatus?.available
+            );
+            setPushSupported(refreshedSupported);
+            permission = refreshedNativeStatus?.permission || permission;
+          }
           setPushPermission(permission);
         }
         if (permission !== 'granted') {
-          throw new Error('Разрешение на уведомления не выдано в Android.');
+          throw new Error('Android не подтвердил разрешение на уведомления. Проверьте настройки приложения и RuStore.');
         }
 
         const result = await enableNativePush();
@@ -10626,7 +10636,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setPushSubscribed(true);
       setPushReady(true);
     } catch (error) {
-      setPushError(normalizePushErrorMessage(error));
+      if (useNativeAndroidPush) {
+        const message = String(error?.message || '').trim();
+        setPushError(message || 'Не удалось включить RuStore push.');
+      } else {
+        setPushError(normalizePushErrorMessage(error));
+      }
     } finally {
       setPushBusy(false);
       if (useNativeAndroidPush) {
