@@ -25,6 +25,13 @@ const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5175;
 
+const parseEnabledEnv = (value, defaultValue = false) => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on') return true;
+  if (raw === '0' || raw === 'false' || raw === 'no' || raw === 'off') return false;
+  return defaultValue;
+};
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const resolveStoragePath = (value, fallbackPath) => {
@@ -64,6 +71,11 @@ const authSessionsFile = path.join(dataDir, 'auth-sessions.json');
 const usageFile = path.join(dataDir, 'usage.json');
 const pushFile = path.join(dataDir, 'push.json');
 const rtcPresenceDir = path.join(dataDir, 'rtc-presence');
+const RTC_PRESENCE_FS_ENABLED = parseEnabledEnv(process.env.RTC_PRESENCE_FS_ENABLED, false);
+const BOARD_COLLAB_PERSISTENCE_ENABLED = parseEnabledEnv(
+  process.env.BOARD_COLLAB_PERSISTENCE || process.env.COLLAB_PERSIST_BOARD,
+  false
+);
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
 const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_FOLDER_BYTES = 30 * 1024 * 1024;
@@ -417,7 +429,9 @@ const normalizeStreak = (value) => {
 fs.mkdirSync(uploadsDir, { recursive: true });
 fs.mkdirSync(dataDir, { recursive: true });
 fs.mkdirSync(collabDir, { recursive: true });
-fs.mkdirSync(rtcPresenceDir, { recursive: true });
+if (RTC_PRESENCE_FS_ENABLED) {
+  fs.mkdirSync(rtcPresenceDir, { recursive: true });
+}
 const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
 const isCollabPersistenceEnabled = (() => {
   const raw = String(process.env.COLLAB_PERSISTENCE || '').trim().toLowerCase();
@@ -438,17 +452,90 @@ if (!isCollabPersistenceEnabled && LeveldbPersistence) {
 const rawCollabPersistence = (LeveldbPersistence && isCollabPersistenceEnabled)
   ? new LeveldbPersistence(collabDir)
   : null;
+const collabDocsPersistenceBypassUntil = new Map();
+const normalizeCollabDocName = (value) => {
+  if (typeof value !== 'string') return '';
+  return value.trim();
+};
+const isCollabDocPersistenceBypassed = (docName) => {
+  const normalized = normalizeCollabDocName(docName);
+  if (!normalized) return false;
+  const until = Number(collabDocsPersistenceBypassUntil.get(normalized)) || 0;
+  if (until > Date.now()) return true;
+  if (until > 0) collabDocsPersistenceBypassUntil.delete(normalized);
+  return false;
+};
+const bypassCollabDocPersistence = (docName, durationMs = 30000) => {
+  const normalized = normalizeCollabDocName(docName);
+  if (!normalized) return;
+  const nextDuration = Number.isFinite(durationMs) && durationMs > 0 ? Math.floor(durationMs) : 30000;
+  collabDocsPersistenceBypassUntil.set(normalized, Date.now() + nextDuration);
+};
 const isPersistedCollabDoc = (docName) => {
   if (typeof docName !== 'string') return false;
   const normalized = docName.trim();
   if (!normalized) return false;
+  if (isCollabDocPersistenceBypassed(normalized)) return false;
   const base = normalized.split('/').pop() || normalized;
   return (
-    base.startsWith('board-')
+    ((base.startsWith('board-')) && BOARD_COLLAB_PERSISTENCE_ENABLED)
     || base.startsWith('collab-')
     || base.startsWith('py-collab:')
     || base.startsWith('py-collab-')
   );
+};
+const getLoadedCollabDocs = () => (
+  yWsUtils?.docs instanceof Map
+    ? yWsUtils.docs
+    : null
+);
+const resetCollabDoc = async (docName, options = {}) => {
+  const normalized = normalizeCollabDocName(docName);
+  if (!normalized) {
+    return {
+      closedConnections: 0,
+      hadActiveDoc: false,
+      clearedPersistence: false,
+    };
+  }
+
+  bypassCollabDocPersistence(normalized, options.bypassMs);
+  const loadedDocs = getLoadedCollabDocs();
+  const activeDoc = loadedDocs?.get(normalized) || null;
+  let closedConnections = 0;
+
+  if (activeDoc) {
+    const connections = activeDoc?.conns instanceof Map
+      ? Array.from(activeDoc.conns.keys())
+      : [];
+    connections.forEach((conn) => {
+      if (!conn) return;
+      closedConnections += 1;
+      try {
+        conn.close(options.closeCode || 1012, options.closeReason || 'Document reset');
+      } catch {
+        // Ignore connection close failures during forced document reset.
+      }
+    });
+    try {
+      activeDoc.destroy();
+    } catch {
+      // Ignore destroy failures and continue clearing persistence state.
+    }
+    loadedDocs?.delete(normalized);
+  }
+
+  let clearedPersistence = false;
+  if (rawCollabPersistence && typeof rawCollabPersistence.clearDocument === 'function') {
+    await rawCollabPersistence.clearDocument(normalized);
+    clearedPersistence = true;
+  }
+
+  return {
+    closedConnections,
+    hadActiveDoc: Boolean(activeDoc),
+    clearedPersistence,
+  };
 };
 const collabPersistence = rawCollabPersistence ? {
   bindState: async (docName, ydoc) => {
@@ -2985,6 +3072,13 @@ const ensureStudentAccess = (req, res, studentId, options = {}) => {
     return null;
   }
   return student;
+};
+
+const getBoardRoomIdForStudent = (student) => {
+  const teacherId = normalizeTeacherId(student?.teacherId);
+  const studentId = String(student?.id || '').trim();
+  if (!teacherId || !studentId) return '';
+  return `board-${teacherId}-${studentId}`;
 };
 
 const ensureTeacherAccess = (req, res, teacherId, options = {}) => {
@@ -6335,6 +6429,40 @@ app.use('/api', (req, res, next) => {
     return forbid(res);
   }
   return next();
+});
+
+app.post('/api/board/reset', async (req, res) => {
+  const requestedStudentId = typeof req.body?.studentId === 'string'
+    ? req.body.studentId.trim()
+    : String(req.body?.studentId || '').trim();
+  const fallbackStudentId = isStudentRole(req.auth) ? String(req.auth.id || '').trim() : '';
+  const effectiveStudentId = requestedStudentId || fallbackStudentId;
+  const student = ensureStudentAccess(req, res, effectiveStudentId, { missingError: 'studentId required' });
+  if (!student) return;
+
+  const roomId = getBoardRoomIdForStudent(student);
+  if (!roomId) {
+    return res.status(400).json({ error: 'Для ученика не удалось определить доску' });
+  }
+
+  try {
+    const result = await resetCollabDoc(roomId, {
+      closeCode: 1012,
+      closeReason: 'Board reset',
+      bypassMs: 30000,
+    });
+    return res.json({
+      ok: true,
+      roomId,
+      studentId: student.id,
+      closedConnections: result.closedConnections,
+      hadActiveDoc: result.hadActiveDoc,
+      clearedPersistence: result.clearedPersistence,
+    });
+  } catch (error) {
+    console.error('[board] reset failed:', error);
+    return res.status(500).json({ error: 'Не удалось сбросить доску' });
+  }
 });
 
 app.get('/api/schedule-sync/stream', (req, res) => {
@@ -10263,6 +10391,7 @@ const getRtcPresenceFilePath = (clientId) => {
 };
 
 const removeRtcPresenceFileByClientId = (clientId) => {
+  if (!RTC_PRESENCE_FS_ENABLED) return;
   const filePath = getRtcPresenceFilePath(clientId);
   if (!filePath) return;
   try {
@@ -10271,6 +10400,7 @@ const removeRtcPresenceFileByClientId = (clientId) => {
 };
 
 const upsertRtcPresenceFileFromClient = (client) => {
+  if (!RTC_PRESENCE_FS_ENABLED) return;
   if (!client || !client.roomId) return;
   const clientId = normalizeRtcPresenceClientId(client.clientId);
   if (!clientId) return;
@@ -10332,6 +10462,7 @@ const recordToRtcPeer = (record) => {
 };
 
 const readRtcPresenceParticipantsFromFiles = (roomId) => {
+  if (!RTC_PRESENCE_FS_ENABLED) return [];
   const normalizedRoomId = typeof roomId === 'string' ? roomId.trim() : '';
   if (!normalizedRoomId) return [];
 

@@ -53,6 +53,7 @@ const TeacherPanel = ({
   const [studentActionError, setStudentActionError] = useState('');
   const [lastIssuedCode, setLastIssuedCode] = useState(null);
   const [resettingStudentId, setResettingStudentId] = useState(null);
+  const [resettingBoardStudentId, setResettingBoardStudentId] = useState(null);
   const [restoringStudentId, setRestoringStudentId] = useState(null);
   const [teacherCodeForm, setTeacherCodeForm] = useState({ current: '', next: '', repeat: '' });
   const [teacherCodeError, setTeacherCodeError] = useState('');
@@ -784,6 +785,23 @@ const TeacherPanel = ({
     }
   };
 
+  const handleResetStudentBoard = async (student) => {
+    if (!student?.id) return;
+    if (!confirm(`Сбросить доску для "${student.name}"? Все элементы на совместной доске будут удалены.`)) return;
+    setResettingBoardStudentId(student.id);
+    setStudentActionError('');
+    try {
+      await api.resetStudentBoard(student.id);
+      if (typeof window !== 'undefined') {
+        window.alert(`Доска ученика "${student.name}" очищена. Можно заново открыть её.`);
+      }
+    } catch (err) {
+      setStudentActionError(err?.message || err);
+    } finally {
+      setResettingBoardStudentId(null);
+    }
+  };
+
   const handleRestoreStudent = async (student) => {
     if (!student?.id) return;
     if (!confirm(`Восстановить ученика "${student.name}"?`)) return;
@@ -1368,6 +1386,15 @@ const TeacherPanel = ({
                           type="button"
                         >
                           <RefreshCcw size={16} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleResetStudentBoard(student); }}
+                          className="px-3 py-1 rounded-lg border border-gray-200 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                          title="Очистить совместную доску"
+                          disabled={resettingBoardStudentId === student.id}
+                          type="button"
+                        >
+                          {resettingBoardStudentId === student.id ? '...' : 'Сбросить доску'}
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); handleDeleteStudent(student); }}

@@ -45,7 +45,7 @@ const RTC_PRESENCE_RECONNECT_DELAY_MS = 2000;
 const RTC_PRESENCE_RECONNECT_MAX_DELAY_MS = 12000;
 const RTC_PRESENCE_RECONNECT_JITTER_MS = 450;
 const RTC_PRESENCE_RECONNECT_MAX_ATTEMPTS = 10;
-const RTC_PRESENCE_POLL_INTERVAL_MS = 1200;
+const RTC_PRESENCE_HTTP_FALLBACK_POLL_INTERVAL_MS = 10000;
 const RTC_PRESENCE_FALLBACK_BOOT_TIMEOUT_MS = 5000;
 const WS_HEARTBEAT_TIMEOUT_MS = 45000;
 const JOIN_ACK_TIMEOUT_MS = 15000;
@@ -3522,17 +3522,74 @@ const CallSection = ({
     }
 
     let disposed = false;
-    let usingWsFallback = false;
+    let usingPresenceWebSocket = true;
     let fallbackBootTimeout = null;
+    let presencePollTimer = null;
+
+    const clearFallbackBootTimeout = () => {
+      if (!fallbackBootTimeout) return;
+      clearTimeout(fallbackBootTimeout);
+      fallbackBootTimeout = null;
+    };
+
+    const stopHttpPolling = () => {
+      if (!presencePollTimer) return;
+      clearInterval(presencePollTimer);
+      presencePollTimer = null;
+    };
+
+    const loadPresenceSnapshot = async ({ quiet = false } = {}) => {
+      try {
+        const cacheBust = Date.now();
+        const response = await fetch(`/api/rtc/presence?roomId=${encodeURIComponent(roomId)}&_=${cacheBust}`, {
+          credentials: 'include',
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache',
+            Pragma: 'no-cache',
+          },
+        });
+        if (!response.ok) {
+          if (disposed) return;
+          if (quiet && usingPresenceWebSocket) return;
+          const fallbackMessage = `Не удалось обновить список участников (${response.status})`;
+          const message = await extractHttpErrorMessage(response, fallbackMessage);
+          setPresencePeers([]);
+          setPresenceError(message);
+          return;
+        }
+        const payload = await response.json();
+        if (disposed) return;
+        setPresenceError('');
+        mapPresenceParticipants(Array.isArray(payload?.participants) ? payload.participants : []);
+      } catch (requestError) {
+        if (disposed) return;
+        if (quiet && usingPresenceWebSocket) return;
+        setPresenceError(normalizeErrorMessage(requestError, 'Не удалось обновить список участников созвона.'));
+      }
+    };
+
+    const startHttpFallback = () => {
+      if (disposed || !usingPresenceWebSocket) return;
+      usingPresenceWebSocket = false;
+      presenceReconnectAttemptRef.current = 0;
+      clearFallbackBootTimeout();
+      closePresenceSocket();
+      stopHttpPolling();
+      void loadPresenceSnapshot();
+      presencePollTimer = setInterval(() => {
+        void loadPresenceSnapshot();
+      }, RTC_PRESENCE_HTTP_FALLBACK_POLL_INTERVAL_MS);
+    };
 
     const scheduleReconnect = () => {
-      if (disposed || !usingWsFallback) return;
+      if (disposed || !usingPresenceWebSocket) return;
       if (presenceReconnectTimerRef.current) {
         return;
       }
       const nextAttempt = presenceReconnectAttemptRef.current + 1;
       if (nextAttempt > RTC_PRESENCE_RECONNECT_MAX_ATTEMPTS) {
-        setPresenceError('Не удалось восстановить канал присутствия. Перезагрузите страницу.');
+        startHttpFallback();
         return;
       }
       presenceReconnectAttemptRef.current = nextAttempt;
@@ -3563,10 +3620,10 @@ const CallSection = ({
         return;
       }
       if (type === 'error') {
-        if (fallbackBootTimeout) {
-          clearTimeout(fallbackBootTimeout);
-          fallbackBootTimeout = null;
-        }
+        clearFallbackBootTimeout();
+        stopHttpPolling();
+        usingPresenceWebSocket = false;
+        closePresenceSocket();
         const fallbackMessage = 'Presence fallback is unavailable on this server. Update backend and restart it.';
         const serverMessage = typeof payload?.error === 'string' ? payload.error.trim() : '';
         setPresencePeers([]);
@@ -3577,16 +3634,14 @@ const CallSection = ({
       const payloadRoomId = typeof payload?.roomId === 'string' ? payload.roomId.trim() : '';
       if (payloadRoomId && payloadRoomId !== roomId) return;
       const participants = Array.isArray(payload?.participants) ? payload.participants : [];
-      if (fallbackBootTimeout) {
-        clearTimeout(fallbackBootTimeout);
-        fallbackBootTimeout = null;
-      }
+      clearFallbackBootTimeout();
+      stopHttpPolling();
       setPresenceError('');
       mapPresenceParticipants(participants);
     };
 
     const connectPresenceWs = () => {
-      if (disposed || !usingWsFallback) return;
+      if (disposed || !usingPresenceWebSocket) return;
       const existing = presenceWsRef.current;
       if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
         return;
@@ -3596,35 +3651,47 @@ const CallSection = ({
         presenceWsRef.current = ws;
 
         ws.onopen = () => {
-          if (disposed || !usingWsFallback || presenceWsRef.current !== ws) return;
+          if (disposed || !usingPresenceWebSocket || presenceWsRef.current !== ws) return;
           presenceReconnectAttemptRef.current = 0;
           lastPresencePongAtRef.current = Date.now();
           try {
             ws.send(JSON.stringify({ type: 'watch-presence', roomId }));
-          } catch {}
+          } catch {
+            // Reconnect flow will recover if the socket closes before the join message is sent.
+          }
           if (presencePingTimerRef.current) {
             clearInterval(presencePingTimerRef.current);
           }
           presencePingTimerRef.current = setInterval(() => {
             if (presenceWsRef.current !== ws) return;
             if (Date.now() - lastPresencePongAtRef.current >= WS_HEARTBEAT_TIMEOUT_MS) {
-              try { ws.close(1011, 'Presence heartbeat timeout'); } catch {}
+              try {
+                ws.close(1011, 'Presence heartbeat timeout');
+              } catch {
+                // Closing a socket that is already shutting down is safe to ignore.
+              }
               return;
             }
             try {
               ws.send(JSON.stringify({ type: 'ping' }));
-            } catch {}
+            } catch {
+              // The close/reconnect handler will recover from transient send failures.
+            }
           }, WS_PING_INTERVAL_MS);
         };
 
         ws.onmessage = (event) => {
-          if (disposed || !usingWsFallback || presenceWsRef.current !== ws) return;
+          if (disposed || !usingPresenceWebSocket || presenceWsRef.current !== ws) return;
           applyPresencePayload(event.data);
         };
 
         ws.onerror = () => {
-          if (disposed || !usingWsFallback || presenceWsRef.current !== ws) return;
-          try { ws.close(); } catch {}
+          if (disposed || !usingPresenceWebSocket || presenceWsRef.current !== ws) return;
+          try {
+            ws.close();
+          } catch {
+            // Ignore close failures triggered from the error path.
+          }
         };
 
         ws.onclose = () => {
@@ -3638,78 +3705,23 @@ const CallSection = ({
           scheduleReconnect();
         };
       } catch {
+        // Failed socket construction still follows the standard reconnect path.
         scheduleReconnect();
       }
     };
 
-    const loadPresenceOnce = async () => {
-      try {
-        const cacheBust = Date.now();
-        const response = await fetch(`/api/rtc/presence?roomId=${encodeURIComponent(roomId)}&_=${cacheBust}`, {
-          credentials: 'include',
-          cache: 'no-store',
-          headers: {
-            'Cache-Control': 'no-cache',
-            Pragma: 'no-cache',
-          },
-        });
-        if (!response.ok) {
-          if (response.status === 404) {
-            if (!usingWsFallback) {
-              usingWsFallback = true;
-              presenceReconnectAttemptRef.current = 0;
-              setPresenceError('');
-              if (fallbackBootTimeout) {
-                clearTimeout(fallbackBootTimeout);
-              }
-              fallbackBootTimeout = setTimeout(() => {
-                fallbackBootTimeout = null;
-                if (disposed || !usingWsFallback) return;
-                setPresencePeers([]);
-                setPresenceError('Presence API endpoint is missing on backend (/api/rtc/presence). Update backend deployment.');
-              }, RTC_PRESENCE_FALLBACK_BOOT_TIMEOUT_MS);
-              connectPresenceWs();
-            }
-            return;
-          }
-          if (disposed) return;
-          const fallbackMessage = `Не удалось обновить список участников (${response.status})`;
-          const message = await extractHttpErrorMessage(response, fallbackMessage);
-          setPresencePeers([]);
-          setPresenceError(message);
-          return;
-        }
-        const payload = await response.json();
-        if (disposed) return;
-        if (usingWsFallback) {
-          usingWsFallback = false;
-          presenceReconnectAttemptRef.current = 0;
-          if (fallbackBootTimeout) {
-            clearTimeout(fallbackBootTimeout);
-            fallbackBootTimeout = null;
-          }
-          closePresenceSocket();
-        }
-        setPresenceError('');
-        mapPresenceParticipants(Array.isArray(payload?.participants) ? payload.participants : []);
-      } catch (requestError) {
-        if (disposed || usingWsFallback) return;
-        setPresenceError(normalizeErrorMessage(requestError, 'Не удалось обновить список участников созвона.'));
-      }
-    };
-
-    loadPresenceOnce();
-    const presencePollTimer = setInterval(() => {
-      loadPresenceOnce();
-    }, RTC_PRESENCE_POLL_INTERVAL_MS);
+    void loadPresenceSnapshot({ quiet: true });
+    fallbackBootTimeout = setTimeout(() => {
+      fallbackBootTimeout = null;
+      if (disposed || !usingPresenceWebSocket) return;
+      startHttpFallback();
+    }, RTC_PRESENCE_FALLBACK_BOOT_TIMEOUT_MS);
+    connectPresenceWs();
 
     return () => {
       disposed = true;
-      if (fallbackBootTimeout) {
-        clearTimeout(fallbackBootTimeout);
-        fallbackBootTimeout = null;
-      }
-      clearInterval(presencePollTimer);
+      clearFallbackBootTimeout();
+      stopHttpPolling();
       closePresenceSocket();
     };
   }, [closePresenceSocket, mapPresenceParticipants, roomId, rtcWsUrl, status]);

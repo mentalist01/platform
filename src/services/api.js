@@ -346,6 +346,19 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
+  resetStudentBoard: async (studentId) => {
+    const normalizedStudentId = typeof studentId === 'string'
+      ? studentId.trim()
+      : String(studentId || '').trim();
+    if (!normalizedStudentId) throw new Error('studentId required');
+    const res = await apiFetch('/api/board/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId: normalizedStudentId }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getTeachers: async () => {
     const res = await apiFetch('/api/teachers');
     if (!res.ok) throw new Error(await parseApiError(res));
