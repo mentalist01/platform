@@ -72,7 +72,7 @@ import {
   consumeNativePushLaunchUrl,
   normalizePushErrorMessage,
 } from './utils/push';
-import { getCollabWsUrl, resolveUploadsUrl } from './utils/runtimeUrls';
+import { getCollabWsUrl, isNativeAppRuntime, resolveUploadsUrl } from './utils/runtimeUrls';
 import { api, setUnauthorizedHandler } from './services/api';
 
 const optionalLeagueIcons = import.meta.glob('./assets/leagues/blank.png', { eager: true, import: 'default' });
@@ -2022,6 +2022,12 @@ const sanitizeAuthUserPayload = (value) => {
   const name = typeof value.name === 'string' ? value.name : '';
   if (!role || !id || !name) return null;
   const safe = { role, id, name };
+  const authToken = typeof value.token === 'string'
+    ? value.token.trim()
+    : (typeof value.authToken === 'string' ? value.authToken.trim() : '');
+  if (authToken) {
+    safe.authToken = authToken;
+  }
   if (role === 'student') {
     const teacherId = value.teacherId;
     safe.teacherId = teacherId ? String(teacherId) : null;
@@ -14172,7 +14178,7 @@ const MainApp = () => {
       const savedUser = localStorage.getItem(USER_SESSION_KEY);
       const parsed = savedUser ? JSON.parse(savedUser) : null;
       const normalized = sanitizeAuthUserPayload(parsed);
-      if (!normalized) {
+      if (!normalized || (isNativeAppRuntime() && !normalized.authToken)) {
         localStorage.removeItem(USER_SESSION_KEY);
         return null;
       }

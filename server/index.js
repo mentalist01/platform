@@ -2977,6 +2977,7 @@ const getAuthSession = (token) => {
 
 const serializeAuthSession = (session) => ({
   ...session.user,
+  token: session.token,
 });
 
 const parseCookies = (cookieHeader) => {

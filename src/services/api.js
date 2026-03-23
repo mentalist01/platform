@@ -2,6 +2,18 @@
 
 import { hasConfiguredApiBaseUrl, isNativeAppRuntime, resolveApiUrl } from '../utils/runtimeUrls';
 
+const getStoredAuthToken = () => {
+  if (typeof localStorage === 'undefined') return '';
+  try {
+    const raw = localStorage.getItem('ege_user_session');
+    if (!raw) return '';
+    const parsed = JSON.parse(raw);
+    return typeof parsed?.authToken === 'string' ? parsed.authToken.trim() : '';
+  } catch {
+    return '';
+  }
+};
+
 const parseApiError = async (res) => {
   const contentType = res.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
@@ -44,6 +56,12 @@ export const setUnauthorizedHandler = (handler) => {
 const apiFetch = async (input, init = {}) => {
   const method = String(init?.method || 'GET').toUpperCase();
   const requestInit = { ...init };
+  const headers = new Headers(requestInit.headers || {});
+  const authToken = getStoredAuthToken();
+  if (authToken && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${authToken}`);
+  }
+  requestInit.headers = headers;
   if (!Object.prototype.hasOwnProperty.call(requestInit, 'credentials')) {
     requestInit.credentials = 'include';
   }
