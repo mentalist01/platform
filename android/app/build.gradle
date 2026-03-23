@@ -1,10 +1,54 @@
 apply plugin: 'com.android.application'
 
+def projectRootDir = rootProject.projectDir.parentFile
+
+def readSimpleEnvFile = { File file ->
+    def values = [:]
+    if (file == null || !file.exists() || !file.isFile()) {
+        return values
+    }
+    file.eachLine('UTF-8') { rawLine ->
+        def line = String.valueOf(rawLine ?: '').trim()
+        if (!line || line.startsWith('#') || !line.contains('=')) {
+            return
+        }
+        def separatorIndex = line.indexOf('=')
+        if (separatorIndex <= 0) {
+            return
+        }
+        def key = line.substring(0, separatorIndex).trim()
+        def value = line.substring(separatorIndex + 1).trim()
+        if (!key) {
+            return
+        }
+        if (
+            (value.startsWith('"') && value.endsWith('"') && value.length() >= 2)
+            || (value.startsWith("'") && value.endsWith("'") && value.length() >= 2)
+        ) {
+            value = value.substring(1, value.length() - 1)
+        }
+        values[key] = value
+    }
+    return values
+}
+
+def sharedEnv = [:]
+[
+    new File(projectRootDir, '.env'),
+    new File(projectRootDir, '.env.local'),
+    new File(projectRootDir, '.env.production'),
+    new File(projectRootDir, '.env.production.local'),
+].each { envFile ->
+    sharedEnv.putAll(readSimpleEnvFile(envFile))
+}
+
 def ruStorePushProjectId = (project.findProperty('RUSTORE_PUSH_PROJECT_ID')
     ?: System.getenv('RUSTORE_PUSH_PROJECT_ID')
+    ?: sharedEnv['RUSTORE_PUSH_PROJECT_ID']
     ?: '') as String
 def ruStorePushNotificationChannelId = (project.findProperty('RUSTORE_PUSH_NOTIFICATION_CHANNEL_ID')
     ?: System.getenv('RUSTORE_PUSH_NOTIFICATION_CHANNEL_ID')
+    ?: sharedEnv['RUSTORE_PUSH_NOTIFICATION_CHANNEL_ID']
     ?: 'ege_platform_general') as String
 
 def escapeAsAndroidString = { value ->
@@ -20,8 +64,8 @@ android {
         applicationId "ru.ivank.egeplatform"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 4
-        versionName "1.3"
+        versionCode 5
+        versionName "1.4"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         resValue "string", "rustore_push_project_id", escapeAsAndroidString(ruStorePushProjectId)
         resValue "string", "rustore_push_notification_channel_id", escapeAsAndroidString(ruStorePushNotificationChannelId)

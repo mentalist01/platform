@@ -118,7 +118,7 @@ export const urlBase64ToUint8Array = (base64String) => {
 
 export const getPushServiceWorkerRegistration = async () => {
   if (!isBrowserPushSupported()) {
-    throw new Error('Push уведомления не поддерживаются в этом браузере.');
+    throw new Error('Push-уведомления не поддерживаются в этом браузере.');
   }
   if (!pushRegistrationPromise) {
     pushRegistrationPromise = navigator.serviceWorker.register(PUSH_SW_URL, { scope: '/' })

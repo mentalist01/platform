@@ -792,7 +792,7 @@ const ScheduleSection = ({
     if (lessonReminderLoading) return 'Проверяем настройки напоминаний...';
     if (!pushSupported) {
       return useNativeAndroidPush
-        ? 'RuStore Push недоступен в этой Android-сборке.'
+        ? (pushError || 'RuStore Push недоступен в этой Android-сборке.')
         : 'Push не поддерживается в этом браузере.';
     }
     if (pushPermission === 'denied') {
@@ -814,6 +814,7 @@ const ScheduleSection = ({
     lessonReminderEnabled,
     lessonReminderLoading,
     pushEnabled,
+    pushError,
     pushPermission,
     pushSupported,
     role,
@@ -1846,7 +1847,7 @@ const ScheduleSection = ({
                 <div className="min-w-0">
                   <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-sky-700">Уведомления о занятиях</div>
                   <div className="mt-1 text-xs text-slate-600">{lessonReminderStatusText}</div>
-                  {(lessonReminderError || pushError) && (
+                  {(lessonReminderError || (pushError && pushError !== lessonReminderStatusText)) && (
                     <div className="mt-1 text-xs text-rose-600">{lessonReminderError || pushError}</div>
                   )}
                 </div>

@@ -12,6 +12,7 @@ import {
   Search,
 } from 'lucide-react';
 import { api } from '../services/api';
+import { isNativeAndroidPushEnvironment } from '../utils/push';
 import { resolveApiUrl } from '../utils/runtimeUrls';
 
 const SCHEDULE_WEEKDAYS = [
@@ -401,6 +402,7 @@ const TeacherCalendarSection = ({
   pushError = '',
   onTogglePush = null,
 }) => {
+  const useNativeAndroidPush = isNativeAndroidPushEnvironment();
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -863,7 +865,11 @@ const TeacherCalendarSection = ({
         effectivePushEnabled = Boolean(status?.subscribed);
       }
       if (!effectivePushEnabled) {
-        setTeacherTestPushError('Сначала включите push в браузере.');
+        setTeacherTestPushError(
+          useNativeAndroidPush
+            ? 'Сначала включите push через RuStore в приложении.'
+            : 'Сначала включите push в браузере.'
+        );
         return;
       }
       const result = await api.sendPushTestNotification();
@@ -879,20 +885,34 @@ const TeacherCalendarSection = ({
 
   const teacherReminderStatusText = useMemo(() => {
     if (teacherReminderLoading) return 'Проверяем настройки напоминаний...';
-    if (!pushSupported) return 'Push не поддерживается в этом браузере.';
-    if (pushPermission === 'denied') return 'Уведомления заблокированы в настройках браузера.';
+    if (!pushSupported) {
+      return useNativeAndroidPush
+        ? (pushError || 'RuStore Push недоступен в этой Android-сборке.')
+        : 'Push не поддерживается в этом браузере.';
+    }
+    if (pushPermission === 'denied') {
+      return useNativeAndroidPush
+        ? 'Уведомления заблокированы в настройках Android.'
+        : 'Уведомления заблокированы в настройках браузера.';
+    }
     if (!pushEnabled && teacherReminderEnabled) {
       return 'Напоминания включены, но push выключены. Включите push, чтобы получать уведомления.';
     }
-    if (!pushEnabled) return 'Сначала включите push, затем включите напоминания для календаря.';
+    if (!pushEnabled) {
+      return useNativeAndroidPush
+        ? 'Сначала включите push через RuStore, затем включите напоминания для календаря.'
+        : 'Сначала включите push, затем включите напоминания для календаря.';
+    }
     if (teacherReminderEnabled) return 'Напоминания включены: учителю придет уведомление за 10 минут до урока.';
     return 'Включите напоминания, чтобы получать уведомление за 10 минут до урока.';
   }, [
     pushEnabled,
+    pushError,
     pushPermission,
     pushSupported,
     teacherReminderEnabled,
     teacherReminderLoading,
+    useNativeAndroidPush,
   ]);
 
   useEffect(() => {
@@ -2668,7 +2688,7 @@ const TeacherCalendarSection = ({
                   className="hidden"
                 />
               </div>
-              {(teacherReminderError || teacherTestPushError || pushError) && (
+              {(teacherReminderError || teacherTestPushError || (pushError && pushError !== teacherReminderStatusText)) && (
                 <div className="mt-1 text-xs text-rose-600">
                   {teacherReminderError || teacherTestPushError || pushError}
                 </div>

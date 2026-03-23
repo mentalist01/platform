@@ -40,6 +40,13 @@ public class RuStorePushPlugin extends Plugin {
     private static final String KEY_LAST_ERROR = "last_error";
     private static final String KEY_LAST_MESSAGE = "last_message";
     private static final String KEY_LAUNCH_URL = "launch_url";
+    private static final String MSG_MISSING_PROJECT_ID = "\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d RUSTORE_PUSH_PROJECT_ID \u0434\u043b\u044f Android-\u0441\u0431\u043e\u0440\u043a\u0438.";
+    private static final String MSG_PUSH_UNAVAILABLE = "RuStore Push \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d \u043d\u0430 \u044d\u0442\u043e\u043c Android-\u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u0435.";
+    private static final String MSG_PUSH_NOT_CONFIGURED = "RuStore Push \u043d\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043d \u0434\u043b\u044f \u044d\u0442\u043e\u0439 Android-\u0441\u0431\u043e\u0440\u043a\u0438.";
+    private static final String MSG_PERMISSION_NOT_GRANTED = "\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043d\u0438\u0435 \u043d\u0430 \u0443\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f \u043d\u0435 \u0432\u044b\u0434\u0430\u043d\u043e.";
+    private static final String MSG_TOKEN_FETCH_FAILED = "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u043e\u043b\u0443\u0447\u0438\u0442\u044c RuStore push-\u0442\u043e\u043a\u0435\u043d.";
+    private static final String MSG_TOKEN_DELETE_FAILED = "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0443\u0434\u0430\u043b\u0438\u0442\u044c push-\u0442\u043e\u043a\u0435\u043d \u0432 RuStore SDK.";
+    private static final String MSG_AVAILABILITY_EMPTY = "RuStore Push \u043d\u0435 \u043e\u0442\u0432\u0435\u0442\u0438\u043b \u0441\u0442\u0430\u0442\u0443\u0441\u043e\u043c \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u043e\u0441\u0442\u0438.";
 
     @PluginMethod
     public void getStatus(PluginCall call) {
@@ -58,7 +65,7 @@ public class RuStorePushPlugin extends Plugin {
 
         if (projectId.isEmpty()) {
             payload.put("available", false);
-            payload.put("reason", "Не указан RUSTORE_PUSH_PROJECT_ID для Android-сборки.");
+            payload.put("reason", MSG_MISSING_PROJECT_ID);
             call.resolve(payload);
             return;
         }
@@ -71,7 +78,7 @@ public class RuStorePushPlugin extends Plugin {
             })
             .addOnFailureListener(error -> {
                 payload.put("available", false);
-                payload.put("reason", normalizeThrowableMessage(error, "RuStore Push недоступен на этом устройстве."));
+                payload.put("reason", normalizeThrowableMessage(error, MSG_PUSH_UNAVAILABLE));
                 call.resolve(payload);
             });
     }
@@ -118,11 +125,11 @@ public class RuStorePushPlugin extends Plugin {
         final Context context = getContext();
         final String projectId = getConfiguredProjectId(context);
         if (projectId.isEmpty()) {
-            call.reject("RuStore Push не настроен для этой Android-сборки.");
+            call.reject(MSG_PUSH_NOT_CONFIGURED);
             return;
         }
         if (!"granted".equals(getNotificationPermissionState())) {
-            call.reject("Разрешение на уведомления не выдано.");
+            call.reject(MSG_PERMISSION_NOT_GRANTED);
             return;
         }
 
@@ -141,9 +148,9 @@ public class RuStorePushPlugin extends Plugin {
                         payload.put("permission", getNotificationPermissionState());
                         call.resolve(payload);
                     })
-                    .addOnFailureListener(error -> call.reject(normalizeThrowableMessage(error, "Не удалось получить RuStore push-токен.")));
+                    .addOnFailureListener(error -> call.reject(normalizeThrowableMessage(error, MSG_TOKEN_FETCH_FAILED)));
             })
-            .addOnFailureListener(error -> call.reject(normalizeThrowableMessage(error, "RuStore Push недоступен на этом устройстве.")));
+            .addOnFailureListener(error -> call.reject(normalizeThrowableMessage(error, MSG_PUSH_UNAVAILABLE)));
     }
 
     @PluginMethod
@@ -164,7 +171,7 @@ public class RuStorePushPlugin extends Plugin {
                 JSObject payload = new JSObject();
                 payload.put("token", "");
                 payload.put("previousToken", previousToken);
-                payload.put("warning", normalizeThrowableMessage(error, "Не удалось удалить push-токен в RuStore SDK."));
+                payload.put("warning", normalizeThrowableMessage(error, MSG_TOKEN_DELETE_FAILED));
                 call.resolve(payload);
             });
     }
@@ -272,7 +279,7 @@ public class RuStorePushPlugin extends Plugin {
 
     private String describeAvailabilityResult(Object result) {
         if (result == null) {
-            return "RuStore Push не ответил статусом доступности.";
+            return MSG_AVAILABILITY_EMPTY;
         }
         if (isAvailabilityResultAvailable(result)) {
             return "";
@@ -280,11 +287,11 @@ public class RuStorePushPlugin extends Plugin {
         try {
             Object cause = result.getClass().getMethod("getCause").invoke(result);
             if (cause == null) {
-                return "RuStore Push недоступен на этом устройстве.";
+                return MSG_PUSH_UNAVAILABLE;
             }
             String message = String.valueOf(cause);
             return message == null || message.trim().isEmpty()
-                ? "RuStore Push недоступен на этом устройстве."
+                ? MSG_PUSH_UNAVAILABLE
                 : message.trim();
         } catch (Exception error) {
             return String.valueOf(result).trim();

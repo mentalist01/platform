@@ -38,10 +38,10 @@ public class MainApplication extends Application {
 
         final NotificationChannel channel = new NotificationChannel(
             channelId,
-            "Основные уведомления",
+            "\u041e\u0441\u043d\u043e\u0432\u043d\u044b\u0435 \u0443\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f",
             NotificationManager.IMPORTANCE_DEFAULT
         );
-        channel.setDescription("Push-уведомления приложения");
+        channel.setDescription("Push-\u0443\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f \u043f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u044f");
         manager.createNotificationChannel(channel);
     }
 }

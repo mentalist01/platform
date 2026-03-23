@@ -10481,11 +10481,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         const supported = Boolean(nativeStatus?.supported && nativeStatus?.configured && nativeStatus?.available);
         setPushSupported(supported);
         setPushPermission(nativeStatus?.permission || 'default');
+        if (supported) {
+          setPushError('');
+        }
         if (!supported) {
           setPushSubscribed(false);
-          if (!silent) {
-            setPushError(getNativePushUnavailableMessage(nativeStatus));
-          }
+          setPushError(getNativePushUnavailableMessage(nativeStatus));
           return;
         }
 
@@ -10697,7 +10698,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     if (pushSyncing) return 'Проверяем статус push...';
     if (!pushSupported) {
       return useNativeAndroidPush
-        ? 'RuStore Push недоступен на этом Android-устройстве.'
+        ? (pushError || 'RuStore Push недоступен на этом Android-устройстве.')
         : 'Push не поддерживается в этом браузере.';
     }
     if (pushPermission === 'denied') {
@@ -10752,7 +10753,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               {pushButtonLabel}
             </button>
           </div>
-          {pushError && (
+          {pushError && pushError !== pushStatusText && (
             <p className={mobile ? 'mt-2 text-[11px] text-rose-600' : 'mt-1 text-[10px] leading-tight text-rose-600'}>{pushError}</p>
           )}
         </div>
