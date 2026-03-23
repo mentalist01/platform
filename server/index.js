@@ -522,7 +522,11 @@ const isCollabPersistenceEnabled = (() => {
   // In development we prefer stability over persistence to avoid LevelDB lock crashes.
   return isProduction;
 })();
-const BOARD_COLLAB_PERSISTENCE_ENABLED = parseEnabledEnv(BOARD_COLLAB_PERSISTENCE_RAW, isProduction);
+// Board rooms often accumulate large binary updates (drawings, pasted images).
+// Replaying persisted board updates via y-leveldb can block the event loop and
+// freeze the entire production server when an old board is opened. Keep board
+// persistence fully disabled until a safer persistence strategy is implemented.
+const BOARD_COLLAB_PERSISTENCE_ENABLED = false;
 if (isProduction && dataDir === defaultDataDir) {
   console.warn('[storage] PLATFORM_DATA_DIR is not set. Data can be lost after a clean deploy.');
 }
@@ -531,6 +535,13 @@ if (isProduction && uploadsDir === defaultUploadsDir) {
 }
 if (!isCollabPersistenceEnabled && LeveldbPersistence) {
   console.warn('[collab] persistence disabled (set COLLAB_PERSISTENCE=1 to enable in development).');
+}
+if (!BOARD_COLLAB_PERSISTENCE_ENABLED && LeveldbPersistence) {
+  if (String(BOARD_COLLAB_PERSISTENCE_RAW || '').trim()) {
+    console.warn('[board] BOARD_COLLAB_PERSISTENCE is ignored: board persistence is disabled for stability.');
+  } else {
+    console.warn('[board] persistence disabled for stability.');
+  }
 }
 const rawCollabPersistence = (LeveldbPersistence && isCollabPersistenceEnabled)
   ? new LeveldbPersistence(collabDir)
