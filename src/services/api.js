@@ -61,6 +61,9 @@ const apiFetch = async (input, init = {}) => {
   if (authToken && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${authToken}`);
   }
+  if (authToken && !headers.has('X-Ege-Auth-Token')) {
+    headers.set('X-Ege-Auth-Token', authToken);
+  }
   requestInit.headers = headers;
   if (!Object.prototype.hasOwnProperty.call(requestInit, 'credentials')) {
     requestInit.credentials = 'include';

@@ -3056,6 +3056,14 @@ const getAuthTokenFromRequest = (req) => {
     const match = header.match(/^Bearer\s+(.+)$/i);
     if (match && match[1]) return match[1].trim();
   }
+  const customHeader = req.headers['x-ege-auth-token'];
+  if (typeof customHeader === 'string' && customHeader.trim()) {
+    return customHeader.trim();
+  }
+  if (Array.isArray(customHeader)) {
+    const firstToken = String(customHeader[0] || '').trim();
+    if (firstToken) return firstToken;
+  }
   const cookies = parseCookies(req.headers.cookie);
   const cookieToken = typeof cookies?.[AUTH_COOKIE_NAME] === 'string'
     ? cookies[AUTH_COOKIE_NAME].trim()
