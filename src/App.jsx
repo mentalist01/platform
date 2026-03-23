@@ -6758,6 +6758,58 @@ const BoardSection = ({
     scheduleMinimapRenderRef.current?.(0);
   }, [clearCachedBoardImages]);
 
+  const resetBoardInteractionState = useCallback(() => {
+    drawStateRef.current = { drawing: false, points: [], start: null, end: null };
+    panStateRef.current = { active: false, startX: 0, startY: 0, originX: 0, originY: 0 };
+    dragImageRef.current = { active: false, id: null, offsetX: 0, offsetY: 0 };
+    eraserStateRef.current = { active: false };
+    selectingRef.current = { active: false, start: null, current: null };
+    selectionDragRef.current = { active: false, startX: 0, startY: 0, items: null, baseSelection: null };
+    pendingSelectionMoveRef.current = { dx: 0, dy: 0 };
+    pendingImageMoveRef.current = null;
+    pendingCursorRef.current = null;
+    selectedIdsRef.current = [];
+    selectionRef.current = null;
+    lastCursorSyncAtRef.current = 0;
+    lastPreviewSyncAtRef.current = 0;
+    lastSummonIdRef.current = null;
+
+    if (typeof window !== 'undefined' && previewRafRef.current) {
+      window.cancelAnimationFrame(previewRafRef.current);
+      previewRafRef.current = null;
+    }
+    if (typeof window !== 'undefined' && cursorRafRef.current) {
+      window.cancelAnimationFrame(cursorRafRef.current);
+      cursorRafRef.current = null;
+    }
+    if (typeof window !== 'undefined' && imageDragRafRef.current) {
+      window.cancelAnimationFrame(imageDragRafRef.current);
+      imageDragRafRef.current = null;
+    }
+    if (typeof window !== 'undefined' && selectionMoveRafRef.current) {
+      window.cancelAnimationFrame(selectionMoveRafRef.current);
+      selectionMoveRafRef.current = null;
+    }
+    if (summonTimeoutRef.current) {
+      clearTimeout(summonTimeoutRef.current);
+      summonTimeoutRef.current = null;
+    }
+    if (summonNoticeTimeoutRef.current) {
+      clearTimeout(summonNoticeTimeoutRef.current);
+      summonNoticeTimeoutRef.current = null;
+    }
+
+    awarenessRef.current?.setLocalStateField('drawing', null);
+    awarenessRef.current?.setLocalStateField('cursor', null);
+    awarenessRef.current?.setLocalStateField('summon', null);
+    setRemotePreviews([]);
+    setRemoteCursors([]);
+    setSelectedIds([]);
+    setSelectionBox(null);
+    setSelectedImageId(null);
+    setSummonNotice(false);
+  }, []);
+
   const commitBoardData = useCallback((nextItems, nextEstimatedBytes) => {
     const safeItems = Array.isArray(nextItems) ? nextItems : [];
     const safeEstimatedBytes = Math.max(0, Math.round(Number(nextEstimatedBytes) || 0));
@@ -8455,6 +8507,20 @@ const BoardSection = ({
     const handleStatus = (event) => {
       if (event?.status) setStatus(event.status);
     };
+    const handleConnectionClose = (event) => {
+      const closeCode = Number(event?.code);
+      const closeReason = String(event?.reason || '').trim();
+      if (closeCode !== 1012 || closeReason !== 'Board reset') return;
+
+      doc.transact(() => {
+        if (yItems.length > 0) yItems.delete(0, yItems.length);
+      }, localOriginRef.current);
+      undoManager.clear();
+      undoManager.stopCapturing();
+      updateUndoState();
+      resetBoardInteractionState();
+      resetBoardData();
+    };
     const handleAwareness = () => {
       const states = provider.awareness.getStates();
       const total = states.size;
@@ -8517,6 +8583,7 @@ const BoardSection = ({
     provider.awareness.setLocalStateField('drawing', null);
     provider.awareness.setLocalStateField('cursor', null);
     provider.awareness.setLocalStateField('summon', null);
+    provider.on('connection-close', handleConnectionClose);
     provider.on('status', handleStatus);
     provider.awareness.on('change', handleAwareness);
     yItems.observe(updateItems);
@@ -8535,6 +8602,7 @@ const BoardSection = ({
       undoManager.off('stack-item-updated', updateUndoState);
       undoManager.off('stack-item-removed', updateUndoState);
       provider.awareness.off('change', handleAwareness);
+      provider.off('connection-close', handleConnectionClose);
       provider.off('status', handleStatus);
       provider.awareness.setLocalStateField('drawing', null);
       provider.awareness.setLocalStateField('cursor', null);
@@ -8549,7 +8617,7 @@ const BoardSection = ({
       awarenessRef.current = null;
       docRef.current = null;
     };
-  }, [roomId, wsUrl, localName, localColor, isTeacher, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, getBoardCapacityError, resetBoardData, scheduleBoardSceneRender]);
+  }, [roomId, wsUrl, localName, localColor, isTeacher, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardSceneRender]);
 
   useEffect(() => {
     const handlePaste = (event) => {

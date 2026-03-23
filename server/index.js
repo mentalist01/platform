@@ -115,6 +115,7 @@ const collabDir = resolveStoragePath(
   process.env.PLATFORM_COLLAB_DIR || process.env.APP_COLLAB_DIR,
   path.join(dataDir, 'collab')
 );
+const boardSnapshotsDir = path.join(collabDir, 'board-snapshots');
 const dataFile = path.join(dataDir, 'files.json');
 const foldersFile = path.join(dataDir, 'folders.json');
 const studentsFile = path.join(dataDir, 'students.json');
@@ -511,6 +512,7 @@ const normalizeStreak = (value) => {
 fs.mkdirSync(uploadsDir, { recursive: true });
 fs.mkdirSync(dataDir, { recursive: true });
 fs.mkdirSync(collabDir, { recursive: true });
+fs.mkdirSync(boardSnapshotsDir, { recursive: true });
 if (RTC_PRESENCE_FS_ENABLED) {
   fs.mkdirSync(rtcPresenceDir, { recursive: true });
 }
@@ -525,8 +527,17 @@ const isCollabPersistenceEnabled = (() => {
 // Board rooms often accumulate large binary updates (drawings, pasted images).
 // Replaying persisted board updates via y-leveldb can block the event loop and
 // freeze the entire production server when an old board is opened. Keep board
-// persistence fully disabled until a safer persistence strategy is implemented.
+// y-leveldb persistence disabled; board docs use dedicated snapshot files instead.
 const BOARD_COLLAB_PERSISTENCE_ENABLED = false;
+const BOARD_COLLAB_SNAPSHOT_PERSISTENCE_ENABLED = parseEnabledEnv(
+  process.env.BOARD_COLLAB_SNAPSHOT_PERSISTENCE,
+  true
+);
+const BOARD_COLLAB_SNAPSHOT_WRITE_DEBOUNCE_MS = (() => {
+  const raw = Number(process.env.BOARD_COLLAB_SNAPSHOT_WRITE_DEBOUNCE_MS);
+  if (Number.isFinite(raw) && raw >= 250) return Math.floor(raw);
+  return 2500;
+})();
 if (isProduction && dataDir === defaultDataDir) {
   console.warn('[storage] PLATFORM_DATA_DIR is not set. Data can be lost after a clean deploy.');
 }
@@ -538,15 +549,19 @@ if (!isCollabPersistenceEnabled && LeveldbPersistence) {
 }
 if (!BOARD_COLLAB_PERSISTENCE_ENABLED && LeveldbPersistence) {
   if (String(BOARD_COLLAB_PERSISTENCE_RAW || '').trim()) {
-    console.warn('[board] BOARD_COLLAB_PERSISTENCE is ignored: board persistence is disabled for stability.');
+    console.warn('[board] BOARD_COLLAB_PERSISTENCE is ignored: y-leveldb persistence is disabled for stability.');
   } else {
-    console.warn('[board] persistence disabled for stability.');
+    console.warn('[board] y-leveldb persistence disabled for stability.');
   }
+}
+if (BOARD_COLLAB_SNAPSHOT_PERSISTENCE_ENABLED) {
+  console.info(`[board] snapshot persistence enabled in ${boardSnapshotsDir}`);
 }
 const rawCollabPersistence = (LeveldbPersistence && isCollabPersistenceEnabled)
   ? new LeveldbPersistence(collabDir)
   : null;
 const collabDocsPersistenceBypassUntil = new Map();
+const boardSnapshotWriteTimers = new Map();
 const normalizeCollabDocName = (value) => {
   if (typeof value !== 'string') return '';
   return value.trim();
@@ -564,6 +579,105 @@ const bypassCollabDocPersistence = (docName, durationMs = 30000) => {
   if (!normalized) return;
   const nextDuration = Number.isFinite(durationMs) && durationMs > 0 ? Math.floor(durationMs) : 30000;
   collabDocsPersistenceBypassUntil.set(normalized, Date.now() + nextDuration);
+};
+const isBoardCollabDoc = (docName) => {
+  const normalized = normalizeCollabDocName(docName);
+  if (!normalized) return false;
+  const base = normalized.split('/').pop() || normalized;
+  return base.startsWith('board-');
+};
+const getBoardSnapshotFilePath = (docName) => {
+  if (!BOARD_COLLAB_SNAPSHOT_PERSISTENCE_ENABLED || !isBoardCollabDoc(docName)) return '';
+  const normalized = normalizeCollabDocName(docName);
+  if (!normalized) return '';
+  const base = normalized.split('/').pop() || normalized;
+  const safeBase = base.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80) || 'board';
+  const hash = crypto.createHash('sha1').update(normalized).digest('hex').slice(0, 12);
+  return path.join(boardSnapshotsDir, `${safeBase}-${hash}.bin`);
+};
+const clearBoardSnapshotWriteTimer = (docName) => {
+  const normalized = normalizeCollabDocName(docName);
+  if (!normalized) return;
+  const timerId = boardSnapshotWriteTimers.get(normalized);
+  if (!timerId) return;
+  clearTimeout(timerId);
+  boardSnapshotWriteTimers.delete(normalized);
+};
+const writeFileAtomic = (filePath, contents) => {
+  const tempPath = `${filePath}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tempPath, contents);
+    fs.renameSync(tempPath, filePath);
+    return true;
+  } catch (error) {
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {}
+    throw error;
+  }
+};
+const loadBoardDocSnapshot = (docName, ydoc) => {
+  const filePath = getBoardSnapshotFilePath(docName);
+  if (!filePath || !ydoc) return false;
+  try {
+    if (!fs.existsSync(filePath)) return false;
+    const raw = fs.readFileSync(filePath);
+    if (!raw || raw.length === 0) return false;
+    Y.applyUpdate(ydoc, new Uint8Array(raw));
+    return true;
+  } catch (error) {
+    console.warn('[board] snapshot load failed:', error?.message || error);
+    return false;
+  }
+};
+const flushBoardDocSnapshot = (docName, ydoc) => {
+  const normalized = normalizeCollabDocName(docName);
+  if (!normalized || !ydoc) return false;
+  const filePath = getBoardSnapshotFilePath(normalized);
+  if (!filePath) return false;
+  clearBoardSnapshotWriteTimer(normalized);
+  try {
+    const stateUpdate = Y.encodeStateAsUpdate(ydoc);
+    writeFileAtomic(filePath, Buffer.from(stateUpdate));
+    return true;
+  } catch (error) {
+    console.warn('[board] snapshot write failed:', error?.message || error);
+    return false;
+  }
+};
+const scheduleBoardDocSnapshotWrite = (docName, ydoc) => {
+  const normalized = normalizeCollabDocName(docName);
+  if (!normalized || !ydoc) return;
+  if (!getBoardSnapshotFilePath(normalized)) return;
+  clearBoardSnapshotWriteTimer(normalized);
+  const timerId = setTimeout(() => {
+    boardSnapshotWriteTimers.delete(normalized);
+    flushBoardDocSnapshot(normalized, ydoc);
+  }, BOARD_COLLAB_SNAPSHOT_WRITE_DEBOUNCE_MS);
+  boardSnapshotWriteTimers.set(normalized, timerId);
+};
+const clearBoardDocSnapshot = (docName) => {
+  const normalized = normalizeCollabDocName(docName);
+  if (!normalized) return false;
+  clearBoardSnapshotWriteTimer(normalized);
+  const filePath = getBoardSnapshotFilePath(normalized);
+  if (!filePath) return false;
+  try {
+    if (!fs.existsSync(filePath)) return false;
+    fs.unlinkSync(filePath);
+    return true;
+  } catch (error) {
+    console.warn('[board] snapshot clear failed:', error?.message || error);
+    return false;
+  }
+};
+const flushLoadedBoardDocSnapshots = () => {
+  const loadedDocs = getLoadedCollabDocs();
+  if (!(loadedDocs instanceof Map)) return;
+  loadedDocs.forEach((doc, docName) => {
+    if (!isBoardCollabDoc(docName) || !doc) return;
+    flushBoardDocSnapshot(docName, doc);
+  });
 };
 const isPersistedCollabDoc = (docName) => {
   if (typeof docName !== 'string') return false;
@@ -624,6 +738,9 @@ const resetCollabDoc = async (docName, options = {}) => {
     await rawCollabPersistence.clearDocument(normalized);
     clearedPersistence = true;
   }
+  if (clearBoardDocSnapshot(normalized)) {
+    clearedPersistence = true;
+  }
 
   return {
     closedConnections,
@@ -631,9 +748,23 @@ const resetCollabDoc = async (docName, options = {}) => {
     clearedPersistence,
   };
 };
-const collabPersistence = rawCollabPersistence ? {
+const collabPersistence = (rawCollabPersistence || BOARD_COLLAB_SNAPSHOT_PERSISTENCE_ENABLED) ? {
   bindState: async (docName, ydoc) => {
-    if (!isPersistedCollabDoc(docName)) return Promise.resolve();
+    if (isBoardCollabDoc(docName)) {
+      loadBoardDocSnapshot(docName, ydoc);
+      const handleBoardUpdate = () => {
+        scheduleBoardDocSnapshotWrite(docName, ydoc);
+      };
+      const handleBoardDestroy = () => {
+        clearBoardSnapshotWriteTimer(docName);
+        ydoc.off('update', handleBoardUpdate);
+        ydoc.off('destroy', handleBoardDestroy);
+      };
+      ydoc.on('update', handleBoardUpdate);
+      ydoc.on('destroy', handleBoardDestroy);
+      return Promise.resolve();
+    }
+    if (!rawCollabPersistence || !isPersistedCollabDoc(docName)) return Promise.resolve();
     try {
       const persistedYdoc = await rawCollabPersistence.getYDoc(docName);
       const localStateUpdate = Y.encodeStateAsUpdate(ydoc);
@@ -653,7 +784,11 @@ const collabPersistence = rawCollabPersistence ? {
     }
   },
   writeState: async (docName, ydoc) => {
-    if (!isPersistedCollabDoc(docName)) return Promise.resolve();
+    if (isBoardCollabDoc(docName)) {
+      flushBoardDocSnapshot(docName, ydoc);
+      return Promise.resolve();
+    }
+    if (!rawCollabPersistence || !isPersistedCollabDoc(docName)) return Promise.resolve();
     try {
       const stateUpdate = Y.encodeStateAsUpdate(ydoc);
       await rawCollabPersistence.storeUpdate(docName, stateUpdate);
@@ -663,10 +798,20 @@ const collabPersistence = rawCollabPersistence ? {
       return Promise.resolve();
     }
   },
+  provider: rawCollabPersistence,
 } : null;
 if (collabPersistence && typeof yWsUtils?.setPersistence === 'function') {
   yWsUtils.setPersistence(collabPersistence);
 }
+process.on('exit', flushLoadedBoardDocSnapshots);
+process.on('SIGINT', () => {
+  flushLoadedBoardDocSnapshots();
+  process.exit(0);
+});
+process.on('SIGTERM', () => {
+  flushLoadedBoardDocSnapshots();
+  process.exit(0);
+});
 
 app.use((req, res, next) => {
   applyCorsHeaders(req, res);
