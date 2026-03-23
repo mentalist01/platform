@@ -2,5 +2,13 @@
   "appId": "ru.ivank.egeplatform",
   "appName": "Platform EGE",
   "webDir": "dist",
-  "bundledWebRuntime": false
+  "bundledWebRuntime": false,
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    },
+    "CapacitorCookies": {
+      "enabled": true
+    }
+  }
 }
