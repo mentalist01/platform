@@ -9,6 +9,14 @@ export const isNativeAndroidPushEnvironment = () => (
   && Capacitor.getPlatform() === 'android'
 );
 
+const isBrowserPushSupported = () => (
+  typeof window !== 'undefined'
+  && typeof navigator !== 'undefined'
+  && 'serviceWorker' in navigator
+  && 'PushManager' in window
+  && 'Notification' in window
+);
+
 const normalizeNativePermission = (value) => {
   const permission = String(value || '').trim().toLowerCase();
   if (permission === 'granted' || permission === 'denied') return permission;
@@ -26,6 +34,7 @@ export const getNativePushStatus = async () => {
       reason: '',
       lastError: '',
       messageData: null,
+      launchUrl: '',
     };
   }
   const status = await RuStorePush.getStatus();
@@ -40,6 +49,7 @@ export const getNativePushStatus = async () => {
     messageData: status?.messageData && typeof status.messageData === 'object'
       ? status.messageData
       : null,
+    launchUrl: typeof status?.launchUrl === 'string' ? status.launchUrl.trim() : '',
   };
 };
 
@@ -76,15 +86,17 @@ export const disableNativePush = async () => {
   };
 };
 
+export const consumeNativePushLaunchUrl = async () => {
+  if (!isNativeAndroidPushEnvironment()) {
+    return '';
+  }
+  const result = await RuStorePush.consumeLaunchUrl();
+  return typeof result?.url === 'string' ? result.url.trim() : '';
+};
+
 export const isPushFeatureSupported = () => (
   isNativeAndroidPushEnvironment()
-  || (
-  typeof window !== 'undefined'
-  && typeof navigator !== 'undefined'
-  && 'serviceWorker' in navigator
-  && 'PushManager' in window
-  && 'Notification' in window
-  )
+  || isBrowserPushSupported()
 );
 
 export const getPushPermission = () => {
@@ -105,7 +117,7 @@ export const urlBase64ToUint8Array = (base64String) => {
 };
 
 export const getPushServiceWorkerRegistration = async () => {
-  if (!isPushFeatureSupported()) {
+  if (!isBrowserPushSupported()) {
     throw new Error('Push уведомления не поддерживаются в этом браузере.');
   }
   if (!pushRegistrationPromise) {
@@ -123,7 +135,7 @@ export const getPushServiceWorkerRegistration = async () => {
 };
 
 export const getBrowserPushSubscription = async () => {
-  if (!isPushFeatureSupported()) return null;
+  if (!isBrowserPushSupported()) return null;
   try {
     const registration = await getPushServiceWorkerRegistration();
     return registration.pushManager.getSubscription();
@@ -136,7 +148,7 @@ export const normalizePushErrorMessage = (error, fallback = 'Не удалось
   const message = String(error?.message || '').trim();
   if (!message) return fallback;
   if (/permission|denied|разреш/i.test(message)) {
-    return 'Разрешите уведомления в браузере для этого сайта.';
+    return 'Разрешите уведомления в браузере или Android для этого приложения.';
   }
   if (/service worker/i.test(message)) {
     return 'Не удалось инициализировать service worker для push.';

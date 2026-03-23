@@ -170,7 +170,7 @@ const TeacherStudentChatsSection = ({
   useEffect(() => {
     const normalized = String(initialChatId || '').trim();
     if (!normalized) return;
-    setSelectedChatId((prev) => (prev ? prev : normalized));
+    setSelectedChatId((prev) => (prev === normalized ? prev : normalized));
   }, [initialChatId]);
 
   const refreshChats = useCallback(async () => {

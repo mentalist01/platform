@@ -40,6 +40,7 @@ const TeacherPanel = ({
   teacherSignupNotifyError = '',
   onToggleTeacherSignupNotify = null,
   mode = 'tests',
+  initialSignupChatId = '',
 }) => {
   const isSignupChatsMode = mode === 'signup-chats';
   const isTestsMode = !isSignupChatsMode;
@@ -82,7 +83,7 @@ const TeacherPanel = ({
   const [signupChats, setSignupChats] = useState([]);
   const [signupChatsLoading, setSignupChatsLoading] = useState(false);
   const [signupChatsError, setSignupChatsError] = useState('');
-  const [selectedSignupChatId, setSelectedSignupChatId] = useState('');
+  const [selectedSignupChatId, setSelectedSignupChatId] = useState(() => String(initialSignupChatId || '').trim());
   const [signupChatDetails, setSignupChatDetails] = useState(null);
   const [signupMessages, setSignupMessages] = useState([]);
   const [signupMessagesLoading, setSignupMessagesLoading] = useState(false);
@@ -95,6 +96,12 @@ const TeacherPanel = ({
   const [signupMessageUpdatingId, setSignupMessageUpdatingId] = useState('');
   const [signupMessageDeletingId, setSignupMessageDeletingId] = useState('');
   const signupMessagesRef = useRef(null);
+
+  useEffect(() => {
+    const normalized = String(initialSignupChatId || '').trim();
+    if (!normalized) return;
+    setSelectedSignupChatId((prev) => (prev === normalized ? prev : normalized));
+  }, [initialSignupChatId]);
 
   useEffect(() => {
     const previews = questionScreenshots.map((file) => ({

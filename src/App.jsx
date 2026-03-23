@@ -69,6 +69,7 @@ import {
   requestNativePushPermission,
   enableNativePush,
   disableNativePush,
+  consumeNativePushLaunchUrl,
   normalizePushErrorMessage,
 } from './utils/push';
 import { getCollabWsUrl, resolveUploadsUrl } from './utils/runtimeUrls';
@@ -82,6 +83,23 @@ const getNativePushUnavailableMessage = (status) => {
   if (reason) return reason;
   if (!status?.configured) return 'RuStore Push не настроен для этой Android-сборки.';
   return 'RuStore Push недоступен на этом Android-устройстве.';
+};
+
+const parseNativePushLaunchUrl = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    const read = (key) => String(url.searchParams.get(key) || '').trim();
+    return {
+      raw,
+      view: read('view'),
+      chatId: read('chatId'),
+      studentId: read('studentId'),
+    };
+  } catch {
+    return null;
+  }
 };
 
 /**
@@ -9790,6 +9808,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         'chat',
         'notes'
       ];
+  const allowedViewsKey = allowedViews.join('|');
   const isCallViewAvailable = allowedViews.includes('call');
   const defaultView = user.role === 'teacher' ? 'teacher' : (user.role === 'admin' ? 'admin' : 'progress');
   const storedLocation = readUserLocation(user);
@@ -9827,6 +9846,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const initialTeacherChatId = (user.role === 'teacher' || user.role === 'admin')
     ? urlRequestedChatId
     : '';
+  const initialTeacherStudentChatId = user.role === 'teacher' && initialTeacherCommsTab === 'student-chats'
+    ? initialTeacherChatId
+    : '';
+  const initialTeacherSignupChatId = user.role === 'teacher' && initialTeacherCommsTab === 'signup-chats'
+    ? initialTeacherChatId
+    : '';
   const initialProgressSection = ['progress', 'notes', 'mocks'].includes(storedLocation?.progressSection)
     ? storedLocation.progressSection
     : 'progress';
@@ -9837,6 +9862,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const [view, setView] = useState(initialView);
   const [teacherCommsTab, setTeacherCommsTab] = useState(initialTeacherCommsTab);
+  const [teacherStudentChatId, setTeacherStudentChatId] = useState(initialTeacherStudentChatId);
+  const [teacherSignupChatId, setTeacherSignupChatId] = useState(initialTeacherSignupChatId);
   const [callSessionStatus, setCallSessionStatus] = useState('idle');
   const [callPanelExpanded, setCallPanelExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -11082,6 +11109,71 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     captureGoalFlySource(resolvedView);
     setView(resolvedView);
   }, [captureGoalFlySource, stopGoalFlyAnimation, studentDefaultLessonView, user.role, view]);
+  useEffect(() => {
+    if (!useNativeAndroidPush) return undefined;
+
+    let cancelled = false;
+    const consumeLaunchUrl = async () => {
+      const launchUrl = await consumeNativePushLaunchUrl().catch(() => '');
+      if (cancelled || !launchUrl) return;
+
+      const payload = parseNativePushLaunchUrl(launchUrl);
+      if (!payload) return;
+
+      if (user.role === 'teacher' && payload.studentId) {
+        setActiveStudentId(payload.studentId);
+      }
+
+      const requestedView = String(payload.view || '').trim();
+      const isTeacherCommsPushView = requestedView === 'signup-chats'
+        || requestedView === 'student-chats'
+        || requestedView === 'notifications';
+      if (user.role === 'teacher' && isTeacherCommsPushView) {
+        const nextTab = isTeacherCommsPushView ? requestedView : 'signup-chats';
+        setTeacherCommsTab(nextTab);
+        if (nextTab === 'student-chats' && payload.chatId) {
+          setTeacherStudentChatId(payload.chatId);
+        }
+        if (nextTab === 'signup-chats' && payload.chatId) {
+          setTeacherSignupChatId(payload.chatId);
+        }
+        setView('teacher-comms');
+        return;
+      }
+
+      const allowedViewsList = allowedViewsKey ? allowedViewsKey.split('|') : [];
+      if (requestedView && allowedViewsList.includes(requestedView)) {
+        navigateToView(requestedView);
+      }
+    };
+
+    const handleFocus = () => {
+      consumeLaunchUrl();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        consumeLaunchUrl();
+      }
+    };
+
+    consumeLaunchUrl();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleFocus);
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    return () => {
+      cancelled = true;
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleFocus);
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
+  }, [allowedViewsKey, navigateToView, useNativeAndroidPush, user.role]);
   const handleStreakSaved = (nextStreak) => {
     const normalizedNext = normalizeStreak(nextStreak);
     const normalizedPrev = normalizeStreak(studentStreakRef.current);
@@ -13749,7 +13841,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               {activeTeacherCommsTab === 'student-chats' && (
                 <TeacherStudentChatsSection
                   role={user.role}
-                  initialChatId={initialTeacherChatId}
+                  initialChatId={teacherStudentChatId}
                   notifySupported={teacherSignupNotifySupported}
                   notifyPermission={teacherSignupNotifyPermission}
                   notifyEnabled={teacherSignupNotifyEnabled}
@@ -13765,6 +13857,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               {activeTeacherCommsTab === 'signup-chats' && (
                 <TeacherPanel
                   mode="signup-chats"
+                  initialSignupChatId={teacherSignupChatId}
                   role={user.role}
                   students={studentsWithNicknames}
                   studentsLoading={studentsLoading}

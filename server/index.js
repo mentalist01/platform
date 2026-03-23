@@ -285,11 +285,23 @@ const RUSTORE_PUSH_SERVICE_TOKEN = (() => {
     : '';
   return raw;
 })();
-const RUSTORE_PUSH_CLICK_ACTION = (() => {
-  const raw = typeof process.env.RUSTORE_PUSH_CLICK_ACTION === 'string'
-    ? process.env.RUSTORE_PUSH_CLICK_ACTION.trim()
-    : '';
-  return raw || 'ru.ivank.egeplatform.PUSH_OPEN';
+const RUSTORE_PUSH_DEEP_LINK_BASE = (() => {
+  const candidates = [
+    process.env.RUSTORE_PUSH_DEEP_LINK_BASE,
+    process.env.RUSTORE_PUSH_CLICK_ACTION,
+    'ru.ivank.egeplatform://open',
+  ];
+  for (const candidate of candidates) {
+    const raw = typeof candidate === 'string' ? candidate.trim() : '';
+    if (!raw) continue;
+    try {
+      const url = new URL(raw);
+      if (url.protocol) return raw;
+    } catch {
+      // Ignore non-URL legacy values like plain intent action names.
+    }
+  }
+  return 'ru.ivank.egeplatform://open';
 })();
 const RUSTORE_PUSH_NOTIFICATION_CHANNEL_ID = (() => {
   const raw = typeof process.env.RUSTORE_PUSH_NOTIFICATION_CHANNEL_ID === 'string'
@@ -5343,6 +5355,53 @@ const normalizeRuStorePayloadData = (payload = {}) => {
   }, {});
 };
 
+const buildRuStorePushDeepLink = (payload = {}) => {
+  const data = normalizeRuStorePayloadData(payload);
+  let deepLink = null;
+  try {
+    deepLink = new URL(RUSTORE_PUSH_DEEP_LINK_BASE);
+  } catch {
+    deepLink = new URL('ru.ivank.egeplatform://open');
+  }
+
+  const routeUrl = typeof data.url === 'string' ? data.url.trim() : '';
+  if (routeUrl) {
+    try {
+      const parsedRouteUrl = new URL(routeUrl, 'https://ege-platform.local');
+      parsedRouteUrl.searchParams.forEach((value, key) => {
+        const normalizedKey = String(key || '').trim();
+        const normalizedValue = String(value || '').trim();
+        if (!normalizedKey || !normalizedValue) return;
+        deepLink.searchParams.set(normalizedKey, normalizedValue);
+      });
+    } catch {
+      // Ignore malformed route URLs and fall back to explicit payload fields.
+    }
+  }
+
+  [
+    'view',
+    'chatId',
+    'studentId',
+    'teacherId',
+    'homeworkId',
+    'requestId',
+    'slotId',
+    'mockExamId',
+    'taskNumber',
+    'levelId',
+    'questionId',
+    'type',
+  ].forEach((key) => {
+    const value = typeof data[key] === 'string' ? data[key].trim() : '';
+    if (value) {
+      deepLink.searchParams.set(key, value);
+    }
+  });
+
+  return deepLink.toString();
+};
+
 const isRuStoreTokenGoneResponse = (status, bodyText = '') => {
   const code = Number(status);
   if (code === 404) return true;
@@ -5363,6 +5422,7 @@ const sendRuStorePushNotificationToTokens = async (tokens = [], payload, logTarg
   const title = String(payload?.title || '').trim();
   const body = String(payload?.body || '').trim();
   const image = typeof payload?.image === 'string' ? payload.image.trim() : '';
+  const clickAction = buildRuStorePushDeepLink(payload);
   const requestUrl = `https://vkpns.rustore.ru/v1/projects/${encodeURIComponent(RUSTORE_PUSH_PROJECT_ID)}/messages:send`;
 
   const results = await Promise.all(list.map(async (entry) => {
@@ -5384,8 +5444,8 @@ const sendRuStorePushNotificationToTokens = async (tokens = [], payload, logTarg
             body,
             ...(image ? { image } : {}),
             channel_id: RUSTORE_PUSH_NOTIFICATION_CHANNEL_ID,
-            click_action: RUSTORE_PUSH_CLICK_ACTION,
-            click_action_type: 0,
+            click_action: clickAction,
+            click_action_type: 1,
           },
         },
       },

@@ -2,8 +2,10 @@ package ru.ivank.egeplatform;
 
 import android.Manifest;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 
 import androidx.annotation.NonNull;
@@ -37,6 +39,7 @@ public class RuStorePushPlugin extends Plugin {
     private static final String KEY_TOKEN = "token";
     private static final String KEY_LAST_ERROR = "last_error";
     private static final String KEY_LAST_MESSAGE = "last_message";
+    private static final String KEY_LAUNCH_URL = "launch_url";
 
     @PluginMethod
     public void getStatus(PluginCall call) {
@@ -51,6 +54,7 @@ public class RuStorePushPlugin extends Plugin {
         payload.put("token", token);
         payload.put("lastError", readString(context, KEY_LAST_ERROR));
         payload.put("messageData", readJsonObject(context, KEY_LAST_MESSAGE));
+        payload.put("launchUrl", readString(context, KEY_LAUNCH_URL));
 
         if (projectId.isEmpty()) {
             payload.put("available", false);
@@ -70,6 +74,17 @@ public class RuStorePushPlugin extends Plugin {
                 payload.put("reason", normalizeThrowableMessage(error, "RuStore Push недоступен на этом устройстве."));
                 call.resolve(payload);
             });
+    }
+
+    @PluginMethod
+    public void consumeLaunchUrl(PluginCall call) {
+        final Context context = getContext();
+        final String launchUrl = readString(context, KEY_LAUNCH_URL);
+        writeString(context, KEY_LAUNCH_URL, "");
+
+        JSObject payload = new JSObject();
+        payload.put("url", launchUrl);
+        call.resolve(payload);
     }
 
     @PluginMethod
@@ -158,6 +173,10 @@ public class RuStorePushPlugin extends Plugin {
         return context.getString(R.string.rustore_push_project_id).trim();
     }
 
+    public static String getCustomUrlScheme(@NonNull Context context) {
+        return context.getString(R.string.custom_url_scheme).trim();
+    }
+
     public static void persistToken(@NonNull Context context, String token) {
         writeString(context, KEY_TOKEN, normalizeToken(token));
     }
@@ -178,6 +197,29 @@ public class RuStorePushPlugin extends Plugin {
             }
         }
         writeString(context, KEY_LAST_MESSAGE, json.toString());
+    }
+
+    public static void persistLaunchUrl(@NonNull Context context, String url) {
+        writeString(context, KEY_LAUNCH_URL, String.valueOf(url == null ? "" : url).trim());
+    }
+
+    public static void captureIntent(@NonNull Context context, Intent intent) {
+        if (intent == null) {
+            return;
+        }
+
+        final Uri data = intent.getData();
+        if (data == null) {
+            return;
+        }
+
+        final String expectedScheme = getCustomUrlScheme(context);
+        final String actualScheme = String.valueOf(data.getScheme() == null ? "" : data.getScheme()).trim();
+        if (!expectedScheme.isEmpty() && !expectedScheme.equalsIgnoreCase(actualScheme)) {
+            return;
+        }
+
+        persistLaunchUrl(context, data.toString());
     }
 
     private static String readStoredToken(Context context) {
