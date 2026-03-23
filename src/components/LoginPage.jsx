@@ -2,6 +2,13 @@ import React, { useState } from 'react';
 import { LogoMark } from './Identity';
 import { Button } from './ui';
 import { api } from '../services/api';
+import {
+  clearRuntimeApiBaseUrl,
+  getConfiguredApiBaseUrl,
+  hasConfiguredApiBaseUrl,
+  isNativeAppRuntime,
+  saveRuntimeApiBaseUrl,
+} from '../utils/runtimeUrls';
 
 const MODE_CHOICE = 'choice';
 const MODE_STUDENT = 'student';
@@ -42,12 +49,22 @@ const getStoredSignupGuestKey = () => {
 };
 
 const LoginPage = ({ onLogin }) => {
+  const nativeRuntime = isNativeAppRuntime();
+  const initialApiBaseUrl = getConfiguredApiBaseUrl();
   const [mode, setMode] = useState(MODE_CHOICE);
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [serverUrl, setServerUrl] = useState(initialApiBaseUrl);
+  const [serverConfigError, setServerConfigError] = useState('');
+  const [serverConfigMessage, setServerConfigMessage] = useState(
+    nativeRuntime && !initialApiBaseUrl
+      ? 'Для APK укажите публичный адрес сайта, на котором работает backend.'
+      : ''
+  );
   const hasStoredSignupGuestKey = Boolean(getStoredSignupGuestKey());
+  const hasApiBaseUrl = hasConfiguredApiBaseUrl();
 
   const resetState = () => {
     setError('');
@@ -63,6 +80,10 @@ const LoginPage = ({ onLogin }) => {
 
   const handleStudentSubmit = async (event) => {
     event.preventDefault();
+    if (nativeRuntime && !hasApiBaseUrl) {
+      setError('Для APK сначала укажите адрес сервера ниже.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -77,6 +98,10 @@ const LoginPage = ({ onLogin }) => {
 
   const handleSignupSubmit = async (event) => {
     event.preventDefault();
+    if (nativeRuntime && !hasApiBaseUrl) {
+      setError('Для APK сначала укажите адрес сервера ниже.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -92,6 +117,11 @@ const LoginPage = ({ onLogin }) => {
 
   const handleSignupChoice = async () => {
     resetState();
+    if (nativeRuntime && !hasApiBaseUrl) {
+      setError('Для APK сначала укажите адрес сервера ниже.');
+      setMode(MODE_SIGNUP);
+      return;
+    }
     const guestKey = getStoredSignupGuestKey();
     if (!guestKey) {
       setMode(MODE_SIGNUP);
@@ -108,6 +138,27 @@ const LoginPage = ({ onLogin }) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSaveServerUrl = (event) => {
+    event.preventDefault();
+    setServerConfigError('');
+    try {
+      const normalized = saveRuntimeApiBaseUrl(serverUrl);
+      setServerUrl(normalized);
+      setError('');
+      setServerConfigMessage(`Сервер сохранён: ${normalized}`);
+    } catch (err) {
+      setServerConfigMessage('');
+      setServerConfigError(err?.message || 'Не удалось сохранить адрес сервера.');
+    }
+  };
+
+  const handleResetServerUrl = () => {
+    clearRuntimeApiBaseUrl();
+    setServerUrl('');
+    setServerConfigError('');
+    setServerConfigMessage('Сохранённый адрес сервера очищен.');
   };
 
   return (
@@ -207,6 +258,45 @@ const LoginPage = ({ onLogin }) => {
             ? 'После входа вы сможете сразу написать преподавателю.'
             : 'Код доступа выдаёт учитель.'}
         </p>
+        {nativeRuntime && (
+          <form onSubmit={handleSaveServerUrl} className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 space-y-3">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-gray-900">Адрес сервера для APK</p>
+              <p className="text-xs text-gray-500">
+                Укажи адрес сайта на Timeweb, например https://example.ru. Без этого APK будет обращаться в локальный /api.
+              </p>
+            </div>
+            <input
+              type="text"
+              value={serverUrl}
+              onChange={(event) => setServerUrl(event.target.value)}
+              placeholder="https://example.ru"
+              autoCapitalize="none"
+              autoCorrect="off"
+              className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+            />
+            {serverConfigError && <div className="text-red-500 text-sm">{serverConfigError}</div>}
+            {serverConfigMessage && <div className="text-emerald-600 text-sm">{serverConfigMessage}</div>}
+            {!hasApiBaseUrl && !serverConfigError && !serverConfigMessage && (
+              <div className="text-amber-600 text-sm">
+                Сейчас адрес сервера не задан, поэтому вход из APK не сработает.
+              </div>
+            )}
+            <div className="flex gap-3">
+              <Button type="submit" className="flex-1 py-3">
+                Сохранить адрес
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="flex-1 py-3"
+                onClick={handleResetServerUrl}
+              >
+                Сбросить
+              </Button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );

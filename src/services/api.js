@@ -1,6 +1,6 @@
 ﻿import { clearStoredSession } from '../utils/theme';
 
-import { resolveApiUrl } from '../utils/runtimeUrls';
+import { hasConfiguredApiBaseUrl, isNativeAppRuntime, resolveApiUrl } from '../utils/runtimeUrls';
 
 const parseApiError = async (res) => {
   const contentType = res.headers.get('content-type') || '';
@@ -25,7 +25,10 @@ const parseJsonResponse = async (res) => {
   if (!contentType.includes('application/json')) {
     const text = await res.text();
     if (text?.trim().startsWith('<!doctype')) {
-      throw new Error('Сервер не отвечает (HTML вместо JSON). Перезапустите backend.');
+      if (isNativeAppRuntime() && !hasConfiguredApiBaseUrl()) {
+        throw new Error('Для APK не задан адрес сервера. Укажи адрес сайта на Timeweb в блоке "Адрес сервера для APK".');
+      }
+      throw new Error('Сервер не отвечает (HTML вместо JSON). Проверьте адрес сервера для APK или перезапустите backend.');
     }
     throw new Error('Некорректный ответ сервера');
   }
