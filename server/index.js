@@ -566,19 +566,38 @@ const normalizeCollabDocName = (value) => {
   if (typeof value !== 'string') return '';
   return value.trim();
 };
-const isCollabDocPersistenceBypassed = (docName) => {
+const getCollabDocPersistenceKeys = (docName) => {
   const normalized = normalizeCollabDocName(docName);
-  if (!normalized) return false;
-  const until = Number(collabDocsPersistenceBypassUntil.get(normalized)) || 0;
-  if (until > Date.now()) return true;
-  if (until > 0) collabDocsPersistenceBypassUntil.delete(normalized);
-  return false;
+  if (!normalized) return [];
+  const keys = new Set([normalized]);
+  if (isBoardCollabDoc(normalized)) {
+    const base = normalized.split('/').pop() || normalized;
+    if (base) {
+      keys.add(base);
+      keys.add(`collab/${base}`);
+    }
+  }
+  return Array.from(keys).filter(Boolean);
+};
+const isCollabDocPersistenceBypassed = (docName) => {
+  const keys = getCollabDocPersistenceKeys(docName);
+  if (keys.length === 0) return false;
+  const now = Date.now();
+  return keys.some((key) => {
+    const until = Number(collabDocsPersistenceBypassUntil.get(key)) || 0;
+    if (until > now) return true;
+    if (until > 0) collabDocsPersistenceBypassUntil.delete(key);
+    return false;
+  });
 };
 const bypassCollabDocPersistence = (docName, durationMs = 30000) => {
-  const normalized = normalizeCollabDocName(docName);
-  if (!normalized) return;
+  const keys = getCollabDocPersistenceKeys(docName);
+  if (keys.length === 0) return;
   const nextDuration = Number.isFinite(durationMs) && durationMs > 0 ? Math.floor(durationMs) : 30000;
-  collabDocsPersistenceBypassUntil.set(normalized, Date.now() + nextDuration);
+  const until = Date.now() + nextDuration;
+  keys.forEach((key) => {
+    collabDocsPersistenceBypassUntil.set(key, until);
+  });
 };
 const isBoardCollabDoc = (docName) => {
   const normalized = normalizeCollabDocName(docName);
@@ -586,14 +605,33 @@ const isBoardCollabDoc = (docName) => {
   const base = normalized.split('/').pop() || normalized;
   return base.startsWith('board-');
 };
-const getBoardSnapshotFilePath = (docName) => {
-  if (!BOARD_COLLAB_SNAPSHOT_PERSISTENCE_ENABLED || !isBoardCollabDoc(docName)) return '';
-  const normalized = normalizeCollabDocName(docName);
-  if (!normalized) return '';
-  const base = normalized.split('/').pop() || normalized;
+const isBoardSnapshotPersistenceActive = (docName) => (
+  BOARD_COLLAB_SNAPSHOT_PERSISTENCE_ENABLED
+  && isBoardCollabDoc(docName)
+  && !isCollabDocPersistenceBypassed(docName)
+);
+const buildBoardSnapshotFilePath = (storageKey) => {
+  const normalizedKey = normalizeCollabDocName(storageKey);
+  if (!normalizedKey) return '';
+  const base = normalizedKey.split('/').pop() || normalizedKey;
   const safeBase = base.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80) || 'board';
-  const hash = crypto.createHash('sha1').update(normalized).digest('hex').slice(0, 12);
+  const hash = crypto.createHash('sha1').update(normalizedKey).digest('hex').slice(0, 12);
   return path.join(boardSnapshotsDir, `${safeBase}-${hash}.bin`);
+};
+const getBoardSnapshotFilePaths = (docName) => {
+  if (!BOARD_COLLAB_SNAPSHOT_PERSISTENCE_ENABLED || !isBoardCollabDoc(docName)) return [];
+  const normalized = normalizeCollabDocName(docName);
+  if (!normalized) return [];
+  const base = normalized.split('/').pop() || normalized;
+  const keys = new Set([base]);
+  if (normalized !== base) {
+    keys.add(normalized);
+  } else if (base) {
+    keys.add(`collab/${base}`);
+  }
+  return Array.from(keys)
+    .map((key) => buildBoardSnapshotFilePath(key))
+    .filter(Boolean);
 };
 const clearBoardSnapshotWriteTimer = (docName) => {
   const normalized = normalizeCollabDocName(docName);
@@ -617,28 +655,37 @@ const writeFileAtomic = (filePath, contents) => {
   }
 };
 const loadBoardDocSnapshot = (docName, ydoc) => {
-  const filePath = getBoardSnapshotFilePath(docName);
-  if (!filePath || !ydoc) return false;
-  try {
-    if (!fs.existsSync(filePath)) return false;
-    const raw = fs.readFileSync(filePath);
-    if (!raw || raw.length === 0) return false;
-    Y.applyUpdate(ydoc, new Uint8Array(raw));
-    return true;
-  } catch (error) {
-    console.warn('[board] snapshot load failed:', error?.message || error);
-    return false;
+  if (!isBoardSnapshotPersistenceActive(docName)) return false;
+  const filePaths = getBoardSnapshotFilePaths(docName);
+  if (!ydoc || filePaths.length === 0) return false;
+  for (const filePath of filePaths) {
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const raw = fs.readFileSync(filePath);
+      if (!raw || raw.length === 0) continue;
+      Y.applyUpdate(ydoc, new Uint8Array(raw));
+      return true;
+    } catch (error) {
+      console.warn('[board] snapshot load failed:', error?.message || error);
+    }
   }
+  return false;
 };
 const flushBoardDocSnapshot = (docName, ydoc) => {
   const normalized = normalizeCollabDocName(docName);
   if (!normalized || !ydoc) return false;
-  const filePath = getBoardSnapshotFilePath(normalized);
+  if (!isBoardSnapshotPersistenceActive(normalized)) return false;
+  const [filePath, ...legacyPaths] = getBoardSnapshotFilePaths(normalized);
   if (!filePath) return false;
   clearBoardSnapshotWriteTimer(normalized);
   try {
     const stateUpdate = Y.encodeStateAsUpdate(ydoc);
     writeFileAtomic(filePath, Buffer.from(stateUpdate));
+    legacyPaths.forEach((legacyPath) => {
+      try {
+        if (fs.existsSync(legacyPath)) fs.unlinkSync(legacyPath);
+      } catch {}
+    });
     return true;
   } catch (error) {
     console.warn('[board] snapshot write failed:', error?.message || error);
@@ -648,7 +695,7 @@ const flushBoardDocSnapshot = (docName, ydoc) => {
 const scheduleBoardDocSnapshotWrite = (docName, ydoc) => {
   const normalized = normalizeCollabDocName(docName);
   if (!normalized || !ydoc) return;
-  if (!getBoardSnapshotFilePath(normalized)) return;
+  if (!isBoardSnapshotPersistenceActive(normalized)) return;
   clearBoardSnapshotWriteTimer(normalized);
   const timerId = setTimeout(() => {
     boardSnapshotWriteTimers.delete(normalized);
@@ -660,22 +707,36 @@ const clearBoardDocSnapshot = (docName) => {
   const normalized = normalizeCollabDocName(docName);
   if (!normalized) return false;
   clearBoardSnapshotWriteTimer(normalized);
-  const filePath = getBoardSnapshotFilePath(normalized);
-  if (!filePath) return false;
+  const filePaths = getBoardSnapshotFilePaths(normalized);
+  if (filePaths.length === 0) return false;
+  let cleared = false;
   try {
-    if (!fs.existsSync(filePath)) return false;
-    fs.unlinkSync(filePath);
-    return true;
+    filePaths.forEach((filePath) => {
+      if (!fs.existsSync(filePath)) return;
+      fs.unlinkSync(filePath);
+      cleared = true;
+    });
+    return cleared;
   } catch (error) {
     console.warn('[board] snapshot clear failed:', error?.message || error);
     return false;
   }
 };
+const getLoadedCollabDocEntry = (docName) => {
+  const loadedDocs = getLoadedCollabDocs();
+  if (!(loadedDocs instanceof Map)) return null;
+  const keys = getCollabDocPersistenceKeys(docName);
+  for (const key of keys) {
+    if (!loadedDocs.has(key)) continue;
+    return { loadedDocs, key, doc: loadedDocs.get(key) };
+  }
+  return null;
+};
 const flushLoadedBoardDocSnapshots = () => {
   const loadedDocs = getLoadedCollabDocs();
   if (!(loadedDocs instanceof Map)) return;
   loadedDocs.forEach((doc, docName) => {
-    if (!isBoardCollabDoc(docName) || !doc) return;
+    if (!isBoardSnapshotPersistenceActive(docName) || !doc) return;
     flushBoardDocSnapshot(docName, doc);
   });
 };
@@ -708,8 +769,10 @@ const resetCollabDoc = async (docName, options = {}) => {
   }
 
   bypassCollabDocPersistence(normalized, options.bypassMs);
-  const loadedDocs = getLoadedCollabDocs();
-  const activeDoc = loadedDocs?.get(normalized) || null;
+  const loadedDocEntry = getLoadedCollabDocEntry(normalized);
+  const loadedDocs = loadedDocEntry?.loadedDocs || getLoadedCollabDocs();
+  const activeDocKey = loadedDocEntry?.key || normalized;
+  const activeDoc = loadedDocEntry?.doc || null;
   let closedConnections = 0;
 
   if (activeDoc) {
@@ -730,15 +793,15 @@ const resetCollabDoc = async (docName, options = {}) => {
     } catch {
       // Ignore destroy failures and continue clearing persistence state.
     }
-    loadedDocs?.delete(normalized);
+    loadedDocs?.delete(activeDocKey);
   }
 
   let clearedPersistence = false;
   if (rawCollabPersistence && typeof rawCollabPersistence.clearDocument === 'function') {
-    await rawCollabPersistence.clearDocument(normalized);
+    await rawCollabPersistence.clearDocument(activeDocKey);
     clearedPersistence = true;
   }
-  if (clearBoardDocSnapshot(normalized)) {
+  if (clearBoardDocSnapshot(activeDocKey)) {
     clearedPersistence = true;
   }
 
