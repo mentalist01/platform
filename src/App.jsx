@@ -64,12 +64,25 @@ import {
   urlBase64ToUint8Array,
   getPushServiceWorkerRegistration,
   getBrowserPushSubscription,
+  isNativeAndroidPushEnvironment,
+  getNativePushStatus,
+  requestNativePushPermission,
+  enableNativePush,
+  disableNativePush,
   normalizePushErrorMessage,
 } from './utils/push';
+import { getCollabWsUrl, resolveUploadsUrl } from './utils/runtimeUrls';
 import { api, setUnauthorizedHandler } from './services/api';
 
 const optionalLeagueIcons = import.meta.glob('./assets/leagues/blank.png', { eager: true, import: 'default' });
 const leagueBlank = optionalLeagueIcons['./assets/leagues/blank.png'] || null;
+
+const getNativePushUnavailableMessage = (status) => {
+  const reason = String(status?.reason || status?.lastError || '').trim();
+  if (reason) return reason;
+  if (!status?.configured) return 'RuStore Push не настроен для этой Android-сборки.';
+  return 'RuStore Push недоступен на этом Android-устройстве.';
+};
 
 /**
  * CONSTANTS & CONFIG
@@ -124,8 +137,109 @@ const BOARD_LOW_BANDWIDTH_PREVIEW_MS = 130;
 const BOARD_LOW_BANDWIDTH_POINT_STEP = 2;
 const BOARD_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const BOARD_DEFAULT_IMAGE_MAX_WIDTH = 640;
+const BOARD_MAX_ITEM_COUNT = 2500;
+const BOARD_MAX_TOTAL_BYTES = 12 * 1024 * 1024;
+const BOARD_MAX_STROKE_POINTS = 1400;
+const BOARD_SCENE_PADDING = 48;
+const BOARD_SCENE_MAX_DIMENSION = 4096;
+const BOARD_SCENE_MAX_PIXELS = 8 * 1024 * 1024;
 const BOARD_VIEWPORT_STORAGE_KEY_PREFIX = 'board-viewport-v1';
 const BOARD_VIEWPORT_SAVE_DEBOUNCE_MS = 160;
+const formatBoardBytes = (value) => {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} МБ`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} КБ`;
+  return `${bytes} Б`;
+};
+const isBoardCapacityErrorMessage = (value) => {
+  const message = typeof value === 'string' ? value : '';
+  return (
+    message.startsWith('На доске уже слишком много элементов.')
+    || message.startsWith('Доска переполнена (')
+  );
+};
+const normalizeBoardStoredPoint = (value) => {
+  const x = Number(value?.x) || 0;
+  const y = Number(value?.y) || 0;
+  const pressure = Number(value?.pressure);
+  if (Number.isFinite(pressure)) {
+    return { x, y, pressure };
+  }
+  return { x, y };
+};
+const trimBoardStrokePoints = (points) => {
+  const source = Array.isArray(points) ? points : [];
+  if (source.length <= BOARD_MAX_STROKE_POINTS) {
+    return source.map((point) => normalizeBoardStoredPoint(point));
+  }
+  const targetCount = Math.max(2, BOARD_MAX_STROKE_POINTS);
+  const step = (source.length - 1) / (targetCount - 1);
+  const next = [];
+  for (let index = 0; index < targetCount; index += 1) {
+    const sourceIndex = Math.min(source.length - 1, Math.round(index * step));
+    next.push(normalizeBoardStoredPoint(source[sourceIndex]));
+  }
+  return next;
+};
+const normalizeBoardStoredItem = (rawValue) => {
+  const source = rawValue && typeof rawValue.toJSON === 'function' ? rawValue.toJSON() : rawValue;
+  if (!source || typeof source !== 'object') return null;
+  const base = {
+    id: String(source.id || '').trim(),
+    type: String(source.type || '').trim(),
+    color: typeof source.color === 'string' ? source.color : '#0f172a',
+    authorId: typeof source.authorId === 'string' ? source.authorId : '',
+  };
+  if (!base.id || !base.type) return null;
+  if (base.type === 'stroke') {
+    const points = trimBoardStrokePoints(source.points);
+    if (points.length === 0) return null;
+    return {
+      ...base,
+      type: 'stroke',
+      width: Number(source.width) || BOARD_STROKE_WIDTH,
+      points,
+    };
+  }
+  if (base.type === 'line') {
+    return {
+      ...base,
+      type: 'line',
+      width: Number(source.width) || BOARD_LINE_WIDTH,
+      start: normalizeBoardStoredPoint(source.start),
+      end: normalizeBoardStoredPoint(source.end),
+    };
+  }
+  if (base.type === 'image') {
+    const dataUrl = typeof source.dataUrl === 'string' ? source.dataUrl : '';
+    if (!dataUrl) return null;
+    return {
+      ...base,
+      type: 'image',
+      dataUrl,
+      x: Number(source.x) || 0,
+      y: Number(source.y) || 0,
+      width: Math.max(1, Number(source.width) || 0),
+      height: Math.max(1, Number(source.height) || 0),
+    };
+  }
+  return null;
+};
+const estimateBoardItemBytes = (item) => {
+  if (!item || typeof item !== 'object') return 0;
+  const sharedBytes = 48 + String(item.id || '').length + String(item.authorId || '').length + String(item.color || '').length;
+  if (item.type === 'stroke') {
+    const points = Array.isArray(item.points) ? item.points : [];
+    return sharedBytes + 24 + points.length * 20;
+  }
+  if (item.type === 'line') {
+    return sharedBytes + 64;
+  }
+  if (item.type === 'image') {
+    return sharedBytes + 64 + String(item.dataUrl || '').length;
+  }
+  return sharedBytes;
+};
 const COLLAB_SNIPPETS = [
   {
     prefix: 'for',
@@ -1217,18 +1331,6 @@ const COLLAB_EDITOR_CURSOR_SYNC_MS = 45;
 const COLLAB_EDITOR_CURSOR_STALE_MS = 6500;
 const COLLAB_EDITOR_CURSOR_IDLE_CLEAR_MS = 1200;
 
-const getCollabWsUrl = () => {
-  if (typeof window === 'undefined') return '';
-  const envUrl = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_COLLAB_WS_URL : '';
-  if (envUrl) return envUrl;
-  const { protocol, hostname, port, host } = window.location;
-  const wsProtocol = protocol === 'https:' ? 'wss' : 'ws';
-  if ((import.meta?.env?.DEV || port === '5173') && port === '5173') {
-    return `${wsProtocol}://${hostname}:5175/collab`;
-  }
-  return `${wsProtocol}://${host}/collab`;
-};
-
 const mergeRuntimeErrorText = (base, next) => {
   const baseText = typeof base === 'string' ? base : String(base ?? '');
   const nextText = typeof next === 'string' ? next : String(next ?? '');
@@ -1953,7 +2055,7 @@ const withStudentId = (url, studentId) => {
 };
 
 const withUploadsAuthToken = (url) => {
-  return String(url || '');
+  return resolveUploadsUrl(url);
 };
 
 const highlightPython = (code) => Prism.highlight(code, Prism.languages.python, 'python');
@@ -2265,7 +2367,10 @@ const CollabSection = ({
     if (!selectedNotesPdfFolderKey) return [];
     return notesPdfFiles.filter((file) => getNotesPdfFolderKey(file) === selectedNotesPdfFolderKey);
   }, [notesPdfFiles, selectedNotesPdfFolderKey, getNotesPdfFolderKey]);
-  const getTaskFileUrl = useCallback((file) => withStudentId(file?.url, effectiveStudentId), [withStudentId, effectiveStudentId]);
+  const getTaskFileUrl = useCallback(
+    (file) => withStudentId(resolveUploadsUrl(file?.url), effectiveStudentId),
+    [withStudentId, effectiveStudentId]
+  );
   const selectedNotesPdfFile = useMemo(
     () => notesPdfFilesInSelectedFolder.find((file) => file.id === notesPdfFileId) || null,
     [notesPdfFilesInSelectedFolder, notesPdfFileId]
@@ -4985,7 +5090,9 @@ const CollabSection = ({
       window.removeEventListener('pointercancel', stopDragging);
       try {
         handleNode?.releasePointerCapture?.(pointerId);
-      } catch {}
+      } catch {
+        // Ignore pointer capture cleanup failures on browsers that do not support it.
+      }
       if (typeof document !== 'undefined') {
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
@@ -4997,7 +5104,9 @@ const CollabSection = ({
     notesPdfResizeCleanupRef.current = stopDragging;
     try {
       handleNode?.setPointerCapture?.(pointerId);
-    } catch {}
+    } catch {
+      // Ignore pointer capture failures on browsers that do not support it.
+    }
     if (typeof document !== 'undefined') {
       document.body.style.cursor = 'row-resize';
       document.body.style.userSelect = 'none';
@@ -6414,7 +6523,7 @@ const BoardSection = ({
 
   const [status, setStatus] = useState('disconnected');
   const [peerCount, setPeerCount] = useState(0);
-  const [boardItems, setBoardItems] = useState([]);
+  const [boardSnapshot, setBoardSnapshot] = useState({ revision: 0, itemCount: 0, estimatedBytes: 0 });
   const [remotePreviews, setRemotePreviews] = useState([]);
   const [remoteCursors, setRemoteCursors] = useState([]);
   const [tool, setTool] = useState('pen');
@@ -6467,7 +6576,6 @@ const BoardSection = ({
   const lastPreviewSyncAtRef = useRef(0);
   const imageDragRafRef = useRef(null);
   const pendingImageMoveRef = useRef(null);
-  const renderRef = useRef(null);
   const lastSummonIdRef = useRef(null);
   const summonTimeoutRef = useRef(null);
   const summonNoticeTimeoutRef = useRef(null);
@@ -6482,14 +6590,198 @@ const BoardSection = ({
   const boardSizeRef = useRef(boardSize);
   const offsetRef = useRef(offset);
   const zoomRef = useRef(zoom);
+  const boardItemsRef = useRef([]);
+  const boardEstimatedBytesRef = useRef(0);
+  const boardImageUsageRef = useRef(new Map());
+  const boardSceneRef = useRef(null);
+  const boardRenderRafRef = useRef(null);
+  const sceneRenderRafRef = useRef(null);
+  const pendingSceneRenderRef = useRef(null);
+  const scheduleBoardRenderRef = useRef(null);
+  const scheduleMinimapRenderRef = useRef(null);
+  const scheduleBoardSceneRenderRef = useRef(null);
   const imageCacheRef = useRef(new Map());
   const lastPointerRef = useRef({ x: 0, y: 0 });
   const drawStateRef = useRef({ drawing: false, points: [], start: null, end: null });
   const panStateRef = useRef({ active: false, startX: 0, startY: 0, originX: 0, originY: 0 });
   const dragImageRef = useRef({ active: false, id: null, offsetX: 0, offsetY: 0 });
   const minimapRef = useRef(null);
+  const minimapRenderTimerRef = useRef(null);
   const viewportHydratedRef = useRef(false);
   const viewportPersistTimerRef = useRef(null);
+  const boardRevision = boardSnapshot.revision;
+  const boardItemCount = boardSnapshot.itemCount;
+
+  const releaseCachedBoardImage = useCallback((dataUrl) => {
+    if (!dataUrl) return;
+    const entry = imageCacheRef.current.get(dataUrl);
+    if (entry?.img) {
+      entry.img.onload = null;
+      entry.img.onerror = null;
+      try {
+        entry.img.src = '';
+      } catch {
+        // Ignore cache release failures; the entry will still be dropped from the map.
+      }
+    }
+    imageCacheRef.current.delete(dataUrl);
+  }, []);
+
+  const clearCachedBoardImages = useCallback(() => {
+    Array.from(imageCacheRef.current.keys()).forEach((dataUrl) => {
+      releaseCachedBoardImage(dataUrl);
+    });
+  }, [releaseCachedBoardImage]);
+
+  const trackBoardImageInsert = useCallback((item) => {
+    if (item?.type !== 'image' || !item.dataUrl) return;
+    const nextCount = Number(boardImageUsageRef.current.get(item.dataUrl) || 0) + 1;
+    boardImageUsageRef.current.set(item.dataUrl, nextCount);
+  }, []);
+
+  const trackBoardImageRemoval = useCallback((item) => {
+    if (item?.type !== 'image' || !item.dataUrl) return;
+    const currentCount = Number(boardImageUsageRef.current.get(item.dataUrl) || 0);
+    if (currentCount <= 1) {
+      boardImageUsageRef.current.delete(item.dataUrl);
+      releaseCachedBoardImage(item.dataUrl);
+      return;
+    }
+    boardImageUsageRef.current.set(item.dataUrl, currentCount - 1);
+  }, [releaseCachedBoardImage]);
+
+  const resetBoardData = useCallback(() => {
+    if (typeof window !== 'undefined' && sceneRenderRafRef.current) {
+      window.cancelAnimationFrame(sceneRenderRafRef.current);
+      sceneRenderRafRef.current = null;
+    }
+    pendingSceneRenderRef.current = null;
+    const previousScene = boardSceneRef.current;
+    if (previousScene?.canvas) {
+      previousScene.canvas.width = 1;
+      previousScene.canvas.height = 1;
+    }
+    boardSceneRef.current = null;
+    boardItemsRef.current = [];
+    boardEstimatedBytesRef.current = 0;
+    boardImageUsageRef.current.clear();
+    clearCachedBoardImages();
+    setPasteError('');
+    setBoardSnapshot((current) => ({
+      revision: current.revision + 1,
+      itemCount: 0,
+      estimatedBytes: 0,
+    }));
+    scheduleBoardRenderRef.current?.();
+    scheduleMinimapRenderRef.current?.(0);
+  }, [clearCachedBoardImages]);
+
+  const commitBoardData = useCallback((nextItems, nextEstimatedBytes) => {
+    const safeItems = Array.isArray(nextItems) ? nextItems : [];
+    const safeEstimatedBytes = Math.max(0, Math.round(Number(nextEstimatedBytes) || 0));
+    boardItemsRef.current = safeItems;
+    boardEstimatedBytesRef.current = safeEstimatedBytes;
+    setBoardSnapshot((current) => ({
+      revision: current.revision + 1,
+      itemCount: safeItems.length,
+      estimatedBytes: safeEstimatedBytes,
+    }));
+  }, []);
+
+  const buildBoardSnapshotFromYItems = useCallback((yItems) => {
+    const nextItems = [];
+    let nextEstimatedBytes = 0;
+    boardImageUsageRef.current.clear();
+    clearCachedBoardImages();
+    const total = Number(yItems?.length) || 0;
+    for (let index = 0; index < total; index += 1) {
+      const item = normalizeBoardStoredItem(yItems.get(index));
+      if (!item) continue;
+      nextItems.push(item);
+      nextEstimatedBytes += estimateBoardItemBytes(item);
+      trackBoardImageInsert(item);
+    }
+    return { nextItems, nextEstimatedBytes };
+  }, [clearCachedBoardImages, trackBoardImageInsert]);
+
+  const applyBoardDelta = useCallback((delta = []) => {
+    const nextItems = boardItemsRef.current.slice();
+    let nextEstimatedBytes = boardEstimatedBytesRef.current;
+    let cursor = 0;
+    let mutated = false;
+    let canAppendToScene = true;
+    const appendedItems = [];
+    delta.forEach((step) => {
+      const retainCount = Number(step?.retain) || 0;
+      if (retainCount > 0) {
+        cursor += retainCount;
+      }
+      const deleteCount = Number(step?.delete) || 0;
+      if (deleteCount > 0) {
+        mutated = true;
+        canAppendToScene = false;
+        const removedItems = nextItems.splice(cursor, deleteCount);
+        removedItems.forEach((item) => {
+          nextEstimatedBytes -= estimateBoardItemBytes(item);
+          trackBoardImageRemoval(item);
+        });
+      }
+      const rawInserted = Array.isArray(step?.insert) ? step.insert : [];
+      if (rawInserted.length > 0) {
+        const insertedItems = rawInserted
+          .map((item) => normalizeBoardStoredItem(item))
+          .filter(Boolean);
+        if (insertedItems.length > 0) {
+          mutated = true;
+          const isAppendInsert = canAppendToScene && cursor === nextItems.length;
+          nextItems.splice(cursor, 0, ...insertedItems);
+          insertedItems.forEach((item) => {
+            nextEstimatedBytes += estimateBoardItemBytes(item);
+            trackBoardImageInsert(item);
+          });
+          if (isAppendInsert) {
+            appendedItems.push(...insertedItems);
+          } else {
+            canAppendToScene = false;
+          }
+          cursor += insertedItems.length;
+        }
+      }
+    });
+    let renderPlan = { mode: 'none' };
+    if (mutated) {
+      renderPlan = canAppendToScene && appendedItems.length > 0
+        ? { mode: 'append', items: appendedItems }
+        : { mode: 'full' };
+    }
+    return {
+      nextItems,
+      nextEstimatedBytes: Math.max(0, nextEstimatedBytes),
+      renderPlan,
+    };
+  }, [trackBoardImageInsert, trackBoardImageRemoval]);
+
+  const getBoardCapacityError = useCallback((nextItemCount, nextEstimatedBytes) => {
+    if (nextItemCount > BOARD_MAX_ITEM_COUNT) {
+      return `На доске уже слишком много элементов. Лимит: ${BOARD_MAX_ITEM_COUNT}. Очистите часть доски или сохраните её в конспекты.`;
+    }
+    if (nextEstimatedBytes > BOARD_MAX_TOTAL_BYTES) {
+      return `Доска переполнена (${formatBoardBytes(nextEstimatedBytes)} из ${formatBoardBytes(BOARD_MAX_TOTAL_BYTES)}). Очистите часть элементов или сохраните доску в конспекты.`;
+    }
+    return '';
+  }, []);
+
+  const ensureBoardCanAddItems = useCallback((items) => {
+    const nextItems = (Array.isArray(items) ? items : []).filter(Boolean);
+    if (nextItems.length === 0) {
+      return { ok: true, error: '' };
+    }
+    const addedBytes = nextItems.reduce((sum, item) => sum + estimateBoardItemBytes(item), 0);
+    const nextItemCount = boardItemsRef.current.length + nextItems.length;
+    const nextEstimatedBytes = boardEstimatedBytesRef.current + addedBytes;
+    const error = getBoardCapacityError(nextItemCount, nextEstimatedBytes);
+    return { ok: !error, error };
+  }, [getBoardCapacityError]);
 
   const selectedStudent = useMemo(
     () => (students || []).find((student) => student.id === activeStudentId),
@@ -6653,7 +6945,9 @@ const BoardSection = ({
           });
         }
       }
-    } catch {}
+    } catch {
+      // Ignore malformed or unavailable localStorage entries for board viewport restore.
+    }
     viewportHydratedRef.current = true;
   }, [boardViewportStorageKey]);
 
@@ -6682,7 +6976,9 @@ const BoardSection = ({
           },
           updatedAt: Date.now(),
         }));
-      } catch {}
+      } catch {
+        // Ignore localStorage write failures; viewport persistence is best-effort.
+      }
     }, BOARD_VIEWPORT_SAVE_DEBOUNCE_MS);
   }, [boardViewportStorageKey, zoom, offset]);
 
@@ -6706,7 +7002,9 @@ const BoardSection = ({
         },
         updatedAt: Date.now(),
       }));
-    } catch {}
+    } catch {
+      // Ignore localStorage write failures during teardown; viewport persistence is best-effort.
+    }
   }, [boardViewportStorageKey]);
 
   useEffect(() => {
@@ -6762,9 +7060,9 @@ const BoardSection = ({
 
   useEffect(() => {
     if (!selectedImageId) return;
-    const exists = boardItems.some((item) => item?.id === selectedImageId && item.type === 'image');
+    const exists = boardItemsRef.current.some((item) => item?.id === selectedImageId && item.type === 'image');
     if (!exists) setSelectedImageId(null);
-  }, [boardItems, selectedImageId]);
+  }, [boardRevision, selectedImageId]);
 
   useEffect(() => {
     selectionRef.current = selectionBox;
@@ -6779,12 +7077,12 @@ const BoardSection = ({
 
   useEffect(() => {
     if (selectedIdsRef.current.length === 0) return;
-    const existingIds = new Set(boardItems.map((item) => item?.id).filter(Boolean));
+    const existingIds = new Set(boardItemsRef.current.map((item) => item?.id).filter(Boolean));
     const filtered = selectedIdsRef.current.filter((id) => existingIds.has(id));
     if (filtered.length !== selectedIdsRef.current.length) {
       setSelectedIds(filtered);
     }
-  }, [boardItems]);
+  }, [boardRevision]);
 
   useEffect(() => {
     if (!effectiveStudentId || !saveTaskNumber || !saveCategory) {
@@ -7050,6 +7348,7 @@ const BoardSection = ({
     if (typeof document === 'undefined') {
       throw new Error('Нельзя сохранить доску в этом окружении.');
     }
+    const boardItems = boardItemsRef.current;
     const bounds = getBoardBounds(boardItems);
     if (!bounds) throw new Error('Доска пустая.');
     const padding = BOARD_EXPORT_PADDING;
@@ -7111,6 +7410,7 @@ const BoardSection = ({
   };
 
   const handleSaveBoardToNotes = async () => {
+    const boardItems = boardItemsRef.current;
     setSaveError('');
     setSaveSuccess('');
     setSaveNameError(false);
@@ -7158,6 +7458,7 @@ const BoardSection = ({
   };
 
   const findImageAtPoint = (point) => {
+    const boardItems = boardItemsRef.current;
     for (let i = boardItems.length - 1; i >= 0; i -= 1) {
       const item = boardItems[i];
       if (!item || item.type !== 'image') continue;
@@ -7201,6 +7502,7 @@ const BoardSection = ({
   };
 
   const resizeImageByFactor = (id, factor) => {
+    const boardItems = boardItemsRef.current;
     const item = boardItems.find((entry) => entry?.id === id && entry.type === 'image');
     if (!item) return;
     const currentWidth = Math.max(1, Number(item.width) || 1);
@@ -7352,6 +7654,24 @@ const BoardSection = ({
     return null;
   };
 
+  const getBoardContentBounds = (items) => {
+    const sourceItems = Array.isArray(items) ? items : [];
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    sourceItems.forEach((item) => {
+      const bounds = getItemBounds(item);
+      if (!bounds) return;
+      minX = Math.min(minX, bounds.minX);
+      minY = Math.min(minY, bounds.minY);
+      maxX = Math.max(maxX, bounds.maxX);
+      maxY = Math.max(maxY, bounds.maxY);
+    });
+    if (!Number.isFinite(minX)) return null;
+    return { minX, minY, maxX, maxY };
+  };
+
   const normalizeRect = (start, current) => {
     const x1 = start?.x ?? 0;
     const y1 = start?.y ?? 0;
@@ -7385,14 +7705,14 @@ const BoardSection = ({
 
   const getItemsInRect = (rect) => {
     if (!rect) return [];
-    return boardItems
+    return boardItemsRef.current
       .filter((item) => rectIntersects(rect, getItemBounds(item)))
       .map((item) => item.id)
       .filter(Boolean);
   };
 
   const getItemsAtPoint = (point) => {
-    return boardItems
+    return boardItemsRef.current
       .filter((item) => {
         if (!item) return false;
         if (item.type === 'image') {
@@ -7416,7 +7736,7 @@ const BoardSection = ({
     let minY = Number.POSITIVE_INFINITY;
     let maxX = Number.NEGATIVE_INFINITY;
     let maxY = Number.NEGATIVE_INFINITY;
-    boardItems.forEach((item) => {
+    boardItemsRef.current.forEach((item) => {
       if (!item || !ids.includes(item.id)) return;
       const bounds = getItemBounds(item);
       if (!bounds) return;
@@ -7431,7 +7751,7 @@ const BoardSection = ({
 
   const buildSelectionSnapshot = (ids) => {
     if (!ids?.length) return [];
-    return boardItems
+    return boardItemsRef.current
       .filter((item) => item && ids.includes(item.id))
       .map((item) => {
         if (item.type === 'stroke') {
@@ -7660,11 +7980,183 @@ const BoardSection = ({
     imageCacheRef.current.set(dataUrl, entry);
     img.onload = () => {
       entry.loaded = true;
-      if (typeof renderRef.current === 'function') renderRef.current();
+      scheduleBoardSceneRenderRef.current?.({ mode: 'full' });
     };
     img.src = dataUrl;
     return entry;
   };
+
+  const drawBoardItemToScene = useCallback((ctx, item) => {
+    if (!ctx || !item) return;
+    if (item.type === 'stroke') {
+      drawStroke(ctx, item);
+      return;
+    }
+    if (item.type === 'line') {
+      drawLine(ctx, item);
+      return;
+    }
+    if (item.type === 'image') {
+      const cacheEntry = getCachedImage(item.dataUrl);
+      if (!cacheEntry?.img || !cacheEntry.loaded) return;
+      const img = cacheEntry.img;
+      const width = Math.max(1, item.width || 0);
+      const height = Math.max(1, item.height || 0);
+      const x = item.x || 0;
+      const y = item.y || 0;
+      ctx.drawImage(img, x, y, width, height);
+    }
+  }, []);
+
+  const resetBoardScene = useCallback(() => {
+    const previousScene = boardSceneRef.current;
+    if (previousScene?.canvas) {
+      previousScene.canvas.width = 1;
+      previousScene.canvas.height = 1;
+    }
+    boardSceneRef.current = null;
+  }, []);
+
+  const buildBoardScene = useCallback(() => {
+    if (typeof document === 'undefined') {
+      resetBoardScene();
+      return null;
+    }
+    const items = boardItemsRef.current;
+    const contentBounds = getBoardContentBounds(items);
+    if (!contentBounds) {
+      resetBoardScene();
+      return null;
+    }
+
+    const width = Math.max(1, contentBounds.maxX - contentBounds.minX + BOARD_SCENE_PADDING * 2);
+    const height = Math.max(1, contentBounds.maxY - contentBounds.minY + BOARD_SCENE_PADDING * 2);
+    const originX = contentBounds.minX - BOARD_SCENE_PADDING;
+    const originY = contentBounds.minY - BOARD_SCENE_PADDING;
+    const dimensionScale = Math.min(
+      1,
+      BOARD_SCENE_MAX_DIMENSION / Math.max(width, 1),
+      BOARD_SCENE_MAX_DIMENSION / Math.max(height, 1)
+    );
+    const pixelScale = Math.min(
+      1,
+      Math.sqrt(BOARD_SCENE_MAX_PIXELS / Math.max(width * height, 1))
+    );
+    const scale = Math.min(dimensionScale, pixelScale);
+    const pixelWidth = Math.max(1, Math.round(width * scale));
+    const pixelHeight = Math.max(1, Math.round(height * scale));
+    const previousScene = boardSceneRef.current;
+    const canvas = previousScene?.canvas || document.createElement('canvas');
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      resetBoardScene();
+      return null;
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, pixelWidth, pixelHeight);
+    ctx.setTransform(scale, 0, 0, scale, -originX * scale, -originY * scale);
+    items.forEach((item) => {
+      drawBoardItemToScene(ctx, item);
+    });
+    const nextScene = {
+      canvas,
+      originX,
+      originY,
+      width,
+      height,
+      scale,
+      contentBounds,
+    };
+    boardSceneRef.current = nextScene;
+    return nextScene;
+  }, [drawBoardItemToScene, resetBoardScene]);
+
+  const renderBoardSceneFull = useCallback(() => {
+    buildBoardScene();
+    scheduleBoardRenderRef.current?.();
+    scheduleMinimapRenderRef.current?.(0);
+  }, [buildBoardScene]);
+
+  const sceneContainsItem = useCallback((scene, item) => {
+    if (!scene || !item) return false;
+    const bounds = getItemBounds(item);
+    if (!bounds) return false;
+    const maxX = scene.originX + scene.width;
+    const maxY = scene.originY + scene.height;
+    return (
+      bounds.minX >= scene.originX
+      && bounds.minY >= scene.originY
+      && bounds.maxX <= maxX
+      && bounds.maxY <= maxY
+    );
+  }, []);
+
+  const renderBoardSceneAppend = useCallback((appendedItems) => {
+    const items = Array.isArray(appendedItems) ? appendedItems.filter(Boolean) : [];
+    const scene = boardSceneRef.current;
+    if (!scene || items.length === 0) {
+      renderBoardSceneFull();
+      return;
+    }
+    if (items.some((item) => !sceneContainsItem(scene, item))) {
+      renderBoardSceneFull();
+      return;
+    }
+    const ctx = scene.canvas.getContext('2d');
+    if (!ctx) {
+      renderBoardSceneFull();
+      return;
+    }
+    ctx.setTransform(scene.scale, 0, 0, scene.scale, -scene.originX * scene.scale, -scene.originY * scene.scale);
+    items.forEach((item) => {
+      drawBoardItemToScene(ctx, item);
+    });
+
+    const nextContentBounds = getBoardContentBounds(boardItemsRef.current);
+    if (nextContentBounds) {
+      boardSceneRef.current = {
+        ...scene,
+        contentBounds: nextContentBounds,
+      };
+    }
+
+    scheduleBoardRenderRef.current?.();
+    scheduleMinimapRenderRef.current?.(0);
+  }, [drawBoardItemToScene, renderBoardSceneFull, sceneContainsItem]);
+
+  const scheduleBoardSceneRender = useCallback((renderPlan = { mode: 'full' }) => {
+    if (typeof window === 'undefined') return;
+    const normalizedPlan = renderPlan?.mode === 'append' && Array.isArray(renderPlan?.items) && renderPlan.items.length > 0
+      ? { mode: 'append', items: renderPlan.items.slice() }
+      : (renderPlan?.mode === 'none' ? { mode: 'none' } : { mode: 'full' });
+
+    const pendingPlan = pendingSceneRenderRef.current;
+    if (!pendingPlan || pendingPlan.mode === 'none') {
+      pendingSceneRenderRef.current = normalizedPlan;
+    } else if (pendingPlan.mode === 'full' || normalizedPlan.mode === 'full') {
+      pendingSceneRenderRef.current = { mode: 'full' };
+    } else if (normalizedPlan.mode === 'append') {
+      pendingSceneRenderRef.current = {
+        mode: 'append',
+        items: [...(pendingPlan.items || []), ...normalizedPlan.items],
+      };
+    }
+
+    if (sceneRenderRafRef.current) return;
+    sceneRenderRafRef.current = window.requestAnimationFrame(() => {
+      sceneRenderRafRef.current = null;
+      const nextPlan = pendingSceneRenderRef.current;
+      pendingSceneRenderRef.current = null;
+      if (!nextPlan || nextPlan.mode === 'none') return;
+      if (nextPlan.mode === 'append') {
+        renderBoardSceneAppend(nextPlan.items);
+        return;
+      }
+      renderBoardSceneFull();
+    });
+  }, [renderBoardSceneAppend, renderBoardSceneFull]);
 
   const renderBoard = useCallback(() => {
     const canvas = canvasRef.current;
@@ -7673,39 +8165,29 @@ const BoardSection = ({
     if (!ctx) return;
     const width = canvas.width;
     const height = canvas.height;
+    const scene = boardSceneRef.current;
+    const currentZoom = zoomRef.current || 1;
+    const currentOffset = offsetRef.current || { x: 0, y: 0 };
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
-    ctx.setTransform(zoomRef.current || 1, 0, 0, zoomRef.current || 1, -(offsetRef.current.x || 0) * (zoomRef.current || 1), -(offsetRef.current.y || 0) * (zoomRef.current || 1));
-    boardItems.forEach((item) => {
-      if (!item) return;
-      if (item.type === 'stroke') drawStroke(ctx, item, width, height);
-      if (item.type === 'line') drawLine(ctx, item, width, height);
-      if (item.type === 'image') {
-        const cacheEntry = getCachedImage(item.dataUrl);
-        if (!cacheEntry?.img || !cacheEntry.loaded) return;
-        const img = cacheEntry.img;
-        const w = Math.max(1, item.width || 0);
-        const h = Math.max(1, item.height || 0);
-        const x = item.x || 0;
-        const y = item.y || 0;
-        ctx.drawImage(img, x, y, w, h);
-      }
-    });
-  }, [boardItems]);
-
-  useEffect(() => {
-    renderRef.current = renderBoard;
-  }, [renderBoard]);
+    if (!scene?.canvas) return;
+    ctx.setTransform(currentZoom, 0, 0, currentZoom, -(currentOffset.x || 0) * currentZoom, -(currentOffset.y || 0) * currentZoom);
+    ctx.drawImage(scene.canvas, scene.originX, scene.originY, scene.width, scene.height);
+  }, []);
 
   useEffect(() => {
     renderBoard();
   }, [renderBoard, boardSize]);
 
   const selectedImage = useMemo(
-    () => boardItems.find((item) => item?.id === selectedImageId && item.type === 'image') || null,
-    [boardItems, selectedImageId]
+    () => {
+      const currentRevision = boardRevision;
+      if (currentRevision < 0) return null;
+      return boardItemsRef.current.find((item) => item?.id === selectedImageId && item.type === 'image') || null;
+    },
+    [boardRevision, selectedImageId]
   );
   const selectedImageLabel = selectedImage
     ? `${Math.round(selectedImage.width || 0)}Г—${Math.round(selectedImage.height || 0)}`
@@ -7771,8 +8253,28 @@ const BoardSection = ({
 
   useEffect(() => {
     renderBoard();
+  }, [zoom, offset, renderBoard]);
+
+  useEffect(() => {
     renderOverlay();
-  }, [zoom, offset, renderBoard, remotePreviews, tool, color, penWidth, lineWidth, selectedImage]);
+  }, [zoom, offset, remotePreviews, tool, color, penWidth, lineWidth, selectedImage, selectionBox]);
+
+  const scheduleBoardRender = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    if (boardRenderRafRef.current) return;
+    boardRenderRafRef.current = window.requestAnimationFrame(() => {
+      boardRenderRafRef.current = null;
+      renderBoard();
+    });
+  }, [renderBoard]);
+
+  useEffect(() => {
+    scheduleBoardRenderRef.current = scheduleBoardRender;
+  }, [scheduleBoardRender]);
+
+  useEffect(() => {
+    scheduleBoardSceneRenderRef.current = scheduleBoardSceneRender;
+  }, [scheduleBoardSceneRender]);
 
   useEffect(() => {
     const handleBlur = () => {
@@ -7816,7 +8318,7 @@ const BoardSection = ({
     if (!roomId || !wsUrl) {
       setStatus('disconnected');
       setPeerCount(0);
-      setBoardItems([]);
+      resetBoardData();
       setUndoState({ canUndo: false, canRedo: false });
       docRef.current = null;
       yItemsRef.current = null;
@@ -7849,11 +8351,23 @@ const BoardSection = ({
       });
     };
 
-    const updateItems = () => {
-      const next = yItems.toArray().map((item) => (
-        item && typeof item.toJSON === 'function' ? item.toJSON() : item
-      ));
-      setBoardItems(next);
+    const updateItems = (event) => {
+      const hasDelta = Array.isArray(event?.changes?.delta) && event.changes.delta.length > 0;
+      const nextSnapshot = hasDelta
+        ? applyBoardDelta(event.changes.delta)
+        : {
+          ...buildBoardSnapshotFromYItems(yItems),
+          renderPlan: { mode: 'full' },
+        };
+      commitBoardData(nextSnapshot.nextItems, nextSnapshot.nextEstimatedBytes);
+      const capacityError = getBoardCapacityError(nextSnapshot.nextItems.length, nextSnapshot.nextEstimatedBytes);
+      setPasteError((current) => {
+        if (capacityError) return capacityError;
+        return isBoardCapacityErrorMessage(current) ? '' : current;
+      });
+      if (nextSnapshot.renderPlan?.mode && nextSnapshot.renderPlan.mode !== 'none') {
+        scheduleBoardSceneRender(nextSnapshot.renderPlan);
+      }
     };
 
     const handleStatus = (event) => {
@@ -7946,13 +8460,14 @@ const BoardSection = ({
       undoManagerRef.current = null;
       setUndoState({ canUndo: false, canRedo: false });
       setRemoteCursors([]);
+      resetBoardData();
       provider.destroy();
       doc.destroy();
       providerRef.current = null;
       awarenessRef.current = null;
       docRef.current = null;
     };
-  }, [roomId, wsUrl, localName, localColor, isTeacher]);
+  }, [roomId, wsUrl, localName, localColor, isTeacher, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, getBoardCapacityError, resetBoardData, scheduleBoardSceneRender]);
 
   useEffect(() => {
     const handlePaste = (event) => {
@@ -7992,8 +8507,14 @@ const BoardSection = ({
             height: heightPx,
             authorId: userId,
           };
+          const capacity = ensureBoardCanAddItems([entry]);
+          if (!capacity.ok) {
+            setPasteError(capacity.error);
+            return;
+          }
           const docInstance = docRef.current;
           if (docInstance && yItemsRef.current) {
+            setPasteError('');
             docInstance.transact(() => {
               yItemsRef.current?.push([entry]);
             }, localOriginRef.current);
@@ -8007,7 +8528,7 @@ const BoardSection = ({
     if (typeof window === 'undefined') return undefined;
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [roomId, userId]);
+  }, [roomId, userId, ensureBoardCanAddItems]);
 
   const schedulePreviewUpdate = () => {
     if (!awarenessRef.current) return;
@@ -8055,6 +8576,10 @@ const BoardSection = ({
   };
 
   useEffect(() => () => {
+    if (boardRenderRafRef.current) cancelAnimationFrame(boardRenderRafRef.current);
+  }, []);
+
+  useEffect(() => () => {
     if (previewRafRef.current) cancelAnimationFrame(previewRafRef.current);
   }, []);
 
@@ -8068,6 +8593,10 @@ const BoardSection = ({
 
   useEffect(() => () => {
     if (selectionMoveRafRef.current) cancelAnimationFrame(selectionMoveRafRef.current);
+  }, []);
+
+  useEffect(() => () => {
+    if (minimapRenderTimerRef.current) clearTimeout(minimapRenderTimerRef.current);
   }, []);
 
   useEffect(() => () => {
@@ -8301,25 +8830,34 @@ const BoardSection = ({
       color,
       authorId: userId,
     };
+    const itemsToAdd = [];
     if (tool === 'pen' && state.points.length > 1) {
-      docInstance.transact(() => {
-        yItemsRef.current?.push([{
-          ...base,
-          type: 'stroke',
-          width: penWidth,
-          points: state.points,
-        }]);
-      }, localOriginRef.current);
+      itemsToAdd.push({
+        ...base,
+        type: 'stroke',
+        width: penWidth,
+        points: trimBoardStrokePoints(state.points),
+      });
     }
     if (tool === 'line' && state.start && state.end) {
+      itemsToAdd.push({
+        ...base,
+        type: 'line',
+        width: lineWidth,
+        start: normalizeBoardStoredPoint(state.start),
+        end: normalizeBoardStoredPoint(state.end),
+      });
+    }
+    if (itemsToAdd.length > 0) {
+      const capacity = ensureBoardCanAddItems(itemsToAdd);
+      if (!capacity.ok) {
+        setPasteError(capacity.error);
+        drawStateRef.current = { drawing: false, points: [], start: null, end: null };
+        return;
+      }
+      setPasteError('');
       docInstance.transact(() => {
-        yItemsRef.current?.push([{
-          ...base,
-          type: 'line',
-          width: lineWidth,
-          start: state.start,
-          end: state.end,
-        }]);
+        yItemsRef.current?.push(itemsToAdd);
       }, localOriginRef.current);
     }
     undoManagerRef.current?.stopCapturing();
@@ -8371,17 +8909,20 @@ const BoardSection = ({
     if (!ctx) return;
     const width = canvas.width;
     const height = canvas.height;
+    const scene = boardSceneRef.current;
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = '#f8fafc';
     ctx.fillRect(0, 0, width, height);
-
+    const currentBoardSize = boardSizeRef.current || { width: 1, height: 1 };
+    const viewWidth = currentBoardSize.width / (zoomRef.current || 1);
+    const viewHeight = currentBoardSize.height / (zoomRef.current || 1);
+    const sceneContentBounds = scene?.contentBounds || null;
     const bounds = {
-      minX: Number.POSITIVE_INFINITY,
-      minY: Number.POSITIVE_INFINITY,
-      maxX: Number.NEGATIVE_INFINITY,
-      maxY: Number.NEGATIVE_INFINITY,
+      minX: sceneContentBounds?.minX ?? Number.POSITIVE_INFINITY,
+      minY: sceneContentBounds?.minY ?? Number.POSITIVE_INFINITY,
+      maxX: sceneContentBounds?.maxX ?? Number.NEGATIVE_INFINITY,
+      maxY: sceneContentBounds?.maxY ?? Number.NEGATIVE_INFINITY,
     };
-
     const includePoint = (x, y) => {
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
       bounds.minX = Math.min(bounds.minX, x);
@@ -8389,22 +8930,6 @@ const BoardSection = ({
       bounds.maxX = Math.max(bounds.maxX, x);
       bounds.maxY = Math.max(bounds.maxY, y);
     };
-
-    boardItems.forEach((item) => {
-      if (!item) return;
-      if (item.type === 'stroke') {
-        (item.points || []).forEach((pt) => includePoint(pt?.x, pt?.y));
-      } else if (item.type === 'line') {
-        includePoint(item.start?.x, item.start?.y);
-        includePoint(item.end?.x, item.end?.y);
-      } else if (item.type === 'image') {
-        includePoint(item.x, item.y);
-        includePoint((item.x || 0) + (item.width || 0), (item.y || 0) + (item.height || 0));
-      }
-    });
-
-    const viewWidth = boardSize.width / (zoomRef.current || 1);
-    const viewHeight = boardSize.height / (zoomRef.current || 1);
     includePoint(offsetRef.current.x, offsetRef.current.y);
     includePoint(offsetRef.current.x + viewWidth, offsetRef.current.y + viewHeight);
 
@@ -8429,40 +8954,20 @@ const BoardSection = ({
     ctx.strokeRect(pad, pad, mapWidth * scale, mapHeight * scale);
     ctx.restore();
 
-    ctx.save();
-    ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
-    ctx.lineWidth = 0.9;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    boardItems.forEach((item) => {
-      if (!item) return;
-      if (item.type === 'stroke') {
-        const pts = item.points || [];
-        if (pts.length < 2) return;
-        ctx.beginPath();
-        drawSmoothStrokePath(ctx, pts, (point) => ({
-          x: toMiniX(point?.x || 0),
-          y: toMiniY(point?.y || 0),
-        }));
-        ctx.stroke();
-      } else if (item.type === 'line') {
-        ctx.beginPath();
-        ctx.moveTo(toMiniX(item.start?.x || 0), toMiniY(item.start?.y || 0));
-        ctx.lineTo(toMiniX(item.end?.x || 0), toMiniY(item.end?.y || 0));
-        ctx.stroke();
-      } else if (item.type === 'image') {
-        const x = toMiniX(item.x || 0);
-        const y = toMiniY(item.y || 0);
-        const w = (item.width || 0) * scale;
-        const h = (item.height || 0) * scale;
-        ctx.fillStyle = 'rgba(99, 102, 241, 0.18)';
-        ctx.fillRect(x, y, w, h);
-        ctx.strokeStyle = 'rgba(99, 102, 241, 0.5)';
-        ctx.lineWidth = 0.9;
-        ctx.strokeRect(x, y, w, h);
-      }
-    });
-    ctx.restore();
+    if (scene?.canvas) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(pad, pad, mapWidth * scale, mapHeight * scale);
+      ctx.clip();
+      ctx.drawImage(
+        scene.canvas,
+        toMiniX(scene.originX),
+        toMiniY(scene.originY),
+        scene.width * scale,
+        scene.height * scale
+      );
+      ctx.restore();
+    }
 
     ctx.save();
     const viewX = toMiniX(offsetRef.current.x);
@@ -8473,15 +8978,31 @@ const BoardSection = ({
     ctx.lineWidth = 1;
     ctx.strokeRect(viewX, viewY, viewW, viewH);
     ctx.restore();
-  }, [boardItems, boardSize.width, boardSize.height]);
+  }, []);
+
+  const scheduleMinimapRender = useCallback((delayMs = 90) => {
+    if (typeof window === 'undefined') return;
+    if (minimapRenderTimerRef.current) {
+      clearTimeout(minimapRenderTimerRef.current);
+      minimapRenderTimerRef.current = null;
+    }
+    minimapRenderTimerRef.current = setTimeout(() => {
+      minimapRenderTimerRef.current = null;
+      renderMinimap();
+    }, delayMs);
+  }, [renderMinimap]);
 
   useEffect(() => {
-    renderMinimap();
-  }, [renderMinimap, zoom, offset]);
+    scheduleMinimapRenderRef.current = scheduleMinimapRender;
+  }, [scheduleMinimapRender]);
+
+  useEffect(() => {
+    scheduleMinimapRender();
+  }, [zoom, offset, boardSize.width, boardSize.height, scheduleMinimapRender]);
 
   const canUndo = undoState.canUndo;
   const canRedo = undoState.canRedo;
-  const canClear = boardItems.length > 0;
+  const canClear = boardItemCount > 0;
   const remoteCursorMarkers = useMemo(() => {
     const currentZoom = zoom || 1;
     return remoteCursors
@@ -9268,6 +9789,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [pushBusy, setPushBusy] = useState(false);
   const [pushError, setPushError] = useState('');
   const [pushReady, setPushReady] = useState(false);
+  const useNativeAndroidPush = isNativeAndroidPushEnvironment();
   const isCallSessionActive = callSessionStatus === 'connected' || callSessionStatus === 'connecting';
   const isBoardView = view === 'board';
   const isCallView = view === 'call';
@@ -9500,21 +10022,48 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   };
   const syncTeacherSignupNotifyState = useCallback(async ({ silent = true } = {}) => {
     if (user.role !== 'teacher') return;
-    const supported = isPushFeatureSupported();
-    setTeacherSignupNotifySupported(supported);
-    setTeacherSignupNotifyPermission(getPushPermission());
-    if (!supported) {
-      setTeacherSignupNotifyEnabled(false);
-      setTeacherSignupNotifyReady(true);
-      if (!silent) {
-        setTeacherSignupNotifyError('Этот браузер не поддерживает push-уведомления.');
-      }
-      return;
-    }
 
     setTeacherSignupNotifySyncing(true);
     if (!silent) setTeacherSignupNotifyError('');
     try {
+      if (useNativeAndroidPush) {
+        const nativeStatus = await getNativePushStatus();
+        const supported = Boolean(nativeStatus?.supported && nativeStatus?.configured && nativeStatus?.available);
+        setTeacherSignupNotifySupported(supported);
+        setTeacherSignupNotifyPermission(nativeStatus?.permission || 'default');
+        if (!supported) {
+          setTeacherSignupNotifyEnabled(false);
+          if (!silent) {
+            setTeacherSignupNotifyError(getNativePushUnavailableMessage(nativeStatus));
+          }
+          return;
+        }
+
+        const serverStatus = await api.getPushSubscriptionStatus().catch(() => ({ subscribed: false, rustoreCount: 0 }));
+        let subscribed = Number(serverStatus?.rustoreCount) > 0;
+        if (nativeStatus?.token) {
+          await api.savePushSubscription({
+            provider: 'rustore',
+            token: nativeStatus.token,
+          });
+          subscribed = true;
+        }
+
+        setTeacherSignupNotifyEnabled(subscribed);
+        return;
+      }
+
+      const supported = isPushFeatureSupported();
+      setTeacherSignupNotifySupported(supported);
+      setTeacherSignupNotifyPermission(getPushPermission());
+      if (!supported) {
+        setTeacherSignupNotifyEnabled(false);
+        if (!silent) {
+          setTeacherSignupNotifyError('Этот браузер не поддерживает push-уведомления.');
+        }
+        return;
+      }
+
       const [serverStatus, browserSubscription] = await Promise.all([
         api.getPushSubscriptionStatus().catch(() => ({ subscribed: false, count: 0 })),
         getBrowserPushSubscription(),
@@ -9536,23 +10085,65 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         );
       }
     } finally {
-      setTeacherSignupNotifyPermission(getPushPermission());
+      if (useNativeAndroidPush) {
+        const nativeStatus = await getNativePushStatus().catch(() => null);
+        if (nativeStatus) {
+          setTeacherSignupNotifyPermission(nativeStatus?.permission || 'default');
+        }
+      } else {
+        setTeacherSignupNotifyPermission(getPushPermission());
+      }
       setTeacherSignupNotifySyncing(false);
       setTeacherSignupNotifyReady(true);
     }
-  }, [user.role]);
+  }, [useNativeAndroidPush, user.role]);
   const handleEnableTeacherSignupNotify = useCallback(async () => {
     if (user.role !== 'teacher') return;
-    const supported = isPushFeatureSupported();
-    setTeacherSignupNotifySupported(supported);
-    if (!supported) {
-      setTeacherSignupNotifyError('Этот браузер не поддерживает push-уведомления.');
-      return;
-    }
 
     setTeacherSignupNotifyBusy(true);
     setTeacherSignupNotifyError('');
     try {
+      if (useNativeAndroidPush) {
+        const nativeStatus = await getNativePushStatus();
+        const supported = Boolean(nativeStatus?.supported && nativeStatus?.configured && nativeStatus?.available);
+        setTeacherSignupNotifySupported(supported);
+        setTeacherSignupNotifyPermission(nativeStatus?.permission || 'default');
+        if (!supported) {
+          throw new Error(getNativePushUnavailableMessage(nativeStatus));
+        }
+
+        let permission = nativeStatus?.permission || 'default';
+        if (permission !== 'granted') {
+          const permissionResult = await requestNativePushPermission();
+          permission = permissionResult?.permission || 'default';
+          setTeacherSignupNotifyPermission(permission);
+        }
+        if (permission !== 'granted') {
+          throw new Error('Разрешение на уведомления не выдано в Android.');
+        }
+
+        const result = await enableNativePush();
+        const token = String(result?.token || '').trim();
+        if (!token) {
+          throw new Error('RuStore не выдал push-токен.');
+        }
+
+        await api.savePushSubscription({
+          provider: 'rustore',
+          token,
+        });
+        setTeacherSignupNotifyEnabled(true);
+        setTeacherSignupNotifyReady(true);
+        return;
+      }
+
+      const supported = isPushFeatureSupported();
+      setTeacherSignupNotifySupported(supported);
+      if (!supported) {
+        setTeacherSignupNotifyError('Этот браузер не поддерживает push-уведомления.');
+        return;
+      }
+
       const permissionBefore = getPushPermission();
       setTeacherSignupNotifyPermission(permissionBefore);
       if (permissionBefore === 'denied') {
@@ -9589,14 +10180,37 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setTeacherSignupNotifyError(normalizePushErrorMessage(error));
     } finally {
       setTeacherSignupNotifyBusy(false);
-      setTeacherSignupNotifyPermission(getPushPermission());
+      if (useNativeAndroidPush) {
+        const nativeStatus = await getNativePushStatus().catch(() => null);
+        if (nativeStatus) {
+          setTeacherSignupNotifyPermission(nativeStatus?.permission || 'default');
+        }
+      } else {
+        setTeacherSignupNotifyPermission(getPushPermission());
+      }
     }
-  }, [user.role]);
+  }, [useNativeAndroidPush, user.role]);
   const handleDisableTeacherSignupNotify = useCallback(async () => {
     if (user.role !== 'teacher') return;
     setTeacherSignupNotifyBusy(true);
     setTeacherSignupNotifyError('');
     try {
+      if (useNativeAndroidPush) {
+        const nativeStatus = await getNativePushStatus().catch(() => null);
+        const fallbackToken = String(nativeStatus?.token || '').trim();
+        const result = await disableNativePush();
+        const token = String(result?.previousToken || fallbackToken).trim();
+        await api.deletePushSubscription(token
+          ? { provider: 'rustore', token }
+          : { provider: 'rustore' });
+        if (result?.warning) {
+          setTeacherSignupNotifyError(result.warning);
+        }
+        setTeacherSignupNotifyEnabled(false);
+        setTeacherSignupNotifyReady(true);
+        return;
+      }
+
       const browserSubscription = await getBrowserPushSubscription();
       const endpoint = browserSubscription?.endpoint
         ? String(browserSubscription.endpoint)
@@ -9615,9 +10229,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       );
     } finally {
       setTeacherSignupNotifyBusy(false);
-      setTeacherSignupNotifyPermission(getPushPermission());
+      if (useNativeAndroidPush) {
+        const nativeStatus = await getNativePushStatus().catch(() => null);
+        if (nativeStatus) {
+          setTeacherSignupNotifyPermission(nativeStatus?.permission || 'default');
+        }
+      } else {
+        setTeacherSignupNotifyPermission(getPushPermission());
+      }
     }
-  }, [user.role]);
+  }, [useNativeAndroidPush, user.role]);
   const handleToggleTeacherSignupNotify = useCallback(() => {
     if (teacherSignupNotifyBusy || teacherSignupNotifySyncing) return;
     if (teacherSignupNotifyEnabled) {
@@ -9634,15 +10255,30 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   ]);
   const teacherSignupNotifyStatusText = useMemo(() => {
     if (teacherSignupNotifySyncing) return 'Проверяем статус push...';
-    if (!teacherSignupNotifySupported) return 'Push не поддерживается в этом браузере.';
-    if (teacherSignupNotifyPermission === 'denied') return 'Уведомления заблокированы в настройках браузера.';
-    if (teacherSignupNotifyEnabled) return 'Push-уведомления о новых сообщениях включены.';
-    return 'Включите push, чтобы получать браузерные уведомления о новых сообщениях учеников и заявок.';
+    if (!teacherSignupNotifySupported) {
+      return useNativeAndroidPush
+        ? 'RuStore Push недоступен на этом Android-устройстве.'
+        : 'Push не поддерживается в этом браузере.';
+    }
+    if (teacherSignupNotifyPermission === 'denied') {
+      return useNativeAndroidPush
+        ? 'Уведомления заблокированы в настройках Android.'
+        : 'Уведомления заблокированы в настройках браузера.';
+    }
+    if (teacherSignupNotifyEnabled) {
+      return useNativeAndroidPush
+        ? 'Push-уведомления через RuStore о новых сообщениях включены.'
+        : 'Push-уведомления о новых сообщениях включены.';
+    }
+    return useNativeAndroidPush
+      ? 'Включите push через RuStore, чтобы получать уведомления о новых сообщениях учеников и заявок.'
+      : 'Включите push, чтобы получать браузерные уведомления о новых сообщениях учеников и заявок.';
   }, [
     teacherSignupNotifyEnabled,
     teacherSignupNotifyPermission,
     teacherSignupNotifySupported,
     teacherSignupNotifySyncing,
+    useNativeAndroidPush,
   ]);
   useEffect(() => {
     if (user.role !== 'student') {
@@ -9653,21 +10289,48 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [desktopExtraActive, user.role]);
   const syncPushSubscriptionState = useCallback(async ({ silent = true } = {}) => {
     if (user.role !== 'student') return;
-    const supported = isPushFeatureSupported();
-    setPushSupported(supported);
-    setPushPermission(getPushPermission());
-    if (!supported) {
-      setPushSubscribed(false);
-      setPushReady(true);
-      if (!silent) {
-        setPushError('Этот браузер не поддерживает push-уведомления.');
-      }
-      return;
-    }
 
     setPushSyncing(true);
     if (!silent) setPushError('');
     try {
+      if (useNativeAndroidPush) {
+        const nativeStatus = await getNativePushStatus();
+        const supported = Boolean(nativeStatus?.supported && nativeStatus?.configured && nativeStatus?.available);
+        setPushSupported(supported);
+        setPushPermission(nativeStatus?.permission || 'default');
+        if (!supported) {
+          setPushSubscribed(false);
+          if (!silent) {
+            setPushError(getNativePushUnavailableMessage(nativeStatus));
+          }
+          return;
+        }
+
+        const serverStatus = await api.getPushSubscriptionStatus().catch(() => ({ subscribed: false, rustoreCount: 0 }));
+        let subscribed = Number(serverStatus?.rustoreCount) > 0;
+        if (nativeStatus?.token) {
+          await api.savePushSubscription({
+            provider: 'rustore',
+            token: nativeStatus.token,
+          });
+          subscribed = true;
+        }
+
+        setPushSubscribed(subscribed);
+        return;
+      }
+
+      const supported = isPushFeatureSupported();
+      setPushSupported(supported);
+      setPushPermission(getPushPermission());
+      if (!supported) {
+        setPushSubscribed(false);
+        if (!silent) {
+          setPushError('Этот браузер не поддерживает push-уведомления.');
+        }
+        return;
+      }
+
       const [serverStatus, browserSubscription] = await Promise.all([
         api.getPushSubscriptionStatus().catch(() => ({ subscribed: false, count: 0 })),
         getBrowserPushSubscription(),
@@ -9687,23 +10350,65 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         setPushError(normalizePushErrorMessage(error, 'Не удалось проверить статус push-уведомлений.'));
       }
     } finally {
-      setPushPermission(getPushPermission());
+      if (useNativeAndroidPush) {
+        const nativeStatus = await getNativePushStatus().catch(() => null);
+        if (nativeStatus) {
+          setPushPermission(nativeStatus?.permission || 'default');
+        }
+      } else {
+        setPushPermission(getPushPermission());
+      }
       setPushSyncing(false);
       setPushReady(true);
     }
-  }, [user.role]);
+  }, [useNativeAndroidPush, user.role]);
   const handleEnablePush = useCallback(async () => {
     if (user.role !== 'student') return;
-    const supported = isPushFeatureSupported();
-    setPushSupported(supported);
-    if (!supported) {
-      setPushError('Этот браузер не поддерживает push-уведомления.');
-      return;
-    }
 
     setPushBusy(true);
     setPushError('');
     try {
+      if (useNativeAndroidPush) {
+        const nativeStatus = await getNativePushStatus();
+        const supported = Boolean(nativeStatus?.supported && nativeStatus?.configured && nativeStatus?.available);
+        setPushSupported(supported);
+        setPushPermission(nativeStatus?.permission || 'default');
+        if (!supported) {
+          throw new Error(getNativePushUnavailableMessage(nativeStatus));
+        }
+
+        let permission = nativeStatus?.permission || 'default';
+        if (permission !== 'granted') {
+          const permissionResult = await requestNativePushPermission();
+          permission = permissionResult?.permission || 'default';
+          setPushPermission(permission);
+        }
+        if (permission !== 'granted') {
+          throw new Error('Разрешение на уведомления не выдано в Android.');
+        }
+
+        const result = await enableNativePush();
+        const token = String(result?.token || '').trim();
+        if (!token) {
+          throw new Error('RuStore не выдал push-токен.');
+        }
+
+        await api.savePushSubscription({
+          provider: 'rustore',
+          token,
+        });
+        setPushSubscribed(true);
+        setPushReady(true);
+        return;
+      }
+
+      const supported = isPushFeatureSupported();
+      setPushSupported(supported);
+      if (!supported) {
+        setPushError('Этот браузер не поддерживает push-уведомления.');
+        return;
+      }
+
       const permissionBefore = getPushPermission();
       setPushPermission(permissionBefore);
       if (permissionBefore === 'denied') {
@@ -9740,14 +10445,37 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setPushError(normalizePushErrorMessage(error));
     } finally {
       setPushBusy(false);
-      setPushPermission(getPushPermission());
+      if (useNativeAndroidPush) {
+        const nativeStatus = await getNativePushStatus().catch(() => null);
+        if (nativeStatus) {
+          setPushPermission(nativeStatus?.permission || 'default');
+        }
+      } else {
+        setPushPermission(getPushPermission());
+      }
     }
-  }, [user.role]);
+  }, [useNativeAndroidPush, user.role]);
   const handleDisablePush = useCallback(async () => {
     if (user.role !== 'student') return;
     setPushBusy(true);
     setPushError('');
     try {
+      if (useNativeAndroidPush) {
+        const nativeStatus = await getNativePushStatus().catch(() => null);
+        const fallbackToken = String(nativeStatus?.token || '').trim();
+        const result = await disableNativePush();
+        const token = String(result?.previousToken || fallbackToken).trim();
+        await api.deletePushSubscription(token
+          ? { provider: 'rustore', token }
+          : { provider: 'rustore' });
+        if (result?.warning) {
+          setPushError(result.warning);
+        }
+        setPushSubscribed(false);
+        setPushReady(true);
+        return;
+      }
+
       const browserSubscription = await getBrowserPushSubscription();
       const endpoint = browserSubscription?.endpoint
         ? String(browserSubscription.endpoint)
@@ -9764,9 +10492,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setPushError(normalizePushErrorMessage(error, 'Не удалось отключить push-уведомления.'));
     } finally {
       setPushBusy(false);
-      setPushPermission(getPushPermission());
+      if (useNativeAndroidPush) {
+        const nativeStatus = await getNativePushStatus().catch(() => null);
+        if (nativeStatus) {
+          setPushPermission(nativeStatus?.permission || 'default');
+        }
+      } else {
+        setPushPermission(getPushPermission());
+      }
     }
-  }, [user.role]);
+  }, [useNativeAndroidPush, user.role]);
   const handleTogglePush = useCallback(async () => {
     if (pushBusy || pushSyncing) return;
     if (pushSubscribed) {
@@ -9777,10 +10512,24 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [handleDisablePush, handleEnablePush, pushBusy, pushSubscribed, pushSyncing]);
   const pushStatusText = (() => {
     if (pushSyncing) return 'Проверяем статус push...';
-    if (!pushSupported) return 'Push не поддерживается в этом браузере.';
-    if (pushPermission === 'denied') return 'Уведомления заблокированы в настройках браузера.';
-    if (pushSubscribed) return 'Push-уведомления включены.';
-    return 'Включите push, чтобы получать уведомления о домашке и новых сообщениях.';
+    if (!pushSupported) {
+      return useNativeAndroidPush
+        ? 'RuStore Push недоступен на этом Android-устройстве.'
+        : 'Push не поддерживается в этом браузере.';
+    }
+    if (pushPermission === 'denied') {
+      return useNativeAndroidPush
+        ? 'Уведомления заблокированы в настройках Android.'
+        : 'Уведомления заблокированы в настройках браузера.';
+    }
+    if (pushSubscribed) {
+      return useNativeAndroidPush
+        ? 'Push-уведомления через RuStore включены.'
+        : 'Push-уведомления включены.';
+    }
+    return useNativeAndroidPush
+      ? 'Включите push через RuStore, чтобы получать уведомления о домашке и новых сообщениях.'
+      : 'Включите push, чтобы получать уведомления о домашке и новых сообщениях.';
   })();
   const pushButtonLabel = pushBusy
     ? 'Сохраняем...'
@@ -9838,9 +10587,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setPushReady(false);
       return;
     }
-    setPushPermission(getPushPermission());
+    if (useNativeAndroidPush) {
+      getNativePushStatus()
+        .then((status) => {
+          setPushPermission(status?.permission || 'default');
+        })
+        .catch(() => {});
+    } else {
+      setPushPermission(getPushPermission());
+    }
     syncPushSubscriptionState({ silent: true });
-  }, [syncPushSubscriptionState, user.role, user.id]);
+  }, [syncPushSubscriptionState, useNativeAndroidPush, user.role, user.id]);
 
   useEffect(() => {
     if (user.role !== 'teacher') {
@@ -9853,13 +10610,29 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setTeacherSignupNotifyReady(false);
       return;
     }
-    setTeacherSignupNotifyPermission(getPushPermission());
+    if (useNativeAndroidPush) {
+      getNativePushStatus()
+        .then((status) => {
+          setTeacherSignupNotifyPermission(status?.permission || 'default');
+        })
+        .catch(() => {});
+    } else {
+      setTeacherSignupNotifyPermission(getPushPermission());
+    }
     syncTeacherSignupNotifyState({ silent: true });
-  }, [syncTeacherSignupNotifyState, user.role, user.id]);
+  }, [syncTeacherSignupNotifyState, useNativeAndroidPush, user.role, user.id]);
 
   useEffect(() => {
     if (user.role !== 'teacher') return undefined;
     const syncPermission = () => {
+      if (useNativeAndroidPush) {
+        getNativePushStatus()
+          .then((status) => {
+            setTeacherSignupNotifyPermission(status?.permission || 'default');
+          })
+          .catch(() => {});
+        return;
+      }
       setTeacherSignupNotifyPermission(getPushPermission());
     };
     syncPermission();
@@ -9877,7 +10650,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         document.removeEventListener('visibilitychange', syncPermission);
       }
     };
-  }, [user.role]);
+  }, [useNativeAndroidPush, user.role]);
 
   const stopXpGainAnimation = useCallback(({ keepDock = false } = {}) => {
     xpAnimTokenRef.current += 1;
@@ -13284,7 +14057,7 @@ const MainApp = () => {
 
 const App = () => {
   if (isStandaloneGameRoute()) {
-    return <MobileStrategyGame />;
+    return <MobileStrategyGame key="mobile-strategy-game-v4" />;
   }
 
   return <MainApp />;

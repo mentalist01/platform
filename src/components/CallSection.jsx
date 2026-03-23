@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { AlertCircle, Camera, CameraOff, ImagePlus, Loader2, Maximize2, MessageSquare, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Move, Phone, PhoneOff, SendHorizontal, Settings, Signal, Users, X } from 'lucide-react';
 import { api } from '../services/api';
 import LinkifiedText from './LinkifiedText';
+import { getRtcWsUrl, resolveApiUrl } from '../utils/runtimeUrls';
 
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
@@ -256,20 +257,6 @@ const clampPanelPositionToViewport = (position, width, height) => {
     x: clampToRange(Number(position?.x) || margin, margin, maxX),
     y: clampToRange(Number(position?.y) || margin, margin, maxY),
   };
-};
-
-const getRtcWsUrl = () => {
-  if (typeof window === 'undefined') return '';
-  const envUrl = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_RTC_WS_URL : '';
-  const normalizedEnvUrl = typeof envUrl === 'string' ? envUrl.trim() : '';
-  if (normalizedEnvUrl) return normalizedEnvUrl;
-
-  const { protocol, hostname, port, host } = window.location;
-  const wsProtocol = protocol === 'https:' ? 'wss' : 'ws';
-  if ((import.meta?.env?.DEV || port === '5173') && port === '5173') {
-    return `${wsProtocol}://${hostname}:5175/rtc`;
-  }
-  return `${wsProtocol}://${host}/rtc`;
 };
 
 const getRtcIceConfig = () => {
@@ -3541,7 +3528,7 @@ const CallSection = ({
     const loadPresenceSnapshot = async ({ quiet = false } = {}) => {
       try {
         const cacheBust = Date.now();
-        const response = await fetch(`/api/rtc/presence?roomId=${encodeURIComponent(roomId)}&_=${cacheBust}`, {
+        const response = await fetch(resolveApiUrl(`/api/rtc/presence?roomId=${encodeURIComponent(roomId)}&_=${cacheBust}`), {
           credentials: 'include',
           cache: 'no-store',
           headers: {

@@ -1,5 +1,7 @@
 ﻿import { clearStoredSession } from '../utils/theme';
 
+import { resolveApiUrl } from '../utils/runtimeUrls';
+
 const parseApiError = async (res) => {
   const contentType = res.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
@@ -39,10 +41,14 @@ export const setUnauthorizedHandler = (handler) => {
 const apiFetch = async (input, init = {}) => {
   const method = String(init?.method || 'GET').toUpperCase();
   const requestInit = { ...init };
+  if (!Object.prototype.hasOwnProperty.call(requestInit, 'credentials')) {
+    requestInit.credentials = 'include';
+  }
   if (method === 'GET' && !Object.prototype.hasOwnProperty.call(requestInit, 'cache')) {
     requestInit.cache = 'no-store';
   }
-  const res = await fetch(input, requestInit);
+  const requestUrl = typeof input === 'string' ? resolveApiUrl(input) : input;
+  const res = await fetch(requestUrl, requestInit);
   if (res.status === 401) {
     clearStoredSession();
     try {
@@ -260,10 +266,15 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  savePushSubscription: async (subscription) => {
-    const payload = subscription && typeof subscription === 'object'
-      ? { subscription }
-      : {};
+  savePushSubscription: async (subscriptionOrPayload) => {
+    let payload = {};
+    if (subscriptionOrPayload && typeof subscriptionOrPayload === 'object') {
+      if (typeof subscriptionOrPayload.provider === 'string') {
+        payload = { ...subscriptionOrPayload };
+      } else {
+        payload = { subscription: subscriptionOrPayload };
+      }
+    }
     const res = await apiFetch('/api/push/subscription', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -272,9 +283,17 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  deletePushSubscription: async (endpoint = '') => {
-    const normalizedEndpoint = String(endpoint || '').trim();
-    const body = normalizedEndpoint ? { endpoint: normalizedEndpoint } : {};
+  deletePushSubscription: async (endpointOrPayload = '') => {
+    let body = {};
+    if (endpointOrPayload && typeof endpointOrPayload === 'object') {
+      body = { ...endpointOrPayload };
+      if (typeof body.endpoint === 'string') body.endpoint = body.endpoint.trim();
+      if (typeof body.token === 'string') body.token = body.token.trim();
+      if (typeof body.provider === 'string') body.provider = body.provider.trim();
+    } else {
+      const normalizedEndpoint = String(endpointOrPayload || '').trim();
+      body = normalizedEndpoint ? { endpoint: normalizedEndpoint } : {};
+    }
     const res = await apiFetch('/api/push/subscription', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },

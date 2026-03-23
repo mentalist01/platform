@@ -32,6 +32,67 @@ const parseEnabledEnv = (value, defaultValue = false) => {
   return defaultValue;
 };
 
+const parseCsvEnv = (value) => String(value || '')
+  .split(',')
+  .map((entry) => entry.trim())
+  .filter(Boolean);
+
+const uniqueStrings = (values = []) => Array.from(new Set(
+  (Array.isArray(values) ? values : []).map((entry) => String(entry || '').trim()).filter(Boolean)
+));
+
+const AUTH_COOKIE_SAME_SITE = (() => {
+  const raw = String(process.env.AUTH_COOKIE_SAME_SITE || '').trim().toLowerCase();
+  if (raw === 'strict') return 'Strict';
+  if (raw === 'none') return 'None';
+  return 'Lax';
+})();
+
+const AUTH_COOKIE_SECURE = (() => {
+  const raw = String(process.env.AUTH_COOKIE_SECURE || '').trim().toLowerCase();
+  if (raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on') return true;
+  if (raw === '0' || raw === 'false' || raw === 'no' || raw === 'off') return false;
+  if (AUTH_COOKIE_SAME_SITE === 'None') return true;
+  return String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+})();
+
+const CORS_ALLOWED_ORIGINS = uniqueStrings([
+  'http://localhost',
+  'capacitor://localhost',
+  'ionic://localhost',
+  ...parseCsvEnv(process.env.CORS_ALLOWED_ORIGINS || process.env.APP_ALLOWED_ORIGINS),
+]);
+
+const appendVaryHeader = (res, value) => {
+  const current = res.getHeader('Vary');
+  const entries = uniqueStrings([
+    ...(typeof current === 'string' ? current.split(',') : []),
+    ...(Array.isArray(current) ? current.flatMap((entry) => String(entry || '').split(',')) : []),
+    value,
+  ]);
+  if (entries.length > 0) {
+    res.setHeader('Vary', entries.join(', '));
+  }
+};
+
+const applyCorsHeaders = (req, res) => {
+  const origin = typeof req.headers.origin === 'string' ? req.headers.origin.trim() : '';
+  if (!origin || !CORS_ALLOWED_ORIGINS.includes(origin)) return false;
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS');
+  const requestedHeaders = typeof req.headers['access-control-request-headers'] === 'string'
+    ? req.headers['access-control-request-headers'].trim()
+    : '';
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    requestedHeaders || 'Content-Type, Authorization, Cache-Control, Pragma, X-Requested-With'
+  );
+  appendVaryHeader(res, 'Origin');
+  appendVaryHeader(res, 'Access-Control-Request-Headers');
+  return true;
+};
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const resolveStoragePath = (value, fallbackPath) => {
@@ -213,6 +274,30 @@ const PUSH_VAPID_SUBJECT = (() => {
     : '';
   if (raw) return raw;
   return 'mailto:no-reply@ege-platform.local';
+})();
+const RUSTORE_PUSH_PROJECT_ID = (() => {
+  const raw = typeof process.env.RUSTORE_PUSH_PROJECT_ID === 'string'
+    ? process.env.RUSTORE_PUSH_PROJECT_ID.trim()
+    : '';
+  return raw;
+})();
+const RUSTORE_PUSH_SERVICE_TOKEN = (() => {
+  const raw = typeof process.env.RUSTORE_PUSH_SERVICE_TOKEN === 'string'
+    ? process.env.RUSTORE_PUSH_SERVICE_TOKEN.trim()
+    : '';
+  return raw;
+})();
+const RUSTORE_PUSH_CLICK_ACTION = (() => {
+  const raw = typeof process.env.RUSTORE_PUSH_CLICK_ACTION === 'string'
+    ? process.env.RUSTORE_PUSH_CLICK_ACTION.trim()
+    : '';
+  return raw || 'ru.ivank.egeplatform.PUSH_OPEN';
+})();
+const RUSTORE_PUSH_NOTIFICATION_CHANNEL_ID = (() => {
+  const raw = typeof process.env.RUSTORE_PUSH_NOTIFICATION_CHANNEL_ID === 'string'
+    ? process.env.RUSTORE_PUSH_NOTIFICATION_CHANNEL_ID.trim()
+    : '';
+  return raw || 'ege_platform_general';
 })();
 const PUSH_SWEEP_INTERVAL_MS = (() => {
   const raw = Number(process.env.PUSH_SWEEP_INTERVAL_MS);
@@ -573,6 +658,14 @@ const collabPersistence = rawCollabPersistence ? {
 if (collabPersistence && typeof yWsUtils?.setPersistence === 'function') {
   yWsUtils.setPersistence(collabPersistence);
 }
+
+app.use((req, res, next) => {
+  applyCorsHeaders(req, res);
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  return next();
+});
 
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
@@ -1367,6 +1460,82 @@ const normalizePushRemindersByStudent = (value) => {
   return result;
 };
 
+const normalizeRuStorePushToken = (value) => {
+  const token = typeof value === 'string'
+    ? value.trim()
+    : (typeof value?.token === 'string' ? value.token.trim() : '');
+  if (!token) return '';
+  return token.slice(0, 4096);
+};
+
+const normalizeRuStoreStoredToken = (value) => {
+  if (!value || (typeof value !== 'object' && typeof value !== 'string') || Array.isArray(value)) return null;
+  const token = normalizeRuStorePushToken(value);
+  if (!token) return null;
+  const nowIso = new Date().toISOString();
+  const createdAt = typeof value?.createdAt === 'string' && value.createdAt.trim()
+    ? value.createdAt.trim()
+    : nowIso;
+  const updatedAt = typeof value?.updatedAt === 'string' && value.updatedAt.trim()
+    ? value.updatedAt.trim()
+    : createdAt;
+  const userAgent = typeof value?.userAgent === 'string'
+    ? value.userAgent.slice(0, 500)
+    : '';
+  const platform = typeof value?.platform === 'string' && value.platform.trim()
+    ? value.platform.trim().slice(0, 50)
+    : 'android';
+  return {
+    token,
+    createdAt,
+    updatedAt,
+    userAgent,
+    platform,
+  };
+};
+
+const normalizeRuStoreTokensByStudent = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result = {};
+  Object.entries(value).forEach(([studentId, list]) => {
+    const id = String(studentId || '').trim();
+    if (!id || !Array.isArray(list)) return;
+    const unique = [];
+    const seen = new Set();
+    list.forEach((item) => {
+      const normalized = normalizeRuStoreStoredToken(item);
+      if (!normalized || seen.has(normalized.token)) return;
+      seen.add(normalized.token);
+      unique.push(normalized);
+    });
+    if (unique.length > 0) {
+      result[id] = unique;
+    }
+  });
+  return result;
+};
+
+const normalizeRuStoreTokensByUser = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result = {};
+  Object.entries(value).forEach(([userKey, list]) => {
+    const key = String(userKey || '').trim();
+    if (!key || !Array.isArray(list)) return;
+    const unique = [];
+    const seen = new Set();
+    list.forEach((item) => {
+      const normalized = normalizeRuStoreStoredToken(item);
+      if (!normalized || seen.has(normalized.token)) return;
+      seen.add(normalized.token);
+      unique.push(normalized);
+    });
+    if (unique.length > 0) {
+      result[key] = unique;
+    }
+  });
+  return result;
+};
+
 const normalizePushLessonReminderSettingsEntry = (value) => {
   if (typeof value === 'boolean') {
     return { enabled: value, updatedAt: '' };
@@ -1501,6 +1670,8 @@ const getDefaultPushDb = () => ({
   vapidKeys: null,
   subscriptionsByStudent: {},
   subscriptionsByUser: {},
+  rustoreTokensByStudent: {},
+  rustoreTokensByUser: {},
   remindersByStudent: {},
   lessonReminderSettingsByStudent: {},
   lessonReminderStateByStudent: {},
@@ -1520,6 +1691,8 @@ const readPushDb = () => {
       vapidKeys: normalizePushVapidKeys(data.vapidKeys),
       subscriptionsByStudent: normalizePushSubscriptionsByStudent(data.subscriptionsByStudent),
       subscriptionsByUser: normalizePushSubscriptionsByUser(data.subscriptionsByUser),
+      rustoreTokensByStudent: normalizeRuStoreTokensByStudent(data.rustoreTokensByStudent),
+      rustoreTokensByUser: normalizeRuStoreTokensByUser(data.rustoreTokensByUser),
       remindersByStudent: normalizePushRemindersByStudent(data.remindersByStudent),
       lessonReminderSettingsByStudent: normalizePushLessonReminderSettingsByStudent(data.lessonReminderSettingsByStudent),
       lessonReminderStateByStudent: normalizePushLessonReminderStateByStudent(data.lessonReminderStateByStudent),
@@ -1536,6 +1709,8 @@ const writePushDb = (data) => {
     vapidKeys: normalizePushVapidKeys(data?.vapidKeys),
     subscriptionsByStudent: normalizePushSubscriptionsByStudent(data?.subscriptionsByStudent),
     subscriptionsByUser: normalizePushSubscriptionsByUser(data?.subscriptionsByUser),
+    rustoreTokensByStudent: normalizeRuStoreTokensByStudent(data?.rustoreTokensByStudent),
+    rustoreTokensByUser: normalizeRuStoreTokensByUser(data?.rustoreTokensByUser),
     remindersByStudent: normalizePushRemindersByStudent(data?.remindersByStudent),
     lessonReminderSettingsByStudent: normalizePushLessonReminderSettingsByStudent(data?.lessonReminderSettingsByStudent),
     lessonReminderStateByStudent: normalizePushLessonReminderStateByStudent(data?.lessonReminderStateByStudent),
@@ -1553,6 +1728,10 @@ const purgePushDataForStudents = (studentIds = []) => {
   ids.forEach((studentId) => {
     if (pushDb.subscriptionsByStudent?.[studentId]) {
       delete pushDb.subscriptionsByStudent[studentId];
+      changed = true;
+    }
+    if (pushDb.rustoreTokensByStudent?.[studentId]) {
+      delete pushDb.rustoreTokensByStudent[studentId];
       changed = true;
     }
     if (pushDb.remindersByStudent?.[studentId]) {
@@ -1580,6 +1759,10 @@ const purgePushDataForTeachers = (teacherIds = []) => {
     const userKey = `teacher:${teacherId}`;
     if (pushDb.subscriptionsByUser?.[userKey]) {
       delete pushDb.subscriptionsByUser[userKey];
+      changed = true;
+    }
+    if (pushDb.rustoreTokensByUser?.[userKey]) {
+      delete pushDb.rustoreTokensByUser[userKey];
       changed = true;
     }
     if (pushDb.teacherCalendarReminderSettingsByTeacher?.[teacherId]) {
@@ -2609,9 +2792,9 @@ const setAuthSessionCookie = (res, session) => {
     'Path=/',
     `Max-Age=${maxAgeSec}`,
     'HttpOnly',
-    'SameSite=Lax',
+    `SameSite=${AUTH_COOKIE_SAME_SITE}`,
   ];
-  if (String(process.env.NODE_ENV || '').toLowerCase() === 'production') {
+  if (AUTH_COOKIE_SECURE) {
     cookieParts.push('Secure');
   }
   appendSetCookie(res, cookieParts.join('; '));
@@ -2623,9 +2806,9 @@ const clearAuthSessionCookie = (res) => {
     'Path=/',
     'Max-Age=0',
     'HttpOnly',
-    'SameSite=Lax',
+    `SameSite=${AUTH_COOKIE_SAME_SITE}`,
   ];
-  if (String(process.env.NODE_ENV || '').toLowerCase() === 'production') {
+  if (AUTH_COOKIE_SECURE) {
     cookieParts.push('Secure');
   }
   appendSetCookie(res, cookieParts.join('; '));
@@ -4882,6 +5065,149 @@ const isPushSubscriptionGoneError = (error) => {
   return code === 404 || code === 410;
 };
 
+const isRuStorePushConfigured = () => Boolean(RUSTORE_PUSH_PROJECT_ID && RUSTORE_PUSH_SERVICE_TOKEN);
+
+const getStudentPushTargets = (pushDb, studentId) => {
+  const id = String(studentId || '').trim();
+  if (!id) {
+    return { subscriptions: [], rustoreTokens: [] };
+  }
+  const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb?.subscriptionsByStudent);
+  const rustoreTokensByStudent = normalizeRuStoreTokensByStudent(pushDb?.rustoreTokensByStudent);
+  return {
+    subscriptions: Array.isArray(subscriptionsByStudent[id]) ? subscriptionsByStudent[id] : [],
+    rustoreTokens: Array.isArray(rustoreTokensByStudent[id]) ? rustoreTokensByStudent[id] : [],
+  };
+};
+
+const getUserPushTargets = (pushDb, userKey) => {
+  const key = String(userKey || '').trim();
+  if (!key) {
+    return { subscriptions: [], rustoreTokens: [] };
+  }
+  const subscriptionsByUser = normalizePushSubscriptionsByUser(pushDb?.subscriptionsByUser);
+  const rustoreTokensByUser = normalizeRuStoreTokensByUser(pushDb?.rustoreTokensByUser);
+  return {
+    subscriptions: Array.isArray(subscriptionsByUser[key]) ? subscriptionsByUser[key] : [],
+    rustoreTokens: Array.isArray(rustoreTokensByUser[key]) ? rustoreTokensByUser[key] : [],
+  };
+};
+
+const hasPushTargets = (targets) => (
+  Array.isArray(targets?.subscriptions) && targets.subscriptions.length > 0
+)
+  || (
+    Array.isArray(targets?.rustoreTokens) && targets.rustoreTokens.length > 0
+  );
+
+const normalizeRuStorePayloadData = (payload = {}) => {
+  const data = payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
+    ? payload.data
+    : {};
+  const prepared = {
+    title: payload?.title,
+    body: payload?.body,
+    tag: payload?.tag,
+    url: payload?.data?.url || payload?.url,
+    ...data,
+  };
+  return Object.entries(prepared).reduce((acc, [key, value]) => {
+    if (value == null) return acc;
+    const normalizedKey = String(key || '').trim();
+    if (!normalizedKey) return acc;
+    const normalizedValue = typeof value === 'string'
+      ? value.trim()
+      : (typeof value === 'number' || typeof value === 'boolean'
+        ? String(value)
+        : JSON.stringify(value));
+    if (!normalizedValue) return acc;
+    acc[normalizedKey] = normalizedValue.slice(0, 2000);
+    return acc;
+  }, {});
+};
+
+const isRuStoreTokenGoneResponse = (status, bodyText = '') => {
+  const code = Number(status);
+  if (code === 404) return true;
+  if (code !== 400) return false;
+  return /registration token|invalid_argument|not a valid/i.test(String(bodyText || ''));
+};
+
+const sendRuStorePushNotificationToTokens = async (tokens = [], payload, logTarget = '') => {
+  const list = Array.isArray(tokens) ? tokens : [];
+  if (list.length === 0 || !payload || typeof payload !== 'object') {
+    return { successCount: 0, staleTokens: [] };
+  }
+  if (!isRuStorePushConfigured()) {
+    return { successCount: 0, staleTokens: [] };
+  }
+
+  const data = normalizeRuStorePayloadData(payload);
+  const title = String(payload?.title || '').trim();
+  const body = String(payload?.body || '').trim();
+  const image = typeof payload?.image === 'string' ? payload.image.trim() : '';
+  const requestUrl = `https://vkpns.rustore.ru/v1/projects/${encodeURIComponent(RUSTORE_PUSH_PROJECT_ID)}/messages:send`;
+
+  const results = await Promise.all(list.map(async (entry) => {
+    const token = String(entry?.token || '').trim();
+    if (!token) return { ok: false, token: '', stale: false };
+    const requestBody = {
+      message: {
+        token,
+        data,
+        notification: {
+          title,
+          body,
+          ...(image ? { image } : {}),
+        },
+        android: {
+          ttl: `${PUSH_TTL_SECONDS}s`,
+          notification: {
+            title,
+            body,
+            ...(image ? { image } : {}),
+            channel_id: RUSTORE_PUSH_NOTIFICATION_CHANNEL_ID,
+            click_action: RUSTORE_PUSH_CLICK_ACTION,
+            click_action_type: 0,
+          },
+        },
+      },
+    };
+
+    try {
+      const response = await fetch(requestUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${RUSTORE_PUSH_SERVICE_TOKEN}`,
+        },
+        body: JSON.stringify(requestBody),
+      });
+      if (response.ok) {
+        return { ok: true, token, stale: false };
+      }
+
+      const responseText = await response.text().catch(() => '');
+      if (isRuStoreTokenGoneResponse(response.status, responseText)) {
+        return { ok: false, token, stale: true };
+      }
+
+      console.error(`[push] failed to send RuStore notification to ${logTarget || 'user'}: ${response.status} ${responseText}`);
+      return { ok: false, token, stale: false };
+    } catch (error) {
+      console.error(`[push] failed to send RuStore notification to ${logTarget || 'user'}:`, error);
+      return { ok: false, token, stale: false };
+    }
+  }));
+
+  return {
+    successCount: results.filter((item) => item.ok).length,
+    staleTokens: results
+      .filter((item) => !item.ok && item.stale && item.token)
+      .map((item) => item.token),
+  };
+};
+
 const sendPushNotificationToSubscriptions = async (subscriptions = [], payload, studentId) => {
   const list = Array.isArray(subscriptions) ? subscriptions : [];
   if (list.length === 0) {
@@ -5040,84 +5366,118 @@ const buildScheduleChangeRequestPushPayloadForTeacher = (student, requestEntry) 
 const sendPushNotificationToStudentId = async (studentId, payload, options = {}) => {
   const id = String(studentId || '').trim();
   if (!id || !payload || typeof payload !== 'object') {
-    return { successCount: 0, staleEndpoints: [] };
-  }
-  if (!pushRuntimeEnabled) {
-    const runtime = ensurePushRuntimeConfigured();
-    if (!runtime.enabled) return { successCount: 0, staleEndpoints: [] };
+    return { successCount: 0, staleEndpoints: [], staleTokens: [] };
   }
 
   const pushDb = readPushDb();
   const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
+  const rustoreTokensByStudent = normalizeRuStoreTokensByStudent(pushDb.rustoreTokensByStudent);
   const remindersByStudent = normalizePushRemindersByStudent(pushDb.remindersByStudent);
   const lessonReminderStateByStudent = normalizePushLessonReminderStateByStudent(pushDb.lessonReminderStateByStudent);
   const subscriptions = Array.isArray(subscriptionsByStudent[id]) ? subscriptionsByStudent[id] : [];
-  if (subscriptions.length === 0) return { successCount: 0, staleEndpoints: [] };
+  const rustoreTokens = Array.isArray(rustoreTokensByStudent[id]) ? rustoreTokensByStudent[id] : [];
+  if (subscriptions.length === 0 && rustoreTokens.length === 0) {
+    return { successCount: 0, staleEndpoints: [], staleTokens: [] };
+  }
 
   const logTarget = options?.logTarget ? String(options.logTarget) : id;
-  const result = await sendPushNotificationToSubscriptions(subscriptions, payload, logTarget);
-  if (result.staleEndpoints.length > 0) {
-    const staleSet = new Set(result.staleEndpoints);
+  const webResult = subscriptions.length > 0
+    ? (pushRuntimeEnabled || ensurePushRuntimeConfigured().enabled
+      ? await sendPushNotificationToSubscriptions(subscriptions, payload, logTarget)
+      : { successCount: 0, staleEndpoints: [] })
+    : { successCount: 0, staleEndpoints: [] };
+  const rustoreResult = rustoreTokens.length > 0
+    ? await sendRuStorePushNotificationToTokens(rustoreTokens, payload, logTarget)
+    : { successCount: 0, staleTokens: [] };
+  if (webResult.staleEndpoints.length > 0 || rustoreResult.staleTokens.length > 0) {
+    const staleSet = new Set(webResult.staleEndpoints);
+    const staleTokenSet = new Set(rustoreResult.staleTokens);
     const next = subscriptions.filter((entry) => !staleSet.has(entry.endpoint));
+    const nextTokens = rustoreTokens.filter((entry) => !staleTokenSet.has(entry.token));
     if (next.length > 0) {
       subscriptionsByStudent[id] = next;
     } else {
       delete subscriptionsByStudent[id];
+    }
+    if (nextTokens.length > 0) {
+      rustoreTokensByStudent[id] = nextTokens;
+    } else {
+      delete rustoreTokensByStudent[id];
+    }
+    if (
+      !subscriptionsByStudent[id]
+      && !rustoreTokensByStudent[id]
+    ) {
       if (remindersByStudent[id]) delete remindersByStudent[id];
       if (lessonReminderStateByStudent[id]) delete lessonReminderStateByStudent[id];
     }
     writePushDb({
       ...pushDb,
       subscriptionsByStudent,
+      rustoreTokensByStudent,
       remindersByStudent,
       lessonReminderStateByStudent,
     });
   }
-  return result;
+  return {
+    successCount: webResult.successCount + rustoreResult.successCount,
+    staleEndpoints: webResult.staleEndpoints,
+    staleTokens: rustoreResult.staleTokens,
+  };
 };
 
 const sendPushNotificationToUserKey = async (userKey, payload, options = {}) => {
   const key = String(userKey || '').trim();
-  if (!key || !payload || typeof payload !== 'object') return { successCount: 0, staleEndpoints: [] };
-  if (!pushRuntimeEnabled) {
-    const runtime = ensurePushRuntimeConfigured();
-    if (!runtime.enabled) return { successCount: 0, staleEndpoints: [] };
+  if (!key || !payload || typeof payload !== 'object') {
+    return { successCount: 0, staleEndpoints: [], staleTokens: [] };
   }
 
   const pushDb = readPushDb();
   const subscriptionsByUser = normalizePushSubscriptionsByUser(pushDb.subscriptionsByUser);
+  const rustoreTokensByUser = normalizeRuStoreTokensByUser(pushDb.rustoreTokensByUser);
   const subscriptions = Array.isArray(subscriptionsByUser[key]) ? subscriptionsByUser[key] : [];
-  if (subscriptions.length === 0) return { successCount: 0, staleEndpoints: [] };
+  const rustoreTokens = Array.isArray(rustoreTokensByUser[key]) ? rustoreTokensByUser[key] : [];
+  if (subscriptions.length === 0 && rustoreTokens.length === 0) {
+    return { successCount: 0, staleEndpoints: [], staleTokens: [] };
+  }
 
   const logTarget = options?.logTarget ? String(options.logTarget) : key;
-  const result = await sendPushNotificationToSubscriptions(subscriptions, payload, logTarget);
-  if (result.staleEndpoints.length > 0) {
-    const staleSet = new Set(result.staleEndpoints);
+  const webResult = subscriptions.length > 0
+    ? (pushRuntimeEnabled || ensurePushRuntimeConfigured().enabled
+      ? await sendPushNotificationToSubscriptions(subscriptions, payload, logTarget)
+      : { successCount: 0, staleEndpoints: [] })
+    : { successCount: 0, staleEndpoints: [] };
+  const rustoreResult = rustoreTokens.length > 0
+    ? await sendRuStorePushNotificationToTokens(rustoreTokens, payload, logTarget)
+    : { successCount: 0, staleTokens: [] };
+  if (webResult.staleEndpoints.length > 0 || rustoreResult.staleTokens.length > 0) {
+    const staleSet = new Set(webResult.staleEndpoints);
+    const staleTokenSet = new Set(rustoreResult.staleTokens);
     const next = subscriptions.filter((entry) => !staleSet.has(entry.endpoint));
+    const nextTokens = rustoreTokens.filter((entry) => !staleTokenSet.has(entry.token));
     if (next.length > 0) subscriptionsByUser[key] = next;
     else delete subscriptionsByUser[key];
+    if (nextTokens.length > 0) rustoreTokensByUser[key] = nextTokens;
+    else delete rustoreTokensByUser[key];
     writePushDb({
       ...pushDb,
       subscriptionsByUser,
+      rustoreTokensByUser,
     });
   }
-  return result;
+  return {
+    successCount: webResult.successCount + rustoreResult.successCount,
+    staleEndpoints: webResult.staleEndpoints,
+    staleTokens: rustoreResult.staleTokens,
+  };
 };
 
 const notifyStudentAboutNewHomework = async (student, entry) => {
   if (!student?.id || !entry) return;
-  if (!pushRuntimeEnabled) {
-    const runtime = ensurePushRuntimeConfigured();
-    if (!runtime.enabled) return;
-  }
   try {
     const pushDb = readPushDb();
-    const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
-    const remindersByStudent = normalizePushRemindersByStudent(pushDb.remindersByStudent);
-    const subscriptions = Array.isArray(subscriptionsByStudent[student.id])
-      ? subscriptionsByStudent[student.id]
-      : [];
-    if (subscriptions.length === 0) return;
+    const targets = getStudentPushTargets(pushDb, student.id);
+    if (!hasPushTargets(targets)) return;
 
     const testsDb = readTestsDb();
     const mockExamById = readMockExamsDb().reduce((acc, exam) => {
@@ -5127,34 +5487,24 @@ const notifyStudentAboutNewHomework = async (student, entry) => {
     }, {});
     const summary = evaluateLatestHomeworkProgressForStudent(student, testsDb, mockExamById);
     const payload = buildNewHomeworkPushPayload(student, entry, summary);
-    const result = await sendPushNotificationToSubscriptions(subscriptions, payload, student.id);
-
-    let changed = false;
-    if (result.staleEndpoints.length > 0) {
-      const staleSet = new Set(result.staleEndpoints);
-      subscriptionsByStudent[student.id] = subscriptions.filter((item) => !staleSet.has(item.endpoint));
-      changed = true;
-    }
+    const result = await sendPushNotificationToStudentId(student.id, payload, { logTarget: student.id });
 
     if (result.successCount > 0) {
+      const latestPushDb = readPushDb();
+      const nextRemindersByStudent = normalizePushRemindersByStudent(latestPushDb.remindersByStudent);
       if (summary && summary.pendingCount > 0) {
-        remindersByStudent[student.id] = {
+        nextRemindersByStudent[student.id] = {
           homeworkId: summary.homeworkId,
           pendingCount: summary.pendingCount,
           issuedAt: summary.issuedAt || '',
           lastSentAt: new Date().toISOString(),
         };
-      } else if (remindersByStudent[student.id]) {
-        delete remindersByStudent[student.id];
+      } else if (nextRemindersByStudent[student.id]) {
+        delete nextRemindersByStudent[student.id];
       }
-      changed = true;
-    }
-
-    if (changed) {
       writePushDb({
-        ...pushDb,
-        subscriptionsByStudent,
-        remindersByStudent,
+        ...latestPushDb,
+        remindersByStudent: nextRemindersByStudent,
       });
     }
   } catch (error) {
@@ -5164,23 +5514,25 @@ const notifyStudentAboutNewHomework = async (student, entry) => {
 
 const runPushReminderSweep = async () => {
   if (pushSweepInFlight) return;
-  if (!pushRuntimeEnabled) {
-    const runtime = ensurePushRuntimeConfigured();
-    if (!runtime.enabled) return;
-  }
   if (!isPushReminderWindowOpen()) return;
 
   pushSweepInFlight = true;
   try {
     const pushDb = readPushDb();
     const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
+    const rustoreTokensByStudent = normalizeRuStoreTokensByStudent(pushDb.rustoreTokensByStudent);
     const remindersByStudent = normalizePushRemindersByStudent(pushDb.remindersByStudent);
-    const studentIds = Object.keys(subscriptionsByStudent).filter((studentId) => (
-      Array.isArray(subscriptionsByStudent[studentId]) && subscriptionsByStudent[studentId].length > 0
-    ));
+    const studentIds = Array.from(new Set([
+      ...Object.keys(subscriptionsByStudent).filter((studentId) => (
+        Array.isArray(subscriptionsByStudent[studentId]) && subscriptionsByStudent[studentId].length > 0
+      )),
+      ...Object.keys(rustoreTokensByStudent).filter((studentId) => (
+        Array.isArray(rustoreTokensByStudent[studentId]) && rustoreTokensByStudent[studentId].length > 0
+      )),
+    ]));
     if (studentIds.length === 0) {
       if (Object.keys(remindersByStudent).length > 0) {
-        writePushDb({ ...pushDb, subscriptionsByStudent, remindersByStudent: {} });
+        writePushDb({ ...pushDb, subscriptionsByStudent, rustoreTokensByStudent, remindersByStudent: {} });
       }
       return;
     }
@@ -5197,6 +5549,7 @@ const runPushReminderSweep = async () => {
       const student = findStudentById(studentId);
       if (!student) {
         delete subscriptionsByStudent[studentId];
+        delete rustoreTokensByStudent[studentId];
         delete remindersByStudent[studentId];
         changed = true;
         continue;
@@ -5219,11 +5572,18 @@ const runPushReminderSweep = async () => {
 
       const payload = buildHomeworkPushPayload(summary);
       const subscriptions = subscriptionsByStudent[studentId] || [];
-      const result = await sendPushNotificationToSubscriptions(subscriptions, payload, studentId);
+      const rustoreTokens = rustoreTokensByStudent[studentId] || [];
+      const result = await sendPushNotificationToStudentId(studentId, payload, { logTarget: studentId });
 
-      if (result.staleEndpoints.length > 0) {
+      if (result.staleEndpoints.length > 0 || result.staleTokens.length > 0) {
         const staleSet = new Set(result.staleEndpoints);
-        subscriptionsByStudent[studentId] = subscriptions.filter((entry) => !staleSet.has(entry.endpoint));
+        const staleTokenSet = new Set(result.staleTokens);
+        const nextSubscriptions = subscriptions.filter((entry) => !staleSet.has(entry.endpoint));
+        const nextTokens = rustoreTokens.filter((entry) => !staleTokenSet.has(entry.token));
+        if (nextSubscriptions.length > 0) subscriptionsByStudent[studentId] = nextSubscriptions;
+        else delete subscriptionsByStudent[studentId];
+        if (nextTokens.length > 0) rustoreTokensByStudent[studentId] = nextTokens;
+        else delete rustoreTokensByStudent[studentId];
         changed = true;
       }
 
@@ -5235,7 +5595,10 @@ const runPushReminderSweep = async () => {
           lastSentAt: new Date().toISOString(),
         };
         changed = true;
-      } else if (!subscriptionsByStudent[studentId] || subscriptionsByStudent[studentId].length === 0) {
+      } else if (
+        (!subscriptionsByStudent[studentId] || subscriptionsByStudent[studentId].length === 0)
+        && (!rustoreTokensByStudent[studentId] || rustoreTokensByStudent[studentId].length === 0)
+      ) {
         delete remindersByStudent[studentId];
         changed = true;
       }
@@ -5245,6 +5608,7 @@ const runPushReminderSweep = async () => {
       writePushDb({
         ...pushDb,
         subscriptionsByStudent,
+        rustoreTokensByStudent,
         remindersByStudent,
       });
     }
@@ -5257,15 +5621,12 @@ const runPushReminderSweep = async () => {
 
 const runPushLessonReminderSweep = async () => {
   if (pushLessonSweepInFlight) return;
-  if (!pushRuntimeEnabled) {
-    const runtime = ensurePushRuntimeConfigured();
-    if (!runtime.enabled) return;
-  }
 
   pushLessonSweepInFlight = true;
   try {
     const pushDb = readPushDb();
     const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
+    const rustoreTokensByStudent = normalizeRuStoreTokensByStudent(pushDb.rustoreTokensByStudent);
     const lessonReminderSettingsByStudent = normalizePushLessonReminderSettingsByStudent(pushDb.lessonReminderSettingsByStudent);
     const lessonReminderStateByStudent = normalizePushLessonReminderStateByStudent(pushDb.lessonReminderStateByStudent);
     const nowMs = Date.now();
@@ -5273,6 +5634,7 @@ const runPushLessonReminderSweep = async () => {
 
     const candidateStudentIds = Array.from(new Set([
       ...Object.keys(subscriptionsByStudent),
+      ...Object.keys(rustoreTokensByStudent),
       ...Object.keys(lessonReminderSettingsByStudent),
       ...Object.keys(lessonReminderStateByStudent),
     ]));
@@ -5282,6 +5644,10 @@ const runPushLessonReminderSweep = async () => {
       if (!student) {
         if (subscriptionsByStudent[studentId]) {
           delete subscriptionsByStudent[studentId];
+          changed = true;
+        }
+        if (rustoreTokensByStudent[studentId]) {
+          delete rustoreTokensByStudent[studentId];
           changed = true;
         }
         if (lessonReminderSettingsByStudent[studentId]) {
@@ -5298,6 +5664,7 @@ const runPushLessonReminderSweep = async () => {
       const settings = lessonReminderSettingsByStudent[studentId];
       const enabled = Boolean(settings?.enabled);
       let subscriptions = Array.isArray(subscriptionsByStudent[studentId]) ? subscriptionsByStudent[studentId] : [];
+      let rustoreTokens = Array.isArray(rustoreTokensByStudent[studentId]) ? rustoreTokensByStudent[studentId] : [];
       const studentData = getStudentData(student.id);
       const schedule = Array.isArray(studentData?.schedule) ? studentData.schedule : [];
       const knownSlotIds = new Set(schedule.map((entry) => getScheduleSlotId(entry)).filter(Boolean));
@@ -5311,12 +5678,12 @@ const runPushLessonReminderSweep = async () => {
         changed = true;
       }
 
-      if (!enabled || subscriptions.length === 0 || schedule.length === 0) {
+      if (!enabled || (subscriptions.length === 0 && rustoreTokens.length === 0) || schedule.length === 0) {
         if ((!enabled || schedule.length === 0) && nextState.length > 0) {
           delete lessonReminderStateByStudent[studentId];
           changed = true;
         }
-        if (enabled && schedule.length > 0 && subscriptions.length === 0 && nextState.length > 0) {
+        if (enabled && schedule.length > 0 && subscriptions.length === 0 && rustoreTokens.length === 0 && nextState.length > 0) {
           // Keep no state while there are no active subscriptions.
           delete lessonReminderStateByStudent[studentId];
           changed = true;
@@ -5335,17 +5702,26 @@ const runPushLessonReminderSweep = async () => {
         if (previous?.occurrenceKey === reminder.occurrenceKey) continue;
 
         const payload = buildLessonReminderPushPayload(entry, reminder);
-        const result = await sendPushNotificationToSubscriptions(subscriptions, payload, `lesson:${studentId}`);
+        const result = await sendPushNotificationToStudentId(studentId, payload, { logTarget: `lesson:${studentId}` });
 
-        if (result.staleEndpoints.length > 0) {
+        if (result.staleEndpoints.length > 0 || result.staleTokens.length > 0) {
           const staleSet = new Set(result.staleEndpoints);
+          const staleTokenSet = new Set(result.staleTokens);
           const filtered = subscriptions.filter((sub) => !staleSet.has(sub.endpoint));
+          const filteredTokens = rustoreTokens.filter((entry) => !staleTokenSet.has(entry.token));
           if (filtered.length > 0) {
             subscriptionsByStudent[studentId] = filtered;
             subscriptions = filtered;
           } else {
             delete subscriptionsByStudent[studentId];
             subscriptions = [];
+          }
+          if (filteredTokens.length > 0) {
+            rustoreTokensByStudent[studentId] = filteredTokens;
+            rustoreTokens = filteredTokens;
+          } else {
+            delete rustoreTokensByStudent[studentId];
+            rustoreTokens = [];
           }
           changed = true;
         }
@@ -5372,6 +5748,7 @@ const runPushLessonReminderSweep = async () => {
       writePushDb({
         ...pushDb,
         subscriptionsByStudent,
+        rustoreTokensByStudent,
         lessonReminderSettingsByStudent,
         lessonReminderStateByStudent,
       });
@@ -5385,15 +5762,11 @@ const runPushLessonReminderSweep = async () => {
 
 const runPushTeacherCalendarReminderSweep = async () => {
   if (pushTeacherCalendarSweepInFlight) return;
-  if (!pushRuntimeEnabled) {
-    const runtime = ensurePushRuntimeConfigured();
-    if (!runtime.enabled) return;
-  }
-
   pushTeacherCalendarSweepInFlight = true;
   try {
     const pushDb = readPushDb();
     const subscriptionsByUser = normalizePushSubscriptionsByUser(pushDb.subscriptionsByUser);
+    const rustoreTokensByUser = normalizeRuStoreTokensByUser(pushDb.rustoreTokensByUser);
     const reminderSettingsByTeacher = normalizePushTeacherCalendarReminderSettingsByTeacher(pushDb.teacherCalendarReminderSettingsByTeacher);
     const reminderStateByTeacher = normalizePushTeacherCalendarReminderStateByTeacher(pushDb.teacherCalendarReminderStateByTeacher);
     const teachers = readTeachersDb();
@@ -5411,6 +5784,9 @@ const runPushTeacherCalendarReminderSweep = async () => {
       ...Object.keys(subscriptionsByUser)
         .filter((key) => key.startsWith('teacher:'))
         .map((key) => key.slice('teacher:'.length)),
+      ...Object.keys(rustoreTokensByUser)
+        .filter((key) => key.startsWith('teacher:'))
+        .map((key) => key.slice('teacher:'.length)),
     ]));
 
     for (const teacherId of candidateTeacherIds) {
@@ -5421,6 +5797,10 @@ const runPushTeacherCalendarReminderSweep = async () => {
       if (!activeTeacherIds.has(normalizedTeacherId)) {
         if (subscriptionsByUser[userKey]) {
           delete subscriptionsByUser[userKey];
+          changed = true;
+        }
+        if (rustoreTokensByUser[userKey]) {
+          delete rustoreTokensByUser[userKey];
           changed = true;
         }
         if (reminderSettingsByTeacher[normalizedTeacherId]) {
@@ -5436,6 +5816,7 @@ const runPushTeacherCalendarReminderSweep = async () => {
 
       const enabled = Boolean(reminderSettingsByTeacher[normalizedTeacherId]?.enabled);
       let subscriptions = Array.isArray(subscriptionsByUser[userKey]) ? subscriptionsByUser[userKey] : [];
+      let rustoreTokens = Array.isArray(rustoreTokensByUser[userKey]) ? rustoreTokensByUser[userKey] : [];
       const scheduleEntries = getTeacherScheduleEntries(normalizedTeacherId)
         .map((entry) => {
           const slotId = getScheduleSlotId(entry);
@@ -5468,7 +5849,7 @@ const runPushTeacherCalendarReminderSweep = async () => {
         changed = true;
       }
 
-      if (!enabled || subscriptions.length === 0 || scheduleEntries.length === 0) {
+      if (!enabled || (subscriptions.length === 0 && rustoreTokens.length === 0) || scheduleEntries.length === 0) {
         if (reminderStateByTeacher[normalizedTeacherId]?.length > 0) {
           delete reminderStateByTeacher[normalizedTeacherId];
           changed = true;
@@ -5490,21 +5871,28 @@ const runPushTeacherCalendarReminderSweep = async () => {
         if (previous?.occurrenceKey === reminder.occurrenceKey) continue;
 
         const payload = buildTeacherCalendarReminderPushPayload(entry, reminder, student, { slotKey });
-        const result = await sendPushNotificationToSubscriptions(
-          subscriptions,
-          payload,
-          `teacher-calendar:${normalizedTeacherId}`
-        );
+        const result = await sendPushNotificationToUserKey(userKey, payload, {
+          logTarget: `teacher-calendar:${normalizedTeacherId}`,
+        });
 
-        if (result.staleEndpoints.length > 0) {
+        if (result.staleEndpoints.length > 0 || result.staleTokens.length > 0) {
           const staleSet = new Set(result.staleEndpoints);
+          const staleTokenSet = new Set(result.staleTokens);
           const filtered = subscriptions.filter((sub) => !staleSet.has(sub.endpoint));
+          const filteredTokens = rustoreTokens.filter((entry) => !staleTokenSet.has(entry.token));
           if (filtered.length > 0) {
             subscriptionsByUser[userKey] = filtered;
             subscriptions = filtered;
           } else {
             delete subscriptionsByUser[userKey];
             subscriptions = [];
+          }
+          if (filteredTokens.length > 0) {
+            rustoreTokensByUser[userKey] = filteredTokens;
+            rustoreTokens = filteredTokens;
+          } else {
+            delete rustoreTokensByUser[userKey];
+            rustoreTokens = [];
           }
           changed = true;
         }
@@ -5531,6 +5919,7 @@ const runPushTeacherCalendarReminderSweep = async () => {
       writePushDb({
         ...pushDb,
         subscriptionsByUser,
+        rustoreTokensByUser,
         teacherCalendarReminderSettingsByTeacher: reminderSettingsByTeacher,
         teacherCalendarReminderStateByTeacher: reminderStateByTeacher,
       });
@@ -7045,6 +7434,26 @@ app.post('/api/student-chats/:chatId/messages', (req, res) => {
   });
 });
 
+const normalizeRequestedPushProvider = (value) => {
+  const provider = String(value || '').trim().toLowerCase();
+  return provider === 'rustore' ? 'rustore' : 'web';
+};
+
+const buildPushSubscriptionStatusResponse = ({ subscriptions = [], rustoreTokens = [] } = {}) => {
+  const webCount = Array.isArray(subscriptions) ? subscriptions.length : 0;
+  const rustoreCount = Array.isArray(rustoreTokens) ? rustoreTokens.length : 0;
+  const providers = [];
+  if (webCount > 0) providers.push('web');
+  if (rustoreCount > 0) providers.push('rustore');
+  return {
+    subscribed: webCount > 0 || rustoreCount > 0,
+    count: webCount + rustoreCount,
+    webCount,
+    rustoreCount,
+    providers,
+  };
+};
+
 app.get('/api/push/public-key', (req, res) => {
   if (!isStudentRole(req.auth) && !isTeacherRole(req.auth) && !isLeadRole(req.auth)) return forbid(res);
   if (isStudentRole(req.auth)) {
@@ -7064,91 +7473,60 @@ app.get('/api/push/public-key', (req, res) => {
 app.get('/api/push/subscription', (req, res) => {
   if (!isStudentRole(req.auth) && !isTeacherRole(req.auth) && !isLeadRole(req.auth)) return forbid(res);
   const pushDb = readPushDb();
-  const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
-  const subscriptionsByUser = normalizePushSubscriptionsByUser(pushDb.subscriptionsByUser);
-  let list = [];
+  let targets = { subscriptions: [], rustoreTokens: [] };
   if (isStudentRole(req.auth)) {
     const student = findStudentById(req.auth.id);
     if (!student) return res.status(404).json({ error: 'Ученик не найден' });
-    list = Array.isArray(subscriptionsByStudent[student.id]) ? subscriptionsByStudent[student.id] : [];
+    targets = getStudentPushTargets(pushDb, student.id);
   } else {
     const userKey = getPushUserStorageKey(req.auth);
-    list = userKey && Array.isArray(subscriptionsByUser[userKey]) ? subscriptionsByUser[userKey] : [];
+    if (!userKey) return forbid(res);
+    targets = getUserPushTargets(pushDb, userKey);
   }
-  return res.json({
-    subscribed: list.length > 0,
-    count: list.length,
-  });
+  return res.json(buildPushSubscriptionStatusResponse(targets));
 });
 
 app.post('/api/push/test', async (req, res) => {
   if (!isStudentRole(req.auth) && !isTeacherRole(req.auth) && !isLeadRole(req.auth)) return forbid(res);
-  const runtime = ensurePushRuntimeConfigured();
-  if (!runtime.enabled) {
-    return res.status(503).json({ error: runtime.error || 'Push не настроен на сервере' });
-  }
-
   try {
     const pushDb = readPushDb();
-    const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
-    const subscriptionsByUser = normalizePushSubscriptionsByUser(pushDb.subscriptionsByUser);
-    let subscriptions = [];
     let userKey = '';
     let logTarget = '';
+    let targets = { subscriptions: [], rustoreTokens: [] };
 
     if (isStudentRole(req.auth)) {
       const student = findStudentById(req.auth.id);
       if (!student) return res.status(404).json({ error: 'Ученик не найден' });
-      subscriptions = Array.isArray(subscriptionsByStudent[student.id]) ? subscriptionsByStudent[student.id] : [];
       logTarget = `student:${student.id}`;
+      targets = getStudentPushTargets(pushDb, student.id);
     } else {
       userKey = getPushUserStorageKey(req.auth);
       if (!userKey) return forbid(res);
-      subscriptions = Array.isArray(subscriptionsByUser[userKey]) ? subscriptionsByUser[userKey] : [];
       logTarget = userKey;
+      targets = getUserPushTargets(pushDb, userKey);
     }
 
-    if (subscriptions.length === 0) {
-      return res.status(400).json({ error: 'Push не включен в этом браузере. Сначала нажмите "Включить push".' });
-    }
-
-    const payload = buildPushTestPayload(req.auth);
-    const result = await sendPushNotificationToSubscriptions(subscriptions, payload, `push-test:${logTarget}`);
-    let changed = false;
-
-    if (result.staleEndpoints.length > 0) {
-      const staleSet = new Set(result.staleEndpoints);
-      if (isStudentRole(req.auth)) {
-        const studentId = String(req.auth.id || '').trim();
-        const filtered = subscriptions.filter((entry) => !staleSet.has(entry.endpoint));
-        if (filtered.length > 0) subscriptionsByStudent[studentId] = filtered;
-        else delete subscriptionsByStudent[studentId];
-      } else if (userKey) {
-        const filtered = subscriptions.filter((entry) => !staleSet.has(entry.endpoint));
-        if (filtered.length > 0) subscriptionsByUser[userKey] = filtered;
-        else delete subscriptionsByUser[userKey];
-      }
-      changed = true;
-    }
-
-    if (changed) {
-      writePushDb({
-        ...pushDb,
-        subscriptionsByStudent,
-        subscriptionsByUser,
+    if (!hasPushTargets(targets)) {
+      return res.status(400).json({
+        error: 'Push не включен на этом устройстве. Сначала нажмите "Включить push".',
       });
     }
 
+    const payload = buildPushTestPayload(req.auth);
+    const result = isStudentRole(req.auth)
+      ? await sendPushNotificationToStudentId(req.auth.id, payload, { logTarget: `push-test:${logTarget}` })
+      : await sendPushNotificationToUserKey(userKey, payload, { logTarget: `push-test:${logTarget}` });
+
     if (result.successCount <= 0) {
       return res.status(502).json({
-        error: 'Не удалось доставить тестовое push-уведомление. Проверьте разрешения браузера.',
+        error: 'Не удалось доставить тестовое push-уведомление. Проверьте разрешения приложения или браузера.',
       });
     }
 
     return res.json({
       ok: true,
       sent: result.successCount,
-      staleRemoved: result.staleEndpoints.length,
+      staleRemoved: result.staleEndpoints.length + (Array.isArray(result.staleTokens) ? result.staleTokens.length : 0),
     });
   } catch (error) {
     console.error('[push] test notification failed:', error);
@@ -7167,14 +7545,7 @@ app.post('/api/push/subscription', (req, res) => {
     userKey = getPushUserStorageKey(req.auth);
     if (!userKey) return forbid(res);
   }
-  const runtime = ensurePushRuntimeConfigured();
-  if (!runtime.enabled) {
-    return res.status(503).json({ error: runtime.error || 'Push не настроен на сервере' });
-  }
-  const subscription = normalizePushSubscription(req.body?.subscription || req.body);
-  if (!subscription) {
-    return res.status(400).json({ error: 'Некорректная push-подписка' });
-  }
+  const provider = normalizeRequestedPushProvider(req.body?.provider);
   const userAgent = typeof req.headers['user-agent'] === 'string'
     ? req.headers['user-agent'].slice(0, 500)
     : '';
@@ -7182,7 +7553,92 @@ app.post('/api/push/subscription', (req, res) => {
   const pushDb = readPushDb();
   const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
   const subscriptionsByUser = normalizePushSubscriptionsByUser(pushDb.subscriptionsByUser);
+  const rustoreTokensByStudent = normalizeRuStoreTokensByStudent(pushDb.rustoreTokensByStudent);
+  const rustoreTokensByUser = normalizeRuStoreTokensByUser(pushDb.rustoreTokensByUser);
   let changed = false;
+  const nowIso = new Date().toISOString();
+
+  if (provider === 'rustore') {
+    const token = normalizeRuStorePushToken(req.body?.token || req.body);
+    if (!token) {
+      return res.status(400).json({ error: 'Некорректный RuStore push-токен' });
+    }
+
+    Object.keys(rustoreTokensByStudent).forEach((studentId) => {
+      if (student && studentId === student.id) return;
+      const filtered = (rustoreTokensByStudent[studentId] || []).filter((entry) => entry.token !== token);
+      if (filtered.length !== (rustoreTokensByStudent[studentId] || []).length) {
+        changed = true;
+        if (filtered.length > 0) rustoreTokensByStudent[studentId] = filtered;
+        else delete rustoreTokensByStudent[studentId];
+      }
+    });
+    Object.keys(rustoreTokensByUser).forEach((key) => {
+      if (userKey && key === userKey) return;
+      const filtered = (rustoreTokensByUser[key] || []).filter((entry) => entry.token !== token);
+      if (filtered.length !== (rustoreTokensByUser[key] || []).length) {
+        changed = true;
+        if (filtered.length > 0) rustoreTokensByUser[key] = filtered;
+        else delete rustoreTokensByUser[key];
+      }
+    });
+
+    const ownerList = student
+      ? (Array.isArray(rustoreTokensByStudent[student.id]) ? rustoreTokensByStudent[student.id] : [])
+      : (Array.isArray(rustoreTokensByUser[userKey]) ? rustoreTokensByUser[userKey] : []);
+    const current = [...ownerList];
+    const idx = current.findIndex((entry) => entry.token === token);
+    if (idx >= 0) {
+      const prev = current[idx];
+      current[idx] = {
+        ...prev,
+        token,
+        updatedAt: nowIso,
+        userAgent,
+        platform: 'android',
+      };
+    } else {
+      current.unshift({
+        token,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        userAgent,
+        platform: 'android',
+      });
+    }
+
+    if (student) rustoreTokensByStudent[student.id] = current;
+    else rustoreTokensByUser[userKey] = current;
+
+    writePushDb({
+      ...pushDb,
+      subscriptionsByStudent,
+      subscriptionsByUser,
+      rustoreTokensByStudent,
+      rustoreTokensByUser,
+    });
+
+    const targets = student
+      ? getStudentPushTargets({ subscriptionsByStudent, subscriptionsByUser, rustoreTokensByStudent, rustoreTokensByUser }, student.id)
+      : getUserPushTargets({ subscriptionsByStudent, subscriptionsByUser, rustoreTokensByStudent, rustoreTokensByUser }, userKey);
+
+    return res.json({
+      ok: true,
+      provider: 'rustore',
+      ...buildPushSubscriptionStatusResponse(targets),
+      changed: changed || idx === -1,
+    });
+  }
+
+  const runtime = ensurePushRuntimeConfigured();
+  if (!runtime.enabled) {
+    return res.status(503).json({ error: runtime.error || 'Push не настроен на сервере' });
+  }
+
+  const subscription = normalizePushSubscription(req.body?.subscription || req.body);
+  if (!subscription) {
+    return res.status(400).json({ error: 'Некорректная push-подписка' });
+  }
 
   Object.keys(subscriptionsByStudent).forEach((studentId) => {
     if (student && studentId === student.id) return;
@@ -7203,7 +7659,6 @@ app.post('/api/push/subscription', (req, res) => {
     }
   });
 
-  const nowIso = new Date().toISOString();
   const ownerList = student
     ? (Array.isArray(subscriptionsByStudent[student.id]) ? subscriptionsByStudent[student.id] : [])
     : (Array.isArray(subscriptionsByUser[userKey]) ? subscriptionsByUser[userKey] : []);
@@ -7232,12 +7687,22 @@ app.post('/api/push/subscription', (req, res) => {
   } else {
     subscriptionsByUser[userKey] = current;
   }
-  writePushDb({ ...pushDb, subscriptionsByStudent, subscriptionsByUser });
+  writePushDb({
+    ...pushDb,
+    subscriptionsByStudent,
+    subscriptionsByUser,
+    rustoreTokensByStudent,
+    rustoreTokensByUser,
+  });
+
+  const targets = student
+    ? getStudentPushTargets({ subscriptionsByStudent, subscriptionsByUser, rustoreTokensByStudent, rustoreTokensByUser }, student.id)
+    : getUserPushTargets({ subscriptionsByStudent, subscriptionsByUser, rustoreTokensByStudent, rustoreTokensByUser }, userKey);
 
   return res.json({
     ok: true,
-    subscribed: true,
-    count: current.length,
+    provider: 'web',
+    ...buildPushSubscriptionStatusResponse(targets),
     changed: changed || idx === -1,
   });
 });
@@ -7254,13 +7719,70 @@ app.delete('/api/push/subscription', (req, res) => {
     if (!userKey) return forbid(res);
   }
 
+  const provider = normalizeRequestedPushProvider(req.body?.provider || req.query?.provider);
   const endpoint = String(req.body?.endpoint || req.query?.endpoint || '').trim();
+  const token = normalizeRuStorePushToken(req.body?.token || req.query?.token || '');
   const pushDb = readPushDb();
   const subscriptionsByStudent = normalizePushSubscriptionsByStudent(pushDb.subscriptionsByStudent);
   const subscriptionsByUser = normalizePushSubscriptionsByUser(pushDb.subscriptionsByUser);
+  const rustoreTokensByStudent = normalizeRuStoreTokensByStudent(pushDb.rustoreTokensByStudent);
+  const rustoreTokensByUser = normalizeRuStoreTokensByUser(pushDb.rustoreTokensByUser);
   const remindersByStudent = normalizePushRemindersByStudent(pushDb.remindersByStudent);
   const lessonReminderStateByStudent = normalizePushLessonReminderStateByStudent(pushDb.lessonReminderStateByStudent);
   const teacherCalendarReminderStateByTeacher = normalizePushTeacherCalendarReminderStateByTeacher(pushDb.teacherCalendarReminderStateByTeacher);
+
+  if (provider === 'rustore') {
+    const current = student
+      ? (Array.isArray(rustoreTokensByStudent[student.id]) ? [...rustoreTokensByStudent[student.id]] : [])
+      : (Array.isArray(rustoreTokensByUser[userKey]) ? [...rustoreTokensByUser[userKey]] : []);
+    const next = token
+      ? current.filter((entry) => entry.token !== token)
+      : [];
+
+    if (next.length > 0) {
+      if (student) rustoreTokensByStudent[student.id] = next;
+      else rustoreTokensByUser[userKey] = next;
+    } else if (student) {
+      delete rustoreTokensByStudent[student.id];
+      if (!subscriptionsByStudent[student.id] || subscriptionsByStudent[student.id].length === 0) {
+        delete remindersByStudent[student.id];
+        if (lessonReminderStateByStudent[student.id]) delete lessonReminderStateByStudent[student.id];
+      }
+    } else {
+      delete rustoreTokensByUser[userKey];
+      if (
+        (!subscriptionsByUser[userKey] || subscriptionsByUser[userKey].length === 0)
+        && isTeacherRole(req.auth)
+      ) {
+        const teacherId = String(req.auth?.id || '').trim();
+        if (teacherId && teacherCalendarReminderStateByTeacher[teacherId]) {
+          delete teacherCalendarReminderStateByTeacher[teacherId];
+        }
+      }
+    }
+
+    writePushDb({
+      ...pushDb,
+      subscriptionsByStudent,
+      subscriptionsByUser,
+      rustoreTokensByStudent,
+      rustoreTokensByUser,
+      remindersByStudent,
+      lessonReminderStateByStudent,
+      teacherCalendarReminderStateByTeacher,
+    });
+
+    const targets = student
+      ? getStudentPushTargets({ subscriptionsByStudent, subscriptionsByUser, rustoreTokensByStudent, rustoreTokensByUser }, student.id)
+      : getUserPushTargets({ subscriptionsByStudent, subscriptionsByUser, rustoreTokensByStudent, rustoreTokensByUser }, userKey);
+
+    return res.json({
+      ok: true,
+      provider: 'rustore',
+      ...buildPushSubscriptionStatusResponse(targets),
+    });
+  }
+
   const current = student
     ? (Array.isArray(subscriptionsByStudent[student.id]) ? [...subscriptionsByStudent[student.id]] : [])
     : (Array.isArray(subscriptionsByUser[userKey]) ? [...subscriptionsByUser[userKey]] : []);
@@ -7271,18 +7793,21 @@ app.delete('/api/push/subscription', (req, res) => {
   if (next.length > 0) {
     if (student) subscriptionsByStudent[student.id] = next;
     else subscriptionsByUser[userKey] = next;
-  } else {
-    if (student) {
-      delete subscriptionsByStudent[student.id];
+  } else if (student) {
+    delete subscriptionsByStudent[student.id];
+    if (!rustoreTokensByStudent[student.id] || rustoreTokensByStudent[student.id].length === 0) {
       delete remindersByStudent[student.id];
       if (lessonReminderStateByStudent[student.id]) delete lessonReminderStateByStudent[student.id];
-    } else {
-      delete subscriptionsByUser[userKey];
-      if (isTeacherRole(req.auth)) {
-        const teacherId = String(req.auth?.id || '').trim();
-        if (teacherId && teacherCalendarReminderStateByTeacher[teacherId]) {
-          delete teacherCalendarReminderStateByTeacher[teacherId];
-        }
+    }
+  } else {
+    delete subscriptionsByUser[userKey];
+    if (
+      (!rustoreTokensByUser[userKey] || rustoreTokensByUser[userKey].length === 0)
+      && isTeacherRole(req.auth)
+    ) {
+      const teacherId = String(req.auth?.id || '').trim();
+      if (teacherId && teacherCalendarReminderStateByTeacher[teacherId]) {
+        delete teacherCalendarReminderStateByTeacher[teacherId];
       }
     }
   }
@@ -7291,15 +7816,21 @@ app.delete('/api/push/subscription', (req, res) => {
     ...pushDb,
     subscriptionsByStudent,
     subscriptionsByUser,
+    rustoreTokensByStudent,
+    rustoreTokensByUser,
     remindersByStudent,
     lessonReminderStateByStudent,
     teacherCalendarReminderStateByTeacher,
   });
 
+  const targets = student
+    ? getStudentPushTargets({ subscriptionsByStudent, subscriptionsByUser, rustoreTokensByStudent, rustoreTokensByUser }, student.id)
+    : getUserPushTargets({ subscriptionsByStudent, subscriptionsByUser, rustoreTokensByStudent, rustoreTokensByUser }, userKey);
+
   return res.json({
     ok: true,
-    subscribed: next.length > 0,
-    count: next.length,
+    provider: 'web',
+    ...buildPushSubscriptionStatusResponse(targets),
   });
 });
 
