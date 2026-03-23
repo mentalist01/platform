@@ -91,25 +91,43 @@ const normalizeRelativePath = (value) => {
   return `/${trimmed.replace(/^\/+/, '')}`;
 };
 
+const splitRelativeUrl = (value) => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) {
+    return { pathname: '/', search: '', hash: '' };
+  }
+  const hashIndex = trimmed.indexOf('#');
+  const withoutHash = hashIndex >= 0 ? trimmed.slice(0, hashIndex) : trimmed;
+  const hash = hashIndex >= 0 ? trimmed.slice(hashIndex) : '';
+  const searchIndex = withoutHash.indexOf('?');
+  const pathname = searchIndex >= 0 ? withoutHash.slice(0, searchIndex) : withoutHash;
+  const search = searchIndex >= 0 ? withoutHash.slice(searchIndex) : '';
+  return {
+    pathname: normalizeRelativePath(pathname),
+    search,
+    hash,
+  };
+};
+
 const joinUrl = (base, nextPath) => {
   const normalizedBase = trimTrailingSlash(base);
-  const normalizedPath = normalizeRelativePath(nextPath);
-  if (!normalizedBase) return normalizedPath;
+  const { pathname, search, hash } = splitRelativeUrl(nextPath);
+  if (!normalizedBase) return `${pathname}${search}${hash}`;
   try {
     const url = new URL(normalizedBase);
     const basePath = trimTrailingSlash(url.pathname || '') || '';
     if (!basePath || basePath === '/') {
-      url.pathname = normalizedPath;
-    } else if (normalizedPath === basePath || normalizedPath.startsWith(`${basePath}/`)) {
-      url.pathname = normalizedPath;
+      url.pathname = pathname;
+    } else if (pathname === basePath || pathname.startsWith(`${basePath}/`)) {
+      url.pathname = pathname;
     } else {
-      url.pathname = `${basePath}${normalizedPath}`;
+      url.pathname = `${basePath}${pathname}`;
     }
-    url.search = '';
-    url.hash = '';
+    url.search = search;
+    url.hash = hash;
     return url.toString();
   } catch {
-    return `${normalizedBase}${normalizedPath}`;
+    return `${normalizedBase}${pathname}${search}${hash}`;
   }
 };
 
