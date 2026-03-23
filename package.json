@@ -7,10 +7,15 @@
     "dev": "vite",
     "server": "node server/index.js",
     "build": "vite build",
+    "android:prepare": "npm run build && npx cap sync android",
+    "cap:sync": "npx cap sync",
+    "cap:open:android": "npx cap open android",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/android": "^8.2.0",
+    "@capacitor/core": "^8.2.0",
     "@monaco-editor/react": "^4.6.0",
     "express": "^4.21.2",
     "lucide-react": "^0.563.0",
@@ -27,6 +32,7 @@
     "yjs": "13.6.29"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.2.0",
     "@eslint/js": "^9.39.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",

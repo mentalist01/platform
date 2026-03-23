@@ -18,23 +18,10 @@ import {
   normalizeTheoryRecording,
   THEORY_RECORDING_TYPE,
 } from '../utils/theoryRecording';
+import { getCollabWsUrl } from '../utils/runtimeUrls';
 
 const QUESTION_CODE_SAVE_DEBOUNCE_MS = 250;
 const COLLAB_SEED_DELAY_MS = 450;
-
-const getCollabWsUrl = () => {
-  if (typeof window === 'undefined') return '';
-  const envUrl = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_COLLAB_WS_URL : '';
-  const normalizedEnvUrl = typeof envUrl === 'string' ? envUrl.trim() : '';
-  if (normalizedEnvUrl) return normalizedEnvUrl;
-
-  const { protocol, hostname, port, host } = window.location;
-  const wsProtocol = protocol === 'https:' ? 'wss' : 'ws';
-  if ((import.meta?.env?.DEV || port === '5173') && port === '5173') {
-    return `${wsProtocol}://${hostname}:5175/collab`;
-  }
-  return `${wsProtocol}://${host}/collab`;
-};
 
 const hashSeed = (value) => {
   const text = String(value || '');

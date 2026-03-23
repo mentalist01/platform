@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Platform EGE</string>
+    <string name="title_activity_main">Platform EGE</string>
+    <string name="package_name">ru.ivank.egeplatform</string>
+    <string name="custom_url_scheme">ru.ivank.egeplatform</string>
+    <string name="rustore_push_project_id"></string>
+    <string name="rustore_push_notification_channel_id">ege_platform_general</string>
+</resources>

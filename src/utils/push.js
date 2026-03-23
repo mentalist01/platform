@@ -1,15 +1,94 @@
+import { Capacitor, registerPlugin } from '@capacitor/core';
+
 const PUSH_SW_URL = '/sw-push.js';
 let pushRegistrationPromise = null;
+const RuStorePush = registerPlugin('RuStorePush');
+
+export const isNativeAndroidPushEnvironment = () => (
+  Capacitor.isNativePlatform()
+  && Capacitor.getPlatform() === 'android'
+);
+
+const normalizeNativePermission = (value) => {
+  const permission = String(value || '').trim().toLowerCase();
+  if (permission === 'granted' || permission === 'denied') return permission;
+  return 'default';
+};
+
+export const getNativePushStatus = async () => {
+  if (!isNativeAndroidPushEnvironment()) {
+    return {
+      supported: false,
+      configured: false,
+      available: false,
+      permission: 'default',
+      token: '',
+      reason: '',
+      lastError: '',
+      messageData: null,
+    };
+  }
+  const status = await RuStorePush.getStatus();
+  return {
+    supported: Boolean(status?.supported),
+    configured: Boolean(status?.configured),
+    available: Boolean(status?.available),
+    permission: normalizeNativePermission(status?.permission),
+    token: typeof status?.token === 'string' ? status.token.trim() : '',
+    reason: typeof status?.reason === 'string' ? status.reason.trim() : '',
+    lastError: typeof status?.lastError === 'string' ? status.lastError.trim() : '',
+    messageData: status?.messageData && typeof status.messageData === 'object'
+      ? status.messageData
+      : null,
+  };
+};
+
+export const requestNativePushPermission = async () => {
+  if (!isNativeAndroidPushEnvironment()) {
+    return { permission: 'default' };
+  }
+  const result = await RuStorePush.requestPermissions();
+  return {
+    permission: normalizeNativePermission(result?.permission),
+  };
+};
+
+export const enableNativePush = async () => {
+  if (!isNativeAndroidPushEnvironment()) {
+    throw new Error('RuStore Push доступен только в Android APK.');
+  }
+  const result = await RuStorePush.enable();
+  return {
+    token: typeof result?.token === 'string' ? result.token.trim() : '',
+    permission: normalizeNativePermission(result?.permission),
+  };
+};
+
+export const disableNativePush = async () => {
+  if (!isNativeAndroidPushEnvironment()) {
+    return { token: '', previousToken: '', warning: '' };
+  }
+  const result = await RuStorePush.disable();
+  return {
+    token: typeof result?.token === 'string' ? result.token.trim() : '',
+    previousToken: typeof result?.previousToken === 'string' ? result.previousToken.trim() : '',
+    warning: typeof result?.warning === 'string' ? result.warning.trim() : '',
+  };
+};
 
 export const isPushFeatureSupported = () => (
+  isNativeAndroidPushEnvironment()
+  || (
   typeof window !== 'undefined'
   && typeof navigator !== 'undefined'
   && 'serviceWorker' in navigator
   && 'PushManager' in window
   && 'Notification' in window
+  )
 );
 
 export const getPushPermission = () => {
+  if (isNativeAndroidPushEnvironment()) return 'default';
   if (typeof Notification === 'undefined') return 'default';
   return Notification.permission || 'default';
 };

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { api } from '../services/api';
 import { Button } from './ui';
+import { resolveUploadsUrl } from '../utils/runtimeUrls';
 
 const getAttachmentKey = (item) => String(item?.storageName || item?.id || item?.url || item?.name || '').trim();
 const buildAttachmentSignature = (items = []) => (
@@ -442,7 +443,7 @@ const MockExamEditorModal = ({
                   {(existingScreenshots.length > 0 || previewScreens.length > 0) && (
                     <div className="mt-2 space-y-2">
                       {existingScreenshots.map((item, idx) => {
-                        const previewUrl = item?.url || (item?.storageName ? `/uploads/${item.storageName}` : '');
+                        const previewUrl = resolveUploadsUrl(item?.url || (item?.storageName ? `/uploads/${item.storageName}` : ''));
                         return (
                           <div key={item.storageName || item.id || idx} className="flex items-start justify-between gap-3 text-xs bg-white border border-gray-200 rounded-lg px-2 py-2">
                             <div className="flex min-w-0 items-start gap-3">

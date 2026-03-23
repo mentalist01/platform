@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import ScheduleProgressTree from './ScheduleProgressTree';
 import { Button, Card } from './ui';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
+import { resolveApiUrl } from '../utils/runtimeUrls';
 
 const AUTO_REFRESH_INTERVAL_MS = 5000;
 const DEFAULT_SCHEDULE_SUBJECT = 'Занятие';
@@ -352,7 +353,7 @@ const ScheduleSection = ({
     if (!effectiveStudentId || typeof window === 'undefined' || typeof window.EventSource !== 'function') {
       return undefined;
     }
-    const source = new window.EventSource('/api/schedule-sync/stream');
+    const source = new window.EventSource(resolveApiUrl('/api/schedule-sync/stream'), { withCredentials: true });
     const handleScheduleSync = (event) => {
       let payload = null;
       try {

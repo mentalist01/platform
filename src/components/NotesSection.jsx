@@ -1402,7 +1402,7 @@ const NotesSection = ({
 
     setPyLoadingId(file.id);
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { credentials: 'include' });
       if (!res.ok) throw new Error('Не удалось загрузить файл');
       const text = await res.text();
       setPyContent((prev) => ({ ...prev, [file.id]: text }));

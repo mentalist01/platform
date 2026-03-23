@@ -12,6 +12,7 @@ import {
   Search,
 } from 'lucide-react';
 import { api } from '../services/api';
+import { resolveApiUrl } from '../utils/runtimeUrls';
 
 const SCHEDULE_WEEKDAYS = [
   { key: 'monday', label: 'Понедельник', shortLabel: 'Пн', order: 1 },
@@ -682,7 +683,7 @@ const TeacherCalendarSection = ({
     if (!teacherId || typeof window === 'undefined' || typeof window.EventSource !== 'function') {
       return undefined;
     }
-    const source = new window.EventSource('/api/schedule-sync/stream');
+    const source = new window.EventSource(resolveApiUrl('/api/schedule-sync/stream'), { withCredentials: true });
     const handleScheduleSync = (event) => {
       let payload = null;
       try {

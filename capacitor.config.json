@@ -1,0 +1,6 @@
+{
+  "appId": "ru.ivank.egeplatform",
+  "appName": "Platform EGE",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}

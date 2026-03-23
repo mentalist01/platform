@@ -133,10 +133,7 @@ const usageFile = path.join(dataDir, 'usage.json');
 const pushFile = path.join(dataDir, 'push.json');
 const rtcPresenceDir = path.join(dataDir, 'rtc-presence');
 const RTC_PRESENCE_FS_ENABLED = parseEnabledEnv(process.env.RTC_PRESENCE_FS_ENABLED, false);
-const BOARD_COLLAB_PERSISTENCE_ENABLED = parseEnabledEnv(
-  process.env.BOARD_COLLAB_PERSISTENCE || process.env.COLLAB_PERSIST_BOARD,
-  false
-);
+const BOARD_COLLAB_PERSISTENCE_RAW = process.env.BOARD_COLLAB_PERSISTENCE || process.env.COLLAB_PERSIST_BOARD;
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
 const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_FOLDER_BYTES = 30 * 1024 * 1024;
@@ -525,6 +522,7 @@ const isCollabPersistenceEnabled = (() => {
   // In development we prefer stability over persistence to avoid LevelDB lock crashes.
   return isProduction;
 })();
+const BOARD_COLLAB_PERSISTENCE_ENABLED = parseEnabledEnv(BOARD_COLLAB_PERSISTENCE_RAW, isProduction);
 if (isProduction && dataDir === defaultDataDir) {
   console.warn('[storage] PLATFORM_DATA_DIR is not set. Data can be lost after a clean deploy.');
 }
