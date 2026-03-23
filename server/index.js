@@ -3467,7 +3467,10 @@ const ensureStudentAccess = (req, res, studentId, options = {}) => {
   const required = options.required !== false;
   const allowDeleted = Boolean(options.allowDeleted);
   const missingError = options.missingError || 'studentId required';
-  const id = String(studentId || '').trim();
+  const requestedId = String(studentId || '').trim();
+  const id = isStudentRole(req.auth)
+    ? String(req.auth?.id || '').trim()
+    : requestedId;
   if (!id) {
     if (required) {
       res.status(400).json({ error: missingError });

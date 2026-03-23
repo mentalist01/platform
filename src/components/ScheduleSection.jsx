@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import ScheduleProgressTree from './ScheduleProgressTree';
 import { Button, Card } from './ui';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
+import { isNativeAndroidPushEnvironment } from '../utils/push';
 import { resolveApiUrl } from '../utils/runtimeUrls';
 
 const AUTO_REFRESH_INTERVAL_MS = 5000;
@@ -208,7 +209,9 @@ const ScheduleSection = ({
   const [lessonReminderError, setLessonReminderError] = useState('');
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
+  const requestStudentId = role === 'teacher' ? effectiveStudentId : '';
   const mockAttemptStudentId = role === 'student' ? null : effectiveStudentId;
+  const useNativeAndroidPush = isNativeAndroidPushEnvironment();
   const selectedStudent = role === 'teacher'
     ? studentsList.find((student) => student.id === effectiveStudentId) || null
     : null;
@@ -246,7 +249,7 @@ const ScheduleSection = ({
     }
     setLoading(true);
     try {
-      const data = await api.getStudentNextLesson(effectiveStudentId);
+      const data = await api.getStudentNextLesson(requestStudentId);
       const list = Array.isArray(data?.homeworks) ? data.homeworks : [];
       const latest = data?.latest && typeof data.latest === 'object' ? data.latest : {};
       const safeData = buildNextLessonData(latest);
@@ -280,12 +283,12 @@ const ScheduleSection = ({
       return;
     }
     try {
-      const data = await api.getStudentData(effectiveStudentId);
+      const data = await api.getStudentData(requestStudentId);
       setStudentProgress(data?.progress && typeof data.progress === 'object' ? data.progress : {});
     } catch {
       setStudentProgress({});
     }
-  }, [effectiveStudentId, progress, role]);
+  }, [effectiveStudentId, progress, requestStudentId, role]);
 
   const loadSchedule = useCallback(async () => {
     if (!effectiveStudentId) {
@@ -296,7 +299,7 @@ const ScheduleSection = ({
     }
     setScheduleLoading(true);
     try {
-      const data = await api.getStudentSchedule(effectiveStudentId);
+      const data = await api.getStudentSchedule(requestStudentId);
       setLessonSchedule(sortScheduleEntries(Array.isArray(data) ? data : []));
       setScheduleError('');
     } catch (err) {
@@ -305,7 +308,7 @@ const ScheduleSection = ({
     } finally {
       setScheduleLoading(false);
     }
-  }, [effectiveStudentId]);
+  }, [effectiveStudentId, requestStudentId]);
 
   const loadScheduleRequests = useCallback(async () => {
     if (!effectiveStudentId) {
@@ -318,7 +321,7 @@ const ScheduleSection = ({
     try {
       const params = role === 'teacher'
         ? { studentId: effectiveStudentId, status: SCHEDULE_REQUEST_STATUS_PENDING }
-        : { studentId: effectiveStudentId };
+        : {};
       const data = await api.getStudentScheduleRequests(params);
       const list = Array.isArray(data)
         ? data.map((entry) => normalizeScheduleRequest(entry)).filter(Boolean)
@@ -400,7 +403,7 @@ const ScheduleSection = ({
     }
     setLessonReminderLoading(true);
     try {
-      const data = await api.getPushLessonReminderSetting(effectiveStudentId);
+      const data = await api.getPushLessonReminderSetting(requestStudentId);
       setLessonReminderEnabled(Boolean(data?.enabled));
       setLessonReminderError('');
     } catch (err) {
@@ -409,7 +412,7 @@ const ScheduleSection = ({
     } finally {
       setLessonReminderLoading(false);
     }
-  }, [effectiveStudentId, role]);
+  }, [effectiveStudentId, requestStudentId, role]);
 
   useEffect(() => {
     loadLessonReminderSetting();
@@ -430,12 +433,12 @@ const ScheduleSection = ({
     try {
       const requestParams = role === 'teacher'
         ? { studentId: effectiveStudentId, status: SCHEDULE_REQUEST_STATUS_PENDING }
-        : { studentId: effectiveStudentId };
+        : {};
       const [nextLessonResult, scheduleResult, scheduleRequestsResult, studentDataResult] = await Promise.allSettled([
-        api.getStudentNextLesson(effectiveStudentId),
-        api.getStudentSchedule(effectiveStudentId),
+        api.getStudentNextLesson(requestStudentId),
+        api.getStudentSchedule(requestStudentId),
         api.getStudentScheduleRequests(requestParams),
-        api.getStudentData(effectiveStudentId),
+        api.getStudentData(requestStudentId),
       ]);
       if (nextLessonResult.status === 'fulfilled') {
         const data = nextLessonResult.value;
@@ -470,7 +473,7 @@ const ScheduleSection = ({
     } finally {
       setRefreshingData(false);
     }
-  }, [effectiveStudentId, refreshingData, role]);
+  }, [effectiveStudentId, refreshingData, requestStudentId, role]);
 
   useEffect(() => {
     if (!effectiveStudentId) return;
@@ -520,7 +523,7 @@ const ScheduleSection = ({
     }
     let cancelled = false;
     setMockExamsLoading(true);
-    api.getMockExams(effectiveStudentId)
+    api.getMockExams(requestStudentId)
       .then((data) => {
         if (cancelled) return;
         setMockExams(Array.isArray(data) ? data : []);
@@ -535,7 +538,7 @@ const ScheduleSection = ({
         if (!cancelled) setMockExamsLoading(false);
       });
     return () => { cancelled = true; };
-  }, [effectiveStudentId]);
+  }, [effectiveStudentId, requestStudentId]);
 
   useEffect(() => {
     if (!effectiveStudentId) {
@@ -568,7 +571,7 @@ const ScheduleSection = ({
       try {
         const results = await Promise.all(
           unique.map((item) =>
-            api.getSolvedQuestions(effectiveStudentId, item.taskNumber, item.levelId).catch(() => [])
+            api.getSolvedQuestions(requestStudentId, item.taskNumber, item.levelId).catch(() => [])
           )
         );
         if (cancelled) return;
@@ -584,7 +587,7 @@ const ScheduleSection = ({
     };
     loadSolved();
     return () => { cancelled = true; };
-  }, [effectiveStudentId, homeworks, solvedRefreshKey]);
+  }, [effectiveStudentId, homeworks, requestStudentId, solvedRefreshKey]);
 
   useEffect(() => {
     if (!effectiveStudentId) {
@@ -681,7 +684,7 @@ const ScheduleSection = ({
       };
       if (role === 'student') {
         await api.createStudentScheduleRequest({
-          studentId: effectiveStudentId,
+          ...(requestStudentId ? { studentId: requestStudentId } : {}),
           type: scheduleEditingId ? SCHEDULE_REQUEST_TYPE_UPDATE : SCHEDULE_REQUEST_TYPE_CREATE,
           entryId: scheduleEditingId || undefined,
           payload,
@@ -716,7 +719,7 @@ const ScheduleSection = ({
     try {
       if (role === 'student') {
         await api.createStudentScheduleRequest({
-          studentId: effectiveStudentId,
+          ...(requestStudentId ? { studentId: requestStudentId } : {}),
           type: SCHEDULE_REQUEST_TYPE_DELETE,
           entryId: entry.id,
         });
@@ -776,7 +779,7 @@ const ScheduleSection = ({
         return;
       }
       const nextEnabled = !lessonReminderEnabled;
-      const data = await api.updatePushLessonReminderSetting(nextEnabled, effectiveStudentId);
+      const data = await api.updatePushLessonReminderSetting(nextEnabled, requestStudentId);
       setLessonReminderEnabled(Boolean(data?.enabled));
     } catch (err) {
       setLessonReminderError(err?.message || err);
@@ -788,12 +791,24 @@ const ScheduleSection = ({
   const lessonReminderStatusText = useMemo(() => {
     if (role !== 'student') return '';
     if (lessonReminderLoading) return 'Проверяем настройки напоминаний...';
-    if (!pushSupported) return 'Push не поддерживается в этом браузере.';
-    if (pushPermission === 'denied') return 'Уведомления заблокированы в настройках браузера.';
+    if (!pushSupported) {
+      return useNativeAndroidPush
+        ? 'RuStore Push недоступен в этой Android-сборке.'
+        : 'Push не поддерживается в этом браузере.';
+    }
+    if (pushPermission === 'denied') {
+      return useNativeAndroidPush
+        ? 'Уведомления заблокированы в настройках Android.'
+        : 'Уведомления заблокированы в настройках браузера.';
+    }
     if (!pushEnabled && lessonReminderEnabled) {
       return 'Напоминания включены, но push выключены. Включите push, чтобы получать уведомления.';
     }
-    if (!pushEnabled) return 'Сначала включите push, затем включите напоминания о занятиях.';
+    if (!pushEnabled) {
+      return useNativeAndroidPush
+        ? 'Сначала включите push в приложении, затем включите напоминания о занятиях.'
+        : 'Сначала включите push, затем включите напоминания о занятиях.';
+    }
     if (lessonReminderEnabled) return 'Напоминания включены: уведомление придет за 10 минут до занятия.';
     return 'Включите напоминания, чтобы получать уведомление за 10 минут до занятия.';
   }, [
@@ -803,6 +818,7 @@ const ScheduleSection = ({
     pushPermission,
     pushSupported,
     role,
+    useNativeAndroidPush,
   ]);
 
   const parseTargetInput = (input, maxCount) => {

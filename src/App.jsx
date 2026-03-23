@@ -14226,7 +14226,7 @@ const MainApp = () => {
   useEffect(() => {
     if (!user || user.role !== 'student') return;
     let cancelled = false;
-    api.getStudentProgress(user.id)
+    api.getStudentProgress()
       .then((data) => {
         if (cancelled) return;
         setProgress(data || {});
