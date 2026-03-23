@@ -72,8 +72,8 @@ import {
   consumeNativePushLaunchUrl,
   normalizePushErrorMessage,
 } from './utils/push';
-import { getCollabWsUrl, isNativeAppRuntime, resolveUploadsUrl } from './utils/runtimeUrls';
-import { api, setUnauthorizedHandler } from './services/api';
+import { getCollabWsUrl, isNativeAppRuntime } from './utils/runtimeUrls';
+import { api, resolveAuthenticatedUploadsUrl, setUnauthorizedHandler } from './services/api';
 
 const optionalLeagueIcons = import.meta.glob('./assets/leagues/blank.png', { eager: true, import: 'default' });
 const leagueBlank = optionalLeagueIcons['./assets/leagues/blank.png'] || null;
@@ -2070,7 +2070,7 @@ const getEntrySizeBytes = (entry) => {
 
 const withStudentId = (url, studentId) => {
   if (!url) return url;
-  let nextUrl = url;
+  let nextUrl = resolveAuthenticatedUploadsUrl(url);
   if (studentId && !/[?&]studentId=/.test(nextUrl)) {
     const separator = nextUrl.includes('?') ? '&' : '?';
     nextUrl = `${nextUrl}${separator}studentId=${encodeURIComponent(studentId)}`;
@@ -2079,7 +2079,7 @@ const withStudentId = (url, studentId) => {
 };
 
 const withUploadsAuthToken = (url) => {
-  return resolveUploadsUrl(url);
+  return resolveAuthenticatedUploadsUrl(url);
 };
 
 const extractResponseErrorMessage = async (response, fallback = 'Не удалось выполнить запрос.') => {
@@ -2415,7 +2415,7 @@ const CollabSection = ({
     return notesPdfFiles.filter((file) => getNotesPdfFolderKey(file) === selectedNotesPdfFolderKey);
   }, [notesPdfFiles, selectedNotesPdfFolderKey, getNotesPdfFolderKey]);
   const getTaskFileUrl = useCallback(
-    (file) => withStudentId(resolveUploadsUrl(file?.url), effectiveStudentId),
+    (file) => withStudentId(file?.url, effectiveStudentId),
     [withStudentId, effectiveStudentId]
   );
   const selectedNotesPdfFile = useMemo(

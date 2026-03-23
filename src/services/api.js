@@ -1,6 +1,6 @@
 ﻿import { clearStoredSession } from '../utils/theme';
 
-import { hasConfiguredApiBaseUrl, isNativeAppRuntime, resolveApiUrl } from '../utils/runtimeUrls';
+import { hasConfiguredApiBaseUrl, isNativeAppRuntime, resolveApiUrl, resolveUploadsUrl } from '../utils/runtimeUrls';
 import { USER_SESSION_KEY } from '../utils/theme';
 
 const getStoredAuthToken = () => {
@@ -71,8 +71,9 @@ export const setUnauthorizedHandler = (handler) => {
   unauthorizedHandler = typeof handler === 'function' ? handler : null;
 };
 
-export const resolveAuthenticatedApiUrl = (input) => {
-  const requestUrl = typeof input === 'string' ? resolveApiUrl(input) : input;
+const resolveAuthenticatedUrl = (input, options = {}) => {
+  const resolver = options.uploads ? resolveUploadsUrl : resolveApiUrl;
+  const requestUrl = typeof input === 'string' ? resolver(input) : input;
   const authToken = getStoredAuthToken();
   if (!authToken || !isNativeAppRuntime()) return requestUrl;
   if (typeof requestUrl === 'string') {
@@ -83,6 +84,10 @@ export const resolveAuthenticatedApiUrl = (input) => {
   }
   return requestUrl;
 };
+
+export const resolveAuthenticatedApiUrl = (input) => resolveAuthenticatedUrl(input);
+
+export const resolveAuthenticatedUploadsUrl = (input) => resolveAuthenticatedUrl(input, { uploads: true });
 
 const apiFetch = async (input, init = {}) => {
   const method = String(init?.method || 'GET').toUpperCase();
