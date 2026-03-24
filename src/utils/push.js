@@ -1,8 +1,31 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 
 const PUSH_SW_URL = '/sw-push.js';
+const NATIVE_PUSH_STATUS_TIMEOUT_MS = 8000;
+const NATIVE_PUSH_PERMISSION_TIMEOUT_MS = 15000;
+const NATIVE_PUSH_ENABLE_TIMEOUT_MS = 20000;
+const NATIVE_PUSH_DISABLE_TIMEOUT_MS = 12000;
+const NATIVE_PUSH_LAUNCH_URL_TIMEOUT_MS = 5000;
 let pushRegistrationPromise = null;
 const RuStorePush = registerPlugin('RuStorePush');
+
+const withNativePluginTimeout = async (promise, timeoutMs, fallbackMessage) => {
+  let timerId = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timerId = window.setTimeout(() => {
+          reject(new Error(fallbackMessage));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timerId) {
+      window.clearTimeout(timerId);
+    }
+  }
+};
 
 export const isNativeAndroidPushEnvironment = () => (
   Capacitor.isNativePlatform()
@@ -37,7 +60,11 @@ export const getNativePushStatus = async () => {
       launchUrl: '',
     };
   }
-  const status = await RuStorePush.getStatus();
+  const status = await withNativePluginTimeout(
+    RuStorePush.getStatus(),
+    NATIVE_PUSH_STATUS_TIMEOUT_MS,
+    'RuStore Push слишком долго отвечает. Закройте и откройте приложение ещё раз.',
+  );
   return {
     supported: Boolean(status?.supported),
     configured: Boolean(status?.configured),
@@ -57,7 +84,11 @@ export const requestNativePushPermission = async () => {
   if (!isNativeAndroidPushEnvironment()) {
     return { permission: 'default' };
   }
-  const result = await RuStorePush.requestPermissions();
+  const result = await withNativePluginTimeout(
+    RuStorePush.requestPermissions(),
+    NATIVE_PUSH_PERMISSION_TIMEOUT_MS,
+    'Android слишком долго подтверждает разрешение на уведомления. Попробуйте ещё раз.',
+  );
   return {
     permission: normalizeNativePermission(result?.permission),
   };
@@ -67,7 +98,11 @@ export const enableNativePush = async () => {
   if (!isNativeAndroidPushEnvironment()) {
     throw new Error('RuStore Push доступен только в Android APK.');
   }
-  const result = await RuStorePush.enable();
+  const result = await withNativePluginTimeout(
+    RuStorePush.enable(),
+    NATIVE_PUSH_ENABLE_TIMEOUT_MS,
+    'RuStore слишком долго выдаёт push-токен. Откройте RuStore, проверьте вход в аккаунт и попробуйте ещё раз.',
+  );
   return {
     token: typeof result?.token === 'string' ? result.token.trim() : '',
     permission: normalizeNativePermission(result?.permission),
@@ -78,7 +113,11 @@ export const disableNativePush = async () => {
   if (!isNativeAndroidPushEnvironment()) {
     return { token: '', previousToken: '', warning: '' };
   }
-  const result = await RuStorePush.disable();
+  const result = await withNativePluginTimeout(
+    RuStorePush.disable(),
+    NATIVE_PUSH_DISABLE_TIMEOUT_MS,
+    'RuStore слишком долго отключает push. Попробуйте ещё раз.',
+  );
   return {
     token: typeof result?.token === 'string' ? result.token.trim() : '',
     previousToken: typeof result?.previousToken === 'string' ? result.previousToken.trim() : '',
@@ -90,7 +129,11 @@ export const consumeNativePushLaunchUrl = async () => {
   if (!isNativeAndroidPushEnvironment()) {
     return '';
   }
-  const result = await RuStorePush.consumeLaunchUrl();
+  const result = await withNativePluginTimeout(
+    RuStorePush.consumeLaunchUrl(),
+    NATIVE_PUSH_LAUNCH_URL_TIMEOUT_MS,
+    'Не удалось получить ссылку запуска из push.',
+  );
   return typeof result?.url === 'string' ? result.url.trim() : '';
 };
 

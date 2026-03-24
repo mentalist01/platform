@@ -92,6 +92,12 @@ export const resolveAuthenticatedUploadsUrl = (input) => resolveAuthenticatedUrl
 const apiFetch = async (input, init = {}) => {
   const method = String(init?.method || 'GET').toUpperCase();
   const requestInit = { ...init };
+  const requestTimeoutMs = Number(requestInit.requestTimeoutMs);
+  const timeoutErrorMessage = typeof requestInit.timeoutErrorMessage === 'string'
+    ? requestInit.timeoutErrorMessage.trim()
+    : '';
+  delete requestInit.requestTimeoutMs;
+  delete requestInit.timeoutErrorMessage;
   const headers = new Headers(requestInit.headers || {});
   const authToken = getStoredAuthToken();
   if (authToken && !headers.has('Authorization')) {
@@ -108,14 +114,49 @@ const apiFetch = async (input, init = {}) => {
     requestInit.cache = 'no-store';
   }
   const requestUrl = resolveAuthenticatedApiUrl(input);
-  const res = await fetch(requestUrl, requestInit);
-  if (res.status === 401) {
-    clearStoredSession();
-    try {
-      unauthorizedHandler?.();
-    } catch {}
+  let controller = null;
+  let timeoutId = null;
+  let timedOut = false;
+  let abortListener = null;
+  if (Number.isFinite(requestTimeoutMs) && requestTimeoutMs > 0) {
+    controller = new AbortController();
+    const sourceSignal = requestInit.signal;
+    if (sourceSignal) {
+      if (sourceSignal.aborted) {
+        controller.abort(sourceSignal.reason);
+      } else {
+        abortListener = () => controller.abort(sourceSignal.reason);
+        sourceSignal.addEventListener('abort', abortListener, { once: true });
+      }
+    }
+    requestInit.signal = controller.signal;
+    timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, requestTimeoutMs);
   }
-  return res;
+  try {
+    const res = await fetch(requestUrl, requestInit);
+    if (res.status === 401) {
+      clearStoredSession();
+      try {
+        unauthorizedHandler?.();
+      } catch {}
+    }
+    return res;
+  } catch (error) {
+    if (timedOut) {
+      throw new Error(timeoutErrorMessage || 'Превышено время ожидания ответа сервера.');
+    }
+    throw error;
+  } finally {
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+    }
+    if (abortListener && init?.signal) {
+      init.signal.removeEventListener('abort', abortListener);
+    }
+  }
 };
 
 const normalizeStudentChatMessagePayload = (payloadOrText) => {
@@ -344,6 +385,8 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      requestTimeoutMs: 12000,
+      timeoutErrorMessage: 'Сервер слишком долго сохраняет push-токен. Попробуйте ещё раз.',
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
@@ -363,6 +406,8 @@ export const api = {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      requestTimeoutMs: 12000,
+      timeoutErrorMessage: 'Сервер слишком долго отключает push-подписку. Попробуйте ещё раз.',
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
