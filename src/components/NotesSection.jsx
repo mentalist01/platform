@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import ImageViewer from './ImageViewer';
-import { api } from '../services/api';
+import { api, authenticatedUploadsFetch } from '../services/api';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { Button, Card } from './ui';
 
@@ -86,7 +86,7 @@ const NotesSection = ({
   const [renameBase, setRenameBase] = useState('');
   const [renameExt, setRenameExt] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
-  const [draggingFileId, setDraggingFileId] = useState(null);
+  const [_draggingFileId, setDraggingFileId] = useState(null);
   const [dragOverFolderId, setDragOverFolderId] = useState(null);
   const [selectedFileIds, setSelectedFileIds] = useState({});
   const [expandedPyIds, setExpandedPyIds] = useState({});
@@ -1402,7 +1402,7 @@ const NotesSection = ({
 
     setPyLoadingId(file.id);
     try {
-      const res = await fetch(url, { credentials: 'include' });
+      const res = await authenticatedUploadsFetch(url);
       if (!res.ok) throw new Error('Не удалось загрузить файл');
       const text = await res.text();
       setPyContent((prev) => ({ ...prev, [file.id]: text }));

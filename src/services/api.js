@@ -38,12 +38,16 @@ const parseApiError = async (res) => {
     try {
       const data = await res.json();
       if (data?.error) return data.error;
-    } catch {}
+    } catch {
+      // Ignore invalid JSON and fall back to text parsing.
+    }
   }
   try {
     const text = await res.text();
     if (text && text.length <= 200) return text;
-  } catch {}
+  } catch {
+    // Ignore unreadable bodies and fall back to the generic message.
+  }
   if (res.status === 413) {
     return '\u0421\u043b\u0438\u0448\u043a\u043e\u043c \u0431\u043e\u043b\u044c\u0448\u043e\u0439 \u0437\u0430\u043f\u0440\u043e\u0441. \u0423\u043c\u0435\u043d\u044c\u0448\u0438\u0442\u0435 \u0440\u0430\u0437\u043c\u0435\u0440 \u0434\u0430\u043d\u043d\u044b\u0445.';
   }
@@ -89,15 +93,8 @@ export const resolveAuthenticatedApiUrl = (input) => resolveAuthenticatedUrl(inp
 
 export const resolveAuthenticatedUploadsUrl = (input) => resolveAuthenticatedUrl(input, { uploads: true });
 
-const apiFetch = async (input, init = {}) => {
-  const method = String(init?.method || 'GET').toUpperCase();
+const buildAuthenticatedRequestInit = (init = {}) => {
   const requestInit = { ...init };
-  const requestTimeoutMs = Number(requestInit.requestTimeoutMs);
-  const timeoutErrorMessage = typeof requestInit.timeoutErrorMessage === 'string'
-    ? requestInit.timeoutErrorMessage.trim()
-    : '';
-  delete requestInit.requestTimeoutMs;
-  delete requestInit.timeoutErrorMessage;
   const headers = new Headers(requestInit.headers || {});
   const authToken = getStoredAuthToken();
   if (authToken && !headers.has('Authorization')) {
@@ -110,8 +107,27 @@ const apiFetch = async (input, init = {}) => {
   if (!Object.prototype.hasOwnProperty.call(requestInit, 'credentials')) {
     requestInit.credentials = 'include';
   }
+  return requestInit;
+};
+
+export const authenticatedUploadsFetch = (input, init = {}) => {
+  const requestUrl = resolveAuthenticatedUploadsUrl(input);
+  const requestInit = buildAuthenticatedRequestInit(init);
+  return fetch(requestUrl, requestInit);
+};
+
+const apiFetch = async (input, init = {}) => {
+  const method = String(init?.method || 'GET').toUpperCase();
+  const requestInit = { ...init };
+  const requestTimeoutMs = Number(requestInit.requestTimeoutMs);
+  const timeoutErrorMessage = typeof requestInit.timeoutErrorMessage === 'string'
+    ? requestInit.timeoutErrorMessage.trim()
+    : '';
+  delete requestInit.requestTimeoutMs;
+  delete requestInit.timeoutErrorMessage;
+  const authenticatedRequestInit = buildAuthenticatedRequestInit(requestInit);
   if (method === 'GET' && !Object.prototype.hasOwnProperty.call(requestInit, 'cache')) {
-    requestInit.cache = 'no-store';
+    authenticatedRequestInit.cache = 'no-store';
   }
   const requestUrl = resolveAuthenticatedApiUrl(input);
   let controller = null;
@@ -120,7 +136,7 @@ const apiFetch = async (input, init = {}) => {
   let abortListener = null;
   if (Number.isFinite(requestTimeoutMs) && requestTimeoutMs > 0) {
     controller = new AbortController();
-    const sourceSignal = requestInit.signal;
+    const sourceSignal = authenticatedRequestInit.signal;
     if (sourceSignal) {
       if (sourceSignal.aborted) {
         controller.abort(sourceSignal.reason);
@@ -129,19 +145,21 @@ const apiFetch = async (input, init = {}) => {
         sourceSignal.addEventListener('abort', abortListener, { once: true });
       }
     }
-    requestInit.signal = controller.signal;
+    authenticatedRequestInit.signal = controller.signal;
     timeoutId = window.setTimeout(() => {
       timedOut = true;
       controller.abort();
     }, requestTimeoutMs);
   }
   try {
-    const res = await fetch(requestUrl, requestInit);
+    const res = await fetch(requestUrl, authenticatedRequestInit);
     if (res.status === 401) {
       clearStoredSession();
       try {
         unauthorizedHandler?.();
-      } catch {}
+      } catch {
+        // Ignore errors inside the user-provided unauthorized handler.
+      }
     }
     return res;
   } catch (error) {

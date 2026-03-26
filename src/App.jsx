@@ -73,7 +73,12 @@ import {
   normalizePushErrorMessage,
 } from './utils/push';
 import { getCollabWsUrl, isNativeAppRuntime } from './utils/runtimeUrls';
-import { api, resolveAuthenticatedUploadsUrl, setUnauthorizedHandler } from './services/api';
+import {
+  api,
+  authenticatedUploadsFetch,
+  resolveAuthenticatedUploadsUrl,
+  setUnauthorizedHandler,
+} from './services/api';
 
 const optionalLeagueIcons = import.meta.glob('./assets/leagues/blank.png', { eager: true, import: 'default' });
 const leagueBlank = optionalLeagueIcons['./assets/leagues/blank.png'] || null;
@@ -3842,9 +3847,17 @@ const CollabSection = ({
       if (!fileUrl) {
         throw new Error(`\u041d\u0435\u0442 \u0441\u0441\u044b\u043b\u043a\u0438 \u0434\u043b\u044f \u0444\u0430\u0439\u043b\u0430 ${runtimePath}.`);
       }
-      const response = await fetch(fileUrl, { credentials: 'include' });
+      const response = await authenticatedUploadsFetch(fileUrl);
       if (!response.ok) {
-        throw new Error(`\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0444\u0430\u0439\u043b ${runtimePath}.`);
+        const reason = await extractResponseErrorMessage(
+          response,
+          `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0444\u0430\u0439\u043b ${runtimePath}.`
+        );
+        throw new Error(
+          reason.includes(runtimePath)
+            ? reason
+            : `${reason} (${runtimePath}).`
+        );
       }
       const buffer = await response.arrayBuffer();
       const bytes = new Uint8Array(buffer);
