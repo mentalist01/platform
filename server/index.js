@@ -180,9 +180,15 @@ const STUDENT_CHAT_ALLOWED_IMAGE_MIME_TYPES = new Set([
 ]);
 const STUDENT_TRAFFIC_LIMIT_BYTES = (() => {
   const bytesRaw = Number(process.env.STUDENT_TRAFFIC_LIMIT_BYTES);
-  if (Number.isFinite(bytesRaw) && bytesRaw > 0) return bytesRaw;
+  if (Number.isFinite(bytesRaw)) {
+    if (bytesRaw <= 0) return null;
+    return bytesRaw;
+  }
   const gbRaw = Number(process.env.STUDENT_TRAFFIC_LIMIT_GB);
-  if (Number.isFinite(gbRaw) && gbRaw > 0) return Math.round(gbRaw * 1024 * 1024 * 1024);
+  if (Number.isFinite(gbRaw)) {
+    if (gbRaw <= 0) return null;
+    return Math.round(gbRaw * 1024 * 1024 * 1024);
+  }
   return 2 * 1024 * 1024 * 1024;
 })();
 const STUDENT_TRAFFIC_WARN_RATIO = (() => {
@@ -2629,8 +2635,9 @@ const getStudentUsage = (studentId) => {
   const db = readUsageDb();
   const used = Number(db?.[studentId]?.[monthKey]) || 0;
   const limit = STUDENT_TRAFFIC_LIMIT_BYTES;
-  const remaining = Math.max(0, limit - used);
-  return { monthKey, used, limit, remaining };
+  const enabled = Number.isFinite(limit) && limit > 0;
+  const remaining = enabled ? Math.max(0, limit - used) : null;
+  return { monthKey, used, limit, remaining, enabled };
 };
 
 const addStudentUsage = (studentId, bytes) => {
@@ -6956,14 +6963,14 @@ const handleUploadRequest = (req, res) => {
     if (!student) return res.status(404).send('Ученик не найден');
     const requestSize = getRangeSize(req.headers.range, stat.size);
     const usage = getStudentUsage(usageStudentId);
-    if (usage.remaining <= 0 || usage.used + requestSize > usage.limit) {
+    if (usage.enabled && (usage.remaining <= 0 || usage.used + requestSize > usage.limit)) {
       return res.status(429).json({ error: 'Превышен лимит трафика для ученика' });
     }
-    if (usage.used / usage.limit >= STUDENT_TRAFFIC_WARN_RATIO) {
+    if (usage.enabled && (usage.used / usage.limit >= STUDENT_TRAFFIC_WARN_RATIO)) {
       res.setHeader('X-Traffic-Warn', '1');
     }
     res.setHeader('X-Traffic-Used', String(usage.used));
-    res.setHeader('X-Traffic-Limit', String(usage.limit));
+    res.setHeader('X-Traffic-Limit', usage.enabled ? String(usage.limit) : 'unlimited');
     if (req.method === 'GET') {
       registerUsageOnFinish(usageStudentId, res, requestSize);
     }
