@@ -12,7 +12,7 @@ import {
   X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
-  ChevronsLeft, ChevronsRight, ChevronsUpDown,
+  ChevronsLeft, ChevronsRight, ChevronsUpDown, Search,
   Bell, BellOff, MousePointer2, Code2, MoreHorizontal, MessageSquare, Users, Wallet
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
@@ -168,6 +168,12 @@ const BOARD_SCENE_MAX_DIMENSION = 4096;
 const BOARD_SCENE_MAX_PIXELS = 8 * 1024 * 1024;
 const BOARD_VIEWPORT_STORAGE_KEY_PREFIX = 'board-viewport-v1';
 const BOARD_VIEWPORT_SAVE_DEBOUNCE_MS = 160;
+const TASK_FILES_LIST_MIN_HEIGHT = 80;
+const TASK_FILES_LIST_MAX_HEIGHT = 320;
+const TASK_FILES_LIST_HEIGHT_STEP = 48;
+const clampTaskFilesListHeight = (value) => (
+  Math.min(TASK_FILES_LIST_MAX_HEIGHT, Math.max(TASK_FILES_LIST_MIN_HEIGHT, Math.round(value)))
+);
 const formatBoardBytes = (value) => {
   const bytes = Math.max(0, Number(value) || 0);
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} МБ`;
@@ -2254,6 +2260,8 @@ const CollabSection = ({
   const [taskFileUploadBusy, setTaskFileUploadBusy] = useState(false);
   const [selectedTaskFileIds, setSelectedTaskFileIds] = useState([]);
   const [taskFilesPanelOpen, setTaskFilesPanelOpen] = useState(false);
+  const [taskFilesSearch, setTaskFilesSearch] = useState('');
+  const [taskFilesListHeight, setTaskFilesListHeight] = useState(112);
   const [notesPdfPanelOpen, setNotesPdfPanelOpen] = useState(false);
   const [notesPanelMode, setNotesPanelMode] = useState(COLLAB_TOP_PANE_MODE_PDF);
   const [notesPdfFolderKey, setNotesPdfFolderKey] = useState('');
@@ -2274,6 +2282,7 @@ const CollabSection = ({
   );
   const fontSizeStorageKey = useMemo(() => `collab-font-size-${userId || role || 'anon'}`, [userId, role]);
   const splitWidthStorageKey = useMemo(() => `collab-split-width-${userId || role || 'anon'}`, [userId, role]);
+  const taskFilesListHeightStorageKey = useMemo(() => `collab-task-files-list-height-${userId || role || 'anon'}`, [userId, role]);
   const collabRootRef = useRef(null);
   const splitLayoutRef = useRef(null);
   const splitDragCleanupRef = useRef(null);
@@ -2355,16 +2364,34 @@ const CollabSection = ({
       })
       .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'ru'));
   }, [taskFiles, runTaskCategory, runTaskNumbers]);
+  const normalizedTaskFilesSearch = useMemo(
+    () => String(taskFilesSearch || '').trim().toLowerCase(),
+    [taskFilesSearch]
+  );
+  const visibleTaskFiles = useMemo(() => {
+    if (!normalizedTaskFilesSearch) return filteredTaskFiles;
+    return filteredTaskFiles.filter((file) => {
+      const haystack = [
+        file?.name,
+        file?.folderName,
+        file?.originalName,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(normalizedTaskFilesSearch);
+    });
+  }, [filteredTaskFiles, normalizedTaskFilesSearch]);
   const selectedTaskFiles = useMemo(() => {
     if (!selectedTaskFileIds.length) return [];
     const selectedSet = new Set(selectedTaskFileIds);
     return filteredTaskFiles.filter((file) => selectedSet.has(file.id));
   }, [filteredTaskFiles, selectedTaskFileIds]);
-  const allFilteredTaskFilesSelected = useMemo(() => {
-    if (!filteredTaskFiles.length) return false;
+  const allVisibleTaskFilesSelected = useMemo(() => {
+    if (!visibleTaskFiles.length) return false;
     const selectedSet = new Set(selectedTaskFileIds);
-    return filteredTaskFiles.every((file) => selectedSet.has(file?.id));
-  }, [filteredTaskFiles, selectedTaskFileIds]);
+    return visibleTaskFiles.every((file) => selectedSet.has(file?.id));
+  }, [visibleTaskFiles, selectedTaskFileIds]);
   const notesPdfFiles = useMemo(() => {
     const files = Array.isArray(taskFiles) ? taskFiles : [];
     return files
@@ -3318,6 +3345,19 @@ const CollabSection = ({
     window.localStorage.setItem(splitWidthStorageKey, String(splitLeftWidth));
   }, [splitWidthStorageKey, splitLeftWidth]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = window.localStorage.getItem(taskFilesListHeightStorageKey);
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return;
+    setTaskFilesListHeight(clampTaskFilesListHeight(parsed));
+  }, [taskFilesListHeightStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(taskFilesListHeightStorageKey, String(clampTaskFilesListHeight(taskFilesListHeight)));
+  }, [taskFilesListHeight, taskFilesListHeightStorageKey]);
+
   useEffect(() => () => {
     splitDragCleanupRef.current?.();
   }, []);
@@ -3930,8 +3970,8 @@ const CollabSection = ({
   };
 
   const handleToggleSelectAllTaskFiles = useCallback(() => {
-    if (!filteredTaskFiles.length) return;
-    const visibleIds = filteredTaskFiles
+    if (!visibleTaskFiles.length) return;
+    const visibleIds = visibleTaskFiles
       .map((file) => file?.id)
       .filter(Boolean);
     if (!visibleIds.length) return;
@@ -3945,7 +3985,14 @@ const CollabSection = ({
       }
       return Array.from(next);
     });
-  }, [filteredTaskFiles]);
+  }, [visibleTaskFiles]);
+  const handleTaskFilesListHeightStep = useCallback((direction) => {
+    const stepDirection = Number(direction);
+    if (!Number.isFinite(stepDirection) || stepDirection === 0) return;
+    setTaskFilesListHeight((prev) => clampTaskFilesListHeight(
+      prev + (stepDirection * TASK_FILES_LIST_HEIGHT_STEP)
+    ));
+  }, []);
 
   const handleCreateFolder = async () => {
     const name = newFolderName.trim();
@@ -5663,72 +5710,163 @@ const CollabSection = ({
                 {taskFilesError}
               </div>
             )}
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={handleToggleSelectAllTaskFiles}
-                disabled={taskFilesLoading || !filteredTaskFiles.length}
-                className={`inline-flex items-center rounded-xl border transition ${
-                  isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-[11px]'
-                } ${
-                  taskFilesLoading || !filteredTaskFiles.length
-                    ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : (isFullscreenDark
-                      ? 'border-slate-600 bg-slate-950 text-slate-100 hover:border-violet-400'
-                      : 'border-purple-200 bg-white text-purple-700 hover:border-purple-300 hover:bg-purple-50')
-                }`}
-              >
-                {allFilteredTaskFilesSelected ? 'Снять всё' : 'Выделить всё'}
-              </button>
+            <div className={`flex flex-col ${isSplitCollabLayout ? 'gap-1' : 'gap-2'} md:flex-row md:items-center`}>
+              <label className="relative min-w-0 flex-1">
+                <Search
+                  size={isSplitCollabLayout ? 12 : 13}
+                  className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 ${
+                    isFullscreenDark ? 'text-slate-400' : 'text-gray-400'
+                  }`}
+                />
+                <input
+                  type="text"
+                  value={taskFilesSearch}
+                  onChange={(e) => setTaskFilesSearch(e.target.value)}
+                  placeholder="Поиск по названию файла"
+                  aria-label="Поиск по названию файла"
+                  className={`w-full rounded-xl border outline-none ${
+                    isSplitCollabLayout ? 'py-1 pl-8 pr-8 text-[11px]' : 'py-1.5 pl-9 pr-9 text-xs'
+                  } ${
+                    isFullscreenDark
+                      ? 'border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500 focus:border-violet-400'
+                      : 'border-gray-200 bg-gray-50 text-gray-700 placeholder:text-gray-400 focus:border-purple-500'
+                  }`}
+                />
+                {taskFilesSearch.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setTaskFilesSearch('')}
+                    aria-label="Очистить поиск файлов"
+                    className={`absolute right-2 top-1/2 inline-flex -translate-y-1/2 items-center justify-center rounded-full transition ${
+                      isFullscreenDark
+                        ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
+                        : 'text-gray-400 hover:bg-gray-200 hover:text-gray-700'
+                    } ${isSplitCollabLayout ? 'h-5 w-5' : 'h-6 w-6'}`}
+                  >
+                    <X size={isSplitCollabLayout ? 11 : 12} />
+                  </button>
+                )}
+              </label>
+              <div className="flex items-center justify-between gap-1 md:justify-end">
+                <div className={`inline-flex items-center rounded-xl border ${
+                  isFullscreenDark
+                    ? 'border-slate-700 bg-slate-950/80'
+                    : 'border-gray-200 bg-gray-50'
+                }`}>
+                  <button
+                    type="button"
+                    onClick={() => handleTaskFilesListHeightStep(-1)}
+                    disabled={taskFilesListHeight <= TASK_FILES_LIST_MIN_HEIGHT}
+                    aria-label="Уменьшить высоту списка файлов"
+                    className={`inline-flex items-center justify-center rounded-l-xl transition ${
+                      isSplitCollabLayout ? 'h-7 w-7' : 'h-8 w-8'
+                    } ${
+                      taskFilesListHeight <= TASK_FILES_LIST_MIN_HEIGHT
+                        ? 'cursor-not-allowed text-gray-400'
+                        : (isFullscreenDark
+                          ? 'text-slate-100 hover:bg-slate-800 hover:text-violet-200'
+                          : 'text-purple-700 hover:bg-purple-50')
+                    }`}
+                  >
+                    <Minus size={isSplitCollabLayout ? 12 : 13} />
+                  </button>
+                  <span className={`min-w-[3.25rem] text-center font-medium ${
+                    isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'
+                  } ${isFullscreenDark ? 'text-slate-300' : 'text-gray-600'}`}>
+                    {`${Math.round(taskFilesListHeight)} px`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleTaskFilesListHeightStep(1)}
+                    disabled={taskFilesListHeight >= TASK_FILES_LIST_MAX_HEIGHT}
+                    aria-label="Увеличить высоту списка файлов"
+                    className={`inline-flex items-center justify-center rounded-r-xl transition ${
+                      isSplitCollabLayout ? 'h-7 w-7' : 'h-8 w-8'
+                    } ${
+                      taskFilesListHeight >= TASK_FILES_LIST_MAX_HEIGHT
+                        ? 'cursor-not-allowed text-gray-400'
+                        : (isFullscreenDark
+                          ? 'text-slate-100 hover:bg-slate-800 hover:text-violet-200'
+                          : 'text-purple-700 hover:bg-purple-50')
+                    }`}
+                  >
+                    <Plus size={isSplitCollabLayout ? 12 : 13} />
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleSelectAllTaskFiles}
+                  disabled={taskFilesLoading || !visibleTaskFiles.length}
+                  className={`inline-flex items-center rounded-xl border transition ${
+                    isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-[11px]'
+                  } ${
+                    taskFilesLoading || !visibleTaskFiles.length
+                      ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : (isFullscreenDark
+                        ? 'border-slate-600 bg-slate-950 text-slate-100 hover:border-violet-400'
+                        : 'border-purple-200 bg-white text-purple-700 hover:border-purple-300 hover:bg-purple-50')
+                  }`}
+                >
+                  {allVisibleTaskFilesSelected ? 'Снять всё' : 'Выделить всё'}
+                </button>
+              </div>
             </div>
-            <div className={`rounded-xl border ${
-              isSplitCollabLayout ? 'max-h-20' : 'max-h-28'
-            } overflow-auto ${
-              isFullscreenDark
-                ? 'border-slate-700/80 bg-slate-950/60'
-                : 'border-gray-200 bg-gray-50'
-            }`}>
+            <div className={`text-[10px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
+              {normalizedTaskFilesSearch
+                ? `Найдено: ${visibleTaskFiles.length}`
+                : `Файлов в списке: ${filteredTaskFiles.length}`}
+            </div>
+            <div
+              className={`rounded-xl border overflow-auto ${
+                isFullscreenDark
+                  ? 'border-slate-700/80 bg-slate-950/60'
+                  : 'border-gray-200 bg-gray-50'
+              }`}
+              style={{ maxHeight: `${taskFilesListHeight}px` }}
+            >
               {taskFilesLoading ? (
                 <div className={`px-2 py-1.5 text-[11px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
                   Загружаем файлы...
                 </div>
               ) : (
                 <>
-                  {!filteredTaskFiles.length ? (
+                  {!visibleTaskFiles.length ? (
                     <div className={`px-2 py-1.5 text-[11px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
-                      Файлы не найдены.
+                      {normalizedTaskFilesSearch
+                        ? `По запросу "${taskFilesSearch.trim()}" ничего не найдено.`
+                        : 'Файлы не найдены.'}
                     </div>
-                   ) : (
-                     filteredTaskFiles.map((file) => {
-                       const runtimePath = getRuntimePathForTaskFile(file) || file?.name || 'file';
-                       const displayRuntimePath = getPreferredRuntimePathForTaskFile(file, filteredTaskFiles) || runtimePath;
-                       return (
-                         <label
-                           key={file.id}
-                           className={`flex cursor-pointer items-start gap-2 border-b px-2 py-1.5 text-[11px] last:border-b-0 ${
-                             isFullscreenDark
+                  ) : (
+                    visibleTaskFiles.map((file) => {
+                      const runtimePath = getRuntimePathForTaskFile(file) || file?.name || 'file';
+                      const displayRuntimePath = getPreferredRuntimePathForTaskFile(file, filteredTaskFiles) || runtimePath;
+                      return (
+                        <label
+                          key={file.id}
+                          className={`flex cursor-pointer items-start gap-2 border-b px-2 py-1.5 text-[11px] last:border-b-0 ${
+                            isFullscreenDark
                               ? 'border-slate-800 text-slate-100'
                               : 'border-gray-200 text-gray-700'
                           }`}
                         >
-                           <input
-                             type="checkbox"
-                             checked={selectedTaskFileIds.includes(file.id)}
-                             onChange={() => handleToggleTaskFile(file.id)}
-                             className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300"
-                           />
-                           <span className="min-w-0 flex-1 truncate" title={runtimePath}>{displayRuntimePath}</span>
-                         </label>
-                       );
-                     })
-                   )}
-                 </>
-               )}
-              </div>
-              <div className={`text-[10px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
-                Выбранные файлы доступны по пути из списка. Если имя уникально, можно открыть просто файл, иначе используйте путь с подпапкой. <code>test.txt</code> доступен всегда и редактируется во вкладке выше.
-              </div>
-            </>
+                          <input
+                            type="checkbox"
+                            checked={selectedTaskFileIds.includes(file.id)}
+                            onChange={() => handleToggleTaskFile(file.id)}
+                            className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300"
+                          />
+                          <span className="min-w-0 flex-1 truncate" title={runtimePath}>{displayRuntimePath}</span>
+                        </label>
+                      );
+                    })
+                  )}
+                </>
+              )}
+            </div>
+            <div className={`text-[10px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
+              Выбранные файлы доступны по пути из списка. Если имя уникально, можно открыть просто файл, иначе используйте путь с подпапкой. <code>test.txt</code> доступен всегда и редактируется во вкладке выше.
+            </div>
+          </>
           )}
         </div>
     </div>
