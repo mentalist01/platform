@@ -2047,6 +2047,7 @@ const sanitizeAuthUserPayload = (value) => {
 };
 
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
+const MAX_LESSON_SHARED_TASK_BYTES = 500 * 1024 * 1024;
 const HOMEWORK_POPUP_BG = '/homework-quest.png';
 
 const formatBytes = (bytes) => {
@@ -13747,6 +13748,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               GAME_THEORY_TASK={GAME_THEORY_TASK}
               getEntrySizeBytes={getEntrySizeBytes}
               MAX_TASK_BYTES={MAX_TASK_BYTES}
+              MAX_LESSON_SHARED_TASK_BYTES={MAX_LESSON_SHARED_TASK_BYTES}
               mergeRuntimeErrorText={mergeRuntimeErrorText}
               createPyodideWorker={createPyodideWorker}
               ensurePyodideReady={ensurePyodideReady}

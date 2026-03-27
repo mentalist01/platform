@@ -50,6 +50,7 @@ const NotesSection = ({
   GAME_THEORY_TASK,
   getEntrySizeBytes,
   MAX_TASK_BYTES,
+  MAX_LESSON_SHARED_TASK_BYTES,
   mergeRuntimeErrorText,
   createPyodideWorker,
   ensurePyodideReady,
@@ -229,11 +230,12 @@ const NotesSection = ({
   const selectUploadTaskNumber = (sizeBytes, usageMap, folderIdOverride) => {
     const candidates = getUploadCandidates(folderIdOverride);
     if (!candidates.length) return null;
+    const taskLimitBytes = getTaskLimitBytesForFolder(folderIdOverride);
     let chosen = null;
     let bestRemaining = -1;
     for (const taskNumber of candidates) {
       const used = usageMap.get(taskNumber) || 0;
-      const remaining = MAX_TASK_BYTES - used;
+      const remaining = taskLimitBytes - used;
       if (remaining >= sizeBytes && remaining > bestRemaining) {
         chosen = taskNumber;
         bestRemaining = remaining;
@@ -349,6 +351,12 @@ const NotesSection = ({
   const canUploadToCurrentFolder = !(role === 'student' && isCurrentFolderLessonShared);
   const canManageFile = (file) => !(role === 'student' && isLessonSharedFile(file));
   const activeUsageByNumber = isCurrentFolderLessonShared ? sharedTaskUsageByNumber : taskUsageByNumber;
+  function getTaskLimitBytesForFolder(folderIdOverride) {
+    const folderId = typeof folderIdOverride === 'undefined' ? currentFolderId : folderIdOverride;
+    return isFolderInLessonSharedTree(folderId) ? MAX_LESSON_SHARED_TASK_BYTES : MAX_TASK_BYTES;
+  }
+  const formatLimitLabel = (bytes) => `${Math.round(bytes / (1024 * 1024))} МБ`;
+  const currentTaskLimitBytes = isCurrentFolderLessonShared ? MAX_LESSON_SHARED_TASK_BYTES : MAX_TASK_BYTES;
 
   useEffect(() => {
     setExpandedFolderIds((prev) => {
@@ -409,14 +417,14 @@ const NotesSection = ({
   }, [normalizedCurrentTask, currentFolderId, activeUsageByNumber, folders]);
 
   const totalLimitBytes = useMemo(() => {
-    if (!Number.isFinite(normalizedCurrentTask)) return MAX_TASK_BYTES;
+    if (!Number.isFinite(normalizedCurrentTask)) return currentTaskLimitBytes;
     const folderTaskNumber = getFolderTaskNumber(currentFolderId);
-    if (Number.isFinite(folderTaskNumber)) return MAX_TASK_BYTES;
+    if (Number.isFinite(folderTaskNumber)) return currentTaskLimitBytes;
     if (normalizedCurrentTask === GAME_THEORY_TASK) {
-      return MAX_TASK_BYTES * getNotesTaskNumbers(normalizedCurrentTask).length;
+      return currentTaskLimitBytes * getNotesTaskNumbers(normalizedCurrentTask).length;
     }
-    return MAX_TASK_BYTES;
-  }, [normalizedCurrentTask, currentFolderId, folders]);
+    return currentTaskLimitBytes;
+  }, [normalizedCurrentTask, currentFolderId, folders, currentTaskLimitBytes]);
 
   const remainingBytes = Math.max(0, totalLimitBytes - taskUsageBytes);
 
@@ -717,9 +725,10 @@ const NotesSection = ({
     setIsUploading(false);
     if (fileRef.current) fileRef.current.value = '';
     if (skipped > 0) {
+      const taskLimitLabel = formatLimitLabel(getTaskLimitBytesForFolder());
       const limitNote = normalizedCurrentTask === GAME_THEORY_TASK && !currentFolderId
-        ? 'Лимит 200 МБ на каждое из заданий 19-21.'
-        : 'Лимит 200 МБ на задание.';
+        ? `Лимит ${taskLimitLabel} на каждое из заданий 19-21.`
+        : `Лимит ${taskLimitLabel} на задание.`;
       alert(`Не хватило места для ${skipped} файла(ов). ${limitNote}`);
     }
   };

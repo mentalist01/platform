@@ -136,9 +136,11 @@ const rtcPresenceDir = path.join(dataDir, 'rtc-presence');
 const RTC_PRESENCE_FS_ENABLED = parseEnabledEnv(process.env.RTC_PRESENCE_FS_ENABLED, false);
 const BOARD_COLLAB_PERSISTENCE_RAW = process.env.BOARD_COLLAB_PERSISTENCE || process.env.COLLAB_PERSIST_BOARD;
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
+const MAX_LESSON_SHARED_TASK_BYTES = 500 * 1024 * 1024;
 const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
-const MAX_FOLDER_BYTES = 30 * 1024 * 1024;
-const MAX_SHARED_FOLDER_BYTES = 200 * 1024 * 1024;
+const MAX_LESSON_SHARED_UPLOAD_FILE_BYTES = 500 * 1024 * 1024;
+const MAX_FOLDER_BYTES = 50 * 1024 * 1024;
+const MAX_SHARED_FOLDER_BYTES = 500 * 1024 * 1024;
 const LESSON_SHARED_SCOPE = 'lesson-files';
 const LESSON_SHARED_FOLDER_NAME = 'файлы к уроку';
 const LESSON_SHARED_STUDENT_ID_PREFIX = 'lesson-shared';
@@ -6873,12 +6875,30 @@ const getFolderTotalBytes = (filesDb, folderId, excludeFileId = '') => {
     .reduce((sum, file) => sum + getEntrySizeBytes(file), 0);
 };
 
+const getTaskLimitBytes = (isLessonSharedTask) => (
+  isLessonSharedTask ? MAX_LESSON_SHARED_TASK_BYTES : MAX_TASK_BYTES
+);
+
+const getUploadFileLimitBytes = (isLessonSharedUpload) => (
+  isLessonSharedUpload ? MAX_LESSON_SHARED_UPLOAD_FILE_BYTES : MAX_UPLOAD_FILE_BYTES
+);
+
+const formatLimitLabel = (limitBytes) => `${Math.round(limitBytes / (1024 * 1024))} МБ`;
+
+const getTaskLimitError = (limitBytes) => (
+  `Превышен лимит ${formatLimitLabel(limitBytes)} для этого задания`
+);
+
 const getFolderLimitBytes = (isLessonSharedFolder) => (
   isLessonSharedFolder ? MAX_SHARED_FOLDER_BYTES : MAX_FOLDER_BYTES
 );
 
 const getFolderLimitError = (limitBytes) => (
-  `Превышен лимит ${Math.round(limitBytes / (1024 * 1024))} МБ для этой папки`
+  `Превышен лимит ${formatLimitLabel(limitBytes)} для этой папки`
+);
+
+const getUploadFileLimitError = (limitBytes) => (
+  `Файл больше ${formatLimitLabel(limitBytes)}`
 );
 
 const storage = multer.diskStorage({
@@ -6893,7 +6913,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: MAX_UPLOAD_FILE_BYTES },
+  limits: { fileSize: MAX_LESSON_SHARED_UPLOAD_FILE_BYTES },
 });
 
 const handleUploadRequest = (req, res) => {
@@ -10840,6 +10860,14 @@ app.post('/api/files', upload.single('file'), (req, res) => {
   }
 
   const db = readFilesDb();
+  const fileLimitBytes = getUploadFileLimitBytes(isLessonSharedUpload);
+  if (req.file.size > fileLimitBytes) {
+    try {
+      fs.unlinkSync(req.file.path);
+    } catch {}
+    return res.status(413).json({ error: getUploadFileLimitError(fileLimitBytes) });
+  }
+  const taskLimitBytes = getTaskLimitBytes(isLessonSharedUpload);
   const currentTotal = db
     .filter((entry) => {
       if (entry?.taskNumber !== taskNum) return false;
@@ -10849,11 +10877,11 @@ app.post('/api/files', upload.single('file'), (req, res) => {
       return entry?.studentId === student.id;
     })
     .reduce((sum, f) => sum + getEntrySizeBytes(f), 0);
-  if (currentTotal + req.file.size > MAX_TASK_BYTES) {
+  if (currentTotal + req.file.size > taskLimitBytes) {
     try {
       fs.unlinkSync(req.file.path);
     } catch {}
-    return res.status(413).json({ error: 'Превышен лимит 200 МБ для этого задания' });
+    return res.status(413).json({ error: getTaskLimitError(taskLimitBytes) });
   }
 
   if (folderRef) {
@@ -10965,6 +10993,7 @@ app.patch('/api/files/:id', (req, res) => {
       if (currentFolderTotal + movingSizeBytes > folderLimitBytes) {
         return res.status(413).json({ error: getFolderLimitError(folderLimitBytes) });
       }
+      const sharedTaskLimitBytes = getTaskLimitBytes(true);
       const sharedTaskTotal = db
         .filter((file) => (
           file.id !== id
@@ -10973,8 +11002,8 @@ app.patch('/api/files/:id', (req, res) => {
           && normalizeTeacherId(file.teacherId) === ownerTeacherId
         ))
         .reduce((sum, file) => sum + getEntrySizeBytes(file), 0);
-      if (sharedTaskTotal + movingSizeBytes > MAX_TASK_BYTES) {
-        return res.status(413).json({ error: 'Превышен лимит 200 МБ для этого задания' });
+      if (sharedTaskTotal + movingSizeBytes > sharedTaskLimitBytes) {
+        return res.status(413).json({ error: getTaskLimitError(sharedTaskLimitBytes) });
       }
       updated.folderId = sharedFolderId;
       updated.folderName = LESSON_SHARED_FOLDER_NAME;
@@ -11011,6 +11040,7 @@ app.patch('/api/files/:id', (req, res) => {
       }
       if (folderIsLessonShared) {
         if (!canWriteLessonSharedByTeacher(req.auth, ownerTeacherId)) return forbid(res);
+        const sharedTaskLimitBytes = getTaskLimitBytes(true);
         const sharedTaskTotal = db
           .filter((file) => (
             file.id !== id
@@ -11019,8 +11049,8 @@ app.patch('/api/files/:id', (req, res) => {
             && normalizeTeacherId(file.teacherId) === ownerTeacherId
           ))
           .reduce((sum, file) => sum + getEntrySizeBytes(file), 0);
-        if (sharedTaskTotal + movingSizeBytes > MAX_TASK_BYTES) {
-          return res.status(413).json({ error: 'Превышен лимит 200 МБ для этого задания' });
+        if (sharedTaskTotal + movingSizeBytes > sharedTaskLimitBytes) {
+          return res.status(413).json({ error: getTaskLimitError(sharedTaskLimitBytes) });
         }
         updated.folderId = folderRef.id;
         updated.folderName = folderRef.name;
@@ -11053,6 +11083,7 @@ app.patch('/api/files/:id', (req, res) => {
     const nextSizeBytes = Buffer.byteLength(content, 'utf8');
     const updatedIsLessonShared = isLessonSharedFile(updated);
     const updatedTeacherId = normalizeTeacherId(updated?.teacherId);
+    const taskLimitBytes = getTaskLimitBytes(updatedIsLessonShared);
     const currentTotal = db
       .filter((file) => {
         if (file.id === id || file.taskNumber !== updated.taskNumber) return false;
@@ -11062,8 +11093,8 @@ app.patch('/api/files/:id', (req, res) => {
         return file.studentId === updated.studentId;
       })
       .reduce((sum, file) => sum + getEntrySizeBytes(file), 0);
-    if (currentTotal + nextSizeBytes > MAX_TASK_BYTES) {
-      return res.status(413).json({ error: 'Превышен лимит 200 МБ для этого задания' });
+    if (currentTotal + nextSizeBytes > taskLimitBytes) {
+      return res.status(413).json({ error: getTaskLimitError(taskLimitBytes) });
     }
     if (updated.folderId) {
       const folderLimitBytes = getFolderLimitBytes(updatedIsLessonShared);
@@ -11097,7 +11128,9 @@ if (fs.existsSync(distDir)) {
 
 app.use((err, _req, res, _next) => {
   if (err?.code === 'LIMIT_FILE_SIZE') {
-    return res.status(413).json({ error: 'Файл больше 50 МБ' });
+    return res.status(413).json({
+      error: getUploadFileLimitError(Number(err?.limit) || MAX_LESSON_SHARED_UPLOAD_FILE_BYTES),
+    });
   }
   if (err?.type === 'entity.too.large') {
     return res.status(413).json({ error: 'Слишком большой запрос. Уменьшите размер данных.' });
