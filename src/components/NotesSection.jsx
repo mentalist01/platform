@@ -10,6 +10,7 @@ import {
   Monitor,
   Pencil,
   Plus,
+  Search,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -33,6 +34,16 @@ const mergeFolderLists = (lists) => {
 };
 const AUTO_REFRESH_INTERVAL_MS = 5000;
 const DEFAULT_NOTES_CATEGORY = 'class';
+const ROOT_FOLDER_LABEL = 'Без папки';
+
+const formatRussianCountLabel = (count, one, few, many) => {
+  const value = Math.abs(Number(count) || 0);
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
+  return many;
+};
 
 const NotesSection = ({
   theme = '',
@@ -75,6 +86,7 @@ const NotesSection = ({
   const [isDragging, setIsDragging] = useState(false);
   const [folders, setFolders] = useState([]);
   const [foldersError, setFoldersError] = useState('');
+  const [foldersLoaded, setFoldersLoaded] = useState(false);
   const [currentFolderId, setCurrentFolderId] = useState(null);
   const [newFolderName, setNewFolderName] = useState('');
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
@@ -109,11 +121,13 @@ const NotesSection = ({
   const [pyDraftCode, setPyDraftCode] = useState('');
   const [pyDraftError, setPyDraftError] = useState('');
   const [pyDraftSaving, setPyDraftSaving] = useState(false);
+  const [fileSearch, setFileSearch] = useState('');
   const [showMobileFolderTools, setShowMobileFolderTools] = useState(false);
   const restoringRef = useRef(false);
-  const didRestoreRef = useRef(false);
   const skipNullSaveRef = useRef(true);
   const pendingFolderIdRef = useRef(null);
+  const folderRestoreTargetRef = useRef(null);
+  const initializedStudentKeyRef = useRef('');
   const dragDepthRef = useRef(0);
   const fileRef = useRef(null);
   const pyRunnerWorkerRef = useRef(null);
@@ -122,6 +136,12 @@ const NotesSection = ({
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const getFileUrl = (file) => withStudentId(file?.url, effectiveStudentId);
+  const selectFolder = (folderId) => {
+    pendingFolderIdRef.current = null;
+    folderRestoreTargetRef.current = null;
+    restoringRef.current = false;
+    setCurrentFolderId(folderId || null);
+  };
 
   const taskOptions = MOCK_TASKS;
   const normalizedCurrentTask = normalizeTaskNumber(currentTask);
@@ -152,34 +172,48 @@ const NotesSection = ({
   }, [editingPyId]);
 
   useEffect(() => {
-    if (!effectiveStudentId) return;
-    if (didRestoreRef.current) return;
-    const studentKey = String(effectiveStudentId);
+    const studentKey = effectiveStudentId ? String(effectiveStudentId) : '';
+    if (initializedStudentKeyRef.current === studentKey) return;
+    initializedStudentKeyRef.current = studentKey;
+
     const entry = initialLocation && typeof initialLocation === 'object' ? initialLocation : null;
-    if (entry && entry.studentId && String(entry.studentId) !== studentKey) {
-      didRestoreRef.current = true;
-      return;
-    }
-    if (!entry) {
-      didRestoreRef.current = true;
-      return;
-    }
-    const normalizedTask = normalizeTaskNumber(entry.taskNumber);
+    const canUseSavedLocation = Boolean(studentKey)
+      && (!entry?.studentId || String(entry.studentId) === studentKey);
+    const normalizedTask = canUseSavedLocation ? normalizeTaskNumber(entry?.taskNumber) : null;
     const nextTask = Number.isFinite(normalizedTask) ? normalizedTask : null;
     const nextCategory = nextTask ? DEFAULT_NOTES_CATEGORY : null;
-    const nextFolderId = entry.folderId || null;
-    if (!nextTask && !nextCategory && !nextFolderId) {
-      didRestoreRef.current = true;
-      restoringRef.current = false;
-      return;
-    }
-    restoringRef.current = true;
+    const nextFolderId = nextTask ? (entry?.folderId || null) : null;
+
+    restoringRef.current = Boolean(nextFolderId);
     pendingFolderIdRef.current = nextFolderId;
+    folderRestoreTargetRef.current = null;
+    skipNullSaveRef.current = true;
     setCurrentTask(nextTask);
     setCurrentCategory(nextCategory);
     setCurrentFolderId(null);
-    didRestoreRef.current = true;
-  }, [effectiveStudentId, initialLocation]);
+    setFolders([]);
+    setFoldersLoaded(false);
+    setFiles([]);
+    setSelectedFileIds({});
+    setExpandedPyIds({});
+    setExpandedPdfIds({});
+    setExpandedImageIds({});
+    setDeletingFolderId(null);
+    setEditingPyId(null);
+    setPyEditDraft('');
+    setPyEditSaving(false);
+    setPyEditError('');
+    setPyRunInput('');
+    setPyRunOutput('');
+    setPyRunError('');
+    setPyRunLoading(false);
+    setShowPyCreator(false);
+    setPyDraftName('');
+    setPyDraftCode('');
+    setPyDraftError('');
+    setPyDraftSaving(false);
+    setShowMobileFolderTools(false);
+  }, [effectiveStudentId, initialLocation, normalizeTaskNumber]);
   const taskCounts = useMemo(() => {
     const map = new Map();
     for (const f of files) {
@@ -326,6 +360,16 @@ const NotesSection = ({
     return result;
   }, [folderChildrenByParent, expandedFolderIds]);
 
+  const allExpandableFolderIds = useMemo(() => {
+    const ids = [];
+    folderChildrenByParent.forEach((children, key) => {
+      if (key === '__root__') return;
+      if (!Array.isArray(children) || children.length === 0) return;
+      ids.push(key);
+    });
+    return ids;
+  }, [folderChildrenByParent]);
+
   const currentFolder = useMemo(() => (
     currentFolderId ? (foldersById.get(currentFolderId) || null) : null
   ), [foldersById, currentFolderId]);
@@ -357,6 +401,24 @@ const NotesSection = ({
   }
   const formatLimitLabel = (bytes) => `${Math.round(bytes / (1024 * 1024))} МБ`;
   const currentTaskLimitBytes = isCurrentFolderLessonShared ? MAX_LESSON_SHARED_TASK_BYTES : MAX_TASK_BYTES;
+
+  useEffect(() => {
+    if (!allExpandableFolderIds.length) return;
+    setExpandedFolderIds((prev) => {
+      const next = { ...(prev || {}) };
+      let changed = false;
+      allExpandableFolderIds.forEach((folderId) => {
+        if (next[folderId]) return;
+        next[folderId] = true;
+        changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, [allExpandableFolderIds]);
+
+  useEffect(() => {
+    setFileSearch('');
+  }, [effectiveStudentId, normalizedCurrentTask, currentCategory]);
 
   useEffect(() => {
     setExpandedFolderIds((prev) => {
@@ -453,34 +515,50 @@ const NotesSection = ({
     if (!Number.isFinite(normalizedCurrentTask) || !currentCategory || !effectiveStudentId) {
       setFolders([]);
       setFoldersError('');
+      setFoldersLoaded(false);
       return;
     }
     let cancelled = false;
+    setFoldersLoaded(false);
     const taskNumbers = getNotesTaskNumbers(normalizedCurrentTask);
     Promise.all(taskNumbers.map((taskNumber) => api.getFolders(taskNumber, currentCategory, effectiveStudentId)))
       .then((lists) => {
         if (cancelled) return;
         setFolders(mergeFolderLists(lists));
         setFoldersError('');
+        setFoldersLoaded(true);
       })
       .catch((err) => {
         if (cancelled) return;
         console.error(err);
         setFoldersError('Не удалось загрузить папки.');
+        setFoldersLoaded(true);
       });
     return () => { cancelled = true; };
   }, [normalizedCurrentTask, currentCategory, effectiveStudentId]);
 
   useEffect(() => {
     if (!pendingFolderIdRef.current) return;
+    if (!foldersLoaded) return;
     const targetId = pendingFolderIdRef.current;
     pendingFolderIdRef.current = null;
     if (targetId && folders.some((item) => item.id === targetId)) {
+      folderRestoreTargetRef.current = targetId;
       setCurrentFolderId(targetId);
     } else {
+      folderRestoreTargetRef.current = null;
+      restoringRef.current = false;
       setCurrentFolderId(null);
     }
-  }, [folders]);
+  }, [folders, foldersLoaded]);
+
+  useEffect(() => {
+    const targetId = folderRestoreTargetRef.current;
+    if (!targetId) return;
+    if (currentFolderId !== targetId) return;
+    folderRestoreTargetRef.current = null;
+    restoringRef.current = false;
+  }, [currentFolderId]);
 
   useEffect(() => {
     const preserveFolder = restoringRef.current;
@@ -517,67 +595,7 @@ const NotesSection = ({
     setPyDraftError('');
     setPyDraftSaving(false);
     setShowMobileFolderTools(false);
-    if (restoringRef.current && (currentTask || currentCategory)) {
-      restoringRef.current = false;
-    }
   }, [currentTask, currentCategory]);
-
-  useEffect(() => {
-    if (restoringRef.current) {
-      setFolders([]);
-      setFiles([]);
-      setSelectedFileIds({});
-      setExpandedPyIds({});
-      setExpandedPdfIds({});
-      setExpandedImageIds({});
-      setDeletingFolderId(null);
-      setEditingPyId(null);
-      setPyEditDraft('');
-      setPyEditSaving(false);
-      setPyEditError('');
-      setPyRunInput('');
-      setPyRunOutput('');
-      setPyRunError('');
-      setPyRunLoading(false);
-      setShowPyCreator(false);
-      setPyDraftName('');
-      setPyDraftCode('');
-      setPyDraftError('');
-      setPyDraftSaving(false);
-      setShowMobileFolderTools(false);
-      didRestoreRef.current = false;
-      skipNullSaveRef.current = true;
-      return;
-    }
-    setCurrentTask(null);
-    setCurrentCategory(null);
-    setCurrentFolderId(null);
-    setFolders([]);
-    setFiles([]);
-    setSelectedFileIds({});
-    setExpandedPyIds({});
-    setExpandedPdfIds({});
-    setExpandedImageIds({});
-    setDeletingFolderId(null);
-    setEditingPyId(null);
-    setPyEditDraft('');
-    setPyEditSaving(false);
-    setPyEditError('');
-    setPyRunInput('');
-    setPyRunOutput('');
-    setPyRunError('');
-    setPyRunLoading(false);
-    setShowPyCreator(false);
-    setPyDraftName('');
-    setPyDraftCode('');
-    setPyDraftError('');
-    setPyDraftSaving(false);
-    setShowMobileFolderTools(false);
-    pendingFolderIdRef.current = null;
-    restoringRef.current = false;
-    didRestoreRef.current = false;
-    skipNullSaveRef.current = true;
-  }, [effectiveStudentId]);
 
   useEffect(() => {
     if (!effectiveStudentId) return;
@@ -814,7 +832,7 @@ const NotesSection = ({
       setNewFolderName('');
       setIsCreatingFolder(false);
       setFoldersError('');
-      setCurrentFolderId(created.id);
+      selectFolder(created.id);
     } catch (err) {
       setFoldersError(err?.message || err);
     }
@@ -1742,12 +1760,18 @@ const NotesSection = ({
   const openTaskExplorer = (taskNumber) => {
     const normalized = normalizeTaskNumber(taskNumber);
     if (!Number.isFinite(normalized)) return;
+    pendingFolderIdRef.current = null;
+    folderRestoreTargetRef.current = null;
+    restoringRef.current = false;
     setCurrentTask(normalized);
     setCurrentCategory(DEFAULT_NOTES_CATEGORY);
     setCurrentFolderId(null);
   };
 
   const closeTaskExplorer = () => {
+    pendingFolderIdRef.current = null;
+    folderRestoreTargetRef.current = null;
+    restoringRef.current = false;
     setCurrentTask(null);
     setCurrentCategory(null);
     setCurrentFolderId(null);
@@ -1866,11 +1890,14 @@ const NotesSection = ({
   );
 
   const effectiveCategory = currentCategory || DEFAULT_NOTES_CATEGORY;
-  const filtered = files.filter((f) =>
+  const taskFiles = files.filter((f) =>
     getNotesTaskNumber(f?.taskNumber) === normalizedCurrentTask &&
-    f.category === effectiveCategory &&
-    (currentFolderId ? f.folderId === currentFolderId : !f.folderId)
+    f.category === effectiveCategory
   );
+  const filtered = taskFiles.filter((f) => (
+    currentFolderId ? f.folderId === currentFolderId : !f.folderId
+  ));
+  const uploadBlockedByRole = !canUploadToCurrentFolder;
   const currentFolderPath = (() => {
     if (!currentFolderId) return [];
     const labels = [];
@@ -1887,10 +1914,51 @@ const NotesSection = ({
   })();
   const currentFolderLabel = currentFolderPath.length
     ? currentFolderPath[currentFolderPath.length - 1]
-    : 'Без папки';
+    : ROOT_FOLDER_LABEL;
   const currentFolderPathLabel = currentFolderPath.length
-    ? `На уроке (корень) / ${currentFolderPath.join(' / ')}`
-    : 'На уроке (корень)';
+    ? `Материалы урока / ${currentFolderPath.join(' / ')}`
+    : `Материалы урока / ${ROOT_FOLDER_LABEL.toLowerCase()}`;
+  const normalizedFileSearch = fileSearch.trim().toLowerCase();
+  const isSearchMode = Boolean(normalizedFileSearch);
+  const visibleFiles = isSearchMode
+    ? taskFiles.filter((file) => {
+      const haystack = [
+        file?.name,
+        getFileTypeLabel(file),
+        file?.folderPath,
+        file?.folderName,
+      ]
+        .map((value) => String(value || '').toLowerCase())
+        .join(' ');
+      return haystack.includes(normalizedFileSearch);
+    })
+    : filtered;
+  const currentFolderFilesLabel = `${filtered.length} ${formatRussianCountLabel(
+    filtered.length,
+    'файл',
+    'файла',
+    'файлов'
+  )}`;
+  const searchResultsLabel = `${visibleFiles.length} ${formatRussianCountLabel(
+    visibleFiles.length,
+    'совпадение',
+    'совпадения',
+    'совпадений'
+  )}`;
+  const emptyStateTitle = filesError
+    ? 'Не удалось показать файлы'
+    : isSearchMode
+      ? 'Ничего не найдено'
+      : filtered.length === 0
+        ? 'Папка пока пустая'
+        : '';
+  const emptyStateText = filesError
+    ? filesError
+    : isSearchMode
+      ? `По запросу "${fileSearch.trim()}" ничего не найдено.`
+      : currentFolderId
+        ? `В папке "${currentFolderLabel}" пока нет файлов.`
+        : 'Здесь пока нет файлов.';
   const pyEditorOptions = {
     minimap: { enabled: false },
     fontSize: 14,
@@ -1908,14 +1976,13 @@ const NotesSection = ({
   const pdfPreviewHeight = isMobileViewport ? '48vh' : '60vh';
   const imagePreviewMaxHeight = isMobileViewport ? '56vh' : '72vh';
   const currentTaskLabel = formatTaskNumber(currentTask) || currentTask;
-  const currentCategoryLabel = 'На уроке';
-  const uploadBlockedByRole = !canUploadToCurrentFolder;
+  const currentCategoryLabel = 'Материалы урока';
   const uploadButtonLabel = isUploading
     ? 'Загрузка...'
     : (uploadBlockedByRole ? 'Только учитель' : 'Загрузить');
   const handleExplorerBack = () => {
     if (currentFolderId) {
-      setCurrentFolderId(currentFolderParentId);
+      selectFolder(currentFolderParentId);
       return;
     }
     closeTaskExplorer();
@@ -1938,7 +2005,7 @@ const NotesSection = ({
               </Button>
               <div className="space-y-1">
                 <h3 className="notes-explorer-title text-base font-semibold text-slate-900 md:text-lg">
-                  {`Проводник: задание ${currentTaskLabel}`}
+                  {`Материалы: задание ${currentTaskLabel}`}
                 </h3>
               </div>
             </div>
@@ -1957,7 +2024,7 @@ const NotesSection = ({
           <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center">
             <div className="notes-explorer-address flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm whitespace-nowrap text-slate-600">
               <Monitor size={14} className="shrink-0 text-slate-500" />
-              <span className="shrink-0 text-slate-700">Конспекты</span>
+              <span className="shrink-0 text-slate-700">Материалы</span>
               <ChevronRight size={13} className="shrink-0 text-slate-300" />
               <span className="shrink-0">{`Задание ${currentTaskLabel}`}</span>
               <ChevronRight size={13} className="shrink-0 text-slate-300" />
@@ -1974,28 +2041,33 @@ const NotesSection = ({
               ) : (
                 <>
                   <ChevronRight size={13} className="shrink-0 text-slate-300" />
-                  <span className="notes-explorer-address-empty shrink-0 text-slate-500">Без папки</span>
+                  <span className="notes-explorer-address-empty shrink-0 text-slate-500">{ROOT_FOLDER_LABEL}</span>
                 </>
               )}
             </div>
           </div>
-          {role !== 'student' && (
-            <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold md:text-xs">
+          <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold md:text-xs">
+            <span className="notes-explorer-stat inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700 md:px-2.5">
+              {`Папка: ${currentFolderFilesLabel}`}
+            </span>
+            {isSearchMode && (
               <span className="notes-explorer-stat inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700 md:px-2.5">
-                {`Файлов в папке: ${filtered.length}`}
+                {`Поиск: ${searchResultsLabel}`}
               </span>
+            )}
+            {role !== 'student' && (
               <span className="notes-explorer-stat inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700 md:px-2.5">
                 {`Использовано: ${formatBytes(taskUsageBytes)} / ${formatBytes(totalLimitBytes)}`}
               </span>
-              <span className={`notes-explorer-stat notes-explorer-stat-remaining inline-flex items-center rounded-full border px-2 py-1 md:px-2.5 ${
-                remainingBytes <= 10 * 1024 * 1024
-                  ? 'border-rose-200 bg-rose-50 text-rose-600'
-                  : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-              }`}>
-                Осталось: {formatBytes(remainingBytes)}
-              </span>
-            </div>
-          )}
+            )}
+            <span className={`notes-explorer-stat notes-explorer-stat-remaining inline-flex items-center rounded-full border px-2 py-1 md:px-2.5 ${
+              remainingBytes <= 10 * 1024 * 1024
+                ? 'border-rose-200 bg-rose-50 text-rose-600'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            }`}>
+              Осталось: {formatBytes(remainingBytes)}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -2021,16 +2093,17 @@ const NotesSection = ({
             <div className="notes-explorer-folder-header flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="notes-explorer-folder-title font-bold text-gray-800">Папки</h3>
-                <p className="notes-explorer-folder-subtitle text-xs text-slate-500">Создавайте папки и подпапки</p>
               </div>
-              <Button
-                variant="secondary"
-                onClick={() => setIsCreatingFolder((v) => !v)}
-                disabled={uploadBlockedByRole}
-                className="notes-explorer-folder-add-btn w-full sm:w-auto"
-              >
-                <FolderPlus size={16} /> Новая папка
-              </Button>
+              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+                <Button
+                  variant="secondary"
+                  onClick={() => setIsCreatingFolder((v) => !v)}
+                  disabled={uploadBlockedByRole}
+                  className="notes-explorer-folder-add-btn w-full sm:w-auto"
+                >
+                  <FolderPlus size={16} /> Новая папка
+                </Button>
+              </div>
             </div>
 
             {isCreatingFolder && (
@@ -2051,7 +2124,7 @@ const NotesSection = ({
 
             <div className="notes-explorer-folder-tree space-y-1 rounded-2xl p-2">
               <button
-                onClick={() => setCurrentFolderId(null)}
+                onClick={() => selectFolder(null)}
                 onDragOver={(e) => handleFolderDragOver(e, 'root')}
                 onDragLeave={(e) => handleFolderDragLeave(e, 'root')}
                 onDrop={(e) => handleFolderDrop(e, null)}
@@ -2066,7 +2139,7 @@ const NotesSection = ({
               >
                 <span className="notes-explorer-folder-label">
                   <Folder size={16} className="notes-explorer-folder-icon" />
-                  <span className="notes-explorer-folder-name">На уроке (корень)</span>
+                  <span className="notes-explorer-folder-name">{ROOT_FOLDER_LABEL}</span>
                 </span>
                 <span className="notes-explorer-folder-row-meta">
                   <span className="notes-explorer-folder-count">{folderCounts.root}</span>
@@ -2076,18 +2149,19 @@ const NotesSection = ({
                 const sharedFolder = isLessonSharedFolder(folder);
                 const isCurrentFolder = currentFolderId === folder.id;
                 const canDeleteCurrentFolder = canDeleteFolder(folder);
+                const folderFileCount = folderCounts.map.get(folder.id) || 0;
                 const indent = Math.min(depth, 8) * 16;
                 return (
                   <div
                     key={folder.id}
                     onClick={() => {
-                      if (renamingFolderId !== folder.id) setCurrentFolderId(folder.id);
+                      if (renamingFolderId !== folder.id) selectFolder(folder.id);
                     }}
                     onKeyDown={(e) => {
                       if (renamingFolderId === folder.id) return;
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        setCurrentFolderId(folder.id);
+                        selectFolder(folder.id);
                       }
                     }}
                     onDoubleClick={() => {
@@ -2168,7 +2242,7 @@ const NotesSection = ({
                             <Trash2 size={14} />
                           </button>
                         )}
-                        <span className="notes-explorer-folder-count">{folderCounts.map.get(folder.id) || 0}</span>
+                        <span className="notes-explorer-folder-count">{folderFileCount}</span>
                       </span>
                     )}
                   </div>
@@ -2198,8 +2272,8 @@ const NotesSection = ({
         <div className="notes-explorer-python-card mb-3 rounded-2xl border border-slate-200/80 bg-white/85 p-3 md:mb-4 md:p-4">
           <div className="flex flex-wrap items-center justify-between gap-2.5">
             <div>
-              <h3 className="notes-explorer-python-title text-sm font-bold text-gray-800">Python файл</h3>
-              <p className="notes-explorer-python-subtitle text-xs text-slate-500">Создайте .py файл сразу в текущей папке</p>
+              <h3 className="notes-explorer-python-title text-sm font-bold text-gray-800">Быстро создать Python-файл</h3>
+              <p className="notes-explorer-python-subtitle text-xs text-slate-500">Новый `.py` файл сразу появится в открытой папке</p>
             </div>
             <Button variant="secondary" onClick={() => setShowPyCreator((v) => !v)} disabled={uploadBlockedByRole} className="notes-explorer-python-toggle w-full sm:w-auto">
               <Plus size={16} /> {showPyCreator ? 'Скрыть' : 'Создать'}
@@ -2243,9 +2317,33 @@ const NotesSection = ({
           )}
         </div>
 
+        <div className="notes-explorer-search-bar mb-3 rounded-2xl border border-slate-200/80 bg-white/85 p-3">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center">
+            <label className="notes-explorer-search-input-wrap flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <Search size={16} className="notes-explorer-search-icon shrink-0" />
+              <input
+                type="text"
+                value={fileSearch}
+                onChange={(e) => setFileSearch(e.target.value)}
+                placeholder="Поиск файлов"
+                className="notes-explorer-search-input min-w-0 flex-1 bg-transparent text-sm outline-none"
+              />
+            </label>
+            {fileSearch.trim() && (
+              <button
+                type="button"
+                onClick={() => setFileSearch('')}
+                className="notes-explorer-folder-tree-action self-start md:self-auto"
+              >
+                Очистить поиск
+              </button>
+            )}
+          </div>
+        </div>
+
         <div className="notes-explorer-files-meta mb-3 md:mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
           {uploadBlockedByRole ? (
-            <span>Загрузка в эту папку доступна только учителю</span>
+            <span>В эту папку материалы добавляет только учитель</span>
           ) : (
             <>
               <span className="hidden md:inline">Перетащите файл сюда или вставьте изображение через Ctrl+V</span>
@@ -2253,14 +2351,15 @@ const NotesSection = ({
             </>
           )}
           <span className="notes-explorer-files-meta-path text-[11px] md:text-xs text-slate-400">
-            Папка: {currentFolderPathLabel} • Осталось {formatBytes(remainingBytes)}
+            {isSearchMode ? `${searchResultsLabel}` : currentFolderPathLabel} • Осталось {formatBytes(remainingBytes)}
           </span>
           {isUploading && <span className="notes-explorer-files-meta-progress text-xs font-bold text-purple-600">Загрузка...</span>}
         </div>
 
-        {filtered.length === 0 ? (
-          <div className="notes-explorer-empty-state rounded-2xl border border-dashed border-slate-200 bg-white/80 p-6 md:p-10 text-center text-sm text-slate-400">
-            {filesError || 'Пусто'}
+        {visibleFiles.length === 0 ? (
+          <div className="notes-explorer-empty-state rounded-2xl border border-dashed border-slate-200 bg-white/80 p-6 text-center md:p-10">
+            <h4 className="notes-explorer-empty-title text-sm font-semibold">{emptyStateTitle}</h4>
+            <p className="notes-explorer-empty-text mt-2 text-sm">{emptyStateText}</p>
           </div>
         ) : (
           <div className="notes-explorer-table overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -2276,7 +2375,7 @@ const NotesSection = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((f) => {
+                  {visibleFiles.map((f) => {
                     const manageable = canManageFile(f);
                     const isPreviewable = isPyFile(f.name) || isPdfFile(f.name) || isImageFile(f);
                     const isExpanded = Boolean(expandedPyIds[f.id] || expandedPdfIds[f.id] || expandedImageIds[f.id]);
@@ -2342,7 +2441,14 @@ const NotesSection = ({
                                     ) : null}
                                   </div>
                                 ) : (
-                                  <span className="notes-explorer-file-name block truncate font-medium text-slate-800">{f.name}</span>
+                                  <>
+                                    <span className="notes-explorer-file-name block truncate font-medium text-slate-800">{f.name}</span>
+                                    {isSearchMode && (
+                                      <span className="notes-explorer-file-path block truncate text-xs">
+                                        {f.folderPath ? `Папка: ${f.folderPath}` : ROOT_FOLDER_LABEL}
+                                      </span>
+                                    )}
+                                  </>
                                 )}
                               </div>
                             </div>
