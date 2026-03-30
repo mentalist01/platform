@@ -5448,6 +5448,11 @@ const CollabSection = ({
       })
       .filter(Boolean)
   ), [testFileText, visibleRemoteTestFileSelections]);
+  const primaryRemoteTestFileSelection = remoteTestFileSelectionSummaries[0] || null;
+  const hasMultipleRemoteSelections = remoteTestFileSelectionSummaries.length > 1;
+  const remoteTestFileSelectionLabel = primaryRemoteTestFileSelection
+    ? `${primaryRemoteTestFileSelection.name}: ${primaryRemoteTestFileSelection.details.summary}${hasMultipleRemoteSelections ? ` +${remoteTestFileSelectionSummaries.length - 1}` : ''}`
+    : '';
   const localTestFileSelectionDetails = useMemo(
     () => describeCollabTextSelection(testFileText, localTestFileSelection),
     [testFileText, localTestFileSelection]
@@ -5867,6 +5872,25 @@ const CollabSection = ({
                       {`онлайн: ${remoteParticipants.length + 1}`}
                     </span>
                   )}
+                  <div className="hidden sm:flex w-[13rem] min-w-0">
+                    <span
+                      title={primaryRemoteTestFileSelection?.details.label || ''}
+                      aria-hidden={!primaryRemoteTestFileSelection}
+                      className={`inline-flex w-full items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium transition-opacity duration-150 ${
+                        isCollabDarkUi
+                          ? 'border-violet-300/22 bg-violet-400/8 text-violet-50'
+                          : 'border-violet-200 bg-white text-violet-800'
+                      } ${
+                        primaryRemoteTestFileSelection ? 'opacity-100' : 'pointer-events-none opacity-0'
+                      }`}
+                    >
+                      <span
+                        className="inline-flex h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: primaryRemoteTestFileSelection?.color || 'transparent' }}
+                      />
+                      <span className="truncate">{remoteTestFileSelectionLabel || ' '}</span>
+                    </span>
+                  </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   <div className="flex w-[4.6rem] justify-end">
@@ -5907,34 +5931,6 @@ const CollabSection = ({
                   </span>
                 </div>
               </div>
-              {roomId && remoteTestFileSelectionSummaries.length > 0 && (
-                <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                  {remoteTestFileSelectionSummaries.map((selection) => (
-                    <span
-                      key={`test-file-selection-${selection.id}`}
-                      title={selection.details.label}
-                      className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
-                        isCollabDarkUi ? 'text-slate-100' : 'text-slate-700'
-                      }`}
-                      style={{
-                        borderColor: getCollabColorWithAlpha(
-                          selection.color,
-                          isCollabDarkUi ? 0.5 : 0.24,
-                          isCollabDarkUi ? 'rgba(56, 189, 248, 0.5)' : 'rgba(56, 189, 248, 0.24)'
-                        ),
-                        backgroundColor: getCollabColorWithAlpha(
-                          selection.color,
-                          isCollabDarkUi ? 0.16 : 0.1,
-                          isCollabDarkUi ? 'rgba(15, 23, 42, 0.82)' : 'rgba(255, 255, 255, 0.9)'
-                        ),
-                      }}
-                    >
-                      <span className="inline-flex h-2 w-2 rounded-full" style={{ backgroundColor: selection.color }} />
-                      <span className="truncate">{`${selection.name}: ${selection.details.summary}`}</span>
-                    </span>
-                  ))}
-                </div>
-              )}
             </div>
           )}
           {isTestFileMode ? (
