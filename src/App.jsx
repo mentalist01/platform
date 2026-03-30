@@ -1528,6 +1528,70 @@ const normalizeCollabOutputSelection = (value, textLength = Number.MAX_SAFE_INTE
   };
 };
 
+const getCollabColorWithAlpha = (value, alpha, fallback = `rgba(99, 102, 241, ${alpha})`) => {
+  const normalizedAlpha = Number.isFinite(Number(alpha))
+    ? Math.max(0, Math.min(1, Number(alpha)))
+    : 1;
+  const text = String(value || '').trim();
+  const hexMatch = text.match(/^#([\da-f]{3}|[\da-f]{6})$/i);
+  if (!hexMatch) return fallback;
+  const hex = hexMatch[1].length === 3
+    ? hexMatch[1].split('').map((char) => `${char}${char}`).join('')
+    : hexMatch[1];
+  const int = Number.parseInt(hex, 16);
+  if (!Number.isFinite(int)) return fallback;
+  const red = (int >> 16) & 255;
+  const green = (int >> 8) & 255;
+  const blue = int & 255;
+  return `rgba(${red}, ${green}, ${blue}, ${normalizedAlpha})`;
+};
+
+const buildCollabSelectionHighlightStyle = (color) => ({
+  background: `linear-gradient(180deg, ${getCollabColorWithAlpha(color, 0.24, 'rgba(56, 189, 248, 0.24)')}, ${getCollabColorWithAlpha(color, 0.14, 'rgba(56, 189, 248, 0.14)')})`,
+  boxShadow: `inset 0 0 0 1px ${getCollabColorWithAlpha(color, 0.42, 'rgba(125, 211, 252, 0.45)')}`,
+  borderRadius: '0.22rem',
+});
+
+const formatCollabSymbolCount = (value) => {
+  const count = Math.max(0, Math.floor(Number(value) || 0));
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${count} символ`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${count} символа`;
+  return `${count} символов`;
+};
+
+const getCollabTextLocation = (text, index) => {
+  const source = String(text ?? '');
+  const safeIndex = Math.max(0, Math.min(source.length, Math.floor(Number(index) || 0)));
+  let line = 1;
+  let column = 1;
+  for (let cursor = 0; cursor < safeIndex; cursor += 1) {
+    if (source[cursor] === '\n') {
+      line += 1;
+      column = 1;
+    } else {
+      column += 1;
+    }
+  }
+  return { line, column };
+};
+
+const describeCollabTextSelection = (text, selection) => {
+  const range = normalizeCollabOutputSelection(selection, String(text ?? '').length);
+  if (!range) return null;
+  const start = getCollabTextLocation(text, range.start);
+  const end = getCollabTextLocation(text, range.end);
+  const charCount = range.end - range.start;
+  return {
+    start,
+    end,
+    charCount,
+    label: `${start.line}:${start.column} - ${end.line}:${end.column}`,
+    summary: `${formatCollabSymbolCount(charCount)} · ${start.line}:${start.column}-${end.line}:${end.column}`,
+  };
+};
+
 const buildCollabTextSelectionSegments = (text, selections = []) => {
   const source = String(text ?? '');
   const normalizedSelections = (Array.isArray(selections) ? selections : [])
@@ -2209,8 +2273,11 @@ const CollabSection = ({
   const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
   const [status, setStatus] = useState('disconnected');
   const [peerCount, setPeerCount] = useState(0);
+  const [remoteParticipants, setRemoteParticipants] = useState([]);
   const [remoteEditorCursors, setRemoteEditorCursors] = useState([]);
   const [remoteOutputSelections, setRemoteOutputSelections] = useState([]);
+  const [remoteTestFileSelections, setRemoteTestFileSelections] = useState([]);
+  const [localTestFileSelection, setLocalTestFileSelection] = useState(null);
   const [editorReady, setEditorReady] = useState(false);
   const [editorViewportVersion, setEditorViewportVersion] = useState(0);
   const [editorMountVersion, setEditorMountVersion] = useState(0);
@@ -2292,6 +2359,8 @@ const CollabSection = ({
   const outputTextareaRef = useRef(null);
   const outputSelectionTrackingStopRef = useRef(null);
   const outputSelectionSyncFrameRef = useRef(null);
+  const testFileSelectionTrackingStopRef = useRef(null);
+  const testFileSelectionSyncFrameRef = useRef(null);
   const notesPdfPanelHeightRef = useRef(notesPdfPanelHeight);
   const notesPdfDragHeightRef = useRef(notesPdfPanelHeight);
   const collabDocRef = useRef(null);
@@ -2306,8 +2375,10 @@ const CollabSection = ({
   const runStreamTimerRef = useRef(null);
   const runStreamPendingRef = useRef(null);
   const runInputRef = useRef(runInput);
+  const testFileTextRef = useRef(testFileText);
   const runOutputRef = useRef(runOutput);
   const outputSelectionRef = useRef(null);
+  const testFileSelectionRef = useRef(null);
   const runErrorRef = useRef(runError);
   const runStatusRef = useRef(runStatus);
   const collabAuxPanelModeRef = useRef(collabAuxPanelMode);
@@ -2317,6 +2388,7 @@ const CollabSection = ({
   const runTaskCategoryRef = useRef(runTaskCategory);
   const selectedTaskFileIdsRef = useRef(selectedTaskFileIds);
   const testFileTextareaRef = useRef(null);
+  const testFileHighlightOverlayRef = useRef(null);
   const taskFileInputRef = useRef(null);
   const mountedRuntimeFilesRef = useRef([]);
   const debugTraceRef = useRef([]);
@@ -3376,6 +3448,10 @@ const CollabSection = ({
   }, [runInput]);
 
   useEffect(() => {
+    testFileTextRef.current = testFileText;
+  }, [testFileText]);
+
+  useEffect(() => {
     runOutputRef.current = runOutput;
   }, [runOutput]);
 
@@ -3466,6 +3542,104 @@ const CollabSection = ({
     window.addEventListener('blur', stopTracking);
   }, [queueCollabOutputSelectionSync, stopCollabOutputSelectionTracking]);
 
+  const clearCollabTestFileSelection = useCallback(() => {
+    testFileSelectionRef.current = null;
+    setLocalTestFileSelection(null);
+    collabAwarenessRef.current?.setLocalStateField?.('testFileSelection', null);
+  }, []);
+
+  const cancelCollabTestFileSelectionSync = useCallback(() => {
+    if (testFileSelectionSyncFrameRef.current == null || typeof window === 'undefined') return;
+    window.cancelAnimationFrame(testFileSelectionSyncFrameRef.current);
+    testFileSelectionSyncFrameRef.current = null;
+  }, []);
+
+  const syncCollabTestFileOverlayScroll = useCallback(() => {
+    const textarea = testFileTextareaRef.current;
+    const overlay = testFileHighlightOverlayRef.current;
+    if (!textarea || !overlay) return;
+    overlay.scrollTop = textarea.scrollTop;
+    overlay.scrollLeft = textarea.scrollLeft;
+  }, []);
+
+  const publishCollabTestFileSelection = useCallback((start, end) => {
+    const normalized = normalizeCollabOutputSelection({
+      start: Number(start),
+      end: Number(end),
+    }, String(testFileTextRef.current || '').length);
+    const previous = testFileSelectionRef.current;
+    const isSameRange = (previous == null && normalized == null)
+      || (
+        previous
+        && normalized
+        && previous.start === normalized.start
+        && previous.end === normalized.end
+      );
+    if (isSameRange) return;
+    testFileSelectionRef.current = normalized
+      ? { start: normalized.start, end: normalized.end }
+      : null;
+    setLocalTestFileSelection(normalized ? { start: normalized.start, end: normalized.end } : null);
+    collabAwarenessRef.current?.setLocalStateField?.('testFileSelection', normalized ? {
+      start: normalized.start,
+      end: normalized.end,
+      ts: Date.now(),
+    } : null);
+  }, []);
+
+  const syncCollabTestFileSelectionFromTextarea = useCallback(() => {
+    const textarea = testFileTextareaRef.current;
+    if (!textarea || collabAuxPanelModeRef.current !== COLLAB_AUX_PANEL_MODE_TEST_FILE) {
+      clearCollabTestFileSelection();
+      return;
+    }
+    syncCollabTestFileOverlayScroll();
+    publishCollabTestFileSelection(textarea.selectionStart, textarea.selectionEnd);
+  }, [clearCollabTestFileSelection, publishCollabTestFileSelection, syncCollabTestFileOverlayScroll]);
+
+  const queueCollabTestFileSelectionSync = useCallback(() => {
+    if (typeof window === 'undefined') {
+      syncCollabTestFileSelectionFromTextarea();
+      return;
+    }
+    if (testFileSelectionSyncFrameRef.current != null) return;
+    testFileSelectionSyncFrameRef.current = window.requestAnimationFrame(() => {
+      testFileSelectionSyncFrameRef.current = null;
+      syncCollabTestFileSelectionFromTextarea();
+    });
+  }, [syncCollabTestFileSelectionFromTextarea]);
+
+  const stopCollabTestFileSelectionTracking = useCallback(() => {
+    testFileSelectionTrackingStopRef.current?.();
+    testFileSelectionTrackingStopRef.current = null;
+    cancelCollabTestFileSelectionSync();
+  }, [cancelCollabTestFileSelectionSync]);
+
+  const handleCollabTestFilePointerDown = useCallback((event) => {
+    if (event.button !== 0) return;
+    queueCollabTestFileSelectionSync();
+    if (typeof window === 'undefined') return;
+    const handlePointerMove = () => {
+      queueCollabTestFileSelectionSync();
+    };
+    const stopTracking = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopTracking);
+      window.removeEventListener('pointercancel', stopTracking);
+      window.removeEventListener('blur', stopTracking);
+      queueCollabTestFileSelectionSync();
+      if (testFileSelectionTrackingStopRef.current === stopTracking) {
+        testFileSelectionTrackingStopRef.current = null;
+      }
+    };
+    stopCollabTestFileSelectionTracking();
+    testFileSelectionTrackingStopRef.current = stopTracking;
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopTracking);
+    window.addEventListener('pointercancel', stopTracking);
+    window.addEventListener('blur', stopTracking);
+  }, [queueCollabTestFileSelectionSync, stopCollabTestFileSelectionTracking]);
+
   const syncOutputTextareaHeight = useCallback(() => {
     const textarea = outputTextareaRef.current;
     if (!textarea) return;
@@ -3494,6 +3668,36 @@ const CollabSection = ({
   useEffect(() => () => {
     stopCollabOutputSelectionTracking();
   }, [stopCollabOutputSelectionTracking]);
+
+  useLayoutEffect(() => {
+    if (collabAuxPanelMode !== COLLAB_AUX_PANEL_MODE_TEST_FILE) return;
+    syncCollabTestFileOverlayScroll();
+  }, [
+    collabAuxPanelMode,
+    testFileText,
+    testFileTextareaHeight,
+    remoteTestFileSelections.length,
+    syncCollabTestFileOverlayScroll,
+  ]);
+
+  useEffect(() => {
+    if (collabAuxPanelMode !== COLLAB_AUX_PANEL_MODE_TEST_FILE) {
+      stopCollabTestFileSelectionTracking();
+      clearCollabTestFileSelection();
+      return;
+    }
+    queueCollabTestFileSelectionSync();
+  }, [
+    collabAuxPanelMode,
+    testFileText,
+    queueCollabTestFileSelectionSync,
+    stopCollabTestFileSelectionTracking,
+    clearCollabTestFileSelection,
+  ]);
+
+  useEffect(() => () => {
+    stopCollabTestFileSelectionTracking();
+  }, [stopCollabTestFileSelectionTracking]);
 
   useEffect(() => {
     runErrorRef.current = runError;
@@ -4930,13 +5134,17 @@ const CollabSection = ({
     if (!roomId || !editorReady || !wsUrl) {
       setStatus('disconnected');
       setPeerCount(0);
+      setRemoteParticipants([]);
       setRemoteEditorCursors([]);
       setRemoteOutputSelections([]);
+      setRemoteTestFileSelections([]);
       stopCollabOutputSelectionTracking();
+      stopCollabTestFileSelectionTracking();
       if (COLLAB_EDITOR_CURSOR_ENABLED) {
         collabAwarenessRef.current?.setLocalStateField?.('editorCursor', null);
       }
       collabAwarenessRef.current?.setLocalStateField?.('outputSelection', null);
+      collabAwarenessRef.current?.setLocalStateField?.('testFileSelection', null);
       collabCursorWindowStopRef.current?.();
       collabCursorWindowStopRef.current = null;
       if (collabCursorClearTimerRef.current) {
@@ -4953,6 +5161,8 @@ const CollabSection = ({
       collabAwarenessRef.current = null;
       runMapRef.current = null;
       outputSelectionRef.current = null;
+      testFileSelectionRef.current = null;
+      setLocalTestFileSelection(null);
       setTestFileText('');
       clearDebugSession(false);
       updateRunStateFromMap(null);
@@ -4973,8 +5183,12 @@ const CollabSection = ({
       collabCursorWindowStopRef.current?.();
       collabCursorWindowStopRef.current = null;
       stopCollabOutputSelectionTracking();
+      stopCollabTestFileSelectionTracking();
+      setRemoteParticipants([]);
       setRemoteEditorCursors([]);
       setRemoteOutputSelections([]);
+      setRemoteTestFileSelections([]);
+      setLocalTestFileSelection(null);
       return;
     }
 
@@ -4982,6 +5196,7 @@ const CollabSection = ({
     const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]), provider.awareness);
     provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
     provider.awareness.setLocalStateField('outputSelection', null);
+    provider.awareness.setLocalStateField('testFileSelection', null);
     if (COLLAB_EDITOR_CURSOR_ENABLED) {
       provider.awareness.setLocalStateField('editorCursor', null);
     }
@@ -5010,9 +5225,12 @@ const CollabSection = ({
       const total = states.size;
       setPeerCount(Math.max(0, total - 1));
       const now = Date.now();
+      const participants = [];
       const cursors = [];
       const outputSelections = [];
+      const testFileSelections = [];
       const outputLength = String(runOutputRef.current || '').length;
+      const testFileLength = String(testFileTextRef.current || '').length;
       states.forEach((state, clientId) => {
         if (clientId === provider.awareness.clientID) return;
         const remoteUser = state?.user;
@@ -5022,12 +5240,27 @@ const CollabSection = ({
         const remoteColor = typeof remoteUser?.color === 'string' && remoteUser.color
           ? remoteUser.color
           : '#6366f1';
+        participants.push({
+          id: String(clientId),
+          name: remoteName,
+          color: remoteColor,
+        });
         const outputSelection = normalizeCollabOutputSelection(state?.outputSelection, outputLength);
         if (outputSelection) {
           outputSelections.push({
             id: String(clientId),
             start: outputSelection.start,
             end: outputSelection.end,
+            name: remoteName,
+            color: remoteColor,
+          });
+        }
+        const testFileSelection = normalizeCollabOutputSelection(state?.testFileSelection, testFileLength);
+        if (testFileSelection) {
+          testFileSelections.push({
+            id: String(clientId),
+            start: testFileSelection.start,
+            end: testFileSelection.end,
             name: remoteName,
             color: remoteColor,
           });
@@ -5055,8 +5288,10 @@ const CollabSection = ({
           });
         }
       });
+      setRemoteParticipants(participants.sort((left, right) => left.name.localeCompare(right.name, 'ru')));
       setRemoteEditorCursors(COLLAB_EDITOR_CURSOR_ENABLED ? cursors : []);
       setRemoteOutputSelections(outputSelections);
+      setRemoteTestFileSelections(testFileSelections);
     };
 
     provider.on('status', handleStatus);
@@ -5070,7 +5305,9 @@ const CollabSection = ({
         provider.awareness.setLocalStateField('editorCursor', null);
       }
       provider.awareness.setLocalStateField('outputSelection', null);
+      provider.awareness.setLocalStateField('testFileSelection', null);
       stopCollabOutputSelectionTracking();
+      stopCollabTestFileSelectionTracking();
       collabCursorWindowStopRef.current?.();
       collabCursorWindowStopRef.current = null;
       if (collabCursorClearTimerRef.current) {
@@ -5088,13 +5325,27 @@ const CollabSection = ({
       collabTestFileRef.current = null;
       collabAwarenessRef.current = null;
       setTestFileText('');
+      setRemoteParticipants([]);
       setRemoteEditorCursors([]);
       setRemoteOutputSelections([]);
+      setRemoteTestFileSelections([]);
       outputSelectionRef.current = null;
+      testFileSelectionRef.current = null;
+      setLocalTestFileSelection(null);
       clearDebugSession(false);
       updateRunStateFromMap(null);
     };
-  }, [roomId, editorReady, wsUrl, localName, localColor, clearDebugSession, editorMountVersion, stopCollabOutputSelectionTracking]);
+  }, [
+    roomId,
+    editorReady,
+    wsUrl,
+    localName,
+    localColor,
+    clearDebugSession,
+    editorMountVersion,
+    stopCollabOutputSelectionTracking,
+    stopCollabTestFileSelectionTracking,
+  ]);
 
   const statusLabel = status === 'connected'
     ? 'Подключено'
@@ -5177,7 +5428,46 @@ const CollabSection = ({
     () => buildCollabTextSelectionSegments(runOutput, visibleRemoteOutputSelections),
     [runOutput, visibleRemoteOutputSelections]
   );
+  const visibleRemoteTestFileSelections = useMemo(() => (
+    (Array.isArray(remoteTestFileSelections) ? remoteTestFileSelections : [])
+      .map((selection) => {
+        const range = normalizeCollabOutputSelection(selection, testFileText.length);
+        return range ? { ...selection, start: range.start, end: range.end } : null;
+      })
+      .filter(Boolean)
+  ), [remoteTestFileSelections, testFileText]);
+  const remoteTestFileSelectionSegments = useMemo(
+    () => buildCollabTextSelectionSegments(testFileText, visibleRemoteTestFileSelections),
+    [testFileText, visibleRemoteTestFileSelections]
+  );
+  const remoteTestFileSelectionSummaries = useMemo(() => (
+    visibleRemoteTestFileSelections
+      .map((selection) => {
+        const details = describeCollabTextSelection(testFileText, selection);
+        return details ? { ...selection, details } : null;
+      })
+      .filter(Boolean)
+  ), [testFileText, visibleRemoteTestFileSelections]);
+  const localTestFileSelectionDetails = useMemo(
+    () => describeCollabTextSelection(testFileText, localTestFileSelection),
+    [testFileText, localTestFileSelection]
+  );
+  const testFileStats = useMemo(() => {
+    const text = String(testFileText || '');
+    return {
+      chars: text.length,
+      lines: text ? text.split('\n').length : 1,
+    };
+  }, [testFileText]);
   const isTestFileMode = collabAuxPanelMode === COLLAB_AUX_PANEL_MODE_TEST_FILE;
+  const isCollabDarkUi = isDarkTheme;
+  const testFileFontSize = isSplitCollabLayout ? 14 : 15;
+  const testFileTypographyStyle = useMemo(() => ({
+    fontFamily: '"JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
+    fontSize: `${testFileFontSize}px`,
+    lineHeight: 1.7,
+  }), [testFileFontSize]);
+  const testFileTextPaddingClass = isSplitCollabLayout ? 'px-2.5 py-2' : 'px-3 py-2.5';
   const auxTextareaRows = isTestFileMode
     ? (isSplitCollabLayout ? (isCollabFullscreen ? 5 : 4) : (isCollabFullscreen ? (isMobileViewport ? 5 : 6) : (isMobileViewport ? 6 : 8)))
     : (isSplitCollabLayout ? (isCollabFullscreen ? 3 : 2) : (isCollabFullscreen ? (isMobileViewport ? 3 : 4) : (isMobileViewport ? 4 : 6)));
@@ -5514,7 +5804,7 @@ const CollabSection = ({
           {isTestFileMode ? 'test.txt' : 'Ввод (stdin)'}
         </div>
         <div className={`inline-flex items-center rounded-xl border p-0.5 ${
-          isFullscreenDark
+          isCollabDarkUi
             ? 'border-slate-700/80 bg-slate-950/70'
             : 'border-gray-200 bg-gray-100'
         }`}>
@@ -5525,10 +5815,10 @@ const CollabSection = ({
               isSplitCollabLayout ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1 text-[11px]'
             } ${
               !isTestFileMode
-                ? (isFullscreenDark
+                ? (isCollabDarkUi
                   ? 'bg-violet-500/25 text-violet-100 shadow-[0_4px_14px_rgba(139,92,246,0.24)]'
                   : 'bg-white text-violet-700 shadow-sm')
-                : (isFullscreenDark
+                : (isCollabDarkUi
                   ? 'text-slate-300 hover:text-slate-100'
                   : 'text-gray-500 hover:text-gray-700')
             }`}
@@ -5542,10 +5832,10 @@ const CollabSection = ({
               isSplitCollabLayout ? 'px-2.5 py-1 text-[10px]' : 'px-3 py-1.5 text-[11px]'
             } ${
               isTestFileMode
-                ? (isFullscreenDark
+                ? (isCollabDarkUi
                   ? 'bg-cyan-400/22 text-cyan-50 ring-1 ring-cyan-300/45 shadow-[0_0_0_1px_rgba(34,211,238,0.14),0_8px_24px_rgba(6,182,212,0.22)]'
                   : 'bg-cyan-50 text-cyan-800 ring-1 ring-cyan-300 shadow-[0_8px_20px_rgba(34,211,238,0.18)]')
-                : (isFullscreenDark
+                : (isCollabDarkUi
                   ? 'text-slate-300 hover:text-slate-100'
                   : 'text-gray-500 hover:text-gray-700')
             }`}
@@ -5555,54 +5845,161 @@ const CollabSection = ({
         </div>
       </div>
       <div className={isTestFileMode ? (
-        isFullscreenDark
+        isCollabDarkUi
           ? 'rounded-2xl border border-cyan-400/25 bg-slate-950/72'
           : 'rounded-2xl border border-cyan-200 bg-white'
       ) : ''}>
         <div>
           {isTestFileMode && (
-            <div className={`flex items-center justify-between gap-2 px-3 pt-2.5 ${
-              isFullscreenDark ? 'text-cyan-100' : 'text-cyan-900'
+            <div className={`mx-2 mt-2 rounded-xl border px-3 py-2 ${
+              isCollabDarkUi
+                ? 'border-cyan-400/18 bg-slate-900/88 text-slate-100'
+                : 'border-cyan-200/90 bg-cyan-50/70 text-slate-800'
             }`}>
-              <div className="flex items-center gap-2">
-                <span className={`inline-flex h-2 w-2 rounded-full ${
-                  isFullscreenDark ? 'bg-cyan-300' : 'bg-cyan-500'
-                }`} />
-                <span className="text-[11px] font-semibold">`test.txt`</span>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <FileText size={12} className={isCollabDarkUi ? 'text-cyan-300' : 'text-cyan-700'} />
+                  <span className="truncate text-[11px] font-semibold">test.txt</span>
+                  {roomId && remoteParticipants.length > 0 && (
+                    <span className={`text-[10px] ${
+                      isCollabDarkUi ? 'text-slate-400' : 'text-slate-500'
+                    }`}>
+                      {`онлайн: ${remoteParticipants.length + 1}`}
+                    </span>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <div className="flex w-[4.6rem] justify-end">
+                    <span
+                      title={localTestFileSelectionDetails?.label || ''}
+                      aria-hidden={!localTestFileSelectionDetails}
+                      className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium transition-opacity duration-150 ${
+                        isCollabDarkUi
+                          ? 'border-cyan-300/30 bg-cyan-400/8 text-cyan-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+                          : 'border-cyan-200 bg-white text-cyan-800 shadow-[0_1px_2px_rgba(14,165,233,0.08)]'
+                      } ${
+                        localTestFileSelectionDetails ? 'opacity-100' : 'pointer-events-none opacity-0'
+                      }`}
+                    >
+                      <span className={`inline-flex min-w-[1.35rem] items-center justify-center rounded-full px-1.5 py-[1px] text-[10px] font-semibold leading-none ${
+                        isCollabDarkUi
+                          ? 'bg-cyan-300/18 text-cyan-50'
+                          : 'bg-cyan-100 text-cyan-900'
+                      }`}>
+                        {localTestFileSelectionDetails?.charCount ?? 0}
+                      </span>
+                      <span className={`leading-none ${
+                        isCollabDarkUi ? 'text-cyan-100/80' : 'text-cyan-800/75'
+                      }`}>
+                        симв.
+                      </span>
+                    </span>
+                  </div>
+                  <span className={`text-[10px] ${
+                    isCollabDarkUi ? 'text-slate-400' : 'text-slate-500'
+                  }`}>
+                    {`${testFileStats.lines} стр.`}
+                  </span>
+                  <span className={`text-[10px] ${
+                    isCollabDarkUi ? 'text-slate-400' : 'text-slate-500'
+                  }`}>
+                    {formatCollabSymbolCount(testFileStats.chars)}
+                  </span>
+                </div>
               </div>
-              <span className={`text-[10px] ${isFullscreenDark ? 'text-cyan-100/70' : 'text-cyan-800/70'}`}>
-                файл
-              </span>
+              {roomId && remoteTestFileSelectionSummaries.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                  {remoteTestFileSelectionSummaries.map((selection) => (
+                    <span
+                      key={`test-file-selection-${selection.id}`}
+                      title={selection.details.label}
+                      className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                        isCollabDarkUi ? 'text-slate-100' : 'text-slate-700'
+                      }`}
+                      style={{
+                        borderColor: getCollabColorWithAlpha(
+                          selection.color,
+                          isCollabDarkUi ? 0.5 : 0.24,
+                          isCollabDarkUi ? 'rgba(56, 189, 248, 0.5)' : 'rgba(56, 189, 248, 0.24)'
+                        ),
+                        backgroundColor: getCollabColorWithAlpha(
+                          selection.color,
+                          isCollabDarkUi ? 0.16 : 0.1,
+                          isCollabDarkUi ? 'rgba(15, 23, 42, 0.82)' : 'rgba(255, 255, 255, 0.9)'
+                        ),
+                      }}
+                    >
+                      <span className="inline-flex h-2 w-2 rounded-full" style={{ backgroundColor: selection.color }} />
+                      <span className="truncate">{`${selection.name}: ${selection.details.summary}`}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
-          <textarea
-            ref={isTestFileMode ? testFileTextareaRef : null}
-            value={isTestFileMode ? testFileText : runInput}
-            onChange={(e) => {
-              if (isTestFileMode) {
-                handleTestFileTextChange(e.target.value);
-                return;
-              }
-              setRunInput(e.target.value);
-            }}
-            rows={auxTextareaRows}
-            disabled={isTestFileMode && !roomId}
-            placeholder={isTestFileMode
-              ? (roomId ? 'Введите содержимое test.txt.' : 'Выберите ученика, чтобы редактировать test.txt.')
-              : 'Если нужен ввод, вставьте его сюда.'}
-            style={isTestFileMode && testFileTextareaHeight ? { height: `${testFileTextareaHeight}px` } : undefined}
-            className={`w-full rounded-2xl border outline-none ${
-              isSplitCollabLayout ? 'px-2.5 py-1.5 text-[11px]' : 'px-3 py-2 text-xs'
-            } ${
-              isTestFileMode
-                ? (isFullscreenDark
-                  ? 'mt-2 resize-y border-cyan-300/25 bg-slate-900/92 text-slate-50 focus:border-cyan-300 focus:ring-1 focus:ring-cyan-300/20'
-                  : 'mt-2 resize-y border-cyan-200 bg-white text-slate-800 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-200')
-                : (isFullscreenDark
+          {isTestFileMode ? (
+            <div className={`relative mt-1.5 overflow-hidden rounded-[1.1rem] border ${
+              isCollabDarkUi
+                ? 'border-cyan-300/22 bg-[linear-gradient(180deg,rgba(8,20,36,0.96),rgba(4,12,24,0.98))] shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_16px_32px_rgba(3,7,18,0.35)]'
+                : 'border-cyan-200 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.1),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,252,255,0.96))] shadow-[0_10px_24px_rgba(34,211,238,0.1)]'
+            }`}>
+              {remoteTestFileSelectionSegments.length > 0 && (
+                <pre
+                  ref={testFileHighlightOverlayRef}
+                  aria-hidden
+                  className={`collab-selection-overlay pointer-events-none absolute inset-0 m-0 overflow-auto whitespace-pre-wrap break-words text-transparent ${testFileTextPaddingClass}`}
+                  style={testFileTypographyStyle}
+                >
+                  {remoteTestFileSelectionSegments.map((segment) => (
+                    <span
+                      key={segment.key}
+                      style={segment.selection ? buildCollabSelectionHighlightStyle(segment.selection.color) : undefined}
+                    >
+                      {segment.text}
+                    </span>
+                  ))}
+                </pre>
+              )}
+              <textarea
+                ref={testFileTextareaRef}
+                value={testFileText}
+                onChange={(e) => handleTestFileTextChange(e.target.value)}
+                onPointerDown={handleCollabTestFilePointerDown}
+                onSelect={syncCollabTestFileSelectionFromTextarea}
+                onKeyUp={syncCollabTestFileSelectionFromTextarea}
+                onMouseUp={syncCollabTestFileSelectionFromTextarea}
+                onBlur={clearCollabTestFileSelection}
+                onScroll={syncCollabTestFileOverlayScroll}
+                rows={auxTextareaRows}
+                spellCheck={false}
+                disabled={!roomId}
+                placeholder={roomId ? 'Введите содержимое test.txt.' : 'Выберите ученика, чтобы редактировать test.txt.'}
+                style={{
+                  ...(testFileTextareaHeight ? { height: `${testFileTextareaHeight}px` } : {}),
+                  ...testFileTypographyStyle,
+                }}
+                className={`relative z-[1] block w-full resize-y border-0 bg-transparent outline-none ${testFileTextPaddingClass} ${
+                  isCollabDarkUi
+                    ? 'text-slate-50 placeholder:text-slate-500'
+                    : 'text-slate-800 placeholder:text-slate-400'
+                } disabled:cursor-not-allowed disabled:opacity-70`}
+              />
+            </div>
+          ) : (
+            <textarea
+              value={runInput}
+              onChange={(e) => setRunInput(e.target.value)}
+              rows={auxTextareaRows}
+              placeholder="Если нужен ввод, вставьте его сюда."
+              className={`w-full rounded-2xl border outline-none ${
+                isSplitCollabLayout ? 'px-2.5 py-1.5 text-[11px]' : 'px-3 py-2 text-xs'
+              } ${
+                isFullscreenDark
                   ? 'border-slate-700/80 bg-slate-900/70 text-slate-100 focus:border-violet-400'
-                  : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500')
-            } disabled:cursor-not-allowed disabled:opacity-70`}
-          />
+                  : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
+              } disabled:cursor-not-allowed disabled:opacity-70`}
+            />
+          )}
         </div>
       </div>
       <div className={`rounded-2xl border p-2 ${isSplitCollabLayout ? 'space-y-1' : 'space-y-2'} ${

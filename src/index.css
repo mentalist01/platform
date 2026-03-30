@@ -115,6 +115,14 @@
   box-sizing: border-box;
 }
 
+.collab-selection-overlay {
+  scrollbar-width: none;
+}
+
+.collab-selection-overlay::-webkit-scrollbar {
+  display: none;
+}
+
 .monaco-editor .collab-debug-active-line {
   background: linear-gradient(90deg, rgba(56, 189, 248, 0.18), rgba(56, 189, 248, 0.06));
   border-left: 2px solid rgba(56, 189, 248, 0.92);
