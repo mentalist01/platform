@@ -52,6 +52,7 @@ const WS_HEARTBEAT_TIMEOUT_MS = 45000;
 const JOIN_ACK_TIMEOUT_MS = 15000;
 const ROOM_RESYNC_COOLDOWN_MS = 4000;
 const PEER_DISCONNECTED_GRACE_MS = 10000;
+const PEER_CONNECTING_WARNING_DELAY_MS = 15000;
 const RTC_VIDEO_RECEIVER_SLOTS = 2;
 const SPEAKING_RMS_THRESHOLD = getPositiveNumberFromEnv('VITE_RTC_SPEAKING_RMS_THRESHOLD', 0.008);
 const SPEAKING_HOLD_MS = getPositiveNumberFromEnv('VITE_RTC_SPEAKING_HOLD_MS', 420);
@@ -240,6 +241,11 @@ const getRtcPeerConnectionCtor = () => {
   const ctor = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
   return typeof ctor === 'function' ? ctor : null;
 };
+const MEDIA_CONNECTION_STALLED_ERROR = 'Не удалось быстро установить медиасоединение. Попробуйте переподключиться к звонку.';
+const MEDIA_CONNECTION_STALLED_WITHOUT_TURN_ERROR = 'Не удалось установить медиасоединение. На части сетей нужен TURN-сервер, иначе звонок может зависать на подключении.';
+const getMediaConnectionStalledError = (hasTurn) => (
+  hasTurn ? MEDIA_CONNECTION_STALLED_ERROR : MEDIA_CONNECTION_STALLED_WITHOUT_TURN_ERROR
+);
 
 const clampPanelPositionToViewport = (position, width, height) => {
   const normalizedWidth = Number(width);
@@ -2829,18 +2835,23 @@ const CallSection = ({
 
   const makeOfferToPeer = useCallback(async (peerId) => {
     const peerState = peersRef.current.get(peerId);
-    if (!peerState) return;
+    const pc = peerState?.pc;
+    if (!pc || peerState.makingOffer) return false;
+    const connectionState = getRtcPeerConnectionState(pc);
+    if (connectionState === 'closed' || connectionState === 'failed') return false;
+    if (pc.signalingState !== 'stable') return false;
     try {
       peerState.makingOffer = true;
-      const offer = await peerState.pc.createOffer();
-      await peerState.pc.setLocalDescription(offer);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
       if (!activeRoomRef.current) return;
       sendWs({
         type: 'signal',
         roomId: activeRoomRef.current,
         targetId: peerId,
-        signal: { description: peerState.pc.localDescription },
+        signal: { description: pc.localDescription },
       });
+      return true;
     } catch (offerError) {
       console.error('[call] offer failed:', offerError);
       setError('Не удалось начать WebRTC-сессию.');
@@ -2848,6 +2859,31 @@ const CallSection = ({
       peerState.makingOffer = false;
     }
   }, [sendWs]);
+
+  const requestPeerNegotiation = useCallback((peerId, options = {}) => {
+    const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
+    if (!normalizedPeerId || !activeRoomRef.current) return false;
+    const retryDelayMs = Number.isFinite(options?.retryDelayMs)
+      ? Math.max(0, Number(options.retryDelayMs))
+      : 900;
+    const attemptOffer = () => {
+      const peerState = peersRef.current.get(normalizedPeerId);
+      const pc = peerState?.pc;
+      if (!pc || peerState.makingOffer) return false;
+      const connectionState = getRtcPeerConnectionState(pc);
+      if (connectionState === 'closed' || connectionState === 'failed' || connectionState === 'connected') return false;
+      if (pc.signalingState !== 'stable') return false;
+      void makeOfferToPeer(normalizedPeerId);
+      return true;
+    };
+    const started = attemptOffer();
+    if (!started && retryDelayMs > 0) {
+      setTimeout(() => {
+        attemptOffer();
+      }, retryDelayMs);
+    }
+    return started;
+  }, [makeOfferToPeer]);
 
   const renegotiatePeers = useCallback(() => {
     if (!activeRoomRef.current) return;
@@ -3039,17 +3075,8 @@ const CallSection = ({
         const peerId = typeof peer?.id === 'string' ? peer.id.trim() : '';
         if (!peerId || peerId === nextSelfId) return;
         createPeerState(peerId, peer);
-      });
-      peers.forEach((peer) => {
-        const peerId = typeof peer?.id === 'string' ? peer.id.trim() : '';
-        if (!peerId || peerId === nextSelfId) return;
-        const hasLiveLocalVideo = Boolean(
-          (localScreenTrackRef.current && localScreenTrackRef.current.readyState === 'live')
-          || (localCameraTrackRef.current && localCameraTrackRef.current.readyState === 'live')
-        );
-        if ((nextSelfId && nextSelfId < peerId) || hasLiveLocalVideo) {
-          makeOfferToPeer(peerId);
-        }
+        sendLocalMediaStateToPeer(peerId);
+        requestPeerNegotiation(peerId);
       });
       syncRemotePeers();
       return;
@@ -3059,30 +3086,9 @@ const CallSection = ({
       const peerId = typeof payload?.peer?.id === 'string' ? payload.peer.id.trim() : '';
       if (!peerId || peerId === selfClientIdRef.current) return;
       void playAlertSound('peerJoined');
-      const existingPeer = peersRef.current.get(peerId);
       createPeerState(peerId, payload.peer);
-      const existingState = getRtcPeerConnectionState(existingPeer?.pc);
-      const shouldOffer = !existingPeer || existingState === 'disconnected' || existingState === 'failed' || existingState === 'closed';
-      const hasLiveLocalVideo = Boolean(
-        (localScreenTrackRef.current && localScreenTrackRef.current.readyState === 'live')
-        || (localCameraTrackRef.current && localCameraTrackRef.current.readyState === 'live')
-      );
-      const isPreferredOfferer = Boolean(selfClientIdRef.current && selfClientIdRef.current < peerId);
-      if (shouldOffer && (isPreferredOfferer || hasLiveLocalVideo)) {
-        makeOfferToPeer(peerId);
-      }
-      if (shouldOffer && hasLiveLocalVideo) {
-        setTimeout(() => {
-          const peerState = peersRef.current.get(peerId);
-          if (!peerState?.pc) return;
-          const connectionState = getRtcPeerConnectionState(peerState.pc);
-          if (connectionState === 'closed' || connectionState === 'failed') return;
-          if (peerState.makingOffer) return;
-          if (peerState.pc.signalingState !== 'stable') return;
-          makeOfferToPeer(peerId);
-        }, 700);
-      }
       sendLocalMediaStateToPeer(peerId);
+      requestPeerNegotiation(peerId);
       syncRemotePeers();
       return;
     }
@@ -3109,7 +3115,7 @@ const CallSection = ({
         console.error('[call] signal handling failed:', signalError);
       });
     }
-  }, [applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, makeOfferToPeer, playAlertSound, removePeer, resetWsReconnectState, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
+  }, [applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, playAlertSound, removePeer, requestPeerNegotiation, resetWsReconnectState, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
 
   const stopCall = useCallback(() => {
     manualCloseRef.current = true;
@@ -3324,6 +3330,39 @@ const CallSection = ({
   useEffect(() => {
     startCallRef.current = startCall;
   }, [startCall]);
+
+  useEffect(() => {
+    const hasOnlyPendingPeerConnections = status === 'connected'
+      && peerConnectionSummary.total > 0
+      && peerConnectionSummary.connected === 0
+      && peerConnectionSummary.disconnected === 0
+      && peerConnectionSummary.failed === 0;
+    if (!hasOnlyPendingPeerConnections) return undefined;
+
+    const timerId = setTimeout(() => {
+      setError((current) => current || getMediaConnectionStalledError(rtcIceConfig.hasTurn));
+    }, PEER_CONNECTING_WARNING_DELAY_MS);
+
+    return () => {
+      clearTimeout(timerId);
+    };
+  }, [
+    peerConnectionSummary.connected,
+    peerConnectionSummary.disconnected,
+    peerConnectionSummary.failed,
+    peerConnectionSummary.total,
+    rtcIceConfig.hasTurn,
+    status,
+  ]);
+
+  useEffect(() => {
+    if (peerConnectionSummary.connected <= 0) return;
+    setError((current) => (
+      current === MEDIA_CONNECTION_STALLED_ERROR || current === MEDIA_CONNECTION_STALLED_WITHOUT_TURN_ERROR
+        ? ''
+        : current
+    ));
+  }, [peerConnectionSummary.connected]);
 
   useEffect(() => () => {
     clearWsReconnectTimer();
