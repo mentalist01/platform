@@ -2061,10 +2061,23 @@ const CallSection = ({
     iceTransportPolicyFallbackTriedRef.current = true;
     effectiveIceTransportPolicyRef.current = 'all';
     setError('');
+    peersRef.current.forEach((_, peerId) => {
+      sendWs({
+        type: 'signal',
+        roomId,
+        targetId: peerId,
+        signal: {
+          control: {
+            preferredIceTransportPolicy: 'all',
+            restartConnection: true,
+          },
+        },
+      });
+    });
     closeAllPeers();
     requestRoomResync();
     return true;
-  }, [closeAllPeers, requestRoomResync]);
+  }, [closeAllPeers, requestRoomResync, sendWs]);
 
   const detachPeer = useCallback((peerId, options = {}) => {
     const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
@@ -2935,6 +2948,27 @@ const CallSection = ({
     let peerState = createPeerState(fromId, payload?.peer || {});
     if (!peerState) return;
 
+    const control = signal.control && typeof signal.control === 'object'
+      ? signal.control
+      : null;
+    if (control) {
+      const preferredIceTransportPolicy = typeof control?.preferredIceTransportPolicy === 'string'
+        ? control.preferredIceTransportPolicy.trim().toLowerCase()
+        : '';
+      if (preferredIceTransportPolicy === 'all') {
+        effectiveIceTransportPolicyRef.current = 'all';
+        iceTransportPolicyFallbackTriedRef.current = true;
+      }
+      if (Boolean(control?.restartConnection)) {
+        detachPeer(fromId, { closeConnection: true });
+        const recreatedPeerState = createPeerState(fromId, payload?.peer || {});
+        if (!recreatedPeerState) return;
+        peerState = recreatedPeerState;
+        syncLocalTracksToPeer(peerState);
+        requestPeerNegotiation(fromId, { retryDelayMs: 250 });
+      }
+    }
+
     const mediaState = signal.mediaState && typeof signal.mediaState === 'object'
       ? signal.mediaState
       : null;
@@ -3032,7 +3066,7 @@ const CallSection = ({
         }
       }
     }
-  }, [createPeerState, detachPeer, sendWs, syncLocalTracksToPeer, syncRemotePeers]);
+  }, [createPeerState, detachPeer, requestPeerNegotiation, sendWs, syncLocalTracksToPeer, syncRemotePeers]);
 
   const handleWsMessage = useCallback((raw) => {
     let payload = null;
