@@ -2922,6 +2922,25 @@ const CallSection = ({
     return started;
   }, [makeOfferToPeer]);
 
+  const schedulePeerNegotiation = useCallback((peerId, options = {}) => {
+    const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
+    if (!normalizedPeerId) return;
+    const initialDelayMs = Number.isFinite(options?.initialDelayMs)
+      ? Math.max(0, Number(options.initialDelayMs))
+      : 0;
+    const retryDelayMs = Number.isFinite(options?.retryDelayMs)
+      ? Math.max(0, Number(options.retryDelayMs))
+      : 900;
+    setTimeout(() => {
+      const peerState = peersRef.current.get(normalizedPeerId);
+      const pc = peerState?.pc;
+      if (!pc) return;
+      if (getRtcPeerConnectionState(pc) === 'connected') return;
+      if (pc.remoteDescription?.type) return;
+      requestPeerNegotiation(normalizedPeerId, { retryDelayMs });
+    }, initialDelayMs);
+  }, [requestPeerNegotiation]);
+
   const renegotiatePeers = useCallback(() => {
     if (!activeRoomRef.current) return;
     peersRef.current.forEach((peerState, peerId) => {
@@ -3134,7 +3153,8 @@ const CallSection = ({
         if (!peerId || peerId === nextSelfId) return;
         createPeerState(peerId, peer);
         sendLocalMediaStateToPeer(peerId);
-        requestPeerNegotiation(peerId);
+        // Give already-connected clients time to send their legacy offer first.
+        schedulePeerNegotiation(peerId, { initialDelayMs: 1000, retryDelayMs: 250 });
       });
       syncRemotePeers();
       return;
@@ -3146,15 +3166,8 @@ const CallSection = ({
       void playAlertSound('peerJoined');
       createPeerState(peerId, payload.peer);
       sendLocalMediaStateToPeer(peerId);
-      // Let the newly joined peer initiate offer first to avoid persistent offer glare.
-      setTimeout(() => {
-        const peerState = peersRef.current.get(peerId);
-        const pc = peerState?.pc;
-        if (!pc) return;
-        if (getRtcPeerConnectionState(pc) === 'connected') return;
-        if (pc.remoteDescription?.type) return;
-        requestPeerNegotiation(peerId, { retryDelayMs: 250 });
-      }, 2500);
+      // Existing peers stay passive longer; the new peer should initiate first.
+      schedulePeerNegotiation(peerId, { initialDelayMs: 2500, retryDelayMs: 250 });
       syncRemotePeers();
       return;
     }
@@ -3181,7 +3194,7 @@ const CallSection = ({
         console.error('[call] signal handling failed:', signalError);
       });
     }
-  }, [applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, playAlertSound, removePeer, requestPeerNegotiation, resetWsReconnectState, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
+  }, [applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, playAlertSound, removePeer, resetWsReconnectState, schedulePeerNegotiation, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
 
   const stopCall = useCallback(() => {
     manualCloseRef.current = true;
