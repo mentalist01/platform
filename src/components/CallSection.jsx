@@ -3146,7 +3146,15 @@ const CallSection = ({
       void playAlertSound('peerJoined');
       createPeerState(peerId, payload.peer);
       sendLocalMediaStateToPeer(peerId);
-      requestPeerNegotiation(peerId);
+      // Let the newly joined peer initiate offer first to avoid persistent offer glare.
+      setTimeout(() => {
+        const peerState = peersRef.current.get(peerId);
+        const pc = peerState?.pc;
+        if (!pc) return;
+        if (getRtcPeerConnectionState(pc) === 'connected') return;
+        if (pc.remoteDescription?.type) return;
+        requestPeerNegotiation(peerId, { retryDelayMs: 250 });
+      }, 2500);
       syncRemotePeers();
       return;
     }
