@@ -218,12 +218,12 @@ const getConnectionAdaptiveProfile = (quality, highVideoLoad = false) => {
     degradationPreference: 'balanced',
   };
 };
-const getRtcPeerConnectionConfig = (iceServers) => ({
+const getRtcPeerConnectionConfig = (iceServers, iceTransportPolicy = RTC_ICE_TRANSPORT_POLICY) => ({
   iceServers,
   bundlePolicy: 'max-bundle',
   rtcpMuxPolicy: 'require',
   iceCandidatePoolSize: RTC_ICE_CANDIDATE_POOL_SIZE,
-  iceTransportPolicy: RTC_ICE_TRANSPORT_POLICY,
+  iceTransportPolicy,
 });
 const getRtcPeerConnectionState = (pc) => {
   const directState = typeof pc?.connectionState === 'string' ? pc.connectionState : '';
@@ -1061,6 +1061,8 @@ const CallSection = ({
   const lastWsPongAtRef = useRef(0);
   const lastPresencePongAtRef = useRef(0);
   const roomResyncCooldownUntilRef = useRef(0);
+  const effectiveIceTransportPolicyRef = useRef(RTC_ICE_TRANSPORT_POLICY);
+  const iceTransportPolicyFallbackTriedRef = useRef(false);
   const connectionQualityRef = useRef('ok');
   const highVideoLoadRef = useRef(false);
   const statsTimerRef = useRef(null);
@@ -1445,6 +1447,11 @@ const CallSection = ({
     clearWsReconnectTimer();
     wsReconnectAttemptRef.current = 0;
   }, [clearWsReconnectTimer]);
+
+  const resetIceTransportPolicyFallback = useCallback(() => {
+    effectiveIceTransportPolicyRef.current = RTC_ICE_TRANSPORT_POLICY;
+    iceTransportPolicyFallbackTriedRef.current = false;
+  }, []);
 
   const scheduleWsReconnect = useCallback((reasonText = '') => {
     if (manualCloseRef.current || !roomId) return false;
@@ -2043,6 +2050,21 @@ const CallSection = ({
       closed: 0,
     });
   }, []);
+
+  const tryDirectIceFallback = useCallback(() => {
+    if (RTC_ICE_TRANSPORT_POLICY !== 'relay') return false;
+    if (iceTransportPolicyFallbackTriedRef.current) return false;
+    const ws = wsRef.current;
+    const roomId = activeRoomRef.current;
+    if (!roomId || !ws || ws.readyState !== WebSocket.OPEN) return false;
+    if (manualCloseRef.current) return false;
+    iceTransportPolicyFallbackTriedRef.current = true;
+    effectiveIceTransportPolicyRef.current = 'all';
+    setError('');
+    closeAllPeers();
+    requestRoomResync();
+    return true;
+  }, [closeAllPeers, requestRoomResync]);
 
   const detachPeer = useCallback((peerId, options = {}) => {
     const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
@@ -2686,7 +2708,9 @@ const CallSection = ({
       return existing;
     }
 
-    const pc = new rtcPeerConnectionCtor(getRtcPeerConnectionConfig(rtcIceServers));
+    const pc = new rtcPeerConnectionCtor(
+      getRtcPeerConnectionConfig(rtcIceServers, effectiveIceTransportPolicyRef.current)
+    );
     if (typeof pc.addTransceiver === 'function') {
       try {
         const existingVideoTransceivers = typeof pc.getTransceivers === 'function'
@@ -3153,6 +3177,9 @@ const CallSection = ({
   const startCall = useCallback(async (options = {}) => {
     const isReconnect = Boolean(options?.isReconnect);
     primeAlertSounds();
+    if (!isReconnect && !activeRoomRef.current) {
+      resetIceTransportPolicyFallback();
+    }
     if (!roomId) {
       setPresenceError('');
       setError('Сначала выбери ученика для созвона.');
@@ -3325,7 +3352,7 @@ const CallSection = ({
         setError(connectErrorText);
       }
     }
-  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, primeAlertSounds, resetWsReconnectState, roomId, rtcIceConfig.configError, rtcIceConfig.hasTurn, rtcIceConfig.hasTurnAuth, rtcPeerConnectionCtor, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
+  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, primeAlertSounds, resetIceTransportPolicyFallback, resetWsReconnectState, roomId, rtcIceConfig.configError, rtcIceConfig.hasTurn, rtcIceConfig.hasTurnAuth, rtcPeerConnectionCtor, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
 
   useEffect(() => {
     startCallRef.current = startCall;
@@ -3340,6 +3367,7 @@ const CallSection = ({
     if (!hasOnlyPendingPeerConnections) return undefined;
 
     const timerId = setTimeout(() => {
+      if (tryDirectIceFallback()) return;
       setError((current) => current || getMediaConnectionStalledError(rtcIceConfig.hasTurn));
     }, PEER_CONNECTING_WARNING_DELAY_MS);
 
@@ -3353,6 +3381,7 @@ const CallSection = ({
     peerConnectionSummary.total,
     rtcIceConfig.hasTurn,
     status,
+    tryDirectIceFallback,
   ]);
 
   useEffect(() => {
