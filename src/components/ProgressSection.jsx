@@ -42,6 +42,22 @@ const formatMockTaskLabel = (taskKey, gameTheoryTask) => {
   if (Number.isFinite(taskNumber) && taskNumber === gameTheoryTask) return '19-21';
   return Number.isFinite(taskNumber) ? String(taskNumber) : String(taskKey || '');
 };
+
+const buildMockChartLinePath = (points) => {
+  if (!Array.isArray(points) || points.length === 0) return '';
+  return points
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
+    .join(' ');
+};
+
+const buildMockChartAreaPath = (points, baselineY) => {
+  if (!Array.isArray(points) || points.length === 0) return '';
+  const linePath = buildMockChartLinePath(points);
+  const firstPoint = points[0];
+  const lastPoint = points[points.length - 1];
+  return `${linePath} L ${lastPoint.x} ${baselineY} L ${firstPoint.x} ${baselineY} Z`;
+};
+
 const ProgressSection = ({
   progress,
   onUpdateProgress,
@@ -321,6 +337,28 @@ const ProgressSection = ({
       })
       .slice(0, 3);
 
+    const taskChartData = (Array.isArray(MOCK_TASK_NUMBERS) ? MOCK_TASK_NUMBERS : []).map((taskNumber) => {
+      const taskKey = String(taskNumber);
+      const taskStat = taskPerformance[taskKey] || null;
+      const totalCount = Number(taskStat?.totalCount) || 0;
+      const attemptedCount = Number(taskStat?.attemptedCount) || 0;
+      const solvedCount = Number(taskStat?.solvedCount) || 0;
+      return {
+        taskKey,
+        taskNumber,
+        label: formatMockTaskLabel(taskNumber, GAME_THEORY_TASK),
+        totalCount,
+        attemptedCount,
+        solvedCount,
+        completionPercent: totalCount > 0
+          ? Math.max(0, Math.min(100, Math.round((solvedCount / totalCount) * 100)))
+          : 0,
+        accuracyPercent: attemptedCount > 0
+          ? Math.max(0, Math.min(100, Math.round((solvedCount / attemptedCount) * 100)))
+          : 0,
+      };
+    });
+
     return {
       examStatsById,
       totalExams: examStats.length,
@@ -347,12 +385,14 @@ const ProgressSection = ({
               : `${focusExam.totalCount} заданий`
         )
         : '',
+      taskChartData,
       strongestTasks,
       weakestTasks,
       hasAnyAttempt: startedExams.length > 0,
     };
   }, [
     GAME_THEORY_TASK,
+    MOCK_TASK_NUMBERS,
     getMockAnswerCountForTask,
     getPrimaryScoreFromSolved,
     getSecondaryScoreFromPrimary,
@@ -1498,6 +1538,49 @@ const ProgressSection = ({
 
   const showStudentMockPreview = Boolean(effectiveStudentId);
   const hasStudentMockPreview = showStudentMockPreview && studentVisibleMockExams.length > 0;
+  const studentMockTaskChart = useMemo(() => {
+    const taskChartData = Array.isArray(studentMockOverview?.taskChartData)
+      ? studentMockOverview.taskChartData
+      : [];
+    if (taskChartData.length === 0) return null;
+
+    const width = 760;
+    const height = 220;
+    const padding = { top: 14, right: 12, bottom: 34, left: 34 };
+    const plotWidth = width - padding.left - padding.right;
+    const plotHeight = height - padding.top - padding.bottom;
+    const baselineY = padding.top + plotHeight;
+    const pointCount = Math.max(taskChartData.length - 1, 1);
+
+    const points = taskChartData.map((item, index) => {
+      const x = padding.left + (plotWidth * index) / pointCount;
+      const y = padding.top + ((100 - item.completionPercent) / 100) * plotHeight;
+      return {
+        ...item,
+        x,
+        y,
+      };
+    });
+
+    const yTicks = [0, 25, 50, 75, 100].map((value) => ({
+      value,
+      y: padding.top + ((100 - value) / 100) * plotHeight,
+    }));
+    const xTickSet = new Set([1, 5, 9, 13, 17, GAME_THEORY_TASK, 23, 27]);
+    const xTicks = points.filter((point) => xTickSet.has(point.taskNumber));
+
+    return {
+      width,
+      height,
+      baselineY,
+      points,
+      yTicks,
+      xTicks,
+      linePath: buildMockChartLinePath(points),
+      areaPath: buildMockChartAreaPath(points, baselineY),
+      gradientId: `mock-task-chart-gradient-${role === 'teacher' ? 'teacher' : 'student'}`,
+    };
+  }, [GAME_THEORY_TASK, role, studentMockOverview]);
 
   const renderStudentMockCard = (exam) => {
     if (!exam) return null;
@@ -2584,6 +2667,84 @@ const ProgressSection = ({
                       {`${studentMockOverview.accuracyPercent}% точность`}
                     </span>
                   </div>
+
+                  {studentMockTaskChart && (
+                    <div className="mock-task-chart-panel rounded-[24px] p-3 md:p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
+                          Выполнение по заданиям
+                        </div>
+                        <div className="text-[11px] text-gray-400">0-100%</div>
+                      </div>
+
+                      <div className="mt-3">
+                        <svg
+                          viewBox={`0 0 ${studentMockTaskChart.width} ${studentMockTaskChart.height}`}
+                          className="h-[220px] w-full overflow-visible"
+                          role="img"
+                          aria-label="График выполнения заданий по пробникам"
+                        >
+                          <defs>
+                            <linearGradient id={studentMockTaskChart.gradientId} x1="0" x2="0" y1="0" y2="1">
+                              <stop offset="0%" stopColor="rgba(168,85,247,0.28)" />
+                              <stop offset="100%" stopColor="rgba(168,85,247,0.02)" />
+                            </linearGradient>
+                          </defs>
+
+                          {studentMockTaskChart.yTicks.map((tick) => (
+                            <g key={`mock-chart-y-${tick.value}`}>
+                              <line
+                                x1="34"
+                                x2={studentMockTaskChart.width - 12}
+                                y1={tick.y}
+                                y2={tick.y}
+                                className="mock-task-chart-grid"
+                              />
+                              <text
+                                x="0"
+                                y={tick.y + 4}
+                                className="mock-task-chart-axis"
+                              >
+                                {`${tick.value}%`}
+                              </text>
+                            </g>
+                          ))}
+
+                          <path
+                            d={studentMockTaskChart.areaPath}
+                            fill={`url(#${studentMockTaskChart.gradientId})`}
+                          />
+                          <path d={studentMockTaskChart.linePath} className="mock-task-chart-line" />
+
+                          {studentMockTaskChart.points.map((point) => (
+                            <circle
+                              key={`mock-chart-point-${point.taskNumber}`}
+                              cx={point.x}
+                              cy={point.y}
+                              r={point.completionPercent > 0 ? 4 : 3}
+                              className={`mock-task-chart-point ${point.completionPercent > 0 ? 'mock-task-chart-point--active' : ''}`}
+                            >
+                              <title>
+                                {`Задание ${point.label}: ${point.completionPercent}% выполнено (${point.solvedCount}/${point.totalCount})`}
+                              </title>
+                            </circle>
+                          ))}
+
+                          {studentMockTaskChart.xTicks.map((point) => (
+                            <text
+                              key={`mock-chart-x-${point.taskNumber}`}
+                              x={point.x}
+                              y={studentMockTaskChart.baselineY + 22}
+                              textAnchor="middle"
+                              className="mock-task-chart-axis"
+                            >
+                              {point.label}
+                            </text>
+                          ))}
+                        </svg>
+                      </div>
+                    </div>
+                  )}
 
                   {studentMockOverview.hasAnyAttempt ? (
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
