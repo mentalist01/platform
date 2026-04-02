@@ -678,7 +678,7 @@
 
   .mock-task-chart-axis {
     fill: rgba(100, 116, 139, 0.88);
-    font-size: 11px;
+    font-size: 9px;
     font-weight: 600;
   }
 
@@ -697,8 +697,21 @@
     stroke-width: 2;
   }
 
+  .mock-task-chart-hit {
+    fill: transparent;
+    cursor: pointer;
+  }
+
   .mock-task-chart-point--active {
     fill: rgba(147, 51, 234, 0.98);
+  }
+
+  .mock-task-chart-tooltip {
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(226, 232, 240, 0.96);
+    box-shadow:
+      0 16px 36px rgba(15, 23, 42, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.86);
   }
 
   button.lesson-quick-nav__item:not(:disabled):active {
@@ -3839,6 +3852,22 @@ html[data-theme='dark'] .mock-task-chart-point {
 
 html[data-theme='dark'] .mock-task-chart-point--active {
   fill: rgba(196, 181, 253, 0.98);
+}
+
+html[data-theme='dark'] .mock-task-chart-tooltip {
+  background: rgba(15, 23, 42, 0.96);
+  border-color: rgba(71, 85, 105, 0.7);
+  box-shadow:
+    0 16px 36px rgba(2, 6, 23, 0.34),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+html[data-theme='dark'] .mock-task-chart-tooltip .text-gray-900 {
+  color: rgb(241, 245, 249) !important;
+}
+
+html[data-theme='dark'] .mock-task-chart-tooltip .text-gray-500 {
+  color: rgb(148, 163, 184) !important;
 }
 
 html[data-theme='dark'] .teacher-signup-card {

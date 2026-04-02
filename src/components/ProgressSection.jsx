@@ -142,6 +142,7 @@ const ProgressSection = ({
   const [mockExamsLoading, setMockExamsLoading] = useState(false);
   const [mockAttemptsByExam, setMockAttemptsByExam] = useState({});
   const [mockAttemptsLoading, setMockAttemptsLoading] = useState(false);
+  const [hoveredMockTaskPoint, setHoveredMockTaskPoint] = useState(null);
   const [mockEditorExam, setMockEditorExam] = useState(null);
   const [activeMockExam, setActiveMockExam] = useState(null);
   const [activeMockAttempt, setActiveMockAttempt] = useState(null);
@@ -346,7 +347,8 @@ const ProgressSection = ({
       return {
         taskKey,
         taskNumber,
-        label: formatMockTaskLabel(taskNumber, GAME_THEORY_TASK),
+        label: String(taskNumber),
+        detailLabel: formatMockTaskLabel(taskNumber, GAME_THEORY_TASK),
         totalCount,
         attemptedCount,
         solvedCount,
@@ -1566,8 +1568,7 @@ const ProgressSection = ({
       value,
       y: padding.top + ((100 - value) / 100) * plotHeight,
     }));
-    const xTickSet = new Set([1, 5, 9, 13, 17, GAME_THEORY_TASK, 23, 27]);
-    const xTicks = points.filter((point) => xTickSet.has(point.taskNumber));
+    const xTicks = points;
 
     return {
       width,
@@ -2677,7 +2678,37 @@ const ProgressSection = ({
                         <div className="text-[11px] text-gray-400">0-100%</div>
                       </div>
 
-                      <div className="mt-3">
+                      <div
+                        className="relative mt-3"
+                        onMouseLeave={() => setHoveredMockTaskPoint(null)}
+                      >
+                        {hoveredMockTaskPoint && (
+                          <div
+                            className="mock-task-chart-tooltip pointer-events-none absolute z-10 w-max max-w-[220px] rounded-2xl px-3 py-2 text-xs shadow-lg"
+                            style={{
+                              left: `${(hoveredMockTaskPoint.x / studentMockTaskChart.width) * 100}%`,
+                              top: `${(hoveredMockTaskPoint.y / studentMockTaskChart.height) * 100}%`,
+                              transform: 'translate(-50%, calc(-100% - 14px))',
+                            }}
+                          >
+                            <div className="font-semibold text-gray-900">
+                              {`Задание ${hoveredMockTaskPoint.label}`}
+                              {hoveredMockTaskPoint.detailLabel !== hoveredMockTaskPoint.label
+                                ? ` (${hoveredMockTaskPoint.detailLabel})`
+                                : ''}
+                            </div>
+                            <div className="mt-1 text-gray-500">
+                              {`${hoveredMockTaskPoint.completionPercent}% выполнено`}
+                            </div>
+                            <div className="mt-1 text-gray-500">
+                              {`${hoveredMockTaskPoint.solvedCount}/${hoveredMockTaskPoint.totalCount} закрыто`}
+                            </div>
+                            <div className="text-gray-500">
+                              {`${hoveredMockTaskPoint.accuracyPercent}% точность`}
+                            </div>
+                          </div>
+                        )}
+
                         <svg
                           viewBox={`0 0 ${studentMockTaskChart.width} ${studentMockTaskChart.height}`}
                           className="h-[220px] w-full overflow-visible"
@@ -2717,17 +2748,26 @@ const ProgressSection = ({
                           <path d={studentMockTaskChart.linePath} className="mock-task-chart-line" />
 
                           {studentMockTaskChart.points.map((point) => (
-                            <circle
+                            <g
                               key={`mock-chart-point-${point.taskNumber}`}
-                              cx={point.x}
-                              cy={point.y}
-                              r={point.completionPercent > 0 ? 4 : 3}
-                              className={`mock-task-chart-point ${point.completionPercent > 0 ? 'mock-task-chart-point--active' : ''}`}
+                              onMouseEnter={() => setHoveredMockTaskPoint(point)}
+                              onMouseMove={() => setHoveredMockTaskPoint(point)}
+                              onFocus={() => setHoveredMockTaskPoint(point)}
+                              onBlur={() => setHoveredMockTaskPoint(null)}
                             >
-                              <title>
-                                {`Задание ${point.label}: ${point.completionPercent}% выполнено (${point.solvedCount}/${point.totalCount})`}
-                              </title>
-                            </circle>
+                              <circle
+                                cx={point.x}
+                                cy={point.y}
+                                r="11"
+                                className="mock-task-chart-hit"
+                              />
+                              <circle
+                                cx={point.x}
+                                cy={point.y}
+                                r={point.completionPercent > 0 ? 4 : 3}
+                                className={`mock-task-chart-point ${point.completionPercent > 0 ? 'mock-task-chart-point--active' : ''}`}
+                              />
+                            </g>
                           ))}
 
                           {studentMockTaskChart.xTicks.map((point) => (
