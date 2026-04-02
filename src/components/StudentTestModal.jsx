@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
 import { Check, Download, PlayCircle, RefreshCcw, X } from 'lucide-react';
 import { api } from '../services/api';
+import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { Button } from './ui';
 const StudentTestModal = ({
@@ -868,9 +869,8 @@ const StudentTestModal = ({
                   {extraFiles.map((file) => (
                     <a
                       key={file.id || file.url}
-                      href={file.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      href={buildDownloadUrl(file.url)}
+                      download={file?.name || undefined}
                       className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-700 hover:border-purple-300 hover:bg-purple-50"
                     >
                       <span className="truncate">{file.name}</span>

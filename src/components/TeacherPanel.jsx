@@ -1,6 +1,7 @@
 ﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell, BellOff, Download, MessageSquare, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
+import { buildDownloadUrl } from '../utils/downloadUrl';
 import { Button, Card } from './ui';
 import LinkifiedText from './LinkifiedText';
 const TeacherPanel = ({
@@ -1987,9 +1988,8 @@ const TeacherPanel = ({
                           return (
                             <a
                               key={file.id || file.url || file.storageName}
-                              href={fileUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                              href={buildDownloadUrl(fileUrl)}
+                              download={file?.name || undefined}
                               className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 hover:border-purple-300 hover:bg-purple-50"
                             >
                               <span className="truncate">{file.name || 'Файл'}</span>

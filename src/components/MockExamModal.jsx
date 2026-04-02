@@ -2,6 +2,7 @@
 import { createPortal } from 'react-dom';
 import { ChevronRight, Download, X } from 'lucide-react';
 import { api } from '../services/api';
+import { buildDownloadUrl } from '../utils/downloadUrl';
 import { Button } from './ui';
 const MockExamModal = ({
   exam,
@@ -271,10 +272,9 @@ const MockExamModal = ({
                     {files.map((file) => (
                       <a
                         key={file.storageName || file.url}
-                        href={file.url}
+                        href={buildDownloadUrl(file.url)}
+                        download={file?.name || undefined}
                         className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-700 hover:border-purple-300 hover:bg-purple-50"
-                        target="_blank"
-                        rel="noreferrer"
                       >
                         <span className="truncate">{file.name || 'Файл'}</span>
                         <Download size={16} className="text-purple-600" />

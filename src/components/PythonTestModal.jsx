@@ -6,6 +6,7 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 import { api } from '../services/api';
+import { buildDownloadUrl } from '../utils/downloadUrl';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
 import { Button } from './ui';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
@@ -1720,9 +1721,8 @@ const PythonTestModal = ({
                 {extraFiles.map((file) => (
                   <a
                     key={file.id || file.url}
-                    href={file.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href={buildDownloadUrl(file.url)}
+                    download={file?.name || undefined}
                     className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-700 hover:border-purple-300 hover:bg-purple-50"
                   >
                     <span className="truncate">{file.name}</span>

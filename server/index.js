@@ -6848,6 +6848,25 @@ const normalizeFileName = (name) => {
   return name;
 };
 
+const hasForcedDownloadFlag = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+};
+
+const stripUploadIdPrefix = (name) => (
+  String(name || '').replace(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i,
+    ''
+  )
+);
+
+const getUploadDownloadName = (ownedFile, storageName) => {
+  const preferredName = normalizeFileName(ownedFile?.name || '');
+  if (preferredName) return path.basename(preferredName);
+  const fallbackName = normalizeFileName(stripUploadIdPrefix(storageName) || storageName);
+  return path.basename(fallbackName || 'download');
+};
+
 let adminAuth = ensureAdminAuth();
 
 migrateFileNames();
@@ -6994,6 +7013,10 @@ const handleUploadRequest = (req, res) => {
     if (req.method === 'GET') {
       registerUsageOnFinish(usageStudentId, res, requestSize);
     }
+  }
+
+  if (hasForcedDownloadFlag(req.query.download)) {
+    res.attachment(getUploadDownloadName(ownedFile, safeName));
   }
 
   return res.sendFile(filePath);

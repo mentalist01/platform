@@ -17,6 +17,7 @@ import {
 import Editor from '@monaco-editor/react';
 import ImageViewer from './ImageViewer';
 import { api, authenticatedUploadsFetch } from '../services/api';
+import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { Button, Card } from './ui';
 
@@ -1243,7 +1244,7 @@ const NotesSection = ({
   };
 
   const handleDownload = (file) => {
-    const url = getFileUrl(file);
+    const url = buildDownloadUrl(getFileUrl(file));
     if (!url) return;
     const link = document.createElement('a');
     link.href = url;
