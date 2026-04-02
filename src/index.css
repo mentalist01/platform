@@ -552,6 +552,117 @@
     -webkit-backdrop-filter: blur(10px);
   }
 
+  .mock-summary-best {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.9));
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    box-shadow: 0 10px 24px rgba(148, 163, 184, 0.1);
+  }
+
+  .mock-summary-track,
+  .mock-summary-stat,
+  .mock-action-icon,
+  .mock-meta-pill,
+  .mock-progress-shell,
+  .mock-action-dock,
+  .mock-score-box,
+  .mock-status-pill,
+  .mock-insight-card {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  }
+
+  .mock-summary-track {
+    background: linear-gradient(180deg, rgba(241, 245, 249, 0.92), rgba(248, 250, 252, 0.9));
+    border: 1px solid rgba(226, 232, 240, 0.95);
+  }
+
+  .mock-summary-stat {
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.92));
+    border: 1px solid rgba(226, 232, 240, 0.92);
+  }
+
+  .mock-focus-card {
+    background:
+      radial-gradient(circle at 100% 0%, rgba(192, 132, 252, 0.12), transparent 42%),
+      radial-gradient(circle at 0% 100%, rgba(96, 165, 250, 0.1), transparent 34%),
+      linear-gradient(150deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.92));
+    border: 1px solid rgba(216, 180, 254, 0.55);
+    box-shadow:
+      0 14px 34px rgba(168, 85, 247, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  }
+
+  .mock-focus-icon {
+    background: rgba(255, 255, 255, 0.76);
+    border: 1px solid rgba(216, 180, 254, 0.58);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  }
+
+  .mock-action-icon {
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.95), rgba(241, 245, 249, 0.92));
+    border: 1px solid rgba(226, 232, 240, 0.94);
+  }
+
+  .mock-action-icon--focus {
+    background: linear-gradient(180deg, rgba(250, 245, 255, 0.96), rgba(243, 232, 255, 0.8));
+    border-color: rgba(216, 180, 254, 0.66);
+  }
+
+  .mock-action-icon--best {
+    background: linear-gradient(180deg, rgba(236, 253, 245, 0.96), rgba(209, 250, 229, 0.76));
+    border-color: rgba(167, 243, 208, 0.7);
+  }
+
+  .mock-meta-pill {
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(241, 245, 249, 0.88));
+    border: 1px solid rgba(226, 232, 240, 0.92);
+  }
+
+  .mock-meta-pill--score {
+    background: linear-gradient(180deg, rgba(250, 245, 255, 0.96), rgba(243, 232, 255, 0.78));
+    border-color: rgba(216, 180, 254, 0.56);
+  }
+
+  .mock-progress-shell {
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(241, 245, 249, 0.9));
+    border: 1px solid rgba(226, 232, 240, 0.94);
+  }
+
+  .mock-action-dock {
+    background:
+      linear-gradient(180deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 0.88)),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.4));
+    border-color: rgba(226, 232, 240, 0.94);
+  }
+
+  .mock-score-box {
+    background: linear-gradient(180deg, rgba(250, 245, 255, 0.68), rgba(255, 255, 255, 0.92));
+    border: 1px solid rgba(216, 180, 254, 0.42);
+  }
+
+  .mock-status-pill {
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(241, 245, 249, 0.9));
+    border: 1px solid rgba(226, 232, 240, 0.92);
+  }
+
+  .mock-insight-card {
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.95), rgba(255, 255, 255, 0.92));
+    border: 1px solid rgba(226, 232, 240, 0.94);
+  }
+
+  .mock-insight-card--strong {
+    background:
+      radial-gradient(circle at 100% 0%, rgba(16, 185, 129, 0.08), transparent 36%),
+      linear-gradient(180deg, rgba(240, 253, 244, 0.92), rgba(255, 255, 255, 0.94));
+    border-color: rgba(167, 243, 208, 0.7);
+  }
+
+  .mock-insight-card--weak {
+    background:
+      radial-gradient(circle at 100% 0%, rgba(245, 158, 11, 0.1), transparent 38%),
+      linear-gradient(180deg, rgba(255, 251, 235, 0.92), rgba(255, 255, 255, 0.94));
+    border-color: rgba(253, 230, 138, 0.8);
+  }
+
   button.lesson-quick-nav__item:not(:disabled):active {
     transform: none;
   }
@@ -3549,6 +3660,117 @@ html[data-theme='dark'] .surface-card {
 html[data-theme='dark'] .surface-panel {
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(15, 23, 42, 0.8));
   border-color: rgba(100, 116, 139, 0.36);
+}
+
+html[data-theme='dark'] .mock-summary-best {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(30, 41, 59, 0.62));
+  border-color: rgba(100, 116, 139, 0.42);
+  box-shadow: 0 16px 28px rgba(2, 6, 23, 0.28);
+}
+
+html[data-theme='dark'] .mock-summary-track,
+html[data-theme='dark'] .mock-summary-stat,
+html[data-theme='dark'] .mock-action-icon,
+html[data-theme='dark'] .mock-meta-pill,
+html[data-theme='dark'] .mock-progress-shell,
+html[data-theme='dark'] .mock-action-dock,
+html[data-theme='dark'] .mock-score-box,
+html[data-theme='dark'] .mock-status-pill,
+html[data-theme='dark'] .mock-insight-card {
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+html[data-theme='dark'] .mock-summary-track {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.7), rgba(30, 41, 59, 0.62));
+  border-color: rgba(71, 85, 105, 0.55);
+}
+
+html[data-theme='dark'] .mock-summary-stat {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.7), rgba(17, 24, 39, 0.62));
+  border-color: rgba(71, 85, 105, 0.54);
+}
+
+html[data-theme='dark'] .mock-focus-card {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.18), transparent 42%),
+    radial-gradient(circle at 0% 100%, rgba(59, 130, 246, 0.12), transparent 34%),
+    linear-gradient(155deg, rgba(30, 41, 59, 0.78), rgba(17, 24, 39, 0.72));
+  border-color: rgba(129, 140, 248, 0.4);
+  box-shadow:
+    0 18px 36px rgba(15, 23, 42, 0.28),
+    inset 0 1px 0 rgba(148, 163, 184, 0.1);
+}
+
+html[data-theme='dark'] .mock-focus-icon {
+  background: rgba(15, 23, 42, 0.72);
+  border-color: rgba(129, 140, 248, 0.42);
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.1);
+}
+
+html[data-theme='dark'] .mock-action-icon {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(17, 24, 39, 0.64));
+  border-color: rgba(71, 85, 105, 0.58);
+}
+
+html[data-theme='dark'] .mock-action-icon--focus {
+  background: linear-gradient(180deg, rgba(88, 28, 135, 0.32), rgba(30, 41, 59, 0.72));
+  border-color: rgba(168, 85, 247, 0.5);
+}
+
+html[data-theme='dark'] .mock-action-icon--best {
+  background: linear-gradient(180deg, rgba(6, 95, 70, 0.3), rgba(30, 41, 59, 0.72));
+  border-color: rgba(52, 211, 153, 0.46);
+}
+
+html[data-theme='dark'] .mock-meta-pill {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.68), rgba(30, 41, 59, 0.56));
+  border-color: rgba(71, 85, 105, 0.56);
+}
+
+html[data-theme='dark'] .mock-meta-pill--score {
+  background: linear-gradient(180deg, rgba(76, 29, 149, 0.24), rgba(30, 41, 59, 0.66));
+  border-color: rgba(129, 140, 248, 0.42);
+}
+
+html[data-theme='dark'] .mock-progress-shell {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(30, 41, 59, 0.6));
+  border-color: rgba(71, 85, 105, 0.54);
+}
+
+html[data-theme='dark'] .mock-action-dock {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.14), transparent 36%),
+    linear-gradient(180deg, rgba(30, 41, 59, 0.78), rgba(15, 23, 42, 0.72));
+  border-color: rgba(71, 85, 105, 0.56);
+}
+
+html[data-theme='dark'] .mock-score-box {
+  background: linear-gradient(180deg, rgba(49, 46, 129, 0.34), rgba(15, 23, 42, 0.76));
+  border-color: rgba(129, 140, 248, 0.34);
+}
+
+html[data-theme='dark'] .mock-status-pill {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.68), rgba(17, 24, 39, 0.58));
+  border-color: rgba(71, 85, 105, 0.56);
+}
+
+html[data-theme='dark'] .mock-insight-card {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(17, 24, 39, 0.64));
+  border-color: rgba(71, 85, 105, 0.56);
+}
+
+html[data-theme='dark'] .mock-insight-card--strong {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(16, 185, 129, 0.14), transparent 36%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(6, 78, 59, 0.28));
+  border-color: rgba(52, 211, 153, 0.42);
+}
+
+html[data-theme='dark'] .mock-insight-card--weak {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(245, 158, 11, 0.16), transparent 38%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(120, 53, 15, 0.26));
+  border-color: rgba(251, 191, 36, 0.42);
 }
 
 html[data-theme='dark'] .teacher-signup-card {
