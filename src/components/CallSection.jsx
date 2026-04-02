@@ -81,10 +81,19 @@ const RTC_ALERT_SOUND_SOURCES = Object.freeze({
   peerLeft: '/sounds/user_leave.mp3',
   micMuted: '/sounds/mute.mp3',
   micUnmuted: '/sounds/unmute.mp3',
-  screenOn: '/sounds/demonstration on.MP3',
-  screenOff: '/sounds/demonstration off.MP3',
+  screenOn: '/sounds/demonstration_on.mp3',
+  screenOff: '/sounds/demonstration_off.mp3',
 });
-const RTC_ALERT_SOUND_VOLUME = 0.2;
+const RTC_ALERT_SOUND_VOLUME = 0.1;
+const RTC_ALERT_SOUND_VOLUME_OVERRIDES = Object.freeze({
+  disconnected: 0.075,
+  peerLeft: 0.075,
+});
+const getRtcAlertSoundVolume = (soundKey) => {
+  const override = RTC_ALERT_SOUND_VOLUME_OVERRIDES[String(soundKey || '')];
+  if (!Number.isFinite(override)) return RTC_ALERT_SOUND_VOLUME;
+  return Math.max(0, Math.min(1, override));
+};
 const CALL_BACKGROUND_PARTICLE_COUNT = 14;
 const CALL_CHAT_POLL_INTERVAL_MS = 4500;
 const INLINE_PANEL_BOTTOM_GAP_PX = 2;
@@ -1374,13 +1383,14 @@ const CallSection = ({
     const key = String(soundKey || '');
     const source = RTC_ALERT_SOUND_SOURCES[key];
     if (!source || typeof window === 'undefined') return null;
+    const volume = getRtcAlertSoundVolume(key);
 
     const cachedTemplates = alertAudioTemplatesRef.current;
     let template = cachedTemplates.get(key);
     if (!template) {
       template = new Audio(source);
       template.preload = 'auto';
-      template.volume = RTC_ALERT_SOUND_VOLUME;
+      template.volume = volume;
       cachedTemplates.set(key, template);
     }
     return template;
@@ -1398,10 +1408,11 @@ const CallSection = ({
   const playAlertSound = useCallback((soundKey) => {
     const template = getAlertAudioTemplate(soundKey);
     if (!template) return;
+    const volume = getRtcAlertSoundVolume(soundKey);
 
     const audio = template.cloneNode(true);
     audio.preload = 'auto';
-    audio.volume = RTC_ALERT_SOUND_VOLUME;
+    audio.volume = volume;
     const activeAudios = alertAudioActiveRef.current;
     const finalize = () => {
       activeAudios.delete(audio);
