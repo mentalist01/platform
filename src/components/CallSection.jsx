@@ -1046,6 +1046,14 @@ const CallSection = ({
   const localMicLevelRafRef = useRef(null);
   const localMicSpeakingOpenRef = useRef(false);
   const localSelfSpeakingObserverCleanupRef = useRef(null);
+  const localMixedAudioContextRef = useRef(null);
+  const localMixedAudioDestinationRef = useRef(null);
+  const localMixedAudioMicSourceNodeRef = useRef(null);
+  const localMixedAudioScreenSourceNodeRef = useRef(null);
+  const localMixedAudioMicGainNodeRef = useRef(null);
+  const localMixedAudioScreenGainNodeRef = useRef(null);
+  const localMixedAudioTrackRef = useRef(null);
+  const localMixedAudioSignatureRef = useRef('');
   const alertAudioTemplatesRef = useRef(new Map());
   const alertAudioActiveRef = useRef(new Set());
   const lessonChatListRef = useRef(null);
@@ -1057,6 +1065,7 @@ const CallSection = ({
   const localCameraStreamRef = useRef(null);
   const localScreenTrackRef = useRef(null);
   const localScreenStreamRef = useRef(null);
+  const localScreenAudioTrackRef = useRef(null);
   const videoTrackStreamsRef = useRef(new Map());
   const wsPingTimerRef = useRef(null);
   const joinAckTimerRef = useRef(null);
@@ -1839,6 +1848,159 @@ const CallSection = ({
     return stream;
   }, []);
 
+  const replaceLocalStreamAudioTrack = useCallback((nextTrack) => {
+    const localStream = localStreamRef.current;
+    if (!localStream) return;
+    const currentAudioTracks = Array.isArray(localStream.getAudioTracks?.())
+      ? localStream.getAudioTracks()
+      : [];
+
+    currentAudioTracks.forEach((existingTrack) => {
+      if (nextTrack && existingTrack.id === nextTrack.id) return;
+      localStream.removeTrack(existingTrack);
+    });
+
+    if (
+      nextTrack
+      && nextTrack.kind === 'audio'
+      && nextTrack.readyState === 'live'
+      && !localStream.getAudioTracks().some((existingTrack) => existingTrack.id === nextTrack.id)
+    ) {
+      localStream.addTrack(nextTrack);
+    }
+  }, []);
+
+  const disposeLocalMixedAudioProcessing = useCallback(() => {
+    const micSourceNode = localMixedAudioMicSourceNodeRef.current;
+    const screenSourceNode = localMixedAudioScreenSourceNodeRef.current;
+    const micGainNode = localMixedAudioMicGainNodeRef.current;
+    const screenGainNode = localMixedAudioScreenGainNodeRef.current;
+    const destination = localMixedAudioDestinationRef.current;
+    const audioContext = localMixedAudioContextRef.current;
+
+    localMixedAudioContextRef.current = null;
+    localMixedAudioDestinationRef.current = null;
+    localMixedAudioMicSourceNodeRef.current = null;
+    localMixedAudioScreenSourceNodeRef.current = null;
+    localMixedAudioMicGainNodeRef.current = null;
+    localMixedAudioScreenGainNodeRef.current = null;
+    localMixedAudioTrackRef.current = null;
+    localMixedAudioSignatureRef.current = '';
+
+    try { micSourceNode?.disconnect?.(); } catch {}
+    try { screenSourceNode?.disconnect?.(); } catch {}
+    try { micGainNode?.disconnect?.(); } catch {}
+    try { screenGainNode?.disconnect?.(); } catch {}
+    try {
+      destination?.stream?.getTracks?.().forEach((track) => {
+        try { track.stop(); } catch {}
+      });
+    } catch {}
+    audioContext?.close?.().catch(() => {});
+  }, []);
+
+  const getPreferredLocalAudioTrack = useCallback(() => {
+    const processedAudioTrack = localAudioTrackRef.current;
+    const rawAudioTrack = localRawAudioTrackRef.current;
+    const isBackgroundTab = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+    const preferredAudioTrack = isBackgroundTab ? rawAudioTrack : processedAudioTrack;
+    const fallbackAudioTrack = isBackgroundTab ? processedAudioTrack : rawAudioTrack;
+    const livePreferredAudioTrack = preferredAudioTrack && preferredAudioTrack.readyState === 'live'
+      ? preferredAudioTrack
+      : null;
+    const liveFallbackAudioTrack = fallbackAudioTrack && fallbackAudioTrack.readyState === 'live'
+      ? fallbackAudioTrack
+      : null;
+    return livePreferredAudioTrack || liveFallbackAudioTrack || null;
+  }, []);
+
+  const getScreenShareAudioTrack = useCallback(() => {
+    const track = localScreenAudioTrackRef.current;
+    return track && track.readyState === 'live' ? track : null;
+  }, []);
+
+  const createLocalMixedAudioTrack = useCallback((micTrack, screenAudioTrack) => {
+    if (!micTrack || micTrack.readyState !== 'live' || !screenAudioTrack || screenAudioTrack.readyState !== 'live') {
+      disposeLocalMixedAudioProcessing();
+      return null;
+    }
+    if (typeof window === 'undefined') return null;
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return null;
+
+    const nextSignature = `${micTrack.id}:${screenAudioTrack.id}`;
+    const cachedTrack = localMixedAudioTrackRef.current;
+    if (
+      cachedTrack
+      && cachedTrack.readyState === 'live'
+      && localMixedAudioSignatureRef.current === nextSignature
+    ) {
+      return cachedTrack;
+    }
+
+    disposeLocalMixedAudioProcessing();
+
+    try {
+      const audioContext = new AudioContextCtor();
+      const destination = audioContext.createMediaStreamDestination();
+      const micSourceNode = audioContext.createMediaStreamSource(new MediaStream([micTrack]));
+      const screenSourceNode = audioContext.createMediaStreamSource(new MediaStream([screenAudioTrack]));
+      const micGainNode = audioContext.createGain();
+      const screenGainNode = audioContext.createGain();
+
+      micGainNode.gain.value = 1;
+      screenGainNode.gain.value = 1;
+      micSourceNode.connect(micGainNode);
+      screenSourceNode.connect(screenGainNode);
+      micGainNode.connect(destination);
+      screenGainNode.connect(destination);
+      audioContext.resume?.().catch(() => {});
+
+      const mixedTrack = destination.stream.getAudioTracks()[0] || null;
+      if (!mixedTrack) {
+        try { micSourceNode.disconnect(); } catch {}
+        try { screenSourceNode.disconnect(); } catch {}
+        try { micGainNode.disconnect(); } catch {}
+        try { screenGainNode.disconnect(); } catch {}
+        audioContext.close?.().catch(() => {});
+        return null;
+      }
+
+      localMixedAudioContextRef.current = audioContext;
+      localMixedAudioDestinationRef.current = destination;
+      localMixedAudioMicSourceNodeRef.current = micSourceNode;
+      localMixedAudioScreenSourceNodeRef.current = screenSourceNode;
+      localMixedAudioMicGainNodeRef.current = micGainNode;
+      localMixedAudioScreenGainNodeRef.current = screenGainNode;
+      localMixedAudioTrackRef.current = mixedTrack;
+      localMixedAudioSignatureRef.current = nextSignature;
+      return mixedTrack;
+    } catch {
+      disposeLocalMixedAudioProcessing();
+      return null;
+    }
+  }, [disposeLocalMixedAudioProcessing]);
+
+  const getPreferredOutgoingAudioTrack = useCallback(() => {
+    const micTrack = getPreferredLocalAudioTrack();
+    const screenAudioTrack = getScreenShareAudioTrack();
+
+    if (micTrack && screenAudioTrack) {
+      return createLocalMixedAudioTrack(micTrack, screenAudioTrack) || micTrack || screenAudioTrack;
+    }
+
+    if (localMixedAudioTrackRef.current) {
+      disposeLocalMixedAudioProcessing();
+    }
+
+    return screenAudioTrack || micTrack || null;
+  }, [
+    createLocalMixedAudioTrack,
+    disposeLocalMixedAudioProcessing,
+    getPreferredLocalAudioTrack,
+    getScreenShareAudioTrack,
+  ]);
+
   const syncLocalTracksToPeer = useCallback((peerState) => {
     if (!peerState?.pc) return;
     const { pc } = peerState;
@@ -1851,18 +2013,8 @@ const CallSection = ({
         return false;
       }
     };
-    const processedAudioTrack = localAudioTrackRef.current;
-    const rawAudioTrack = localRawAudioTrackRef.current;
-    const isBackgroundTab = typeof document !== 'undefined' && document.visibilityState === 'hidden';
-    const preferredAudioTrack = isBackgroundTab ? rawAudioTrack : processedAudioTrack;
-    const fallbackAudioTrack = isBackgroundTab ? processedAudioTrack : rawAudioTrack;
-    const livePreferredAudioTrack = preferredAudioTrack && preferredAudioTrack.readyState === 'live'
-      ? preferredAudioTrack
-      : null;
-    const liveFallbackAudioTrack = fallbackAudioTrack && fallbackAudioTrack.readyState === 'live'
-      ? fallbackAudioTrack
-      : null;
-    const audioTrack = livePreferredAudioTrack || liveFallbackAudioTrack;
+    const audioTrack = getPreferredOutgoingAudioTrack();
+    replaceLocalStreamAudioTrack(audioTrack);
     const screenTrack = localScreenTrackRef.current;
     const cameraTrack = localCameraTrackRef.current;
     const liveScreenTrack = screenTrack && screenTrack.readyState === 'live' ? screenTrack : null;
@@ -1917,7 +2069,7 @@ const CallSection = ({
 
     syncVideoSender('screenSender', liveScreenTrack);
     syncVideoSender('cameraSender', liveCameraTrack);
-  }, [tuneAudioSender, tuneVideoSender]);
+  }, [getPreferredOutgoingAudioTrack, replaceLocalStreamAudioTrack, tuneAudioSender, tuneVideoSender]);
 
   const syncLocalTracksToAllPeers = useCallback(() => {
     peersRef.current.forEach((peerState) => {
@@ -2488,6 +2640,7 @@ const CallSection = ({
     const track = localAudioTrackRef.current;
     const rawTrack = localRawAudioTrackRef.current;
     if (!track && !rawTrack) return;
+    disposeLocalMixedAudioProcessing();
     if (track) {
       track.onended = null;
       try { track.stop(); } catch {}
@@ -2500,9 +2653,16 @@ const CallSection = ({
     localAudioTrackRef.current = null;
     localRawAudioTrackRef.current = null;
     disposeLocalMicProcessing();
+    replaceLocalStreamAudioTrack(withSync ? getPreferredOutgoingAudioTrack() : null);
     setMicEnabled(false);
     if (withSync) syncLocalTracksToAllPeers();
-  }, [disposeLocalMicProcessing, syncLocalTracksToAllPeers]);
+  }, [
+    disposeLocalMicProcessing,
+    disposeLocalMixedAudioProcessing,
+    getPreferredOutgoingAudioTrack,
+    replaceLocalStreamAudioTrack,
+    syncLocalTracksToAllPeers,
+  ]);
 
   const stopCameraTrack = useCallback((withSync = true) => {
     const track = localCameraTrackRef.current;
@@ -2525,6 +2685,7 @@ const CallSection = ({
 
   const stopScreenTrack = useCallback((withSync = true) => {
     const track = localScreenTrackRef.current;
+    const audioTrack = localScreenAudioTrackRef.current;
     if (track) {
       track.onended = null;
       try { track.stop(); } catch {}
@@ -2532,15 +2693,26 @@ const CallSection = ({
       localScreenTrackRef.current = null;
       localStreamRef.current.removeTrack(track);
     }
+    if (audioTrack) {
+      audioTrack.onended = null;
+      localScreenAudioTrackRef.current = null;
+    }
     if (localScreenStreamRef.current) {
       localScreenStreamRef.current.getTracks().forEach((streamTrack) => {
         try { streamTrack.stop(); } catch {}
       });
       localScreenStreamRef.current = null;
     }
+    disposeLocalMixedAudioProcessing();
+    replaceLocalStreamAudioTrack(withSync ? getPreferredOutgoingAudioTrack() : null);
     setScreenSharing(false);
     if (withSync) syncLocalTracksToAllPeers();
-  }, [syncLocalTracksToAllPeers]);
+  }, [
+    disposeLocalMixedAudioProcessing,
+    getPreferredOutgoingAudioTrack,
+    replaceLocalStreamAudioTrack,
+    syncLocalTracksToAllPeers,
+  ]);
 
   const ensureMicTrack = useCallback(async () => {
     const existing = localAudioTrackRef.current;
@@ -3550,15 +3722,32 @@ const CallSection = ({
     setScreenBusy(true);
     setError('');
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          frameRate: { ideal: SCREEN_MAX_FRAMERATE, max: SCREEN_MAX_FRAMERATE },
-          width: { ideal: SCREEN_MAX_WIDTH, max: SCREEN_MAX_WIDTH },
-          height: { ideal: SCREEN_MAX_HEIGHT, max: SCREEN_MAX_HEIGHT },
-        },
-        audio: false,
-      });
+      const videoConstraints = {
+        frameRate: { ideal: SCREEN_MAX_FRAMERATE, max: SCREEN_MAX_FRAMERATE },
+        width: { ideal: SCREEN_MAX_WIDTH, max: SCREEN_MAX_WIDTH },
+        height: { ideal: SCREEN_MAX_HEIGHT, max: SCREEN_MAX_HEIGHT },
+      };
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: videoConstraints,
+          audio: true,
+        });
+      } catch (displayMediaError) {
+        const errorName = typeof displayMediaError?.name === 'string' ? displayMediaError.name : '';
+        const canRetryWithoutAudio = (
+          errorName === 'TypeError'
+          || errorName === 'NotSupportedError'
+          || errorName === 'OverconstrainedError'
+        );
+        if (!canRetryWithoutAudio) throw displayMediaError;
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: videoConstraints,
+          audio: false,
+        });
+      }
       const track = stream.getVideoTracks()[0];
+      const screenAudioTrack = stream.getAudioTracks()[0] || null;
       if (!track) {
         throw new Error('Не удалось получить видеодорожку экрана.');
       }
@@ -3574,11 +3763,22 @@ const CallSection = ({
       stopScreenTrack(false);
       localScreenStreamRef.current = stream;
       localScreenTrackRef.current = track;
+      localScreenAudioTrackRef.current = screenAudioTrack && screenAudioTrack.readyState === 'live'
+        ? screenAudioTrack
+        : null;
       track.onended = () => {
         stopScreenTrack(true);
         void playAlertSound('screenOff');
         renegotiatePeers();
       };
+      if (localScreenAudioTrackRef.current) {
+        localScreenAudioTrackRef.current.onended = () => {
+          if (localScreenAudioTrackRef.current !== screenAudioTrack) return;
+          localScreenAudioTrackRef.current = null;
+          disposeLocalMixedAudioProcessing();
+          syncLocalTracksToAllPeers();
+        };
+      }
       if (!localStreamRef.current.getVideoTracks().includes(track)) {
         localStreamRef.current.addTrack(track);
       }
@@ -3591,7 +3791,16 @@ const CallSection = ({
     } finally {
       setScreenBusy(false);
     }
-  }, [playAlertSound, renegotiatePeers, screenBusy, screenSharing, status, stopScreenTrack, syncLocalTracksToAllPeers]);
+  }, [
+    disposeLocalMixedAudioProcessing,
+    playAlertSound,
+    renegotiatePeers,
+    screenBusy,
+    screenSharing,
+    status,
+    stopScreenTrack,
+    syncLocalTracksToAllPeers,
+  ]);
 
   useEffect(() => {
     if (status !== 'connected') return;
@@ -4247,13 +4456,13 @@ const CallSection = ({
         : 'border-slate-200 bg-slate-100 text-slate-600');
   const statusText = isConnected
     ? hasActiveMediaConnection
-      ? 'Связь установлена'
+      ? 'Вы в звонке'
       : hasMediaConnectionIssue
-        ? 'Связь потеряна'
+        ? 'Связь прервалась'
         : hasPendingPeerConnection
-          ? 'Соединение с собеседником...'
-          : 'В комнате (ожидание)'
-    : (isConnecting ? 'Подключение...' : 'Отключено');
+          ? 'Собеседник подключается...'
+          : 'Вы в комнате, ждём второго участника'
+    : (isConnecting ? 'Подключаем...' : 'Вы ещё не подключились');
   const statusTone = isConnected
     ? (hasMediaConnectionIssue ? 'problem' : (hasActiveMediaConnection ? 'connected' : 'waiting'))
     : (isConnecting ? 'connecting' : 'idle');
@@ -4275,17 +4484,157 @@ const CallSection = ({
   const qualityText = connectionStats.quality === 'good'
     ? 'стабильно'
     : connectionStats.quality === 'ok'
-      ? 'средне'
+      ? 'средняя'
       : connectionStats.quality === 'poor'
-        ? 'плохо'
-        : 'нет данных';
+        ? 'нестабильно'
+        : 'проверяется';
 
   const lessonChatTitle = isTeacher ? 'Чат с учеником' : 'Чат с учителем';
   const lessonChatPeerName = isTeacher
     ? (lessonChatMeta?.studentName || selectedStudent?.name || 'Ученик')
     : (lessonChatMeta?.teacherName || 'Преподаватель');
-  const lessonChatPlaceholder = isTeacher ? 'Напишите ученику...' : 'Напишите учителю...';
+  const lessonChatPlaceholder = 'Сообщение...';
   const lessonChatDisabled = Boolean(isTeacher && !effectiveStudentId);
+  const remoteParticipantLabel = isTeacher ? 'ученик' : 'преподаватель';
+  const remoteParticipantTitle = isTeacher ? 'Ученик' : 'Преподаватель';
+  const remoteParticipantName = lessonChatPeerName || remoteParticipantTitle;
+  const remoteParticipantInitial = String(remoteParticipantName || remoteParticipantTitle).trim().charAt(0).toUpperCase() || 'У';
+  const remotePresenceCount = isConnected ? remotePeers.length : visiblePeers.length;
+  const hasRemoteParticipant = remotePresenceCount > 0;
+  const remoteParticipantStatusShort = hasRemoteParticipant ? (isConnected ? 'В звонке' : 'В комнате') : 'Не в комнате';
+  const selfStatusShort = isConnected
+    ? (hasActiveMediaConnection ? 'В звонке' : (hasMediaConnectionIssue ? 'Сбой связи' : (hasPendingPeerConnection ? 'Ждём вход' : 'В комнате')))
+    : (isConnecting ? 'Подключаем...' : 'Не в звонке');
+  const connectionStatusShort = connectionStats.quality === 'good'
+    ? 'Связь ок'
+    : connectionStats.quality === 'ok'
+      ? 'Связь средняя'
+      : connectionStats.quality === 'poor'
+        ? 'Связь нестабильна'
+        : 'Проверка связи';
+  const callHeaderEyebrow = hasMediaConnectionIssue
+    ? 'Проблема связи'
+    : isConnected
+      ? 'Урок'
+      : isConnecting
+        ? 'Подключение'
+        : 'Подготовка';
+  const callHeaderTitle = !activeStudentId && isTeacher
+    ? 'Подготовка к звонку'
+    : hasMediaConnectionIssue
+      ? 'Связь требует внимания'
+      : isConnected
+        ? 'Комната урока'
+        : isConnecting
+          ? 'Подключаем к уроку'
+          : 'Готовность к уроку';
+  const callHeaderSubtitle = !activeStudentId && isTeacher
+    ? 'Выберите ученика'
+    : hasMediaConnectionIssue
+      ? 'Пробуем восстановить соединение'
+      : isConnecting
+        ? ''
+        : isConnected
+          ? ''
+          : '';
+  const callHeroTitle = hasMediaConnectionIssue
+    ? 'Связь нестабильна'
+    : isConnecting
+      ? 'Подключаем к звонку'
+      : isConnected
+        ? hasRemoteParticipant
+          ? 'Звонок активен'
+          : `Ждём ${remoteParticipantName}`
+        : 'Войти в звонок';
+  const callHeroEyebrow = hasMediaConnectionIssue
+    ? 'Проблема со связью'
+    : isConnecting
+      ? 'Подключаем...'
+      : hasRemoteParticipant
+        ? `${remoteParticipantTitle} в комнате`
+        : '';
+  const callHeroDescription = !activeStudentId && isTeacher
+    ? 'Сначала выберите ученика.'
+    : hasMediaConnectionIssue
+      ? 'Чат останется доступным.'
+      : isConnecting
+        ? 'Это займёт несколько секунд.'
+        : isConnected
+          ? hasRemoteParticipant
+            ? ''
+            : `${remoteParticipantName} пока не в звонке.`
+          : hasRemoteParticipant
+            ? 'Можно входить.'
+            : 'Когда будете готовы.';
+  const remoteParticipantStatus = hasRemoteParticipant
+    ? (isConnected ? `${remoteParticipantTitle} уже в звонке` : `${remoteParticipantTitle} уже ждёт в комнате`)
+    : (isConnected ? `${remoteParticipantTitle} ещё не подключился` : `${remoteParticipantTitle} пока не в комнате`);
+  const joinButtonLabel = isConnected ? 'Вы в звонке' : (isConnecting ? 'Подключаем...' : 'Войти в звонок');
+  const chatBadgeText = lessonChatMessages.length > 0 ? String(lessonChatMessages.length) : '';
+  const headerStatusPills = isConnected
+    ? [
+      { key: 'self', text: selfStatusShort, tone: hasActiveMediaConnection ? 'active' : (hasMediaConnectionIssue ? 'problem' : 'idle') },
+      { key: 'participant', text: `${participantCount} участ.`, tone: 'idle' },
+      { key: 'connection', text: connectionStatusShort, tone: connectionStats.quality === 'good' ? 'good' : (connectionStats.quality === 'poor' ? 'problem' : 'idle') },
+    ]
+    : [
+      { key: 'self', text: selfStatusShort, tone: 'idle' },
+      { key: 'participant', text: remoteParticipantStatusShort, tone: hasRemoteParticipant ? 'active' : 'idle' },
+      { key: 'connection', text: connectionStatusShort, tone: connectionStats.quality === 'good' ? 'good' : (connectionStats.quality === 'poor' ? 'problem' : 'idle') },
+    ];
+  const prejoinParticipantSummary = !activeStudentId && isTeacher
+    ? 'Выберите ученика'
+    : remoteParticipantStatusShort;
+  const prejoinConnectionSummary = connectionStats.quality === 'good'
+    ? 'Связь ок'
+    : connectionStats.quality === 'ok'
+      ? 'Связь средняя'
+      : connectionStats.quality === 'poor'
+        ? 'Связь нестабильна'
+        : 'Проверка связи';
+  const prejoinChatSummary = chatBadgeText
+    ? `${chatBadgeText} новых`
+    : '';
+  const prejoinChatCardSummary = showInlineLessonChat && chatBadgeText
+    ? `${chatBadgeText} новых`
+    : '';
+  const lessonChatMetaSummary = chatBadgeText
+    ? `${chatBadgeText} ${Number(chatBadgeText) === 1 ? 'новое сообщение' : 'новых сообщения'}`
+    : (isConnected ? 'Сообщения по уроку' : 'Можно написать до начала урока');
+  const lessonChatToggleText = lessonChatExpanded ? 'Скрыть чат' : (chatBadgeText ? `Чат (${chatBadgeText})` : 'Чат');
+  const lessonChatHeaderTitleText = remoteParticipantName;
+  const lessonChatHeaderMetaText = [
+    remoteParticipantTitle,
+    isConnected ? remoteParticipantStatusShort.toLowerCase() : 'до урока',
+    chatBadgeText ? `${chatBadgeText} нов.` : '',
+  ].filter(Boolean).join(' • ');
+  const prejoinSummaryCards = [
+    {
+      key: 'participant',
+      icon: Users,
+      label: remoteParticipantTitle,
+      value: prejoinParticipantSummary,
+      tone: hasRemoteParticipant ? 'active' : 'idle',
+    },
+    {
+      key: 'connection',
+      icon: Signal,
+      label: 'Связь',
+      value: prejoinConnectionSummary,
+      tone: connectionStats.quality === 'good'
+        ? 'good'
+        : connectionStats.quality === 'poor'
+          ? 'problem'
+          : 'idle',
+    },
+    ...(showInlineLessonChat && chatBadgeText ? [{
+      key: 'chat',
+      icon: MessageSquare,
+      label: 'Чат',
+      value: prejoinChatCardSummary,
+      tone: chatBadgeText ? 'accent' : 'idle',
+    }] : []),
+  ];
 
   const normalizedMicInputLevelPercent = clampToRange(Math.round(Number(micInputLevelPercent) || 0), 0, 100);
   const micTriggerThresholdMeterPercent = rmsToMicLevelPercent(
@@ -4323,12 +4672,22 @@ const CallSection = ({
   const hangupButtonClass = isDarkTheme
     ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-400/40 bg-rose-500/15 text-rose-100 transition hover:bg-rose-500/25'
     : 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-rose-100';
-  const headerMetaListClass = isDarkTheme
-    ? 'mt-2 flex w-full flex-wrap items-center gap-1.5 text-[11px] text-slate-300'
-    : 'mt-2 flex w-full flex-wrap items-center gap-1.5 text-[11px] text-slate-600';
-  const headerMetaChipClass = isDarkTheme
-    ? 'inline-flex h-7 items-center gap-1.5 rounded-full border border-white/15 bg-slate-900/75 px-2.5'
-    : 'inline-flex h-7 items-center gap-1.5 rounded-full border border-slate-200 bg-white/85 px-2.5';
+  const headerEyebrowClass = isDarkTheme
+    ? 'text-[12px] font-semibold tracking-[0.08em] text-sky-200/84'
+    : 'text-[12px] font-semibold tracking-[0.08em] text-sky-700/84';
+  const headerTitleClass = isDarkTheme
+    ? 'call-main-title mt-1 text-2xl font-semibold tracking-tight text-white'
+    : 'call-main-title mt-1 text-2xl font-semibold tracking-tight text-slate-900';
+  const headerSubtitleClass = isDarkTheme
+    ? 'call-main-subtitle mt-2 max-w-3xl text-[15px] leading-7 text-slate-100/88'
+    : 'call-main-subtitle mt-2 max-w-3xl text-[15px] leading-7 text-slate-700';
+  const headerStatusLineClass = isDarkTheme
+    ? 'call-header-status-line mt-3 max-w-4xl text-sm font-medium leading-6 text-slate-100/92'
+    : 'call-header-status-line mt-3 max-w-4xl text-sm font-medium leading-6 text-slate-600';
+  const headerStatusListClass = 'call-header-status-list mt-3 flex flex-wrap gap-2';
+  const headerStatusPillClass = isDarkTheme
+    ? 'call-header-status-pill inline-flex items-center rounded-full border border-white/10 bg-slate-900/55 px-3 py-1.5 text-xs font-semibold text-slate-100/92'
+    : 'call-header-status-pill inline-flex items-center rounded-full border border-slate-200/80 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-600';
   const teacherCardClass = isDarkTheme
     ? 'mt-3 rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2.5 backdrop-blur'
     : 'mt-3 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-3 py-2.5 backdrop-blur';
@@ -4343,13 +4702,7 @@ const CallSection = ({
   const mediaSectionClass = isDarkTheme
     ? 'call-media-stage rounded-2xl border border-white/10 bg-slate-900/70 p-4 md:p-6'
     : 'call-media-stage rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 md:p-6';
-  const peersSectionClass = isDarkTheme
-    ? 'call-peers-stage rounded-2xl border border-white/10 bg-slate-900/70 p-3 md:p-4'
-    : 'call-peers-stage rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3 md:p-4';
-  const emptyPeersClass = isDarkTheme
-    ? 'flex min-h-[104px] flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-white/15 bg-slate-900/55 px-4 text-center text-xs text-slate-300'
-    : 'flex min-h-[104px] flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-200 bg-white/70 px-4 text-center text-xs text-slate-500';
-  const emptyPeersHintClass = isDarkTheme ? 'text-[11px] text-slate-400' : 'text-[11px] text-slate-500';
+  const emptyPeersHintClass = isDarkTheme ? 'text-xs leading-5 text-slate-300/80' : 'text-xs leading-5 text-slate-500';
   const statsGridTextClass = isDarkTheme ? 'call-stats-grid mt-4 grid gap-2 text-xs text-slate-200 sm:grid-cols-2 xl:grid-cols-5' : 'call-stats-grid mt-4 grid gap-2 text-xs text-slate-700 sm:grid-cols-2 xl:grid-cols-5';
   const statCardClass = isDarkTheme
     ? 'call-stat-card rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2'
@@ -4357,9 +4710,45 @@ const CallSection = ({
   const statStrongClass = isDarkTheme ? 'font-semibold text-white' : 'font-semibold text-slate-900';
   const connectionHintClass = isDarkTheme ? 'call-connection-hint mt-2 text-xs text-slate-400' : 'call-connection-hint mt-2 text-xs text-slate-500';
   const controlsWrapClass = isDarkTheme
-    ? 'call-controls-wrap call-controls-rail mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/10 bg-slate-900/80 p-2 backdrop-blur'
-    : 'call-controls-wrap call-controls-rail mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-slate-200/80 bg-white/85 p-2 backdrop-blur';
+    ? 'call-controls-wrap call-controls-rail mt-4 rounded-2xl border border-white/10 bg-slate-900/80 p-2.5 backdrop-blur'
+    : 'call-controls-wrap call-controls-rail mt-4 rounded-2xl border border-slate-200/80 bg-white/90 p-2.5 backdrop-blur';
   const baseControlButtonClass = 'call-control-btn inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition disabled:cursor-not-allowed disabled:opacity-45';
+  const labeledControlButtonClass = 'call-control-btn call-control-btn--labeled inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border px-3.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45';
+  const callLayoutClass = showInlineLessonChat && lessonChatExpanded
+    ? 'call-experience-grid mt-4 grid min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start'
+    : 'call-experience-grid mt-4 grid min-h-0 gap-3';
+  const callMainColumnClass = 'min-w-0 space-y-3 md:space-y-4';
+  const heroPanelClass = isDarkTheme
+    ? 'call-hero-panel grid gap-5 rounded-[28px] border border-white/10 bg-slate-950/52 p-5 shadow-[0_20px_48px_rgba(2,6,23,0.28)] md:p-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch'
+    : 'call-hero-panel grid gap-5 rounded-[28px] border border-slate-200/80 bg-white/90 p-5 shadow-[0_18px_42px_rgba(15,23,42,0.1)] md:p-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch';
+  const heroEyebrowClass = isDarkTheme
+    ? 'text-[12px] font-semibold tracking-[0.12em] text-sky-200/82'
+    : 'text-[12px] font-semibold tracking-[0.12em] text-sky-700/80';
+  const heroTitleClass = isDarkTheme
+    ? 'mt-2 text-[clamp(1.9rem,2.8vw,2.8rem)] font-semibold leading-[0.96] tracking-tight text-white'
+    : 'mt-2 text-[clamp(1.9rem,2.8vw,2.8rem)] font-semibold leading-[0.96] tracking-tight text-slate-900';
+  const heroDescriptionClass = isDarkTheme
+    ? 'mt-3 max-w-[52ch] text-[15px] leading-7 text-slate-100/88'
+    : 'mt-3 max-w-[52ch] text-[15px] leading-7 text-slate-700';
+  const heroHintClass = isDarkTheme ? 'call-prejoin-note mt-4 text-sm text-slate-300/82' : 'call-prejoin-note mt-4 text-sm text-slate-500';
+  const prejoinSecondaryActionClass = isDarkTheme
+    ? `${labeledControlButtonClass} h-12 rounded-2xl border border-white/15 bg-slate-900/36 px-4 text-slate-100 hover:bg-slate-800/54`
+    : `${labeledControlButtonClass} h-12 rounded-2xl border border-slate-200 bg-white px-4 text-slate-700 hover:bg-slate-100`;
+  const heroPrimaryButtonClass = isDarkTheme
+    ? `${labeledControlButtonClass} call-primary-cta h-12 min-w-[196px] rounded-2xl border border-emerald-300/55 bg-emerald-400 px-5 text-[15px] text-slate-950 hover:bg-emerald-300`
+    : `${labeledControlButtonClass} call-primary-cta h-12 min-w-[196px] rounded-2xl border border-emerald-300/70 bg-emerald-400 px-5 text-[15px] text-slate-950 hover:bg-emerald-300`;
+  const waitingCardClass = isDarkTheme
+    ? 'call-waiting-card flex flex-col justify-between gap-5 rounded-[28px] border border-white/10 bg-slate-900/72 p-5 shadow-[0_18px_42px_rgba(2,6,23,0.24)]'
+    : 'call-waiting-card flex flex-col justify-between gap-5 rounded-[28px] border border-slate-200/80 bg-slate-50/92 p-5 shadow-[0_18px_42px_rgba(15,23,42,0.08)]';
+  const waitingAvatarClass = isDarkTheme
+    ? 'call-waiting-avatar relative flex h-16 w-16 shrink-0 items-center justify-center rounded-[22px] border border-white/15 bg-slate-950 text-xl font-semibold text-white'
+    : 'call-waiting-avatar relative flex h-16 w-16 shrink-0 items-center justify-center rounded-[22px] border border-slate-200 bg-white text-xl font-semibold text-slate-700';
+  const waitingRoleClass = isDarkTheme
+    ? 'inline-flex w-fit items-center rounded-full border border-white/12 bg-white/6 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-100/82'
+    : 'inline-flex w-fit items-center rounded-full border border-sky-200/80 bg-sky-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700';
+  const waitingNameClass = isDarkTheme ? 'mt-4 text-xl font-semibold text-white' : 'mt-4 text-xl font-semibold text-slate-900';
+  const waitingMetaClass = isDarkTheme ? 'text-sm font-medium leading-6 text-slate-300/82' : 'text-sm font-medium leading-6 text-slate-500';
+  const waitingPresenceRowClass = isDarkTheme ? 'mt-3 flex items-center gap-2 text-slate-300/82' : 'mt-3 flex items-center gap-2 text-slate-500';
   const micSensitivityLabelClass = isDarkTheme ? 'text-xs font-semibold text-slate-200' : 'text-xs font-semibold text-slate-700';
   const neutralControlClass = isDarkTheme
     ? 'border-white/15 bg-slate-800 text-slate-200 hover:bg-slate-700'
@@ -4414,27 +4803,33 @@ const CallSection = ({
   const avatarBadgeClass = isDarkTheme
     ? 'call-avatar-badge absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-900 bg-slate-700 text-slate-100'
     : 'call-avatar-badge absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600';
-  const avatarNameClass = isDarkTheme ? 'call-avatar-name w-full truncate text-xs font-semibold text-slate-100' : 'call-avatar-name w-full truncate text-xs font-semibold text-slate-700';
+  const avatarNameClass = isDarkTheme ? 'call-avatar-name w-full truncate text-sm font-semibold text-slate-100' : 'call-avatar-name w-full truncate text-sm font-semibold text-slate-700';
   const waitingTextClass = isDarkTheme
-    ? 'call-waiting-hint mt-3 text-center text-xs text-slate-400'
-    : 'call-waiting-hint mt-3 text-center text-xs text-slate-500';
+    ? 'call-waiting-hint mt-3 text-center text-sm text-slate-300'
+    : 'call-waiting-hint mt-3 text-center text-sm text-slate-600';
   const modalOverlayClass = isDarkTheme ? 'fixed inset-0 z-50' : 'fixed inset-0 z-50 bg-slate-900/10';
   const popupRangeClass = isDarkTheme ? 'h-2 flex-1 accent-emerald-300' : 'h-2 flex-1 accent-emerald-500';
   const popupToneClass = isDarkTheme ? 'text-slate-200' : 'text-slate-700';
-  const lessonChatSectionClass = showInlineLessonChat && lessonChatExpanded
-    ? 'call-lesson-chat group/lesson mt-3 flex min-h-0 flex-1 flex-col px-1'
-    : (showInlineLessonChat
-      ? 'call-lesson-chat group/lesson mt-3 px-1'
-      : 'call-lesson-chat group/lesson mt-3 px-1');
+  const lessonChatSectionClass = isDarkTheme
+    ? 'call-lesson-chat call-chat-panel group/lesson flex min-h-[340px] min-w-0 flex-col rounded-[24px] border border-white/10 bg-slate-950/56 p-3.5 shadow-[0_20px_48px_rgba(2,6,23,0.26)] backdrop-blur'
+    : 'call-lesson-chat call-chat-panel group/lesson flex min-h-[340px] min-w-0 flex-col rounded-[24px] border border-slate-200/80 bg-white/92 p-3.5 shadow-[0_18px_44px_rgba(15,23,42,0.1)] backdrop-blur';
+  const lessonChatHeaderClass = 'call-chat-header mb-3 flex items-start justify-between gap-3';
+  const lessonChatHeaderIdentityClass = 'flex min-w-0 items-center gap-3';
+  const lessonChatHeaderAvatarClass = isDarkTheme
+    ? 'call-chat-header-avatar inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/12 bg-slate-900 text-sm font-semibold text-white'
+    : 'call-chat-header-avatar inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-sm font-semibold text-slate-700';
   const lessonChatToggleClass = isDarkTheme
-    ? 'mb-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-white/20 bg-slate-900/40 px-3 text-xs font-semibold text-slate-100 transition hover:bg-slate-800/60'
-    : 'mb-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-300/80 bg-white/60 px-3 text-xs font-semibold text-slate-700 transition hover:bg-white';
-  const lessonChatBodyClass = showInlineLessonChat
-    ? 'flex min-h-0 flex-1 flex-col'
-    : '';
-  const lessonChatListClass = showInlineLessonChat
-    ? 'call-lesson-chat-list flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-1 pb-2'
-    : 'call-lesson-chat-list max-h-[260px] min-h-[88px] overflow-y-auto space-y-1.5 pr-1 pb-2';
+    ? `${labeledControlButtonClass} border ${lessonChatExpanded ? 'border-violet-300/45 bg-violet-400/22 text-violet-50 hover:bg-violet-400/30' : 'border-white/15 bg-slate-800 text-slate-100 hover:bg-slate-700'}`
+    : `${labeledControlButtonClass} border ${lessonChatExpanded ? 'border-violet-300 bg-violet-500/20 text-violet-700 hover:bg-violet-500/30' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'}`;
+  const lessonChatHeaderTitleClass = isDarkTheme ? 'truncate text-[15px] font-semibold text-white' : 'truncate text-[15px] font-semibold text-slate-900';
+  const lessonChatHeaderMetaClass = isDarkTheme ? 'mt-0.5 truncate text-[11px] text-slate-300/72' : 'mt-0.5 truncate text-[11px] text-slate-500';
+  const lessonChatCollapseClass = isDarkTheme
+    ? 'inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/12 bg-white/6 text-slate-200 transition hover:bg-white/10'
+    : 'inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100';
+  const lessonChatBodyClass = 'flex min-h-0 flex-1 flex-col';
+  const lessonChatListClass = lessonChatMessages.length > 0
+    ? 'call-lesson-chat-list flex flex-1 min-h-[120px] flex-col justify-end gap-2 overflow-y-auto pr-1 pb-2'
+    : 'call-lesson-chat-list flex-1 min-h-[120px] overflow-y-auto pr-1 pb-2';
   const lessonChatBubbleBaseClass = isDarkTheme
     ? 'call-lesson-chat-bubble relative rounded-2xl border px-3 py-2 text-[13px] text-slate-100 backdrop-blur-sm transition-all duration-300'
     : 'call-lesson-chat-bubble relative rounded-2xl border px-3 py-2 text-[13px] text-slate-700 backdrop-blur-sm transition-all duration-300';
@@ -4446,20 +4841,33 @@ const CallSection = ({
     : 'border-sky-200/80 bg-sky-500/10';
   const lessonChatMetaClass = isDarkTheme ? 'mt-1 text-[10px] text-slate-300/80' : 'mt-1 text-[10px] text-slate-500';
   const lessonChatEmptyClass = isDarkTheme
-    ? 'call-lesson-chat-empty flex min-h-[88px] flex-col items-center justify-center gap-1.5 text-center text-xs text-slate-300/80'
-    : 'call-lesson-chat-empty flex min-h-[88px] flex-col items-center justify-center gap-1.5 text-center text-xs text-slate-500';
+    ? 'call-lesson-chat-empty flex min-h-[180px] flex-1 flex-col items-center justify-center gap-2 rounded-[22px] border border-dashed border-white/10 bg-slate-900/28 px-4 text-center'
+    : 'call-lesson-chat-empty flex min-h-[180px] flex-1 flex-col items-center justify-center gap-2 rounded-[22px] border border-dashed border-slate-200 bg-slate-50/60 px-4 text-center';
+  const lessonChatEmptyIconClass = isDarkTheme
+    ? 'inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/6 text-slate-200'
+    : 'inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500';
+  const lessonChatEmptyTitleClass = isDarkTheme ? 'text-sm font-semibold text-slate-100' : 'text-sm font-semibold text-slate-700';
   const lessonChatInputWrapClass = isDarkTheme
-    ? 'call-lesson-chat-input mt-1 flex max-h-0 translate-y-2 items-end gap-2 overflow-hidden opacity-0 pointer-events-none transition-all duration-400 group-hover/lesson:max-h-48 group-hover/lesson:translate-y-0 group-hover/lesson:opacity-100 group-hover/lesson:pointer-events-auto group-focus-within/lesson:max-h-48 group-focus-within/lesson:translate-y-0 group-focus-within/lesson:opacity-100 group-focus-within/lesson:pointer-events-auto'
-    : 'call-lesson-chat-input mt-1 flex max-h-0 translate-y-2 items-end gap-2 overflow-hidden opacity-0 pointer-events-none transition-all duration-400 group-hover/lesson:max-h-48 group-hover/lesson:translate-y-0 group-hover/lesson:opacity-100 group-hover/lesson:pointer-events-auto group-focus-within/lesson:max-h-48 group-focus-within/lesson:translate-y-0 group-focus-within/lesson:opacity-100 group-focus-within/lesson:pointer-events-auto';
+    ? 'call-lesson-chat-input call-chat-composer mt-3 rounded-[22px] border border-white/12 bg-slate-900/42 p-2.5'
+    : 'call-lesson-chat-input call-chat-composer mt-3 rounded-[22px] border border-slate-200/80 bg-white/84 p-2.5';
+  const lessonChatComposerFooterClass = 'call-chat-composer-footer mt-2 flex items-center justify-between gap-2';
   const lessonChatTextareaClass = isDarkTheme
-    ? 'w-full resize-none rounded-xl border border-white/15 bg-slate-900/45 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-violet-300/70'
-    : 'w-full resize-none rounded-xl border border-slate-300/70 bg-white/45 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-violet-400';
+    ? 'min-h-[92px] w-full resize-none rounded-[18px] border border-white/10 bg-slate-950/34 px-3 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-400/72 focus:border-violet-300/70'
+    : 'min-h-[92px] w-full resize-none rounded-[18px] border border-slate-200 bg-slate-50/70 px-3 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-400';
   const lessonChatAttachClass = isDarkTheme
-    ? 'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-slate-900/45 text-slate-200 transition hover:bg-slate-800/60'
-    : 'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-300/70 bg-white/70 text-slate-700 transition hover:bg-white';
+    ? 'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/14 bg-white/6 text-slate-200 transition hover:bg-white/10'
+    : 'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100';
   const lessonChatSendClass = isDarkTheme
-    ? 'inline-flex self-stretch min-w-[128px] items-center justify-center gap-2 rounded-xl border border-violet-300/45 bg-violet-500/30 px-3 text-sm font-semibold text-violet-50 transition hover:bg-violet-400/40 disabled:opacity-45 disabled:cursor-not-allowed'
-    : 'inline-flex self-stretch min-w-[128px] items-center justify-center gap-2 rounded-xl border border-violet-300 bg-violet-500/20 px-3 text-sm font-semibold text-violet-700 transition hover:bg-violet-500/30 disabled:opacity-45 disabled:cursor-not-allowed';
+    ? 'inline-flex h-10 min-w-[124px] items-center justify-center gap-2 rounded-2xl border border-violet-300/35 bg-violet-500/30 px-4 text-sm font-semibold text-violet-50 transition hover:bg-violet-400/42 disabled:opacity-55 disabled:cursor-not-allowed'
+    : 'inline-flex h-10 min-w-[124px] items-center justify-center gap-2 rounded-2xl border border-violet-300 bg-violet-500/22 px-4 text-sm font-semibold text-violet-700 transition hover:bg-violet-500/32 disabled:opacity-55 disabled:cursor-not-allowed';
+  const lessonChatPreviewCardClass = isDarkTheme
+    ? 'flex items-start gap-2 rounded-[18px] border border-white/12 bg-slate-950/45 px-2.5 py-2'
+    : 'flex items-start gap-2 rounded-[18px] border border-slate-200 bg-white px-2.5 py-2';
+  const lessonChatPreviewNameClass = isDarkTheme ? 'truncate text-xs font-medium text-slate-200' : 'truncate text-xs font-medium text-slate-700';
+  const lessonChatPreviewMetaClass = isDarkTheme ? 'text-[11px] text-slate-400' : 'text-[11px] text-slate-500';
+  const lessonChatPreviewRemoveClass = isDarkTheme
+    ? 'inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/16 text-slate-200 transition hover:bg-white/10'
+    : 'inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:bg-slate-100';
   const lessonChatErrorClass = isDarkTheme ? 'mt-2 text-xs text-rose-300' : 'mt-2 text-xs text-rose-600';
 
   const collapsedPanelStyle = collapsedPanelPosition
@@ -4599,19 +5007,17 @@ const CallSection = ({
             </div>
           )}
           <header className="call-main-header">
-            <div className={headerMetaListClass}>
-              <span className={headerMetaChipClass}>
-                <Users size={12} />
-                <span>{participantCount}</span>
-              </span>
-              <span className={headerMetaChipClass}>
-                <Signal size={12} />
-                <span>{qualityText}</span>
-              </span>
-              <span className={`call-status-chip call-status-chip--${statusTone} ml-auto inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusChipClass}`}>
-                <span className={`call-status-dot call-status-dot--${statusTone}`} aria-hidden="true" />
-                <span>{statusText}</span>
-              </span>
+            <div className="min-w-0">
+              <p className={headerEyebrowClass}>{callHeaderEyebrow}</p>
+              <h2 className={headerTitleClass}>{callHeaderTitle}</h2>
+              {callHeaderSubtitle && <p className={headerSubtitleClass}>{callHeaderSubtitle}</p>}
+              <div className={headerStatusListClass}>
+                {headerStatusPills.map((pill) => (
+                  <span key={pill.key} className={headerStatusPillClass} data-tone={pill.tone}>
+                    {pill.text}
+                  </span>
+                ))}
+              </div>
             </div>
           </header>
 
@@ -4647,19 +5053,86 @@ const CallSection = ({
             </div>
           )}
 
-          <div className="mt-3 space-y-3 md:space-y-4">
-            {isConnected && remotePeers.map((peer) => (
-              <RemoteAudioPlayer
-                key={`audio:${peer.peerId}`}
-                peerId={peer.peerId}
-                stream={peer.stream || null}
-                onSpeakingChange={handlePeerSpeakingChange}
-                volume={normalizePeerVolume(volumeByPeer[peer.peerId])}
-              />
-            ))}
+          <div className={callLayoutClass}>
+            <div className={callMainColumnClass}>
+              {isConnected && remotePeers.map((peer) => (
+                <RemoteAudioPlayer
+                  key={`audio:${peer.peerId}`}
+                  peerId={peer.peerId}
+                  stream={peer.stream || null}
+                  onSpeakingChange={handlePeerSpeakingChange}
+                  volume={normalizePeerVolume(volumeByPeer[peer.peerId])}
+                />
+              ))}
 
-            {isConnected ? (
-              <section className={mediaSectionClass}>
+              {!isConnected ? (
+                <section className={`${heroPanelClass} call-prejoin-stage`} data-state={statusTone}>
+                  <div className="call-prejoin-main min-w-0">
+                    {callHeroEyebrow && <p className={heroEyebrowClass}>{callHeroEyebrow}</p>}
+                    <h3 className={heroTitleClass}>{callHeroTitle}</h3>
+                    {callHeroDescription && <p className={heroDescriptionClass}>{callHeroDescription}</p>}
+                    <div className="call-prejoin-actions mt-6 flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={startCall}
+                        disabled={!canStart}
+                        data-live={isConnecting ? 'true' : 'false'}
+                        data-attention={!isConnecting ? 'true' : 'false'}
+                        className={heroPrimaryButtonClass}
+                        aria-label={isConnecting ? 'Подключаем к звонку...' : 'Войти в звонок'}
+                        title={isConnecting ? 'Подключаем к звонку...' : 'Войти в звонок'}
+                      >
+                        {isConnecting ? <Loader2 size={18} className="animate-spin" /> : <Phone size={18} />}
+                        <span className="call-control-label">{joinButtonLabel}</span>
+                      </button>
+                      {isConnecting && (
+                        <button
+                          type="button"
+                          onClick={stopCall}
+                          className={prejoinSecondaryActionClass}
+                        >
+                          <span className="call-control-label">Отменить</span>
+                        </button>
+                      )}
+                      {!isConnecting && Boolean(prejoinChatSummary) && showInlineLessonChat && (
+                        <button
+                          type="button"
+                          className={prejoinSecondaryActionClass}
+                          onClick={() => setLessonChatExpanded(true)}
+                        >
+                          <MessageSquare size={16} />
+                          <span className="call-control-label">{lessonChatExpanded ? 'Чат открыт' : 'Открыть чат'}</span>
+                          <span className="call-chat-badge is-live">{chatBadgeText}</span>
+                        </button>
+                      )}
+                    </div>
+                    <div className="call-prejoin-glance mt-6">
+                      {prejoinSummaryCards.map(({ key, icon: Icon, label, value, tone }) => (
+                        <div key={key} className="call-prejoin-glance-card" data-tone={tone}>
+                          <span className="call-prejoin-glance-icon" aria-hidden="true">
+                            <Icon size={16} />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="call-prejoin-glance-value" aria-label={`${label}: ${value}`}>{value}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className={waitingCardClass} data-presence={hasRemoteParticipant ? 'live' : 'idle'}>
+                    <div className={waitingAvatarClass}>{remoteParticipantInitial}</div>
+                    <div className="min-w-0">
+                      <p className={waitingRoleClass}>{remoteParticipantTitle}</p>
+                      <p className={waitingNameClass}>{remoteParticipantName}</p>
+                      <div className={waitingPresenceRowClass}>
+                        <span className="call-waiting-presence-dot" data-live={hasRemoteParticipant ? 'true' : 'false'} aria-hidden="true" />
+                        <p className={waitingMetaClass}>{remoteParticipantStatusShort}</p>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              ) : (
+                <section className={mediaSectionClass}>
                 <div className="call-media-grid flex flex-wrap items-center justify-center gap-5 md:gap-8">
                   {voiceCallParticipants.map((peer, index) => {
                     const initial = String(peer.title || 'U').trim().charAt(0).toUpperCase() || 'U';
@@ -4746,167 +5219,330 @@ const CallSection = ({
                   })}
                 </div>
                 {voiceCallParticipants.length <= 1 && (
-                  <p className={waitingTextClass}>Ожидание подключения собеседника</p>
-                )}
-              </section>
-            ) : (
-              <section className={peersSectionClass}>
-                {visiblePeers.length === 0 ? (
-                  <div className={emptyPeersClass}>
-                    <Users size={16} />
-                    <p>В созвоне никого</p>
-                    <p className={emptyPeersHintClass}>Подключитесь кнопкой ниже, чтобы начать.</p>
-                  </div>
-                ) : (
-                  <div className="call-peers-grid flex flex-wrap items-start justify-center gap-5 md:gap-8">
-                    {visiblePeers.map((peer, index) => {
-                      const initial = String(peer.title || 'U').trim().charAt(0).toUpperCase() || 'U';
-                      return (
-                        <article
-                          key={peer.peerId}
-                          className="call-participant-entry call-participant-entry--avatar flex w-[104px] flex-col items-center gap-2 text-center"
-                          data-speaking="false"
-                          data-self="false"
-                          style={{
-                            '--call-stagger-index': index,
-                            '--call-depth-rotate': `${((index % 5) - 2) * 0.9}deg`,
-                          }}
-                          title={peer.subtitle}
-                        >
-                          <div className={`${avatarCardClass} ${idleAvatarBorderClass}`}>
-                            {initial}
-                            <span className="call-avatar-voice" aria-hidden="true">
-                              <span />
-                              <span />
-                              <span />
-                            </span>
-                          </div>
-                          <p className={avatarNameClass}>{peer.title}</p>
-                        </article>
-                      );
-                    })}
-                  </div>
+                  <p className={waitingTextClass}>{`Ждём ${remoteParticipantName} в звонке`}</p>
                 )}
               </section>
             )}
-          </div>
+              {isTeacher && isConnected && (
+                <>
+                  <div className={statsGridTextClass}>
+                    <p className={statCardClass}>
+                      <span className="inline-flex items-center gap-1"><Users size={13} /> Участники:</span>{' '}
+                      <span className={statStrongClass}>{participantCount}</span>
+                    </p>
+                    <p className={`${statCardClass} ${qualityClass}`}>
+                      <span className="inline-flex items-center gap-1"><Signal size={13} /> Качество связи:</span>{' '}
+                      <span className="font-semibold">{qualityText}</span>
+                    </p>
+                    <p className={`${statCardClass} ${popupToneClass}`}>
+                      Сигналинг: <span className={statStrongClass}>{socketStatus}</span>
+                    </p>
+                    <p className={`${statCardClass} truncate`} title={roomHint}>
+                      Комната: <span className={statStrongClass}>{roomHint}</span>
+                    </p>
+                    <p className={`${statCardClass} truncate`} title={selfClientId || 'Не назначен'}>
+                      ID клиента: <span className={statStrongClass}>{selfClientId || '—'}</span>
+                    </p>
+                  </div>
 
-          {isTeacher && (
-            <>
-              <div className={statsGridTextClass}>
-                <p className={statCardClass}>
-                  <span className="inline-flex items-center gap-1"><Users size={13} /> Участники:</span>{' '}
-                  <span className={statStrongClass}>{participantCount}</span>
-                </p>
-                <p className={`${statCardClass} ${qualityClass}`}>
-                  <span className="inline-flex items-center gap-1"><Signal size={13} /> Качество:</span>{' '}
-                  <span className="font-semibold">{qualityText}</span>
-                </p>
-                <p className={`${statCardClass} ${popupToneClass}`}>
-                  Сигналинг: <span className={statStrongClass}>{socketStatus}</span>
-                </p>
-                <p className={`${statCardClass} truncate`} title={roomHint}>
-                  Комната: <span className={statStrongClass}>{roomHint}</span>
-                </p>
-                <p className={`${statCardClass} truncate`} title={selfClientId || 'Не назначен'}>
-                  ID клиента: <span className={statStrongClass}>{selfClientId || '—'}</span>
-                </p>
-              </div>
+                  <p className={connectionHintClass}>
+                    Потери: {connectionStats.lossPercent.toFixed(1)}% | Джиттер: {Math.round(connectionStats.jitterMs)} ms | RTT: {Math.round(connectionStats.rttMs)} ms
+                  </p>
+                </>
+              )}
 
-              <p className={connectionHintClass}>
-                Потери: {connectionStats.lossPercent.toFixed(1)}% | Джиттер: {Math.round(connectionStats.jitterMs)} ms | RTT: {Math.round(connectionStats.rttMs)} ms
-              </p>
-            </>
-          )}
-
-          <div className={`${controlsWrapClass} ${sceneStatusClass}`}>
-            <button
-              type="button"
-              onClick={startCall}
-              disabled={!canStart}
-              data-live={isConnecting ? 'true' : 'false'}
-              className={`${baseControlButtonClass} call-control-btn--start border border-emerald-300/60 bg-emerald-400 text-slate-950 hover:bg-emerald-300`}
-              aria-label={isConnecting ? 'Подключение...' : 'Подключиться'}
-              title={isConnecting ? 'Подключение...' : 'Подключиться'}
-            >
-              {isConnecting ? <Loader2 size={18} className="animate-spin" /> : <Phone size={18} />}
-            </button>
-            <button
-              type="button"
-              onClick={stopCall}
-              disabled={!canStop}
-              className={`${baseControlButtonClass} call-control-btn--hangup border border-rose-300/60 bg-rose-500 text-white hover:bg-rose-400`}
-              aria-label="Завершить звонок"
-              title="Завершить звонок"
-            >
-              <PhoneOff size={18} />
-            </button>
-            <div ref={micSettingsWrapRef} className="relative inline-flex items-center gap-2">
-              <button
-                type="button"
-                onClick={toggleMic}
-                disabled={!canToggleMic}
-                data-live={micEnabled ? 'true' : 'false'}
-                className={`${baseControlButtonClass} call-control-btn--mic ${micEnabled ? 'call-control-btn--active' : ''} border ${
-                  micEnabled
-                    ? micOnControlClass
-                    : neutralControlClass
-                }`}
-                aria-label={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
-                title={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
-              >
-                {micBusy ? <Loader2 size={18} className="animate-spin" /> : (micEnabled ? <Mic size={18} /> : <MicOff size={18} />)}
-              </button>
-              <button
-                ref={micSettingsButtonRef}
-                type="button"
-                onClick={() => {
-                  setMicSettingsOpen((prev) => {
-                    const next = !prev;
-                    if (!next) {
-                      setMicSettingsPosition(null);
-                    }
-                    return next;
-                  });
-                }}
-                disabled={!canToggleMic}
-                className={`${micSettingsButtonClass} call-control-btn--settings ${micSettingsOpen ? micSettingsButtonActiveClass : ''}`}
-                aria-label="Настройки микрофона"
-                title="Настройки микрофона"
-              >
-                <Settings size={16} />
-              </button>
+              {isConnected && (
+                <div className={`${controlsWrapClass} call-controls-layout ${sceneStatusClass}`}>
+                <div className="call-controls-group call-controls-group--media">
+                  <button
+                    type="button"
+                    onClick={toggleMic}
+                    disabled={!canToggleMic}
+                    data-live={micEnabled ? 'true' : 'false'}
+                    className={`${labeledControlButtonClass} call-control-btn--mic ${micEnabled ? 'call-control-btn--active' : ''} border ${
+                      micEnabled
+                        ? micOnControlClass
+                        : neutralControlClass
+                    }`}
+                    aria-label={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
+                    title={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
+                  >
+                    {micBusy ? <Loader2 size={18} className="animate-spin" /> : (micEnabled ? <Mic size={18} /> : <MicOff size={18} />)}
+                    <span className="call-control-label">Микрофон</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleCamera}
+                    disabled={!canToggleCamera}
+                    data-live={cameraEnabled ? 'true' : 'false'}
+                    className={`${labeledControlButtonClass} call-control-btn--camera ${cameraEnabled ? 'call-control-btn--active' : ''} border ${
+                      cameraEnabled
+                        ? cameraOnControlClass
+                        : neutralControlClass
+                    }`}
+                    aria-label={cameraEnabled ? 'Выключить камеру' : 'Включить камеру'}
+                    title={cameraEnabled ? 'Выключить камеру' : 'Включить камеру'}
+                  >
+                    {cameraBusy ? <Loader2 size={18} className="animate-spin" /> : (cameraEnabled ? <Camera size={18} /> : <CameraOff size={18} />)}
+                    <span className="call-control-label">Камера</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleScreenShare}
+                    disabled={!canToggleScreen}
+                    data-live={screenSharing ? 'true' : 'false'}
+                    className={`${labeledControlButtonClass} call-control-btn--screen ${screenSharing ? 'call-control-btn--active' : ''} border ${
+                      screenSharing
+                        ? screenOnControlClass
+                        : neutralControlClass
+                    }`}
+                    aria-label={screenSharing ? 'Остановить показ экрана' : 'Показать экран'}
+                    title={screenSharing ? 'Остановить показ экрана' : 'Показать экран'}
+                  >
+                    {screenBusy ? <Loader2 size={18} className="animate-spin" /> : (screenSharing ? <MonitorX size={18} /> : <MonitorUp size={18} />)}
+                    <span className="call-control-label">Экран</span>
+                  </button>
+                </div>
+                <div className="call-controls-group call-controls-group--utility">
+                  {showInlineLessonChat && (
+                    <button
+                      type="button"
+                      className={lessonChatToggleClass}
+                      onClick={() => setLessonChatExpanded((prev) => !prev)}
+                      aria-expanded={lessonChatExpanded}
+                      aria-controls="call-lesson-chat-panel"
+                      data-live={lessonChatExpanded ? 'true' : 'false'}
+                    >
+                      <MessageSquare size={16} />
+                      <span className="call-control-label">{lessonChatExpanded ? 'Чат открыт' : 'Чат'}</span>
+                      {chatBadgeText && (
+                        <span className={`call-chat-badge ${lessonChatExpanded ? '' : 'is-live'}`}>{chatBadgeText}</span>
+                      )}
+                    </button>
+                  )}
+                  <div ref={micSettingsWrapRef} className="relative">
+                    <button
+                      ref={micSettingsButtonRef}
+                      type="button"
+                      onClick={() => {
+                        setMicSettingsOpen((prev) => {
+                          const next = !prev;
+                          if (!next) {
+                            setMicSettingsPosition(null);
+                          }
+                          return next;
+                        });
+                      }}
+                      disabled={!canToggleMic}
+                      className={`${labeledControlButtonClass} call-control-btn--settings border ${micSettingsOpen ? micSettingsButtonActiveClass : neutralControlClass}`}
+                      aria-label="Ещё настройки"
+                      title="Ещё настройки"
+                    >
+                      <Settings size={16} />
+                      <span className="call-control-label">Ещё</span>
+                    </button>
+                  </div>
+                </div>
+                <div className="call-controls-group call-controls-group--danger">
+                  <button
+                    type="button"
+                    onClick={stopCall}
+                    disabled={!canStop}
+                    className={`${labeledControlButtonClass} call-control-btn--hangup border border-rose-300/60 bg-rose-500 text-white hover:bg-rose-400`}
+                    aria-label="Завершить звонок"
+                    title="Завершить звонок"
+                  >
+                    <PhoneOff size={18} />
+                    <span className="call-control-label">Завершить</span>
+                  </button>
+                </div>
+                </div>
+              )}
             </div>
-            <button
-              type="button"
-              onClick={toggleCamera}
-              disabled={!canToggleCamera}
-              data-live={cameraEnabled ? 'true' : 'false'}
-              className={`${baseControlButtonClass} call-control-btn--camera ${cameraEnabled ? 'call-control-btn--active' : ''} border ${
-                cameraEnabled
-                  ? cameraOnControlClass
-                  : neutralControlClass
-              }`}
-              aria-label={cameraEnabled ? 'Выключить камеру' : 'Включить камеру'}
-              title={cameraEnabled ? 'Выключить камеру' : 'Включить камеру'}
-            >
-              {cameraBusy ? <Loader2 size={18} className="animate-spin" /> : (cameraEnabled ? <Camera size={18} /> : <CameraOff size={18} />)}
-            </button>
-            <button
-              type="button"
-              onClick={toggleScreenShare}
-              disabled={!canToggleScreen}
-              data-live={screenSharing ? 'true' : 'false'}
-              className={`${baseControlButtonClass} call-control-btn--screen ${screenSharing ? 'call-control-btn--active' : ''} border ${
-                screenSharing
-                  ? screenOnControlClass
-                  : neutralControlClass
-              }`}
-              aria-label={screenSharing ? 'Остановить показ экрана' : 'Показать экран'}
-              title={screenSharing ? 'Остановить показ экрана' : 'Показать экран'}
-            >
-              {screenBusy ? <Loader2 size={18} className="animate-spin" /> : (screenSharing ? <MonitorX size={18} /> : <MonitorUp size={18} />)}
-            </button>
+
+            {showInlineLessonChat && lessonChatExpanded && (
+              <section id="call-lesson-chat-panel" className={lessonChatSectionClass} aria-label={lessonChatTitle}>
+                <div className={lessonChatHeaderClass}>
+                  <div className={lessonChatHeaderIdentityClass}>
+                    <div className={lessonChatHeaderAvatarClass}>{remoteParticipantInitial}</div>
+                    <div className="min-w-0">
+                      <p className={lessonChatHeaderTitleClass}>{lessonChatHeaderTitleText}</p>
+                      <p className={lessonChatHeaderMetaClass}>{lessonChatHeaderMetaText}</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className={lessonChatCollapseClass}
+                    onClick={() => setLessonChatExpanded(false)}
+                    aria-label="Скрыть чат"
+                    title="Скрыть чат"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+
+                <div className={lessonChatBodyClass}>
+                  <div ref={lessonChatListRef} className={lessonChatListClass}>
+                    {lessonChatLoading ? (
+                      <div className={lessonChatEmptyClass}>Загружаем сообщения...</div>
+                    ) : lessonChatMessages.length === 0 ? (
+                      <div className={lessonChatEmptyClass}>
+                        <span className={lessonChatEmptyIconClass} aria-hidden="true">
+                          <MessageSquare size={17} />
+                        </span>
+                        <p className={lessonChatEmptyTitleClass}>Пока пусто</p>
+                      </div>
+                    ) : (
+                      lessonChatMessages.map((message, index) => {
+                        const senderRole = String(message?.senderRole || '').trim();
+                        const senderId = String(message?.senderId || '').trim();
+                        const localId = String(userId || '').trim();
+                        const isMine = senderRole === (isTeacher ? 'teacher' : 'student') || (localId && senderId === localId);
+                        const messageText = String(message?.text || '');
+                        const messageImageDataUrl = String(message?.imageDataUrl || '').trim();
+                        const messageImageName = String(message?.imageName || '').trim();
+                        return (
+                          <div
+                            key={message?.id || `${senderId}-${message?.createdAt || index}`}
+                            className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
+                          >
+                            <div
+                              className={`${lessonChatBubbleBaseClass} ${isMine ? lessonChatMineClass : lessonChatPeerClass} max-w-[min(88%,740px)]`}
+                            >
+                              {!isMine && (
+                                <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] opacity-80">
+                                  {message?.senderName || lessonChatPeerName}
+                                </div>
+                              )}
+                              {messageImageDataUrl && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setLessonChatPreviewImage({
+                                      src: messageImageDataUrl,
+                                      name: messageImageName,
+                                    });
+                                  }}
+                                  className="mb-2 block overflow-hidden rounded-lg border border-white/15"
+                                  title={messageImageName || 'Открыть изображение'}
+                                  aria-label={messageImageName || 'Открыть изображение'}
+                                >
+                                  <img
+                                    src={messageImageDataUrl}
+                                    alt={messageImageName || 'Изображение из чата'}
+                                    className="max-h-[220px] w-full object-contain bg-black/25"
+                                    loading="lazy"
+                                  />
+                                </button>
+                              )}
+                              {messageText && (
+                                <LinkifiedText
+                                  text={messageText}
+                                  className="whitespace-pre-wrap break-words"
+                                  linkClassName={isMine ? 'underline decoration-white/70 underline-offset-2' : 'underline decoration-current/70 underline-offset-2'}
+                                />
+                              )}
+                              <div className={lessonChatMetaClass}>
+                                {formatChatDateTime(message?.createdAt)}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <div className={lessonChatInputWrapClass}>
+                    <input
+                      ref={lessonChatImageInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) {
+                          handleLessonChatImageSelect(file);
+                        }
+                      }}
+                    />
+                    <div className="flex-1 space-y-2">
+                      {lessonChatImageDataUrl && (
+                        <div className={lessonChatPreviewCardClass}>
+                          <img
+                            src={lessonChatImageDataUrl}
+                            alt={lessonChatImageName || 'Изображение'}
+                            className="h-12 w-12 rounded-md object-cover"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className={lessonChatPreviewNameClass}>
+                              {lessonChatImageName || 'Изображение'}
+                            </p>
+                            <p className={lessonChatPreviewMetaClass}>
+                              До 5 МБ
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className={lessonChatPreviewRemoveClass}
+                            onClick={clearLessonChatImage}
+                            aria-label="Убрать изображение"
+                            title="Убрать изображение"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      )}
+                      <textarea
+                        value={lessonChatText}
+                        onChange={(event) => setLessonChatText(event.target.value)}
+                        onPaste={(event) => {
+                          const items = Array.from(event.clipboardData?.items || []);
+                          const imageItem = items.find((item) => item.kind === 'file' && String(item.type || '').toLowerCase().startsWith('image/'));
+                          if (!imageItem) return;
+                          const file = imageItem.getAsFile?.();
+                          if (!file) return;
+                          event.preventDefault();
+                          handleLessonChatImageSelect(file);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' && !event.shiftKey) {
+                            event.preventDefault();
+                            handleLessonChatSend();
+                          }
+                        }}
+                        rows={2}
+                        disabled={lessonChatDisabled}
+                        placeholder={lessonChatDisabled ? 'Сначала выберите ученика' : lessonChatPlaceholder}
+                        className={lessonChatTextareaClass}
+                      />
+                      <div className={lessonChatComposerFooterClass}>
+                        <button
+                          type="button"
+                          onClick={() => lessonChatImageInputRef.current?.click()}
+                          disabled={lessonChatDisabled || lessonChatSending}
+                          className={lessonChatAttachClass}
+                          aria-label="Добавить изображение"
+                          title="Добавить изображение"
+                        >
+                          <ImagePlus size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleLessonChatSend}
+                          disabled={lessonChatSending || (!String(lessonChatText || '').trim() && !lessonChatImageDataUrl) || lessonChatDisabled}
+                          className={lessonChatSendClass}
+                        >
+                          <SendHorizontal size={15} />
+                          {lessonChatSending ? 'Отправка...' : 'Отправить'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  {lessonChatError && <div className={lessonChatErrorClass}>{lessonChatError}</div>}
+                </div>
+              </section>
+            )}
+
           </div>
 
           {micSettingsOpen && micSettingsPosition && typeof document !== 'undefined' && createPortal(
@@ -5071,7 +5707,7 @@ const CallSection = ({
         </div>
       </section>
 
-      {showInlineLessonChat && (
+      {false && showInlineLessonChat && (
         <section className={lessonChatSectionClass} aria-label={lessonChatTitle}>
           <div className="mb-1 flex items-center justify-end">
             <button
@@ -5080,7 +5716,7 @@ const CallSection = ({
               onClick={() => setLessonChatExpanded((prev) => !prev)}
               aria-expanded={lessonChatExpanded}
             >
-              {lessonChatExpanded ? 'Скрыть чат' : `Показать чат${lessonChatMessages.length > 0 ? ` (${lessonChatMessages.length})` : ''}`}
+              {lessonChatToggleText}
             </button>
           </div>
 
@@ -5092,8 +5728,8 @@ const CallSection = ({
                 ) : lessonChatMessages.length === 0 ? (
                   <div className={lessonChatEmptyClass}>
                     <MessageSquare size={16} />
-                    <p>Пока сообщений нет.</p>
-                    <p className={emptyPeersHintClass}>Начните диалог прямо во время урока.</p>
+                    <p>Сообщений пока нет.</p>
+                    <p className={emptyPeersHintClass}>Если понадобится, напишите прямо во время урока.</p>
                   </div>
                 ) : (
                   lessonChatMessages.map((message, index) => {
