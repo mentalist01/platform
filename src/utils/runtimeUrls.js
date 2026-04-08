@@ -187,3 +187,5 @@ const resolveWsUrl = (explicitUrl, fallbackPath) => {
 export const getCollabWsUrl = () => resolveWsUrl(getEnvValue('VITE_COLLAB_WS_URL'), '/collab');
 
 export const getRtcWsUrl = () => resolveWsUrl(getEnvValue('VITE_RTC_WS_URL'), '/rtc');
+
+export const getNotificationsWsUrl = () => resolveWsUrl(getEnvValue('VITE_NOTIFICATIONS_WS_URL'), '/notifications');

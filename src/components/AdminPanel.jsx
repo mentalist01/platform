@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, RefreshCcw, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
+import BroadcastNotificationsPanel from './BroadcastNotificationsPanel';
 import { Button, Card } from './ui';
 
 const AdminPanel = ({
@@ -130,6 +131,8 @@ const AdminPanel = ({
         <h2 className="text-2xl font-bold text-gray-900">Админка</h2>
         <p className="text-gray-500">Управление учителями и всеми учениками</p>
       </div>
+
+      <BroadcastNotificationsPanel role="admin" />
 
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">

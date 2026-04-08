@@ -126,6 +126,7 @@ const mockExamsFile = path.join(dataDir, 'mock-exams.json');
 const taskTitlesFile = path.join(dataDir, 'task-titles.json');
 const signupChatsFile = path.join(dataDir, 'signup-chats.json');
 const studentChatsFile = path.join(dataDir, 'student-chats.json');
+const broadcastNotificationsFile = path.join(dataDir, 'broadcast-notifications.json');
 const scheduleRequestsFile = path.join(dataDir, 'schedule-requests.json');
 const teacherFinanceFile = path.join(dataDir, 'teacher-finances.json');
 const authFile = path.join(dataDir, 'auth.json');
@@ -173,6 +174,9 @@ const STUDENT_CHAT_LAST_MESSAGE_PREVIEW_MAX_LENGTH = 160;
 const STUDENT_CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const STUDENT_CHAT_IMAGE_NAME_MAX_LENGTH = 180;
 const STUDENT_CHAT_IMAGE_PREVIEW_TEXT = '[Изображение]';
+const BROADCAST_NOTIFICATION_TEXT_MAX_LENGTH = 5000;
+const BROADCAST_NOTIFICATION_NAME_MAX_LENGTH = 180;
+const BROADCAST_NOTIFICATION_STORAGE_LIMIT = 200;
 const STUDENT_CHAT_ALLOWED_IMAGE_MIME_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -1028,6 +1032,21 @@ const readProgressDb = () => {
   }
 };
 
+const readBroadcastNotificationsDb = () => {
+  try {
+    const raw = fs.readFileSync(broadcastNotificationsFile, 'utf8');
+    const data = JSON.parse(raw);
+    const list = Array.isArray(data) ? data : [];
+    const normalized = normalizeBroadcastNotificationList(list);
+    if (JSON.stringify(normalized) !== JSON.stringify(list)) {
+      writeBroadcastNotificationsDb(normalized);
+    }
+    return normalized;
+  } catch {
+    return [];
+  }
+};
+
 const writeFilesDb = (data) => {
   fs.writeFileSync(dataFile, JSON.stringify(data, null, 2), 'utf8');
 };
@@ -1050,6 +1069,10 @@ const writeTaskTitlesDb = (data) => {
 
 const writeProgressDb = (data) => {
   fs.writeFileSync(progressFile, JSON.stringify(data, null, 2), 'utf8');
+};
+
+const writeBroadcastNotificationsDb = (data) => {
+  fs.writeFileSync(broadcastNotificationsFile, JSON.stringify(data, null, 2), 'utf8');
 };
 
 const TEACHER_FINANCE_PRICING_MODES = new Set(['perLesson', 'monthly']);
@@ -3570,6 +3593,196 @@ const ensureTeacherAccess = (req, res, teacherId, options = {}) => {
 const normalizeTeacherId = (value) => {
   if (typeof value === 'string') return value.trim();
   return String(value || '').trim();
+};
+
+const normalizeBroadcastNotificationText = (value) => {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, BROADCAST_NOTIFICATION_TEXT_MAX_LENGTH);
+};
+
+const normalizeBroadcastNotificationName = (value, fallback = '') => {
+  const normalized = normalizeFileName(typeof value === 'string' ? value.trim() : '');
+  const safe = normalized ? path.basename(normalized) : '';
+  if (safe) return safe.slice(0, BROADCAST_NOTIFICATION_NAME_MAX_LENGTH);
+  return fallback;
+};
+
+const normalizeBroadcastNotificationAttachment = (value, options = {}) => {
+  if (!value || typeof value !== 'object') return null;
+  const fallbackName = typeof options.fallbackName === 'string' ? options.fallbackName : 'Файл';
+  const storageName = path.basename(String(value.storageName || '').trim());
+  if (!storageName) return null;
+  const id = String(value.id || storageName).trim() || storageName;
+  const sizeBytesRaw = Number(value.sizeBytes);
+  const sizeBytes = Number.isFinite(sizeBytesRaw) && sizeBytesRaw > 0 ? Math.floor(sizeBytesRaw) : 0;
+  const urlRaw = typeof value.url === 'string' ? value.url.trim() : '';
+  const url = urlRaw || `/uploads/${storageName}`;
+  return {
+    id,
+    name: normalizeBroadcastNotificationName(value.name, fallbackName),
+    size: typeof value.size === 'string' && value.size.trim()
+      ? value.size.trim().slice(0, 64)
+      : formatSize(sizeBytes),
+    sizeBytes,
+    url,
+    storageName,
+    mimeType: typeof value.mimeType === 'string' ? value.mimeType.trim().slice(0, 120) : '',
+  };
+};
+
+const normalizeBroadcastNotificationSeenIds = (value) => Array.from(new Set(
+  (Array.isArray(value) ? value : []).map((entry) => String(entry || '').trim()).filter(Boolean)
+));
+
+const normalizeBroadcastNotificationEntry = (value) => {
+  if (!value || typeof value !== 'object') return null;
+  const id = String(value.id || '').trim();
+  if (!id) return null;
+
+  const text = normalizeBroadcastNotificationText(value.text);
+  const image = normalizeBroadcastNotificationAttachment(value.image, { fallbackName: 'Изображение' });
+  const file = normalizeBroadcastNotificationAttachment(value.file, { fallbackName: 'Файл' });
+  if (!text && !image && !file) return null;
+
+  const createdByRoleRaw = String(value?.createdByRole || '').trim().toLowerCase();
+  const createdByRole = createdByRoleRaw === 'admin'
+    ? 'admin'
+    : (createdByRoleRaw === 'teacher' ? 'teacher' : '');
+  const createdById = String(value.createdById || '').trim();
+  if (!createdByRole || !createdById) return null;
+
+  const createdAtMs = Date.parse(String(value.createdAt || ''));
+  const createdAt = Number.isFinite(createdAtMs) ? new Date(createdAtMs).toISOString() : new Date().toISOString();
+  const updatedAtMs = Date.parse(String(value.updatedAt || ''));
+  const updatedAt = Number.isFinite(updatedAtMs) ? new Date(updatedAtMs).toISOString() : createdAt;
+
+  const audienceKind = value.audienceKind === 'all-students' ? 'all-students' : 'teacher-students';
+  const audienceTeacherId = audienceKind === 'teacher-students'
+    ? normalizeTeacherId(value.audienceTeacherId || (createdByRole === 'teacher' ? createdById : ''))
+    : '';
+  if (audienceKind === 'teacher-students' && !audienceTeacherId) return null;
+
+  return {
+    id,
+    text,
+    image,
+    file,
+    createdAt,
+    updatedAt,
+    createdById,
+    createdByName: String(value.createdByName || '').trim().slice(0, 120) || (createdByRole === 'admin' ? 'Администратор' : 'Преподаватель'),
+    createdByRole,
+    audienceKind,
+    audienceTeacherId,
+    seenByStudentIds: normalizeBroadcastNotificationSeenIds(value.seenByStudentIds),
+  };
+};
+
+const normalizeBroadcastNotificationList = (value) => {
+  const list = Array.isArray(value) ? value : [];
+  const seenIds = new Set();
+  const normalized = [];
+  list.forEach((entry) => {
+    const safeEntry = normalizeBroadcastNotificationEntry(entry);
+    if (!safeEntry) return;
+    if (seenIds.has(safeEntry.id)) return;
+    seenIds.add(safeEntry.id);
+    normalized.push(safeEntry);
+  });
+  normalized.sort((left, right) => Date.parse(right.createdAt || '') - Date.parse(left.createdAt || ''));
+  if (normalized.length > BROADCAST_NOTIFICATION_STORAGE_LIMIT) {
+    normalized.length = BROADCAST_NOTIFICATION_STORAGE_LIMIT;
+  }
+  return normalized;
+};
+
+const getBroadcastNotificationAudienceLabel = (entry, auth = null) => {
+  if (!entry || typeof entry !== 'object') return '';
+  if (entry.audienceKind === 'all-students') return 'Всем ученикам платформы';
+  const teacherId = normalizeTeacherId(entry.audienceTeacherId);
+  if (!teacherId) return 'Ученикам преподавателя';
+  if (isTeacherRole(auth) && String(auth?.id || '').trim() === teacherId) {
+    return 'Всем вашим ученикам';
+  }
+  const teacher = findTeacherById(teacherId);
+  return teacher?.name
+    ? `Ученикам преподавателя ${teacher.name}`
+    : 'Ученикам преподавателя';
+};
+
+const getBroadcastNotificationRecipientStudents = (entry) => {
+  const students = readStudentsDb().filter(isActiveStudent);
+  if (!entry || typeof entry !== 'object') return [];
+  if (entry.audienceKind === 'all-students') return students;
+  const teacherId = normalizeTeacherId(entry.audienceTeacherId);
+  if (!teacherId) return [];
+  return students.filter((student) => normalizeTeacherId(student?.teacherId) === teacherId);
+};
+
+const canStudentViewBroadcastNotification = (auth, entry) => {
+  if (!isStudentRole(auth) || !entry) return false;
+  if (entry.audienceKind === 'all-students') return true;
+  const teacherId = normalizeTeacherId(entry.audienceTeacherId);
+  return Boolean(teacherId) && normalizeTeacherId(auth?.teacherId) === teacherId;
+};
+
+const canManageBroadcastNotification = (auth, entry) => {
+  if (!entry) return false;
+  if (isAdminRole(auth)) return true;
+  if (!isTeacherRole(auth)) return false;
+  return entry.audienceKind === 'teacher-students'
+    && normalizeTeacherId(entry.audienceTeacherId) === String(auth?.id || '').trim();
+};
+
+const serializeBroadcastNotificationForStaff = (entry, auth) => {
+  const recipients = getBroadcastNotificationRecipientStudents(entry);
+  const recipientIds = new Set(recipients.map((student) => String(student.id || '').trim()).filter(Boolean));
+  const seenCount = normalizeBroadcastNotificationSeenIds(entry?.seenByStudentIds)
+    .filter((studentId) => recipientIds.has(studentId))
+    .length;
+  const recipientCount = recipients.length;
+  return {
+    id: entry.id,
+    text: entry.text,
+    image: entry.image,
+    file: entry.file,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    createdById: entry.createdById,
+    createdByName: entry.createdByName,
+    createdByRole: entry.createdByRole,
+    audienceLabel: getBroadcastNotificationAudienceLabel(entry, auth),
+    recipientCount,
+    seenCount,
+    unreadCount: Math.max(0, recipientCount - seenCount),
+  };
+};
+
+const serializeBroadcastNotificationForStudent = (entry, studentId) => {
+  const normalizedStudentId = String(studentId || '').trim();
+  const seen = normalizeBroadcastNotificationSeenIds(entry?.seenByStudentIds).includes(normalizedStudentId);
+  return {
+    id: entry.id,
+    text: entry.text,
+    image: entry.image,
+    file: entry.file,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    createdById: entry.createdById,
+    createdByName: entry.createdByName,
+    createdByRole: entry.createdByRole,
+    audienceLabel: getBroadcastNotificationAudienceLabel(entry),
+    seen,
+  };
+};
+
+const deleteBroadcastNotificationAttachmentFiles = (entry) => {
+  [entry?.image, entry?.file].forEach((attachment) => {
+    const storageName = path.basename(String(attachment?.storageName || '').trim());
+    if (!storageName) return;
+    const filePath = path.join(uploadsDir, storageName);
+    fs.unlink(filePath, () => {});
+  });
 };
 
 const SCHEDULE_WEEKDAYS = [
@@ -9273,6 +9486,117 @@ app.patch('/api/teacher-solved-events/read', (req, res) => {
   });
 });
 
+app.get('/api/broadcast-notifications', (req, res) => {
+  const list = readBroadcastNotificationsDb();
+  if (isStudentRole(req.auth)) {
+    const visible = list
+      .filter((entry) => canStudentViewBroadcastNotification(req.auth, entry))
+      .map((entry) => serializeBroadcastNotificationForStudent(entry, req.auth.id));
+    return res.json(visible);
+  }
+  if (isTeacherRole(req.auth)) {
+    const visible = list
+      .filter((entry) => canManageBroadcastNotification(req.auth, entry))
+      .map((entry) => serializeBroadcastNotificationForStaff(entry, req.auth));
+    return res.json(visible);
+  }
+  if (isAdminRole(req.auth)) {
+    return res.json(list.map((entry) => serializeBroadcastNotificationForStaff(entry, req.auth)));
+  }
+  return forbid(res);
+});
+
+app.post('/api/broadcast-notifications', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+
+  const text = normalizeBroadcastNotificationText(req.body?.text);
+  const image = normalizeBroadcastNotificationAttachment(req.body?.image, { fallbackName: 'Изображение' });
+  const file = normalizeBroadcastNotificationAttachment(req.body?.file, { fallbackName: 'Файл' });
+  if (!text && !image && !file) {
+    return res.status(400).json({ error: 'Добавьте текст, картинку или файл.' });
+  }
+
+  const now = new Date().toISOString();
+  const entry = normalizeBroadcastNotificationEntry({
+    id: crypto.randomUUID(),
+    text,
+    image,
+    file,
+    createdAt: now,
+    updatedAt: now,
+    createdById: String(req.auth?.id || '').trim(),
+    createdByName: typeof req.auth?.name === 'string' && req.auth.name.trim()
+      ? req.auth.name.trim()
+      : (isAdminRole(req.auth) ? 'Администратор' : 'Преподаватель'),
+    createdByRole: String(req.auth?.role || '').trim(),
+    audienceKind: isAdminRole(req.auth) ? 'all-students' : 'teacher-students',
+    audienceTeacherId: isTeacherRole(req.auth) ? String(req.auth.id || '').trim() : '',
+    seenByStudentIds: [],
+  });
+
+  if (!entry) {
+    return res.status(400).json({ error: 'Не удалось подготовить уведомление.' });
+  }
+
+  const nextList = normalizeBroadcastNotificationList([entry, ...readBroadcastNotificationsDb()]);
+  writeBroadcastNotificationsDb(nextList);
+  broadcastNotificationCreated(entry);
+  return res.status(201).json(serializeBroadcastNotificationForStaff(entry, req.auth));
+});
+
+app.patch('/api/broadcast-notifications/:id/seen', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const notificationId = String(req.params?.id || '').trim();
+  if (!notificationId) {
+    return res.status(400).json({ error: 'id required' });
+  }
+
+  const list = readBroadcastNotificationsDb();
+  const index = list.findIndex((entry) => entry.id === notificationId);
+  if (index === -1) {
+    return res.status(404).json({ error: 'Уведомление не найдено' });
+  }
+
+  const current = list[index];
+  if (!canStudentViewBroadcastNotification(req.auth, current)) return forbid(res);
+
+  const seenIds = new Set(normalizeBroadcastNotificationSeenIds(current?.seenByStudentIds));
+  if (!seenIds.has(req.auth.id)) {
+    seenIds.add(req.auth.id);
+    list[index] = {
+      ...current,
+      updatedAt: new Date().toISOString(),
+      seenByStudentIds: Array.from(seenIds),
+    };
+    writeBroadcastNotificationsDb(normalizeBroadcastNotificationList(list));
+  }
+
+  return res.json(serializeBroadcastNotificationForStudent(list[index], req.auth.id));
+});
+
+app.delete('/api/broadcast-notifications/:id', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const notificationId = String(req.params?.id || '').trim();
+  if (!notificationId) {
+    return res.status(400).json({ error: 'id required' });
+  }
+
+  const list = readBroadcastNotificationsDb();
+  const index = list.findIndex((entry) => entry.id === notificationId);
+  if (index === -1) {
+    return res.status(404).json({ error: 'Уведомление не найдено' });
+  }
+
+  const target = list[index];
+  if (!canManageBroadcastNotification(req.auth, target)) return forbid(res);
+
+  list.splice(index, 1);
+  writeBroadcastNotificationsDb(normalizeBroadcastNotificationList(list));
+  broadcastNotificationDeleted(target);
+  deleteBroadcastNotificationAttachmentFiles(target);
+  return res.json({ ok: true });
+});
+
 app.get('/api/progress/solved', (req, res) => {
   const { studentId, taskNumber, levelId, includeCode } = req.query;
   if (!taskNumber || !levelId) {
@@ -10470,6 +10794,7 @@ app.post('/api/test-files', upload.single('file'), (req, res) => {
     name: normalizeFileName(req.file.originalname),
     size: formatSize(req.file.size),
     sizeBytes: req.file.size,
+    mimeType: typeof req.file.mimetype === 'string' ? req.file.mimetype : '',
     url: `/uploads/${req.file.filename}`,
     storageName: req.file.filename,
   });
@@ -11198,6 +11523,7 @@ if (typeof pushSweepStartTimer.unref === 'function') pushSweepStartTimer.unref()
 const server = createServer(app);
 const collabWss = new WebSocketServer({ noServer: true });
 const rtcWss = new WebSocketServer({ noServer: true });
+const notificationsWss = new WebSocketServer({ noServer: true });
 const WS_OPEN_STATE = 1;
 const RTC_SIGNAL_MAX_MESSAGE_BYTES = 64 * 1024;
 const RTC_CLIENT_STALE_TIMEOUT_MS = (() => {
@@ -11219,6 +11545,7 @@ const rtcRooms = new Map();
 const rtcPresenceWatchers = new Map();
 const rtcCodeSyncWatchers = new Map();
 const rtcClientsBySocket = new Map();
+const notificationClientsBySocket = new Map();
 
 const getUpgradePathname = (requestUrl) => {
   const url = typeof requestUrl === 'string' ? requestUrl : '';
@@ -11241,6 +11568,42 @@ const sendRtcPayload = (ws, payload) => {
   try {
     ws.send(JSON.stringify(payload));
   } catch {}
+};
+
+const sendNotificationPayload = (ws, payload) => {
+  if (!ws || ws.readyState !== WS_OPEN_STATE) return;
+  try {
+    ws.send(JSON.stringify(payload));
+  } catch {}
+};
+
+const cleanupNotificationClient = (ws) => {
+  if (!ws) return;
+  notificationClientsBySocket.delete(ws);
+};
+
+const broadcastNotificationCreated = (entry) => {
+  if (!entry) return;
+  notificationClientsBySocket.forEach((client) => {
+    if (!client?.auth || !isStudentRole(client.auth)) return;
+    if (!canStudentViewBroadcastNotification(client.auth, entry)) return;
+    sendNotificationPayload(client.ws, {
+      type: 'broadcast-notification-created',
+      notification: serializeBroadcastNotificationForStudent(entry, client.auth.id),
+    });
+  });
+};
+
+const broadcastNotificationDeleted = (entry) => {
+  if (!entry?.id) return;
+  notificationClientsBySocket.forEach((client) => {
+    if (!client?.auth || !isStudentRole(client.auth)) return;
+    if (!canStudentViewBroadcastNotification(client.auth, entry)) return;
+    sendNotificationPayload(client.ws, {
+      type: 'broadcast-notification-deleted',
+      notificationId: entry.id,
+    });
+  });
 };
 
 const normalizeRtcRoomPart = (value) => {
@@ -11953,6 +12316,20 @@ server.on('upgrade', (request, socket, head) => {
     return;
   }
 
+  if (pathname === '/notifications') {
+    const token = getAuthTokenFromRequest(request);
+    const session = getAuthSession(token);
+    if (!session?.user) {
+      rejectUpgrade(socket, 401, 'Unauthorized');
+      return;
+    }
+
+    notificationsWss.handleUpgrade(request, socket, head, (ws) => {
+      notificationsWss.emit('connection', ws, request, session.user);
+    });
+    return;
+  }
+
   socket.destroy();
 });
 
@@ -12005,6 +12382,37 @@ rtcWss.on('connection', (ws, _request, user) => {
 
   ws.on('error', () => {
     cleanupRtcClient(client, { closeSocket: false });
+  });
+});
+
+notificationsWss.on('connection', (ws, _request, user) => {
+  const auth = buildSessionUser(user);
+  if (!auth) {
+    try {
+      ws.close(1008, 'Unauthorized');
+    } catch {}
+    return;
+  }
+
+  notificationClientsBySocket.set(ws, {
+    ws,
+    auth,
+  });
+
+  sendNotificationPayload(ws, {
+    type: 'ready',
+    user: {
+      id: auth.id,
+      role: auth.role,
+    },
+  });
+
+  ws.on('close', () => {
+    cleanupNotificationClient(ws);
+  });
+
+  ws.on('error', () => {
+    cleanupNotificationClient(ws);
   });
 });
 

@@ -2,6 +2,7 @@
 import { Bell, BellOff, Download, MessageSquare, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
+import BroadcastNotificationsPanel from './BroadcastNotificationsPanel';
 import { Button, Card } from './ui';
 import LinkifiedText from './LinkifiedText';
 const TeacherPanel = ({
@@ -945,6 +946,8 @@ const TeacherPanel = ({
         {isTestsMode && testsLoading && <p className="text-xs text-gray-400 mt-2">Загрузка базы тестов...</p>}
         {isTestsMode && testsError && <p className="text-xs text-red-500 mt-2">{testsError}</p>}
       </div>
+
+      {isTestsMode && <BroadcastNotificationsPanel role={role} />}
 
       {isSignupChatsMode && (
       <Card className="teacher-signup-card mb-6">

@@ -41,6 +41,7 @@ import ScheduleSection from './components/ScheduleSection';
 import StudentLeaderboardSection from './components/StudentLeaderboardSection';
 import StudentChatSection from './components/StudentChatSection';
 import StudentTour from './components/StudentTour';
+import StudentNotificationsCenter from './components/StudentNotificationsCenter';
 import SignupGuestChat from './components/SignupGuestChat';
 import TeacherCalendarSection from './components/TeacherCalendarSection';
 import TeacherFinanceSection from './components/TeacherFinanceSection';
@@ -1025,9 +1026,6 @@ const markStudentSeenTour = (studentId) => {
 
 const LAST_LOCATION_KEY = 'ege_last_location_v1';
 const DESKTOP_NAV_COLLAPSED_KEY = 'ege_desktop_nav_collapsed_v1';
-const PACE_FORECAST_SESSION_KEY_PREFIX = 'ege_pace_forecast_dismissed_v1';
-const PACE_FORECAST_LAST_SHOWN_KEY_PREFIX = 'ege_pace_forecast_last_shown_v1';
-const PACE_FORECAST_REMINDER_INTERVAL_MS = 48 * 60 * 60 * 1000;
 const TEACHER_NOTIF_HISTORY_KEY_PREFIX = 'ege_teacher_notif_history_v1';
 
 const buildUserLocationKey = (user) => {
@@ -1071,63 +1069,6 @@ const updateUserLocation = (user, patch) => {
   const safePrev = prev && typeof prev === 'object' ? prev : {};
   store[key] = { ...safePrev, ...patch };
   saveLastLocationStore(store);
-};
-
-const getPaceForecastSessionKey = (userId) => {
-  const normalizedId = String(userId ?? '').trim();
-  if (!normalizedId) return '';
-  return `${PACE_FORECAST_SESSION_KEY_PREFIX}:${normalizedId}`;
-};
-
-const isPaceForecastDismissedInSession = (userId) => {
-  const key = getPaceForecastSessionKey(userId);
-  if (!key || typeof sessionStorage === 'undefined') return false;
-  try {
-    return sessionStorage.getItem(key) === '1';
-  } catch {
-    return false;
-  }
-};
-
-const markPaceForecastDismissedInSession = (userId) => {
-  const key = getPaceForecastSessionKey(userId);
-  if (!key || typeof sessionStorage === 'undefined') return;
-  try {
-    sessionStorage.setItem(key, '1');
-  } catch { /* no-op */ }
-};
-
-const getPaceForecastLastShownKey = (userId) => {
-  const normalizedId = String(userId ?? '').trim();
-  if (!normalizedId) return '';
-  return `${PACE_FORECAST_LAST_SHOWN_KEY_PREFIX}:${normalizedId}`;
-};
-
-const readPaceForecastLastShownAt = (userId) => {
-  const key = getPaceForecastLastShownKey(userId);
-  if (!key || typeof localStorage === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(key);
-    const ts = Number(raw);
-    if (!Number.isFinite(ts) || ts <= 0) return null;
-    return ts;
-  } catch {
-    return null;
-  }
-};
-
-const markPaceForecastShownNow = (userId) => {
-  const key = getPaceForecastLastShownKey(userId);
-  if (!key || typeof localStorage === 'undefined') return;
-  try {
-    localStorage.setItem(key, String(Date.now()));
-  } catch { /* no-op */ }
-};
-
-const isPaceForecastReminderDue = (userId) => {
-  const lastShownAt = readPaceForecastLastShownAt(userId);
-  if (!Number.isFinite(lastShownAt)) return true;
-  return (Date.now() - lastShownAt) >= PACE_FORECAST_REMINDER_INTERVAL_MS;
 };
 
 const getTeacherNotifHistoryKey = (teacherId) => {
@@ -10618,7 +10559,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const goalFlyResetTimerRef = useRef(null);
   const goalFlyTargetNodeRef = useRef(null);
   const mainScrollRef = useRef(null);
-  const paceForecastShownRef = useRef(false);
   const prevGoalCollapsedRef = useRef(goalCollapsed);
   const [isDesktopWide, setIsDesktopWide] = useState(
     typeof window !== 'undefined' ? window.innerWidth > 1000 : true
@@ -12258,7 +12198,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [goalRefreshTick, stopXpGainAnimation, user.id, user.role]);
 
   useEffect(() => {
-    paceForecastShownRef.current = false;
     setPaceForecastPopupOpen(false);
   }, [user.role, user.id]);
 
@@ -12297,16 +12236,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const closePaceForecastPopup = useCallback(() => {
     setPaceForecastPopupOpen(false);
-    paceForecastShownRef.current = true;
-    if (user.role === 'student') {
-      markPaceForecastDismissedInSession(user.id);
-      markPaceForecastShownNow(user.id);
-    }
-  }, [user.role, user.id]);
+  }, []);
   const openPaceForecastPopup = useCallback(() => {
     if (user.role !== 'student') return;
-    paceForecastShownRef.current = true;
-    markPaceForecastShownNow(user.id);
     setPaceForecastPopupOpen(true);
   }, [user.role, user.id]);
   const handleOpenProgressFromForecast = useCallback(() => {
@@ -12320,22 +12252,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       });
     }
   }, [closePaceForecastPopup, navigateToView, user]);
-
-  useEffect(() => {
-    if (user.role !== 'student') return;
-    if (!goalTestsLoaded || !studentDataLoaded) return;
-    if ((Number(solvedPerDayStats.solvedCount) || 0) <= 0) return;
-    if (paceForecastShownRef.current) return;
-    const reminderDue = isPaceForecastReminderDue(user.id);
-    if (!reminderDue && isPaceForecastDismissedInSession(user.id)) {
-      paceForecastShownRef.current = true;
-      setPaceForecastPopupOpen(false);
-      return;
-    }
-    paceForecastShownRef.current = true;
-    markPaceForecastShownNow(user.id);
-    setPaceForecastPopupOpen(true);
-  }, [goalTestsLoaded, studentDataLoaded, solvedPerDayStats.solvedCount, user.role, user.id]);
 
   useEffect(() => {
     setGoalCollapsed(user.role === 'student');
@@ -13278,6 +13194,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           </div>
         </div>
       )}
+      {user.role === 'student' && <StudentNotificationsCenter user={user} />}
       {user.role === 'student' && xpDockVisible && (
         <div className="xp-flight-dock-shell">
           <div className={`xp-flight-dock ${xpAnimationActive ? 'xp-flight-dock--active' : ''}`}>

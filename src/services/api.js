@@ -93,6 +93,18 @@ export const resolveAuthenticatedApiUrl = (input) => resolveAuthenticatedUrl(inp
 
 export const resolveAuthenticatedUploadsUrl = (input) => resolveAuthenticatedUrl(input, { uploads: true });
 
+export const withStoredAuthToken = (input) => {
+  const authToken = getStoredAuthToken();
+  if (!authToken) return input;
+  if (typeof input === 'string') {
+    return appendAuthTokenToUrl(input, authToken);
+  }
+  if (input instanceof URL) {
+    return new URL(appendAuthTokenToUrl(input.toString(), authToken));
+  }
+  return input;
+};
+
 const buildAuthenticatedRequestInit = (init = {}) => {
   const requestInit = { ...init };
   const headers = new Headers(requestInit.headers || {});
@@ -811,6 +823,50 @@ export const api = {
     return parseJsonResponse(res);
   },
   deleteTestFile: async (storageName) => {
+    if (!storageName) return { ok: true };
+    const res = await apiFetch(`/api/test-files/${encodeURIComponent(storageName)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getBroadcastNotifications: async () => {
+    const res = await apiFetch('/api/broadcast-notifications');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  createBroadcastNotification: async (payload) => {
+    const body = payload && typeof payload === 'object' ? payload : {};
+    const res = await apiFetch('/api/broadcast-notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  markBroadcastNotificationSeen: async (id) => {
+    const targetId = encodeURIComponent(String(id || '').trim());
+    const res = await apiFetch(`/api/broadcast-notifications/${targetId}/seen`, {
+      method: 'PATCH',
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  deleteBroadcastNotification: async (id) => {
+    const targetId = encodeURIComponent(String(id || '').trim());
+    const res = await apiFetch(`/api/broadcast-notifications/${targetId}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  uploadBroadcastNotificationAsset: async (file) => {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await apiFetch('/api/test-files', { method: 'POST', body: form });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  deleteBroadcastNotificationAsset: async (storageName) => {
     if (!storageName) return { ok: true };
     const res = await apiFetch(`/api/test-files/${encodeURIComponent(storageName)}`, { method: 'DELETE' });
     if (!res.ok) throw new Error(await parseApiError(res));
