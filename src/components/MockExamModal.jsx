@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { ChevronRight, Download, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
+import MockExamBadges, { MockExamBadgeSticker } from './MockExamBadges';
+import { normalizeMockExamBadges } from '../utils/mockExamBadges';
 import { Button } from './ui';
 const MockExamModal = ({
   exam,
@@ -115,6 +117,9 @@ const MockExamModal = ({
   const screenshotMaxHeightClass = hasQuestionText
     ? 'max-h-[24vh] sm:max-h-[28vh] md:max-h-[32vh] lg:max-h-[36vh]'
     : 'max-h-[30vh] sm:max-h-[34vh] md:max-h-[38vh] lg:max-h-[44vh]';
+  const examBadges = normalizeMockExamBadges(exam?.badges);
+  const primaryBadge = examBadges[0] || null;
+  const secondaryBadges = examBadges.slice(1);
 
   if (!exam) return null;
 
@@ -122,7 +127,7 @@ const MockExamModal = ({
     <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
       <div className="surface-card modal-card rounded-3xl w-full max-w-6xl max-h-[96vh] p-4 md:p-6 shadow-2xl relative flex flex-col overflow-hidden bg-gradient-to-br from-white via-white to-purple-50/60 border border-purple-100/60">
         <div className="flex items-start justify-between gap-4 mb-4">
-          <div className="space-y-2">
+          <div className="min-w-0 flex-1 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-2 rounded-full bg-purple-50 text-purple-700 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em]">
                 Пробник
@@ -145,6 +150,16 @@ const MockExamModal = ({
                   Баллы: <span className="font-semibold text-purple-700">{secondaryScore}</span>
                 </span>
               </div>
+            </div>
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="min-w-0 space-y-2">
+                {secondaryBadges.length > 0 && <MockExamBadges badges={secondaryBadges} size="md" />}
+              </div>
+              {primaryBadge && (
+                <div className="flex justify-start md:justify-end">
+                  <MockExamBadgeSticker badge={primaryBadge} size="sm" />
+                </div>
+              )}
             </div>
             <div className="max-w-xs hidden sm:block">
               <div className="flex items-center justify-between text-[11px] text-gray-400">

@@ -1,11 +1,13 @@
 ﻿import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { BarChart2, BookOpen, FileText, Pencil, PlayCircle, Plus, Save, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
+import MockExamBadges, { MockExamBadgeSticker } from './MockExamBadges';
 import MockExamEditorModal from './MockExamEditorModal';
 import MockExamModal from './MockExamModal';
 import ProgressReviewModal from './ProgressReviewModal';
 import StudentTestModal from './StudentTestModal';
 import { Button, Card, ProgressBar } from './ui';
+import { normalizeMockExamBadges } from '../utils/mockExamBadges';
 
 const compareMockTaskKeys = (left, right) => {
   const leftNumber = Number(left);
@@ -1439,7 +1441,7 @@ const ProgressSection = ({
 
   const handleSaveMockExam = async (nextExam) => {
     if (!nextExam?.id) return null;
-    const payload = { title: nextExam.title, tasks: nextExam.tasks };
+    const payload = { title: nextExam.title, tasks: nextExam.tasks, badges: nextExam.badges };
     const saved = await api.updateMockExam(nextExam.id, payload);
     setMockExams((prev) => (prev || []).map((exam) => (exam.id === saved.id ? saved : exam)));
     setMockEditorExam(saved);
@@ -1585,6 +1587,10 @@ const ProgressSection = ({
 
   const renderStudentMockCard = (exam) => {
     if (!exam) return null;
+    const stickerSurface = String(theme || '').trim().toLowerCase() === 'dark' ? 'dark' : 'light';
+    const examBadges = normalizeMockExamBadges(exam.badges);
+    const primaryBadge = examBadges[0] || null;
+    const secondaryBadges = examBadges.slice(1);
     const attempt = mockAttemptsByExam?.[exam.id];
     const primary = getPrimaryScoreFromSolved(attempt?.solved);
     const secondary = getSecondaryScoreFromPrimary(primary);
@@ -1654,52 +1660,66 @@ const ProgressSection = ({
                 <BookOpen size={18} />
               </div>
 
-              <div className="min-w-0 flex-1 space-y-2">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {isFocusExam && (
-                    <span className="rounded-full border border-purple-200 bg-purple-50/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-purple-700">
-                      Фокус
-                    </span>
-                  )}
-                  {isBestExam && (
-                    <span className="rounded-full border border-emerald-200 bg-emerald-50/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
-                      Лучший
-                    </span>
-                  )}
-                  {examStats.isCompleted && (
-                    <span className="rounded-full border border-emerald-200 bg-emerald-50/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
-                      Готово
-                    </span>
-                  )}
-                  {!examStats.isCompleted && examStats.hasStarted && !isFocusExam && (
-                    <span className="rounded-full border border-amber-200 bg-amber-50/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700">
-                      В работе
-                    </span>
-                  )}
-                </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {isFocusExam && (
+                        <span className="rounded-full border border-purple-200 bg-purple-50/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-purple-700">
+                          Фокус
+                        </span>
+                      )}
+                      {isBestExam && (
+                        <span className="rounded-full border border-emerald-200 bg-emerald-50/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                          Лучший
+                        </span>
+                      )}
+                      {examStats.isCompleted && (
+                        <span className="rounded-full border border-emerald-200 bg-emerald-50/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                          Готово
+                        </span>
+                      )}
+                      {!examStats.isCompleted && examStats.hasStarted && !isFocusExam && (
+                        <span className="rounded-full border border-amber-200 bg-amber-50/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+                          В работе
+                        </span>
+                      )}
+                    </div>
 
-                <div>
-                  <p className="truncate text-lg font-display font-bold leading-tight text-gray-900 md:text-xl">{exam.title}</p>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500 md:text-[11px]">
-                    <span className="mock-meta-pill mock-meta-pill--score rounded-full px-2.5 py-[5px]">
-                      Баллы: <span className="font-semibold text-purple-700">{examStats.secondary}</span>
-                      <span className="text-gray-400">{` (${examStats.primary} перв.)`}</span>
-                    </span>
-                    <span className="mock-meta-pill rounded-full px-2.5 py-[5px]">
-                      {`${examStats.solvedCount}/${examStats.totalCount} решено`}
-                    </span>
-                    <span className="mock-meta-pill rounded-full px-2.5 py-[5px]">
-                      {`${examStats.attemptedCount}/${examStats.totalCount} начато`}
-                    </span>
-                    {examStats.updatedLabel && (
-                      <span className="mock-meta-pill rounded-full px-2.5 py-[5px]">
-                        {`Обновлён ${examStats.updatedLabel}`}
-                      </span>
+                    {secondaryBadges.length > 0 && (
+                      <MockExamBadges badges={secondaryBadges} className="pt-0.5" />
                     )}
+
+                    <div>
+                      <p className="truncate text-lg font-display font-bold leading-tight text-gray-900 md:text-xl">{exam.title}</p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500 md:text-[11px]">
+                        <span className="mock-meta-pill mock-meta-pill--score rounded-full px-2.5 py-[5px]">
+                          Баллы: <span className="font-semibold text-purple-700">{examStats.secondary}</span>
+                          <span className="text-gray-400">{` (${examStats.primary} перв.)`}</span>
+                        </span>
+                        <span className="mock-meta-pill rounded-full px-2.5 py-[5px]">
+                          {`${examStats.solvedCount}/${examStats.totalCount} решено`}
+                        </span>
+                        <span className="mock-meta-pill rounded-full px-2.5 py-[5px]">
+                          {`${examStats.attemptedCount}/${examStats.totalCount} начато`}
+                        </span>
+                        {examStats.updatedLabel && (
+                          <span className="mock-meta-pill rounded-full px-2.5 py-[5px]">
+                            {`Обновлён ${examStats.updatedLabel}`}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
+
+                  {primaryBadge && (
+                    <div className="flex justify-start xl:justify-end xl:pl-4">
+                      <MockExamBadgeSticker badge={primaryBadge} size="md" surface={stickerSurface} />
+                    </div>
+                  )}
                 </div>
 
-                <div className="mock-progress-shell rounded-[20px] p-2.5">
+                <div className="mt-3 mock-progress-shell rounded-[20px] p-2.5">
                   <div className="flex items-center justify-between text-[11px] text-gray-400">
                     <span>Готовность пробника</span>
                     <span>{`${examStats.progressPercent}%`}</span>
@@ -1737,6 +1757,10 @@ const ProgressSection = ({
 
   const renderTeacherMockCard = (exam) => {
     if (!exam) return null;
+    const stickerSurface = String(theme || '').trim().toLowerCase() === 'dark' ? 'dark' : 'light';
+    const examBadges = normalizeMockExamBadges(exam.badges);
+    const primaryBadge = examBadges[0] || null;
+    const secondaryBadges = examBadges.slice(1);
     const access = normalizeMockExamAccess(exam.access, LEGACY_MOCK_EXAM_ACCESS);
     const accessLabel = access.all
       ? 'Доступ: всем'
@@ -1746,12 +1770,22 @@ const ProgressSection = ({
 
     return (
       <div key={exam.id} className="bg-white rounded-xl border p-3 md:p-4 flex flex-col gap-3">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div>
-            <p className="font-semibold text-gray-800">{exam.title}</p>
-            <p className="text-xs text-gray-500">{accessLabel}</p>
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
+              <div className="min-w-0">
+                <p className="font-semibold text-gray-800">{exam.title}</p>
+                <p className="text-xs text-gray-500">{accessLabel}</p>
+                {secondaryBadges.length > 0 && <MockExamBadges badges={secondaryBadges} className="mt-2" />}
+              </div>
+              {primaryBadge && (
+                <div className="self-start md:self-center shrink-0">
+                  <MockExamBadgeSticker badge={primaryBadge} size="sm" surface={stickerSurface} />
+                </div>
+              )}
+            </div>
           </div>
-          <div className="flex w-full md:w-auto flex-wrap items-center gap-2">
+          <div className="flex w-full xl:w-auto flex-wrap items-center gap-2">
             <Button variant="secondary" onClick={() => setMockEditorExam(exam)} className="w-full sm:w-auto">Редактировать</Button>
             <Button variant="secondary" onClick={() => openMockAccessEditor(exam)} className="w-full sm:w-auto">Доступ</Button>
             <button

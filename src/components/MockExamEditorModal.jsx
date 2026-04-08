@@ -2,6 +2,16 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { api } from '../services/api';
+import {
+  DEFAULT_MOCK_EXAM_BADGE_THEME_ID,
+  MOCK_EXAM_BADGE_MAX_ITEMS,
+  MOCK_EXAM_BADGE_SUGGESTIONS,
+  MOCK_EXAM_BADGE_THEME_OPTIONS,
+  getMockExamBadgeSignature,
+  getMockExamBadgeTheme,
+  normalizeMockExamBadgeLabel,
+  normalizeMockExamBadges,
+} from '../utils/mockExamBadges';
 import { Button } from './ui';
 import { resolveUploadsUrl } from '../utils/runtimeUrls';
 
@@ -36,6 +46,9 @@ const MockExamEditorModal = ({
   allowsPartialAnswers,
 }) => {
   const [title, setTitle] = useState(exam?.title || '');
+  const [badges, setBadges] = useState(() => normalizeMockExamBadges(exam?.badges));
+  const [badgeDraftLabel, setBadgeDraftLabel] = useState('');
+  const [badgeDraftTheme, setBadgeDraftTheme] = useState(DEFAULT_MOCK_EXAM_BADGE_THEME_ID);
   const [selectedTask, setSelectedTask] = useState(MOCK_TASK_NUMBERS[0] || 1);
   const [question, setQuestion] = useState('');
   const [answerInputs, setAnswerInputs] = useState(['']);
@@ -55,6 +68,9 @@ const MockExamEditorModal = ({
 
   useEffect(() => {
     setTitle(exam?.title || '');
+    setBadges(normalizeMockExamBadges(exam?.badges));
+    setBadgeDraftLabel('');
+    setBadgeDraftTheme(DEFAULT_MOCK_EXAM_BADGE_THEME_ID);
   }, [exam?.id]);
 
   useEffect(() => {
@@ -105,7 +121,9 @@ const MockExamEditorModal = ({
   const removedQueued = removedScreenshots.length > 0 || removedFiles.length > 0;
   const taskDirty = questionDirty || answersDirty || existingScreensDirty || existingFilesDirty || uploadsQueued || removedQueued;
   const titleDirty = String(title || '').trim() !== String(exam?.title || '').trim();
-  const hasUnsavedChanges = taskDirty || titleDirty;
+  const badgesDirty = getMockExamBadgeSignature(badges) !== getMockExamBadgeSignature(exam?.badges);
+  const metadataDirty = titleDirty || badgesDirty;
+  const hasUnsavedChanges = taskDirty || metadataDirty;
 
   const taskMeta = useMemo(
     () => MOCK_TASK_NUMBERS.map((taskNumber) => {
@@ -124,6 +142,34 @@ const MockExamEditorModal = ({
   const nextTask = selectedTaskIndex >= 0 && selectedTaskIndex < MOCK_TASK_NUMBERS.length - 1
     ? MOCK_TASK_NUMBERS[selectedTaskIndex + 1]
     : null;
+
+  const addBadge = (rawLabel = badgeDraftLabel, rawThemeId = badgeDraftTheme) => {
+    const label = normalizeMockExamBadgeLabel(rawLabel);
+    if (!label) {
+      setError('Введите текст бейджа');
+      return;
+    }
+    const nextBadges = normalizeMockExamBadges([
+      ...badges,
+      { label, themeId: rawThemeId || DEFAULT_MOCK_EXAM_BADGE_THEME_ID }
+    ]);
+    if (getMockExamBadgeSignature(nextBadges) === getMockExamBadgeSignature(badges)) {
+      setError(
+        badges.length >= MOCK_EXAM_BADGE_MAX_ITEMS
+          ? `Можно добавить до ${MOCK_EXAM_BADGE_MAX_ITEMS} бейджей`
+          : 'Такой бейдж уже добавлен'
+      );
+      return;
+    }
+    setBadges(nextBadges);
+    setBadgeDraftLabel('');
+    setError('');
+  };
+
+  const removeBadge = (targetIndex) => {
+    setBadges((prev) => prev.filter((_, index) => index !== targetIndex));
+    setError('');
+  };
 
   const addScreenshotFiles = (files) => {
     if (!files || files.length === 0) return;
@@ -219,12 +265,14 @@ const MockExamEditorModal = ({
       const nextTasks = { ...(exam.tasks || {}) };
       nextTasks[String(selectedTask)] = taskEntry;
       const nextTitle = title.trim() || exam.title;
+      const nextBadges = normalizeMockExamBadges(badges);
 
-      const saved = await onSave({ ...exam, title: nextTitle, tasks: nextTasks });
+      const saved = await onSave({ ...exam, title: nextTitle, badges: nextBadges, tasks: nextTasks });
       const removed = [...removedScreenshots, ...removedFiles].filter((item) => item?.storageName);
       if (removed.length > 0) {
         await Promise.all(removed.map((item) => api.deleteTestFile(item.storageName)));
       }
+      setBadges(normalizeMockExamBadges(saved?.badges || nextBadges));
       if (saved?.tasks) {
         loadTask(selectedTask, saved);
       }
@@ -237,14 +285,16 @@ const MockExamEditorModal = ({
     }
   };
 
-  const handleSaveTitle = async () => {
+  const handleSaveHeader = async () => {
     if (!exam) return null;
     const nextTitle = title.trim() || exam.title;
+    const nextBadges = normalizeMockExamBadges(badges);
     setSaving(true);
     setError('');
     try {
-      const saved = await onSave({ ...exam, title: nextTitle, tasks: exam.tasks || {} });
+      const saved = await onSave({ ...exam, title: nextTitle, badges: nextBadges, tasks: exam.tasks || {} });
       if (saved?.title) setTitle(saved.title);
+      setBadges(normalizeMockExamBadges(saved?.badges || nextBadges));
       return saved || null;
     } catch (err) {
       setError(err?.message || err);
@@ -270,7 +320,8 @@ const MockExamEditorModal = ({
     setSaving(true);
     setError('');
     try {
-      const saved = await onSave({ ...exam, title: title.trim() || exam.title, tasks: nextTasks });
+      const nextBadges = normalizeMockExamBadges(badges);
+      const saved = await onSave({ ...exam, title: title.trim() || exam.title, badges: nextBadges, tasks: nextTasks });
       const toRemove = [
         ...(Array.isArray(current?.screenshots) ? current.screenshots : []),
         ...(Array.isArray(current?.files) ? current.files : [])
@@ -278,6 +329,7 @@ const MockExamEditorModal = ({
       if (toRemove.length > 0) {
         await Promise.all(toRemove.map((item) => api.deleteTestFile(item.storageName)));
       }
+      setBadges(normalizeMockExamBadges(saved?.badges || nextBadges));
       if (saved?.tasks) {
         loadTask(selectedTask, saved);
       } else {
@@ -326,10 +378,99 @@ const MockExamEditorModal = ({
                   placeholder="Пробник"
                 />
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <Button variant="secondary" onClick={handleSaveTitle} disabled={saving || !titleDirty}>
-                    {saving ? 'Сохранение...' : 'Сохранить название'}
+                  <Button variant="secondary" onClick={handleSaveHeader} disabled={saving || !metadataDirty}>
+                    {saving ? 'Сохранение...' : 'Сохранить шапку'}
                   </Button>
-                  {titleDirty && <span className="text-[11px] text-amber-600">Название не сохранено</span>}
+                  {metadataDirty && <span className="text-[11px] text-amber-600">Название или бейджи еще не сохранены</span>}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-purple-100 bg-gradient-to-br from-white via-purple-50/60 to-fuchsia-50/60 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold text-gray-700">Тематические бейджи</div>
+                    <div className="mt-1 text-[11px] text-gray-500">
+                      Например: "Реальный экзамен", "Новый формат", "Сложный уровень".
+                    </div>
+                  </div>
+                  <span className="rounded-full border border-white/80 bg-white/80 px-2.5 py-1 text-[10px] font-semibold text-gray-500">
+                    {`${badges.length}/${MOCK_EXAM_BADGE_MAX_ITEMS}`}
+                  </span>
+                </div>
+                {badges.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {badges.map((item, index) => {
+                      const theme = getMockExamBadgeTheme(item.themeId);
+                      return (
+                        <button
+                          key={`${item.themeId}-${item.label}-${index}`}
+                          type="button"
+                          onClick={() => removeBadge(index)}
+                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition hover:scale-[1.01] ${theme.badgeClassName}`}
+                          title="Удалить бейдж"
+                        >
+                          <span>{item.label}</span>
+                          <span className="text-white/80">x</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="mt-3 space-y-2">
+                  <input
+                    type="text"
+                    value={badgeDraftLabel}
+                    onChange={(e) => {
+                      setBadgeDraftLabel(e.target.value);
+                      setError('');
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addBadge();
+                      }
+                    }}
+                    className="w-full rounded-xl border border-purple-200 bg-white/90 px-3 py-2 text-sm outline-none focus:border-purple-500"
+                    placeholder="Текст бейджа"
+                  />
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    <select
+                      value={badgeDraftTheme}
+                      onChange={(e) => setBadgeDraftTheme(e.target.value)}
+                      className="w-full rounded-xl border border-purple-200 bg-white/90 px-3 py-2 text-sm outline-none focus:border-purple-500"
+                    >
+                      {MOCK_EXAM_BADGE_THEME_OPTIONS.map((theme) => (
+                        <option key={theme.id} value={theme.id}>{theme.label}</option>
+                      ))}
+                    </select>
+                    <Button
+                      type="button"
+                      onClick={() => addBadge()}
+                      disabled={saving || badges.length >= MOCK_EXAM_BADGE_MAX_ITEMS}
+                      className="w-full justify-center sm:min-w-[132px]"
+                    >
+                      Добавить
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {MOCK_EXAM_BADGE_SUGGESTIONS.map((item) => {
+                    const theme = getMockExamBadgeTheme(item.themeId);
+                    return (
+                      <button
+                        key={`${item.themeId}-${item.label}`}
+                        type="button"
+                        onClick={() => addBadge(item.label, item.themeId)}
+                        disabled={saving || badges.length >= MOCK_EXAM_BADGE_MAX_ITEMS}
+                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60 ${theme.badgeClassName}`}
+                      >
+                        <span className={`inline-block h-2.5 w-2.5 rounded-full border ${theme.swatchClassName}`} />
+                        {item.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 

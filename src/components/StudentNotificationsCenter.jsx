@@ -4,6 +4,7 @@ import { api, resolveAuthenticatedUploadsUrl, withStoredAuthToken } from '../ser
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { getNotificationsWsUrl } from '../utils/runtimeUrls';
 import LinkifiedText from './LinkifiedText';
+import MockExamBadges from './MockExamBadges';
 import { Button } from './ui';
 
 const SYNC_INTERVAL_MS = 60 * 1000;
@@ -142,6 +143,7 @@ const NotificationCard = ({
                   <BookOpen size={16} />
                   {item?.mockExam?.title || 'Прикреплённый пробник'}
                 </div>
+                <MockExamBadges badges={item?.mockExam?.badges} className="mt-2" />
                 <div className="mt-1 text-xs text-indigo-700/80">
                   {Number(item?.mockExam?.taskCount) > 0
                     ? `Заданий в пробнике: ${item.mockExam.taskCount}`
@@ -557,6 +559,7 @@ const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
                         <BookOpen size={18} />
                         {featuredNotification?.mockExam?.title || 'Прикреплённый пробник'}
                       </div>
+                      <MockExamBadges badges={featuredNotification?.mockExam?.badges} size="md" className="mt-2" />
                       <div className="mt-1 text-sm text-slate-200/80">
                         {Number(featuredNotification?.mockExam?.taskCount) > 0
                           ? `Заданий внутри: ${featuredNotification.mockExam.taskCount}`

@@ -3635,6 +3635,36 @@ const getMockExamTaskCount = (exam) => {
   return Object.keys(tasks).filter((key) => Boolean(tasks[key])).length;
 };
 
+const normalizeMockExamBadgeLabel = (value) => (
+  String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 36)
+);
+
+const normalizeMockExamBadgeThemeId = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return /^[a-z0-9_-]{1,32}$/.test(normalized) ? normalized : 'sunset';
+};
+
+const normalizeMockExamBadges = (value) => {
+  const list = Array.isArray(value) ? value : [];
+  const next = [];
+  const seen = new Set();
+
+  list.forEach((item) => {
+    const label = normalizeMockExamBadgeLabel(item?.label);
+    if (!label) return;
+    const themeId = normalizeMockExamBadgeThemeId(item?.themeId);
+    const dedupeKey = `${themeId}:${label.toLowerCase()}`;
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    next.push({ label, themeId });
+  });
+
+  return next.slice(0, 4);
+};
+
 const findMockExamById = (examId) => {
   const normalizedId = String(examId || '').trim();
   if (!normalizedId) return null;
@@ -3665,11 +3695,15 @@ const normalizeBroadcastNotificationMockExam = (value, options = {}) => {
   const taskCount = exam
     ? getMockExamTaskCount(exam)
     : (Number.isFinite(rawTaskCount) && rawTaskCount >= 0 ? Math.floor(rawTaskCount) : 0);
+  const badges = normalizeMockExamBadges(
+    exam?.badges || (typeof value === 'object' ? value?.badges : null)
+  );
 
   return {
     id: examId,
     title,
     taskCount,
+    badges,
   };
 };
 
@@ -6883,6 +6917,13 @@ const sanitizeMockExamForStudent = (exam) => {
   return safe;
 };
 
+const serializeMockExamEntry = (exam, options = {}) => {
+  if (!exam || typeof exam !== 'object') return exam;
+  const safeExam = options.sanitizeForStudent ? sanitizeMockExamForStudent(exam) : { ...exam };
+  safeExam.badges = normalizeMockExamBadges(exam.badges);
+  return safeExam;
+};
+
 const formatSize = (bytes) => {
   if (!Number.isFinite(bytes)) return '0 MB';
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
@@ -9091,7 +9132,7 @@ app.get('/api/mock-exams', (req, res) => {
     const filtered = (Array.isArray(list) ? list : []).filter((exam) => (
       isMockExamVisibleToStudent(exam, req.auth.id)
     ));
-    return res.json(filtered.map((exam) => sanitizeMockExamForStudent(exam)));
+    return res.json(filtered.map((exam) => serializeMockExamEntry(exam, { sanitizeForStudent: true })));
   }
   if (requestedStudentId) {
     const student = ensureStudentAccess(req, res, requestedStudentId);
@@ -9099,9 +9140,9 @@ app.get('/api/mock-exams', (req, res) => {
     const filtered = (Array.isArray(list) ? list : []).filter((exam) => (
       isMockExamVisibleToStudent(exam, student.id)
     ));
-    return res.json(filtered);
+    return res.json(filtered.map((exam) => serializeMockExamEntry(exam)));
   }
-  res.json(Array.isArray(list) ? list : []);
+  res.json((Array.isArray(list) ? list : []).map((exam) => serializeMockExamEntry(exam)));
 });
 
 app.post('/api/mock-exams', (req, res) => {
@@ -9114,12 +9155,13 @@ app.post('/api/mock-exams', (req, res) => {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     tasks: {},
+    badges: [],
     access: { all: false, students: [] },
   };
   const list = readMockExamsDb();
   list.unshift(entry);
   writeMockExamsDb(list);
-  res.json(entry);
+  res.json(serializeMockExamEntry(entry));
 });
 
 app.get('/api/mock-exams/attempt', (req, res) => {
@@ -9169,7 +9211,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
 app.patch('/api/mock-exams/:id', (req, res) => {
   if (isStudentRole(req.auth)) return forbid(res);
   const { id } = req.params;
-  const { title, tasks, access } = req.body || {};
+  const { title, tasks, access, badges } = req.body || {};
   const list = readMockExamsDb();
   const idx = list.findIndex((exam) => exam.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Пробник не найден' });
@@ -9179,12 +9221,13 @@ app.patch('/api/mock-exams/:id', (req, res) => {
     ...current,
     title: trimmed || current.title,
     tasks: tasks && typeof tasks === 'object' ? tasks : current.tasks || {},
+    badges: badges !== undefined ? normalizeMockExamBadges(badges) : normalizeMockExamBadges(current.badges),
     access: access && typeof access === 'object' ? normalizeMockExamAccessForSave(access) : current.access,
     updatedAt: new Date().toISOString(),
   };
   list[idx] = next;
   writeMockExamsDb(list);
-  res.json(next);
+  res.json(serializeMockExamEntry(next));
 });
 
 app.delete('/api/mock-exams/:id', (req, res) => {

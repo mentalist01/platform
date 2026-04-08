@@ -3,6 +3,7 @@ import { Bell, BookOpen, Image as ImageIcon, Paperclip, SendHorizontal, Trash2, 
 import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import LinkifiedText from './LinkifiedText';
+import MockExamBadges from './MockExamBadges';
 import { Button, Card } from './ui';
 
 const formatNotificationDate = (value) => {
@@ -550,6 +551,7 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
             {selectedMockExam && (
               <div className="mt-3 rounded-2xl border border-purple-200 bg-white px-4 py-3">
                 <div className="text-sm font-semibold text-slate-900">{selectedMockExam.title}</div>
+                <MockExamBadges badges={selectedMockExam.badges} className="mt-2" />
                 <div className="mt-1 text-xs text-slate-500">
                   {getMockExamTaskCount(selectedMockExam) > 0
                     ? `Заданий внутри: ${getMockExamTaskCount(selectedMockExam)}`
@@ -639,6 +641,7 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
                       <BookOpen size={16} />
                       {item.mockExam.title || 'Прикреплённый пробник'}
                     </div>
+                    <MockExamBadges badges={item?.mockExam?.badges} className="mt-2" />
                     <div className="mt-1 text-xs text-indigo-700/80">
                       {Number(item?.mockExam?.taskCount) > 0
                         ? `Заданий в пробнике: ${item.mockExam.taskCount}`
