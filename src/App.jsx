@@ -8706,6 +8706,8 @@ const BoardSection = ({
     imageCacheRef.current.set(dataUrl, entry);
     img.onload = () => {
       entry.loaded = true;
+      scheduleBoardRenderRef.current?.();
+      scheduleMinimapRenderRef.current?.(0);
       scheduleBoardSceneRenderRef.current?.({ mode: 'full' });
     };
     img.src = dataUrl;
@@ -8895,16 +8897,16 @@ const BoardSection = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const { pixelRatio, pixelWidth, pixelHeight } = prepared;
-    const scene = boardSceneRef.current;
     const currentZoom = zoomRef.current || 1;
     const currentOffset = offsetRef.current || { x: 0, y: 0 };
     const renderScale = pixelRatio * currentZoom;
+    const items = boardItemsRef.current || [];
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, pixelWidth, pixelHeight);
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, pixelWidth, pixelHeight);
-    if (!scene?.canvas) {
+    if (!items.length) {
       ctx.restore();
       return;
     }
@@ -8918,13 +8920,19 @@ const BoardSection = ({
       -(currentOffset.x || 0) * renderScale,
       -(currentOffset.y || 0) * renderScale
     );
-    ctx.drawImage(scene.canvas, scene.originX, scene.originY, scene.width, scene.height);
+    items.forEach((item) => {
+      drawBoardItemToScene(ctx, item);
+    });
     ctx.restore();
-  }, []);
+  }, [drawBoardItemToScene]);
 
   useEffect(() => {
     renderBoard();
   }, [renderBoard, boardSize]);
+
+  useEffect(() => {
+    renderBoard();
+  }, [boardRevision, renderBoard]);
 
   const selectedImage = useMemo(
     () => {
@@ -9119,6 +9127,7 @@ const BoardSection = ({
           renderPlan: { mode: 'full' },
         };
       commitBoardData(nextSnapshot.nextItems, nextSnapshot.nextEstimatedBytes);
+      scheduleBoardRender();
       const capacityError = getBoardCapacityError(nextSnapshot.nextItems.length, nextSnapshot.nextEstimatedBytes);
       setPasteError((current) => {
         if (capacityError) return capacityError;
@@ -9242,7 +9251,7 @@ const BoardSection = ({
       awarenessRef.current = null;
       docRef.current = null;
     };
-  }, [roomId, wsUrl, localName, localColor, isTeacher, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardSceneRender]);
+  }, [roomId, wsUrl, localName, localColor, isTeacher, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender]);
 
   useEffect(() => {
     const handlePaste = (event) => {
@@ -9631,6 +9640,12 @@ const BoardSection = ({
         return;
       }
       setPasteError('');
+      const optimisticItems = [...boardItemsRef.current, ...itemsToAdd];
+      const optimisticEstimatedBytes = boardEstimatedBytesRef.current
+        + itemsToAdd.reduce((sum, item) => sum + estimateBoardItemBytes(item), 0);
+      commitBoardData(optimisticItems, optimisticEstimatedBytes);
+      renderBoard();
+      scheduleMinimapRenderRef.current?.(0);
       docInstance.transact(() => {
         yItemsRef.current?.push(itemsToAdd);
       }, localOriginRef.current);
@@ -9773,7 +9788,7 @@ const BoardSection = ({
 
   useEffect(() => {
     scheduleMinimapRender();
-  }, [zoom, offset, boardSize.width, boardSize.height, scheduleMinimapRender]);
+  }, [zoom, offset, boardSize.width, boardSize.height, boardRevision, scheduleMinimapRender]);
 
   const canUndo = undoState.canUndo;
   const canRedo = undoState.canRedo;
