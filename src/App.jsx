@@ -149,9 +149,10 @@ const BOARD_IMAGE_MIN_SIZE = 40;
 const BOARD_IMAGE_MAX_SIZE = 2800;
 const BOARD_IMAGE_SCALE_STEP = 0.12;
 const BOARD_EXPORT_PADDING = 24;
-const BOARD_EXPORT_BASE_SCALE = 3;
-const BOARD_EXPORT_MAX_SIZE = 8192;
-const BOARD_EXPORT_MAX_PIXELS = 48 * 1024 * 1024;
+const BOARD_EXPORT_BASE_SCALE = 4;
+const BOARD_EXPORT_VECTOR_BASE_SCALE = 5;
+const BOARD_EXPORT_MAX_SIZE = 9216;
+const BOARD_EXPORT_MAX_PIXELS = 64 * 1024 * 1024;
 const BOARD_SELECTION_HIT_RADIUS = 6;
 const BOARD_MIN_ZOOM = 0.25;
 const BOARD_MAX_ZOOM = 2.5;
@@ -8098,6 +8099,11 @@ const BoardSection = ({
       if (img) imageMap.set(item.dataUrl, img);
     }));
 
+    const hasVectorItems = boardItems.some((item) => item?.type === 'stroke' || item?.type === 'line');
+    const baseScale = hasVectorItems && !imageItems.length
+      ? BOARD_EXPORT_VECTOR_BASE_SCALE
+      : BOARD_EXPORT_BASE_SCALE;
+
     const preferredScale = imageItems.reduce((maxScale, item) => {
       const img = imageMap.get(item.dataUrl);
       if (!img) return maxScale;
@@ -8110,7 +8116,7 @@ const BoardSection = ({
         naturalWidth / itemWidth,
         naturalHeight / itemHeight
       );
-    }, Math.max(BOARD_EXPORT_BASE_SCALE, getBoardPixelRatio()));
+    }, Math.max(baseScale, getBoardPixelRatio()));
 
     const maxDim = Math.max(width, height);
     const maxScaleByDimension = BOARD_EXPORT_MAX_SIZE / Math.max(maxDim, 1);
