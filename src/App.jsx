@@ -149,8 +149,9 @@ const BOARD_IMAGE_MIN_SIZE = 40;
 const BOARD_IMAGE_MAX_SIZE = 2800;
 const BOARD_IMAGE_SCALE_STEP = 0.12;
 const BOARD_EXPORT_PADDING = 24;
-const BOARD_EXPORT_MAX_SIZE = 6000;
-const BOARD_EXPORT_MAX_PIXELS = 32 * 1024 * 1024;
+const BOARD_EXPORT_BASE_SCALE = 3;
+const BOARD_EXPORT_MAX_SIZE = 8192;
+const BOARD_EXPORT_MAX_PIXELS = 48 * 1024 * 1024;
 const BOARD_SELECTION_HIT_RADIUS = 6;
 const BOARD_MIN_ZOOM = 0.25;
 const BOARD_MAX_ZOOM = 2.5;
@@ -8109,7 +8110,7 @@ const BoardSection = ({
         naturalWidth / itemWidth,
         naturalHeight / itemHeight
       );
-    }, Math.max(1, getBoardPixelRatio()));
+    }, Math.max(BOARD_EXPORT_BASE_SCALE, getBoardPixelRatio()));
 
     const maxDim = Math.max(width, height);
     const maxScaleByDimension = BOARD_EXPORT_MAX_SIZE / Math.max(maxDim, 1);
