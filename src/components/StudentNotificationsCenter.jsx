@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, Check, Megaphone, Paperclip, X } from 'lucide-react';
+import { Bell, BookOpen, Check, Megaphone, Paperclip, X } from 'lucide-react';
 import { api, resolveAuthenticatedUploadsUrl, withStoredAuthToken } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { getNotificationsWsUrl } from '../utils/runtimeUrls';
@@ -76,6 +76,7 @@ const NotificationCard = ({
   item,
   markingSeenId,
   onMarkSeen,
+  onOpenMockExam,
   showAction = false,
 }) => {
   const isUnread = !item?.seen;
@@ -133,6 +134,30 @@ const NotificationCard = ({
       )}
 
       <div className="mt-3 space-y-3">
+        {item?.mockExam?.id && (
+          <div className="rounded-2xl border border-indigo-200 bg-indigo-50/80 px-4 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-semibold text-indigo-950">
+                  <BookOpen size={16} />
+                  {item?.mockExam?.title || 'Прикреплённый пробник'}
+                </div>
+                <div className="mt-1 text-xs text-indigo-700/80">
+                  {Number(item?.mockExam?.taskCount) > 0
+                    ? `Заданий в пробнике: ${item.mockExam.taskCount}`
+                    : 'Откройте пробник прямо отсюда.'}
+                </div>
+              </div>
+              {typeof onOpenMockExam === 'function' && (
+                <Button type="button" variant="secondary" className="shrink-0" onClick={() => onOpenMockExam(item)}>
+                  <BookOpen size={16} />
+                  Открыть пробник
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
         <NotificationAttachment attachment={item?.image} isImage />
         <NotificationAttachment attachment={item?.file} />
       </div>
@@ -140,7 +165,7 @@ const NotificationCard = ({
   );
 };
 
-const StudentNotificationsCenter = ({ user }) => {
+const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -410,6 +435,27 @@ const StudentNotificationsCenter = ({ user }) => {
     }
   }, []);
 
+  const handleOpenNotificationMockExam = useCallback((item, options = {}) => {
+    const mockExamId = String(item?.mockExam?.id || '').trim();
+    if (!mockExamId || typeof onOpenMockExam !== 'function') return;
+
+    if (item?.id && !item?.seen) {
+      markNotificationSeen(item.id);
+    }
+
+    if (options.closeFeatured) {
+      featuredNotificationRef.current = null;
+      setFeaturedNotification(null);
+    }
+
+    if (options.closePanel) {
+      panelOpenRef.current = false;
+      setPanelOpen(false);
+    }
+
+    onOpenMockExam(mockExamId);
+  }, [markNotificationSeen, onOpenMockExam]);
+
   const closeFeaturedNotification = useCallback(() => {
     const current = featuredNotificationRef.current || featuredNotification;
     featuredNotificationRef.current = null;
@@ -503,6 +549,34 @@ const StudentNotificationsCenter = ({ user }) => {
                 </div>
               )}
 
+              {featuredNotification?.mockExam?.id && (
+                <div className="mt-5 rounded-[28px] border border-fuchsia-300/25 bg-white/10 px-5 py-5">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 text-base font-semibold text-white">
+                        <BookOpen size={18} />
+                        {featuredNotification?.mockExam?.title || 'Прикреплённый пробник'}
+                      </div>
+                      <div className="mt-1 text-sm text-slate-200/80">
+                        {Number(featuredNotification?.mockExam?.taskCount) > 0
+                          ? `Заданий внутри: ${featuredNotification.mockExam.taskCount}`
+                          : 'Пробник можно открыть сразу из этого уведомления.'}
+                      </div>
+                    </div>
+                    {typeof onOpenMockExam === 'function' && (
+                      <Button
+                        type="button"
+                        className="shrink-0 justify-center"
+                        onClick={() => handleOpenNotificationMockExam(featuredNotification, { closeFeatured: true })}
+                      >
+                        <BookOpen size={16} />
+                        Открыть пробник
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {(featuredNotification?.image || featuredNotification?.file) && (
                 <div className="mt-5 space-y-4">
                   <NotificationAttachment attachment={featuredNotification?.image} isImage />
@@ -515,9 +589,22 @@ const StudentNotificationsCenter = ({ user }) => {
               <div className="max-w-xl text-sm leading-6 text-slate-300/80">
                 Покажем это сообщение один раз крупно. Потом оно останется в колокольчике сверху.
               </div>
-              <Button type="button" onClick={closeFeaturedNotification} className="min-w-[180px] justify-center">
-                Понятно
-              </Button>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                {featuredNotification?.mockExam?.id && typeof onOpenMockExam === 'function' && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="min-w-[180px] justify-center"
+                    onClick={() => handleOpenNotificationMockExam(featuredNotification, { closeFeatured: true })}
+                  >
+                    <BookOpen size={16} />
+                    К пробнику
+                  </Button>
+                )}
+                <Button type="button" onClick={closeFeaturedNotification} className="min-w-[180px] justify-center">
+                  Понятно
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -577,6 +664,7 @@ const StudentNotificationsCenter = ({ user }) => {
                     item={item}
                     markingSeenId={markingSeenId}
                     onMarkSeen={markNotificationSeen}
+                    onOpenMockExam={(targetItem) => handleOpenNotificationMockExam(targetItem, { closePanel: true })}
                     showAction
                   />
                 ))}

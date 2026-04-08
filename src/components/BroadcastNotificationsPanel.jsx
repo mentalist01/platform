@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, Image as ImageIcon, Paperclip, SendHorizontal, Trash2, X } from 'lucide-react';
+import { Bell, BookOpen, Image as ImageIcon, Paperclip, SendHorizontal, Trash2, X } from 'lucide-react';
 import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import LinkifiedText from './LinkifiedText';
@@ -75,6 +75,11 @@ const getFirstImageFile = (list) => {
 
 const getFirstFile = (list) => Array.from(list || []).find(Boolean) || null;
 
+const getMockExamTaskCount = (exam) => {
+  const tasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
+  return Object.keys(tasks).filter((key) => Boolean(tasks[key])).length;
+};
+
 const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
   const imageInputRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -90,8 +95,15 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
   const [successMessage, setSuccessMessage] = useState('');
   const [imageDropActive, setImageDropActive] = useState(false);
   const [fileDropActive, setFileDropActive] = useState(false);
+  const [mockExams, setMockExams] = useState([]);
+  const [mockExamsLoading, setMockExamsLoading] = useState(false);
+  const [selectedMockExamId, setSelectedMockExamId] = useState('');
 
   const audienceHint = useMemo(() => getNotificationAudienceHint(role), [role]);
+  const selectedMockExam = useMemo(
+    () => (mockExams || []).find((exam) => String(exam?.id || '') === String(selectedMockExamId || '')) || null,
+    [mockExams, selectedMockExamId]
+  );
 
   useEffect(() => {
     if (!imageFile) {
@@ -124,6 +136,26 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    setMockExamsLoading(true);
+    api.getMockExams()
+      .then((payload) => {
+        if (cancelled) return;
+        setMockExams(Array.isArray(payload) ? payload : []);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err?.message || String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setMockExamsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const clearComposerFeedback = useCallback(() => {
     setError('');
     setSuccessMessage('');
@@ -143,6 +175,7 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
     setText('');
     clearImageSelection();
     clearFileSelection();
+    setSelectedMockExamId('');
     setSuccessMessage('');
     setImageDropActive(false);
     setFileDropActive(false);
@@ -255,8 +288,8 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
 
   const handleSend = async () => {
     const trimmedText = String(text || '').trim();
-    if (!trimmedText && !imageFile && !fileAttachment) {
-      setError('Добавьте текст, картинку или файл.');
+    if (!trimmedText && !imageFile && !fileAttachment && !selectedMockExamId) {
+      setError('Добавьте текст, картинку, файл или пробник.');
       return;
     }
 
@@ -282,6 +315,7 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
         text: trimmedText,
         image: uploadedImage,
         file: uploadedFile,
+        mockExamId: selectedMockExamId || '',
       });
 
       setItems((prev) => [created, ...prev.filter((item) => item.id !== created?.id)]);
@@ -463,6 +497,68 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
             </div>
           </div>
 
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                  <BookOpen size={16} className="text-purple-600" />
+                  Прикрепить пробник
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  В уведомлении появится кнопка, по которой ученик сразу откроет нужный пробник.
+                </div>
+              </div>
+              {mockExamsLoading && (
+                <div className="text-xs font-semibold text-slate-400">Загружаем пробники...</div>
+              )}
+            </div>
+
+            <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+              <select
+                value={selectedMockExamId}
+                onChange={(event) => {
+                  setSelectedMockExamId(event.target.value);
+                  clearComposerFeedback();
+                }}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-purple-400"
+              >
+                <option value="">Без прикреплённого пробника</option>
+                {(mockExams || []).map((exam) => {
+                  const taskCount = getMockExamTaskCount(exam);
+                  return (
+                    <option key={exam.id} value={exam.id}>
+                      {taskCount > 0 ? `${exam.title} • заданий: ${taskCount}` : exam.title}
+                    </option>
+                  );
+                })}
+              </select>
+
+              {selectedMockExamId && (
+                <Button type="button" variant="secondary" onClick={() => setSelectedMockExamId('')}>
+                  <X size={14} />
+                  Убрать
+                </Button>
+              )}
+            </div>
+
+            {!mockExamsLoading && mockExams.length === 0 && (
+              <div className="mt-3 rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-4 text-sm text-slate-500">
+                Пока нет доступных пробников для прикрепления.
+              </div>
+            )}
+
+            {selectedMockExam && (
+              <div className="mt-3 rounded-2xl border border-purple-200 bg-white px-4 py-3">
+                <div className="text-sm font-semibold text-slate-900">{selectedMockExam.title}</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {getMockExamTaskCount(selectedMockExam) > 0
+                    ? `Заданий внутри: ${getMockExamTaskCount(selectedMockExam)}`
+                    : 'В пробнике пока нет заданий'}
+                </div>
+              </div>
+            )}
+          </div>
+
           {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
           {successMessage && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{successMessage}</div>}
 
@@ -536,6 +632,20 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
 
                 <NotificationAttachmentPreview attachment={item?.image} isImage />
                 <NotificationAttachmentPreview attachment={item?.file} />
+
+                {item?.mockExam?.id && (
+                  <div className="mt-3 rounded-2xl border border-indigo-200 bg-indigo-50/70 px-4 py-3 text-sm text-indigo-900">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <BookOpen size={16} />
+                      {item.mockExam.title || 'Прикреплённый пробник'}
+                    </div>
+                    <div className="mt-1 text-xs text-indigo-700/80">
+                      {Number(item?.mockExam?.taskCount) > 0
+                        ? `Заданий в пробнике: ${item.mockExam.taskCount}`
+                        : 'Ученик сможет открыть этот пробник прямо из уведомления.'}
+                    </div>
+                  </div>
+                )}
 
                 <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
                   <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1">

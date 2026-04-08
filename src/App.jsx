@@ -13194,7 +13194,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           </div>
         </div>
       )}
-      {user.role === 'student' && <StudentNotificationsCenter user={user} />}
+      {user.role === 'student' && (
+        <StudentNotificationsCenter user={user} onOpenMockExam={handleOpenMockGoal} />
+      )}
       {user.role === 'student' && xpDockVisible && (
         <div className="xp-flight-dock-shell">
           <div className={`xp-flight-dock ${xpAnimationActive ? 'xp-flight-dock--active' : ''}`}>

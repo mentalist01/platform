@@ -3630,6 +3630,49 @@ const normalizeBroadcastNotificationAttachment = (value, options = {}) => {
   };
 };
 
+const getMockExamTaskCount = (exam) => {
+  const tasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
+  return Object.keys(tasks).filter((key) => Boolean(tasks[key])).length;
+};
+
+const findMockExamById = (examId) => {
+  const normalizedId = String(examId || '').trim();
+  if (!normalizedId) return null;
+  const list = readMockExamsDb();
+  return (Array.isArray(list) ? list : []).find((exam) => String(exam?.id || '').trim() === normalizedId) || null;
+};
+
+const normalizeBroadcastNotificationMockExam = (value, options = {}) => {
+  if (!value) return null;
+
+  const examFromOptions = options.mockExam && typeof options.mockExam === 'object'
+    ? options.mockExam
+    : null;
+  const rawId = typeof value === 'string'
+    ? value.trim()
+    : String(value?.id || value?.mockExamId || '').trim();
+  const exam = examFromOptions || findMockExamById(rawId);
+  const examId = String(exam?.id || rawId).trim();
+  if (!examId) return null;
+
+  const fallbackTitle = typeof value === 'object' && typeof value?.title === 'string'
+    ? value.title.trim()
+    : '';
+  const title = String(exam?.title || fallbackTitle).trim().slice(0, 180);
+  if (!title) return null;
+
+  const rawTaskCount = typeof value === 'object' ? Number(value?.taskCount) : NaN;
+  const taskCount = exam
+    ? getMockExamTaskCount(exam)
+    : (Number.isFinite(rawTaskCount) && rawTaskCount >= 0 ? Math.floor(rawTaskCount) : 0);
+
+  return {
+    id: examId,
+    title,
+    taskCount,
+  };
+};
+
 const normalizeBroadcastNotificationSeenIds = (value) => Array.from(new Set(
   (Array.isArray(value) ? value : []).map((entry) => String(entry || '').trim()).filter(Boolean)
 ));
@@ -3642,7 +3685,8 @@ const normalizeBroadcastNotificationEntry = (value) => {
   const text = normalizeBroadcastNotificationText(value.text);
   const image = normalizeBroadcastNotificationAttachment(value.image, { fallbackName: 'Изображение' });
   const file = normalizeBroadcastNotificationAttachment(value.file, { fallbackName: 'Файл' });
-  if (!text && !image && !file) return null;
+  const mockExam = normalizeBroadcastNotificationMockExam(value.mockExam || value.mockExamId);
+  if (!text && !image && !file && !mockExam) return null;
 
   const createdByRoleRaw = String(value?.createdByRole || '').trim().toLowerCase();
   const createdByRole = createdByRoleRaw === 'admin'
@@ -3667,6 +3711,7 @@ const normalizeBroadcastNotificationEntry = (value) => {
     text,
     image,
     file,
+    mockExam,
     createdAt,
     updatedAt,
     createdById,
@@ -3746,6 +3791,7 @@ const serializeBroadcastNotificationForStaff = (entry, auth) => {
     text: entry.text,
     image: entry.image,
     file: entry.file,
+    mockExam: normalizeBroadcastNotificationMockExam(entry?.mockExam),
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
     createdById: entry.createdById,
@@ -3761,11 +3807,20 @@ const serializeBroadcastNotificationForStaff = (entry, auth) => {
 const serializeBroadcastNotificationForStudent = (entry, studentId) => {
   const normalizedStudentId = String(studentId || '').trim();
   const seen = normalizeBroadcastNotificationSeenIds(entry?.seenByStudentIds).includes(normalizedStudentId);
+  const serializedMockExam = (() => {
+    const attachedExam = normalizeBroadcastNotificationMockExam(entry?.mockExam);
+    if (!attachedExam) return null;
+    const liveExam = findMockExamById(attachedExam.id);
+    if (!liveExam) return null;
+    if (!isMockExamVisibleToStudent(liveExam, normalizedStudentId)) return null;
+    return normalizeBroadcastNotificationMockExam(attachedExam, { mockExam: liveExam });
+  })();
   return {
     id: entry.id,
     text: entry.text,
     image: entry.image,
     file: entry.file,
+    mockExam: serializedMockExam,
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
     createdById: entry.createdById,
@@ -9512,8 +9567,16 @@ app.post('/api/broadcast-notifications', (req, res) => {
   const text = normalizeBroadcastNotificationText(req.body?.text);
   const image = normalizeBroadcastNotificationAttachment(req.body?.image, { fallbackName: 'Изображение' });
   const file = normalizeBroadcastNotificationAttachment(req.body?.file, { fallbackName: 'Файл' });
-  if (!text && !image && !file) {
-    return res.status(400).json({ error: 'Добавьте текст, картинку или файл.' });
+  const mockExamId = String(req.body?.mockExamId || req.body?.mockExam?.id || '').trim();
+  const selectedMockExam = mockExamId ? findMockExamById(mockExamId) : null;
+  if (mockExamId && !selectedMockExam) {
+    return res.status(400).json({ error: 'Прикреплённый пробник не найден.' });
+  }
+  const mockExam = selectedMockExam
+    ? normalizeBroadcastNotificationMockExam(selectedMockExam, { mockExam: selectedMockExam })
+    : null;
+  if (!text && !image && !file && !mockExam) {
+    return res.status(400).json({ error: 'Добавьте текст, картинку, файл или пробник.' });
   }
 
   const now = new Date().toISOString();
@@ -9522,6 +9585,7 @@ app.post('/api/broadcast-notifications', (req, res) => {
     text,
     image,
     file,
+    mockExam,
     createdAt: now,
     updatedAt: now,
     createdById: String(req.auth?.id || '').trim(),
