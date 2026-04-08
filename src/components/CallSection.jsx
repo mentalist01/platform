@@ -4514,9 +4514,7 @@ const CallSection = ({
         : 'Проверка связи';
   const callHeaderEyebrow = hasMediaConnectionIssue
     ? 'Проблема связи'
-    : isConnected
-      ? 'Урок'
-      : isConnecting
+    : isConnecting
         ? 'Подключение'
         : '';
   const callHeaderTitle = !activeStudentId && isTeacher
