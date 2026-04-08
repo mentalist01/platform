@@ -18,6 +18,7 @@ const MockExamModal = ({
   getPrimaryScoreFromSolved,
   getSecondaryScoreFromPrimary,
   withStudentId,
+  theme = '',
 }) => {
   const [selectedTask, setSelectedTask] = useState(MOCK_TASK_NUMBERS[0]);
   const [answers, setAnswers] = useState({});
@@ -117,6 +118,7 @@ const MockExamModal = ({
   const screenshotMaxHeightClass = hasQuestionText
     ? 'max-h-[24vh] sm:max-h-[28vh] md:max-h-[32vh] lg:max-h-[36vh]'
     : 'max-h-[30vh] sm:max-h-[34vh] md:max-h-[38vh] lg:max-h-[44vh]';
+  const stickerSurface = String(theme || '').trim().toLowerCase() === 'dark' ? 'dark' : 'light';
   const examBadges = normalizeMockExamBadges(exam?.badges);
   const primaryBadge = examBadges[0] || null;
   const secondaryBadges = examBadges.slice(1);
@@ -157,7 +159,7 @@ const MockExamModal = ({
               </div>
               {primaryBadge && (
                 <div className="flex justify-start md:justify-end">
-                  <MockExamBadgeSticker badge={primaryBadge} size="sm" />
+                  <MockExamBadgeSticker badge={primaryBadge} size="sm" surface={stickerSurface} />
                 </div>
               )}
             </div>

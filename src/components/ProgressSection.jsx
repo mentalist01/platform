@@ -2940,6 +2940,7 @@ const ProgressSection = ({
               exam={activeMockExam}
               studentId={effectiveStudentId}
               initialAttempt={activeMockAttempt}
+              theme={theme}
               MOCK_TASK_NUMBERS={MOCK_TASK_NUMBERS}
               getMockAnswerCountForTask={getMockAnswerCountForTask}
               allowsPartialAnswers={allowsPartialAnswers}
