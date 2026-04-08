@@ -154,6 +154,9 @@ const BOARD_SELECTION_HIT_RADIUS = 6;
 const BOARD_MIN_ZOOM = 0.25;
 const BOARD_MAX_ZOOM = 2.5;
 const BOARD_POINT_MIN_DISTANCE = 1.5;
+const BOARD_STROKE_SMOOTHING_DISTANCE = 12;
+const BOARD_STROKE_SMOOTHING_MIN_ALPHA = 0.22;
+const BOARD_STROKE_SMOOTHING_MAX_ALPHA = 0.72;
 const BOARD_PRESSURE_MIN_RATIO = 0.6;
 const BOARD_LOW_BANDWIDTH_CURSOR_MS = 130;
 const BOARD_LOW_BANDWIDTH_PREVIEW_MS = 130;
@@ -8592,6 +8595,43 @@ const BoardSection = ({
     ctx.quadraticCurveTo(penultimate.x, penultimate.y, last.x, last.y);
   };
 
+  const getSmoothedStrokePoints = (points) => {
+    const source = Array.isArray(points) ? points : [];
+    if (source.length <= 2) return source;
+    const normalizePoint = (point) => {
+      const x = Number(point?.x) || 0;
+      const y = Number(point?.y) || 0;
+      const pressure = Number(point?.pressure);
+      if (Number.isFinite(pressure)) {
+        return { x, y, pressure };
+      }
+      return { x, y };
+    };
+    const nextPoints = [normalizePoint(source[0])];
+    let previous = nextPoints[0];
+    for (let index = 1; index < source.length - 1; index += 1) {
+      const current = normalizePoint(source[index]);
+      const distance = Math.hypot(current.x - previous.x, current.y - previous.y);
+      const distanceRatio = clamp(distance / BOARD_STROKE_SMOOTHING_DISTANCE, 0, 1);
+      const alpha = BOARD_STROKE_SMOOTHING_MIN_ALPHA
+        + (BOARD_STROKE_SMOOTHING_MAX_ALPHA - BOARD_STROKE_SMOOTHING_MIN_ALPHA) * distanceRatio;
+      const smoothed = {
+        x: previous.x + (current.x - previous.x) * alpha,
+        y: previous.y + (current.y - previous.y) * alpha,
+      };
+      if (Number.isFinite(Number(current.pressure))) {
+        const previousPressure = Number.isFinite(Number(previous.pressure))
+          ? Number(previous.pressure)
+          : Number(current.pressure);
+        smoothed.pressure = previousPressure + (Number(current.pressure) - previousPressure) * alpha;
+      }
+      nextPoints.push(smoothed);
+      previous = smoothed;
+    }
+    nextPoints.push(normalizePoint(source[source.length - 1]));
+    return nextPoints;
+  };
+
   const getPressurePointWidth = (baseWidth, point) => {
     const pressure = Number(point?.pressure);
     if (!Number.isFinite(pressure)) return baseWidth;
@@ -8657,7 +8697,8 @@ const BoardSection = ({
   };
 
   const drawStroke = (ctx, stroke) => {
-    const points = Array.isArray(stroke?.points) ? stroke.points : [];
+    const rawPoints = Array.isArray(stroke?.points) ? stroke.points : [];
+    const points = getSmoothedStrokePoints(rawPoints);
     const lineWidth = Number(stroke.width) || BOARD_STROKE_WIDTH;
     const colorValue = stroke.color || '#0f172a';
     const hasPressure = points.some((point) => Number.isFinite(Number(point?.pressure)));
@@ -9640,12 +9681,6 @@ const BoardSection = ({
         return;
       }
       setPasteError('');
-      const optimisticItems = [...boardItemsRef.current, ...itemsToAdd];
-      const optimisticEstimatedBytes = boardEstimatedBytesRef.current
-        + itemsToAdd.reduce((sum, item) => sum + estimateBoardItemBytes(item), 0);
-      commitBoardData(optimisticItems, optimisticEstimatedBytes);
-      renderBoard();
-      scheduleMinimapRenderRef.current?.(0);
       docInstance.transact(() => {
         yItemsRef.current?.push(itemsToAdd);
       }, localOriginRef.current);
