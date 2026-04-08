@@ -863,9 +863,9 @@ const ProgressSection = ({
     const targetId = String(openMockExamId);
     const targetExam = (visibleMockExams || []).find((exam) => String(exam?.id) === targetId)
       || (mockExams || []).find((exam) => String(exam?.id) === targetId);
-    if (targetExam) {
-      handleOpenMockExam(targetExam);
-    }
+    if (!targetExam) return;
+
+    handleOpenMockExam(targetExam);
     onOpenMockExamHandled?.();
   }, [
     role,
