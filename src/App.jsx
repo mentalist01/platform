@@ -159,7 +159,6 @@ const BOARD_LOW_BANDWIDTH_CURSOR_MS = 130;
 const BOARD_LOW_BANDWIDTH_PREVIEW_MS = 130;
 const BOARD_LOW_BANDWIDTH_POINT_STEP = 2;
 const BOARD_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const BOARD_DEFAULT_IMAGE_MAX_WIDTH = 640;
 const BOARD_MAX_ITEM_COUNT = 2500;
 const BOARD_MAX_TOTAL_BYTES = 12 * 1024 * 1024;
 const BOARD_MAX_STROKE_POINTS = 1400;
@@ -168,6 +167,30 @@ const BOARD_SCENE_MAX_DIMENSION = 4096;
 const BOARD_SCENE_MAX_PIXELS = 8 * 1024 * 1024;
 const BOARD_VIEWPORT_STORAGE_KEY_PREFIX = 'board-viewport-v1';
 const BOARD_VIEWPORT_SAVE_DEBOUNCE_MS = 160;
+const getBoardPixelRatio = () => (
+  typeof window !== 'undefined'
+    ? Math.max(1, Number(window.devicePixelRatio) || 1)
+    : 1
+);
+const prepareBoardRenderCanvas = (canvas, cssWidth, cssHeight) => {
+  if (!canvas) return null;
+  const width = Math.max(1, Math.round(Number(cssWidth) || canvas.clientWidth || 1));
+  const height = Math.max(1, Math.round(Number(cssHeight) || canvas.clientHeight || 1));
+  const pixelRatio = getBoardPixelRatio();
+  const pixelWidth = Math.max(1, Math.round(width * pixelRatio));
+  const pixelHeight = Math.max(1, Math.round(height * pixelRatio));
+  if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+  }
+  return {
+    width,
+    height,
+    pixelRatio,
+    pixelWidth,
+    pixelHeight,
+  };
+};
 const TASK_FILES_LIST_MIN_HEIGHT = 80;
 const TASK_FILES_LIST_MAX_HEIGHT = 320;
 const TASK_FILES_LIST_HEIGHT_STEP = 48;
@@ -7895,8 +7918,8 @@ const BoardSection = ({
     const rect = surface.getBoundingClientRect();
     const rectWidth = Math.max(1, Number(rect?.width) || 0);
     const rectHeight = Math.max(1, Number(rect?.height) || 0);
-    const renderWidth = Math.max(1, Number(surface.width) || boardSizeRef.current.width || rectWidth);
-    const renderHeight = Math.max(1, Number(surface.height) || boardSizeRef.current.height || rectHeight);
+    const renderWidth = Math.max(1, Number(boardSizeRef.current?.width) || rectWidth);
+    const renderHeight = Math.max(1, Number(boardSizeRef.current?.height) || rectHeight);
     const normalizedX = ((Number(clientX) || 0) - rect.left) / rectWidth;
     const normalizedY = ((Number(clientY) || 0) - rect.top) / rectHeight;
     return {
@@ -8736,16 +8759,13 @@ const BoardSection = ({
     const height = Math.max(1, contentBounds.maxY - contentBounds.minY + BOARD_SCENE_PADDING * 2);
     const originX = contentBounds.minX - BOARD_SCENE_PADDING;
     const originY = contentBounds.minY - BOARD_SCENE_PADDING;
+    const targetScale = getBoardPixelRatio();
     const dimensionScale = Math.min(
-      1,
       BOARD_SCENE_MAX_DIMENSION / Math.max(width, 1),
       BOARD_SCENE_MAX_DIMENSION / Math.max(height, 1)
     );
-    const pixelScale = Math.min(
-      1,
-      Math.sqrt(BOARD_SCENE_MAX_PIXELS / Math.max(width * height, 1))
-    );
-    const scale = Math.min(dimensionScale, pixelScale);
+    const pixelScale = Math.sqrt(BOARD_SCENE_MAX_PIXELS / Math.max(width * height, 1));
+    const scale = Math.max(Number.EPSILON, Math.min(targetScale, dimensionScale, pixelScale));
     const pixelWidth = Math.max(1, Math.round(width * scale));
     const pixelHeight = Math.max(1, Math.round(height * scale));
     const previousScene = boardSceneRef.current;
@@ -8757,6 +8777,8 @@ const BoardSection = ({
       resetBoardScene();
       return null;
     }
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, pixelWidth, pixelHeight);
     ctx.setTransform(scale, 0, 0, scale, -originX * scale, -originY * scale);
@@ -8864,20 +8886,40 @@ const BoardSection = ({
   const renderBoard = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const prepared = prepareBoardRenderCanvas(
+      canvas,
+      boardSizeRef.current?.width,
+      boardSizeRef.current?.height
+    );
+    if (!prepared) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const width = canvas.width;
-    const height = canvas.height;
+    const { pixelRatio, pixelWidth, pixelHeight } = prepared;
     const scene = boardSceneRef.current;
     const currentZoom = zoomRef.current || 1;
     const currentOffset = offsetRef.current || { x: 0, y: 0 };
+    const renderScale = pixelRatio * currentZoom;
+    ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, pixelWidth, pixelHeight);
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, width, height);
-    if (!scene?.canvas) return;
-    ctx.setTransform(currentZoom, 0, 0, currentZoom, -(currentOffset.x || 0) * currentZoom, -(currentOffset.y || 0) * currentZoom);
+    ctx.fillRect(0, 0, pixelWidth, pixelHeight);
+    if (!scene?.canvas) {
+      ctx.restore();
+      return;
+    }
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.setTransform(
+      renderScale,
+      0,
+      0,
+      renderScale,
+      -(currentOffset.x || 0) * renderScale,
+      -(currentOffset.y || 0) * renderScale
+    );
     ctx.drawImage(scene.canvas, scene.originX, scene.originY, scene.width, scene.height);
+    ctx.restore();
   }, []);
 
   useEffect(() => {
@@ -8899,11 +8941,27 @@ const BoardSection = ({
   const renderOverlay = () => {
     const overlay = overlayRef.current;
     if (!overlay) return;
+    const prepared = prepareBoardRenderCanvas(
+      overlay,
+      boardSizeRef.current?.width,
+      boardSizeRef.current?.height
+    );
+    if (!prepared) return;
     const ctx = overlay.getContext('2d');
     if (!ctx) return;
+    const { pixelRatio, pixelWidth, pixelHeight } = prepared;
+    const currentZoom = zoomRef.current || 1;
+    const renderScale = pixelRatio * currentZoom;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, overlay.width, overlay.height);
-    ctx.setTransform(zoomRef.current || 1, 0, 0, zoomRef.current || 1, -(offsetRef.current.x || 0) * (zoomRef.current || 1), -(offsetRef.current.y || 0) * (zoomRef.current || 1));
+    ctx.clearRect(0, 0, pixelWidth, pixelHeight);
+    ctx.setTransform(
+      renderScale,
+      0,
+      0,
+      renderScale,
+      -(offsetRef.current.x || 0) * renderScale,
+      -(offsetRef.current.y || 0) * renderScale
+    );
     if (remotePreviews.length > 0) {
       ctx.save();
       ctx.globalAlpha = 0.65;
@@ -9009,10 +9067,8 @@ const BoardSection = ({
     const canvas = canvasRef.current;
     const overlay = overlayRef.current;
     if (!canvas || !overlay) return;
-    canvas.width = boardSize.width;
-    canvas.height = boardSize.height;
-    overlay.width = boardSize.width;
-    overlay.height = boardSize.height;
+    prepareBoardRenderCanvas(canvas, boardSize.width, boardSize.height);
+    prepareBoardRenderCanvas(overlay, boardSize.width, boardSize.height);
     renderBoard();
     renderOverlay();
   }, [boardSize, renderBoard]);
@@ -9207,10 +9263,10 @@ const BoardSection = ({
         const dataUrl = String(reader.result || '');
         const img = new Image();
         img.onload = () => {
-          const maxWidth = Math.min(img.width, BOARD_DEFAULT_IMAGE_MAX_WIDTH);
-          const scale = img.width ? maxWidth / img.width : 1;
-          const widthPx = img.width * scale;
-          const heightPx = img.height * scale;
+          const maxDimension = Math.max(img.width || 0, img.height || 0, 1);
+          const scale = maxDimension > BOARD_IMAGE_MAX_SIZE ? BOARD_IMAGE_MAX_SIZE / maxDimension : 1;
+          const widthPx = Math.max(1, img.width * scale);
+          const heightPx = Math.max(1, img.height * scale);
           const pointer = lastPointerRef.current || { x: 0, y: 0 };
           const x = pointer.x - widthPx / 2;
           const y = pointer.y - heightPx / 2;
