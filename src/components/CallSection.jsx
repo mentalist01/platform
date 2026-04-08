@@ -3420,7 +3420,7 @@ const CallSection = ({
     }
     if (!roomId) {
       setPresenceError('');
-      setError('Сначала выбери ученика для созвона.');
+      setError(isTeacher ? 'Сначала выберите ученика для созвона.' : 'Комната урока пока не готова. Попробуйте через пару секунд.');
       return;
     }
     if (!rtcWsUrl) {
@@ -4469,7 +4469,7 @@ const CallSection = ({
   const roomHint = roomId || 'Комната не выбрана';
   const resolvedError = error || (status === 'idle' ? presenceError : '');
   const selectedStudentName = selectedStudent?.name || 'Ученик не выбран';
-  const canStart = Boolean(roomId) && !isConnecting && !isConnected;
+  const canStart = !isConnecting && !isConnected;
   const canStop = isConnecting || isConnected;
   const canToggleMic = isConnected && !micBusy;
   const canToggleCamera = isConnected && !cameraBusy;
@@ -4518,7 +4518,7 @@ const CallSection = ({
       ? 'Урок'
       : isConnecting
         ? 'Подключение'
-        : 'Подготовка';
+        : '';
   const callHeaderTitle = !activeStudentId && isTeacher
     ? 'Подготовка к звонку'
     : hasMediaConnectionIssue
@@ -4555,6 +4555,8 @@ const CallSection = ({
         : '';
   const callHeroDescription = !activeStudentId && isTeacher
     ? 'Сначала выберите ученика.'
+    : !roomId
+      ? 'Комната урока пока не готова.'
     : hasMediaConnectionIssue
       ? 'Чат останется доступным.'
       : isConnecting
@@ -4563,11 +4565,9 @@ const CallSection = ({
           ? hasRemoteParticipant
             ? ''
             : `${remoteParticipantName} пока не в звонке.`
-          : hasRemoteParticipant
-            ? 'Можно входить.'
-            : 'Когда будете готовы.';
+          : '';
   const remoteParticipantStatus = hasRemoteParticipant
-    ? (isConnected ? `${remoteParticipantTitle} уже в звонке` : `${remoteParticipantTitle} уже ждёт в комнате`)
+    ? (isConnected ? `${remoteParticipantTitle} уже в звонке` : `${remoteParticipantTitle} в комнате`)
     : (isConnected ? `${remoteParticipantTitle} ещё не подключился` : `${remoteParticipantTitle} пока не в комнате`);
   const joinButtonLabel = isConnected ? 'Вы в звонке' : (isConnecting ? 'Подключаем...' : 'Войти в звонок');
   const chatBadgeText = lessonChatMessages.length > 0 ? String(lessonChatMessages.length) : '';
@@ -4578,9 +4578,15 @@ const CallSection = ({
       { key: 'connection', text: connectionStatusShort, tone: connectionStats.quality === 'good' ? 'good' : (connectionStats.quality === 'poor' ? 'problem' : 'idle') },
     ]
     : [
-      { key: 'self', text: selfStatusShort, tone: 'idle' },
-      { key: 'participant', text: remoteParticipantStatusShort, tone: hasRemoteParticipant ? 'active' : 'idle' },
-      { key: 'connection', text: connectionStatusShort, tone: connectionStats.quality === 'good' ? 'good' : (connectionStats.quality === 'poor' ? 'problem' : 'idle') },
+      ...((!roomId && isTeacher)
+        ? [{ key: 'setup', text: 'Выберите ученика', tone: 'idle' }]
+        : []),
+      ...(hasRemoteParticipant
+        ? [{ key: 'participant', text: remoteParticipantStatusShort, tone: 'active' }]
+        : []),
+      ...(connectionStats.quality === 'poor'
+        ? [{ key: 'connection', text: connectionStatusShort, tone: 'problem' }]
+        : []),
     ];
   const prejoinParticipantSummary = !activeStudentId && isTeacher
     ? 'Выберите ученика'
@@ -4595,9 +4601,6 @@ const CallSection = ({
   const prejoinChatSummary = chatBadgeText
     ? `${chatBadgeText} новых`
     : '';
-  const prejoinChatCardSummary = showInlineLessonChat && chatBadgeText
-    ? `${chatBadgeText} новых`
-    : '';
   const lessonChatMetaSummary = chatBadgeText
     ? `${chatBadgeText} ${Number(chatBadgeText) === 1 ? 'новое сообщение' : 'новых сообщения'}`
     : (isConnected ? 'Сообщения по уроку' : 'Можно написать до начала урока');
@@ -4609,31 +4612,24 @@ const CallSection = ({
     chatBadgeText ? `${chatBadgeText} нов.` : '',
   ].filter(Boolean).join(' • ');
   const prejoinSummaryCards = [
-    {
-      key: 'participant',
-      icon: Users,
-      label: remoteParticipantTitle,
-      value: prejoinParticipantSummary,
-      tone: hasRemoteParticipant ? 'active' : 'idle',
-    },
-    {
-      key: 'connection',
-      icon: Signal,
-      label: 'Связь',
-      value: prejoinConnectionSummary,
-      tone: connectionStats.quality === 'good'
-        ? 'good'
-        : connectionStats.quality === 'poor'
-          ? 'problem'
-          : 'idle',
-    },
-    ...(showInlineLessonChat && chatBadgeText ? [{
-      key: 'chat',
-      icon: MessageSquare,
-      label: 'Чат',
-      value: prejoinChatCardSummary,
-      tone: chatBadgeText ? 'accent' : 'idle',
-    }] : []),
+    ...((!hasRemoteParticipant || !roomId || isTeacher)
+      ? [{
+        key: 'participant',
+        icon: Users,
+        label: remoteParticipantTitle,
+        value: prejoinParticipantSummary,
+        tone: hasRemoteParticipant ? 'active' : 'idle',
+      }]
+      : []),
+    ...(connectionStats.quality === 'poor'
+      ? [{
+        key: 'connection',
+        icon: Signal,
+        label: 'Связь',
+        value: prejoinConnectionSummary,
+        tone: 'problem',
+      }]
+      : []),
   ];
 
   const normalizedMicInputLevelPercent = clampToRange(Math.round(Number(micInputLevelPercent) || 0), 0, 100);
@@ -4644,13 +4640,13 @@ const CallSection = ({
   const sceneConnectionClass = isConnected ? 'call-scene--connected' : 'call-scene--disconnected';
 
   const sectionShellClass = isDarkTheme
-    ? `call-section-shell call-scene-shell relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 p-4 shadow-[0_30px_90px_rgba(2,6,23,0.5)] md:p-6 ${sceneStatusClass} ${sceneConnectionClass}`
+    ? `call-section-shell call-scene-shell relative overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-[0_24px_64px_rgba(2,6,23,0.42)] md:p-6 ${sceneStatusClass} ${sceneConnectionClass}`
     : `call-section-shell call-scene-shell relative overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 p-4 shadow-[0_24px_60px_rgba(15,23,42,0.12)] md:p-6 ${sceneStatusClass} ${sceneConnectionClass}`;
   const sectionGlowPrimaryClass = isDarkTheme
-    ? 'call-aurora call-aurora--primary pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-blue-500/20 blur-3xl'
+    ? 'call-aurora call-aurora--primary pointer-events-none absolute -left-16 -top-20 h-60 w-60 rounded-full bg-sky-500/10 blur-3xl'
     : 'call-aurora call-aurora--primary pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-violet-200/45 blur-3xl';
   const sectionGlowSecondaryClass = isDarkTheme
-    ? 'call-aurora call-aurora--secondary pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-emerald-500/20 blur-3xl'
+    ? 'call-aurora call-aurora--secondary pointer-events-none absolute -bottom-20 right-[-18px] h-56 w-56 rounded-full bg-cyan-500/8 blur-3xl'
     : 'call-aurora call-aurora--secondary pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-sky-200/40 blur-3xl';
   const collapsedCardClass = isDarkTheme
     ? 'call-collapsed-card flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/95 px-3 py-2 shadow-[0_14px_30px_rgba(2,6,23,0.45)] backdrop-blur cursor-grab active:cursor-grabbing'
@@ -4679,14 +4675,14 @@ const CallSection = ({
     ? 'call-main-title mt-1 text-2xl font-semibold tracking-tight text-white'
     : 'call-main-title mt-1 text-2xl font-semibold tracking-tight text-slate-900';
   const headerSubtitleClass = isDarkTheme
-    ? 'call-main-subtitle mt-2 max-w-3xl text-[15px] leading-7 text-slate-100/88'
+    ? 'call-main-subtitle mt-2 max-w-3xl text-[15px] leading-7 text-slate-200/76'
     : 'call-main-subtitle mt-2 max-w-3xl text-[15px] leading-7 text-slate-700';
   const headerStatusLineClass = isDarkTheme
-    ? 'call-header-status-line mt-3 max-w-4xl text-sm font-medium leading-6 text-slate-100/92'
+    ? 'call-header-status-line mt-3 max-w-4xl text-sm font-medium leading-6 text-slate-100/84'
     : 'call-header-status-line mt-3 max-w-4xl text-sm font-medium leading-6 text-slate-600';
-  const headerStatusListClass = 'call-header-status-list mt-3 flex flex-wrap gap-2';
+  const headerStatusListClass = 'call-header-status-list mt-3 flex flex-wrap gap-1.5';
   const headerStatusPillClass = isDarkTheme
-    ? 'call-header-status-pill inline-flex items-center rounded-full border border-white/10 bg-slate-900/55 px-3 py-1.5 text-xs font-semibold text-slate-100/92'
+    ? 'call-header-status-pill inline-flex items-center rounded-full border border-sky-300/10 bg-slate-950/30 px-2.5 py-1 text-[11px] font-semibold text-slate-100/82'
     : 'call-header-status-pill inline-flex items-center rounded-full border border-slate-200/80 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-600';
   const teacherCardClass = isDarkTheme
     ? 'mt-3 rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2.5 backdrop-blur'
@@ -4717,34 +4713,37 @@ const CallSection = ({
   const callLayoutClass = showInlineLessonChat && lessonChatExpanded
     ? 'call-experience-grid mt-4 grid min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start'
     : 'call-experience-grid mt-4 grid min-h-0 gap-3';
-  const callMainColumnClass = 'min-w-0 space-y-3 md:space-y-4';
+  const callMainColumnClass = 'call-main-column min-w-0 space-y-3 md:space-y-4';
   const heroPanelClass = isDarkTheme
-    ? 'call-hero-panel grid gap-5 rounded-[28px] border border-white/10 bg-slate-950/52 p-5 shadow-[0_20px_48px_rgba(2,6,23,0.28)] md:p-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch'
+    ? 'call-hero-panel grid gap-4 rounded-[28px] border border-sky-300/10 bg-slate-950/38 p-5 shadow-[0_18px_42px_rgba(2,12,27,0.28)] md:p-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch'
     : 'call-hero-panel grid gap-5 rounded-[28px] border border-slate-200/80 bg-white/90 p-5 shadow-[0_18px_42px_rgba(15,23,42,0.1)] md:p-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch';
   const heroEyebrowClass = isDarkTheme
-    ? 'text-[12px] font-semibold tracking-[0.12em] text-sky-200/82'
+    ? 'text-[12px] font-semibold tracking-[0.12em] text-cyan-200/78'
     : 'text-[12px] font-semibold tracking-[0.12em] text-sky-700/80';
   const heroTitleClass = isDarkTheme
-    ? 'mt-2 text-[clamp(1.9rem,2.8vw,2.8rem)] font-semibold leading-[0.96] tracking-tight text-white'
+    ? 'mt-2 text-[clamp(1.75rem,2.45vw,2.45rem)] font-semibold leading-[0.98] tracking-tight text-white'
     : 'mt-2 text-[clamp(1.9rem,2.8vw,2.8rem)] font-semibold leading-[0.96] tracking-tight text-slate-900';
   const heroDescriptionClass = isDarkTheme
-    ? 'mt-3 max-w-[52ch] text-[15px] leading-7 text-slate-100/88'
+    ? 'mt-3 max-w-[50ch] text-[15px] leading-7 text-slate-200/76'
     : 'mt-3 max-w-[52ch] text-[15px] leading-7 text-slate-700';
-  const heroHintClass = isDarkTheme ? 'call-prejoin-note mt-4 text-sm text-slate-300/82' : 'call-prejoin-note mt-4 text-sm text-slate-500';
+  const heroHintClass = isDarkTheme ? 'call-prejoin-note mt-4 text-sm text-slate-300/74' : 'call-prejoin-note mt-4 text-sm text-slate-500';
   const prejoinSecondaryActionClass = isDarkTheme
-    ? `${labeledControlButtonClass} h-12 rounded-2xl border border-white/15 bg-slate-900/36 px-4 text-slate-100 hover:bg-slate-800/54`
+    ? `${labeledControlButtonClass} h-12 rounded-2xl border border-white/8 bg-slate-950/18 px-4 text-slate-100/92 hover:border-sky-300/18 hover:bg-slate-900/36`
     : `${labeledControlButtonClass} h-12 rounded-2xl border border-slate-200 bg-white px-4 text-slate-700 hover:bg-slate-100`;
+  const prejoinUtilityActionClass = isDarkTheme
+    ? `${baseControlButtonClass} h-12 w-12 rounded-2xl border border-white/8 bg-slate-950/18 text-slate-100/88 hover:border-sky-300/18 hover:bg-slate-900/36`
+    : `${baseControlButtonClass} h-12 w-12 rounded-2xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-100`;
   const heroPrimaryButtonClass = isDarkTheme
-    ? `${labeledControlButtonClass} call-primary-cta h-12 min-w-[196px] rounded-2xl border border-emerald-300/55 bg-emerald-400 px-5 text-[15px] text-slate-950 hover:bg-emerald-300`
+    ? `${labeledControlButtonClass} call-primary-cta h-12 min-w-[188px] rounded-2xl border border-cyan-200/44 bg-cyan-400/92 px-5 text-[15px] text-slate-950 disabled:opacity-100 hover:bg-cyan-300`
     : `${labeledControlButtonClass} call-primary-cta h-12 min-w-[196px] rounded-2xl border border-emerald-300/70 bg-emerald-400 px-5 text-[15px] text-slate-950 hover:bg-emerald-300`;
   const waitingCardClass = isDarkTheme
-    ? 'call-waiting-card flex flex-col justify-between gap-5 rounded-[28px] border border-white/10 bg-slate-900/72 p-5 shadow-[0_18px_42px_rgba(2,6,23,0.24)]'
+    ? 'call-waiting-card flex flex-col justify-between gap-4 rounded-[28px] border border-sky-300/10 bg-slate-950/42 p-5 shadow-[0_16px_36px_rgba(2,12,27,0.22)]'
     : 'call-waiting-card flex flex-col justify-between gap-5 rounded-[28px] border border-slate-200/80 bg-slate-50/92 p-5 shadow-[0_18px_42px_rgba(15,23,42,0.08)]';
   const waitingAvatarClass = isDarkTheme
-    ? 'call-waiting-avatar relative flex h-16 w-16 shrink-0 items-center justify-center rounded-[22px] border border-white/15 bg-slate-950 text-xl font-semibold text-white'
+    ? 'call-waiting-avatar relative flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] border border-sky-300/12 bg-slate-950/82 text-lg font-semibold text-white'
     : 'call-waiting-avatar relative flex h-16 w-16 shrink-0 items-center justify-center rounded-[22px] border border-slate-200 bg-white text-xl font-semibold text-slate-700';
   const waitingRoleClass = isDarkTheme
-    ? 'inline-flex w-fit items-center rounded-full border border-white/12 bg-white/6 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-100/82'
+    ? 'inline-flex w-fit items-center rounded-full border border-white/8 bg-transparent px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-200/74'
     : 'inline-flex w-fit items-center rounded-full border border-sky-200/80 bg-sky-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700';
   const waitingNameClass = isDarkTheme ? 'mt-4 text-xl font-semibold text-white' : 'mt-4 text-xl font-semibold text-slate-900';
   const waitingMetaClass = isDarkTheme ? 'text-sm font-medium leading-6 text-slate-300/82' : 'text-sm font-medium leading-6 text-slate-500';
@@ -5011,13 +5010,15 @@ const CallSection = ({
               <p className={headerEyebrowClass}>{callHeaderEyebrow}</p>
               <h2 className={headerTitleClass}>{callHeaderTitle}</h2>
               {callHeaderSubtitle && <p className={headerSubtitleClass}>{callHeaderSubtitle}</p>}
-              <div className={headerStatusListClass}>
-                {headerStatusPills.map((pill) => (
-                  <span key={pill.key} className={headerStatusPillClass} data-tone={pill.tone}>
-                    {pill.text}
-                  </span>
-                ))}
-              </div>
+              {headerStatusPills.length > 0 && (
+                <div className={headerStatusListClass}>
+                  {headerStatusPills.map((pill) => (
+                    <span key={pill.key} className={headerStatusPillClass} data-tone={pill.tone}>
+                      {pill.text}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </header>
 
@@ -5097,27 +5098,30 @@ const CallSection = ({
                       {!isConnecting && Boolean(prejoinChatSummary) && showInlineLessonChat && (
                         <button
                           type="button"
-                          className={prejoinSecondaryActionClass}
+                          className={prejoinUtilityActionClass}
                           onClick={() => setLessonChatExpanded(true)}
+                          aria-label={lessonChatExpanded ? 'Чат открыт' : 'Открыть чат'}
+                          title={lessonChatExpanded ? 'Чат открыт' : 'Открыть чат'}
                         >
                           <MessageSquare size={16} />
-                          <span className="call-control-label">{lessonChatExpanded ? 'Чат открыт' : 'Открыть чат'}</span>
-                          <span className="call-chat-badge is-live">{chatBadgeText}</span>
+                          <span className="call-chat-badge is-live absolute -right-1 -top-1">{chatBadgeText}</span>
                         </button>
                       )}
                     </div>
-                    <div className="call-prejoin-glance mt-6">
-                      {prejoinSummaryCards.map(({ key, icon: Icon, label, value, tone }) => (
-                        <div key={key} className="call-prejoin-glance-card" data-tone={tone}>
-                          <span className="call-prejoin-glance-icon" aria-hidden="true">
-                            <Icon size={16} />
-                          </span>
-                          <div className="min-w-0">
-                            <p className="call-prejoin-glance-value" aria-label={`${label}: ${value}`}>{value}</p>
+                    {prejoinSummaryCards.length > 0 && (
+                      <div className="call-prejoin-glance mt-6">
+                        {prejoinSummaryCards.map(({ key, icon: Icon, label, value, tone }) => (
+                          <div key={key} className="call-prejoin-glance-card" data-tone={tone}>
+                            <span className="call-prejoin-glance-icon" aria-hidden="true">
+                              <Icon size={16} />
+                            </span>
+                            <div className="min-w-0">
+                              <p className="call-prejoin-glance-value" aria-label={`${label}: ${value}`}>{value}</p>
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className={waitingCardClass} data-presence={hasRemoteParticipant ? 'live' : 'idle'}>
                     <div className={waitingAvatarClass}>{remoteParticipantInitial}</div>

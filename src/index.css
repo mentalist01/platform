@@ -3177,6 +3177,15 @@
 .call-primary-cta {
   box-shadow: 0 20px 44px rgba(16, 185, 129, 0.24);
 }
+.call-primary-cta:not(:disabled) {
+  background: linear-gradient(135deg, rgb(52 211 153), rgb(16 185 129));
+  border-color: rgba(167, 243, 208, 0.72);
+  color: rgb(2 6 23);
+}
+.call-primary-cta:not(:disabled):hover {
+  background: linear-gradient(135deg, rgb(110 231 183), rgb(52 211 153));
+  border-color: rgba(209, 250, 229, 0.82);
+}
 .call-waiting-card {
   position: relative;
   align-items: flex-start;
@@ -4894,12 +4903,12 @@ html[data-theme='dark'] .call-control-btn:hover:not(:disabled) {
 }
 
 html[data-theme='dark'] .call-scene-shell {
-  --call-scene-surface-start: rgba(15, 23, 42, 0.9);
-  --call-scene-surface-end: rgba(2, 6, 23, 0.9);
+  --call-scene-surface-start: rgba(11, 18, 32, 0.94);
+  --call-scene-surface-end: rgba(8, 20, 34, 0.92);
   background:
-    radial-gradient(circle at 8% -10%, rgba(186, 230, 253, 0.14), transparent 42%),
+    radial-gradient(circle at 8% -10%, rgba(186, 230, 253, 0.08), transparent 38%),
     linear-gradient(156deg, var(--call-scene-surface-start), var(--call-scene-surface-end));
-  box-shadow: 0 34px 88px rgba(2, 6, 23, 0.62), inset 0 1px 0 rgba(148, 163, 184, 0.08);
+  box-shadow: 0 26px 60px rgba(2, 6, 23, 0.5), inset 0 1px 0 rgba(148, 163, 184, 0.06);
 }
 
 html[data-theme='dark'] .call-scene--connected {
@@ -4923,32 +4932,32 @@ html[data-theme='dark'] .call-scene--problem {
 }
 
 html[data-theme='dark'] .call-scene--idle {
-  --call-scene-surface-start: rgba(15, 23, 42, 0.9);
-  --call-scene-surface-end: rgba(2, 6, 23, 0.9);
+  --call-scene-surface-start: rgba(9, 17, 31, 0.92);
+  --call-scene-surface-end: rgba(7, 31, 49, 0.88);
 }
 
 html[data-theme='dark'] .call-scene-shell::before {
   background:
-    linear-gradient(120deg, rgba(148, 163, 184, 0.2), transparent 36%, rgba(56, 189, 248, 0.3), transparent 72%, rgba(148, 163, 184, 0.12)),
-    radial-gradient(circle at 18% -10%, rgba(186, 230, 253, 0.3), transparent 42%);
+    linear-gradient(120deg, rgba(148, 163, 184, 0.14), transparent 38%, rgba(56, 189, 248, 0.16), transparent 70%, rgba(148, 163, 184, 0.08)),
+    radial-gradient(circle at 18% -10%, rgba(186, 230, 253, 0.14), transparent 40%);
 }
 
 html[data-theme='dark'] .call-scene-sweep {
-  opacity: 0.34;
+  opacity: 0.16;
 }
 
 html[data-theme='dark'] .call-energy-wave {
-  opacity: 0.34;
+  opacity: 0.14;
   border-color: color-mix(in srgb, var(--call-scene-accent-strong, rgba(56, 189, 248, 0.42)) 66%, rgba(148, 163, 184, 0.3));
 }
 
 html[data-theme='dark'] .call-grid-overlay {
-  opacity: 0.44;
-  mix-blend-mode: screen;
+  opacity: 0.18;
+  mix-blend-mode: soft-light;
 }
 
 html[data-theme='dark'] .call-noise-overlay {
-  opacity: 0.2;
+  opacity: 0.08;
 }
 
 html[data-theme='dark'] .call-lesson-chat-bubble {
@@ -5003,7 +5012,187 @@ html[data-theme='dark'] .call-controls-wrap.call-scene--problem {
 }
 
 html[data-theme='dark'] .call-controls-wrap.call-scene--idle {
-  background: linear-gradient(150deg, rgba(15, 23, 42, 0.84), rgba(30, 41, 59, 0.76));
+  background: linear-gradient(150deg, rgba(8, 16, 30, 0.86), rgba(10, 33, 50, 0.78));
+}
+
+html[data-theme='dark'] .call-controls-wrap.call-scene--idle.call-controls-rail {
+  animation: none;
+}
+
+html[data-theme='dark'] .call-scene--idle .call-orbit-ring,
+html[data-theme='dark'] .call-scene--idle .call-particle-field,
+html[data-theme='dark'] .call-scene--idle .call-light-ribbon {
+  display: none;
+}
+
+html[data-theme='dark'] .call-scene--idle.call-section-shell::after {
+  opacity: 0.16;
+}
+
+html[data-theme='dark'] .call-prejoin-stage {
+  border-color: rgba(125, 211, 252, 0.1);
+  background:
+    linear-gradient(145deg, rgba(7, 15, 28, 0.9), rgba(10, 22, 38, 0.86) 58%, rgba(9, 33, 48, 0.72));
+  box-shadow:
+    0 18px 44px rgba(2, 12, 27, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme='dark'] .call-prejoin-stage::after {
+  background:
+    radial-gradient(circle at 30% 44%, rgba(34, 211, 238, 0.1), transparent 34%),
+    radial-gradient(circle at 74% 38%, rgba(56, 189, 248, 0.09), transparent 28%);
+  filter: blur(22px);
+  opacity: 0.52;
+}
+
+html[data-theme='dark'] .call-hero-panel::before {
+  background:
+    radial-gradient(circle at 82% 20%, rgba(56, 189, 248, 0.12) 0%, transparent 34%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 48%);
+  opacity: 0.62;
+}
+
+html[data-theme='dark'] .call-header-status-pill {
+  background: rgba(9, 18, 34, 0.44);
+  border-color: rgba(125, 211, 252, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme='dark'] .call-header-status-pill[data-tone='good'] {
+  border-color: rgba(45, 212, 191, 0.28);
+  color: rgba(204, 251, 241, 0.94);
+}
+
+html[data-theme='dark'] .call-header-status-pill[data-tone='active'] {
+  border-color: rgba(56, 189, 248, 0.3);
+  color: rgba(224, 242, 254, 0.94);
+}
+
+html[data-theme='dark'] .call-header-status-pill[data-tone='problem'] {
+  border-color: rgba(251, 113, 133, 0.28);
+  color: rgba(254, 226, 226, 0.94);
+}
+
+html[data-theme='dark'] .call-prejoin-glance-card {
+  border-color: rgba(148, 163, 184, 0.12);
+  background: rgba(8, 18, 31, 0.34);
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .call-prejoin-glance-card::before {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 56%);
+  opacity: 0.46;
+}
+
+html[data-theme='dark'] .call-prejoin-glance-card[data-tone='idle'] {
+  border-color: rgba(148, 163, 184, 0.12);
+}
+
+html[data-theme='dark'] .call-prejoin-glance-card[data-tone='good'] {
+  border-color: rgba(45, 212, 191, 0.2);
+  background: rgba(8, 30, 36, 0.34);
+}
+
+html[data-theme='dark'] .call-prejoin-glance-card[data-tone='active'] {
+  border-color: rgba(56, 189, 248, 0.22);
+  background: rgba(8, 24, 38, 0.34);
+}
+
+html[data-theme='dark'] .call-prejoin-glance-card[data-tone='accent'] {
+  border-color: rgba(129, 140, 248, 0.2);
+  background: rgba(20, 21, 46, 0.34);
+}
+
+html[data-theme='dark'] .call-prejoin-glance-card[data-tone='problem'] {
+  border-color: rgba(251, 113, 133, 0.22);
+  background: rgba(45, 20, 28, 0.34);
+}
+
+html[data-theme='dark'] .call-prejoin-glance-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-color: transparent;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.66);
+}
+
+html[data-theme='dark'] .call-prejoin-glance-label {
+  color: rgba(226, 232, 240, 0.48);
+}
+
+html[data-theme='dark'] .call-prejoin-glance-value {
+  color: rgba(248, 250, 252, 0.92);
+}
+
+html[data-theme='dark'] .call-prejoin-stage .call-waiting-card {
+  border-color: rgba(125, 211, 252, 0.1);
+  background: rgba(10, 20, 34, 0.5);
+  box-shadow:
+    0 16px 34px rgba(2, 12, 27, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme='dark'] .call-waiting-card::before {
+  opacity: 0.34;
+}
+
+html[data-theme='dark'] .call-prejoin-stage .call-waiting-card::after {
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.14), transparent 66%);
+  filter: blur(16px);
+  opacity: 0.42;
+}
+
+html[data-theme='dark'] .call-prejoin-stage .call-waiting-card[data-presence='live'] {
+  border-color: rgba(45, 212, 191, 0.18);
+}
+
+html[data-theme='dark'] .call-prejoin-stage[data-state='idle'] {
+  box-shadow: 0 18px 40px rgba(8, 145, 178, 0.08);
+}
+
+html[data-theme='dark'] .call-prejoin-stage[data-state='connecting'] {
+  box-shadow: 0 18px 40px rgba(245, 158, 11, 0.1);
+}
+
+html[data-theme='dark'] .call-prejoin-stage[data-state='problem'] {
+  box-shadow: 0 18px 42px rgba(244, 63, 94, 0.12);
+}
+
+html[data-theme='dark'] .call-primary-cta {
+  background: linear-gradient(135deg, rgba(103, 232, 249, 0.98), rgba(34, 211, 238, 0.96)) !important;
+  border-color: rgba(165, 243, 252, 0.6) !important;
+  color: rgb(8 15 28) !important;
+  box-shadow: 0 12px 24px rgba(34, 211, 238, 0.16);
+}
+
+html[data-theme='dark'] .call-primary-cta:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(165, 243, 252, 1), rgba(103, 232, 249, 0.98)) !important;
+  border-color: rgba(224, 242, 254, 0.82) !important;
+}
+
+html[data-theme='dark'] .call-primary-cta[data-attention='true'] {
+  animation: none;
+}
+
+html[data-theme='dark'] .call-chat-badge {
+  border-color: rgba(129, 140, 248, 0.24);
+  background: rgba(99, 102, 241, 0.12);
+  color: rgba(238, 242, 255, 0.96);
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .call-chat-badge.is-live {
+  animation: none;
+}
+
+html[data-theme='dark'] .call-control-btn--labeled {
+  box-shadow: 0 6px 14px rgba(2, 12, 27, 0.12);
+}
+
+html[data-theme='dark'] .call-waiting-avatar {
+  animation: none;
+  box-shadow: 0 10px 18px rgba(2, 12, 27, 0.14);
 }
 
 html[data-theme='dark'] .call-control-btn::before {
