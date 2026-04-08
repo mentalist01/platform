@@ -150,6 +150,7 @@ const BOARD_IMAGE_MAX_SIZE = 2800;
 const BOARD_IMAGE_SCALE_STEP = 0.12;
 const BOARD_EXPORT_PADDING = 24;
 const BOARD_EXPORT_MAX_SIZE = 6000;
+const BOARD_EXPORT_MAX_PIXELS = 32 * 1024 * 1024;
 const BOARD_SELECTION_HIT_RADIUS = 6;
 const BOARD_MIN_ZOOM = 0.25;
 const BOARD_MAX_ZOOM = 2.5;
@@ -8083,25 +8084,6 @@ const BoardSection = ({
     const padding = BOARD_EXPORT_PADDING;
     const width = Math.max(1, bounds.maxX - bounds.minX + padding * 2);
     const height = Math.max(1, bounds.maxY - bounds.minY + padding * 2);
-    const maxDim = Math.max(width, height);
-    const scale = maxDim > BOARD_EXPORT_MAX_SIZE ? BOARD_EXPORT_MAX_SIZE / maxDim : 1;
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.ceil(width * scale));
-    canvas.height = Math.max(1, Math.ceil(height * scale));
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Не удалось подготовить холст.');
-
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.setTransform(
-      scale,
-      0,
-      0,
-      scale,
-      (padding - bounds.minX) * scale,
-      (padding - bounds.minY) * scale
-    );
-
     const imageItems = boardItems.filter((item) => item?.type === 'image' && item.dataUrl);
     const imageMap = new Map();
     await Promise.all(imageItems.map(async (item) => {
@@ -8114,6 +8096,47 @@ const BoardSection = ({
       });
       if (img) imageMap.set(item.dataUrl, img);
     }));
+
+    const preferredScale = imageItems.reduce((maxScale, item) => {
+      const img = imageMap.get(item.dataUrl);
+      if (!img) return maxScale;
+      const itemWidth = Math.max(1, Number(item.width) || 1);
+      const itemHeight = Math.max(1, Number(item.height) || 1);
+      const naturalWidth = Math.max(1, Number(img.naturalWidth) || Number(img.width) || 1);
+      const naturalHeight = Math.max(1, Number(img.naturalHeight) || Number(img.height) || 1);
+      return Math.max(
+        maxScale,
+        naturalWidth / itemWidth,
+        naturalHeight / itemHeight
+      );
+    }, Math.max(1, getBoardPixelRatio()));
+
+    const maxDim = Math.max(width, height);
+    const maxScaleByDimension = BOARD_EXPORT_MAX_SIZE / Math.max(maxDim, 1);
+    const maxScaleByPixels = Math.sqrt(BOARD_EXPORT_MAX_PIXELS / Math.max(width * height, 1));
+    const maxAllowedScale = Math.min(maxScaleByDimension, maxScaleByPixels);
+    const scale = maxAllowedScale >= 1
+      ? Math.min(preferredScale, maxAllowedScale)
+      : maxAllowedScale;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.ceil(width * scale));
+    canvas.height = Math.max(1, Math.ceil(height * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Не удалось подготовить холст.');
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(
+      scale,
+      0,
+      0,
+      scale,
+      (padding - bounds.minX) * scale,
+      (padding - bounds.minY) * scale
+    );
 
     boardItems.forEach((item) => {
       if (!item) return;
