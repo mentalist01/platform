@@ -472,6 +472,13 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  spinArtifactAltar: async () => {
+    const res = await apiFetch('/api/students/altar/spin', {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   createStudent: async (name, teacherId) => {
     const res = await apiFetch('/api/students', {
       method: 'POST',

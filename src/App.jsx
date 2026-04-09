@@ -20,6 +20,7 @@ import mascotDisapproval from './assets/mascot/disapproval.png';
 import mascotGreetings from './assets/mascot/greetings.png';
 import mascotPeeking from './assets/mascot/peeking.png';
 import mascotPondering from './assets/mascot/pondering.png';
+import ivanCoin from './assets/ivan-coin-badge.png';
 import leagueBronze from './assets/leagues/bronze.png';
 import leagueSilver from './assets/leagues/silver.png';
 import leagueGold from './assets/leagues/gold.png';
@@ -73,7 +74,7 @@ import {
   consumeNativePushLaunchUrl,
   normalizePushErrorMessage,
 } from './utils/push';
-import { getCollabWsUrl, isNativeAppRuntime } from './utils/runtimeUrls';
+import { getCollabWsUrl, isNativeAppRuntime, resolveApiUrl } from './utils/runtimeUrls';
 import {
   api,
   authenticatedUploadsFetch,
@@ -125,6 +126,12 @@ const LEVEL_WEIGHTS = {
 const SOFT_DELETE_DAYS = 30;
 const GAME_THEORY_TASK = 19;
 const PYTHON_LEVEL_ID = 'python';
+const PYTHON_COIN_MIN_REWARD = 4;
+const PYTHON_COIN_MAX_REWARD = 17;
+const PYTHON_COIN_TASK_ORDER = [
+  101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
+  205, 208, 214, 216, 217, 223, 224, 225, 226, 227,
+];
 const GOAL_TYPE_TASK = 'task';
 const GOAL_TYPE_MOCK = 'mock';
 const XP_PER_LEVEL = 1000;
@@ -197,6 +204,30 @@ const prepareBoardRenderCanvas = (canvas, cssWidth, cssHeight) => {
     pixelWidth,
     pixelHeight,
   };
+};
+
+const CLIENT_BUILD_CHECK_INTERVAL_MS = 60 * 1000;
+
+const normalizeClientAssetFingerprintEntry = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw || typeof window === 'undefined') return '';
+  try {
+    const url = new URL(raw, window.location.origin);
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return raw;
+  }
+};
+
+const getCurrentClientBuildFingerprint = () => {
+  if (typeof document === 'undefined') return '';
+  const entries = [
+    ...Array.from(document.querySelectorAll('script[src]')).map((node) => node.getAttribute('src')),
+    ...Array.from(document.querySelectorAll('link[rel="stylesheet"][href]')).map((node) => node.getAttribute('href')),
+  ]
+    .map(normalizeClientAssetFingerprintEntry)
+    .filter((value) => value && (value.includes('/assets/') || value.includes('/src/')));
+  return Array.from(new Set(entries)).join('|');
 };
 const TASK_FILES_LIST_MIN_HEIGHT = 80;
 const TASK_FILES_LIST_MAX_HEIGHT = 320;
@@ -463,7 +494,31 @@ const getTaskLevelXpReward = (taskNumber, levelId) => {
   return Math.max(0, Math.round(baseReward * multiplier));
 };
 
+const getPythonCoinReward = (taskNumber) => {
+  const taskNum = Number(taskNumber);
+  if (!Number.isFinite(taskNum)) return 0;
+  const lastIndex = PYTHON_COIN_TASK_ORDER.length - 1;
+  if (lastIndex <= 0) return PYTHON_COIN_MIN_REWARD;
+  let orderIndex = PYTHON_COIN_TASK_ORDER.findIndex((value) => value >= taskNum);
+  if (orderIndex < 0) orderIndex = lastIndex;
+  const progress = orderIndex / lastIndex;
+  return Math.round(
+    PYTHON_COIN_MIN_REWARD
+    + ((PYTHON_COIN_MAX_REWARD - PYTHON_COIN_MIN_REWARD) * progress)
+  );
+};
+
+const getSolveCoinReward = (_taskNumber, levelId) => (
+  String(levelId || '').trim() === PYTHON_LEVEL_ID ? getPythonCoinReward(_taskNumber) : 0
+);
+
 const normalizeXpTotal = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return 0;
+  return Math.floor(num);
+};
+
+const normalizeCoinsTotal = (value) => {
   const num = Number(value);
   if (!Number.isFinite(num) || num <= 0) return 0;
   return Math.floor(num);
@@ -793,6 +848,26 @@ const deriveXpFromSolvedByTask = (solvedByTask) => {
     });
   });
   return totalXp;
+};
+
+const deriveCoinsFromSolvedByTask = (solvedByTask) => {
+  if (!solvedByTask || typeof solvedByTask !== 'object') return 0;
+  let totalCoins = 0;
+  Object.entries(solvedByTask).forEach(([taskKey, taskEntry]) => {
+    if (!taskEntry || typeof taskEntry !== 'object' || Array.isArray(taskEntry)) return;
+    Object.entries(taskEntry).forEach(([levelKey, levelEntry]) => {
+      if (String(levelKey).startsWith('_')) return;
+      if (!levelEntry || typeof levelEntry !== 'object' || Array.isArray(levelEntry)) return;
+      const solvedList = Array.isArray(levelEntry.solved) ? levelEntry.solved : [];
+      if (solvedList.length <= 0) return;
+      const solvedCount = new Set(solvedList.map((id) => String(id))).size;
+      if (solvedCount <= 0) return;
+      const reward = getSolveCoinReward(taskKey, levelKey);
+      if (reward <= 0) return;
+      totalCoins += solvedCount * reward;
+    });
+  });
+  return normalizeCoinsTotal(totalCoins);
 };
 
 const isTestingSolvedEvent = (event) => {
@@ -10523,10 +10598,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [studentDataLoaded, setStudentDataLoaded] = useState(false);
   const [studentStreak, setStudentStreak] = useState(getDefaultStreak());
   const [_STUDENT_XP_TOTAL, setStudentXpTotal] = useState(0);
+  const [studentCoinsTotal, setStudentCoinsTotal] = useState(0);
   const [xpDisplayTotal, setXpDisplayTotal] = useState(0);
   const [xpDockVisible, setXpDockVisible] = useState(false);
   const [xpAnimationActive, setXpAnimationActive] = useState(false);
   const [xpFlightStars, setXpFlightStars] = useState([]);
+  const [coinFlightCoins, setCoinFlightCoins] = useState([]);
   const [streakPopup, setStreakPopup] = useState({
     open: false,
     current: 0,
@@ -10547,6 +10624,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const xpAnimationRunningRef = useRef(false);
   const xpInlineBarRef = useRef(null);
   const xpDockBarRef = useRef(null);
+  const coinInlineBadgeRef = useRef(null);
+  const coinDockBadgeRef = useRef(null);
   const prevLevelRef = useRef(null);
   const levelUpTimerRef = useRef(null);
   const scheduleHomeworkFlyRef = useRef(null);
@@ -11485,6 +11564,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     xpAnimationRunningRef.current = false;
     setXpAnimationActive(false);
     setXpFlightStars([]);
+    setCoinFlightCoins([]);
     if (!keepDock) {
       setXpDockVisible(false);
     }
@@ -11548,16 +11628,74 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     return { stars, maxLandingMs };
   }, []);
 
+  const createCoinFlightCoins = useCallback((sourceRect, targetRect, gainedCoins, flightDurationMs) => {
+    const viewportW = typeof window !== 'undefined' ? window.innerWidth : 1280;
+    const viewportH = typeof window !== 'undefined' ? window.innerHeight : 720;
+    const sourceCenterX = Number.isFinite(sourceRect?.left)
+      ? sourceRect.left + ((Number.isFinite(sourceRect?.width) ? sourceRect.width : 0) / 2)
+      : (viewportW * 0.5);
+    const sourceCenterY = Number.isFinite(sourceRect?.top)
+      ? sourceRect.top + ((Number.isFinite(sourceRect?.height) ? sourceRect.height : 0) * 0.46)
+      : (viewportH * 0.62);
+    const targetCenterX = Number.isFinite(targetRect?.left)
+      ? targetRect.left + ((Number.isFinite(targetRect?.width) ? targetRect.width : 0) / 2)
+      : (viewportW * 0.5);
+    const targetCenterY = Number.isFinite(targetRect?.top)
+      ? targetRect.top + ((Number.isFinite(targetRect?.height) ? targetRect.height : 0) / 2)
+      : (viewportH * 0.2);
+    const count = Math.max(6, Math.min(18, Math.round(Math.max(1, gainedCoins) * 6)));
+    const coins = [];
+    let maxLandingMs = 0;
+    for (let i = 0; i < count; i += 1) {
+      const progress = count > 1 ? (i / (count - 1)) : 0;
+      const startX = sourceCenterX + ((Math.random() - 0.5) * Math.max(32, (Number(sourceRect?.width) || 96) * 0.72));
+      const startY = sourceCenterY + ((Math.random() - 0.5) * Math.max(18, (Number(sourceRect?.height) || 48) * 0.58));
+      const endX = targetCenterX + ((Math.random() - 0.5) * Math.max(8, (Number(targetRect?.width) || 34) * 0.34));
+      const endY = targetCenterY + ((Math.random() - 0.5) * Math.max(8, (Number(targetRect?.height) || 22) * 0.42));
+      const horizontalCurve = (Math.random() - 0.5) * Math.max(44, Math.min(viewportW * 0.1, 112));
+      const verticalLift = 84 + (Math.random() * 88);
+      const midX = startX + ((endX - startX) * 0.42) + horizontalCurve;
+      const midY = Math.min(startY, endY) - verticalLift;
+      const delayMs = Math.round(progress * (flightDurationMs * 0.52) + (Math.random() * 90));
+      const durationMs = Math.round(flightDurationMs * (0.66 + (Math.random() * 0.22)));
+      const landingMs = delayMs + Math.round(durationMs * 0.9);
+      if (landingMs > maxLandingMs) maxLandingMs = landingMs;
+      coins.push({
+        id: `coin-flight-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
+        sizePx: Math.round(16 + (Math.random() * 8)),
+        delayMs,
+        durationMs,
+        startX,
+        startY,
+        midX,
+        midY,
+        endX,
+        endY,
+        rotateDeg: Math.round((Math.random() * 90) - 45),
+      });
+    }
+    return { coins, maxLandingMs };
+  }, []);
+
   const handleXpGain = useCallback((payload = {}) => {
     if (user.role !== 'student') return;
     const targetTotal = normalizeXpTotal(payload?.xpTotal);
     const payloadGained = normalizeXpTotal(payload?.xpGained);
+    const payloadCoinsGained = normalizeCoinsTotal(payload?.coinsGained);
+    const nextCoinsTotal = Number.isFinite(Number(payload?.coinsTotal))
+      ? normalizeCoinsTotal(payload.coinsTotal)
+      : null;
     const currentDisplay = normalizeXpTotal(xpDisplayTotalRef.current);
     const computedGained = Math.max(payloadGained, targetTotal - currentDisplay, 0);
+    const hasXpAnimation = computedGained > 0;
+    const hasCoinAnimation = payloadCoinsGained > 0;
 
     setStudentXpTotal(targetTotal);
+    if (nextCoinsTotal !== null) {
+      setStudentCoinsTotal(nextCoinsTotal);
+    }
 
-    if (!Number.isFinite(targetTotal) || targetTotal <= 0) {
+    if (!Number.isFinite(targetTotal)) {
       stopXpGainAnimation();
       setXpDisplayTotal(0);
       return;
@@ -11565,7 +11703,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
     const prefersReducedMotion = typeof window !== 'undefined'
       && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    if (computedGained <= 0 || prefersReducedMotion) {
+    if ((!hasXpAnimation && !hasCoinAnimation) || prefersReducedMotion) {
       stopXpGainAnimation();
       setXpDisplayTotal(targetTotal);
       return;
@@ -11578,6 +11716,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     setXpDockVisible(true);
     setXpAnimationActive(true);
     setXpFlightStars([]);
+    setCoinFlightCoins([]);
 
     const sourceRect = (
       payload?.sourceRect
@@ -11588,52 +11727,81 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     )
       ? payload.sourceRect
       : null;
-    const baseDurationMs = Math.max(1200, Math.min(2700, Math.round(1100 + (computedGained * 1.25))));
+    const baseDurationMs = Math.max(
+      1200,
+      Math.min(2700, Math.round(1100 + (computedGained * 1.25) + (payloadCoinsGained * 120)))
+    );
     const startTotal = currentDisplay;
 
     const runAnimation = () => {
       if (xpAnimTokenRef.current !== token) return;
-      const targetRect = xpDockBarRef.current?.getBoundingClientRect() || xpInlineBarRef.current?.getBoundingClientRect();
-      if (!targetRect || targetRect.width < 24 || targetRect.height < 8) {
+      const xpTargetRect = hasXpAnimation
+        ? (xpDockBarRef.current?.getBoundingClientRect() || xpInlineBarRef.current?.getBoundingClientRect())
+        : null;
+      if (hasXpAnimation && (!xpTargetRect || xpTargetRect.width < 24 || xpTargetRect.height < 8)) {
+        stopXpGainAnimation();
+        setXpDisplayTotal(targetTotal);
+        return;
+      }
+      const coinTargetRect = hasCoinAnimation
+        ? (coinDockBadgeRef.current?.getBoundingClientRect() || coinInlineBadgeRef.current?.getBoundingClientRect())
+        : null;
+      if (hasCoinAnimation && (!coinTargetRect || coinTargetRect.width < 12 || coinTargetRect.height < 12)) {
         stopXpGainAnimation();
         setXpDisplayTotal(targetTotal);
         return;
       }
 
-      const { stars, maxLandingMs } = createXpFlightStars(sourceRect, targetRect, computedGained, baseDurationMs);
-      if (xpAnimTokenRef.current !== token) return;
-      setXpFlightStars(stars);
-
-      const counterDurationMs = Math.max(900, Math.min(3600, maxLandingMs + 140));
-      const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      const tick = (nowRaw) => {
+      let maxLandingMs = 0;
+      if (hasXpAnimation) {
+        const { stars, maxLandingMs: xpLandingMs } = createXpFlightStars(sourceRect, xpTargetRect, computedGained, baseDurationMs);
         if (xpAnimTokenRef.current !== token) return;
-        const now = Number.isFinite(nowRaw) ? nowRaw : Date.now();
-        const elapsed = Math.max(0, now - startTime);
-        const linearProgress = Math.max(0, Math.min(1, elapsed / counterDurationMs));
-        const easedProgress = 1 - Math.pow(1 - linearProgress, 3);
-        const nextValue = Math.round(startTotal + ((targetTotal - startTotal) * easedProgress));
-        setXpDisplayTotal(nextValue);
-        if (linearProgress < 1) {
-          xpCounterFrameRef.current = requestAnimationFrame(tick);
-          return;
-        }
-        xpCounterFrameRef.current = null;
+        setXpFlightStars(stars);
+        maxLandingMs = Math.max(maxLandingMs, xpLandingMs);
+      }
+      if (hasCoinAnimation) {
+        const { coins, maxLandingMs: coinLandingMs } = createCoinFlightCoins(sourceRect, coinTargetRect, payloadCoinsGained, baseDurationMs);
+        if (xpAnimTokenRef.current !== token) return;
+        setCoinFlightCoins(coins);
+        maxLandingMs = Math.max(maxLandingMs, coinLandingMs);
+      }
+      if (xpAnimTokenRef.current !== token) return;
+
+      const counterDurationMs = Math.max(900, Math.min(3600, Math.max(maxLandingMs + 140, hasXpAnimation ? 900 : baseDurationMs)));
+      if (hasXpAnimation) {
+        const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        const tick = (nowRaw) => {
+          if (xpAnimTokenRef.current !== token) return;
+          const now = Number.isFinite(nowRaw) ? nowRaw : Date.now();
+          const elapsed = Math.max(0, now - startTime);
+          const linearProgress = Math.max(0, Math.min(1, elapsed / counterDurationMs));
+          const easedProgress = 1 - Math.pow(1 - linearProgress, 3);
+          const nextValue = Math.round(startTotal + ((targetTotal - startTotal) * easedProgress));
+          setXpDisplayTotal(nextValue);
+          if (linearProgress < 1) {
+            xpCounterFrameRef.current = requestAnimationFrame(tick);
+            return;
+          }
+          xpCounterFrameRef.current = null;
+          setXpDisplayTotal(targetTotal);
+        };
+        xpCounterFrameRef.current = requestAnimationFrame(tick);
+      } else {
         setXpDisplayTotal(targetTotal);
-      };
-      xpCounterFrameRef.current = requestAnimationFrame(tick);
+      }
 
       xpDockHideTimerRef.current = setTimeout(() => {
         if (xpAnimTokenRef.current !== token) return;
         setXpAnimationActive(false);
         setXpFlightStars([]);
+        setCoinFlightCoins([]);
         setXpDockVisible(false);
         xpAnimationRunningRef.current = false;
       }, counterDurationMs + 820);
     };
 
     requestAnimationFrame(() => requestAnimationFrame(runAnimation));
-  }, [createXpFlightStars, stopXpGainAnimation, user.role]);
+  }, [coinInlineBadgeRef, createCoinFlightCoins, createXpFlightStars, stopXpGainAnimation, user.role]);
 
   useEffect(() => () => {
     stopXpGainAnimation();
@@ -11846,12 +12014,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const freezeUsedThisWeek = weekStart && streak.freezeUsedWeekStart === weekStart;
   const freezeAvailable = !freezeUsedThisWeek;
   const totalXp = normalizeXpTotal(xpDisplayTotal);
+  const totalCoins = normalizeCoinsTotal(studentCoinsTotal);
   const currentLevel = Math.floor(totalXp / XP_PER_LEVEL) + 1;
   const xpIntoLevel = totalXp % XP_PER_LEVEL;
   const levelProgressPercent = Math.max(0, Math.min(100, Math.round((xpIntoLevel / XP_PER_LEVEL) * 100)));
   const xpIntoLevelLabel = xpIntoLevel.toLocaleString('ru-RU');
   const xpPerLevelLabel = XP_PER_LEVEL.toLocaleString('ru-RU');
   const totalXpLabel = totalXp.toLocaleString('ru-RU');
+  const totalCoinsLabel = totalCoins.toLocaleString('ru-RU');
   const displayStreakCurrent = (() => {
     if (!lastActiveKey) return 0;
     if (!Number.isFinite(diffDays) || diffDays <= 1) return streak.current;
@@ -12153,6 +12323,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setStudentDataLoaded(false);
       setStudentStreak(getDefaultStreak());
       setStudentXpTotal(0);
+      setStudentCoinsTotal(0);
       setXpDisplayTotal(0);
       prevLevelRef.current = null;
       if (levelUpTimerRef.current) {
@@ -12177,7 +12348,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         const resolvedXp = Number.isFinite(Number(data?.xpTotal))
           ? normalizeXpTotal(data.xpTotal)
           : deriveXpFromSolvedByTask(solved);
+        const resolvedCoins = Number.isFinite(Number(data?.coinsTotal))
+          ? normalizeCoinsTotal(data.coinsTotal)
+          : deriveCoinsFromSolvedByTask(solved);
         setStudentXpTotal(resolvedXp);
+        setStudentCoinsTotal(resolvedCoins);
         if (!xpAnimationRunningRef.current) {
           setXpDisplayTotal(resolvedXp);
         }
@@ -12190,6 +12365,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           setStudentSolvedEvents([]);
           setStudentStreak(getDefaultStreak());
           setStudentXpTotal(0);
+          setStudentCoinsTotal(0);
           setXpDisplayTotal(0);
           setStudentDataLoaded(true);
         }
@@ -13204,7 +13380,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             <div className="min-w-0 flex-1">
               <div className="xp-flight-dock-meta">
                 <span>{`${xpIntoLevelLabel}/${xpPerLevelLabel} XP`}</span>
-                <span>{`${totalXpLabel} XP`}</span>
+                <div className="xp-flight-dock-meta-right">
+                  <span>{`${totalXpLabel} XP`}</span>
+                  <span
+                    ref={coinDockBadgeRef}
+                    className="xp-flight-dock-coin"
+                    title={`Монеты Python: ${totalCoinsLabel}`}
+                  >
+                    <img src={ivanCoin} alt="" aria-hidden="true" draggable="false" />
+                    <span>{totalCoinsLabel}</span>
+                  </span>
+                </div>
               </div>
               <div ref={xpDockBarRef} className="xp-flight-dock-track">
                 <div
@@ -13237,6 +13423,30 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 '--xp-hue': `${star.hue}deg`,
               }}
             />
+          ))}
+        </div>
+      )}
+      {user.role === 'student' && coinFlightCoins.length > 0 && (
+        <div className="xp-flight-overlay" aria-hidden="true">
+          {coinFlightCoins.map((coin) => (
+            <span
+              key={coin.id}
+              className="coin-flight-item"
+              style={{
+                '--coin-size': `${coin.sizePx}px`,
+                '--coin-delay': `${coin.delayMs}ms`,
+                '--coin-duration': `${coin.durationMs}ms`,
+                '--coin-start-x': `${coin.startX}px`,
+                '--coin-start-y': `${coin.startY}px`,
+                '--coin-mid-x': `${coin.midX}px`,
+                '--coin-mid-y': `${coin.midY}px`,
+                '--coin-end-x': `${coin.endX}px`,
+                '--coin-end-y': `${coin.endY}px`,
+                '--coin-rotate': `${coin.rotateDeg}deg`,
+              }}
+            >
+              <img src={ivanCoin} alt="" aria-hidden="true" draggable="false" />
+            </span>
           ))}
         </div>
       )}
@@ -13785,8 +13995,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               <div className="flex items-center gap-1.5 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-2">
                 <div
                   className="level-progress-card min-w-0 flex-1 px-2 py-1.5 text-sm font-semibold md:min-w-[255px] md:flex-none md:px-2.5 md:py-2"
-                  aria-label={`Уровень ${currentLevel}. Опыт: ${totalXpLabel}`}
-                  title={`Всего опыта: ${totalXpLabel} XP`}
+                  aria-label={`Уровень ${currentLevel}. Опыт: ${totalXpLabel} XP. Монеты Python: ${totalCoinsLabel}.`}
+                  title={`Всего опыта: ${totalXpLabel} XP. Монеты Python: ${totalCoinsLabel}.`}
                 >
                   <div className="level-progress-main">
                     <div className="level-progress-badge">
@@ -13795,7 +14005,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     <div className="min-w-0 flex-1">
                       <div className="level-progress-head">
                         <span className="level-progress-title">{`Уровень ${currentLevel}`}</span>
-                        <span className="level-progress-total">{`${totalXpLabel} XP`}</span>
+                        <div className="level-progress-head-meta">
+                          <span className="level-progress-total">{`${totalXpLabel} XP`}</span>
+                          <span
+                            ref={coinInlineBadgeRef}
+                            className="level-progress-coin"
+                            title={`Монеты Python: ${totalCoinsLabel}`}
+                          >
+                            <img src={ivanCoin} alt="" aria-hidden="true" draggable="false" />
+                            <span>{totalCoinsLabel}</span>
+                          </span>
+                        </div>
                       </div>
                       <div
                         ref={xpInlineBarRef}
@@ -14229,6 +14449,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               isLeagueAboveAbsolute={isLeagueAboveAbsolute}
               TOP_PLACE_NUMBER_DECOR={TOP_PLACE_NUMBER_DECOR}
               getTopPlaceNumberStyle={getTopPlaceNumberStyle}
+              studentCoinsTotal={studentCoinsTotal}
+              onStudentCoinsChange={(nextCoinsTotal) => setStudentCoinsTotal(normalizeCoinsTotal(nextCoinsTotal))}
             />
           )}
           {view === 'python' && (
@@ -14907,6 +15129,61 @@ const MainApp = () => {
       });
     return () => { cancelled = true; };
   }, [user?.id, user?.role]);
+
+  useEffect(() => {
+    if (import.meta.env.DEV) return undefined;
+    if (typeof window === 'undefined' || typeof document === 'undefined') return undefined;
+
+    let disposed = false;
+    let checking = false;
+    let reloadTriggered = false;
+
+    const checkForNewClientBuild = async () => {
+      if (disposed || checking || reloadTriggered) return;
+      const currentFingerprint = getCurrentClientBuildFingerprint();
+      if (!currentFingerprint) return;
+
+      checking = true;
+      try {
+        const res = await fetch(resolveApiUrl(`/api/client-build-version?_ts=${Date.now()}`), {
+          cache: 'no-store',
+          credentials: 'include',
+        });
+        if (!res.ok) return;
+        const payload = await res.json().catch(() => null);
+        const serverFingerprint = typeof payload?.fingerprint === 'string'
+          ? payload.fingerprint.trim()
+          : '';
+        if (!serverFingerprint) return;
+        if (serverFingerprint === currentFingerprint) return;
+        reloadTriggered = true;
+        window.location.reload();
+      } catch {
+        // Ignore transient connectivity errors and try again on the next check.
+      } finally {
+        checking = false;
+      }
+    };
+
+    checkForNewClientBuild();
+
+    const intervalId = window.setInterval(checkForNewClientBuild, CLIENT_BUILD_CHECK_INTERVAL_MS);
+    const handleVisibilityCheck = () => {
+      if (document.visibilityState === 'visible') {
+        checkForNewClientBuild();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityCheck);
+    window.addEventListener('focus', handleVisibilityCheck);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityCheck);
+      window.removeEventListener('focus', handleVisibilityCheck);
+    };
+  }, []);
 
   const handleLogin = (u) => {
     persistNormalizedUser(u);

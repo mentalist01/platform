@@ -111,6 +111,7 @@ const uploadsDir = resolveStoragePath(
   process.env.PLATFORM_UPLOADS_DIR || process.env.APP_UPLOADS_DIR || process.env.UPLOADS_DIR,
   defaultUploadsDir
 );
+const distDir = path.join(__dirname, '..', 'dist');
 const collabDir = resolveStoragePath(
   process.env.PLATFORM_COLLAB_DIR || process.env.APP_COLLAB_DIR,
   path.join(dataDir, 'collab')
@@ -213,6 +214,39 @@ const SOFT_DELETE_TTL_MS = SOFT_DELETE_DAYS * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const GAME_THEORY_TASK = 19;
 const PYTHON_LEVEL_ID = 'python';
+const PYTHON_COIN_MIN_REWARD = 4;
+const PYTHON_COIN_MAX_REWARD = 17;
+const PYTHON_COIN_TASK_ORDER = [
+  101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
+  205, 208, 214, 216, 217, 223, 224, 225, 226, 227,
+];
+const ARTIFACT_SPIN_COST = 20;
+const ARTIFACT_RANK_ORDER = ['S', 'A', 'B', 'C'];
+const ARTIFACT_RANK_CHANCES = [
+  { rank: 'S', chance: 0.05 },
+  { rank: 'A', chance: 0.10 },
+  { rank: 'B', chance: 0.30 },
+  { rank: 'C', chance: 0.55 },
+];
+const ARTIFACT_CATALOG = [
+  { id: 'krylov', rank: 'S', name: 'Крылов' },
+  { id: 'tears', rank: 'S', name: 'Слезы' },
+  { id: '1tbssd', rank: 'A', name: '1 TB SSD' },
+  { id: 'list-comprehension', rank: 'A', name: 'List Comprehension' },
+  { id: 'python', rank: 'A', name: 'Python' },
+  { id: 'crutch', rank: 'B', name: 'Костыль' },
+  { id: 'whileTrue', rank: 'B', name: 'while True' },
+  { id: 'black_pen', rank: 'C', name: 'Черная ручка' },
+  { id: 'coffee', rank: 'C', name: 'Кофе' },
+  { id: 'draft', rank: 'C', name: 'Черновик' },
+];
+const ARTIFACT_CATALOG_BY_ID = new Map(ARTIFACT_CATALOG.map((artifact) => [artifact.id, artifact]));
+const ARTIFACT_IDS_BY_RANK = ARTIFACT_CATALOG.reduce((acc, artifact) => {
+  const current = acc.get(artifact.rank) || [];
+  current.push(artifact.id);
+  acc.set(artifact.rank, current);
+  return acc;
+}, new Map());
 const TASK_XP_REWARDS = {
   1: 20,
   2: 50,
@@ -4648,10 +4682,144 @@ const getTaskLevelXpReward = (taskNumber, levelId) => {
   return Math.max(0, Math.round(baseReward * multiplier));
 };
 
+const getPythonCoinReward = (taskNumber) => {
+  const taskNum = Number(taskNumber);
+  if (!Number.isFinite(taskNum)) return 0;
+  const lastIndex = PYTHON_COIN_TASK_ORDER.length - 1;
+  if (lastIndex <= 0) return PYTHON_COIN_MIN_REWARD;
+  let orderIndex = PYTHON_COIN_TASK_ORDER.findIndex((value) => value >= taskNum);
+  if (orderIndex < 0) orderIndex = lastIndex;
+  const progress = orderIndex / lastIndex;
+  return Math.round(
+    PYTHON_COIN_MIN_REWARD
+    + ((PYTHON_COIN_MAX_REWARD - PYTHON_COIN_MIN_REWARD) * progress)
+  );
+};
+
+const getSolveCoinReward = (_taskNumber, levelId) => (
+  String(levelId || '').trim() === PYTHON_LEVEL_ID ? getPythonCoinReward(_taskNumber) : 0
+);
+
 const normalizeXpTotal = (value) => {
   const num = Number(value);
   if (!Number.isFinite(num) || num <= 0) return 0;
   return Math.floor(num);
+};
+
+const normalizeCoinsTotal = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return 0;
+  return Math.floor(num);
+};
+
+const normalizeCoinsSpentTotal = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return 0;
+  return Math.floor(num);
+};
+
+const normalizeArtifactId = (value) => {
+  const id = String(value || '').trim();
+  return ARTIFACT_CATALOG_BY_ID.has(id) ? id : '';
+};
+
+const normalizeArtifactInventory = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const next = {};
+  Object.entries(value).forEach(([rawId, rawCount]) => {
+    const id = normalizeArtifactId(rawId);
+    if (!id) return;
+    const count = Number(rawCount);
+    if (!Number.isFinite(count) || count <= 0) return;
+    next[id] = Math.floor(count);
+  });
+  return next;
+};
+
+const normalizeArtifactLastPull = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const id = normalizeArtifactId(value.id || value.artifactId);
+  if (!id) return null;
+  const pulledAtRaw = typeof value.pulledAt === 'string' ? value.pulledAt.trim() : '';
+  const pulledAt = pulledAtRaw && !Number.isNaN(Date.parse(pulledAtRaw))
+    ? new Date(pulledAtRaw).toISOString()
+    : null;
+  return {
+    id,
+    pulledAt,
+  };
+};
+
+const normalizeArtifactTotalPulls = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return 0;
+  return Math.floor(num);
+};
+
+const buildArtifactRewardPayload = (artifactId, inventory = {}, pulledAt = null) => {
+  const id = normalizeArtifactId(artifactId);
+  if (!id) return null;
+  const artifact = ARTIFACT_CATALOG_BY_ID.get(id);
+  if (!artifact) return null;
+  return {
+    id,
+    rank: artifact.rank,
+    name: artifact.name,
+    count: Math.max(0, Math.floor(Number(inventory?.[id]) || 0)),
+    pulledAt: pulledAt && !Number.isNaN(Date.parse(pulledAt)) ? new Date(pulledAt).toISOString() : null,
+  };
+};
+
+const buildStudentArtifactState = (data) => {
+  const inventory = normalizeArtifactInventory(data?.artifactInventory);
+  const totalPulls = normalizeArtifactTotalPulls(data?.artifactTotalPulls);
+  const collection = ARTIFACT_RANK_ORDER.flatMap((rank) => (
+    ARTIFACT_CATALOG
+      .filter((artifact) => artifact.rank === rank)
+      .map((artifact) => ({
+        id: artifact.id,
+        rank: artifact.rank,
+        name: artifact.name,
+        count: Math.max(0, Math.floor(Number(inventory[artifact.id]) || 0)),
+      }))
+      .filter((artifact) => artifact.count > 0)
+  ));
+  const totalOwned = collection.reduce((sum, artifact) => sum + artifact.count, 0);
+  const uniqueOwned = collection.length;
+  const lastPull = buildArtifactRewardPayload(
+    data?.artifactLastPull?.id,
+    inventory,
+    data?.artifactLastPull?.pulledAt || null
+  );
+  return {
+    spinCost: ARTIFACT_SPIN_COST,
+    rankChances: ARTIFACT_RANK_CHANCES.map((entry) => ({
+      rank: entry.rank,
+      chancePercent: Math.round(entry.chance * 100),
+    })),
+    totalPulls,
+    totalOwned,
+    uniqueOwned,
+    collection,
+    lastPull,
+  };
+};
+
+const rollArtifactRank = (randomValue = Math.random()) => {
+  let cursor = 0;
+  for (const entry of ARTIFACT_RANK_CHANCES) {
+    cursor += entry.chance;
+    if (randomValue < cursor) return entry.rank;
+  }
+  return ARTIFACT_RANK_CHANCES[ARTIFACT_RANK_CHANCES.length - 1]?.rank || 'C';
+};
+
+const rollArtifactReward = () => {
+  const rank = rollArtifactRank();
+  const rankIds = ARTIFACT_IDS_BY_RANK.get(rank) || [];
+  if (rankIds.length <= 0) return ARTIFACT_CATALOG[ARTIFACT_CATALOG.length - 1] || null;
+  const artifactId = rankIds[Math.floor(Math.random() * rankIds.length)];
+  return ARTIFACT_CATALOG_BY_ID.get(artifactId) || null;
 };
 
 const normalizeLeaderboardAlias = (value) => {
@@ -4700,6 +4868,26 @@ const deriveXpFromSolvedByTask = (solvedByTask) => {
   return totalXp;
 };
 
+const deriveCoinsFromSolvedByTask = (solvedByTask) => {
+  if (!solvedByTask || typeof solvedByTask !== 'object') return 0;
+  let totalCoins = 0;
+  Object.entries(solvedByTask).forEach(([taskKey, taskEntry]) => {
+    if (!taskEntry || typeof taskEntry !== 'object' || Array.isArray(taskEntry)) return;
+    Object.entries(taskEntry).forEach(([levelKey, levelEntry]) => {
+      if (String(levelKey).startsWith('_')) return;
+      if (!levelEntry || typeof levelEntry !== 'object' || Array.isArray(levelEntry)) return;
+      const solvedList = Array.isArray(levelEntry.solved) ? levelEntry.solved : [];
+      if (solvedList.length <= 0) return;
+      const solvedCount = new Set(solvedList.map((id) => String(id))).size;
+      if (solvedCount <= 0) return;
+      const reward = getSolveCoinReward(taskKey, levelKey);
+      if (reward <= 0) return;
+      totalCoins += solvedCount * reward;
+    });
+  });
+  return normalizeCoinsTotal(totalCoins);
+};
+
 const deriveXpFromSolvedEvents = (events) => {
   if (!Array.isArray(events) || events.length <= 0) return 0;
   const seenIds = new Set();
@@ -4720,6 +4908,26 @@ const deriveXpFromSolvedEvents = (events) => {
     totalXp += reward;
   });
   return totalXp;
+};
+
+const deriveCoinsFromSolvedEvents = (events) => {
+  if (!Array.isArray(events) || events.length <= 0) return 0;
+  const seenIds = new Set();
+  let totalCoins = 0;
+  events.forEach((event) => {
+    const eventId = typeof event?.id === 'string' ? event.id.trim() : '';
+    if (eventId) {
+      if (seenIds.has(eventId)) return;
+      seenIds.add(eventId);
+    }
+    if (!event || typeof event !== 'object') return;
+    const levelId = String(event.levelId || '').trim();
+    if (levelId !== PYTHON_LEVEL_ID) return;
+    const reward = getSolveCoinReward(event.taskNumber, levelId);
+    if (reward <= 0) return;
+    totalCoins += reward;
+  });
+  return normalizeCoinsTotal(totalCoins);
 };
 
 const getLegacyProgressLevelCompletionRatio = (taskProgress, levelId) => {
@@ -5005,16 +5213,64 @@ const normalizeNotesByTaskMap = (value) => {
 const getStudentData = (studentId) => {
   const db = readProgressDb();
   const raw = db[studentId];
-  if (!raw) return { progress: {}, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], streak: getDefaultStreak(), nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [], mockAttempts: {}, xpTotal: 0, leaderboardAlias: '' };
-  if (raw.progress || raw.notes || raw.notesByTask || raw.mocks || raw.schedule || raw.solvedByTask || raw.streak || raw.mockAttempts || Object.prototype.hasOwnProperty.call(raw, 'xpTotal') || Object.prototype.hasOwnProperty.call(raw, 'leaderboardAlias')) {
+  if (!raw) {
+    return {
+      progress: {},
+      notes: '',
+      notesByTask: {},
+      mocks: [],
+      schedule: [],
+      solvedByTask: {},
+      solvedEvents: [],
+      streak: getDefaultStreak(),
+      nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
+      homeworks: [],
+      mockAttempts: {},
+      xpTotal: 0,
+      coinsTotal: 0,
+      coinsSpentTotal: 0,
+      artifactInventory: {},
+      artifactLastPull: null,
+      artifactTotalPulls: 0,
+      leaderboardAlias: '',
+    };
+  }
+  if (
+    raw.progress
+    || raw.notes
+    || raw.notesByTask
+    || raw.mocks
+    || raw.schedule
+    || raw.solvedByTask
+    || raw.streak
+    || raw.mockAttempts
+    || Object.prototype.hasOwnProperty.call(raw, 'xpTotal')
+    || Object.prototype.hasOwnProperty.call(raw, 'coinsTotal')
+    || Object.prototype.hasOwnProperty.call(raw, 'coinsSpentTotal')
+    || Object.prototype.hasOwnProperty.call(raw, 'artifactInventory')
+    || Object.prototype.hasOwnProperty.call(raw, 'artifactLastPull')
+    || Object.prototype.hasOwnProperty.call(raw, 'artifactTotalPulls')
+    || Object.prototype.hasOwnProperty.call(raw, 'leaderboardAlias')
+  ) {
     const progress = raw.progress && typeof raw.progress === 'object' && !Array.isArray(raw.progress) ? raw.progress : {};
     const solvedByTask = raw.solvedByTask && typeof raw.solvedByTask === 'object' ? raw.solvedByTask : {};
     const solvedEvents = Array.isArray(raw.solvedEvents) ? raw.solvedEvents : [];
     const hasStoredXp = Object.prototype.hasOwnProperty.call(raw, 'xpTotal');
+    const hasStoredCoins = Object.prototype.hasOwnProperty.call(raw, 'coinsTotal');
+    const hasStoredCoinsSpent = Object.prototype.hasOwnProperty.call(raw, 'coinsSpentTotal');
     const derivedSolvedXp = deriveXpFromSolvedByTask(solvedByTask);
     const derivedEventsXp = deriveXpFromSolvedEvents(solvedEvents);
     const derivedLegacyProgressXp = deriveXpFromLegacyProgress(progress);
+    const derivedSolvedCoins = deriveCoinsFromSolvedByTask(solvedByTask);
+    const derivedEventsCoins = deriveCoinsFromSolvedEvents(solvedEvents);
     const derivedXp = Math.max(derivedSolvedXp, derivedEventsXp, derivedLegacyProgressXp);
+    const derivedCoins = Math.max(derivedSolvedCoins, derivedEventsCoins);
+    let coinsTotal = hasStoredCoins
+      ? normalizeCoinsTotal(raw.coinsTotal)
+      : Math.max(0, derivedCoins - normalizeCoinsSpentTotal(raw.coinsSpentTotal));
+    if (!hasStoredCoinsSpent && coinsTotal < derivedCoins) {
+      coinsTotal = derivedCoins;
+    }
     return {
       progress,
       notes: raw.notes || '',
@@ -5028,12 +5284,36 @@ const getStudentData = (studentId) => {
       homeworks: Array.isArray(raw.homeworks) ? raw.homeworks : [],
       mockAttempts: raw.mockAttempts && typeof raw.mockAttempts === 'object' ? raw.mockAttempts : {},
       xpTotal: hasStoredXp ? normalizeXpTotal(raw.xpTotal) : derivedXp,
+      coinsTotal,
+      coinsSpentTotal: normalizeCoinsSpentTotal(raw.coinsSpentTotal),
+      artifactInventory: normalizeArtifactInventory(raw.artifactInventory),
+      artifactLastPull: normalizeArtifactLastPull(raw.artifactLastPull),
+      artifactTotalPulls: normalizeArtifactTotalPulls(raw.artifactTotalPulls),
       leaderboardAlias: normalizeLeaderboardAlias(raw.leaderboardAlias),
     };
   }
   const legacyProgress = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const legacyXp = deriveXpFromLegacyProgress(legacyProgress);
-  return { progress: legacyProgress, notes: '', notesByTask: {}, mocks: [], schedule: [], solvedByTask: {}, solvedEvents: [], streak: getDefaultStreak(), nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] }, homeworks: [], mockAttempts: {}, xpTotal: legacyXp, leaderboardAlias: '' };
+  return {
+    progress: legacyProgress,
+    notes: '',
+    notesByTask: {},
+    mocks: [],
+    schedule: [],
+    solvedByTask: {},
+    solvedEvents: [],
+    streak: getDefaultStreak(),
+    nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
+    homeworks: [],
+    mockAttempts: {},
+    xpTotal: legacyXp,
+    coinsTotal: 0,
+    coinsSpentTotal: 0,
+    artifactInventory: {},
+    artifactLastPull: null,
+    artifactTotalPulls: 0,
+    leaderboardAlias: '',
+  };
 };
 
 const setStudentData = (studentId, data) => {
@@ -5051,6 +5331,11 @@ const setStudentData = (studentId, data) => {
     homeworks: Array.isArray(data.homeworks) ? data.homeworks : [],
     mockAttempts: data.mockAttempts && typeof data.mockAttempts === 'object' ? data.mockAttempts : {},
     xpTotal: normalizeXpTotal(data.xpTotal),
+    coinsTotal: normalizeCoinsTotal(data.coinsTotal),
+    coinsSpentTotal: normalizeCoinsSpentTotal(data.coinsSpentTotal),
+    artifactInventory: normalizeArtifactInventory(data.artifactInventory),
+    artifactLastPull: normalizeArtifactLastPull(data.artifactLastPull),
+    artifactTotalPulls: normalizeArtifactTotalPulls(data.artifactTotalPulls),
     leaderboardAlias: normalizeLeaderboardAlias(data.leaderboardAlias),
   };
   db[studentId] = payload;
@@ -6944,6 +7229,37 @@ const parseSizeString = (value) => {
   return Math.round(num * 1024 * 1024);
 };
 
+const extractClientAssetFingerprint = (html) => {
+  const rawHtml = typeof html === 'string' ? html : '';
+  if (!rawHtml) return '';
+  const assets = [];
+  const scriptMatches = rawHtml.matchAll(/<script[^>]+src="([^"]+)"/gi);
+  for (const match of scriptMatches) {
+    const value = String(match?.[1] || '').trim();
+    if (value) assets.push(value);
+  }
+  const styleMatches = rawHtml.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/gi);
+  for (const match of styleMatches) {
+    const value = String(match?.[1] || '').trim();
+    if (value) assets.push(value);
+  }
+  return Array.from(new Set(assets)).join('|');
+};
+
+const getCurrentClientBuildFingerprint = () => {
+  const indexPath = path.join(distDir, 'index.html');
+  try {
+    if (!fs.existsSync(indexPath)) return '';
+    const html = fs.readFileSync(indexPath, 'utf8');
+    const fingerprint = extractClientAssetFingerprint(html);
+    if (fingerprint) return fingerprint;
+    const stats = fs.statSync(indexPath);
+    return Number.isFinite(stats?.mtimeMs) ? `index-html:${Math.round(stats.mtimeMs)}` : '';
+  } catch {
+    return '';
+  }
+};
+
 const normalizeFolderName = (name) => {
   if (typeof name !== 'string') return '';
   return name.trim();
@@ -7482,6 +7798,13 @@ app.post('/api/logout', (req, res) => {
   if (token) deleteAuthSession(token);
   clearAuthSessionCookie(res);
   res.json({ ok: true });
+});
+
+app.get('/api/client-build-version', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.json({
+    fingerprint: getCurrentClientBuildFingerprint(),
+  });
 });
 
 app.use('/api', (req, res, next) => {
@@ -8653,11 +8976,13 @@ app.get('/api/students', (req, res) => {
   const sanitized = students.map(({ codeHash, code, ...rest }) => {
     const data = getStudentData(rest.id);
     const xpTotal = normalizeXpTotal(data?.xpTotal);
+    const coinsTotal = normalizeCoinsTotal(data?.coinsTotal);
     const level = Math.floor(xpTotal / XP_PER_LEVEL) + 1;
     return {
       ...rest,
       leaderboardAlias: normalizeLeaderboardAlias(data?.leaderboardAlias),
       xpTotal,
+      coinsTotal,
       level,
       notesUsageBytes: notesUsageByStudentId.get(rest.id) || 0,
     };
@@ -8729,6 +9054,9 @@ app.get('/api/students/leaderboard', (req, res) => {
   const currentStudentEntry = currentStudentId
     ? (students.find((item) => item.id === currentStudentId) || null)
     : null;
+  const currentStudentData = currentStudentId
+    ? getStudentData(currentStudentId)
+    : null;
 
   return res.json({
     week: {
@@ -8743,8 +9071,10 @@ app.get('/api/students/leaderboard', (req, res) => {
           publicName: currentStudent.publicName,
           hasAlias: currentStudent.hasAlias,
           mainName: normalizeStudentName(currentStudentEntry?.name || ''),
+          coinsTotal: normalizeCoinsTotal(currentStudentData?.coinsTotal),
         }
       : null,
+    altar: currentStudentData ? buildStudentArtifactState(currentStudentData) : null,
   });
 });
 
@@ -8772,6 +9102,51 @@ app.patch('/api/students/leaderboard-alias', (req, res) => {
   const data = getStudentData(student.id);
   const updated = setStudentData(student.id, { ...data, leaderboardAlias: alias });
   return res.json({ ok: true, alias: normalizeLeaderboardAlias(updated?.leaderboardAlias) });
+});
+
+app.post('/api/students/altar/spin', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.auth.id);
+  if (!student) return;
+
+  const data = getStudentData(student.id);
+  const currentCoins = normalizeCoinsTotal(data?.coinsTotal);
+  if (currentCoins < ARTIFACT_SPIN_COST) {
+    return res.status(400).json({
+      error: `Нужно минимум ${ARTIFACT_SPIN_COST} монет для крутки алтаря.`,
+    });
+  }
+
+  const artifact = rollArtifactReward();
+  if (!artifact) {
+    return res.status(500).json({ error: 'Не удалось выбрать артефакт. Попробуйте еще раз.' });
+  }
+
+  const pulledAt = new Date().toISOString();
+  const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
+  artifactInventory[artifact.id] = Math.max(0, Math.floor(Number(artifactInventory[artifact.id]) || 0)) + 1;
+  const coinsTotal = Math.max(0, currentCoins - ARTIFACT_SPIN_COST);
+  const coinsSpentTotal = normalizeCoinsSpentTotal(data?.coinsSpentTotal) + ARTIFACT_SPIN_COST;
+  const artifactTotalPulls = normalizeArtifactTotalPulls(data?.artifactTotalPulls) + 1;
+
+  const updated = setStudentData(student.id, {
+    ...data,
+    coinsTotal,
+    coinsSpentTotal,
+    artifactInventory,
+    artifactLastPull: {
+      id: artifact.id,
+      pulledAt,
+    },
+    artifactTotalPulls,
+  });
+
+  return res.json({
+    ok: true,
+    coinsTotal: updated.coinsTotal,
+    altar: buildStudentArtifactState(updated),
+    drop: buildArtifactRewardPayload(artifact.id, updated.artifactInventory, pulledAt),
+  });
 });
 
 app.post('/api/students', (req, res) => {
@@ -8810,12 +9185,14 @@ app.post('/api/students', (req, res) => {
   writeStudentsDb(students);
   const createdStudentData = getStudentData(entry.id);
   const createdXpTotal = normalizeXpTotal(createdStudentData?.xpTotal);
+  const createdCoinsTotal = normalizeCoinsTotal(createdStudentData?.coinsTotal);
   res.json({
     id: entry.id,
     name: entry.name,
     nickname: entry.nickname || '',
     leaderboardAlias: '',
     xpTotal: createdXpTotal,
+    coinsTotal: createdCoinsTotal,
     level: Math.floor(createdXpTotal / XP_PER_LEVEL) + 1,
     teacherId: entry.teacherId,
     code: plainCode,
@@ -8872,12 +9249,14 @@ app.post('/api/students/:id/restore', (req, res) => {
   writeStudentsDb(students);
   const restoredData = getStudentData(restored.id);
   const restoredXpTotal = normalizeXpTotal(restoredData?.xpTotal);
+  const restoredCoinsTotal = normalizeCoinsTotal(restoredData?.coinsTotal);
   res.json({
     id: restored.id,
     name: restored.name,
     nickname: restored.nickname || '',
     leaderboardAlias: normalizeLeaderboardAlias(restoredData?.leaderboardAlias),
     xpTotal: restoredXpTotal,
+    coinsTotal: restoredCoinsTotal,
     level: Math.floor(restoredXpTotal / XP_PER_LEVEL) + 1,
     teacherId: restored.teacherId,
     codeHint: restored.codeHint,
@@ -9010,12 +9389,13 @@ app.post('/api/teachers/:id/reset-code', (req, res) => {
 app.patch('/api/students/:id', (req, res) => {
   if (isStudentRole(req.auth)) return forbid(res);
   const { id } = req.params;
-  const { name, nickname, leaderboardAlias } = req.body || {};
+  const { name, nickname, leaderboardAlias, coinsGrant } = req.body || {};
   const hasName = Object.prototype.hasOwnProperty.call(req.body || {}, 'name');
   const hasNickname = Object.prototype.hasOwnProperty.call(req.body || {}, 'nickname');
   const hasLeaderboardAlias = Object.prototype.hasOwnProperty.call(req.body || {}, 'leaderboardAlias');
+  const hasCoinsGrant = Object.prototype.hasOwnProperty.call(req.body || {}, 'coinsGrant');
 
-  if (!hasName && !hasNickname && !hasLeaderboardAlias) {
+  if (!hasName && !hasNickname && !hasLeaderboardAlias && !hasCoinsGrant) {
     return res.status(400).json({ error: 'Некорректные параметры' });
   }
 
@@ -9053,6 +9433,15 @@ app.patch('/api/students/:id', (req, res) => {
     }
   }
 
+  let studentCoinsGrant = 0;
+  if (hasCoinsGrant) {
+    const parsedCoinsGrant = Number(coinsGrant);
+    if (!Number.isFinite(parsedCoinsGrant) || parsedCoinsGrant < 0 || !Number.isInteger(parsedCoinsGrant)) {
+      return res.status(400).json({ error: 'Количество монет должно быть целым числом не меньше 0.' });
+    }
+    studentCoinsGrant = parsedCoinsGrant;
+  }
+
   const students = readStudentsDb();
   const idx = students.findIndex((s) => s.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Ученик не найден' });
@@ -9064,6 +9453,13 @@ app.patch('/api/students/:id', (req, res) => {
 
   students[idx] = updated;
   writeStudentsDb(students);
+  if (hasCoinsGrant && studentCoinsGrant > 0) {
+    const data = getStudentData(updated.id);
+    setStudentData(updated.id, {
+      ...data,
+      coinsTotal: normalizeCoinsTotal(data?.coinsTotal) + studentCoinsGrant,
+    });
+  }
   if (hasLeaderboardAlias) {
     const data = getStudentData(updated.id);
     setStudentData(updated.id, { ...data, leaderboardAlias: studentLeaderboardAlias });
@@ -9071,12 +9467,14 @@ app.patch('/api/students/:id', (req, res) => {
   const updatedData = getStudentData(updated.id);
   const storedAlias = normalizeLeaderboardAlias(updatedData?.leaderboardAlias);
   const updatedXpTotal = normalizeXpTotal(updatedData?.xpTotal);
+  const updatedCoinsTotal = normalizeCoinsTotal(updatedData?.coinsTotal);
   res.json({
     id: updated.id,
     name: updated.name,
     nickname: updated.nickname || '',
     leaderboardAlias: storedAlias,
     xpTotal: updatedXpTotal,
+    coinsTotal: updatedCoinsTotal,
     level: Math.floor(updatedXpTotal / XP_PER_LEVEL) + 1,
     codeHint: updated.codeHint,
     teacherId: updated.teacherId,
@@ -9374,6 +9772,7 @@ app.post('/api/progress/solve', async (req, res) => {
   const solvedEvents = Array.isArray(data.solvedEvents) ? [...data.solvedEvents] : [];
   const streak = normalizeStreak(data.streak);
   let xpTotal = normalizeXpTotal(data.xpTotal);
+  let coinsTotal = normalizeCoinsTotal(data.coinsTotal);
   const taskEntry = { ...(solvedByTask[taskKey] || {}) };
   const levelEntry = { ...(taskEntry[levelKey] || {}) };
 
@@ -9383,6 +9782,7 @@ app.post('/api/progress/solve', async (req, res) => {
     : {};
   let solvedAdded = false;
   let xpGained = 0;
+  let coinsGained = 0;
   if (!solvedList.includes(qKey)) {
     solvedList.push(qKey);
     solvedAdded = true;
@@ -9402,6 +9802,10 @@ app.post('/api/progress/solve', async (req, res) => {
     xpGained = getTaskLevelXpReward(taskNum, levelKey);
     if (xpGained > 0) {
       xpTotal += xpGained;
+    }
+    coinsGained = getSolveCoinReward(taskNum, levelKey);
+    if (coinsGained > 0) {
+      coinsTotal += coinsGained;
     }
   }
   if (typeof code === 'string' && code.trim()) {
@@ -9474,8 +9878,16 @@ app.post('/api/progress/solve', async (req, res) => {
     }
   }
 
-  const updated = setStudentData(student.id, { ...data, solvedByTask, solvedEvents, progress, streak, xpTotal });
-  res.json({ taskProgress, progress: updated.progress, streak: updated.streak, xpTotal: updated.xpTotal, xpGained });
+  const updated = setStudentData(student.id, { ...data, solvedByTask, solvedEvents, progress, streak, xpTotal, coinsTotal });
+  res.json({
+    taskProgress,
+    progress: updated.progress,
+    streak: updated.streak,
+    xpTotal: updated.xpTotal,
+    xpGained,
+    coinsTotal: updated.coinsTotal,
+    coinsGained,
+  });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Ошибка сервера' });
@@ -11570,7 +11982,6 @@ app.patch('/api/files/:id', (req, res) => {
   res.json(updatedWithFolderPath || updated);
 });
 
-const distDir = path.join(__dirname, '..', 'dist');
 if (fs.existsSync(distDir)) {
   app.use(express.static(distDir));
   app.get('*', (req, res) => {

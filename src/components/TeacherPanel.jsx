@@ -67,6 +67,7 @@ const TeacherPanel = ({
   const [editStudentNickname, setEditStudentNickname] = useState('');
   const [editStudentLeaderboardAlias, setEditStudentLeaderboardAlias] = useState('');
   const [editStudentLeaderboardAliasInitial, setEditStudentLeaderboardAliasInitial] = useState('');
+  const [editStudentCoinsGrant, setEditStudentCoinsGrant] = useState('');
   const [editStudentError, setEditStudentError] = useState('');
   const [editStudentSaving, setEditStudentSaving] = useState(false);
   const [editingQuestionId, setEditingQuestionId] = useState(null);
@@ -833,6 +834,7 @@ const TeacherPanel = ({
     const alias = typeof student.leaderboardAlias === 'string' ? student.leaderboardAlias : '';
     setEditStudentLeaderboardAlias(alias);
     setEditStudentLeaderboardAliasInitial(alias);
+    setEditStudentCoinsGrant('');
     setEditStudentError('');
   };
 
@@ -842,6 +844,7 @@ const TeacherPanel = ({
     setEditStudentNickname('');
     setEditStudentLeaderboardAlias('');
     setEditStudentLeaderboardAliasInitial('');
+    setEditStudentCoinsGrant('');
     setEditStudentError('');
   };
 
@@ -851,6 +854,7 @@ const TeacherPanel = ({
     const nextAlias = String(editStudentLeaderboardAlias || '').trim();
     const initialAlias = String(editStudentLeaderboardAliasInitial || '').trim();
     const aliasChanged = nextAlias !== initialAlias;
+    const rawCoinsGrant = String(editStudentCoinsGrant || '').trim();
     setEditStudentError('');
     if (!nextName) {
       setEditStudentError('Введите имя ученика');
@@ -868,11 +872,22 @@ const TeacherPanel = ({
       setEditStudentError('Псевдоним: 2-6 символов, только русские буквы.');
       return;
     }
+    if (rawCoinsGrant) {
+      if (!/^\d+$/.test(rawCoinsGrant)) {
+        setEditStudentError('Монеты: только целое число не меньше 0.');
+        return;
+      }
+      if (Number(rawCoinsGrant) <= 0) {
+        setEditStudentError('Чтобы выдать монеты, введите число больше 0.');
+        return;
+      }
+    }
 
     setEditStudentSaving(true);
     try {
       const payload = { name: nextName, nickname: editStudentNickname };
       if (aliasChanged) payload.leaderboardAlias = nextAlias;
+      if (rawCoinsGrant) payload.coinsGrant = Number(rawCoinsGrant);
       const res = await api.updateStudent(student.id, payload);
       onStudentUpdated?.({ ...student, ...res });
       cancelEditStudent();
@@ -1274,12 +1289,14 @@ const TeacherPanel = ({
           ) : (
             studentsList.map((student) => {
               const studentXpTotal = normalizeXpTotal(student?.xpTotal);
+              const studentCoinsTotal = Math.max(0, Math.floor(Number(student?.coinsTotal) || 0));
               const studentNotesUsageBytes = normalizeStorageBytes(student?.notesUsageBytes);
               const rawStudentLevel = Number(student?.level);
               const studentLevel = Number.isFinite(rawStudentLevel) && rawStudentLevel > 0
                 ? Math.floor(rawStudentLevel)
                 : (Math.floor(studentXpTotal / XP_PER_LEVEL) + 1);
               const studentXpLabel = studentXpTotal.toLocaleString('ru-RU');
+              const studentCoinsLabel = studentCoinsTotal.toLocaleString('ru-RU');
               return (
                 <div
                   key={student.id}
@@ -1329,6 +1346,26 @@ const TeacherPanel = ({
                           placeholder="Псевдоним в рейтинге (пусто = аноним)"
                           className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
                         />
+                        <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2">
+                          <div className="text-[11px] font-semibold text-amber-700">
+                            {`Сейчас у ученика: ${studentCoinsLabel} монет`}
+                          </div>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            inputMode="numeric"
+                            value={editStudentCoinsGrant}
+                            onChange={(e) => setEditStudentCoinsGrant(String(e.target.value || '').replace(/[^\d]/g, ''))}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveEditStudent(student);
+                              if (e.key === 'Escape') cancelEditStudent();
+                            }}
+                            placeholder="Выдать монеты"
+                            className="mt-2 w-full px-3 py-2 rounded-lg bg-white border border-amber-200 focus:border-amber-400 outline-none text-sm"
+                          />
+                          <p className="mt-1 text-[11px] text-amber-700/80">Введите, сколько монет добавить к текущему балансу.</p>
+                        </div>
                         <p className="text-[11px] text-gray-500">2-6 русских букв, плохие слова блокируются.</p>
                         {editStudentError && <p className="text-xs text-red-500">{editStudentError}</p>}
                       </div>
@@ -1344,6 +1381,9 @@ const TeacherPanel = ({
                           </span>
                           <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                             {`${studentXpLabel} XP`}
+                          </span>
+                          <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                            {`${studentCoinsLabel} монет`}
                           </span>
                           <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
                             {`Конспекты: ${formatStorageBytes(studentNotesUsageBytes)}`}

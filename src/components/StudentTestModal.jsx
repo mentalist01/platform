@@ -558,6 +558,8 @@ const StudentTestModal = ({
           onXpGain({
             xpTotal: normalizeXpTotal(resp.xpTotal),
             xpGained: normalizeXpTotal(resp?.xpGained),
+            coinsTotal: Number.isFinite(Number(resp?.coinsTotal)) ? Number(resp.coinsTotal) : undefined,
+            coinsGained: Number.isFinite(Number(resp?.coinsGained)) ? Number(resp.coinsGained) : undefined,
             sourceRect: sourceRect && Number.isFinite(sourceRect.left) && Number.isFinite(sourceRect.top)
               ? sourceRect
               : null,

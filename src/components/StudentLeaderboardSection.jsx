@@ -1,6 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCcw } from 'lucide-react';
 import { api } from '../services/api';
+import StudentArtifactAltar from './StudentArtifactAltar';
 const StudentLeaderboardSection = ({
   role,
   userId,
@@ -17,8 +18,11 @@ const StudentLeaderboardSection = ({
   isLeagueAboveAbsolute,
   TOP_PLACE_NUMBER_DECOR,
   getTopPlaceNumberStyle,
+  studentCoinsTotal = 0,
+  onStudentCoinsChange,
 }) => {
   const [leaderboard, setLeaderboard] = useState({ items: [], week: null, currentStudent: null });
+  const [altar, setAltar] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -28,6 +32,8 @@ const StudentLeaderboardSection = ({
   const [aliasSuccess, setAliasSuccess] = useState('');
   const [aliasMode, setAliasMode] = useState('choose');
   const [isLeagueRangesOpen, setIsLeagueRangesOpen] = useState(false);
+  const [spinLoading, setSpinLoading] = useState(false);
+  const [spinError, setSpinError] = useState('');
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -49,7 +55,11 @@ const StudentLeaderboardSection = ({
       const currentStudent = data?.currentStudent && typeof data.currentStudent === 'object'
         ? data.currentStudent
         : null;
+      const nextAltar = data?.altar && typeof data.altar === 'object'
+        ? data.altar
+        : null;
       setLeaderboard({ items, week, currentStudent });
+      setAltar(nextAltar);
       if (role === 'student') {
         if (currentStudent?.hasAlias && typeof currentStudent.publicName === 'string') {
           setAliasInput(currentStudent.publicName);
@@ -63,6 +73,7 @@ const StudentLeaderboardSection = ({
       if (!mountedRef.current) return;
       setError(err?.message || 'Не удалось загрузить рейтинг.');
       setLeaderboard({ items: [], week: null, currentStudent: null });
+      setAltar(null);
     } finally {
       if (mountedRef.current) {
         setLoading(false);
@@ -228,6 +239,34 @@ const StudentLeaderboardSection = ({
       }
     }
   };
+
+  const handleSpinArtifact = useCallback(async () => {
+    if (role !== 'student' || spinLoading) return;
+    setSpinError('');
+    setSpinLoading(true);
+    try {
+      const data = await api.spinArtifactAltar();
+      if (!mountedRef.current) return;
+      const nextCoinsTotal = Number.isFinite(Number(data?.coinsTotal))
+        ? Math.max(0, Math.floor(Number(data.coinsTotal)))
+        : null;
+      if (typeof onStudentCoinsChange === 'function' && nextCoinsTotal !== null) {
+        onStudentCoinsChange(nextCoinsTotal);
+      }
+      if (data?.altar && typeof data.altar === 'object') {
+        setAltar(data.altar);
+      } else {
+        await loadLeaderboard({ silent: true });
+      }
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setSpinError(err?.message || 'Не удалось прокрутить алтарь.');
+    } finally {
+      if (mountedRef.current) {
+        setSpinLoading(false);
+      }
+    }
+  }, [loadLeaderboard, onStudentCoinsChange, role, spinLoading]);
 
   const renderBoard = (items, type) => (
     <div className="rounded-3xl border border-purple-200/70 bg-white/90 p-4 shadow-soft">
@@ -607,6 +646,16 @@ const StudentLeaderboardSection = ({
           {aliasError && <div className="mt-2 text-xs text-rose-600">{aliasError}</div>}
           {aliasSuccess && <div className="mt-2 text-xs text-emerald-700">{aliasSuccess}</div>}
         </div>
+      )}
+
+      {role === 'student' && (
+        <StudentArtifactAltar
+          altar={altar}
+          coinsTotal={studentCoinsTotal}
+          onSpin={handleSpinArtifact}
+          spinning={spinLoading}
+          spinError={spinError}
+        />
       )}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
