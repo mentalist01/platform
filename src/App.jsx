@@ -14451,6 +14451,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               getTopPlaceNumberStyle={getTopPlaceNumberStyle}
               studentCoinsTotal={studentCoinsTotal}
               onStudentCoinsChange={(nextCoinsTotal) => setStudentCoinsTotal(normalizeCoinsTotal(nextCoinsTotal))}
+              onStudentXpChange={(nextXpTotal) => {
+                const normalizedXp = normalizeXpTotal(nextXpTotal);
+                setStudentXpTotal(normalizedXp);
+                setXpDisplayTotal(normalizedXp);
+              }}
             />
           )}
           {view === 'python' && (

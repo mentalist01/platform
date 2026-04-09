@@ -20,6 +20,7 @@ const StudentLeaderboardSection = ({
   getTopPlaceNumberStyle,
   studentCoinsTotal = 0,
   onStudentCoinsChange,
+  onStudentXpChange,
 }) => {
   const [leaderboard, setLeaderboard] = useState({ items: [], week: null, currentStudent: null });
   const [altar, setAltar] = useState(null);
@@ -250,23 +251,32 @@ const StudentLeaderboardSection = ({
       const nextCoinsTotal = Number.isFinite(Number(data?.coinsTotal))
         ? Math.max(0, Math.floor(Number(data.coinsTotal)))
         : null;
+      const nextXpTotal = Number.isFinite(Number(data?.xpTotal))
+        ? Math.max(0, Math.floor(Number(data.xpTotal)))
+        : null;
       if (typeof onStudentCoinsChange === 'function' && nextCoinsTotal !== null) {
         onStudentCoinsChange(nextCoinsTotal);
       }
+      if (typeof onStudentXpChange === 'function' && nextXpTotal !== null) {
+        onStudentXpChange(nextXpTotal);
+      }
       if (data?.altar && typeof data.altar === 'object') {
         setAltar(data.altar);
-      } else {
-        await loadLeaderboard({ silent: true });
       }
+      if ((Number(data?.xpGained) || 0) > 0 || !data?.altar || typeof data.altar !== 'object') {
+        void loadLeaderboard({ silent: true });
+      }
+      return data;
     } catch (err) {
       if (!mountedRef.current) return;
       setSpinError(err?.message || 'Не удалось прокрутить алтарь.');
+      throw err;
     } finally {
       if (mountedRef.current) {
         setSpinLoading(false);
       }
     }
-  }, [loadLeaderboard, onStudentCoinsChange, role, spinLoading]);
+  }, [loadLeaderboard, onStudentCoinsChange, onStudentXpChange, role, spinLoading]);
 
   const renderBoard = (items, type) => (
     <div className="rounded-3xl border border-purple-200/70 bg-white/90 p-4 shadow-soft">

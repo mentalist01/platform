@@ -10,6 +10,7 @@ import { createRequire } from 'module';
 import webpush from 'web-push';
 import { WebSocketServer } from 'ws';
 import yWsUtils from 'y-websocket/bin/utils';
+import { ARTIFACT_CATALOG_METADATA } from '../src/data/artifactCatalog.js';
 
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
@@ -228,18 +229,7 @@ const ARTIFACT_RANK_CHANCES = [
   { rank: 'B', chance: 0.30 },
   { rank: 'C', chance: 0.55 },
 ];
-const ARTIFACT_CATALOG = [
-  { id: 'krylov', rank: 'S', name: 'Крылов' },
-  { id: 'tears', rank: 'S', name: 'Слезы' },
-  { id: '1tbssd', rank: 'A', name: '1 TB SSD' },
-  { id: 'list-comprehension', rank: 'A', name: 'List Comprehension' },
-  { id: 'python', rank: 'A', name: 'Python' },
-  { id: 'crutch', rank: 'B', name: 'Костыль' },
-  { id: 'whileTrue', rank: 'B', name: 'while True' },
-  { id: 'black_pen', rank: 'C', name: 'Черная ручка' },
-  { id: 'coffee', rank: 'C', name: 'Кофе' },
-  { id: 'draft', rank: 'C', name: 'Черновик' },
-];
+const ARTIFACT_CATALOG = ARTIFACT_CATALOG_METADATA;
 const ARTIFACT_CATALOG_BY_ID = new Map(ARTIFACT_CATALOG.map((artifact) => [artifact.id, artifact]));
 const ARTIFACT_IDS_BY_RANK = ARTIFACT_CATALOG.reduce((acc, artifact) => {
   const current = acc.get(artifact.rank) || [];
@@ -247,6 +237,33 @@ const ARTIFACT_IDS_BY_RANK = ARTIFACT_CATALOG.reduce((acc, artifact) => {
   acc.set(artifact.rank, current);
   return acc;
 }, new Map());
+const ARTIFACT_XP_GLOBAL_MULTIPLIERS = {
+  krylov: 1,
+  crutch: 0.1,
+};
+const ARTIFACT_XP_TASK_MULTIPLIERS = {
+  '1tbssd': {
+    tasks: [15, 16],
+    perCopyBonus: 0.5,
+  },
+  'list-comprehension': {
+    tasks: [17],
+    perCopyBonus: 0.5,
+  },
+  tears: {
+    tasks: [24, 25, 26, 27],
+    perCopyBonus: 3,
+  },
+};
+const ARTIFACT_COIN_GLOBAL_MULTIPLIERS = {
+  python: 1,
+  whileTrue: 0.2,
+};
+const ARTIFACT_INSTANT_REWARDS = {
+  black_pen: { xp: 1000, coins: 0 },
+  draft: { xp: 1000, coins: 0 },
+  coffee: { xp: 0, coins: 5 },
+};
 const TASK_XP_REWARDS = {
   1: 20,
   2: 50,
@@ -4756,6 +4773,175 @@ const normalizeArtifactTotalPulls = (value) => {
   return Math.floor(num);
 };
 
+const getArtifactInventoryCount = (inventory = {}, artifactId) => (
+  Math.max(0, Math.floor(Number(inventory?.[artifactId]) || 0))
+);
+
+const formatArtifactMultiplier = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 'x1';
+  const rounded = Math.round(numeric * 100) / 100;
+  const rendered = Number.isInteger(rounded)
+    ? String(rounded)
+    : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  return `x${rendered}`;
+};
+
+const getArtifactInstantRewardsFromInventory = (inventory = {}) => {
+  const safeInventory = normalizeArtifactInventory(inventory);
+  return Object.entries(ARTIFACT_INSTANT_REWARDS).reduce((acc, [artifactId, reward]) => {
+    const count = getArtifactInventoryCount(safeInventory, artifactId);
+    if (count <= 0) return acc;
+    acc.xp += Math.max(0, Math.floor(Number(reward?.xp) || 0)) * count;
+    acc.coins += Math.max(0, Math.floor(Number(reward?.coins) || 0)) * count;
+    return acc;
+  }, { xp: 0, coins: 0 });
+};
+
+const getArtifactInstantRewardForPull = (artifactId) => {
+  const id = normalizeArtifactId(artifactId);
+  if (!id) return { xp: 0, coins: 0 };
+  const reward = ARTIFACT_INSTANT_REWARDS[id] || null;
+  if (!reward) return { xp: 0, coins: 0 };
+  return {
+    xp: Math.max(0, Math.floor(Number(reward.xp) || 0)),
+    coins: Math.max(0, Math.floor(Number(reward.coins) || 0)),
+  };
+};
+
+const getArtifactSolveXpMultiplier = (inventory = {}, taskNumber) => {
+  const safeInventory = normalizeArtifactInventory(inventory);
+  const normalizedTask = normalizeClassicTaskForXp(taskNumber);
+  let multiplier = 1;
+
+  Object.entries(ARTIFACT_XP_GLOBAL_MULTIPLIERS).forEach(([artifactId, perCopyBonus]) => {
+    const count = getArtifactInventoryCount(safeInventory, artifactId);
+    if (count <= 0) return;
+    multiplier *= (1 + (perCopyBonus * count));
+  });
+
+  if (Number.isFinite(normalizedTask)) {
+    Object.entries(ARTIFACT_XP_TASK_MULTIPLIERS).forEach(([artifactId, entry]) => {
+      if (!Array.isArray(entry?.tasks) || !entry.tasks.includes(normalizedTask)) return;
+      const count = getArtifactInventoryCount(safeInventory, artifactId);
+      if (count <= 0) return;
+      multiplier *= (1 + (Number(entry.perCopyBonus) * count));
+    });
+  }
+
+  return Math.max(1, multiplier);
+};
+
+const getArtifactSolveCoinMultiplier = (inventory = {}) => {
+  const safeInventory = normalizeArtifactInventory(inventory);
+  let multiplier = 1;
+
+  Object.entries(ARTIFACT_COIN_GLOBAL_MULTIPLIERS).forEach(([artifactId, perCopyBonus]) => {
+    const count = getArtifactInventoryCount(safeInventory, artifactId);
+    if (count <= 0) return;
+    multiplier *= (1 + (perCopyBonus * count));
+  });
+
+  return Math.max(1, multiplier);
+};
+
+const applyArtifactXpBonus = (baseReward, inventory = {}, taskNumber) => {
+  const reward = Number(baseReward);
+  if (!Number.isFinite(reward) || reward <= 0) return 0;
+  return normalizeXpTotal(Math.round(reward * getArtifactSolveXpMultiplier(inventory, taskNumber)));
+};
+
+const applyArtifactCoinBonus = (baseReward, inventory = {}) => {
+  const reward = Number(baseReward);
+  if (!Number.isFinite(reward) || reward <= 0) return 0;
+  return normalizeCoinsTotal(Math.round(reward * getArtifactSolveCoinMultiplier(inventory)));
+};
+
+const buildArtifactBonusSummary = (inventory = {}) => {
+  const safeInventory = normalizeArtifactInventory(inventory);
+  const commonXpMultiplier = getArtifactSolveXpMultiplier(safeInventory, 1);
+  const task15to16Multiplier = getArtifactSolveXpMultiplier(safeInventory, 15);
+  const task17Multiplier = getArtifactSolveXpMultiplier(safeInventory, 17);
+  const task24to27Multiplier = getArtifactSolveXpMultiplier(safeInventory, 24);
+  const solveCoinMultiplier = getArtifactSolveCoinMultiplier(safeInventory);
+  const instantRewards = getArtifactInstantRewardsFromInventory(safeInventory);
+  const entries = [];
+
+  if (commonXpMultiplier > 1.0001) {
+    entries.push({
+      id: 'xp-common',
+      tone: 'xp',
+      label: 'Любой опыт',
+      value: formatArtifactMultiplier(commonXpMultiplier),
+    });
+  }
+  if (task15to16Multiplier > 1.0001 && task15to16Multiplier !== commonXpMultiplier) {
+    entries.push({
+      id: 'xp-15-16',
+      tone: 'xp',
+      label: 'XP за 15-16',
+      value: formatArtifactMultiplier(task15to16Multiplier),
+    });
+  }
+  if (task17Multiplier > 1.0001 && task17Multiplier !== commonXpMultiplier) {
+    entries.push({
+      id: 'xp-17',
+      tone: 'xp',
+      label: 'XP за 17',
+      value: formatArtifactMultiplier(task17Multiplier),
+    });
+  }
+  if (task24to27Multiplier > 1.0001 && task24to27Multiplier !== commonXpMultiplier) {
+    entries.push({
+      id: 'xp-24-27',
+      tone: 'xp',
+      label: 'XP за 24-27',
+      value: formatArtifactMultiplier(task24to27Multiplier),
+    });
+  }
+  if (solveCoinMultiplier > 1.0001) {
+    entries.push({
+      id: 'coins-solve',
+      tone: 'coins',
+      label: 'Монеты за задания',
+      value: formatArtifactMultiplier(solveCoinMultiplier),
+    });
+  }
+  if (instantRewards.xp > 0) {
+    entries.push({
+      id: 'instant-xp',
+      tone: 'instant',
+      label: 'Разовый опыт',
+      value: `+${normalizeXpTotal(instantRewards.xp).toLocaleString('ru-RU')} XP`,
+    });
+  }
+  if (instantRewards.coins > 0) {
+    entries.push({
+      id: 'instant-coins',
+      tone: 'instant',
+      label: 'Разовые монеты',
+      value: `+${normalizeCoinsTotal(instantRewards.coins).toLocaleString('ru-RU')} монет`,
+    });
+  }
+
+  return {
+    xp: {
+      commonMultiplier: Math.round(commonXpMultiplier * 100) / 100,
+      task15to16Multiplier: Math.round(task15to16Multiplier * 100) / 100,
+      task17Multiplier: Math.round(task17Multiplier * 100) / 100,
+      task24to27Multiplier: Math.round(task24to27Multiplier * 100) / 100,
+    },
+    coins: {
+      solveMultiplier: Math.round(solveCoinMultiplier * 100) / 100,
+    },
+    instantRewards: {
+      xp: normalizeXpTotal(instantRewards.xp),
+      coins: normalizeCoinsTotal(instantRewards.coins),
+    },
+    entries,
+  };
+};
+
 const buildArtifactRewardPayload = (artifactId, inventory = {}, pulledAt = null) => {
   const id = normalizeArtifactId(artifactId);
   if (!id) return null;
@@ -4765,6 +4951,7 @@ const buildArtifactRewardPayload = (artifactId, inventory = {}, pulledAt = null)
     id,
     rank: artifact.rank,
     name: artifact.name,
+    description: typeof artifact.description === 'string' ? artifact.description : '',
     count: Math.max(0, Math.floor(Number(inventory?.[id]) || 0)),
     pulledAt: pulledAt && !Number.isNaN(Date.parse(pulledAt)) ? new Date(pulledAt).toISOString() : null,
   };
@@ -4773,6 +4960,7 @@ const buildArtifactRewardPayload = (artifactId, inventory = {}, pulledAt = null)
 const buildStudentArtifactState = (data) => {
   const inventory = normalizeArtifactInventory(data?.artifactInventory);
   const totalPulls = normalizeArtifactTotalPulls(data?.artifactTotalPulls);
+  const bonuses = buildArtifactBonusSummary(inventory);
   const collection = ARTIFACT_RANK_ORDER.flatMap((rank) => (
     ARTIFACT_CATALOG
       .filter((artifact) => artifact.rank === rank)
@@ -4780,6 +4968,7 @@ const buildStudentArtifactState = (data) => {
         id: artifact.id,
         rank: artifact.rank,
         name: artifact.name,
+        description: typeof artifact.description === 'string' ? artifact.description : '',
         count: Math.max(0, Math.floor(Number(inventory[artifact.id]) || 0)),
       }))
       .filter((artifact) => artifact.count > 0)
@@ -4802,6 +4991,7 @@ const buildStudentArtifactState = (data) => {
     uniqueOwned,
     collection,
     lastPull,
+    bonuses,
   };
 };
 
@@ -4903,7 +5093,7 @@ const deriveXpFromSolvedEvents = (events) => {
     if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) return;
     const levelId = String(event.levelId || '').trim();
     if (levelId === PYTHON_LEVEL_ID) return;
-    const reward = getTaskLevelXpReward(taskNum, levelId);
+    const reward = normalizeXpTotal(event?.xpGained) || getTaskLevelXpReward(taskNum, levelId);
     if (reward <= 0) return;
     totalXp += reward;
   });
@@ -4923,7 +5113,7 @@ const deriveCoinsFromSolvedEvents = (events) => {
     if (!event || typeof event !== 'object') return;
     const levelId = String(event.levelId || '').trim();
     if (levelId !== PYTHON_LEVEL_ID) return;
-    const reward = getSolveCoinReward(event.taskNumber, levelId);
+    const reward = normalizeCoinsTotal(event?.coinsGained) || getSolveCoinReward(event.taskNumber, levelId);
     if (reward <= 0) return;
     totalCoins += reward;
   });
@@ -5017,7 +5207,7 @@ const getRecentXpFromSolvedEvents = (events, endDayNum, days = LEADERBOARD_WEEK_
     const dayKey = getSolvedEventDayKey(event);
     const dayNum = dayKeyToNumber(dayKey);
     if (!Number.isFinite(dayNum) || dayNum < startDayNum || dayNum > safeEndDayNum) return;
-    const reward = getTaskLevelXpReward(event.taskNumber, event.levelId);
+    const reward = normalizeXpTotal(event?.xpGained) || getTaskLevelXpReward(event.taskNumber, event.levelId);
     if (reward <= 0) return;
     xpTotal += reward;
   });
@@ -5255,6 +5445,8 @@ const getStudentData = (studentId) => {
     const progress = raw.progress && typeof raw.progress === 'object' && !Array.isArray(raw.progress) ? raw.progress : {};
     const solvedByTask = raw.solvedByTask && typeof raw.solvedByTask === 'object' ? raw.solvedByTask : {};
     const solvedEvents = Array.isArray(raw.solvedEvents) ? raw.solvedEvents : [];
+    const artifactInventory = normalizeArtifactInventory(raw.artifactInventory);
+    const instantArtifactRewards = getArtifactInstantRewardsFromInventory(artifactInventory);
     const hasStoredXp = Object.prototype.hasOwnProperty.call(raw, 'xpTotal');
     const hasStoredCoins = Object.prototype.hasOwnProperty.call(raw, 'coinsTotal');
     const hasStoredCoinsSpent = Object.prototype.hasOwnProperty.call(raw, 'coinsSpentTotal');
@@ -5265,11 +5457,19 @@ const getStudentData = (studentId) => {
     const derivedEventsCoins = deriveCoinsFromSolvedEvents(solvedEvents);
     const derivedXp = Math.max(derivedSolvedXp, derivedEventsXp, derivedLegacyProgressXp);
     const derivedCoins = Math.max(derivedSolvedCoins, derivedEventsCoins);
+    const coinsSpentTotal = normalizeCoinsSpentTotal(raw.coinsSpentTotal);
+    const minXpTotal = normalizeXpTotal(derivedXp + instantArtifactRewards.xp);
+    const minCoinsTotal = Math.max(0, normalizeCoinsTotal(derivedCoins + instantArtifactRewards.coins) - coinsSpentTotal);
+    const xpTotal = hasStoredXp
+      ? Math.max(normalizeXpTotal(raw.xpTotal), minXpTotal)
+      : minXpTotal;
     let coinsTotal = hasStoredCoins
       ? normalizeCoinsTotal(raw.coinsTotal)
-      : Math.max(0, derivedCoins - normalizeCoinsSpentTotal(raw.coinsSpentTotal));
-    if (!hasStoredCoinsSpent && coinsTotal < derivedCoins) {
-      coinsTotal = derivedCoins;
+      : minCoinsTotal;
+    if (!hasStoredCoinsSpent && coinsTotal < minCoinsTotal) {
+      coinsTotal = minCoinsTotal;
+    } else if (coinsTotal < minCoinsTotal) {
+      coinsTotal = minCoinsTotal;
     }
     return {
       progress,
@@ -5283,10 +5483,10 @@ const getStudentData = (studentId) => {
       nextLesson: raw.nextLesson && typeof raw.nextLesson === 'object' ? raw.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
       homeworks: Array.isArray(raw.homeworks) ? raw.homeworks : [],
       mockAttempts: raw.mockAttempts && typeof raw.mockAttempts === 'object' ? raw.mockAttempts : {},
-      xpTotal: hasStoredXp ? normalizeXpTotal(raw.xpTotal) : derivedXp,
+      xpTotal,
       coinsTotal,
-      coinsSpentTotal: normalizeCoinsSpentTotal(raw.coinsSpentTotal),
-      artifactInventory: normalizeArtifactInventory(raw.artifactInventory),
+      coinsSpentTotal,
+      artifactInventory,
       artifactLastPull: normalizeArtifactLastPull(raw.artifactLastPull),
       artifactTotalPulls: normalizeArtifactTotalPulls(raw.artifactTotalPulls),
       leaderboardAlias: normalizeLeaderboardAlias(raw.leaderboardAlias),
@@ -9125,12 +9325,17 @@ app.post('/api/students/altar/spin', (req, res) => {
   const pulledAt = new Date().toISOString();
   const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
   artifactInventory[artifact.id] = Math.max(0, Math.floor(Number(artifactInventory[artifact.id]) || 0)) + 1;
-  const coinsTotal = Math.max(0, currentCoins - ARTIFACT_SPIN_COST);
+  const instantReward = getArtifactInstantRewardForPull(artifact.id);
+  const xpGained = normalizeXpTotal(instantReward.xp);
+  const coinsGained = normalizeCoinsTotal(instantReward.coins);
+  const xpTotal = normalizeXpTotal(data?.xpTotal) + xpGained;
+  const coinsTotal = Math.max(0, currentCoins - ARTIFACT_SPIN_COST + coinsGained);
   const coinsSpentTotal = normalizeCoinsSpentTotal(data?.coinsSpentTotal) + ARTIFACT_SPIN_COST;
   const artifactTotalPulls = normalizeArtifactTotalPulls(data?.artifactTotalPulls) + 1;
 
   const updated = setStudentData(student.id, {
     ...data,
+    xpTotal,
     coinsTotal,
     coinsSpentTotal,
     artifactInventory,
@@ -9143,7 +9348,10 @@ app.post('/api/students/altar/spin', (req, res) => {
 
   return res.json({
     ok: true,
+    xpTotal: updated.xpTotal,
+    xpGained,
     coinsTotal: updated.coinsTotal,
+    coinsGained,
     altar: buildStudentArtifactState(updated),
     drop: buildArtifactRewardPayload(artifact.id, updated.artifactInventory, pulledAt),
   });
@@ -9771,6 +9979,7 @@ app.post('/api/progress/solve', async (req, res) => {
   const solvedByTask = { ...(data.solvedByTask || {}) };
   const solvedEvents = Array.isArray(data.solvedEvents) ? [...data.solvedEvents] : [];
   const streak = normalizeStreak(data.streak);
+  const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
   let xpTotal = normalizeXpTotal(data.xpTotal);
   let coinsTotal = normalizeCoinsTotal(data.coinsTotal);
   const taskEntry = { ...(solvedByTask[taskKey] || {}) };
@@ -9787,6 +9996,8 @@ app.post('/api/progress/solve', async (req, res) => {
     solvedList.push(qKey);
     solvedAdded = true;
     const questionNumber = getQuestionNumberById(testsDb, taskNum, levelKey, qKey);
+    xpGained = applyArtifactXpBonus(getTaskLevelXpReward(taskNum, levelKey), artifactInventory, taskNum);
+    coinsGained = applyArtifactCoinBonus(getSolveCoinReward(taskNum, levelKey), artifactInventory);
     solvedEvents.push({
       id: crypto.randomUUID(),
       studentId: student.id,
@@ -9796,14 +10007,14 @@ app.post('/api/progress/solve', async (req, res) => {
       questionNumber,
       solvedAt: new Date().toISOString(),
       localDay: resolvedDayKey,
+      xpGained,
+      coinsGained,
     });
   }
   if (solvedAdded) {
-    xpGained = getTaskLevelXpReward(taskNum, levelKey);
     if (xpGained > 0) {
       xpTotal += xpGained;
     }
-    coinsGained = getSolveCoinReward(taskNum, levelKey);
     if (coinsGained > 0) {
       coinsTotal += coinsGained;
     }
