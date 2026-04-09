@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, BookOpen, Image as ImageIcon, Paperclip, SendHorizontal, Trash2, X } from 'lucide-react';
+import { Bell, BookOpen, ChevronDown, ChevronUp, Gift, Image as ImageIcon, Paperclip, SendHorizontal, Trash2, X } from 'lucide-react';
 import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import LinkifiedText from './LinkifiedText';
 import MockExamBadges from './MockExamBadges';
 import { Button, Card } from './ui';
+import ivanCoin from '../assets/ivan-coin-badge.png';
 
 const formatNotificationDate = (value) => {
   const timestamp = Date.parse(String(value || ''));
@@ -43,7 +44,7 @@ const NotificationAttachmentPreview = ({ attachment, isImage = false }) => {
         href={href}
         target="_blank"
         rel="noreferrer"
-        className="mt-3 block overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
+        className="teacher-broadcast-history__attachment teacher-broadcast-history__attachment--image mt-3 block overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
       >
         <img
           src={href}
@@ -58,11 +59,15 @@ const NotificationAttachmentPreview = ({ attachment, isImage = false }) => {
     <a
       href={buildDownloadUrl(href)}
       download={attachment?.name || undefined}
-      className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 transition hover:border-purple-200 hover:bg-purple-50"
+      className="teacher-broadcast-history__attachment teacher-broadcast-history__attachment--file mt-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 transition hover:border-purple-200 hover:bg-purple-50"
     >
       <div className="min-w-0">
-        <div className="truncate font-semibold text-slate-900">{attachment?.name || 'Файл'}</div>
-        <div className="mt-0.5 text-xs text-slate-500">{attachment?.size || ''}</div>
+        <div className="teacher-broadcast-history__attachment-name truncate font-semibold text-slate-900">
+          {attachment?.name || 'Файл'}
+        </div>
+        <div className="teacher-broadcast-history__attachment-size mt-0.5 text-xs text-slate-500">
+          {attachment?.size || ''}
+        </div>
       </div>
       <Paperclip size={16} className="shrink-0 text-purple-600" />
     </a>
@@ -79,6 +84,18 @@ const getFirstFile = (list) => Array.from(list || []).find(Boolean) || null;
 const getMockExamTaskCount = (exam) => {
   const tasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
   return Object.keys(tasks).filter((key) => Boolean(tasks[key])).length;
+};
+
+const getNotificationCollapsedPreview = (item) => {
+  const text = String(item?.text || '').replace(/\s+/g, ' ').trim();
+  if (text) {
+    return text.length > 140 ? `${text.slice(0, 140).trim()}...` : text;
+  }
+  if (item?.gift?.coins > 0) return `Подарок: +${item.gift.coins} монет`;
+  if (item?.mockExam?.title) return `Пробник: ${item.mockExam.title}`;
+  if (item?.image?.name) return `Картинка: ${item.image.name}`;
+  if (item?.file?.name) return `Файл: ${item.file.name}`;
+  return 'Нажмите, чтобы посмотреть детали уведомления.';
 };
 
 const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
@@ -99,12 +116,20 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
   const [mockExams, setMockExams] = useState([]);
   const [mockExamsLoading, setMockExamsLoading] = useState(false);
   const [selectedMockExamId, setSelectedMockExamId] = useState('');
+  const [giftCoinsInput, setGiftCoinsInput] = useState('');
+  const [expandedNotificationIds, setExpandedNotificationIds] = useState([]);
 
   const audienceHint = useMemo(() => getNotificationAudienceHint(role), [role]);
   const selectedMockExam = useMemo(
     () => (mockExams || []).find((exam) => String(exam?.id || '') === String(selectedMockExamId || '')) || null,
     [mockExams, selectedMockExamId]
   );
+  const giftCoins = useMemo(() => {
+    const raw = String(giftCoinsInput || '').replace(',', '.').trim();
+    if (!raw) return 0;
+    const numeric = Math.floor(Number(raw));
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+  }, [giftCoinsInput]);
 
   useEffect(() => {
     if (!imageFile) {
@@ -157,6 +182,10 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
     };
   }, []);
 
+  useEffect(() => {
+    setExpandedNotificationIds((prev) => prev.filter((id) => items.some((item) => item?.id === id)));
+  }, [items]);
+
   const clearComposerFeedback = useCallback(() => {
     setError('');
     setSuccessMessage('');
@@ -177,6 +206,7 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
     clearImageSelection();
     clearFileSelection();
     setSelectedMockExamId('');
+    setGiftCoinsInput('');
     setSuccessMessage('');
     setImageDropActive(false);
     setFileDropActive(false);
@@ -289,8 +319,8 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
 
   const handleSend = async () => {
     const trimmedText = String(text || '').trim();
-    if (!trimmedText && !imageFile && !fileAttachment && !selectedMockExamId) {
-      setError('Добавьте текст, картинку, файл или пробник.');
+    if (!trimmedText && !imageFile && !fileAttachment && !selectedMockExamId && !giftCoins) {
+      setError('Добавьте текст, картинку, файл, пробник или подарок.');
       return;
     }
 
@@ -317,6 +347,7 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
         image: uploadedImage,
         file: uploadedFile,
         mockExamId: selectedMockExamId || '',
+        giftCoins,
       });
 
       setItems((prev) => [created, ...prev.filter((item) => item.id !== created?.id)]);
@@ -347,6 +378,16 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
       setDeletingId('');
     }
   };
+
+  const toggleNotificationExpanded = useCallback((notificationId) => {
+    const targetId = String(notificationId || '').trim();
+    if (!targetId) return;
+    setExpandedNotificationIds((prev) => (
+      prev.includes(targetId)
+        ? prev.filter((id) => id !== targetId)
+        : [...prev, targetId]
+    ));
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -561,6 +602,55 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
             )}
           </div>
 
+          <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-amber-50/80 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                  <Gift size={16} className="text-amber-600" />
+                  Подарок к уведомлению
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  Ученики смогут нажать <span className="font-semibold text-slate-700">«Забрать подарок»</span> и
+                  получить монеты один раз.
+                </div>
+              </div>
+              {giftCoins > 0 && (
+                <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white px-3 py-1.5 text-xs font-bold text-amber-700">
+                  <img src={ivanCoin} alt="" aria-hidden="true" className="h-4 w-4 shrink-0" />
+                  {`+${giftCoins} монет`}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+              <label className="block">
+                <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Сколько монет подарить
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  inputMode="numeric"
+                  value={giftCoinsInput}
+                  onChange={(event) => {
+                    setGiftCoinsInput(event.target.value);
+                    clearComposerFeedback();
+                  }}
+                  placeholder="0"
+                  className="w-full rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-amber-400"
+                />
+              </label>
+
+              {giftCoinsInput && (
+                <Button type="button" variant="secondary" onClick={() => setGiftCoinsInput('')}>
+                  <X size={14} />
+                  Убрать подарок
+                </Button>
+              )}
+            </div>
+          </div>
+
           {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
           {successMessage && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{successMessage}</div>}
 
@@ -573,57 +663,77 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
         </div>
       </Card>
 
-      <Card className="border border-slate-200 bg-white">
+      <Card className="teacher-broadcast-history border border-slate-200 bg-white">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-lg font-bold text-slate-900">Последние уведомления</h3>
-            <p className="mt-1 text-sm text-slate-500">{`Всего отправлено: ${items.length}`}</p>
+            <h3 className="teacher-broadcast-history__title text-lg font-bold text-slate-900">Последние уведомления</h3>
+            <p className="teacher-broadcast-history__subtitle mt-1 text-sm text-slate-500">{`Всего отправлено: ${items.length}`}</p>
           </div>
-          {loading && <div className="text-xs font-semibold text-slate-400">Загрузка...</div>}
+          {loading && <div className="teacher-broadcast-history__loading text-xs font-semibold text-slate-400">Загрузка...</div>}
         </div>
 
         <div className="mt-4 space-y-3">
           {!loading && items.length === 0 && (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-5 text-sm text-slate-500">
+            <div className="teacher-broadcast-history__empty rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-5 text-sm text-slate-500">
               Уведомлений пока нет.
             </div>
           )}
 
           {items.map((item) => {
             const authorLabel = getNotificationAuthorLabel(item, role);
+            const isExpanded = expandedNotificationIds.includes(item.id);
+            const collapsedPreview = getNotificationCollapsedPreview(item);
             return (
-              <div key={item.id} className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4">
+              <div key={item.id} className="teacher-broadcast-history__item rounded-3xl border border-slate-200 bg-slate-50/70 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full border border-purple-200 bg-white px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-purple-700">
+                      <span className="teacher-broadcast-history__audience-pill rounded-full border border-purple-200 bg-white px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-purple-700">
                         {item?.audienceLabel || 'Рассылка'}
                       </span>
                       {item?.unreadCount > 0 && (
-                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+                        <span className="teacher-broadcast-history__unread-pill rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
                           {`Не прочитали: ${item.unreadCount}`}
                         </span>
                       )}
                     </div>
-                    <div className="mt-2 text-xs text-slate-500">
+                    <div className="teacher-broadcast-history__meta mt-2 text-xs text-slate-500">
                       {formatNotificationDate(item?.createdAt)}
                       {authorLabel ? ` • ${authorLabel}` : ''}
                     </div>
+                    {!isExpanded && (
+                      <div className="teacher-broadcast-history__preview mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+                        {collapsedPreview}
+                      </div>
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(item)}
-                    disabled={deletingId === item.id}
-                    className="rounded-xl border border-slate-200 bg-white p-2 text-slate-400 transition hover:border-rose-200 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-60"
-                    aria-label="Удалить уведомление"
-                    title="Удалить уведомление"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleNotificationExpanded(item.id)}
+                      className="teacher-broadcast-history__toggle inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-purple-200 hover:text-purple-700"
+                      aria-expanded={isExpanded}
+                    >
+                      {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      {isExpanded ? 'Свернуть' : 'Развернуть'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(item)}
+                      disabled={deletingId === item.id}
+                      className="teacher-broadcast-history__delete rounded-xl border border-slate-200 bg-white p-2 text-slate-400 transition hover:border-rose-200 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-60"
+                      aria-label="Удалить уведомление"
+                      title="Удалить уведомление"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </div>
 
+                {isExpanded && (
+                  <>
                 {item?.text && (
-                  <div className="mt-3 text-sm leading-6 text-slate-700">
+                  <div className="teacher-broadcast-history__text mt-3 text-sm leading-6 text-slate-700">
                     <LinkifiedText
                       text={item.text}
                       className="whitespace-pre-wrap break-words"
@@ -636,13 +746,13 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
                 <NotificationAttachmentPreview attachment={item?.file} />
 
                 {item?.mockExam?.id && (
-                  <div className="mt-3 rounded-2xl border border-indigo-200 bg-indigo-50/70 px-4 py-3 text-sm text-indigo-900">
+                  <div className="teacher-broadcast-history__mock-exam mt-3 rounded-2xl border border-indigo-200 bg-indigo-50/70 px-4 py-3 text-sm text-indigo-900">
                     <div className="flex items-center gap-2 font-semibold">
                       <BookOpen size={16} />
                       {item.mockExam.title || 'Прикреплённый пробник'}
                     </div>
-                    <MockExamBadges badges={item?.mockExam?.badges} className="mt-2" />
-                    <div className="mt-1 text-xs text-indigo-700/80">
+                    <MockExamBadges badges={item?.mockExam?.badges} className="teacher-broadcast-history__mock-exam-badges mt-2" />
+                    <div className="teacher-broadcast-history__mock-exam-meta mt-1 text-xs text-indigo-700/80">
                       {Number(item?.mockExam?.taskCount) > 0
                         ? `Заданий в пробнике: ${item.mockExam.taskCount}`
                         : 'Ученик сможет открыть этот пробник прямо из уведомления.'}
@@ -650,8 +760,31 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
                   </div>
                 )}
 
-                <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
-                  <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1">
+                {item?.gift?.coins > 0 && (
+                  <div className="teacher-broadcast-history__gift mt-3 rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 to-white px-4 py-3 text-sm text-slate-800">
+                    <div className="flex flex-wrap items-center gap-2 font-semibold text-amber-800">
+                      <Gift size={16} />
+                      Подарок в уведомлении
+                      <span className="teacher-broadcast-history__gift-amount inline-flex items-center gap-1 rounded-full border border-amber-200 bg-white px-2.5 py-1 text-xs font-bold text-amber-700">
+                        <img src={ivanCoin} alt="" aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                        {`+${item.gift.coins} монет`}
+                      </span>
+                    </div>
+                    <div className="teacher-broadcast-history__gift-stats mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+                      <span className="teacher-broadcast-history__gift-stat rounded-full border border-slate-200 bg-white px-2.5 py-1">
+                        {`Забрали: ${item?.gift?.claimedCount ?? 0} из ${item?.recipientCount ?? 0}`}
+                      </span>
+                      <span className="teacher-broadcast-history__gift-stat rounded-full border border-slate-200 bg-white px-2.5 py-1">
+                        {`Ещё не забрали: ${item?.gift?.unclaimedCount ?? Math.max(0, (item?.recipientCount ?? 0) - (item?.gift?.claimedCount ?? 0))}`}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                  </>
+                )}
+
+                <div className="teacher-broadcast-history__footer mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+                  <span className="teacher-broadcast-history__footer-chip rounded-full border border-slate-200 bg-white px-2.5 py-1">
                     {`Открыли: ${item?.seenCount ?? 0} из ${item?.recipientCount ?? 0}`}
                   </span>
                 </div>

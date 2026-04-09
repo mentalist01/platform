@@ -1301,8 +1301,10 @@ const TeacherPanel = ({
                 <div
                   key={student.id}
                   onClick={() => onSelectStudent?.(student.id)}
-                  className={`p-3 rounded-xl border flex items-start justify-between gap-3 cursor-pointer transition-all ${
-                    activeStudentId === student.id ? 'border-purple-300 bg-purple-50' : 'border-gray-200 bg-white hover:border-purple-200'
+                  className={`teacher-student-card p-3 rounded-xl border flex items-start justify-between gap-3 cursor-pointer transition-all ${
+                    activeStudentId === student.id
+                      ? 'teacher-student-card--active border-purple-300 bg-purple-50'
+                      : 'border-gray-200 bg-white hover:border-purple-200'
                   }`}
                 >
                   <div className="min-w-0 flex-1">
@@ -1371,29 +1373,47 @@ const TeacherPanel = ({
                       </div>
                     ) : (
                       <>
-                        <p className="font-medium text-gray-800 truncate">{student.name}</p>
+                        <p className="teacher-student-card__name font-medium text-gray-800 truncate">{student.name}</p>
                         {student.nickname && (
-                          <p className="text-xs text-purple-600 truncate">Прозвище: {student.nickname}</p>
+                          <p className="teacher-student-card__nickname text-xs text-purple-600 truncate">Прозвище: {student.nickname}</p>
                         )}
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                          <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700">
+                          <span
+                            className="teacher-student-card__pill inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700"
+                            data-tone="level"
+                          >
                             {`Ур. ${studentLevel}`}
                           </span>
-                          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                          <span
+                            className="teacher-student-card__pill inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700"
+                            data-tone="xp"
+                          >
                             {`${studentXpLabel} XP`}
                           </span>
-                          <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                          <span
+                            className="teacher-student-card__pill inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                            data-tone="coins"
+                          >
                             {`${studentCoinsLabel} монет`}
                           </span>
-                          <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                          <span
+                            className="teacher-student-card__pill inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700"
+                            data-tone="notes"
+                          >
                             {`Конспекты: ${formatStorageBytes(studentNotesUsageBytes)}`}
                           </span>
                         </div>
-                        <p className="text-xs text-gray-500 truncate">
-                          Рейтинг: <span className="font-medium text-gray-700">{student.leaderboardAlias || 'аноним'}</span>
+                        <p className="teacher-student-card__meta text-xs text-gray-500 truncate">
+                          Рейтинг:{' '}
+                          <span className="teacher-student-card__meta-value font-medium text-gray-700">
+                            {student.leaderboardAlias || 'аноним'}
+                          </span>
                         </p>
-                        <p className="text-xs text-gray-500">
-                          Код: <span className="font-mono">{student.codeHint ? `****${student.codeHint}` : 'скрыт'}</span>
+                        <p className="teacher-student-card__meta text-xs text-gray-500">
+                          Код:{' '}
+                          <span className="teacher-student-card__meta-value font-mono">
+                            {student.codeHint ? `****${student.codeHint}` : 'скрыт'}
+                          </span>
                         </p>
                       </>
                     )}

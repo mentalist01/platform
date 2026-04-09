@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, BookOpen, Check, Megaphone, Paperclip, X } from 'lucide-react';
+import { Bell, BookOpen, Check, Gift, Megaphone, Paperclip, X } from 'lucide-react';
 import { api, resolveAuthenticatedUploadsUrl, withStoredAuthToken } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { getNotificationsWsUrl } from '../utils/runtimeUrls';
 import LinkifiedText from './LinkifiedText';
 import MockExamBadges from './MockExamBadges';
 import { Button } from './ui';
+import ivanCoin from '../assets/ivan-coin-badge.png';
 
 const SYNC_INTERVAL_MS = 60 * 1000;
 const LIVE_RECONNECT_DELAY_MS = 4 * 1000;
@@ -21,7 +22,7 @@ const formatNotificationDate = (value) => {
   });
 };
 
-const NotificationAttachment = ({ attachment, isImage = false }) => {
+const NotificationAttachment = ({ attachment, isImage = false, dark = false }) => {
   if (!attachment?.url) return null;
   const href = resolveAuthenticatedUploadsUrl(attachment.url);
   if (!href) return null;
@@ -32,7 +33,7 @@ const NotificationAttachment = ({ attachment, isImage = false }) => {
         href={href}
         target="_blank"
         rel="noreferrer"
-        className="block overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
+        className={`block overflow-hidden rounded-2xl border ${dark ? 'border-white/10 bg-slate-950/40' : 'border-slate-200 bg-slate-50'}`}
       >
         <img
           src={href}
@@ -47,7 +48,11 @@ const NotificationAttachment = ({ attachment, isImage = false }) => {
     <a
       href={buildDownloadUrl(href)}
       download={attachment?.name || undefined}
-      className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 transition hover:border-purple-200 hover:bg-purple-50"
+      className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-sm transition ${
+        dark
+          ? 'border-white/10 bg-slate-950/40 text-slate-200 hover:border-fuchsia-300/35 hover:bg-fuchsia-500/10'
+          : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-purple-200 hover:bg-purple-50'
+      }`}
     >
       <div className="min-w-0">
         <div className="truncate font-semibold text-slate-900">{attachment?.name || 'Файл'}</div>
@@ -55,6 +60,65 @@ const NotificationAttachment = ({ attachment, isImage = false }) => {
       </div>
       <Paperclip size={16} className="shrink-0 text-purple-600" />
     </a>
+  );
+};
+
+const NotificationGiftBanner = ({
+  gift,
+  onClaim,
+  claiming = false,
+  dark = false,
+}) => {
+  if (!gift?.coins) return null;
+  const claimed = Boolean(gift?.claimed);
+
+  return (
+    <div className={`rounded-2xl border px-4 py-4 ${
+      dark
+        ? 'border-amber-300/25 bg-amber-400/10 text-white'
+        : 'border-amber-200 bg-gradient-to-r from-amber-50 to-white text-slate-900'
+    }`}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className={`flex flex-wrap items-center gap-2 text-sm font-semibold ${
+            dark ? 'text-amber-100' : 'text-amber-800'
+          }`}>
+            <Gift size={16} />
+            Подарок от преподавателя
+            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${
+              dark
+                ? 'border border-amber-200/25 bg-slate-950/40 text-amber-100'
+                : 'border border-amber-200 bg-white text-amber-700'
+            }`}>
+              <img src={ivanCoin} alt="" aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+              {`+${gift.coins} монет`}
+            </span>
+          </div>
+          <div className={`mt-1 text-xs ${
+            dark ? 'text-slate-200/80' : 'text-slate-600'
+          }`}>
+            {claimed
+              ? 'Подарок уже забран и монеты лежат на балансе.'
+              : 'Монеты можно получить один раз по кнопке ниже.'}
+          </div>
+        </div>
+
+        {typeof onClaim === 'function' && (
+          <Button
+            type="button"
+            variant={claimed ? 'secondary' : (dark ? 'secondary' : 'primary')}
+            className={dark
+              ? 'min-w-[180px] justify-center border-white/15 bg-white/10 text-white hover:bg-white/15'
+              : 'min-w-[180px] justify-center'}
+            onClick={onClaim}
+            disabled={claiming || claimed}
+          >
+            <Gift size={16} />
+            {claimed ? 'Подарок получен' : (claiming ? 'Забираем...' : 'Забрать подарок')}
+          </Button>
+        )}
+      </div>
+    </div>
   );
 };
 
@@ -76,35 +140,50 @@ const removeNotificationItem = (list, targetId) => {
 const NotificationCard = ({
   item,
   markingSeenId,
+  claimingGiftId,
   onMarkSeen,
+  onClaimGift,
   onOpenMockExam,
   showAction = false,
+  dark = false,
 }) => {
   const isUnread = !item?.seen;
 
   return (
     <div
       className={`rounded-[28px] border px-4 py-4 shadow-sm sm:px-5 sm:py-5 ${
-        isUnread ? 'border-purple-200 bg-purple-50/40' : 'border-slate-200 bg-white'
+        dark
+          ? (isUnread
+              ? 'border-fuchsia-300/25 bg-fuchsia-500/10 text-white [&_.text-slate-900]:!text-white [&_.text-slate-700]:!text-slate-200 [&_.text-slate-600]:!text-slate-300 [&_.text-slate-500]:!text-slate-400 [&_.border-slate-200]:!border-white/10 [&_.bg-slate-50]:!bg-white/5'
+              : 'border-white/10 bg-slate-950/35 text-white [&_.text-slate-900]:!text-white [&_.text-slate-700]:!text-slate-200 [&_.text-slate-600]:!text-slate-300 [&_.text-slate-500]:!text-slate-400 [&_.border-slate-200]:!border-white/10 [&_.bg-slate-50]:!bg-white/5')
+          : (isUnread ? 'border-purple-200 bg-purple-50/40' : 'border-slate-200 bg-white')
       }`}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${
-              isUnread
-                ? 'border border-purple-200 bg-white text-purple-700'
-                : 'border border-slate-200 bg-slate-50 text-slate-600'
+              dark
+                ? (isUnread
+                    ? 'border border-fuchsia-300/30 bg-white/10 text-fuchsia-100'
+                    : 'border border-white/10 bg-white/5 text-slate-300')
+                : (isUnread
+                    ? 'border border-purple-200 bg-white text-purple-700'
+                    : 'border border-slate-200 bg-slate-50 text-slate-600')
             }`}>
               {isUnread ? 'Новое уведомление' : 'Уведомление'}
             </span>
             {item?.seen && (
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+              <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                dark
+                  ? 'border border-emerald-300/25 bg-emerald-500/10 text-emerald-200'
+                  : 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+              }`}>
                 Просмотрено
               </span>
             )}
           </div>
-          <div className="mt-2 text-xs text-slate-500">
+          <div className={`mt-2 text-xs ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
             {formatNotificationDate(item?.createdAt)}
             {item?.createdByName ? ` • ${item.createdByName}` : ''}
           </div>
@@ -114,7 +193,7 @@ const NotificationCard = ({
           <Button
             type="button"
             variant="secondary"
-            className="shrink-0"
+            className={dark ? 'shrink-0 border-white/10 bg-white/10 text-white hover:bg-white/15' : 'shrink-0'}
             onClick={() => onMarkSeen?.(item)}
             disabled={markingSeenId === item?.id}
           >
@@ -125,33 +204,46 @@ const NotificationCard = ({
       </div>
 
       {item?.text && (
-        <div className="mt-3 text-sm leading-6 text-slate-700">
+        <div className={`mt-3 text-sm leading-6 ${dark ? 'text-slate-200' : 'text-slate-700'}`}>
           <LinkifiedText
             text={item.text}
             className="whitespace-pre-wrap break-words"
-            linkClassName="text-purple-700 underline decoration-purple-300 underline-offset-2"
+            linkClassName={dark
+              ? 'text-fuchsia-200 underline decoration-fuchsia-300/70 underline-offset-2'
+              : 'text-purple-700 underline decoration-purple-300 underline-offset-2'}
           />
         </div>
       )}
 
       <div className="mt-3 space-y-3">
+        <NotificationGiftBanner
+          gift={item?.gift}
+          dark={dark}
+          claiming={claimingGiftId === item?.id}
+          onClaim={item?.gift?.claimed ? undefined : (event) => onClaimGift?.(item, event?.currentTarget?.getBoundingClientRect?.() || null)}
+        />
+
         {item?.mockExam?.id && (
-          <div className="rounded-2xl border border-indigo-200 bg-indigo-50/80 px-4 py-4">
+          <div className={`rounded-2xl border px-4 py-4 ${
+            dark
+              ? 'border-sky-300/20 bg-sky-500/10'
+              : 'border-indigo-200 bg-indigo-50/80'
+          }`}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="flex items-center gap-2 text-sm font-semibold text-indigo-950">
+                <div className={`flex items-center gap-2 text-sm font-semibold ${dark ? 'text-sky-100' : 'text-indigo-950'}`}>
                   <BookOpen size={16} />
                   {item?.mockExam?.title || 'Прикреплённый пробник'}
                 </div>
                 <MockExamBadges badges={item?.mockExam?.badges} className="mt-2" />
-                <div className="mt-1 text-xs text-indigo-700/80">
+                <div className={`mt-1 text-xs ${dark ? 'text-sky-100/80' : 'text-indigo-700/80'}`}>
                   {Number(item?.mockExam?.taskCount) > 0
                     ? `Заданий в пробнике: ${item.mockExam.taskCount}`
                     : 'Откройте пробник прямо отсюда.'}
                 </div>
               </div>
               {typeof onOpenMockExam === 'function' && (
-                <Button type="button" variant="secondary" className="shrink-0" onClick={() => onOpenMockExam(item)}>
+                <Button type="button" variant="secondary" className={dark ? 'shrink-0 border-white/10 bg-white/10 text-white hover:bg-white/15' : 'shrink-0'} onClick={() => onOpenMockExam(item)}>
                   <BookOpen size={16} />
                   Открыть пробник
                 </Button>
@@ -160,20 +252,27 @@ const NotificationCard = ({
           </div>
         )}
 
-        <NotificationAttachment attachment={item?.image} isImage />
-        <NotificationAttachment attachment={item?.file} />
+        <NotificationAttachment attachment={item?.image} isImage dark={dark} />
+        <NotificationAttachment attachment={item?.file} dark={dark} />
       </div>
     </div>
   );
 };
 
-const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
+const StudentNotificationsCenter = ({
+  user,
+  onOpenMockExam,
+  onStudentCoinsChange,
+  onGiftCoinsClaim,
+  theme = 'light',
+}) => {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [panelOpen, setPanelOpen] = useState(false);
   const [featuredNotification, setFeaturedNotification] = useState(null);
   const [markingSeenId, setMarkingSeenId] = useState('');
+  const [claimingGiftId, setClaimingGiftId] = useState('');
   const initializedRef = useRef(false);
   const knownIdsRef = useRef(new Set());
   const panelOpenRef = useRef(false);
@@ -182,6 +281,10 @@ const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
   const liveReconnectTimerRef = useRef(null);
   const liveSocketClosedManuallyRef = useRef(false);
   const notificationsWsUrl = useMemo(() => withStoredAuthToken(getNotificationsWsUrl()), []);
+  const isDarkTheme = String(theme || '').trim() === 'dark';
+  const hasFeaturedGiftToClaim = Boolean(
+    featuredNotification?.gift?.coins > 0 && !featuredNotification?.gift?.claimed
+  );
 
   const unreadCount = useMemo(
     () => notifications.filter((item) => !item?.seen).length,
@@ -293,6 +396,7 @@ const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
       setNotifications([]);
       setFeaturedNotification(null);
       setPanelOpen(false);
+      setClaimingGiftId('');
       setError('');
       return undefined;
     }
@@ -304,6 +408,7 @@ const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
     setNotifications([]);
     setFeaturedNotification(null);
     setPanelOpen(false);
+    setClaimingGiftId('');
     setError('');
 
     let cancelled = false;
@@ -437,6 +542,54 @@ const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
     }
   }, []);
 
+  const handleClaimGift = useCallback(async (itemOrId, sourceRect = null) => {
+    const notificationId = typeof itemOrId === 'string'
+      ? itemOrId
+      : String(itemOrId?.id || '').trim();
+    if (!notificationId) return;
+
+    setClaimingGiftId(notificationId);
+    setError('');
+
+    try {
+      const payload = await api.claimBroadcastNotificationGift(notificationId);
+      const updatedNotification = payload?.notification && typeof payload.notification === 'object'
+        ? payload.notification
+        : null;
+
+      if (updatedNotification?.id) {
+        setNotifications((prev) => prev.map((item) => (
+          item.id === updatedNotification.id ? { ...item, ...updatedNotification } : item
+        )));
+        setFeaturedNotification((prev) => (
+          prev?.id === updatedNotification.id ? { ...prev, ...updatedNotification } : prev
+        ));
+      }
+
+      if (Number.isFinite(Number(payload?.coinsTotal))) {
+        onStudentCoinsChange?.(Number(payload.coinsTotal));
+      }
+      if (Number.isFinite(Number(payload?.giftCoins)) && Number(payload.giftCoins) > 0) {
+        onGiftCoinsClaim?.({
+          coinsGained: Number(payload.giftCoins),
+          coinsTotal: Number.isFinite(Number(payload?.coinsTotal)) ? Number(payload.coinsTotal) : null,
+          sourceRect: sourceRect && Number.isFinite(sourceRect.left) && Number.isFinite(sourceRect.top)
+            ? {
+              left: Number(sourceRect.left),
+              top: Number(sourceRect.top),
+              width: Number(sourceRect.width) || 0,
+              height: Number(sourceRect.height) || 0,
+            }
+            : null,
+        });
+      }
+    } catch (err) {
+      setError(err?.message || String(err));
+    } finally {
+      setClaimingGiftId((current) => (current === notificationId ? '' : current));
+    }
+  }, [onGiftCoinsClaim, onStudentCoinsChange]);
+
   const handleOpenNotificationMockExam = useCallback((item, options = {}) => {
     const mockExamId = String(item?.mockExam?.id || '').trim();
     if (!mockExamId || typeof onOpenMockExam !== 'function') return;
@@ -460,6 +613,9 @@ const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
 
   const closeFeaturedNotification = useCallback(() => {
     const current = featuredNotificationRef.current || featuredNotification;
+    if (current?.gift?.coins > 0 && !current?.gift?.claimed) {
+      return;
+    }
     featuredNotificationRef.current = null;
     setFeaturedNotification(null);
     if (current?.id && !current?.seen) {
@@ -474,7 +630,11 @@ const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
       <button
         type="button"
         onClick={() => setPanelOpen(true)}
-        className="fixed right-[7rem] top-[calc(env(safe-area-inset-top)+0.55rem)] z-30 flex h-10 w-10 items-center justify-center rounded-xl border border-purple-200/70 bg-white text-purple-700 shadow-sm transition hover:bg-purple-50 md:hidden"
+        className={`fixed right-[7rem] top-[calc(env(safe-area-inset-top)+0.55rem)] z-30 flex h-10 w-10 items-center justify-center rounded-xl border shadow-sm transition md:hidden ${
+          isDarkTheme
+            ? 'border-fuchsia-300/20 bg-slate-950/85 text-fuchsia-100 hover:bg-slate-900'
+            : 'border-purple-200/70 bg-white text-purple-700 hover:bg-purple-50'
+        }`}
         aria-label="Открыть уведомления"
         title="Уведомления"
       >
@@ -489,7 +649,11 @@ const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
       <button
         type="button"
         onClick={() => setPanelOpen(true)}
-        className="hidden fixed right-4 top-4 z-30 md:flex h-12 w-12 items-center justify-center rounded-2xl border border-purple-200/80 bg-white text-purple-700 shadow-[0_14px_30px_rgba(15,23,42,0.14)] transition hover:-translate-y-[1px] hover:bg-purple-50"
+        className={`hidden fixed right-4 top-4 z-30 md:flex h-12 w-12 items-center justify-center rounded-2xl border shadow-[0_14px_30px_rgba(15,23,42,0.14)] transition hover:-translate-y-[1px] ${
+          isDarkTheme
+            ? 'border-fuchsia-300/20 bg-slate-950/88 text-fuchsia-100 hover:bg-slate-900'
+            : 'border-purple-200/80 bg-white text-purple-700 hover:bg-purple-50'
+        }`}
         aria-label="Открыть уведомления"
         title="Уведомления"
       >
@@ -504,7 +668,9 @@ const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
       {featuredNotification && (
         <div
           className="fixed inset-0 z-[1250] flex items-center justify-center bg-slate-950/78 px-3 py-4 backdrop-blur-[6px]"
-          onClick={closeFeaturedNotification}
+          onClick={() => {
+            if (!hasFeaturedGiftToClaim) closeFeaturedNotification();
+          }}
         >
           <div
             className="relative w-full max-w-3xl overflow-hidden rounded-[36px] border border-fuchsia-300/25 bg-[radial-gradient(circle_at_top,_rgba(168,85,247,0.32),_rgba(15,23,42,0.96)_58%)] p-5 shadow-[0_40px_120px_rgba(15,23,42,0.65)] sm:p-7"
@@ -524,10 +690,17 @@ const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
                 </div>
               </div>
 
+              {hasFeaturedGiftToClaim && (
+                <div className="rounded-2xl border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs font-semibold text-amber-100">
+                  Сначала забери подарок
+                </div>
+              )}
               <button
                 type="button"
-                onClick={closeFeaturedNotification}
-                className="rounded-2xl border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
+                onClick={() => {
+                  if (!hasFeaturedGiftToClaim) closeFeaturedNotification();
+                }}
+                className={`rounded-2xl border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:border-white/20 hover:bg-white/10 hover:text-white ${hasFeaturedGiftToClaim ? 'pointer-events-none opacity-0' : ''}`}
                 aria-label="Закрыть уведомление"
               >
                 <X size={16} />
@@ -547,7 +720,20 @@ const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
                 </div>
               ) : (
                 <div className="rounded-[28px] border border-dashed border-white/20 bg-white/5 px-5 py-5 text-sm text-slate-200">
-                  К уведомлению приложены материалы ниже.
+                  {featuredNotification?.gift?.coins > 0
+                    ? 'Тут есть подарок. Монеты можно забрать ниже.'
+                    : 'К уведомлению приложены материалы ниже.'}
+                </div>
+              )}
+
+              {featuredNotification?.gift?.coins > 0 && (
+                <div className="mt-5">
+                  <NotificationGiftBanner
+                    gift={featuredNotification?.gift}
+                    claiming={claimingGiftId === featuredNotification?.id}
+                    onClaim={featuredNotification?.gift?.claimed ? undefined : (event) => handleClaimGift(featuredNotification, event?.currentTarget?.getBoundingClientRect?.() || null)}
+                    dark
+                  />
                 </div>
               )}
 
@@ -581,9 +767,9 @@ const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
               )}
 
               {(featuredNotification?.image || featuredNotification?.file) && (
-                <div className="mt-5 space-y-4">
-                  <NotificationAttachment attachment={featuredNotification?.image} isImage />
-                  <NotificationAttachment attachment={featuredNotification?.file} />
+                <div className="mt-5 space-y-4 [&_.text-slate-900]:!text-white [&_.text-slate-500]:!text-slate-400 [&_.text-purple-600]:!text-fuchsia-200">
+                  <NotificationAttachment attachment={featuredNotification?.image} isImage dark />
+                  <NotificationAttachment attachment={featuredNotification?.file} dark />
                 </div>
               )}
             </div>
@@ -599,14 +785,17 @@ const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
                     variant="secondary"
                     className="min-w-[180px] justify-center"
                     onClick={() => handleOpenNotificationMockExam(featuredNotification, { closeFeatured: true })}
+                    disabled={hasFeaturedGiftToClaim}
                   >
                     <BookOpen size={16} />
                     К пробнику
                   </Button>
                 )}
+                {!hasFeaturedGiftToClaim && (
                 <Button type="button" onClick={closeFeaturedNotification} className="min-w-[180px] justify-center">
                   Понятно
                 </Button>
+                )}
               </div>
             </div>
           </div>
@@ -619,10 +808,16 @@ const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
           onClick={() => setPanelOpen(false)}
         >
           <div
-            className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-[32px] border border-slate-200 bg-white shadow-2xl"
+            className={`flex max-h-[90vh] w-full max-w-3xl flex-col rounded-[32px] border shadow-2xl ${
+              isDarkTheme
+                ? 'border-white/10 bg-[radial-gradient(circle_at_top,_rgba(168,85,247,0.12),_rgba(2,6,23,0.98)_58%)] text-white [&_.text-slate-900]:!text-white [&_.text-slate-700]:!text-slate-200 [&_.text-slate-600]:!text-slate-300 [&_.text-slate-500]:!text-slate-400 [&_.border-slate-200]:!border-white/10 [&_.bg-white]:!bg-white/5 [&_.bg-slate-50]:!bg-white/5'
+                : 'border-slate-200 bg-white'
+            }`}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-4 sm:px-6">
+            <div className={`flex items-start justify-between gap-3 border-b px-4 py-4 sm:px-6 ${
+              isDarkTheme ? 'border-white/10' : 'border-slate-200'
+            }`}>
               <div>
                 <div className="text-xl font-bold text-slate-900">Уведомления</div>
                 <div className="mt-1 text-sm text-slate-500">
@@ -666,9 +861,12 @@ const StudentNotificationsCenter = ({ user, onOpenMockExam }) => {
                     key={item.id}
                     item={item}
                     markingSeenId={markingSeenId}
+                    claimingGiftId={claimingGiftId}
                     onMarkSeen={markNotificationSeen}
+                    onClaimGift={handleClaimGift}
                     onOpenMockExam={(targetItem) => handleOpenNotificationMockExam(targetItem, { closePanel: true })}
                     showAction
+                    dark={isDarkTheme}
                   />
                 ))}
               </div>

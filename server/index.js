@@ -179,6 +179,7 @@ const STUDENT_CHAT_IMAGE_PREVIEW_TEXT = '[Изображение]';
 const BROADCAST_NOTIFICATION_TEXT_MAX_LENGTH = 5000;
 const BROADCAST_NOTIFICATION_NAME_MAX_LENGTH = 180;
 const BROADCAST_NOTIFICATION_STORAGE_LIMIT = 200;
+const BROADCAST_NOTIFICATION_GIFT_MAX_COINS = 1_000_000;
 const STUDENT_CHAT_ALLOWED_IMAGE_MIME_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -3762,6 +3763,20 @@ const normalizeBroadcastNotificationSeenIds = (value) => Array.from(new Set(
   (Array.isArray(value) ? value : []).map((entry) => String(entry || '').trim()).filter(Boolean)
 ));
 
+const normalizeBroadcastNotificationGift = (value) => {
+  if (!value || typeof value !== 'object') return null;
+  const coins = Math.min(
+    BROADCAST_NOTIFICATION_GIFT_MAX_COINS,
+    normalizeCoinsTotal(value.coins ?? value.amount)
+  );
+  if (coins <= 0) return null;
+  return {
+    type: 'coins',
+    coins,
+    claimedByStudentIds: normalizeBroadcastNotificationSeenIds(value.claimedByStudentIds),
+  };
+};
+
 const normalizeBroadcastNotificationEntry = (value) => {
   if (!value || typeof value !== 'object') return null;
   const id = String(value.id || '').trim();
@@ -3771,7 +3786,11 @@ const normalizeBroadcastNotificationEntry = (value) => {
   const image = normalizeBroadcastNotificationAttachment(value.image, { fallbackName: 'Изображение' });
   const file = normalizeBroadcastNotificationAttachment(value.file, { fallbackName: 'Файл' });
   const mockExam = normalizeBroadcastNotificationMockExam(value.mockExam || value.mockExamId);
-  if (!text && !image && !file && !mockExam) return null;
+  const gift = normalizeBroadcastNotificationGift(
+    value.gift
+    || (Object.prototype.hasOwnProperty.call(value, 'giftCoins') ? { coins: value.giftCoins } : null)
+  );
+  if (!text && !image && !file && !mockExam && !gift) return null;
 
   const createdByRoleRaw = String(value?.createdByRole || '').trim().toLowerCase();
   const createdByRole = createdByRoleRaw === 'admin'
@@ -3797,6 +3816,7 @@ const normalizeBroadcastNotificationEntry = (value) => {
     image,
     file,
     mockExam,
+    gift,
     createdAt,
     updatedAt,
     createdById,
@@ -3870,6 +3890,12 @@ const serializeBroadcastNotificationForStaff = (entry, auth) => {
   const seenCount = normalizeBroadcastNotificationSeenIds(entry?.seenByStudentIds)
     .filter((studentId) => recipientIds.has(studentId))
     .length;
+  const gift = normalizeBroadcastNotificationGift(entry?.gift);
+  const claimedCount = gift
+    ? normalizeBroadcastNotificationSeenIds(gift.claimedByStudentIds)
+      .filter((studentId) => recipientIds.has(studentId))
+      .length
+    : 0;
   const recipientCount = recipients.length;
   return {
     id: entry.id,
@@ -3877,6 +3903,14 @@ const serializeBroadcastNotificationForStaff = (entry, auth) => {
     image: entry.image,
     file: entry.file,
     mockExam: normalizeBroadcastNotificationMockExam(entry?.mockExam),
+    gift: gift
+      ? {
+        type: 'coins',
+        coins: gift.coins,
+        claimedCount,
+        unclaimedCount: Math.max(0, recipientCount - claimedCount),
+      }
+      : null,
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
     createdById: entry.createdById,
@@ -3892,6 +3926,7 @@ const serializeBroadcastNotificationForStaff = (entry, auth) => {
 const serializeBroadcastNotificationForStudent = (entry, studentId) => {
   const normalizedStudentId = String(studentId || '').trim();
   const seen = normalizeBroadcastNotificationSeenIds(entry?.seenByStudentIds).includes(normalizedStudentId);
+  const gift = normalizeBroadcastNotificationGift(entry?.gift);
   const serializedMockExam = (() => {
     const attachedExam = normalizeBroadcastNotificationMockExam(entry?.mockExam);
     if (!attachedExam) return null;
@@ -3906,6 +3941,13 @@ const serializeBroadcastNotificationForStudent = (entry, studentId) => {
     image: entry.image,
     file: entry.file,
     mockExam: serializedMockExam,
+    gift: gift
+      ? {
+        type: 'coins',
+        coins: gift.coins,
+        claimed: normalizeBroadcastNotificationSeenIds(gift.claimedByStudentIds).includes(normalizedStudentId),
+      }
+      : null,
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
     createdById: entry.createdById,
@@ -10233,6 +10275,10 @@ app.post('/api/broadcast-notifications', (req, res) => {
   const text = normalizeBroadcastNotificationText(req.body?.text);
   const image = normalizeBroadcastNotificationAttachment(req.body?.image, { fallbackName: 'Изображение' });
   const file = normalizeBroadcastNotificationAttachment(req.body?.file, { fallbackName: 'Файл' });
+  const giftCoins = Math.min(
+    BROADCAST_NOTIFICATION_GIFT_MAX_COINS,
+    normalizeCoinsTotal(req.body?.giftCoins ?? req.body?.gift?.coins)
+  );
   const mockExamId = String(req.body?.mockExamId || req.body?.mockExam?.id || '').trim();
   const selectedMockExam = mockExamId ? findMockExamById(mockExamId) : null;
   if (mockExamId && !selectedMockExam) {
@@ -10241,8 +10287,9 @@ app.post('/api/broadcast-notifications', (req, res) => {
   const mockExam = selectedMockExam
     ? normalizeBroadcastNotificationMockExam(selectedMockExam, { mockExam: selectedMockExam })
     : null;
-  if (!text && !image && !file && !mockExam) {
-    return res.status(400).json({ error: 'Добавьте текст, картинку, файл или пробник.' });
+  const gift = giftCoins > 0 ? normalizeBroadcastNotificationGift({ coins: giftCoins, claimedByStudentIds: [] }) : null;
+  if (!text && !image && !file && !mockExam && !gift) {
+    return res.status(400).json({ error: 'Добавьте текст, картинку, файл, пробник или подарок.' });
   }
 
   const now = new Date().toISOString();
@@ -10252,6 +10299,7 @@ app.post('/api/broadcast-notifications', (req, res) => {
     image,
     file,
     mockExam,
+    gift,
     createdAt: now,
     updatedAt: now,
     createdById: String(req.auth?.id || '').trim(),
@@ -10302,6 +10350,79 @@ app.patch('/api/broadcast-notifications/:id/seen', (req, res) => {
   }
 
   return res.json(serializeBroadcastNotificationForStudent(list[index], req.auth.id));
+});
+
+app.post('/api/broadcast-notifications/:id/claim-gift', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const notificationId = String(req.params?.id || '').trim();
+  if (!notificationId) {
+    return res.status(400).json({ error: 'id required' });
+  }
+
+  const list = readBroadcastNotificationsDb();
+  const index = list.findIndex((entry) => entry.id === notificationId);
+  if (index === -1) {
+    return res.status(404).json({ error: 'Уведомление не найдено' });
+  }
+
+  const current = list[index];
+  if (!canStudentViewBroadcastNotification(req.auth, current)) return forbid(res);
+
+  const gift = normalizeBroadcastNotificationGift(current?.gift);
+  if (!gift) {
+    return res.status(400).json({ error: 'В этом уведомлении нет подарка.' });
+  }
+
+  const student = readStudentsDb().find((entry) => String(entry?.id || '').trim() === String(req.auth?.id || '').trim() && isActiveStudent(entry));
+  if (!student) {
+    return res.status(404).json({ error: 'Ученик не найден.' });
+  }
+
+  const studentId = String(req.auth.id || '').trim();
+  const claimedIds = new Set(normalizeBroadcastNotificationSeenIds(gift.claimedByStudentIds));
+  const seenIds = new Set(normalizeBroadcastNotificationSeenIds(current?.seenByStudentIds));
+  const alreadyClaimed = claimedIds.has(studentId);
+  if (!seenIds.has(studentId)) {
+    seenIds.add(studentId);
+  }
+
+  let updatedEntry = {
+    ...current,
+    updatedAt: new Date().toISOString(),
+    seenByStudentIds: Array.from(seenIds),
+    gift: {
+      ...gift,
+      claimedByStudentIds: Array.from(claimedIds),
+    },
+  };
+
+  let updatedStudentData = getStudentData(studentId);
+  if (!alreadyClaimed) {
+    claimedIds.add(studentId);
+    updatedEntry = {
+      ...updatedEntry,
+      gift: {
+        ...gift,
+        claimedByStudentIds: Array.from(claimedIds),
+      },
+    };
+    list[index] = updatedEntry;
+    writeBroadcastNotificationsDb(normalizeBroadcastNotificationList(list));
+    updatedStudentData = setStudentData(studentId, {
+      ...updatedStudentData,
+      coinsTotal: normalizeCoinsTotal(updatedStudentData.coinsTotal) + gift.coins,
+    });
+  } else if (!normalizeBroadcastNotificationSeenIds(current?.seenByStudentIds).includes(studentId)) {
+    list[index] = updatedEntry;
+    writeBroadcastNotificationsDb(normalizeBroadcastNotificationList(list));
+  }
+
+  return res.json({
+    notification: serializeBroadcastNotificationForStudent(updatedEntry, studentId),
+    coinsTotal: normalizeCoinsTotal(updatedStudentData?.coinsTotal),
+    claimedNow: !alreadyClaimed,
+    giftCoins: gift.coins,
+  });
 });
 
 app.delete('/api/broadcast-notifications/:id', (req, res) => {

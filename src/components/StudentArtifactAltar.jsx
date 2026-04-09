@@ -284,7 +284,7 @@ const StudentArtifactAltar = ({
     let audio = spinAudioRef.current;
     if (!audio && typeof window !== 'undefined') {
       audio = new Audio(artifactSpinMusic);
-      audio.volume = 0.06;
+      audio.volume = 0.03;
       audio.preload = 'auto';
       spinAudioRef.current = audio;
     }
@@ -649,18 +649,30 @@ const StudentArtifactAltar = ({
 
             <div className="mt-4 space-y-3">
               {bonusEntries.length > 0 && (
-                <div className="student-artifact-altar__bonus-shell rounded-2xl border border-violet-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(250,245,255,0.94))] p-3">
-                  <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-violet-600">Суммарный бонус</div>
-                  <div className="mt-1 text-xs text-slate-500">Итоговый эффект от всех выбитых артефактов.</div>
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="student-artifact-altar__bonus-shell rounded-2xl border border-violet-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(250,245,255,0.94))] p-2.5">
+                  <div className="student-artifact-altar__bonus-header flex flex-wrap items-center justify-between gap-2">
+                    <div className="student-artifact-altar__bonus-title text-[10px] font-bold uppercase tracking-[0.16em] text-violet-600">
+                      Суммарный бонус
+                    </div>
+                    <div className="student-artifact-altar__bonus-count text-[10px] font-semibold text-slate-500">
+                      {`${bonusEntries.length} эффект${bonusEntries.length === 1 ? '' : bonusEntries.length < 5 ? 'а' : 'ов'}`}
+                    </div>
+                  </div>
+                  <div className="student-artifact-altar__bonus-list mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
                     {bonusEntries.map((entry) => (
                       <div
                         key={String(entry.id || `${entry.label}-${entry.value}`)}
-                        className={`student-artifact-altar__bonus-card rounded-2xl border px-3 py-2 shadow-sm ${BONUS_TONE_CLASSNAME[entry.tone] || 'border-slate-200 bg-slate-50/90 text-slate-700'}`}
+                        className={`student-artifact-altar__bonus-card rounded-xl border px-2.5 py-1.5 shadow-sm ${BONUS_TONE_CLASSNAME[entry.tone] || 'border-slate-200 bg-slate-50/90 text-slate-700'}`}
                         data-tone={String(entry.tone || 'default')}
                       >
-                        <div className="text-[11px] font-semibold leading-4">{entry.label}</div>
-                        <div className="mt-1 text-base font-black leading-none">{entry.value}</div>
+                        <div className="student-artifact-altar__bonus-card-row flex items-baseline justify-between gap-2">
+                          <div className="student-artifact-altar__bonus-label min-w-0 truncate text-[10px] font-semibold leading-none">
+                            {entry.label}
+                          </div>
+                          <div className="student-artifact-altar__bonus-value shrink-0 whitespace-nowrap text-sm font-black leading-none">
+                            {entry.value}
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>

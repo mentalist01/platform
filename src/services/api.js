@@ -858,6 +858,14 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  claimBroadcastNotificationGift: async (id) => {
+    const targetId = encodeURIComponent(String(id || '').trim());
+    const res = await apiFetch(`/api/broadcast-notifications/${targetId}/claim-gift`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   deleteBroadcastNotification: async (id) => {
     const targetId = encodeURIComponent(String(id || '').trim());
     const res = await apiFetch(`/api/broadcast-notifications/${targetId}`, {

@@ -13371,7 +13371,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         </div>
       )}
       {user.role === 'student' && (
-        <StudentNotificationsCenter user={user} onOpenMockExam={handleOpenMockGoal} />
+        <StudentNotificationsCenter
+          user={user}
+          onOpenMockExam={handleOpenMockGoal}
+          onStudentCoinsChange={(nextCoinsTotal) => setStudentCoinsTotal(normalizeCoinsTotal(nextCoinsTotal))}
+          theme={theme}
+          onGiftCoinsClaim={({ coinsGained, coinsTotal, sourceRect }) => {
+            handleXpGain({
+              xpTotal: _STUDENT_XP_TOTAL,
+              xpGained: 0,
+              coinsGained,
+              coinsTotal,
+              sourceRect,
+            });
+          }}
+        />
       )}
       {user.role === 'student' && xpDockVisible && (
         <div className="xp-flight-dock-shell">
