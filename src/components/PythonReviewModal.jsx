@@ -1570,7 +1570,8 @@ const PythonReviewModal = ({
     ? 'Код синхронизируется в realtime и виден всем участникам комнаты.'
     : 'Просматривайте решение ученика, запускайте тесты и сразу проверяйте результат.';
   const isWideWorkspace = viewportWidth >= 700;
-  const workspaceGridClass = 'min-[700px]:grid-rows-[minmax(180px,0.26fr)_minmax(0,1fr)]';
+  const isDenseQuestionNav = visibleQuestionItems.length >= 10;
+  const workspaceGridClass = 'min-[700px]:grid-rows-[minmax(340px,0.62fr)_minmax(180px,0.38fr)]';
   const workspaceGridStyle = isWideWorkspace
     ? {
         gridTemplateColumns: `clamp(220px, ${(workspaceSplitRatio * 100).toFixed(2)}%, 760px) 14px minmax(0, 1fr)`,
@@ -2057,7 +2058,10 @@ const PythonReviewModal = ({
                       {activeSubsection ? `Раздел: ${activeSubsection.title}` : 'Раздел'}
                     </div>
                   </div>
-                  <div className="flex flex-nowrap gap-1.5 overflow-x-auto pb-0.5 pr-0.5" onWheel={handleHorizontalWheelScroll}>
+                  <div
+                    className="flex min-w-0 flex-nowrap gap-1 overflow-x-auto overflow-y-hidden pb-1.5 pr-10 [scrollbar-width:thin]"
+                    onWheel={handleHorizontalWheelScroll}
+                  >
                     {visibleQuestionItems.map((item) => {
                       const qId = String(item.question?.id ?? item.questionIndex);
                       const solved = solvedIds.has(qId);
@@ -2083,7 +2087,9 @@ const PythonReviewModal = ({
                           key={`review-question-${qId}`}
                           type="button"
                           onClick={() => setCurrentIndex(item.questionIndex)}
-                          className={`python-runtime-chip min-w-[136px] shrink-0 rounded-[16px] border px-2 py-1.5 text-left transition-all ${buttonClass}`}
+                          className={`python-runtime-chip shrink-0 rounded-[16px] border text-left transition-all ${
+                            isDenseQuestionNav ? 'min-w-[104px] px-1.5 py-1' : 'min-w-[136px] px-2 py-1.5'
+                          } ${buttonClass}`}
                           title={label}
                         >
                           <div className="flex items-start gap-2">
@@ -2140,7 +2146,7 @@ const PythonReviewModal = ({
                   </div>
 
                   {isRecordingTheory && theory && (
-                    <div className={`rounded-[20px] border p-2.5 ${softCardClass}`}>
+                    <div className={`rounded-[20px] border p-2 ${softCardClass}`}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className={`text-[10px] font-bold uppercase tracking-[0.24em] ${overlineTextClass}`}>Видео-теория</div>
@@ -2162,7 +2168,7 @@ const PythonReviewModal = ({
                     </div>
                   )}
 
-                  <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+                  <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-1">
                     {theory?.content && !isRecordingTheory && (
                       <div className={`python-runtime-theory-card rounded-[28px] border p-3.5 md:p-4 ${isDarkTheme ? 'border-violet-400/20 bg-[linear-gradient(180deg,rgba(30,27,75,0.40),rgba(2,6,23,0.92))] shadow-[0_18px_40px_rgba(15,23,42,0.32)]' : 'border-violet-200/70 bg-gradient-to-br from-white via-violet-50/70 to-fuchsia-50/45 shadow-[0_14px_34px_rgba(124,58,237,0.12)]'}`}>
                         <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
@@ -2415,7 +2421,7 @@ const PythonReviewModal = ({
                     {testsToShow.length === 0 ? (
                       <div className={`mt-4 rounded-2xl border px-3 py-3 text-sm ${softCardClass} ${secondaryTextClass}`}>Учитель ещё не добавил тесты.</div>
                     ) : (
-                      <div className="mt-3 min-h-0 space-y-2.5 overflow-y-auto pr-1">
+                      <div className="mt-2.5 min-h-0 space-y-2 overflow-y-auto pr-1">
                         {testsToShow.map((item, idx) => {
                           const result = testResults[idx];
                           const passed = result?.passed ?? (solvedAllTests ? true : undefined);
@@ -2446,7 +2452,7 @@ const PythonReviewModal = ({
                               className={`python-runtime-test-card rounded-[18px] border px-2.5 py-2 text-[11px] md:text-xs ${testCardClass}`}
                               title={rowTitle}
                             >
-                              <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap pr-1">
+                              <div className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap pr-1">
                                 <span className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[10px] font-bold ${softCardClass} ${secondaryTextClass}`}>
                                   {idx + 1}
                                 </span>
