@@ -1571,7 +1571,7 @@ const PythonReviewModal = ({
     : 'Просматривайте решение ученика, запускайте тесты и сразу проверяйте результат.';
   const isWideWorkspace = viewportWidth >= 700;
   const isDenseQuestionNav = visibleQuestionItems.length >= 10;
-  const workspaceGridClass = 'min-[700px]:grid-rows-[minmax(340px,0.62fr)_minmax(180px,0.38fr)]';
+  const workspaceGridClass = 'min-[700px]:grid-rows-[minmax(390px,0.68fr)_minmax(150px,0.32fr)]';
   const workspaceGridStyle = isWideWorkspace
     ? {
         gridTemplateColumns: `clamp(220px, ${(workspaceSplitRatio * 100).toFixed(2)}%, 760px) 14px minmax(0, 1fr)`,
@@ -1968,7 +1968,7 @@ const PythonReviewModal = ({
                     <div className="min-w-0">
                       <div className={`text-[11px] font-bold uppercase tracking-[0.28em] ${overlineTextClass}`}>Тема</div>
                       <h2 className={`mt-0.5 text-[1.12rem] font-semibold leading-tight md:text-[1.18rem] ${primaryTextClass}`}>{task.title}</h2>
-                      <div className="mt-1.5 flex flex-wrap gap-1">
+                      <div className="mt-1.5 hidden flex-wrap gap-1">
                         <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold ${softCardClass} ${secondaryTextClass}`}>
                           <Sparkles size={11} />
                           {activeSubsection ? activeSubsection.title : 'Все задачи'}
@@ -2024,19 +2024,19 @@ const PythonReviewModal = ({
                 </div>
               </div>
 
-              <div className={`grid gap-1 ${showSubsectionNav ? 'min-[700px]:grid-cols-[minmax(0,180px)_minmax(0,1fr)]' : ''}`}>
+              <div className={`grid gap-1 ${showSubsectionNav ? 'min-[700px]:grid-cols-[minmax(0,320px)_minmax(0,1fr)]' : ''}`}>
                 {showSubsectionNav && (
                   <div className={`rounded-[18px] border p-1.5 ${softCardClass}`}>
                     <div className="mb-1">
                       <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Подраздел</div>
                     </div>
-                    <div className="flex flex-nowrap gap-1.5 overflow-x-auto pb-0.5 pr-0.5" onWheel={handleHorizontalWheelScroll}>
+                    <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1 pr-1 [scrollbar-width:thin]" onWheel={handleHorizontalWheelScroll}>
                       {visibleSubsections.map((section) => (
                         <button
                           key={`review-subsection-${section.id}`}
                           type="button"
                           onClick={() => handleSelectSubsection(section.id)}
-                          className={`python-runtime-chip shrink-0 rounded-[16px] border px-2.5 py-1 text-left text-[11px] font-semibold transition-all ${
+                          className={`python-runtime-chip min-w-[220px] shrink-0 rounded-[16px] border px-3 py-2 text-left text-[11px] font-semibold transition-all ${
                             section.id === activeSubsection?.id
                               ? (isDarkTheme
                                   ? 'border-violet-400/40 bg-violet-500/14 text-white shadow-[0_14px_28px_rgba(76,29,149,0.28)]'
@@ -2053,7 +2053,7 @@ const PythonReviewModal = ({
                 )}
 
                 <div className={`rounded-[18px] border p-1.5 ${softCardClass}`}>
-                  <div className="mb-1">
+                  <div className="hidden">
                     <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>
                       {activeSubsection ? `Раздел: ${activeSubsection.title}` : 'Раздел'}
                     </div>
@@ -2123,9 +2123,25 @@ const PythonReviewModal = ({
                 className={`grid h-full min-h-0 gap-3 ${workspaceGridClass}`}
                 style={workspaceGridStyle}
               >
-                <div className="min-h-0 flex flex-col gap-3 min-[700px]:col-start-1 min-[700px]:row-start-1">
-                  <div className={`min-h-[250px] rounded-[28px] border p-3 md:min-h-[320px] md:p-3.5 ${questionCardClass}`}>
-                    <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${overlineTextClass}`}>Условие задачи</div>
+                <div className="min-h-0 flex flex-col gap-2.5 overflow-hidden min-[700px]:col-start-1 min-[700px]:row-start-1">
+                  <div className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border p-3 md:p-3.5 ${questionCardClass}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${overlineTextClass}`}>Условие задачи</div>
+                      {isRecordingTheory && theory && (
+                        <button
+                          type="button"
+                          onClick={() => setShowTheory(true)}
+                          className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
+                            isDarkTheme
+                              ? 'border-violet-400/35 bg-violet-500/12 text-violet-100 hover:bg-violet-500/20'
+                              : 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100'
+                          }`}
+                        >
+                          <PlayCircle size={12} />
+                          Видео-теория
+                        </button>
+                      )}
+                    </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold ${softCardClass} ${secondaryTextClass}`}>
                         <FileText size={12} />
@@ -2137,7 +2153,7 @@ const PythonReviewModal = ({
                       </span>
                     </div>
                     {currentQuestion?.question ? (
-                      <div className={`mt-3 max-w-[72ch] overflow-y-auto whitespace-pre-wrap text-[14px] font-medium leading-6 md:text-[16px] md:leading-7 min-[700px]:max-h-[36vh] ${primaryTextClass}`}>
+                      <div className={`mt-3 min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap pr-1 text-[14px] font-medium leading-6 md:text-[16px] md:leading-7 ${primaryTextClass}`}>
                         {currentQuestion.question}
                       </div>
                     ) : (
@@ -2146,7 +2162,7 @@ const PythonReviewModal = ({
                   </div>
 
                   {isRecordingTheory && theory && (
-                    <div className={`rounded-[20px] border p-2 ${softCardClass}`}>
+                    <div className={`hidden rounded-[20px] border p-2 ${softCardClass}`}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className={`text-[10px] font-bold uppercase tracking-[0.24em] ${overlineTextClass}`}>Видео-теория</div>
