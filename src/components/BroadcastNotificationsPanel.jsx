@@ -118,6 +118,8 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
   const [selectedMockExamId, setSelectedMockExamId] = useState('');
   const [giftCoinsInput, setGiftCoinsInput] = useState('');
   const [expandedNotificationIds, setExpandedNotificationIds] = useState([]);
+  const [isComposerExpanded, setIsComposerExpanded] = useState(role !== 'teacher');
+  const [isHistoryExpanded, setIsHistoryExpanded] = useState(role !== 'teacher');
 
   const audienceHint = useMemo(() => getNotificationAudienceHint(role), [role]);
   const selectedMockExam = useMemo(
@@ -400,11 +402,27 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
             </h3>
             <p className="mt-1 text-sm text-slate-500">{audienceHint}</p>
           </div>
-          <div className="rounded-2xl border border-purple-100 bg-purple-50 px-3 py-2 text-xs font-semibold text-purple-700">
-            {role === 'admin' ? 'Режим: всем ученикам' : 'Режим: всем вашим ученикам'}
+          <div className="flex items-center gap-2">
+            <div className="rounded-2xl border border-purple-100 bg-purple-50 px-3 py-2 text-xs font-semibold text-purple-700">
+              {role === 'admin' ? 'Режим: всем ученикам' : 'Режим: всем вашим ученикам'}
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsComposerExpanded((prev) => !prev)}
+              className="teacher-broadcast-history__toggle inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-purple-200 hover:text-purple-700"
+              aria-expanded={isComposerExpanded}
+            >
+              {isComposerExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              {isComposerExpanded ? 'Свернуть' : 'Развернуть'}
+            </button>
           </div>
         </div>
 
+        {!isComposerExpanded ? (
+          <div className="mt-4 text-sm text-slate-500">
+            Разверни блок, чтобы создать и отправить новое уведомление.
+          </div>
+        ) : (
         <div className="mt-4 space-y-4" onPasteCapture={handleComposerPaste}>
           <div>
             <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -602,20 +620,20 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
             )}
           </div>
 
-          <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-amber-50/80 p-4">
+          <div className="teacher-broadcast-gift rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-amber-50/80 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-                  <Gift size={16} className="text-amber-600" />
+                <div className="teacher-broadcast-gift__title flex items-center gap-2 text-sm font-semibold text-slate-800">
+                  <Gift size={16} className="teacher-broadcast-gift__icon text-amber-600" />
                   Подарок к уведомлению
                 </div>
-                <div className="mt-1 text-xs text-slate-500">
-                  Ученики смогут нажать <span className="font-semibold text-slate-700">«Забрать подарок»</span> и
+                <div className="teacher-broadcast-gift__hint mt-1 text-xs text-slate-500">
+                  Ученики смогут нажать <span className="teacher-broadcast-gift__hint-accent font-semibold text-slate-700">«Забрать подарок»</span> и
                   получить монеты один раз.
                 </div>
               </div>
               {giftCoins > 0 && (
-                <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white px-3 py-1.5 text-xs font-bold text-amber-700">
+                <div className="teacher-broadcast-gift__amount inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white px-3 py-1.5 text-xs font-bold text-amber-700">
                   <img src={ivanCoin} alt="" aria-hidden="true" className="h-4 w-4 shrink-0" />
                   {`+${giftCoins} монет`}
                 </div>
@@ -624,7 +642,7 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
 
             <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
               <label className="block">
-                <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                <span className="teacher-broadcast-gift__label mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
                   Сколько монет подарить
                 </span>
                 <input
@@ -638,7 +656,7 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
                     clearComposerFeedback();
                   }}
                   placeholder="0"
-                  className="w-full rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-amber-400"
+                  className="teacher-broadcast-gift__input w-full rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-amber-400"
                 />
               </label>
 
@@ -661,6 +679,7 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
             </Button>
           </div>
         </div>
+        )}
       </Card>
 
       <Card className="teacher-broadcast-history border border-slate-200 bg-white">
@@ -669,9 +688,25 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
             <h3 className="teacher-broadcast-history__title text-lg font-bold text-slate-900">Последние уведомления</h3>
             <p className="teacher-broadcast-history__subtitle mt-1 text-sm text-slate-500">{`Всего отправлено: ${items.length}`}</p>
           </div>
-          {loading && <div className="teacher-broadcast-history__loading text-xs font-semibold text-slate-400">Загрузка...</div>}
+          <div className="flex items-center gap-2">
+            {loading && <div className="teacher-broadcast-history__loading text-xs font-semibold text-slate-400">Загрузка...</div>}
+            <button
+              type="button"
+              onClick={() => setIsHistoryExpanded((prev) => !prev)}
+              className="teacher-broadcast-history__toggle inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-purple-200 hover:text-purple-700"
+              aria-expanded={isHistoryExpanded}
+            >
+              {isHistoryExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              {isHistoryExpanded ? 'Свернуть всё' : 'Развернуть всё'}
+            </button>
+          </div>
         </div>
 
+        {!isHistoryExpanded ? (
+          <div className="teacher-broadcast-history__preview mt-4 text-sm text-slate-500">
+            Разверни блок, чтобы посмотреть историю всех уведомлений.
+          </div>
+        ) : (
         <div className="mt-4 space-y-3">
           {!loading && items.length === 0 && (
             <div className="teacher-broadcast-history__empty rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-5 text-sm text-slate-500">
@@ -792,6 +827,7 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
             );
           })}
         </div>
+        )}
       </Card>
     </div>
   );
