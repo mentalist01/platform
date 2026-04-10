@@ -112,6 +112,15 @@ const getRuntimeViewportWidth = () => {
   return 1440;
 };
 
+const getRuntimeViewportHeight = () => {
+  if (typeof window === 'undefined') return 900;
+  const visualViewportHeight = Number(window.visualViewport?.height || 0);
+  if (Number.isFinite(visualViewportHeight) && visualViewportHeight > 0) return visualViewportHeight;
+  const innerHeight = Number(window.innerHeight || document?.documentElement?.clientHeight || 0);
+  if (Number.isFinite(innerHeight) && innerHeight > 0) return innerHeight;
+  return 900;
+};
+
 const supportsCssZoom = () => {
   if (typeof window === 'undefined' || typeof window.CSS?.supports !== 'function') return false;
   try {
@@ -198,6 +207,12 @@ const getTheoryTypeLabel = (type) => {
   return 'Текст';
 };
 
+const getTheoryLauncherLabel = (type) => {
+  if (type === THEORY_RECORDING_TYPE) return 'Видео';
+  if (type === 'gdoc') return 'Google Docs';
+  return 'Текст';
+};
+
 const resolveTheoryVariantsForSubsection = (taskEntry, subsectionId) => {
   const safeSubsectionId = normalizeTheorySubsectionId(subsectionId);
   const bySubsection = normalizeTheoryBySubsectionMap(taskEntry?.pythonTheoryBySubsection);
@@ -252,6 +267,7 @@ const PythonTestModal = ({
   const [runnerError, setRunnerError] = useState('');
   const [testResults, setTestResults] = useState([]);
   const [viewportWidth, setViewportWidth] = useState(() => getRuntimeViewportWidth());
+  const [viewportHeight, setViewportHeight] = useState(() => getRuntimeViewportHeight());
   const [workspaceSplitRatio, setWorkspaceSplitRatio] = useState(0.62);
   const [isResizingWorkspace, setIsResizingWorkspace] = useState(false);
   const isMobileViewport = viewportWidth < 700;
@@ -332,13 +348,16 @@ const PythonTestModal = ({
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
-    const syncViewportWidth = () => setViewportWidth(getRuntimeViewportWidth());
-    syncViewportWidth();
-    window.addEventListener('resize', syncViewportWidth);
-    window.visualViewport?.addEventListener?.('resize', syncViewportWidth);
+    const syncViewportSize = () => {
+      setViewportWidth(getRuntimeViewportWidth());
+      setViewportHeight(getRuntimeViewportHeight());
+    };
+    syncViewportSize();
+    window.addEventListener('resize', syncViewportSize);
+    window.visualViewport?.addEventListener?.('resize', syncViewportSize);
     return () => {
-      window.removeEventListener('resize', syncViewportWidth);
-      window.visualViewport?.removeEventListener?.('resize', syncViewportWidth);
+      window.removeEventListener('resize', syncViewportSize);
+      window.visualViewport?.removeEventListener?.('resize', syncViewportSize);
     };
   }, []);
 
@@ -1564,8 +1583,23 @@ const PythonTestModal = ({
     ? normalizeTheoryRecording(theory?.content)
     : null;
   const isRecordingTheory = theoryType === THEORY_RECORDING_TYPE && Boolean(theoryRecording);
-  const canOpenTheory = Boolean(theory?.content && (!isRecordingTheory || theoryRecording));
+  const openableTheoryTypes = availableTheoryTypes.filter((type) => {
+    const item = theoryVariants[type];
+    if (!item?.content) return false;
+    if (type === THEORY_RECORDING_TYPE) return Boolean(normalizeTheoryRecording(item.content));
+    return true;
+  });
+  const canOpenTheory = openableTheoryTypes.length > 0;
   const theoryLauncherLabel = isRecordingTheory ? 'Видео-теория' : 'Теория';
+  const openTheory = (type = theoryType) => {
+    const nextType = openableTheoryTypes.includes(type)
+      ? type
+      : openableTheoryTypes[0] || theoryType;
+    if (nextType) {
+      setActiveTheoryType(nextType);
+      setShowTheory(true);
+    }
+  };
   const theoryProgressStorageKey = (() => {
     if (theoryType !== THEORY_RECORDING_TYPE || !studentId) return '';
     const subsectionKey = String(activeTheorySubsectionId || PYTHON_DEFAULT_SUBSECTION_ID)
@@ -1698,10 +1732,24 @@ const PythonTestModal = ({
     ? 'Код синхронизируется в realtime и виден всем участникам комнаты.'
     : 'Пишите решение, затем запускайте тесты и сразу проверяйте результат.';
   const isWideWorkspace = viewportWidth >= 700;
+  const isCompactRuntimeViewport = viewportWidth < 1500 || viewportHeight < 820;
+  const isVeryCompactRuntimeViewport = viewportWidth < 1200 || viewportHeight < 760;
   const isDenseQuestionNav = visibleQuestionItems.length >= 10;
+  const useDenseTaskChips = isDenseQuestionNav || isCompactRuntimeViewport;
+  const subsectionChipSizeClass = isCompactRuntimeViewport
+    ? 'min-w-[178px] px-2.5 py-1.5'
+    : 'min-w-[220px] px-3 py-2';
   const workspaceGridClass = hasSupportSidebarContent
-    ? 'min-[700px]:grid-rows-[minmax(390px,0.68fr)_minmax(150px,0.32fr)]'
-    : 'min-[700px]:grid-rows-[minmax(340px,0.64fr)_minmax(140px,0.36fr)]';
+    ? (
+        isCompactRuntimeViewport
+          ? 'min-[700px]:grid-rows-[minmax(0,0.62fr)_minmax(118px,0.38fr)]'
+          : 'min-[700px]:grid-rows-[minmax(390px,0.68fr)_minmax(150px,0.32fr)]'
+      )
+    : (
+        isCompactRuntimeViewport
+          ? 'min-[700px]:grid-rows-[minmax(0,0.56fr)_minmax(128px,0.44fr)]'
+          : 'min-[700px]:grid-rows-[minmax(340px,0.64fr)_minmax(140px,0.36fr)]'
+      );
   const workspaceGridStyle = isWideWorkspace
     ? {
         gridTemplateColumns: `clamp(220px, ${(workspaceSplitRatio * 100).toFixed(2)}%, 760px) 14px minmax(0, 1fr)`,
@@ -1748,19 +1796,29 @@ const PythonTestModal = ({
       <div className={`python-runtime-modal-shell surface-card modal-card modal-card--fullscreen rounded-none w-screen h-[100dvh] max-w-none max-h-none p-0 shadow-2xl relative overflow-hidden ${modalShellThemeClass}`}>
         <div className="h-full w-full overflow-hidden">
           <div
-            className="flex h-full flex-col overflow-hidden p-1.5 sm:p-2 md:p-2.5 lg:p-3"
+            className={`flex h-full flex-col overflow-hidden ${
+              isVeryCompactRuntimeViewport
+                ? 'p-1 sm:p-1.5 md:p-2'
+                : 'p-1.5 sm:p-2 md:p-2.5 lg:p-3'
+            }`}
             style={responsiveLayoutStyle}
           >
         <div className="python-runtime-modal-header mb-0.5 flex flex-col gap-1 md:mb-1">
-          <div className={`rounded-[22px] border px-3 py-2 md:px-3.5 md:py-2.5 ${elevatedCardClass}`}>
+          <div className={`rounded-[22px] border ${
+            isCompactRuntimeViewport ? 'px-2.5 py-1.5 md:px-3 md:py-2' : 'px-3 py-2 md:px-3.5 md:py-2.5'
+          } ${elevatedCardClass}`}>
             <div className="flex items-start justify-between gap-2.5">
               <div className="flex min-w-0 items-start gap-2.5">
-                <div className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[18px] border ${isDarkTheme ? 'border-violet-400/20 bg-violet-500/10 text-violet-200' : 'border-violet-200 bg-violet-50 text-violet-700'}`}>
+                <div className={`inline-flex shrink-0 items-center justify-center border ${
+                  isCompactRuntimeViewport ? 'h-8 w-8 rounded-[16px]' : 'h-9 w-9 rounded-[18px]'
+                } ${isDarkTheme ? 'border-violet-400/20 bg-violet-500/10 text-violet-200' : 'border-violet-200 bg-violet-50 text-violet-700'}`}>
                   <BookOpen size={16} />
                 </div>
                 <div className="min-w-0">
                   <div className={`text-[11px] font-bold uppercase tracking-[0.28em] ${overlineTextClass}`}>Тема</div>
-                  <h2 className={`mt-0.5 text-[1.12rem] font-semibold leading-tight md:text-[1.18rem] ${primaryTextClass}`}>{task.title}</h2>
+                  <h2 className={`mt-0.5 font-semibold leading-tight ${
+                    isCompactRuntimeViewport ? 'text-[1.02rem] md:text-[1.08rem]' : 'text-[1.12rem] md:text-[1.18rem]'
+                  } ${primaryTextClass}`}>{task.title}</h2>
                   <div className="mt-1.5 hidden flex-wrap gap-1">
                     <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold ${softCardClass} ${secondaryTextClass}`}>
                       <Sparkles size={11} />
@@ -1786,8 +1844,8 @@ const PythonTestModal = ({
                 <X size={16} />
               </button>
             </div>
-            <div className="mt-1 grid gap-1 min-[700px]:grid-cols-[minmax(0,1fr)_minmax(180px,220px)]">
-              <div className={`rounded-[18px] border px-2.5 py-1.5 ${mutedStripClass}`}>
+            <div className="mt-1 grid gap-1 min-[700px]:grid-cols-[minmax(0,1fr)_minmax(170px,210px)]">
+              <div className={`rounded-[18px] border px-2.5 ${isCompactRuntimeViewport ? 'py-1' : 'py-1.5'} ${mutedStripClass}`}>
                 <div className="flex items-center justify-between gap-2.5">
                   <div>
                     <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Прогресс темы</div>
@@ -1795,14 +1853,14 @@ const PythonTestModal = ({
                   </div>
                   <div className={`text-lg font-semibold ${primaryTextClass}`}>{currentMastery}%</div>
                 </div>
-                <div className={`mt-1.5 h-1.5 overflow-hidden rounded-full ${isDarkTheme ? 'bg-slate-800/90' : 'bg-slate-200/80'}`}>
+                <div className={`${isCompactRuntimeViewport ? 'mt-1 h-1' : 'mt-1.5 h-1.5'} overflow-hidden rounded-full ${isDarkTheme ? 'bg-slate-800/90' : 'bg-slate-200/80'}`}>
                   <div
                     className="h-full rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-sky-400 transition-all duration-500"
                     style={{ width: `${Math.max(0, Math.min(100, currentMastery))}%` }}
                   />
                 </div>
               </div>
-              <div className={`grid grid-cols-2 gap-1.5 rounded-[18px] border px-2.5 py-1.5 ${mutedStripClass}`}>
+              <div className={`grid grid-cols-2 gap-1.5 rounded-[18px] border px-2.5 ${isCompactRuntimeViewport ? 'py-1' : 'py-1.5'} ${mutedStripClass}`}>
                 <div>
                   <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>В разделе</div>
                   <div className={`mt-1 text-base font-semibold ${primaryTextClass}`}>{visibleCompletion}%</div>
@@ -1819,16 +1877,16 @@ const PythonTestModal = ({
 
           <div className="grid gap-1">
             {showSubsectionNav && (
-              <div className={`rounded-[18px] border p-1.5 ${softCardClass}`}>
+              <div className={`rounded-[18px] border ${isCompactRuntimeViewport ? 'p-1' : 'p-1.5'} ${softCardClass}`}>
                 <div className="flex min-w-0 items-center gap-2">
                   <div className={`shrink-0 text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Подраздел</div>
-                  <div className="flex min-w-0 flex-1 flex-nowrap gap-2 overflow-x-auto pb-1 pr-1 [scrollbar-width:thin]" onWheel={handleHorizontalWheelScroll}>
+                  <div className={`flex min-w-0 flex-1 flex-nowrap ${isCompactRuntimeViewport ? 'gap-1.5 pb-0.5' : 'gap-2 pb-1'} overflow-x-auto pr-1 [scrollbar-width:thin]`} onWheel={handleHorizontalWheelScroll}>
                   {visibleSubsections.map((section) => (
                     <button
                       key={`py-subsection-${section.id}`}
                       type="button"
                       onClick={() => handleSelectSubsection(section.id)}
-                      className={`python-runtime-chip min-w-[220px] shrink-0 rounded-[16px] border px-3 py-2 text-left text-[11px] font-semibold transition-all ${
+                      className={`python-runtime-chip ${subsectionChipSizeClass} shrink-0 rounded-[16px] border text-left text-[11px] font-semibold transition-all ${
                         section.id === activeSubsection?.id
                           ? (isDarkTheme
                               ? 'border-violet-400/40 bg-violet-500/14 text-white shadow-[0_14px_28px_rgba(76,29,149,0.28)]'
@@ -1837,7 +1895,7 @@ const PythonTestModal = ({
                       }`}
                     >
                       <div className="whitespace-nowrap">{section.title}</div>
-                      <div className="mt-0.5 text-[10px] opacity-75">{`${section.count} задач`}</div>
+                      <div className={`${isCompactRuntimeViewport ? 'mt-0' : 'mt-0.5'} text-[10px] opacity-75`}>{`${section.count} задач`}</div>
                     </button>
                   ))}
                   </div>
@@ -1845,14 +1903,14 @@ const PythonTestModal = ({
               </div>
             )}
 
-              <div className={`rounded-[18px] border p-1.5 ${softCardClass}`}>
+              <div className={`rounded-[18px] border ${isCompactRuntimeViewport ? 'p-1' : 'p-1.5'} ${softCardClass}`}>
               <div className="hidden">
                 <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>
                   {activeSubsection ? `Раздел: ${activeSubsection.title}` : 'Раздел'}
                 </div>
               </div>
               <div
-                className="flex min-w-0 flex-nowrap gap-1 overflow-x-auto overflow-y-hidden pb-1.5 pr-10 [scrollbar-width:thin]"
+                className={`flex min-w-0 flex-nowrap ${isCompactRuntimeViewport ? 'gap-1 pb-1 pr-6' : 'gap-1 pb-1.5 pr-10'} overflow-x-auto overflow-y-hidden [scrollbar-width:thin]`}
                 onWheel={handleHorizontalWheelScroll}
               >
                 {visibleQuestionItems.map((item) => {
@@ -1881,11 +1939,11 @@ const PythonTestModal = ({
                       type="button"
                       onClick={() => setCurrentIndex(item.questionIndex)}
                       className={`python-runtime-chip shrink-0 rounded-[16px] border text-left transition-all ${
-                        isDenseQuestionNav ? 'min-w-[104px] px-1.5 py-1' : 'min-w-[136px] px-2 py-1.5'
+                        useDenseTaskChips ? 'min-w-[104px] px-1.5 py-1' : 'min-w-[136px] px-2 py-1.5'
                       } ${buttonClass}`}
                       title={label}
                     >
-                      <div className={`flex ${isDenseQuestionNav ? 'items-center gap-1.5' : 'items-start gap-2'}`}>
+                      <div className={`flex ${useDenseTaskChips ? 'items-center gap-1.5' : 'items-start gap-2'}`}>
                         <div className={`inline-flex shrink-0 items-center justify-center border font-bold ${
                           solved
                             ? (isDarkTheme
@@ -1894,7 +1952,7 @@ const PythonTestModal = ({
                             : (isDarkTheme
                                 ? 'border-slate-700 bg-slate-900/80 text-slate-300'
                                 : 'border-slate-200 bg-slate-50 text-slate-600')
-                        } ${isDenseQuestionNav ? 'h-6 w-6 rounded-[9px] text-[9px]' : 'mt-0.5 h-7 w-7 rounded-[10px] text-[10px]'}`}>
+                        } ${useDenseTaskChips ? 'h-6 w-6 rounded-[9px] text-[9px]' : 'mt-0.5 h-7 w-7 rounded-[10px] text-[10px]'}`}>
                           {solved ? <CheckCircle2 size={14} /> : item.localNumber}
                         </div>
                         <div className="min-w-0 flex-1">
@@ -1914,26 +1972,54 @@ const PythonTestModal = ({
         <div className="flex-1 min-h-0 overflow-hidden pr-0 md:pr-1">
           <div
             ref={workspaceGridRef}
-            className={`grid h-full min-h-0 gap-3 ${workspaceGridClass}`}
+            className={`grid h-full min-h-0 ${isCompactRuntimeViewport ? 'gap-2' : 'gap-3'} ${workspaceGridClass}`}
             style={workspaceGridStyle}
           >
-            <div className="min-h-0 flex flex-col gap-2.5 overflow-hidden min-[700px]:col-start-1 min-[700px]:row-start-1">
-          <div className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border p-3 md:p-3.5 ${questionCardClass}`}>
+            <div className={`min-h-0 flex flex-col ${isCompactRuntimeViewport ? 'gap-2' : 'gap-2.5'} overflow-hidden min-[700px]:col-start-1 min-[700px]:row-start-1`}>
+          <div className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border ${isCompactRuntimeViewport ? 'p-2.5 md:p-3' : 'p-3 md:p-3.5'} ${questionCardClass}`}>
             <div className="flex items-start justify-between gap-3">
               <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${overlineTextClass}`}>Условие задачи</div>
               {canOpenTheory && (
-                <button
-                  type="button"
-                  onClick={() => setShowTheory(true)}
-                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
-                    isDarkTheme
-                      ? 'border-violet-400/35 bg-violet-500/12 text-violet-100 hover:bg-violet-500/20'
-                      : 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100'
-                  }`}
-                >
-                  {isRecordingTheory ? <PlayCircle size={12} /> : <BookOpen size={12} />}
-                  {theoryLauncherLabel}
-                </button>
+                <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                  {openableTheoryTypes.length > 1 ? (
+                    openableTheoryTypes.map((type) => {
+                      const isActive = type === theoryType;
+                      const Icon = type === THEORY_RECORDING_TYPE ? PlayCircle : BookOpen;
+                      return (
+                        <button
+                          key={`python-theory-launcher-${type}`}
+                          type="button"
+                          onClick={() => openTheory(type)}
+                          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
+                            isActive
+                              ? (isDarkTheme
+                                  ? 'border-violet-400/45 bg-violet-500/18 text-white shadow-[0_8px_22px_rgba(124,58,237,0.22)]'
+                                  : 'border-violet-400 bg-violet-50 text-violet-700 shadow-[0_8px_18px_rgba(124,58,237,0.14)]')
+                              : (isDarkTheme
+                                  ? 'border-slate-700 bg-slate-950/65 text-slate-300 hover:border-violet-400/35 hover:bg-violet-500/12 hover:text-violet-100'
+                                  : 'border-slate-200 bg-white/90 text-slate-600 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700')
+                          }`}
+                        >
+                          <Icon size={12} />
+                          {getTheoryLauncherLabel(type)}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => openTheory()}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
+                        isDarkTheme
+                          ? 'border-violet-400/35 bg-violet-500/12 text-violet-100 hover:bg-violet-500/20'
+                          : 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100'
+                      }`}
+                    >
+                      {isRecordingTheory ? <PlayCircle size={12} /> : <BookOpen size={12} />}
+                      {theoryLauncherLabel}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -2323,7 +2409,9 @@ const PythonTestModal = ({
           </div>
         </div>
 
-        <div className={`python-runtime-footer mt-1 rounded-[24px] border px-3 py-2.5 md:px-3.5 md:py-3 pb-[calc(env(safe-area-inset-bottom)+0.25rem)] ${footerClass}`}>
+        <div className={`python-runtime-footer mt-1 rounded-[24px] border px-3 ${
+          isCompactRuntimeViewport ? 'py-2 md:px-3' : 'py-2.5 md:px-3.5 md:py-3'
+        } pb-[calc(env(safe-area-inset-bottom)+0.25rem)] ${footerClass}`}>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
               <span className={isDarkTheme ? 'text-slate-300' : 'text-slate-600'}>
