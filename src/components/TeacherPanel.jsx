@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, BellOff, Download, MessageSquare, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2 } from 'lucide-react';
+import { Bell, BellOff, ChevronDown, ChevronUp, Download, MessageSquare, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import BroadcastNotificationsPanel from './BroadcastNotificationsPanel';
@@ -46,6 +46,7 @@ const TeacherPanel = ({
 }) => {
   const isSignupChatsMode = mode === 'signup-chats';
   const isTestsMode = !isSignupChatsMode;
+  const [isStudentsExpanded, setIsStudentsExpanded] = useState(false);
   const [testDb, setTestDb] = useState(null);
   const [testsLoading, setTestsLoading] = useState(false);
   const [testsError, setTestsError] = useState('');
@@ -755,7 +756,10 @@ const TeacherPanel = ({
       const created = await api.createStudent(name, teacherId);
       const { code, ...rest } = created || {};
       if (rest?.id) onStudentCreated?.(rest);
-      if (code) setLastIssuedCode({ name: rest?.name || name, code });
+      if (code) {
+        setLastIssuedCode({ name: rest?.name || name, code });
+        setIsStudentsExpanded(true);
+      }
       setNewStudentName('');
       setStudentActionError('');
     } catch (err) {
@@ -786,7 +790,10 @@ const TeacherPanel = ({
     setResettingStudentId(student.id);
     try {
       const res = await api.resetStudentCode(student.id);
-      if (res?.code) setLastIssuedCode({ name: student.name, code: res.code });
+      if (res?.code) {
+        setLastIssuedCode({ name: student.name, code: res.code });
+        setIsStudentsExpanded(true);
+      }
       if (res?.codeHint) onStudentUpdated?.({ ...student, codeHint: res.codeHint });
     } catch (err) {
       alert(err?.message || err);
@@ -828,6 +835,7 @@ const TeacherPanel = ({
 
   const startEditStudent = (student) => {
     if (!student?.id) return;
+    setIsStudentsExpanded(true);
     setEditingStudentId(student.id);
     setEditStudentName(student.name || '');
     setEditStudentNickname(student.nickname || '');
@@ -1247,9 +1255,26 @@ const TeacherPanel = ({
               {`Всего: ${studentsList.length} • Конспекты: ${formatStorageBytes(totalNotesUsageBytes)}`}
             </p>
           </div>
-          {studentsError && <span className="text-xs text-red-500">{studentsError}</span>}
+          <div className="flex items-center gap-2">
+            {studentsError && <span className="text-xs text-red-500">{studentsError}</span>}
+            <button
+              type="button"
+              onClick={() => setIsStudentsExpanded((prev) => !prev)}
+              className="teacher-broadcast-history__toggle inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-purple-200 hover:text-purple-700"
+              aria-expanded={isStudentsExpanded}
+            >
+              {isStudentsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              {isStudentsExpanded ? 'Свернуть' : 'Развернуть'}
+            </button>
+          </div>
         </div>
 
+        {!isStudentsExpanded ? (
+          <div className="text-sm text-gray-500">
+            Разверни блок, чтобы посмотреть список учеников и управлять им.
+          </div>
+        ) : (
+        <>
         <div className="flex flex-col md:flex-row gap-2 mb-4">
           <input
             type="text"
@@ -1529,6 +1554,8 @@ const TeacherPanel = ({
             </div>
           )}
         </div>
+        </>
+        )}
       </Card>
 
       <Card className="mb-6">

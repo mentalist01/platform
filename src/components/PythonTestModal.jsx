@@ -1,7 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { Download, RefreshCcw, X } from 'lucide-react';
+import {
+  BookOpen,
+  CheckCircle2,
+  ChevronRight,
+  CircleDashed,
+  Code2,
+  Download,
+  FileText,
+  FolderOpen,
+  PlayCircle,
+  RefreshCcw,
+  RotateCcw,
+  Sparkles,
+  TestTube2,
+  Users,
+  Wifi,
+  WifiOff,
+  X,
+} from 'lucide-react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
@@ -83,6 +101,24 @@ const buildRealtimeStatusLabel = (status) => {
 const normalizeTheorySubsectionId = (value) => {
   const id = String(value || '').trim();
   return id || PYTHON_DEFAULT_SUBSECTION_ID;
+};
+
+const getRuntimeViewportWidth = () => {
+  if (typeof window === 'undefined') return 1440;
+  const visualViewportWidth = Number(window.visualViewport?.width || 0);
+  if (Number.isFinite(visualViewportWidth) && visualViewportWidth > 0) return visualViewportWidth;
+  const innerWidth = Number(window.innerWidth || document?.documentElement?.clientWidth || 0);
+  if (Number.isFinite(innerWidth) && innerWidth > 0) return innerWidth;
+  return 1440;
+};
+
+const supportsCssZoom = () => {
+  if (typeof window === 'undefined' || typeof window.CSS?.supports !== 'function') return false;
+  try {
+    return window.CSS.supports('zoom', '0.9');
+  } catch {
+    return false;
+  }
 };
 
 const THEORY_VARIANT_ORDER = [THEORY_RECORDING_TYPE, 'text', 'gdoc'];
@@ -215,9 +251,10 @@ const PythonTestModal = ({
   const [runnerLoading, setRunnerLoading] = useState(false);
   const [runnerError, setRunnerError] = useState('');
   const [testResults, setTestResults] = useState([]);
-  const isMobileViewport = typeof window !== 'undefined'
-    ? window.matchMedia('(max-width: 767px)').matches
-    : false;
+  const [viewportWidth, setViewportWidth] = useState(() => getRuntimeViewportWidth());
+  const [workspaceSplitRatio, setWorkspaceSplitRatio] = useState(0.62);
+  const [isResizingWorkspace, setIsResizingWorkspace] = useState(false);
+  const isMobileViewport = viewportWidth < 700;
   const [showTheory, setShowTheory] = useState(false);
   const [activeTheoryType, setActiveTheoryType] = useState('');
   const [expandedTestIndex, setExpandedTestIndex] = useState(null);
@@ -255,6 +292,8 @@ const PythonTestModal = ({
   const questionCodeLocalVersionRef = useRef({});
   const pendingSaveQuestionIdRef = useRef('');
   const saveTimerRef = useRef(null);
+  const workspaceGridRef = useRef(null);
+  const workspaceResizePointerIdRef = useRef(null);
   const runnerWarmupTimeoutMs = Math.max(PYODIDE_RUN_TIMEOUT_MS * 2, 20000);
 
   const currentMastery = progress[task.id] || 0;
@@ -291,6 +330,58 @@ const PythonTestModal = ({
   useEffect(() => {
     setShowTheory(false);
   }, [task?.number, selectedSubsectionId, theoryTypeForVisibility]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const syncViewportWidth = () => setViewportWidth(getRuntimeViewportWidth());
+    syncViewportWidth();
+    window.addEventListener('resize', syncViewportWidth);
+    window.visualViewport?.addEventListener?.('resize', syncViewportWidth);
+    return () => {
+      window.removeEventListener('resize', syncViewportWidth);
+      window.visualViewport?.removeEventListener?.('resize', syncViewportWidth);
+    };
+  }, []);
+
+  const updateWorkspaceSplitFromClientX = useCallback((clientX) => {
+    const grid = workspaceGridRef.current;
+    if (!grid) return;
+    const rect = grid.getBoundingClientRect();
+    const safeWidth = Math.max(1, rect.width);
+    const dividerWidth = 14;
+    const minLeftWidth = Math.min(360, Math.max(220, safeWidth * 0.18));
+    const maxLeftWidth = Math.min(760, Math.max(420, safeWidth * 0.62));
+    const nextLeftWidth = Math.max(
+      minLeftWidth,
+      Math.min(maxLeftWidth, clientX - rect.left - dividerWidth / 2)
+    );
+    setWorkspaceSplitRatio(nextLeftWidth / safeWidth);
+  }, []);
+
+  useEffect(() => {
+    if (!isResizingWorkspace || typeof window === 'undefined') return undefined;
+    const handlePointerMove = (event) => {
+      updateWorkspaceSplitFromClientX(event.clientX);
+    };
+    const stopResize = () => {
+      workspaceResizePointerIdRef.current = null;
+      setIsResizingWorkspace(false);
+    };
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopResize);
+    window.addEventListener('pointercancel', stopResize);
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopResize);
+      window.removeEventListener('pointercancel', stopResize);
+    };
+  }, [isResizingWorkspace, updateWorkspaceSplitFromClientX]);
 
   const getQuestionIndexKey = () => {
     const safeStudentId = studentId || 'anon';
@@ -1454,6 +1545,15 @@ const PythonTestModal = ({
     input: String(test?.input ?? ''),
     output: String(test?.output ?? '')
   }));
+  const isDarkTheme = theme === 'dark';
+  const currentQuestionDisplayIndex = Math.max(1, currentQuestionPosition + 1);
+  const totalVisibleQuestions = Math.max(visibleQuestionItems.length, 1);
+  const solvedVisibleCount = visibleQuestionItems.reduce((count, item) => (
+    solvedIds.has(String(item.question?.id ?? item.questionIndex)) ? count + 1 : count
+  ), 0);
+  const visibleCompletion = visibleQuestionItems.length
+    ? Math.round((solvedVisibleCount / visibleQuestionItems.length) * 100)
+    : 0;
   const solvedAllTests = isSolved && testResults.length === 0;
   const activeTheorySubsectionId = activeSubsection?.id || PYTHON_DEFAULT_SUBSECTION_ID;
   const theoryVariants = resolveTheoryVariantsForSubsection(taskEntry, activeTheorySubsectionId);
@@ -1464,6 +1564,7 @@ const PythonTestModal = ({
   const theoryRecording = theoryType === THEORY_RECORDING_TYPE
     ? normalizeTheoryRecording(theory?.content)
     : null;
+  const isRecordingTheory = theoryType === THEORY_RECORDING_TYPE && Boolean(theoryRecording);
   const theoryProgressStorageKey = (() => {
     if (theoryType !== THEORY_RECORDING_TYPE || !studentId) return '';
     const subsectionKey = String(activeTheorySubsectionId || PYTHON_DEFAULT_SUBSECTION_ID)
@@ -1500,8 +1601,52 @@ const PythonTestModal = ({
     formatOnType: true,
     formatOnPaste: true
   };
-  const codeEditorHeight = isMobileViewport ? '320px' : 'min(52dvh, 560px)';
+  const codeEditorHeight = isMobileViewport ? '320px' : '100%';
   const realtimeStatusLabel = buildRealtimeStatusLabel(realtimeStatus);
+  const RealtimeStatusIcon = realtimeStatus === 'connected'
+    ? Wifi
+    : (realtimeStatus === 'connecting' ? CircleDashed : WifiOff);
+  const saveStateLabel = questionCodeLoading
+    ? 'Загружаем код'
+    : (questionCodeSaving
+        ? 'Сохраняем'
+        : (questionCodeDirty
+            ? 'Есть несохранённые изменения'
+            : (questionCodeUpdatedAtLabel ? `Сохранено ${questionCodeUpdatedAtLabel}` : 'Автосохранение включено')));
+  const saveStateClass = questionCodeDirty
+    ? (isDarkTheme
+        ? 'border-amber-400/30 bg-amber-500/12 text-amber-200'
+        : 'border-amber-200 bg-amber-50 text-amber-700')
+    : ((questionCodeSaving || questionCodeLoading)
+        ? (isDarkTheme
+            ? 'border-sky-400/30 bg-sky-500/12 text-sky-200'
+            : 'border-sky-200 bg-sky-50 text-sky-700')
+        : (questionCodeUpdatedAtLabel
+            ? (isDarkTheme
+                ? 'border-emerald-400/30 bg-emerald-500/12 text-emerald-200'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-700')
+            : (isDarkTheme
+                ? 'border-slate-700 bg-slate-900/70 text-slate-300'
+                : 'border-slate-200 bg-white text-slate-600')));
+  const realtimeStateClass = realtimeStatus === 'connected'
+    ? (isDarkTheme
+        ? 'border-emerald-400/30 bg-emerald-500/12 text-emerald-200'
+        : 'border-emerald-200 bg-emerald-50 text-emerald-700')
+    : (realtimeStatus === 'connecting'
+        ? (isDarkTheme
+            ? 'border-sky-400/30 bg-sky-500/12 text-sky-200'
+            : 'border-sky-200 bg-sky-50 text-sky-700')
+        : (isDarkTheme
+            ? 'border-slate-700 bg-slate-900/70 text-slate-300'
+            : 'border-slate-200 bg-white text-slate-600'));
+  const solvedStateClass = isSolved
+    ? (isDarkTheme
+        ? 'border-emerald-400/30 bg-emerald-500/12 text-emerald-200'
+        : 'border-emerald-200 bg-emerald-50 text-emerald-700')
+    : (isDarkTheme
+        ? 'border-amber-400/20 bg-amber-500/10 text-amber-200'
+        : 'border-amber-200 bg-amber-50 text-amber-700');
+  const participantsLabel = realtimePeerCount > 0 ? `${realtimePeerCount + 1} в комнате` : 'Только вы';
   const sharedRunTimeLabel = sharedRunState.ts
     ? new Date(sharedRunState.ts).toLocaleTimeString('ru-RU')
     : '';
@@ -1514,6 +1659,73 @@ const PythonTestModal = ({
     }
     return '';
   })();
+  const primaryTextClass = isDarkTheme ? 'text-white' : 'text-slate-900';
+  const secondaryTextClass = isDarkTheme ? 'text-slate-300' : 'text-slate-600';
+  const mutedTextClass = isDarkTheme ? 'text-slate-400' : 'text-slate-500';
+  const overlineTextClass = isDarkTheme ? 'text-violet-300' : 'text-purple-600';
+  const modalShellThemeClass = isDarkTheme
+    ? ''
+    : 'bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.98),rgba(248,250,252,0.95)_42%,rgba(237,233,254,0.62)_100%)]';
+  const elevatedCardClass = isDarkTheme
+    ? 'border-slate-800/90 bg-[linear-gradient(180deg,rgba(8,12,24,0.985),rgba(4,8,20,0.99))] shadow-[0_24px_56px_rgba(2,6,23,0.52)]'
+    : 'border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.99),rgba(244,247,255,0.97))] shadow-[0_18px_42px_rgba(148,163,184,0.14),inset_0_1px_0_rgba(255,255,255,0.88)]';
+  const softCardClass = isDarkTheme
+    ? 'border-slate-800/85 bg-slate-950/80 shadow-[inset_0_1px_0_rgba(148,163,184,0.08)]'
+    : 'border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(244,247,255,0.90))] shadow-[0_10px_24px_rgba(148,163,184,0.08),inset_0_1px_0_rgba(255,255,255,0.82)]';
+  const mutedStripClass = isDarkTheme
+    ? 'border-slate-800/80 bg-slate-950/72'
+    : 'border-slate-200/90 bg-[linear-gradient(180deg,rgba(246,248,255,0.94),rgba(238,242,255,0.90))]';
+  const subtleButtonClass = isDarkTheme
+    ? 'border-slate-800/80 bg-slate-950/60 text-slate-300 hover:border-violet-400/30 hover:bg-slate-900 hover:text-white'
+    : 'border-slate-200/90 bg-white/92 text-slate-700 shadow-[0_8px_18px_rgba(148,163,184,0.10)] hover:border-violet-200 hover:bg-violet-50/90 hover:text-slate-900';
+  const footerClass = isDarkTheme
+    ? 'border-slate-800/90 bg-[linear-gradient(90deg,rgba(8,12,24,0.98),rgba(35,30,72,0.96),rgba(8,12,24,0.98))] shadow-[0_-18px_38px_rgba(2,6,23,0.34)]'
+    : 'border-violet-200/90 bg-[linear-gradient(90deg,rgba(245,243,255,0.96),rgba(250,245,255,0.96),rgba(240,249,255,0.96))] shadow-[0_-12px_28px_rgba(148,163,184,0.14),inset_0_1px_0_rgba(255,255,255,0.88)]';
+  const questionCardClass = isDarkTheme
+    ? 'border-slate-800/90 bg-[radial-gradient(circle_at_top_left,rgba(139,92,246,0.14),transparent_24%),linear-gradient(180deg,rgba(10,14,30,0.99),rgba(4,8,20,0.99))] shadow-[0_24px_56px_rgba(2,6,23,0.52),inset_0_1px_0_rgba(148,163,184,0.04)]'
+    : 'border-violet-200/90 bg-[radial-gradient(circle_at_top_left,rgba(196,181,253,0.42),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.99),rgba(245,247,255,0.97))] shadow-[0_18px_42px_rgba(139,92,246,0.12)]';
+  const editorFrameClass = isDarkTheme
+    ? 'border-slate-800 bg-slate-950/80'
+    : 'border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.99),rgba(244,247,255,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]';
+  const editorHeaderClass = isDarkTheme
+    ? 'border-slate-800 bg-slate-950/70 text-slate-400'
+    : 'border-slate-200/90 bg-[linear-gradient(180deg,rgba(247,248,252,0.96),rgba(241,245,249,0.92))] text-slate-500';
+  const hasSupportSidebarContent = Boolean((theory?.content && !isRecordingTheory) || screenshots.length || extraFiles.length);
+  const showPresenceChip = realtimePeerCount > 0;
+  const workspaceTitle = showPresenceChip ? 'Совместный редактор Python' : 'Редактор Python';
+  const workspaceDescription = showPresenceChip
+    ? 'Код синхронизируется в realtime и виден всем участникам комнаты.'
+    : 'Пишите решение, затем запускайте тесты и сразу проверяйте результат.';
+  const isWideWorkspace = viewportWidth >= 700;
+  const workspaceGridClass = hasSupportSidebarContent
+    ? 'min-[700px]:grid-rows-[minmax(170px,0.24fr)_minmax(0,1fr)]'
+    : 'min-[700px]:grid-rows-[auto_minmax(0,1fr)]';
+  const testsGridClass = '';
+  const workspaceGridStyle = isWideWorkspace
+    ? {
+        gridTemplateColumns: `clamp(220px, ${(workspaceSplitRatio * 100).toFixed(2)}%, 760px) 14px minmax(0, 1fr)`,
+      }
+    : undefined;
+  const responsiveLayoutScale = viewportWidth >= 1340
+    ? 1
+    : Math.max(700 / 1340, viewportWidth / 1340);
+  const canUseCssZoom = supportsCssZoom();
+  const responsiveLayoutStyle = responsiveLayoutScale < 0.999
+    ? (
+        canUseCssZoom
+          ? {
+              width: `${100 / responsiveLayoutScale}%`,
+              height: `${100 / responsiveLayoutScale}%`,
+              zoom: responsiveLayoutScale,
+            }
+          : {
+              width: `${100 / responsiveLayoutScale}%`,
+              height: `${100 / responsiveLayoutScale}%`,
+              transform: `scale(${responsiveLayoutScale})`,
+              transformOrigin: 'top left',
+            }
+      )
+    : undefined;
   const handleSelectSubsection = (subsectionId) => {
     const nextSubsection = visibleSubsections.find((section) => section.id === subsectionId);
     if (!nextSubsection) return;
@@ -1532,93 +1744,231 @@ const PythonTestModal = ({
 
   const modal = (
     <div className="python-runtime-modal-overlay fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-stretch justify-stretch p-0">
-      <div className="python-runtime-modal-shell surface-card modal-card modal-card--fullscreen rounded-none w-screen h-[100dvh] max-w-none max-h-none p-3 sm:p-3.5 md:p-5 lg:p-6 shadow-2xl relative flex flex-col overflow-hidden">
-        <div className="python-runtime-modal-header flex flex-col gap-2.5 md:gap-3 mb-2.5 md:mb-3">
-          <div className="flex justify-between items-start">
-            <div>
-              <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Тема</div>
-              <div className="text-base md:text-lg font-bold text-gray-900 leading-tight">{task.title}</div>
+      <div className={`python-runtime-modal-shell surface-card modal-card modal-card--fullscreen rounded-none w-screen h-[100dvh] max-w-none max-h-none p-0 shadow-2xl relative overflow-hidden ${modalShellThemeClass}`}>
+        <div className="h-full w-full overflow-hidden">
+          <div
+            className="flex h-full flex-col overflow-hidden p-1.5 sm:p-2 md:p-2.5 lg:p-3"
+            style={responsiveLayoutStyle}
+          >
+        <div className="python-runtime-modal-header mb-0.5 flex flex-col gap-1 md:mb-1">
+          <div className={`rounded-[22px] border px-3 py-2 md:px-3.5 md:py-2.5 ${elevatedCardClass}`}>
+            <div className="flex items-start justify-between gap-2.5">
+              <div className="flex min-w-0 items-start gap-2.5">
+                <div className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[18px] border ${isDarkTheme ? 'border-violet-400/20 bg-violet-500/10 text-violet-200' : 'border-violet-200 bg-violet-50 text-violet-700'}`}>
+                  <BookOpen size={16} />
+                </div>
+                <div className="min-w-0">
+                  <div className={`text-[11px] font-bold uppercase tracking-[0.28em] ${overlineTextClass}`}>Тема</div>
+                  <h2 className={`mt-0.5 text-[1.12rem] font-semibold leading-tight md:text-[1.18rem] ${primaryTextClass}`}>{task.title}</h2>
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold ${softCardClass} ${secondaryTextClass}`}>
+                      <Sparkles size={11} />
+                      {activeSubsection ? activeSubsection.title : 'Все задачи'}
+                    </span>
+                    <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold ${softCardClass} ${secondaryTextClass}`}>
+                      <FileText size={11} />
+                      {`Задача ${currentQuestionDisplayIndex} из ${totalVisibleQuestions}`}
+                    </span>
+                    <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold ${solvedStateClass}`}>
+                      <CheckCircle2 size={11} />
+                      {isSolved ? 'Решено' : `${solvedIds.size}/${questions.length} решено`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[18px] border transition ${subtleButtonClass}`}
+                aria-label="Закрыть"
+              >
+                <X size={16} />
+              </button>
             </div>
-            <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={18}/></button>
-          </div>
-
-          {showSubsectionNav && (
-            <div className="space-y-1.5">
-              <div className="text-[11px] md:text-xs font-bold uppercase tracking-wide text-slate-400">Подразделы</div>
-              <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1 pr-1" onWheel={handleHorizontalWheelScroll}>
-                {visibleSubsections.map((section) => (
-                  <button
-                    key={`py-subsection-${section.id}`}
-                    type="button"
-                    onClick={() => handleSelectSubsection(section.id)}
-                    className={`python-runtime-chip shrink-0 rounded-xl border px-3 py-1.5 text-xs md:text-sm font-semibold transition-colors ${
-                      section.id === activeSubsection?.id
-                        ? 'border-purple-500 bg-purple-600 text-white'
-                        : 'border-purple-100 bg-white text-slate-600 hover:border-purple-300 hover:text-purple-700'
-                    }`}
-                  >
-                    {`${section.title} · ${section.count}`}
-                  </button>
-                ))}
+            <div className="mt-1 grid gap-1 min-[700px]:grid-cols-[minmax(0,1fr)_minmax(180px,220px)]">
+              <div className={`rounded-[18px] border px-2.5 py-1.5 ${mutedStripClass}`}>
+                <div className="flex items-center justify-between gap-2.5">
+                  <div>
+                    <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Прогресс темы</div>
+                    <div className={`mt-0.5 text-xs ${secondaryTextClass}`}>Текущий набор заданий</div>
+                  </div>
+                  <div className={`text-lg font-semibold ${primaryTextClass}`}>{currentMastery}%</div>
+                </div>
+                <div className={`mt-1.5 h-1.5 overflow-hidden rounded-full ${isDarkTheme ? 'bg-slate-800/90' : 'bg-slate-200/80'}`}>
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-sky-400 transition-all duration-500"
+                    style={{ width: `${Math.max(0, Math.min(100, currentMastery))}%` }}
+                  />
+                </div>
+              </div>
+              <div className={`grid grid-cols-2 gap-1.5 rounded-[18px] border px-2.5 py-1.5 ${mutedStripClass}`}>
+                <div>
+                  <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>В разделе</div>
+                  <div className={`mt-1 text-base font-semibold ${primaryTextClass}`}>{visibleCompletion}%</div>
+                  <div className={`text-xs ${mutedTextClass}`}>{`${solvedVisibleCount}/${visibleQuestionItems.length || 0} решено`}</div>
+                </div>
+                <div>
+                  <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Сейчас</div>
+                  <div className={`mt-1 text-base font-semibold ${primaryTextClass}`}>{`${currentQuestionDisplayIndex}/${totalVisibleQuestions}`}</div>
+                  <div className={`text-xs ${mutedTextClass}`}>{activeSubsection ? activeSubsection.title : 'Все задачи'}</div>
+                </div>
               </div>
             </div>
-          )}
-          <div className="space-y-1.5">
-            <div className="text-[11px] md:text-xs font-bold uppercase tracking-wide text-slate-400">
-              {activeSubsection ? `Раздел: ${activeSubsection.title}` : 'Раздел'}
-            </div>
-            <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1 pr-1" onWheel={handleHorizontalWheelScroll}>
-              {visibleQuestionItems.map((item) => {
-                const qId = String(item.question?.id ?? item.questionIndex);
-                const solved = solvedIds.has(qId);
-                const isCurrent = item.questionIndex === currentIndex;
-                const buttonClass = isCurrent && solved
-                  ? 'border-green-400 ring-2 ring-green-100 bg-green-100 text-green-700'
-                  : (isCurrent
-                      ? 'border-purple-600 ring-2 ring-purple-200 text-purple-600 bg-white'
-                      : (solved
-                          ? 'border-green-200 bg-green-100 text-green-600'
-                          : 'border-gray-300 bg-white text-gray-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700'));
-                const label = item.question?.title || `Вопрос ${item.localNumber}`;
-                return (
-                  <button
-                    key={`py-question-${qId}`}
-                    type="button"
-                    onClick={() => setCurrentIndex(item.questionIndex)}
-                    className={`python-runtime-chip min-w-[148px] shrink-0 rounded-2xl border px-3 py-1.5 text-left transition-all ${buttonClass}`}
-                    title={label}
-                  >
-                    <div className="text-[10px] font-bold uppercase tracking-wide opacity-70">{`Задача ${item.localNumber}`}</div>
-                    <div className="mt-1 truncate text-xs md:text-sm font-semibold">{label}</div>
-                  </button>
-                );
-              })}
-            </div>
           </div>
-          <div className="flex items-center justify-between text-[11px] md:text-xs text-slate-500">
-            <span>
-              {activeSubsection
-                ? `Вопрос ${Math.max(1, currentQuestionPosition + 1)} из ${visibleQuestionItems.length} в подразделе`
-                : `Задача ${currentIndex + 1} из ${questions.length}`}
-            </span>
-            {isSolved ? (
-              <span className="font-semibold text-emerald-600">Решено</span>
-            ) : (
-              <span className="font-medium text-slate-400">Не решено</span>
+
+          <div className={`grid gap-1 ${showSubsectionNav ? 'min-[700px]:grid-cols-[minmax(0,180px)_minmax(0,1fr)]' : ''}`}>
+            {showSubsectionNav && (
+              <div className={`rounded-[18px] border p-1.5 ${softCardClass}`}>
+                <div className="mb-1">
+                  <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Подраздел</div>
+                  <div className={`mt-1 text-sm font-semibold ${primaryTextClass}`}>Выберите набор задач</div>
+                </div>
+                <div className="flex flex-nowrap gap-1.5 overflow-x-auto pb-0.5 pr-0.5" onWheel={handleHorizontalWheelScroll}>
+                  {visibleSubsections.map((section) => (
+                    <button
+                      key={`py-subsection-${section.id}`}
+                      type="button"
+                      onClick={() => handleSelectSubsection(section.id)}
+                      className={`python-runtime-chip shrink-0 rounded-[16px] border px-2.5 py-1 text-left text-[11px] font-semibold transition-all ${
+                        section.id === activeSubsection?.id
+                          ? (isDarkTheme
+                              ? 'border-violet-400/40 bg-violet-500/14 text-white shadow-[0_14px_28px_rgba(76,29,149,0.28)]'
+                              : 'border-violet-500 bg-violet-600 text-white shadow-[0_14px_28px_rgba(124,58,237,0.22)]')
+                          : `${softCardClass} ${secondaryTextClass} hover:-translate-y-0.5 hover:border-violet-300 hover:text-violet-700`
+                      }`}
+                    >
+                      <div className="whitespace-nowrap">{section.title}</div>
+                      <div className="mt-0.5 text-[10px] opacity-75">{`${section.count} задач`}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
+
+              <div className={`rounded-[18px] border p-1.5 ${softCardClass}`}>
+              <div className="mb-1">
+                <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>
+                  {activeSubsection ? `Раздел: ${activeSubsection.title}` : 'Раздел'}
+                </div>
+              </div>
+              <div className="flex flex-nowrap gap-1.5 overflow-x-auto pb-0.5 pr-0.5" onWheel={handleHorizontalWheelScroll}>
+                {visibleQuestionItems.map((item) => {
+                  const qId = String(item.question?.id ?? item.questionIndex);
+                  const solved = solvedIds.has(qId);
+                  const isCurrent = item.questionIndex === currentIndex;
+                  const buttonClass = isCurrent
+                    ? (solved
+                        ? (isDarkTheme
+                            ? 'border-emerald-400/40 bg-emerald-500/14 text-emerald-50 shadow-[0_16px_28px_rgba(5,150,105,0.22)]'
+                            : 'border-emerald-400 bg-emerald-100 text-emerald-700 shadow-[0_14px_28px_rgba(16,185,129,0.18)]')
+                        : (isDarkTheme
+                            ? 'border-violet-400/50 bg-violet-500/16 text-white shadow-[0_16px_28px_rgba(76,29,149,0.26)]'
+                            : 'border-violet-400 bg-violet-50 text-violet-700 shadow-[0_14px_28px_rgba(124,58,237,0.16)]'))
+                    : (solved
+                        ? (isDarkTheme
+                            ? 'border-emerald-500/25 bg-emerald-500/8 text-emerald-100 hover:border-emerald-400/40'
+                            : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300')
+                        : (isDarkTheme
+                            ? 'border-slate-800/80 bg-slate-950/65 text-slate-200 hover:border-violet-400/30 hover:bg-violet-500/10'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700'));
+                  const label = item.question?.title || `Вопрос ${item.localNumber}`;
+                  return (
+                    <button
+                      key={`py-question-${qId}`}
+                      type="button"
+                      onClick={() => setCurrentIndex(item.questionIndex)}
+                      className={`python-runtime-chip min-w-[136px] shrink-0 rounded-[16px] border px-2 py-1.5 text-left transition-all ${buttonClass}`}
+                      title={label}
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className={`mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] border text-[10px] font-bold ${
+                          solved
+                            ? (isDarkTheme
+                                ? 'border-emerald-400/30 bg-emerald-500/14 text-emerald-100'
+                                : 'border-emerald-200 bg-emerald-100 text-emerald-700')
+                            : (isDarkTheme
+                                ? 'border-slate-700 bg-slate-900/80 text-slate-300'
+                                : 'border-slate-200 bg-slate-50 text-slate-600')
+                        }`}>
+                          {solved ? <CheckCircle2 size={14} /> : item.localNumber}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-70">{`Задача ${item.localNumber}`}</div>
+                          <div className="mt-0.5 truncate text-[13px] font-semibold">{label}</div>
+                        </div>
+                        <ChevronRight size={14} className="mt-0.5 shrink-0 opacity-55" />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto pr-0 md:pr-1">
-          {theory?.content && (
-            <div className="python-runtime-theory-card mb-3 md:mb-4 rounded-3xl border border-violet-200/70 bg-gradient-to-br from-white via-violet-50/70 to-fuchsia-50/45 p-3 md:p-3.5 shadow-[0_14px_34px_rgba(124,58,237,0.12)]">
+        <div className="flex-1 min-h-0 overflow-hidden pr-0 md:pr-1">
+          <div
+            ref={workspaceGridRef}
+            className={`grid h-full min-h-0 gap-3 ${workspaceGridClass}`}
+            style={workspaceGridStyle}
+          >
+            <div className="min-h-0 flex flex-col gap-3 min-[700px]:col-start-1 min-[700px]:row-start-1">
+          <div className={`min-h-[210px] rounded-[28px] border p-3 md:min-h-[250px] md:p-3.5 ${questionCardClass}`}>
+            <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${overlineTextClass}`}>Условие задачи</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold ${softCardClass} ${secondaryTextClass}`}>
+                <FileText size={12} />
+                {`Задача ${currentQuestionDisplayIndex}`}
+              </span>
+              <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold ${solvedStateClass}`}>
+                <CheckCircle2 size={12} />
+                {isSolved ? 'Решено ранее' : 'Ожидает решения'}
+              </span>
+            </div>
+            {currentQuestion?.question ? (
+              <div className={`mt-2.5 max-w-[72ch] overflow-y-auto whitespace-pre-wrap text-[14px] font-medium leading-6 md:max-h-[20vh] md:text-[16px] md:leading-6 min-[700px]:max-h-[24vh] ${primaryTextClass}`}>
+                {currentQuestion.question}
+              </div>
+            ) : (
+              <div className={`mt-4 text-sm ${mutedTextClass}`}>Условие задачи пока пустое.</div>
+            )}
+          </div>
+
+          {isRecordingTheory && theory && (
+            <div className={`rounded-[22px] border p-2.5 md:p-3 ${softCardClass}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className={`text-[10px] font-bold uppercase tracking-[0.24em] ${overlineTextClass}`}>Видео-теория</div>
+                  <div className={`mt-0.5 text-[13px] font-semibold leading-5 ${primaryTextClass}`}>Материал по текущей задаче</div>
+                  <div className={`mt-0.5 text-[11px] leading-4 ${secondaryTextClass}`}>Открывается отдельно в широком окне, чтобы видео и код были хорошо видны.</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowTheory(true)}
+                  className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
+                    isDarkTheme
+                      ? 'border-violet-400/40 bg-violet-500/14 text-white hover:bg-violet-500/22'
+                      : 'border-violet-500 bg-violet-600 text-white hover:bg-violet-500'
+                  }`}
+                >
+                  Открыть
+                </button>
+              </div>
+            </div>
+          )}
+
+          {hasSupportSidebarContent && (
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+          {theory?.content && !isRecordingTheory && (
+            <div className={`python-runtime-theory-card rounded-[28px] border p-3.5 md:p-4 ${isDarkTheme ? 'border-violet-400/20 bg-[linear-gradient(180deg,rgba(30,27,75,0.40),rgba(2,6,23,0.92))] shadow-[0_18px_40px_rgba(15,23,42,0.32)]' : 'border-violet-200/70 bg-gradient-to-br from-white via-violet-50/70 to-fuchsia-50/45 shadow-[0_14px_34px_rgba(124,58,237,0.12)]'}`}>
               <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-col gap-1.5">
-                  <div className="text-xs font-bold uppercase tracking-widest text-purple-600">
+                  <div className={`text-xs font-bold uppercase tracking-widest ${overlineTextClass}`}>
                     {theoryType === THEORY_RECORDING_TYPE ? 'Видео-теория' : 'Теория'}
                   </div>
+                  <div className={`text-sm font-semibold ${primaryTextClass}`}>Материал по текущей задаче</div>
                   {theoryType === THEORY_RECORDING_TYPE && (
-                    <div className="text-[11px] text-slate-500">
+                    <div className={`text-[11px] ${mutedTextClass}`}>
                       Если код не помещается целиком, его можно прокручивать.
                     </div>
                   )}
@@ -1631,8 +1981,10 @@ const PythonTestModal = ({
                           onClick={() => setActiveTheoryType(type)}
                           className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] sm:text-xs font-semibold transition ${
                             type === theoryType
-                              ? 'border-violet-500 bg-violet-600 text-white'
-                              : 'border-violet-200/80 bg-white/80 text-violet-700 hover:border-violet-300 hover:bg-white'
+                              ? (isDarkTheme
+                                  ? 'border-violet-400/40 bg-violet-500/16 text-white'
+                                  : 'border-violet-500 bg-violet-600 text-white')
+                              : `${softCardClass} ${secondaryTextClass} hover:border-violet-300 hover:text-violet-700`
                           }`}
                         >
                           {getTheoryTypeLabel(type)}
@@ -1647,7 +1999,7 @@ const PythonTestModal = ({
                       href={theoryFullUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center rounded-full border border-violet-200/70 bg-white/75 px-2.5 py-1 font-semibold text-violet-700 transition hover:border-violet-300 hover:bg-white"
+                      className={`inline-flex items-center rounded-full border px-2.5 py-1 font-semibold transition ${softCardClass} ${secondaryTextClass} hover:border-violet-300 hover:text-violet-700`}
                     >
                       Открыть полностью
                     </a>
@@ -1657,7 +2009,7 @@ const PythonTestModal = ({
                     onClick={() => setShowTheory((prev) => !prev)}
                     className={`inline-flex items-center rounded-full border px-2.5 py-1 font-semibold transition ${
                       showTheory
-                        ? 'border-violet-300/80 bg-white/75 text-violet-700 hover:border-violet-400 hover:bg-white'
+                        ? `${softCardClass} ${secondaryTextClass} hover:border-violet-300 hover:text-violet-700`
                         : 'border-violet-500/70 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white hover:from-violet-500 hover:to-fuchsia-500'
                     }`}
                   >
@@ -1665,7 +2017,7 @@ const PythonTestModal = ({
                   </button>
                 </div>
               </div>
-              {showTheory && theory && (
+              {showTheory && theory && !isRecordingTheory && (
                 theoryType === THEORY_RECORDING_TYPE ? (
                   <div className="python-runtime-theory-body">
                     <TheoryRecordingPlayer
@@ -1677,7 +2029,7 @@ const PythonTestModal = ({
                   </div>
                 ) : theoryType === 'gdoc' ? (
                   isGoogleDocEmbedUrl(theory.content) ? (
-                    <div className="python-runtime-theory-body mt-3 overflow-hidden rounded-xl border border-purple-100 bg-white">
+                    <div className={`python-runtime-theory-body mt-3 overflow-hidden rounded-2xl border ${isDarkTheme ? 'border-slate-800 bg-slate-950/75' : 'border-purple-100 bg-white'}`}>
                       <iframe
                         title={`theory-${task.number}`}
                         src={theory.content}
@@ -1689,8 +2041,8 @@ const PythonTestModal = ({
                       Нужна ссылка для встраивания Google Docs (Файл → Опубликовать в интернете → Встроить).
                     </div>
                   )
-                ) : (
-                  <div className="python-runtime-theory-body mt-3 whitespace-pre-wrap text-sm text-gray-700 leading-relaxed max-h-[26svh] overflow-y-auto pr-1 xl:max-h-[34svh]">
+                  ) : (
+                  <div className={`python-runtime-theory-body mt-3 max-h-[26svh] overflow-y-auto whitespace-pre-wrap pr-1 text-sm leading-relaxed min-[700px]:max-h-[34svh] ${secondaryTextClass}`}>
                     {theory.content}
                   </div>
                 )
@@ -1698,11 +2050,21 @@ const PythonTestModal = ({
             </div>
           )}
           {screenshots.length > 0 && (
-            <div className="space-y-2.5 md:space-y-3 mb-4 md:mb-5">
+            <div className={`rounded-[28px] border p-3.5 md:p-4 ${elevatedCardClass}`}>
+              <div className="mb-3 flex items-center gap-2">
+                <span className={`inline-flex h-9 w-9 items-center justify-center rounded-2xl border ${isDarkTheme ? 'border-sky-400/20 bg-sky-500/10 text-sky-200' : 'border-sky-200 bg-sky-50 text-sky-700'}`}>
+                  <FolderOpen size={16} />
+                </span>
+                <div>
+                  <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Материалы</div>
+                  <div className={`text-sm font-semibold ${primaryTextClass}`}>Скриншоты к задаче</div>
+                </div>
+              </div>
+              <div className="space-y-2.5 md:space-y-3">
               {screenshots.map((img) => (
                 <div
                   key={img.id || img.url}
-                  className="border rounded-2xl overflow-hidden bg-gray-900/5 max-h-[42vh] sm:max-h-[55vh] md:max-h-[65vh]"
+                  className={`overflow-hidden rounded-[24px] border ${isDarkTheme ? 'border-slate-800 bg-slate-950/70' : 'border-slate-200 bg-slate-50/80'}`}
                 >
                   <img
                     src={img.url}
@@ -1713,186 +2075,254 @@ const PythonTestModal = ({
                   />
                 </div>
               ))}
+              </div>
             </div>
           )}
 
           {extraFiles.length > 0 && (
-            <div className="mb-4 md:mb-5">
-              <p className="text-xs font-bold text-gray-400 uppercase mb-2">Доп. файлы</p>
+            <div className={`rounded-[28px] border p-3.5 md:p-4 ${elevatedCardClass}`}>
+              <div className="mb-3 flex items-center gap-2">
+                <span className={`inline-flex h-9 w-9 items-center justify-center rounded-2xl border ${isDarkTheme ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-200' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
+                  <FolderOpen size={16} />
+                </span>
+                <div>
+                  <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Файлы</div>
+                  <div className={`text-sm font-semibold ${primaryTextClass}`}>Дополнительные материалы</div>
+                </div>
+              </div>
               <div className="space-y-2">
                 {extraFiles.map((file) => (
                   <a
                     key={file.id || file.url}
                     href={buildDownloadUrl(file.url)}
                     download={file?.name || undefined}
-                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-700 hover:border-purple-300 hover:bg-purple-50"
+                    className={`flex items-center justify-between gap-3 rounded-2xl border px-3 py-3 text-sm transition ${softCardClass} ${secondaryTextClass} hover:border-violet-300 hover:text-violet-700`}
                   >
                     <span className="truncate">{file.name}</span>
-                    <Download size={16} className="text-purple-600" />
+                    <Download size={16} className={isDarkTheme ? 'text-violet-300' : 'text-purple-600'} />
                   </a>
                 ))}
               </div>
             </div>
           )}
-
-          {isSolved && (
-            <div className="mb-2 text-xs font-semibold text-green-600 uppercase tracking-wide">Решено ранее</div>
-          )}
-          {currentQuestion?.question && (
-            <p className="text-[15px] md:text-lg font-medium leading-relaxed text-gray-900 mb-4 md:mb-5 whitespace-pre-wrap">{currentQuestion.question}</p>
+            </div>
           )}
 
-          <div className="space-y-3 mb-4 md:mb-5">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase">Код</label>
-                <div className="mt-0.5 text-[11px] text-gray-500">
-                  {realtimeStatusLabel}
-                  {realtimePeerCount > 0 ? ` • участников: ${realtimePeerCount + 1}` : ''}
-                </div>
-                {sharedRunLabel && (
-                  <div className="text-[11px] text-sky-700">
-                    {sharedRunLabel}
-                    {sharedRunTimeLabel ? ` • ${sharedRunTimeLabel}` : ''}
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="text-[11px] text-gray-500">
-                  {questionCodeLoading
-                    ? 'Загрузка...'
-                    : (questionCodeSaving
-                      ? 'Сохранение...'
-                      : (questionCodeUpdatedAtLabel
-                        ? `Сохранено: ${questionCodeUpdatedAtLabel}`
-                        : (questionCodeDirty ? 'Не сохранено' : '')))}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const starterCode = typeof questionCodeEntry.starterCode === 'string'
-                      ? questionCodeEntry.starterCode
-                      : (typeof currentQuestion?.starterCode === 'string' ? currentQuestion.starterCode : '');
-                    const updatedInCollab = replaceCodeInCollab(starterCode);
-                    clearQuestionCodeError(currentId);
-                    if (testResults.length > 0) setTestResults([]);
-                    if (!updatedInCollab) {
-                      setQuestionCodeEntry(currentId, { code: starterCode });
-                      bumpQuestionCodeVersion(currentId);
-                      setQuestionCodeDirty(currentId, true);
-                      scheduleQuestionSave(currentId);
-                    }
-                  }}
-                  className="text-xs text-purple-600 hover:text-purple-700"
-                >
-                  Сбросить
-                </button>
-              </div>
-            </div>
-            <div className="rounded-2xl overflow-hidden border border-gray-800">
-              <Editor
-                key={`py-test-editor-${collabRoomId || currentId}`}
-                height={codeEditorHeight}
-                language="python"
-                theme={monacoTheme}
-                beforeMount={ensureMonacoColorTheme}
-                defaultValue={collabRoomId ? '' : resolvedCode}
-                onMount={handleEditorMount}
-                options={editorOptions}
-                loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
-              />
-            </div>
-            {questionCodeError && (
-              <div className="text-xs text-red-500">{questionCodeError}</div>
-            )}
           </div>
 
-          {runnerError && (
-            <div className="mb-3 text-sm text-red-500">{runnerError}</div>
-          )}
+            {isWideWorkspace && (
+              <div className="relative hidden min-[700px]:block min-[700px]:col-start-2 min-[700px]:row-span-2">
+                <button
+                  type="button"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    workspaceResizePointerIdRef.current = event.pointerId;
+                    setIsResizingWorkspace(true);
+                    updateWorkspaceSplitFromClientX(event.clientX);
+                  }}
+                  className="group absolute inset-y-0 left-1/2 z-20 w-4 -translate-x-1/2 cursor-col-resize touch-none"
+                  aria-label="Изменить ширину панели"
+                >
+                  <span className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition ${
+                    isDarkTheme ? 'bg-slate-700/90 group-hover:bg-violet-400/80' : 'bg-slate-300 group-hover:bg-violet-500/70'
+                  } ${isResizingWorkspace ? (isDarkTheme ? 'bg-violet-300' : 'bg-violet-600') : ''}`} />
+                  <span className={`absolute left-1/2 top-1/2 flex h-12 w-3 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border backdrop-blur-sm transition ${
+                    isDarkTheme
+                      ? 'border-slate-700 bg-slate-950/92 text-slate-400 group-hover:border-violet-400/50 group-hover:text-violet-200'
+                      : 'border-slate-200 bg-white/96 text-slate-400 group-hover:border-violet-300 group-hover:text-violet-600'
+                  } ${isResizingWorkspace ? (isDarkTheme ? 'border-violet-400/60 text-violet-200' : 'border-violet-400 text-violet-600') : ''}`}>
+                    <span className="h-5 w-[3px] rounded-full bg-current/80 shadow-[0_7px_0_currentColor,0_-7px_0_currentColor]" />
+                  </span>
+                </button>
+              </div>
+            )}
 
-          <div className="space-y-3 mb-4 md:mb-5">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-xs font-bold text-gray-400 uppercase">{'\u0422\u0435\u0441\u0442\u044b'}</div>
-              {runnerLoading && (
-                <span className="text-[11px] font-semibold text-purple-600">{'\u0417\u0430\u043f\u0443\u0441\u043a...'}</span>
+            <div className="min-h-0 min-[700px]:col-start-3 min-[700px]:row-span-2">
+          <div className={`h-full rounded-[30px] border p-3.5 md:p-4 ${elevatedCardClass} min-h-0 flex flex-col`}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Рабочая зона</div>
+                <div className={`mt-1 flex items-center gap-2 text-sm font-semibold md:text-base ${primaryTextClass}`}>
+                  <Code2 size={17} className={isDarkTheme ? 'text-violet-300' : 'text-violet-600'} />
+                  {workspaceTitle}
+                </div>
+                <div className={`mt-1 text-sm min-[700px]:hidden ${secondaryTextClass}`}>{workspaceDescription}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const starterCode = typeof questionCodeEntry.starterCode === 'string'
+                    ? questionCodeEntry.starterCode
+                    : (typeof currentQuestion?.starterCode === 'string' ? currentQuestion.starterCode : '');
+                  const updatedInCollab = replaceCodeInCollab(starterCode);
+                  clearQuestionCodeError(currentId);
+                  if (testResults.length > 0) setTestResults([]);
+                  if (!updatedInCollab) {
+                    setQuestionCodeEntry(currentId, { code: starterCode });
+                    bumpQuestionCodeVersion(currentId);
+                    setQuestionCodeDirty(currentId, true);
+                    scheduleQuestionSave(currentId);
+                  }
+                }}
+                className={`inline-flex items-center justify-center gap-2 rounded-2xl border px-3 py-2 text-sm font-semibold transition ${subtleButtonClass}`}
+              >
+                <RotateCcw size={15} />
+                Сбросить код
+              </button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold ${realtimeStateClass}`}>
+                <RealtimeStatusIcon size={12} className={realtimeStatus === 'connecting' ? 'animate-spin' : ''} />
+                {realtimeStatusLabel}
+              </span>
+              <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold ${saveStateClass}`}>
+                <CheckCircle2 size={12} />
+                {saveStateLabel}
+              </span>
+              {showPresenceChip && (
+                <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold ${softCardClass} ${secondaryTextClass}`}>
+                  <Users size={12} />
+                  {participantsLabel}
+                </span>
               )}
             </div>
+            {sharedRunLabel && (
+              <div className={`mt-3 rounded-2xl border px-3 py-2 text-xs ${isDarkTheme ? 'border-sky-400/20 bg-sky-500/10 text-sky-100' : 'border-sky-200 bg-sky-50 text-sky-700'}`}>
+                {sharedRunLabel}
+                {sharedRunTimeLabel ? ` • ${sharedRunTimeLabel}` : ''}
+              </div>
+            )}
+            <div className={`mt-3 min-h-0 flex-1 overflow-hidden rounded-[24px] border ${editorFrameClass}`}>
+              <div className={`flex items-center justify-between gap-3 border-b px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] ${editorHeaderClass}`}>
+                <span>main.py</span>
+                <span>{questionCodeDirty ? 'Изменения ждут сохранения' : 'Автосохранение'}</span>
+              </div>
+              <div className="h-full min-h-0">
+                <Editor
+                  key={`py-test-editor-${collabRoomId || currentId}`}
+                  height={codeEditorHeight}
+                  language="python"
+                  theme={monacoTheme}
+                  beforeMount={ensureMonacoColorTheme}
+                  defaultValue={collabRoomId ? '' : resolvedCode}
+                  onMount={handleEditorMount}
+                  options={editorOptions}
+                  loading={<div className={`p-4 text-sm ${mutedTextClass}`}>Загрузка редактора...</div>}
+                />
+              </div>
+            </div>
+            {questionCodeError && (
+              <div className="mt-3 rounded-2xl border border-red-200/80 bg-red-50 px-3 py-2 text-xs text-red-600">{questionCodeError}</div>
+            )}
+          </div>
+            </div>
+
+            <div className="min-h-0 min-[700px]:col-start-1 min-[700px]:row-start-2">
+          <div className={`h-full rounded-[30px] border p-3.5 md:p-4 ${elevatedCardClass} min-h-0 flex flex-col`}>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Проверка</div>
+                <div className={`mt-1 flex items-center gap-2 text-sm font-semibold md:text-base ${primaryTextClass}`}>
+                  <TestTube2 size={17} className={isDarkTheme ? 'text-violet-300' : 'text-violet-600'} />
+                  Тесты задачи
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold ${softCardClass} ${secondaryTextClass}`}>
+                  <PlayCircle size={12} />
+                  {`${testsToShow.length} тестов`}
+                </span>
+                {runnerLoading && (
+                  <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold ${isDarkTheme ? 'border-violet-400/30 bg-violet-500/12 text-violet-100' : 'border-violet-200 bg-violet-50 text-violet-700'}`}>
+                    <CircleDashed size={12} className="animate-spin" />
+                    Запуск...
+                  </span>
+                )}
+              </div>
+            </div>
+            {runnerError && (
+              <div className="mt-3 rounded-2xl border border-red-200/80 bg-red-50 px-3 py-2 text-sm text-red-600">{runnerError}</div>
+            )}
             {testsToShow.length === 0 ? (
-              <div className="text-sm text-gray-500">Учитель еще не добавил тесты.</div>
+              <div className={`mt-4 rounded-2xl border px-3 py-3 text-sm ${softCardClass} ${secondaryTextClass}`}>Учитель еще не добавил тесты.</div>
             ) : (
-              <div className="space-y-2 xl:max-h-[30svh] xl:overflow-y-auto xl:pr-1">
+              <div className="mt-3 min-h-0 space-y-2.5 overflow-y-auto pr-1">
                 {testsToShow.map((item, idx) => {
                   const result = testResults[idx];
                   const passed = result?.passed ?? (solvedAllTests ? true : undefined);
-                  const showDetails = !isMobileViewport || Boolean(result) || expandedTestIndex === idx;
+                  const testCardClass = passed === undefined
+                    ? (isDarkTheme ? 'border-slate-800/80 bg-slate-950/55' : 'border-slate-200 bg-slate-50')
+                    : (passed
+                        ? (isDarkTheme ? 'border-emerald-400/25 bg-emerald-500/10' : 'border-emerald-200 bg-emerald-50')
+                        : (isDarkTheme ? 'border-red-400/25 bg-red-500/10' : 'border-red-200 bg-red-50'));
+                  const statusTextClass = passed === undefined
+                    ? mutedTextClass
+                    : (passed
+                        ? (isDarkTheme ? 'text-emerald-200' : 'text-emerald-700')
+                        : (isDarkTheme ? 'text-red-200' : 'text-red-600'));
+                  const inputPreview = item.input || '—';
+                  const expectedPreview = item.output || '—';
+                  const actualPreview = result
+                    ? (result.error ? `Ошибка: ${result.error}` : (normalizeOutput(result.output) || '—'))
+                    : '—';
+                  const rowTitle = [
+                    `Вход: ${inputPreview}`,
+                    `Ожидалось: ${expectedPreview}`,
+                    `Вывод: ${actualPreview}`,
+                  ].join('\n');
                   return (
                     <div
                       key={`${idx}-${item.input}`}
                       style={{ '--python-test-i': `${idx}` }}
-                      className={`python-runtime-test-card rounded-2xl border p-2.5 md:p-3 text-xs md:text-sm ${
-                        passed === undefined
-                          ? 'border-gray-200 bg-gray-50'
-                          : (passed ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50')
-                      }`}
+                      className={`python-runtime-test-card rounded-[18px] border px-2.5 py-2 text-[11px] md:text-xs ${testCardClass}`}
+                      title={rowTitle}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold">Тест {idx + 1}</span>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[11px] md:text-xs font-bold ${
-                            passed === undefined ? 'text-gray-400' : (passed ? 'text-emerald-700' : 'text-red-600')
-                          }`}>
-                            {passed === undefined ? '—' : (passed ? 'OK' : 'Ошибка')}
-                          </span>
-                          {isMobileViewport && !result && (
-                            <button
-                              type="button"
-                              onClick={() => setExpandedTestIndex((prev) => (prev === idx ? null : idx))}
-                              className="text-[11px] font-semibold text-purple-600"
-                            >
-                              {showDetails ? 'Скрыть' : 'Детали'}
-                            </button>
-                          )}
-                        </div>
+                      <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap pr-1">
+                        <span className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[10px] font-bold ${softCardClass} ${secondaryTextClass}`}>
+                          {idx + 1}
+                        </span>
+                        <span className={`shrink-0 font-semibold ${primaryTextClass}`}>{`Тест ${idx + 1}`}</span>
+                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusTextClass} ${passed === undefined ? softCardClass : ''}`}>
+                          {passed === undefined ? 'Не запускался' : (passed ? 'OK' : 'Ошибка')}
+                        </span>
+                        <span className={`shrink-0 text-[9px] font-bold uppercase tracking-[0.16em] ${mutedTextClass}`}>Вход</span>
+                        <span className={`max-w-[140px] shrink-0 truncate font-mono ${secondaryTextClass}`}>{inputPreview}</span>
+                        <span className={`shrink-0 text-[9px] font-bold uppercase tracking-[0.16em] ${mutedTextClass}`}>Ожидалось</span>
+                        <span className={`max-w-[140px] shrink-0 truncate font-mono ${secondaryTextClass}`}>{expectedPreview}</span>
+                        <span className={`shrink-0 text-[9px] font-bold uppercase tracking-[0.16em] ${mutedTextClass}`}>Вывод</span>
+                        <span className={`max-w-[170px] shrink-0 truncate font-mono ${secondaryTextClass}`}>{actualPreview}</span>
                       </div>
-                      {showDetails && (
-                        <div className="mt-1.5 text-[11px] md:text-xs text-gray-600">
-                          <div>
-                            <span className="font-semibold">Вход:</span>
-                            <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-[11px] md:text-xs">{item.input || '—'}</pre>
-                          </div>
-                          <div>
-                            <span className="font-semibold">Ожидалось:</span>
-                            <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-[11px] md:text-xs">{item.output || '—'}</pre>
-                          </div>
-                          {result && (
-                            <>
-                              <div>
-                                <span className="font-semibold">Вывод:</span>
-                                <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-[11px] md:text-xs">{normalizeOutput(result.output) || '—'}</pre>
-                              </div>
-                              {result.error && <div className="text-red-600 mt-1">{result.error}</div>}
-                              {!result.error && result.passed === false && result.failReason === 'mismatch' && (
-                                <div className="text-red-600 mt-1">Вывод отличается от ожидаемого из-за скрытых символов/форматирования.</div>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      )}
                     </div>
                   );
                 })}
               </div>
             )}
           </div>
+            </div>
+          </div>
         </div>
 
-        <div className="python-runtime-footer mt-1 rounded-2xl border border-purple-200/80 bg-gradient-to-r from-violet-100/95 via-fuchsia-100/90 to-purple-100/95 px-3 py-3 md:py-3.5 pb-[calc(env(safe-area-inset-bottom)+0.25rem)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-          <div className="text-xs sm:text-sm text-gray-500">
-            Прогресс темы: <span className="font-semibold text-purple-700">{currentMastery}%</span>
-            <span className="text-gray-400"> • {Math.max(1, currentQuestionPosition + 1)}/{Math.max(visibleQuestionItems.length, 1)}</span>
-          </div>
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className={`python-runtime-footer mt-1 rounded-[24px] border px-3 py-2.5 md:px-3.5 md:py-3 pb-[calc(env(safe-area-inset-bottom)+0.25rem)] ${footerClass}`}>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+              <span className={isDarkTheme ? 'text-slate-300' : 'text-slate-600'}>
+                Прогресс темы: <span className={`font-semibold ${isDarkTheme ? 'text-violet-200' : 'text-purple-700'}`}>{currentMastery}%</span>
+              </span>
+              <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${softCardClass} ${secondaryTextClass}`}>
+                {`${currentQuestionDisplayIndex}/${totalVisibleQuestions}`}
+              </span>
+              <span className={isDarkTheme ? 'text-slate-400' : 'text-slate-500'}>
+                {isSolved ? 'Задача решена, можно идти дальше.' : 'Сначала запусти тесты и проверь решение.'}
+              </span>
+            </div>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <Button
+                variant="secondary"
+                onClick={onClose}
+                className={`w-full sm:w-auto ${isDarkTheme ? '!border-slate-700 !bg-slate-950/70 !text-slate-200 hover:!bg-slate-900' : ''}`}
+              >
+                Закрыть
+              </Button>
             <Button
               onClick={(event) => {
                 const rect = event?.currentTarget?.getBoundingClientRect?.();
@@ -1906,17 +2336,54 @@ const PythonTestModal = ({
                   : null);
               }}
               disabled={runnerLoading || questionCodeLoading || !resolvedCode.trim()}
-              className="w-full sm:w-auto"
+              className={`w-full sm:w-auto ${isDarkTheme ? '!shadow-none' : ''}`}
             >
+              <PlayCircle size={16} />
               {runnerLoading ? '\u0417\u0430\u043f\u0443\u0441\u043a...' : '\u0417\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c \u0442\u0435\u0441\u0442\u044b'}
             </Button>
-            <Button variant="secondary" onClick={onClose} className="w-full sm:w-auto">Закрыть</Button>
-            <Button onClick={handleNext} className="w-full sm:w-auto">
+            <Button
+              variant={isSolved ? 'success' : 'secondary'}
+              onClick={handleNext}
+              className={`w-full sm:w-auto ${isDarkTheme && !isSolved ? '!border-slate-700 !bg-slate-950/70 !text-slate-200 hover:!bg-slate-900' : ''} ${isDarkTheme && isSolved ? '!shadow-none' : ''}`}
+            >
+              <ChevronRight size={16} />
               {Number.isFinite(nextQuestionIndex) ? 'Дальше' : 'Готово'}
             </Button>
+            </div>
+          </div>
+        </div>
           </div>
         </div>
       </div>
+      {showTheory && isRecordingTheory && theoryRecording && (
+        <div className="absolute inset-0 z-[55] flex items-center justify-center bg-slate-950/62 p-3 backdrop-blur-sm md:p-5">
+          <div className={`flex h-[min(82vh,860px)] w-full max-w-[min(1180px,96vw)] flex-col overflow-hidden rounded-[32px] border p-3 md:p-4 ${elevatedCardClass}`}>
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className={`text-[11px] font-bold uppercase tracking-[0.28em] ${overlineTextClass}`}>Видео-теория</div>
+                <div className={`mt-1 text-base font-semibold ${primaryTextClass}`}>Материал по текущей задаче</div>
+                <div className={`mt-1 text-sm ${secondaryTextClass}`}>Открыта в широком режиме, чтобы плеер не сжимался в боковой колонке.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTheory(false)}
+                className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border transition ${subtleButtonClass}`}
+                aria-label="Закрыть видео-теорию"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <TheoryRecordingPlayer
+                recording={theoryRecording}
+                progressStorageKey={theoryProgressStorageKey}
+                theme={theme}
+                className="mt-0 h-full"
+              />
+            </div>
+          </div>
+        </div>
+      )}
       {expandedImage && (
         <div
           className="python-runtime-modal-overlay fixed inset-0 z-[60] bg-black/80 modal-backdrop flex items-center justify-center p-4"

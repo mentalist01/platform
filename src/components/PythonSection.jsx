@@ -1773,32 +1773,52 @@ const PythonSection = ({
                 const sectionAvg = tasksInSection.length
                   ? Math.round(tasksInSection.reduce((sum, task) => sum + Number(progressMap[task.id] || 0), 0) / tasksInSection.length)
                   : 0;
+                const isActive = section.id === activeTaskSection?.id;
                 return (
-                  <div
+                  <button
                     key={`overview-${section.id}`}
+                    type="button"
+                    onClick={() => setActiveTaskSectionId(section.id)}
+                    aria-pressed={isActive}
+                    data-active={isActive ? 'true' : 'false'}
+                    data-section={section.id}
                     style={{ '--python-overview-i': `${sectionIdx}` }}
-                    className={`python-learning-overview-card rounded-2xl border p-3.5 md:p-4 shadow-[0_12px_26px_rgba(15,23,42,0.08)] ${sectionUi.shellClass}`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-2.5">
-                        <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${sectionUi.chipClass}`}>
-                          <SectionIcon size={17} />
-                        </span>
-                        <div>
-                          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{sectionUi.badge}</div>
-                          <div className="text-base font-black text-slate-900">{section.title}</div>
+                    className={`python-learning-overview-card w-full rounded-2xl border p-3.5 text-left shadow-[0_12px_26px_rgba(15,23,42,0.08)] transition-all duration-300 md:p-4 ${sectionUi.shellClass} ${
+                      isActive
+                        ? 'python-learning-overview-card--active ring-2 ring-white/70 shadow-[0_16px_34px_rgba(15,23,42,0.14)]'
+                        : 'hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(15,23,42,0.12)]'
+                    }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-2.5">
+                          <span className={`python-learning-overview-card__icon inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${sectionUi.chipClass}`}>
+                            <SectionIcon size={17} />
+                          </span>
+                          <div>
+                            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{sectionUi.badge}</div>
+                            <div className="text-base font-black text-slate-900">{section.title}</div>
+                           </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="python-learning-overview-card__count rounded-full border border-white/80 bg-white/80 px-2.5 py-1 text-xs font-bold text-slate-700">
+                            {`${tasksInSection.length} карточек`}
+                          </div>
+                          <span
+                            className={`python-learning-overview-card__action ${
+                              isActive ? 'python-learning-overview-card__action--active' : ''
+                            }`}
+                            aria-hidden="true"
+                          >
+                            <ArrowUpRight size={13} />
+                          </span>
                         </div>
                       </div>
-                      <div className="rounded-full border border-white/80 bg-white/80 px-2.5 py-1 text-xs font-bold text-slate-700">
-                        {`${tasksInSection.length} карточек`}
+                      <div className="mt-2 text-sm text-slate-600">{section.description}</div>
+                      <div className="mt-3 flex items-center justify-between rounded-xl border border-white/80 bg-white/80 px-3 py-2 text-xs">
+                        <span className="font-semibold text-slate-600">Средний прогресс раздела</span>
+                        <span className="text-base font-black text-slate-900">{`${sectionAvg}%`}</span>
                       </div>
-                    </div>
-                    <div className="mt-2 text-sm text-slate-600">{section.description}</div>
-                    <div className="mt-3 flex items-center justify-between rounded-xl border border-white/80 bg-white/80 px-3 py-2 text-xs">
-                      <span className="font-semibold text-slate-600">Средний прогресс раздела</span>
-                      <span className="text-base font-black text-slate-900">{`${sectionAvg}%`}</span>
-                    </div>
-                  </div>
+                  </button>
                 );
               })}
           </div>
@@ -1967,47 +1987,6 @@ const PythonSection = ({
       )}
 
       <div className="space-y-4 md:space-y-6">
-        {sectionTabs.length > 1 && (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {sectionTabs.map((section) => {
-              const sectionUi = PYTHON_TASK_SECTION_UI[section.id] || PYTHON_TASK_SECTION_UI.topics;
-              const SectionIcon = sectionUi.icon || BookOpen;
-              const sectionTasks = Array.isArray(section.tasks) ? section.tasks : [];
-              const sectionAvg = sectionTasks.length
-                ? Math.round(sectionTasks.reduce((sum, task) => sum + Number(progressMap[task.id] || 0), 0) / sectionTasks.length)
-                : 0;
-              const isActive = section.id === activeTaskSection?.id;
-              return (
-                <button
-                  key={`python-section-tab-${section.id}`}
-                  type="button"
-                  onClick={() => setActiveTaskSectionId(section.id)}
-                  className={`flex items-center justify-between gap-3 rounded-2xl border px-3.5 py-3 text-left transition-colors ${
-                    isActive
-                      ? 'border-purple-500 bg-purple-50 text-purple-900 shadow-[0_12px_24px_rgba(147,51,234,0.16)]'
-                      : 'border-slate-200 bg-white/90 text-slate-700 hover:border-purple-300 hover:bg-purple-50/60'
-                  }`}
-                >
-                  <span className="flex min-w-0 items-center gap-2.5">
-                    <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border ${sectionUi.chipClass}`}>
-                      <SectionIcon size={16} />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-[10px] font-bold uppercase tracking-[0.13em] text-slate-500">
-                        {sectionUi.badge || 'Раздел'}
-                      </span>
-                      <span className="block truncate text-sm font-bold">{section.title}</span>
-                    </span>
-                  </span>
-                  <span className="shrink-0 rounded-full border border-white/85 bg-white/85 px-2 py-1 text-[11px] font-bold text-slate-700">
-                    {`${sectionAvg}%`}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
         {sectionTabs
           .filter((section) => section.id === activeTaskSection?.id)
           .map((section) => {
