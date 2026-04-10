@@ -309,10 +309,9 @@ const PythonReviewModal = ({
     });
   }, [task?.number, selectedSubsectionId, theoryVariantsForVisibility]);
 
-  const theoryTypeForVisibility = String(activeTheoryType || '').trim();
   useEffect(() => {
-    setShowTheory(theoryTypeForVisibility === THEORY_RECORDING_TYPE);
-  }, [task?.number, selectedSubsectionId, theoryTypeForVisibility]);
+    setShowTheory(false);
+  }, [task?.number, selectedSubsectionId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -1461,6 +1460,8 @@ const PythonReviewModal = ({
     ? Math.round((solvedIds.size / questions.length) * 100)
     : 0;
   const isRecordingTheory = theoryType === THEORY_RECORDING_TYPE && Boolean(theoryRecording);
+  const canOpenTheory = Boolean(theory?.content && (!isRecordingTheory || theoryRecording));
+  const theoryLauncherLabel = isRecordingTheory ? 'Видео-теория' : 'Теория';
   const editorOptions = {
     minimap: { enabled: false },
     fontSize: isMobileViewport ? 15 : 16,
@@ -2024,13 +2025,12 @@ const PythonReviewModal = ({
                 </div>
               </div>
 
-              <div className={`grid gap-1 ${showSubsectionNav ? 'min-[700px]:grid-cols-[minmax(0,320px)_minmax(0,1fr)]' : ''}`}>
+              <div className="grid gap-1">
                 {showSubsectionNav && (
                   <div className={`rounded-[18px] border p-1.5 ${softCardClass}`}>
-                    <div className="mb-1">
-                      <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Подраздел</div>
-                    </div>
-                    <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1 pr-1 [scrollbar-width:thin]" onWheel={handleHorizontalWheelScroll}>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className={`shrink-0 text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Подраздел</div>
+                      <div className="flex min-w-0 flex-1 flex-nowrap gap-2 overflow-x-auto pb-1 pr-1 [scrollbar-width:thin]" onWheel={handleHorizontalWheelScroll}>
                       {visibleSubsections.map((section) => (
                         <button
                           key={`review-subsection-${section.id}`}
@@ -2048,6 +2048,7 @@ const PythonReviewModal = ({
                           <div className="mt-0.5 text-[10px] opacity-75">{`${section.count} задач`}</div>
                         </button>
                       ))}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -2127,7 +2128,7 @@ const PythonReviewModal = ({
                   <div className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border p-3 md:p-3.5 ${questionCardClass}`}>
                     <div className="flex items-start justify-between gap-3">
                       <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${overlineTextClass}`}>Условие задачи</div>
-                      {isRecordingTheory && theory && (
+                      {canOpenTheory && (
                         <button
                           type="button"
                           onClick={() => setShowTheory(true)}
@@ -2137,8 +2138,8 @@ const PythonReviewModal = ({
                               : 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100'
                           }`}
                         >
-                          <PlayCircle size={12} />
-                          Видео-теория
+                          {isRecordingTheory ? <PlayCircle size={12} /> : <BookOpen size={12} />}
+                          {theoryLauncherLabel}
                         </button>
                       )}
                     </div>
@@ -2185,7 +2186,7 @@ const PythonReviewModal = ({
                   )}
 
                   <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-1">
-                    {theory?.content && !isRecordingTheory && (
+                    {!canOpenTheory && theory?.content && !isRecordingTheory && (
                       <div className={`python-runtime-theory-card rounded-[28px] border p-3.5 md:p-4 ${isDarkTheme ? 'border-violet-400/20 bg-[linear-gradient(180deg,rgba(30,27,75,0.40),rgba(2,6,23,0.92))] shadow-[0_18px_40px_rgba(15,23,42,0.32)]' : 'border-violet-200/70 bg-gradient-to-br from-white via-violet-50/70 to-fuchsia-50/45 shadow-[0_14px_34px_rgba(124,58,237,0.12)]'}`}>
                         <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
                           <div className="flex flex-col gap-1.5">
@@ -2536,30 +2537,72 @@ const PythonReviewModal = ({
           </div>
         </div>
       </div>
-      {showTheory && isRecordingTheory && theoryRecording && (
+      {showTheory && canOpenTheory && theory && (
         <div className="absolute inset-0 z-[55] flex items-center justify-center bg-slate-950/62 p-3 backdrop-blur-sm md:p-5">
           <div className={`flex h-[min(82vh,860px)] w-full max-w-[min(1180px,96vw)] flex-col overflow-hidden rounded-[32px] border p-3 md:p-4 ${elevatedCardClass}`}>
             <div className="mb-3 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className={`text-[11px] font-bold uppercase tracking-[0.28em] ${overlineTextClass}`}>Видео-теория</div>
+                <div className={`text-[11px] font-bold uppercase tracking-[0.28em] ${overlineTextClass}`}>{theoryLauncherLabel}</div>
                 <div className={`mt-1 text-base font-semibold ${primaryTextClass}`}>Материал по текущей задаче</div>
-                <div className={`mt-1 text-sm ${secondaryTextClass}`}>Открыта в широком режиме, чтобы плеер не сжимался в боковой колонке.</div>
+                <div className={`mt-1 text-sm ${secondaryTextClass}`}>
+                  {isRecordingTheory
+                    ? 'Открыта в широком режиме, чтобы плеер не сжимался в боковой колонке.'
+                    : 'Открыта отдельно, чтобы условие, тесты и редактор оставались на месте.'}
+                </div>
+                {availableTheoryTypes.length > 1 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {availableTheoryTypes.map((type) => (
+                      <button
+                        key={`review-theory-modal-type-${type}`}
+                        type="button"
+                        onClick={() => setActiveTheoryType(type)}
+                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold transition ${
+                          type === theoryType
+                            ? (isDarkTheme
+                                ? 'border-violet-400/40 bg-violet-500/16 text-white'
+                                : 'border-violet-500 bg-violet-600 text-white')
+                            : `${softCardClass} ${secondaryTextClass} hover:border-violet-300 hover:text-violet-700`
+                        }`}
+                      >
+                        {getTheoryTypeLabel(type)}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <button
                 type="button"
                 onClick={() => setShowTheory(false)}
                 className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border transition ${subtleButtonClass}`}
-                aria-label="Закрыть видео-теорию"
+                aria-label="Закрыть теорию"
               >
                 <X size={18} />
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-hidden">
-              <TheoryRecordingPlayer
-                recording={theoryRecording}
-                theme={theme}
-                className="mt-0 h-full"
-              />
+              {isRecordingTheory && theoryRecording ? (
+                <TheoryRecordingPlayer
+                  recording={theoryRecording}
+                  theme={theme}
+                  className="mt-0 h-full"
+                />
+              ) : theoryType === 'gdoc' ? (
+                isGoogleDocEmbedUrl(theory.content) ? (
+                  <iframe
+                    title={`theory-review-${task.number}`}
+                    src={theory.content}
+                    className={`h-full w-full rounded-[24px] border ${isDarkTheme ? 'border-slate-800 bg-slate-950/75' : 'border-purple-100 bg-white'}`}
+                  />
+                ) : (
+                  <div className="rounded-2xl border border-red-200/80 bg-red-50 px-4 py-3 text-sm text-red-600">
+                    Нужна ссылка для встраивания Google Docs (Файл → Опубликовать в интернете → Встроить).
+                  </div>
+                )
+              ) : (
+                <div className={`h-full overflow-y-auto whitespace-pre-wrap rounded-[24px] border p-4 text-sm leading-relaxed md:p-5 md:text-base ${softCardClass} ${secondaryTextClass}`}>
+                  {theory.content}
+                </div>
+              )}
             </div>
           </div>
         </div>
