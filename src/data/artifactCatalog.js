@@ -60,6 +60,12 @@ export const ARTIFACT_CATALOG_METADATA = [
     name: 'Черновик',
     description: 'Скромный спутник каждой сложной мысли, где ошибки постепенно превращаются в готовое решение. Даёт 1000 опыта.',
   },
+  {
+    id: 'transfer-agreement',
+    rank: 'SS',
+    name: 'Права на платформу',
+    description: 'Открывает возможности, которые недоступны другим.',
+  },
 ];
 
 export const ARTIFACT_CATALOG_METADATA_BY_ID = new Map(

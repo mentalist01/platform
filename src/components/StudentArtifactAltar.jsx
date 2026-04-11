@@ -8,6 +8,7 @@ import { ARTIFACT_CATALOG_METADATA_BY_ID } from '../data/artifactCatalog';
 const artifactModules = import.meta.glob('../assets/artefacts/**/*.png', { eager: true, import: 'default' });
 
 const RANK_FOLDER_TO_ID = {
+  'ss-rank': 'SS',
   's-rank': 'S',
   'a-rank': 'A',
   'b-rank': 'B',
@@ -15,6 +16,14 @@ const RANK_FOLDER_TO_ID = {
 };
 
 const RANK_META = {
+  SS: {
+    label: 'SS',
+    title: 'Сверхлегендарный',
+    pillClassName: 'border-pink-300 bg-pink-50 text-rose-700',
+    accent: '#ff1f6d',
+    surface: 'linear-gradient(135deg, rgba(255,228,240,0.98), rgba(255,214,232,0.95) 44%, rgba(254,205,211,0.94))',
+    glow: '0 0 34px rgba(255, 31, 109, 0.56), 0 0 78px rgba(239, 68, 68, 0.36), 0 0 118px rgba(244, 63, 94, 0.22)',
+  },
   S: {
     label: 'S',
     title: 'Легендарный',
@@ -66,9 +75,10 @@ const ARTIFACT_LABELS = {
   black_pen: 'Черная ручка',
   coffee: 'Кофе',
   draft: 'Черновик',
+  'transfer-agreement': 'Права на платформу',
 };
 
-const ARTIFACT_RANK_ORDER = ['S', 'A', 'B', 'C'];
+const ARTIFACT_RANK_ORDER = ['SS', 'S', 'A', 'B', 'C'];
 
 const MIN_SPIN_DURATION_MS = 3000;
 const REVEAL_VISIBLE_MS = 3200;
@@ -122,6 +132,11 @@ const LEGENDARY_TEASER_COPY_BY_ID = {
     title: 'След составителей',
     power: 'Может резко усилить награду за самые тяжёлые задачи.',
     tags: ['24-27', 'мощный XP'],
+  },
+  'transfer-agreement': {
+    title: '????',
+    power: 'Меняет правила игры',
+    tags: ['SS-ранг', 'особый статус'],
   },
 };
 
@@ -361,13 +376,15 @@ const StudentArtifactAltar = ({
 
   const legendaryTeasers = useMemo(() => (
     ARTIFACT_CATALOG
-      .filter((artifact) => artifact.rank === 'S')
+      .filter((artifact) => artifact.rank === 'SS' || artifact.rank === 'S')
       .map((artifact) => ({
         ...artifact,
         teaser: LEGENDARY_TEASER_COPY_BY_ID[artifact.id] || {
-          title: 'Секретная легендарка',
-          power: 'Даёт один из самых сильных бонусов коллекции.',
-          tags: ['легендарный', 'сильный бонус'],
+          title: artifact.rank === 'SS' ? 'Неизвестный артефакт' : 'Секретная легендарка',
+          power: artifact.rank === 'SS'
+            ? 'Очень редкая находка алтаря с особым статусом.'
+            : 'Даёт один из самых сильных бонусов коллекции.',
+          tags: artifact.rank === 'SS' ? ['SS-ранг', 'тайная находка'] : ['легендарный', 'сильный бонус'],
         },
       }))
   ), []);
@@ -740,20 +757,27 @@ const StudentArtifactAltar = ({
             </div>
             <div className="student-artifact-altar__legendary-note inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-bold">
               <Sparkles size={13} />
-              <span>Ранг S · шанс 5%</span>
+              <span>SS 1% · S 5%</span>
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
-            {legendaryTeasers.map((artifact, index) => (
-              <div
-                key={`legendary-teaser-${artifact.id}`}
-                className="student-artifact-altar__legendary-card"
-                style={{
-                  '--legendary-delay': `${index * 110}ms`,
-                  '--legendary-accent': RANK_META.S.accent,
-                }}
-              >
+          <div className="student-artifact-altar__legendary-grid mt-3">
+            {legendaryTeasers.map((artifact, index) => {
+              const teaserRankMeta = RANK_META[artifact.rank] || RANK_META.S;
+              const isSecretSuperRank = artifact.rank === 'SS';
+              return (
+                <div
+                  key={`legendary-teaser-${artifact.id}`}
+                  className="student-artifact-altar__legendary-card"
+                  data-rank={artifact.rank}
+                  style={{
+                    '--legendary-delay': `${index * 110}ms`,
+                    '--legendary-accent': teaserRankMeta.accent,
+                    '--legendary-accent-soft': hexToRgba(teaserRankMeta.accent, isSecretSuperRank ? 0.28 : 0.18),
+                    '--legendary-accent-mid': hexToRgba(teaserRankMeta.accent, isSecretSuperRank ? 0.48 : 0.28),
+                    '--legendary-accent-strong': hexToRgba(teaserRankMeta.accent, isSecretSuperRank ? 0.72 : 0.42),
+                  }}
+                >
                 <div className="student-artifact-altar__legendary-visual" aria-hidden="true">
                   <span className="student-artifact-altar__legendary-orbit" />
                   <span className="student-artifact-altar__legendary-glow" />
@@ -764,11 +788,11 @@ const StudentArtifactAltar = ({
                     loading="lazy"
                     decoding="async"
                   />
-                </div>
-                <div className="min-w-0">
-                  <div className="student-artifact-altar__legendary-rank">Секретный S-ранг</div>
-                  <div className="mt-1 text-sm font-black text-slate-900">{artifact.teaser.title}</div>
-                  <div className="mt-1 text-xs leading-5 text-slate-600">{artifact.teaser.power}</div>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="student-artifact-altar__legendary-rank">{`Секретный ${artifact.rank}-ранг`}</div>
+                    <div className="student-artifact-altar__legendary-title mt-1 text-sm font-black text-slate-900">{artifact.teaser.title}</div>
+                    <div className="student-artifact-altar__legendary-power mt-1 text-xs leading-5 text-slate-600">{artifact.teaser.power}</div>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {artifact.teaser.tags.map((tag) => (
                       <span key={`${artifact.id}-${tag}`} className="student-artifact-altar__legendary-tag">
@@ -778,7 +802,8 @@ const StudentArtifactAltar = ({
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

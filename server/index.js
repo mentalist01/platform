@@ -223,12 +223,13 @@ const PYTHON_COIN_TASK_ORDER = [
   205, 208, 214, 216, 217, 223, 224, 225, 226, 227,
 ];
 const ARTIFACT_SPIN_COST = 20;
-const ARTIFACT_RANK_ORDER = ['S', 'A', 'B', 'C'];
+const ARTIFACT_RANK_ORDER = ['SS', 'S', 'A', 'B', 'C'];
 const ARTIFACT_RANK_CHANCES = [
+  { rank: 'SS', chance: 0.01 },
   { rank: 'S', chance: 0.05 },
   { rank: 'A', chance: 0.10 },
   { rank: 'B', chance: 0.30 },
-  { rank: 'C', chance: 0.55 },
+  { rank: 'C', chance: 0.54 },
 ];
 const ARTIFACT_CATALOG = ARTIFACT_CATALOG_METADATA;
 const ARTIFACT_CATALOG_BY_ID = new Map(ARTIFACT_CATALOG.map((artifact) => [artifact.id, artifact]));
