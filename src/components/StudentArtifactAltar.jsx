@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Package2, Sparkles } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Package2, Sparkles, X } from 'lucide-react';
 import ivanCoin from '../assets/ivan-coin-badge.png';
 import artifactSpinMusic from '../assets/artefacts/music/spin.mp3';
 import { ARTIFACT_CATALOG_METADATA_BY_ID } from '../data/artifactCatalog';
@@ -111,6 +112,19 @@ const ARTIFACT_CATALOG = Object.entries(artifactModules)
 
 const ARTIFACT_CATALOG_BY_ID = new Map(ARTIFACT_CATALOG.map((artifact) => [artifact.id, artifact]));
 
+const LEGENDARY_TEASER_COPY_BY_ID = {
+  krylov: {
+    title: 'Секретный помощник',
+    power: 'Может очень сильно ускорить прокачку опыта.',
+    tags: ['весь опыт', 'экзамен'],
+  },
+  tears: {
+    title: 'След составителей',
+    power: 'Может резко усилить награду за самые тяжёлые задачи.',
+    tags: ['24-27', 'мощный XP'],
+  },
+};
+
 const hexToRgba = (hex, alpha) => {
   const normalized = String(hex || '').replace('#', '').trim();
   if (!normalized) return `rgba(245, 158, 11, ${alpha})`;
@@ -163,6 +177,109 @@ const BONUS_TONE_CLASSNAME = {
   instant: 'border-emerald-200 bg-emerald-50/90 text-emerald-700',
 };
 
+const ARTIFACT_EFFECTS_BY_ID = {
+  krylov: [
+    { tone: 'xp', label: 'Любой опыт', type: 'multiplier', perCopyBonus: 1, hint: 'Усиливает весь получаемый опыт.' },
+  ],
+  tears: [
+    { tone: 'xp', label: 'XP за 24-27', type: 'multiplier', perCopyBonus: 3, hint: 'Работает на самых сложных задачах.' },
+  ],
+  '1tbssd': [
+    { tone: 'xp', label: 'XP за 15-16', type: 'multiplier', perCopyBonus: 0.5, hint: 'Помогает на задачах 15 и 16.' },
+  ],
+  'list-comprehension': [
+    { tone: 'xp', label: 'XP за 17', type: 'multiplier', perCopyBonus: 0.5, hint: 'Усиливает награду за задачу 17.' },
+  ],
+  python: [
+    { tone: 'coins', label: 'Монеты за задания', type: 'multiplier', perCopyBonus: 1, hint: 'Увеличивает монеты за Python-задачи.' },
+  ],
+  crutch: [
+    { tone: 'xp', label: 'Любой опыт', type: 'multiplier', perCopyBonus: 0.1, hint: 'Небольшой, но стабильный бонус к опыту.' },
+  ],
+  whileTrue: [
+    { tone: 'coins', label: 'Монеты за задания', type: 'multiplier', perCopyBonus: 0.2, hint: 'Усиливает монетную награду.' },
+  ],
+  black_pen: [
+    { tone: 'instant', label: 'Разовый опыт', type: 'instant', amount: 1000, unit: 'XP', hint: 'Начисляется за каждую найденную копию.' },
+  ],
+  coffee: [
+    { tone: 'instant', label: 'Разовые монеты', type: 'instant', amount: 5, unit: 'монет', hint: 'Начисляется за каждую найденную копию.' },
+  ],
+  draft: [
+    { tone: 'instant', label: 'Разовый опыт', type: 'instant', amount: 1000, unit: 'XP', hint: 'Начисляется за каждую найденную копию.' },
+  ],
+};
+
+const formatArtifactMultiplier = (value) => {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return 'x1';
+  return `x${(Math.round(number * 100) / 100).toLocaleString('ru-RU', { maximumFractionDigits: 2 })}`;
+};
+
+const formatArtifactInstantAmount = (amount, unit) => {
+  const normalizedAmount = Math.max(0, Math.round(Number(amount) || 0));
+  return `+${normalizedAmount.toLocaleString('ru-RU')} ${unit}`;
+};
+
+const pluralizeArtifactCopies = (count) => {
+  const value = Math.max(0, Math.floor(Number(count) || 0));
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${value} копия`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} копии`;
+  return `${value} копий`;
+};
+
+const getArtifactDetailEffects = (artifact) => {
+  const id = String(artifact?.id || '').trim();
+  const count = Math.max(1, Math.floor(Number(artifact?.count) || 1));
+  const effects = ARTIFACT_EFFECTS_BY_ID[id] || [];
+
+  if (effects.length === 0) {
+    return [{
+      tone: 'default',
+      label: 'Коллекционный эффект',
+      value: 'Без активного бонуса',
+      detail: 'Пока этот артефакт работает как трофей коллекции.',
+    }];
+  }
+
+  return effects.map((effect) => {
+    if (effect.type === 'multiplier') {
+      const perCopyBonus = Number(effect.perCopyBonus) || 0;
+      const singleMultiplier = 1 + perCopyBonus;
+      const currentMultiplier = 1 + (perCopyBonus * count);
+      return {
+        tone: effect.tone,
+        label: effect.label,
+        value: formatArtifactMultiplier(singleMultiplier),
+        detail: count > 1
+          ? `Сейчас с ${pluralizeArtifactCopies(count)}: ${formatArtifactMultiplier(currentMultiplier)}`
+          : effect.hint,
+      };
+    }
+
+    if (effect.type === 'instant') {
+      const amount = Math.max(0, Math.round(Number(effect.amount) || 0));
+      return {
+        tone: effect.tone,
+        label: effect.label,
+        value: formatArtifactInstantAmount(amount, effect.unit),
+        detail: count > 1
+          ? `Всего с ${pluralizeArtifactCopies(count)}: ${formatArtifactInstantAmount(amount * count, effect.unit)}`
+          : effect.hint,
+      };
+    }
+
+    return {
+      tone: effect.tone || 'default',
+      label: effect.label || 'Бонус',
+      value: effect.value || 'Активен',
+      detail: effect.hint || '',
+    };
+  });
+};
+
 const StudentArtifactAltar = ({
   altar = null,
   coinsTotal = 0,
@@ -196,6 +313,7 @@ const StudentArtifactAltar = ({
 
   const [altarPhase, setAltarPhase] = useState('idle');
   const [displayPull, setDisplayPull] = useState(null);
+  const [selectedArtifactId, setSelectedArtifactId] = useState('');
   const isSpinStageActive = altarPhase === 'spinning';
   const canSpin = typeof onSpin === 'function' && !spinning && !isSpinStageActive && coinsTotal >= spinCost;
   const spinButtonBusy = spinning || isSpinStageActive;
@@ -240,6 +358,19 @@ const StudentArtifactAltar = ({
       return acc;
     }, new Map())
   ), [collectedArtifacts]);
+
+  const legendaryTeasers = useMemo(() => (
+    ARTIFACT_CATALOG
+      .filter((artifact) => artifact.rank === 'S')
+      .map((artifact) => ({
+        ...artifact,
+        teaser: LEGENDARY_TEASER_COPY_BY_ID[artifact.id] || {
+          title: 'Секретная легендарка',
+          power: 'Даёт один из самых сильных бонусов коллекции.',
+          tags: ['легендарный', 'сильный бонус'],
+        },
+      }))
+  ), []);
 
   const spinCycleRef = useRef(false);
   const spinStartedAtRef = useRef(0);
@@ -409,6 +540,46 @@ const StudentArtifactAltar = ({
       ? displayPullRankMeta.title
       : '\u0410\u043b\u0442\u0430\u0440\u044c \u0441\u043f\u043e\u043a\u043e\u0435\u043d';
 
+  const selectedArtifact = useMemo(() => {
+    if (!selectedArtifactId) return null;
+    const fromCollection = collectedArtifacts.find((artifact) => artifact.id === selectedArtifactId);
+    if (fromCollection) return fromCollection;
+    if (stageArtifact?.id === selectedArtifactId) {
+      return {
+        ...stageArtifact,
+        rank: String(displayPull?.rank || stageArtifact.rank || 'C').toUpperCase(),
+        count: Math.max(1, Math.floor(Number(displayPull?.count) || 1)),
+      };
+    }
+    return null;
+  }, [collectedArtifacts, displayPull, selectedArtifactId, stageArtifact]);
+
+  const selectedArtifactRankMeta = RANK_META[selectedArtifact?.rank] || RANK_META.C;
+  const selectedArtifactEffects = useMemo(
+    () => getArtifactDetailEffects(selectedArtifact),
+    [selectedArtifact],
+  );
+  const artifactDetailStyle = selectedArtifact ? {
+    '--artifact-detail-accent': selectedArtifactRankMeta.accent,
+    '--artifact-detail-accent-soft': hexToRgba(selectedArtifactRankMeta.accent, 0.16),
+    '--artifact-detail-accent-mid': hexToRgba(selectedArtifactRankMeta.accent, 0.32),
+    '--artifact-detail-accent-strong': hexToRgba(selectedArtifactRankMeta.accent, 0.58),
+  } : undefined;
+
+  useEffect(() => {
+    if (!selectedArtifactId || selectedArtifact) return;
+    setSelectedArtifactId('');
+  }, [selectedArtifact, selectedArtifactId]);
+
+  useEffect(() => {
+    if (!selectedArtifact) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setSelectedArtifactId('');
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedArtifact]);
+
   const handleSpinClick = async () => {
     if (!canSpin) return;
     startSpinSequence();
@@ -430,7 +601,85 @@ const StudentArtifactAltar = ({
     }
   };
 
+  const artifactDetailModal = selectedArtifact ? (
+    <div
+      className="student-artifact-detail-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="artifact-detail-title"
+      style={artifactDetailStyle}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) setSelectedArtifactId('');
+      }}
+    >
+      <div className="student-artifact-detail-modal__card" data-rank={selectedArtifact.rank} style={artifactDetailStyle}>
+        <div className="student-artifact-detail-modal__ambient student-artifact-detail-modal__ambient--one" />
+        <div className="student-artifact-detail-modal__ambient student-artifact-detail-modal__ambient--two" />
+        <button
+          type="button"
+          className="student-artifact-detail-modal__close"
+          onClick={() => setSelectedArtifactId('')}
+          aria-label="Закрыть карточку артефакта"
+        >
+          <X size={18} />
+        </button>
+
+        <div className="student-artifact-detail-modal__visual">
+          <div className="student-artifact-detail-modal__orbit student-artifact-detail-modal__orbit--outer" />
+          <div className="student-artifact-detail-modal__orbit student-artifact-detail-modal__orbit--inner" />
+          <div className="student-artifact-detail-modal__flare" />
+          <img
+            src={selectedArtifact.src}
+            alt={selectedArtifact.name}
+            className="student-artifact-detail-modal__image"
+            decoding="async"
+          />
+          <div className={`student-artifact-altar__rank-pill student-artifact-detail-modal__rank-pill inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-bold ${selectedArtifactRankMeta.pillClassName}`} data-rank={selectedArtifact.rank}>
+            {`Ранг ${selectedArtifact.rank}`}
+          </div>
+        </div>
+
+        <div className="student-artifact-detail-modal__content">
+          <div className="student-artifact-detail-modal__eyebrow">Карточка артефакта</div>
+          <h3 id="artifact-detail-title" className="student-artifact-detail-modal__title">
+            {selectedArtifact.name}
+          </h3>
+          <div className="student-artifact-detail-modal__meta-row">
+            <span>{selectedArtifactRankMeta.title}</span>
+            <span>{pluralizeArtifactCopies(selectedArtifact.count)}</span>
+          </div>
+
+          <div className="student-artifact-detail-modal__description">
+            {selectedArtifact.description || 'Описание можно добавить в каталоге артефактов.'}
+          </div>
+
+          <div className="student-artifact-detail-modal__section-title">Бонусы</div>
+          <div className="student-artifact-detail-modal__effects">
+            {selectedArtifactEffects.map((effect) => (
+              <div
+                key={`${selectedArtifact.id}-${effect.label}-${effect.value}`}
+                className="student-artifact-detail-modal__effect-card"
+                data-tone={String(effect.tone || 'default')}
+              >
+                <div className="student-artifact-detail-modal__effect-label">{effect.label}</div>
+                <div className="student-artifact-detail-modal__effect-value">{effect.value}</div>
+                {effect.detail && (
+                  <div className="student-artifact-detail-modal__effect-detail">{effect.detail}</div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="student-artifact-detail-modal__hint">
+            Нажми вне карточки или Esc, чтобы закрыть.
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   return (
+    <>
     <div className="student-artifact-altar rounded-[28px] border border-amber-200/80 bg-[radial-gradient(circle_at_top,rgba(255,244,214,0.95),rgba(255,255,255,0.94)_52%,rgba(255,248,233,0.98))] px-4 py-4 shadow-[0_22px_50px_rgba(245,158,11,0.12)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="student-artifact-altar__header-copy">
@@ -480,6 +729,59 @@ const StudentArtifactAltar = ({
           </div>
         </div>
       </div>
+
+      {legendaryTeasers.length > 0 && (
+        <div className="student-artifact-altar__legendary-teaser mt-4 rounded-[26px] border p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="student-artifact-altar__legendary-eyebrow text-xs font-bold uppercase tracking-[0.2em]">
+                Тайные легендарки
+              </div>
+            </div>
+            <div className="student-artifact-altar__legendary-note inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-bold">
+              <Sparkles size={13} />
+              <span>Ранг S · шанс 5%</span>
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+            {legendaryTeasers.map((artifact, index) => (
+              <div
+                key={`legendary-teaser-${artifact.id}`}
+                className="student-artifact-altar__legendary-card"
+                style={{
+                  '--legendary-delay': `${index * 110}ms`,
+                  '--legendary-accent': RANK_META.S.accent,
+                }}
+              >
+                <div className="student-artifact-altar__legendary-visual" aria-hidden="true">
+                  <span className="student-artifact-altar__legendary-orbit" />
+                  <span className="student-artifact-altar__legendary-glow" />
+                  <img
+                    src={artifact.src}
+                    alt=""
+                    className="student-artifact-altar__legendary-silhouette"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </div>
+                <div className="min-w-0">
+                  <div className="student-artifact-altar__legendary-rank">Секретный S-ранг</div>
+                  <div className="mt-1 text-sm font-black text-slate-900">{artifact.teaser.title}</div>
+                  <div className="mt-1 text-xs leading-5 text-slate-600">{artifact.teaser.power}</div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {artifact.teaser.tags.map((tag) => (
+                      <span key={`${artifact.id}-${tag}`} className="student-artifact-altar__legendary-tag">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
         <div className="student-artifact-altar__stage-shell rounded-[26px] border border-amber-200/80 bg-[linear-gradient(160deg,rgba(120,53,15,0.07),rgba(255,255,255,0.76)_38%,rgba(251,191,36,0.16))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
@@ -533,7 +835,10 @@ const StudentArtifactAltar = ({
                 <>
                   <span className="artifact-altar-stage__focus-burst artifact-altar-stage__focus-burst--one" />
                   <span className="artifact-altar-stage__focus-burst artifact-altar-stage__focus-burst--two" />
-                  <div
+                  <button
+                    type="button"
+                    onClick={() => setSelectedArtifactId(stageArtifact.id)}
+                    aria-label={`Открыть карточку артефакта ${stageArtifact.name}`}
                     key={`altar-stage-artifact-${altarPhase}-${stageArtifact.id}-${stageArtifact.rank}-${displayPull?.count || 0}`}
                     className={`artifact-altar-stage__artifact-shell ${
                       altarPhase === 'revealed'
@@ -547,7 +852,7 @@ const StudentArtifactAltar = ({
                       decoding="async"
                       className="artifact-altar-stage__artifact"
                     />
-                  </div>
+                  </button>
                 </>
               ) : altarPhase === 'spinning' ? (
                 <div className="artifact-altar-stage__spinner" aria-hidden="true">
@@ -705,11 +1010,14 @@ const StudentArtifactAltar = ({
                       </div>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                         {rankItems.map((artifact) => (
-                          <div
+                          <button
+                            type="button"
                             key={artifact.id}
-                            className="student-artifact-altar__artifact-card relative overflow-hidden rounded-2xl border p-2.5 transition"
+                            onClick={() => setSelectedArtifactId(artifact.id)}
+                            className="student-artifact-altar__artifact-card relative overflow-hidden rounded-2xl border p-2.5 text-left transition"
                             data-rank={rank}
                             style={getRankCardStyle(rank, true)}
+                            aria-label={`Открыть карточку артефакта ${artifact.name}`}
                           >
                             <div
                               className="student-artifact-altar__artifact-card-media mx-auto flex h-28 w-full items-center justify-center rounded-[18px] border bg-white/82 p-1"
@@ -738,7 +1046,7 @@ const StudentArtifactAltar = ({
                                 {`x${artifact.count}`}
                               </span>
                             </div>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     </div>
@@ -749,6 +1057,10 @@ const StudentArtifactAltar = ({
         </div>
       </div>
     </div>
+    {artifactDetailModal && (typeof document !== 'undefined'
+      ? createPortal(artifactDetailModal, document.body)
+      : artifactDetailModal)}
+    </>
   );
 };
 

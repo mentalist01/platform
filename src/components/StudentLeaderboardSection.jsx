@@ -15,7 +15,6 @@ const StudentLeaderboardSection = ({
   getLeagueAuraStyle,
   isAbsoluteOrAboveLeague,
   ABSOLUTE_AURA_CROWN_STYLE,
-  isLeagueAboveAbsolute,
   TOP_PLACE_NUMBER_DECOR,
   getTopPlaceNumberStyle,
   studentCoinsTotal = 0,
@@ -335,12 +334,12 @@ const StudentLeaderboardSection = ({
                 <img
                   src={row.league.icon}
                   alt={row.league.label}
-                  className={`relative z-[1] object-contain ${
+                  className={`relative z-[1] aspect-square object-contain ${
                     row.league.id === 'blank'
                       ? 'h-[2.35rem] w-[2.35rem]'
-                      : isLeagueAboveAbsolute(row.league.id)
-                        ? 'h-14 w-14 scale-[1.56]'
-                        : 'h-14 w-14 scale-[1.45]'
+                      : row.league.id === 'celestial'
+                        ? 'h-14 w-14 max-w-none scale-[1.56]'
+                        : 'h-12 w-12 max-w-none scale-[1.2]'
                   }`}
                   loading="lazy"
                 />
@@ -490,12 +489,12 @@ const StudentLeaderboardSection = ({
                     <img
                       src={currentLeague.icon}
                       alt={currentLeague.label}
-                      className={`relative z-[1] object-contain ${
+                      className={`relative z-[1] aspect-square object-contain ${
                         currentLeague.id === 'blank'
                           ? 'h-[2.35rem] w-[2.35rem]'
-                          : isLeagueAboveAbsolute(currentLeague.id)
-                            ? 'h-14 w-14 scale-[1.56]'
-                            : 'h-14 w-14 scale-[1.45]'
+                          : currentLeague.id === 'celestial'
+                            ? 'h-14 w-14 max-w-none scale-[1.56]'
+                            : 'h-12 w-12 max-w-none scale-[1.2]'
                       }`}
                       loading="lazy"
                     />
@@ -556,12 +555,12 @@ const StudentLeaderboardSection = ({
                             <img
                               src={leagueItem.icon}
                               alt={leagueItem.label}
-                              className={`relative z-[1] object-contain ${
+                              className={`relative z-[1] aspect-square object-contain ${
                                 leagueItem.id === 'blank'
                                   ? 'h-8 w-8'
-                                  : isLeagueAboveAbsolute(leagueItem.id)
-                                    ? 'h-11 w-11 scale-[1.28]'
-                                    : 'h-11 w-11 scale-[1.18]'
+                                  : leagueItem.id === 'celestial'
+                                    ? 'h-11 w-11 max-w-none scale-[1.28]'
+                                    : 'h-10 w-10 max-w-none scale-[1.12]'
                               }`}
                               loading="lazy"
                             />
