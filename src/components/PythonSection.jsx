@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, BarChart2, BookOpen, CheckCircle, Pencil, PlayCircle, Plus, RefreshCcw, Sparkles, Target, Trash2 } from 'lucide-react';
+import { ArrowUpRight, BarChart2, BookOpen, CheckCircle, Pencil, Plus, RefreshCcw, Sparkles, Target, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
+import ivanCoin from '../assets/ivan-coin-badge.png';
 import ProgressReviewModal from './ProgressReviewModal';
 import PythonReviewModal from './PythonReviewModal';
 import PythonTestModal from './PythonTestModal';
@@ -36,6 +37,16 @@ const PYTHON_TASK_SECTION_META = {
 
 const PYTHON_TASKS_CATALOG_KEY = '__pythonTaskCatalog';
 const PYTHON_TASK_SECTION_IDS = ['topics', 'exam-prep'];
+const PYTHON_COIN_MIN_REWARD = 4;
+const PYTHON_COIN_MAX_REWARD = 17;
+const PYTHON_COIN_TASK_ORDER = [
+  101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
+  205, 208, 214, 216, 217, 223, 224, 225, 226, 227,
+];
+const PYTHON_COIN_ARTIFACT_BONUSES = {
+  python: 1,
+  whileTrue: 0.2,
+};
 
 const PYTHON_TASK_SECTION_UI = {
   topics: {
@@ -80,6 +91,101 @@ const comparePythonTaskDisplayNumber = (left, right) => {
   if (byDisplay !== 0) return byDisplay;
   return Number(left?.number || 0) - Number(right?.number || 0);
 };
+
+const normalizeCoinAmount = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return Math.floor(numeric);
+};
+
+const formatCoinAmount = (value) => normalizeCoinAmount(value).toLocaleString('ru-RU');
+
+const getPythonCoinReward = (taskNumber) => {
+  const taskNum = Number(taskNumber);
+  if (!Number.isFinite(taskNum)) return 0;
+  const lastIndex = PYTHON_COIN_TASK_ORDER.length - 1;
+  if (lastIndex <= 0) return PYTHON_COIN_MIN_REWARD;
+  let orderIndex = PYTHON_COIN_TASK_ORDER.findIndex((value) => value >= taskNum);
+  if (orderIndex < 0) orderIndex = lastIndex;
+  const progress = orderIndex / lastIndex;
+  return Math.round(
+    PYTHON_COIN_MIN_REWARD
+    + ((PYTHON_COIN_MAX_REWARD - PYTHON_COIN_MIN_REWARD) * progress)
+  );
+};
+
+const getArtifactInventoryCount = (inventory = {}, artifactId) => (
+  Math.max(0, Math.floor(Number(inventory?.[artifactId]) || 0))
+);
+
+const getPythonCoinRewardMultiplier = (inventory = {}) => (
+  Object.entries(PYTHON_COIN_ARTIFACT_BONUSES).reduce((multiplier, [artifactId, perCopyBonus]) => {
+    const count = getArtifactInventoryCount(inventory, artifactId);
+    if (count <= 0) return multiplier;
+    return multiplier * (1 + (Number(perCopyBonus) * count));
+  }, 1)
+);
+
+const applyPythonCoinRewardMultiplier = (baseReward, inventory = {}) => {
+  const reward = normalizeCoinAmount(baseReward);
+  if (reward <= 0) return 0;
+  return normalizeCoinAmount(Math.round(reward * getPythonCoinRewardMultiplier(inventory)));
+};
+
+const getQuestionIdForCoins = (question, index) => String(question?.id ?? index ?? '').trim();
+
+const getPythonTaskCoinStats = ({ task, testsDb, studentData, levelId }) => {
+  const taskNumber = Number(task?.number ?? task?.id);
+  const taskKey = String(taskNumber || task?.id || '');
+  const levelKey = String(levelId || '').trim();
+  const questions = Array.isArray(testsDb?.[taskNumber]?.[levelKey])
+    ? testsDb[taskNumber][levelKey]
+    : [];
+  const questionIds = questions
+    .map((question, index) => getQuestionIdForCoins(question, index))
+    .filter(Boolean);
+  const knownQuestionIdSet = new Set(questionIds);
+  const baseReward = getPythonCoinReward(taskNumber);
+  const boostedReward = applyPythonCoinRewardMultiplier(baseReward, studentData?.artifactInventory);
+  const solvedRaw = studentData?.solvedByTask?.[taskKey]?.[levelKey]?.solved;
+  const solvedIds = (Array.isArray(solvedRaw) ? solvedRaw : [])
+    .map((id) => String(id ?? '').trim())
+    .filter(Boolean);
+  const solvedQuestionIds = questionIds.length
+    ? questionIds.filter((id) => solvedIds.includes(id))
+    : solvedIds;
+  const solvedQuestionIdSet = new Set(solvedQuestionIds);
+  const eventCoinsByQuestionId = new Map();
+  (Array.isArray(studentData?.solvedEvents) ? studentData.solvedEvents : []).forEach((event) => {
+    if (Number(event?.taskNumber) !== taskNumber) return;
+    if (String(event?.levelId || '').trim() !== levelKey) return;
+    const questionId = String(event?.questionId ?? '').trim();
+    if (!questionId) return;
+    if (knownQuestionIdSet.size > 0 && !knownQuestionIdSet.has(questionId)) return;
+    const eventCoins = normalizeCoinAmount(event?.coinsGained);
+    eventCoinsByQuestionId.set(questionId, eventCoins || baseReward);
+  });
+  const earnedCoins = solvedQuestionIds.reduce((sum, questionId) => (
+    sum + (eventCoinsByQuestionId.has(questionId) ? eventCoinsByQuestionId.get(questionId) : baseReward)
+  ), 0);
+  const totalQuestions = questionIds.length;
+  const remainingQuestions = Math.max(0, totalQuestions - solvedQuestionIdSet.size);
+  const possibleCoins = earnedCoins + (remainingQuestions * boostedReward);
+  const multiplier = getPythonCoinRewardMultiplier(studentData?.artifactInventory);
+  return {
+    earnedCoins: normalizeCoinAmount(earnedCoins),
+    possibleCoins: normalizeCoinAmount(possibleCoins),
+    totalQuestions,
+    solvedQuestions: solvedQuestionIdSet.size,
+    multiplier,
+  };
+};
+
+const normalizeLoadedStudentData = (data) => (
+  data && typeof data === 'object'
+    ? { ...data, progress: data?.progress || {} }
+    : { progress: {} }
+);
 
 const buildTheoryRecordingDraftStorageKey = (taskNumber, subsectionId) => {
   const safeTaskNumber = String(taskNumber || '').trim();
@@ -400,7 +506,7 @@ const PythonSection = ({
     api.getStudentData(effectiveStudentId)
       .then((data) => {
         if (cancelled) return;
-        setStudentData({ progress: data?.progress || {} });
+        setStudentData(normalizeLoadedStudentData(data));
         setDataError('');
       })
       .catch((err) => {
@@ -1556,13 +1662,19 @@ const PythonSection = ({
   const renderTaskCard = (task, idx, section) => {
     const val = Math.max(0, Math.min(100, Number(progressMap[task.id] || 0)));
     const clickable = role === 'student' || role === 'teacher';
+    const coinStats = getPythonTaskCoinStats({
+      task,
+      testsDb,
+      studentData,
+      levelId: PYTHON_LEVEL_ID,
+    });
+    const hasCoinBonus = coinStats.multiplier > 1.0001;
     const sectionUi = PYTHON_TASK_SECTION_UI[section?.id] || {
       badge: 'Раздел',
       cardClass: 'border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-slate-100/75',
       hoverClass: 'hover:border-slate-300/80 hover:shadow-[0_16px_28px_rgba(148,163,184,0.22)]',
       numberClass: 'border-slate-200 bg-slate-100/80 text-slate-700',
     };
-    const statusLabel = val >= 85 ? 'Отлично' : (val >= 60 ? 'Стабильно' : (val >= 40 ? 'Нужно закрепить' : 'Старт'));
     return (
       <Card
         key={task.id}
@@ -1605,13 +1717,24 @@ const PythonSection = ({
         )}
         <div className="absolute -right-10 -top-12 h-32 w-32 rounded-full bg-white/45 blur-2xl" />
         <div className="relative z-10 p-4 md:p-5">
-          <div className="mb-2.5 flex items-center justify-between gap-2">
+          <div className={`mb-2.5 flex items-center justify-between gap-2 ${role === 'teacher' ? 'pr-20' : ''}`}>
             <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-[11px] md:text-xs font-extrabold ${sectionUi.numberClass}`}>
               №{getTaskDisplayNumber(task)}
             </span>
-            <span className="inline-flex items-center rounded-full border border-white/70 bg-white/80 px-2 py-1 text-[10px] md:text-[11px] font-semibold text-slate-600">
-              {statusLabel}
-            </span>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <span
+                className="python-task-coin-badge inline-flex items-center gap-1 rounded-full border border-amber-200/80 bg-amber-50/90 px-2 py-1 text-[10px] font-black text-amber-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.74)]"
+                title={`Монеты за тему: получено ${formatCoinAmount(coinStats.earnedCoins)} из ${formatCoinAmount(coinStats.possibleCoins)}${hasCoinBonus ? `, бонус x${Math.round(coinStats.multiplier * 100) / 100}` : ''}`}
+              >
+                <img src={ivanCoin} alt="" aria-hidden="true" className="h-3.5 w-3.5 object-contain" />
+                <span>{`${formatCoinAmount(coinStats.earnedCoins)} / ${formatCoinAmount(coinStats.possibleCoins)}`}</span>
+                {hasCoinBonus && (
+                  <span className="rounded-full border border-amber-300/70 bg-white/75 px-1 py-0 text-[9px] leading-4 text-amber-700">
+                    {`x${Math.round(coinStats.multiplier * 100) / 100}`}
+                  </span>
+                )}
+              </span>
+            </div>
           </div>
           <h3 className="font-bold text-[15px] md:text-base leading-snug text-slate-900">{task.title}</h3>
           <div className="mt-3 flex items-center justify-between text-[11px] md:text-xs text-slate-500">
@@ -1620,15 +1743,6 @@ const PythonSection = ({
           </div>
           <ProgressBar value={val} />
 
-          {clickable && (
-            <div className="mt-3 flex items-center justify-between text-xs font-semibold text-slate-600">
-              <span>{role === 'teacher' ? 'Открыть решения' : 'Открыть тренировку'}</span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-white/80 bg-white/80 px-2.5 py-1 text-[11px] font-bold text-slate-700">
-                <PlayCircle size={14} />
-                <ArrowUpRight size={13} />
-              </span>
-            </div>
-          )}
         </div>
       </Card>
     );
@@ -2613,6 +2727,11 @@ const PythonSection = ({
           ALLOW_MAIN_THREAD_PYTHON_FALLBACK={ALLOW_MAIN_THREAD_PYTHON_FALLBACK}
           onComplete={(taskId, score, options) => {
             onUpdateProgress(taskId, score, options);
+            if (studentId) {
+              api.getStudentData(studentId)
+                .then((data) => setStudentData(normalizeLoadedStudentData(data)))
+                .catch(() => {});
+            }
           }}
         />
       )}

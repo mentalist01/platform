@@ -52,6 +52,189 @@ const MOCK_COIN_MILESTONES = [
   { score: 80, coins: 80 },
   { score: 100, coins: 100 },
 ];
+const PROGRESS_XP_GLOBAL_ARTIFACT_BONUSES = {
+  krylov: 1,
+  crutch: 0.1,
+};
+const PROGRESS_XP_TASK_ARTIFACT_BONUSES = {
+  '1tbssd': {
+    tasks: [15, 16],
+    perCopyBonus: 0.5,
+  },
+  'list-comprehension': {
+    tasks: [17],
+    perCopyBonus: 0.5,
+  },
+  tears: {
+    tasks: [24, 25, 26, 27],
+    perCopyBonus: 3,
+  },
+};
+
+const normalizeProgressXpAmount = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return Math.floor(numeric);
+};
+
+const formatProgressXpAmount = (value) => normalizeProgressXpAmount(value).toLocaleString('ru-RU');
+
+const getProgressArtifactInventoryCount = (inventory = {}, artifactId) => (
+  Math.max(0, Math.floor(Number(inventory?.[artifactId]) || 0))
+);
+
+const normalizeProgressTaskForXp = (value, gameTheoryTask) => {
+  const taskNum = Number(value);
+  if (!Number.isFinite(taskNum)) return null;
+  const normalized = Math.trunc(taskNum);
+  if (normalized === 20 || normalized === 21) return gameTheoryTask;
+  return normalized;
+};
+
+const getProgressTaskXpMultiplier = (inventory = {}, taskNumber, gameTheoryTask) => {
+  const normalizedTask = normalizeProgressTaskForXp(taskNumber, gameTheoryTask);
+  let multiplier = 1;
+
+  Object.entries(PROGRESS_XP_GLOBAL_ARTIFACT_BONUSES).forEach(([artifactId, perCopyBonus]) => {
+    const count = getProgressArtifactInventoryCount(inventory, artifactId);
+    if (count <= 0) return;
+    multiplier *= (1 + (Number(perCopyBonus) * count));
+  });
+
+  if (Number.isFinite(normalizedTask)) {
+    Object.entries(PROGRESS_XP_TASK_ARTIFACT_BONUSES).forEach(([artifactId, entry]) => {
+      if (!Array.isArray(entry?.tasks) || !entry.tasks.includes(normalizedTask)) return;
+      const count = getProgressArtifactInventoryCount(inventory, artifactId);
+      if (count <= 0) return;
+      multiplier *= (1 + (Number(entry.perCopyBonus) * count));
+    });
+  }
+
+  return Math.max(1, multiplier);
+};
+
+const applyProgressTaskXpMultiplier = (baseReward, inventory = {}, taskNumber, gameTheoryTask) => {
+  const reward = normalizeProgressXpAmount(baseReward);
+  if (reward <= 0) return 0;
+  return normalizeProgressXpAmount(
+    Math.round(reward * getProgressTaskXpMultiplier(inventory, taskNumber, gameTheoryTask))
+  );
+};
+
+const getProgressQuestionId = (question, index) => String(question?.id ?? index ?? '').trim();
+
+const normalizeProgressSectionStudentData = (data) => (
+  data && typeof data === 'object'
+    ? {
+        ...data,
+        progress: data?.progress || {},
+        notes: data?.notes || '',
+        notesByTask: data?.notesByTask && typeof data.notesByTask === 'object' ? data.notesByTask : {},
+        mocks: Array.isArray(data?.mocks) ? data.mocks : [],
+        solvedByTask: data?.solvedByTask && typeof data.solvedByTask === 'object' ? data.solvedByTask : {},
+        solvedEvents: Array.isArray(data?.solvedEvents) ? data.solvedEvents : [],
+        artifactInventory: data?.artifactInventory && typeof data.artifactInventory === 'object' ? data.artifactInventory : {},
+      }
+    : {
+        progress: {},
+        notes: '',
+        notesByTask: {},
+        mocks: [],
+        solvedByTask: {},
+        solvedEvents: [],
+        artifactInventory: {},
+      }
+);
+
+const getProgressTaskXpStats = ({
+  task,
+  testsDb,
+  studentData,
+  levels,
+  getTaskLevelXpReward,
+  gameTheoryTask,
+}) => {
+  const taskNumber = Number(task?.number ?? task?.id);
+  if (!Number.isFinite(taskNumber)) {
+    return {
+      earnedXp: 0,
+      possibleXp: 0,
+      multiplier: 1,
+    };
+  }
+
+  const normalizedTask = normalizeProgressTaskForXp(taskNumber, gameTheoryTask);
+  const taskKeys = [
+    taskNumber,
+    normalizedTask,
+    task?.number,
+    task?.id,
+  ].map((value) => String(value ?? '').trim()).filter(Boolean);
+  const taskKeySet = new Set(taskKeys);
+  const taskLevels = testsDb?.[String(taskNumber)] || testsDb?.[String(normalizedTask)] || testsDb?.[taskNumber] || {};
+  const inventory = studentData?.artifactInventory || {};
+  const multiplier = getProgressTaskXpMultiplier(inventory, taskNumber, gameTheoryTask);
+  let earnedXp = 0;
+  let possibleXp = 0;
+
+  const events = Array.isArray(studentData?.solvedEvents) ? studentData.solvedEvents : [];
+  const levelList = Object.values(levels || {});
+  levelList.forEach((level) => {
+    const levelId = String(level?.id || '').trim();
+    if (!levelId) return;
+    const questions = Array.isArray(taskLevels?.[levelId]) ? taskLevels[levelId] : [];
+    if (questions.length <= 0) return;
+
+    const questionIds = questions
+      .map((question, index) => getProgressQuestionId(question, index))
+      .filter(Boolean);
+    const knownQuestionIds = new Set(questionIds);
+    const baseReward = typeof getTaskLevelXpReward === 'function'
+      ? normalizeProgressXpAmount(getTaskLevelXpReward(taskNumber, levelId))
+      : 0;
+    if (baseReward <= 0) return;
+    const boostedReward = applyProgressTaskXpMultiplier(baseReward, inventory, taskNumber, gameTheoryTask);
+
+    const solvedRaw = taskKeys.reduce((found, key) => {
+      if (found) return found;
+      const entry = studentData?.solvedByTask?.[key]?.[levelId];
+      return Array.isArray(entry?.solved) ? entry.solved : null;
+    }, null);
+    const solvedIds = (Array.isArray(solvedRaw) ? solvedRaw : [])
+      .map((id) => String(id ?? '').trim())
+      .filter(Boolean);
+    const solvedQuestionIds = questionIds.length
+      ? questionIds.filter((id) => solvedIds.includes(id))
+      : solvedIds;
+    const solvedQuestionIdSet = new Set(solvedQuestionIds);
+
+    const eventXpByQuestionId = new Map();
+    events.forEach((event) => {
+      const eventTask = normalizeProgressTaskForXp(event?.taskNumber, gameTheoryTask);
+      if (!taskKeySet.has(String(eventTask ?? '').trim())) return;
+      if (String(event?.levelId || '').trim() !== levelId) return;
+      const questionId = String(event?.questionId ?? '').trim();
+      if (!questionId) return;
+      if (knownQuestionIds.size > 0 && !knownQuestionIds.has(questionId)) return;
+      const eventXp = normalizeProgressXpAmount(event?.xpGained);
+      eventXpByQuestionId.set(questionId, eventXp || baseReward);
+    });
+
+    const earnedLevelXp = solvedQuestionIds.reduce((sum, questionId) => (
+      sum + (eventXpByQuestionId.has(questionId) ? eventXpByQuestionId.get(questionId) : baseReward)
+    ), 0);
+    const remainingQuestions = Math.max(0, questionIds.length - solvedQuestionIdSet.size);
+
+    earnedXp += earnedLevelXp;
+    possibleXp += earnedLevelXp + (remainingQuestions * boostedReward);
+  });
+
+  return {
+    earnedXp: normalizeProgressXpAmount(earnedXp),
+    possibleXp: normalizeProgressXpAmount(possibleXp),
+    multiplier,
+  };
+};
 
 const normalizeMockCoinMilestones = (value) => {
   if (!Array.isArray(value)) return [];
@@ -149,7 +332,7 @@ const ProgressSection = ({
   const requestedSectionRef = useRef(
     ['progress', 'notes', 'mocks'].includes(initialSection) ? initialSection : 'progress'
   );
-  const [studentData, setStudentData] = useState({ progress: {}, notes: '', notesByTask: {}, mocks: [] });
+  const [studentData, setStudentData] = useState(() => normalizeProgressSectionStudentData(null));
   const [dataError, setDataError] = useState('');
   const [testsDb, setTestsDb] = useState(null);
   const [testsDbError, setTestsDbError] = useState('');
@@ -716,19 +899,14 @@ const ProgressSection = ({
 
   useEffect(() => {
     if (!effectiveStudentId) {
-      setStudentData({ progress: {}, notes: '', notesByTask: {}, mocks: [] });
+      setStudentData(normalizeProgressSectionStudentData(null));
       return;
     }
     let cancelled = false;
     api.getStudentData(effectiveStudentId)
       .then((data) => {
         if (cancelled) return;
-        setStudentData({
-          progress: data?.progress || {},
-          notes: data?.notes || '',
-          notesByTask: data?.notesByTask && typeof data.notesByTask === 'object' ? data.notesByTask : {},
-          mocks: Array.isArray(data?.mocks) ? data.mocks : []
-        });
+        setStudentData(normalizeProgressSectionStudentData(data));
         setDataError('');
       })
       .catch((err) => {
@@ -2252,8 +2430,17 @@ const ProgressSection = ({
 
           <div className={`${role === 'student' ? 'hidden md:grid' : 'grid'} grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 stagger-children`}>
             {taskList.map((task, idx) => {
-              const val = progressMap[task.id] || 0;
+              const val = Math.max(0, Math.min(100, Number(progressMap[task.id] || 0)));
               const clickable = role === 'student' || role === 'teacher';
+              const xpStats = getProgressTaskXpStats({
+                task,
+                testsDb,
+                studentData,
+                levels: LEVELS,
+                getTaskLevelXpReward,
+                gameTheoryTask: GAME_THEORY_TASK,
+              });
+              const hasXpBonus = xpStats.multiplier > 1.0001;
               const cardTone = val >= 85
                 ? 'border-emerald-200/90 bg-gradient-to-br from-emerald-50/60 via-white to-emerald-50/50'
                 : (val >= 60
@@ -2280,13 +2467,27 @@ const ProgressSection = ({
                         : undefined
                     }
                   >
-                    <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="mb-2 flex items-start justify-between gap-2">
                       <span className="inline-flex items-center rounded-lg border border-purple-200 bg-white/90 px-2 py-1 text-[11px] md:text-xs font-bold text-purple-700">
                         №{getTaskDisplayNumber(task)}
                       </span>
-                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-2 py-1 text-[10px] md:text-xs font-semibold text-slate-600">
-                        {statusLabel}
-                      </span>
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <span
+                          className="progress-task-xp-badge inline-flex items-center gap-1 rounded-full border border-sky-200/90 bg-sky-50/95 px-2 py-1 text-[10px] font-black text-sky-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
+                          title={`Опыт за тему: получено ${formatProgressXpAmount(xpStats.earnedXp)} из ${formatProgressXpAmount(xpStats.possibleXp)}${hasXpBonus ? `, бонус x${Math.round(xpStats.multiplier * 100) / 100}` : ''}`}
+                        >
+                          <span className="progress-task-xp-badge__label text-[9px] font-black uppercase tracking-[0.14em] text-sky-600">XP</span>
+                          <span>{`${formatProgressXpAmount(xpStats.earnedXp)} / ${formatProgressXpAmount(xpStats.possibleXp)}`}</span>
+                          {hasXpBonus && (
+                            <span className="progress-task-xp-badge__bonus rounded-full border border-sky-300/70 bg-white/75 px-1 py-0 text-[9px] leading-4 text-sky-700">
+                              {`x${Math.round(xpStats.multiplier * 100) / 100}`}
+                            </span>
+                          )}
+                        </span>
+                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-2 py-1 text-[10px] md:text-xs font-semibold text-slate-600">
+                          {statusLabel}
+                        </span>
+                      </div>
                     </div>
                     <div className="flex items-start justify-between gap-2">
                       {editingTaskId === task.number ? (
@@ -2401,6 +2602,11 @@ const ProgressSection = ({
           withStudentId={withStudentId}
           onComplete={(taskId, score, options) => {
             onUpdateProgress(taskId, score, options);
+            if (effectiveStudentId) {
+              api.getStudentData(effectiveStudentId)
+                .then((data) => setStudentData(normalizeProgressSectionStudentData(data)))
+                .catch(() => {});
+            }
             // setActiveTask(null); // Убрали закрытие, чтобы можно было решать дальше
           }}
         />
