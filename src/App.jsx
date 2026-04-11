@@ -14411,8 +14411,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onXpGain={handleXpGain}
               openMockExamId={pendingOpenMockExamId}
               onOpenMockExamHandled={handleOpenMockGoalHandled}
-              onMockAttemptSaved={() => {
-                if (user.role === 'student') setGoalRefreshTick((prev) => prev + 1);
+              onMockAttemptSaved={(_examId, attempt, meta = {}) => {
+                if (user.role === 'student') {
+                  setGoalRefreshTick((prev) => prev + 1);
+                  const coinsGained = normalizeCoinsTotal(attempt?.coinsGained);
+                  const hasCoinsTotal = Number.isFinite(Number(attempt?.coinsTotal));
+                  if (coinsGained > 0 || hasCoinsTotal) {
+                    handleXpGain({
+                      xpTotal: _STUDENT_XP_TOTAL,
+                      xpGained: 0,
+                      coinsGained,
+                      coinsTotal: hasCoinsTotal ? attempt.coinsTotal : undefined,
+                      sourceRect: meta?.sourceRect,
+                    });
+                  }
+                }
               }}
               MOCK_TASKS={MOCK_TASKS}
               isMockExamAccessible={isMockExamAccessible}

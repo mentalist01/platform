@@ -8,6 +8,7 @@ import ProgressReviewModal from './ProgressReviewModal';
 import StudentTestModal from './StudentTestModal';
 import { Button, Card, ProgressBar } from './ui';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
+import ivanCoin from '../assets/ivan-coin-badge.png';
 
 const compareMockTaskKeys = (left, right) => {
   const leftNumber = Number(left);
@@ -43,6 +44,23 @@ const formatMockTaskLabel = (taskKey, gameTheoryTask) => {
   const taskNumber = Number(taskKey);
   if (Number.isFinite(taskNumber) && taskNumber === gameTheoryTask) return '19-21';
   return Number.isFinite(taskNumber) ? String(taskNumber) : String(taskKey || '');
+};
+
+const MOCK_COIN_MILESTONES = [
+  { score: 30, coins: 30 },
+  { score: 50, coins: 50 },
+  { score: 80, coins: 80 },
+  { score: 100, coins: 100 },
+];
+
+const normalizeMockCoinMilestones = (value) => {
+  if (!Array.isArray(value)) return [];
+  const allowedScores = new Set(MOCK_COIN_MILESTONES.map((milestone) => milestone.score));
+  return [...new Set(
+    value
+      .map((item) => Math.max(0, Math.min(100, Math.floor(Number(item) || 0))))
+      .filter((score) => allowedScores.has(score))
+  )].sort((left, right) => left - right);
 };
 
 const buildMockChartLinePath = (points) => {
@@ -1594,6 +1612,7 @@ const ProgressSection = ({
     const attempt = mockAttemptsByExam?.[exam.id];
     const primary = getPrimaryScoreFromSolved(attempt?.solved);
     const secondary = getSecondaryScoreFromPrimary(primary);
+    const awardedCoinMilestones = normalizeMockCoinMilestones(attempt?.coinsAwardedMilestones);
     const examStats = studentMockOverview?.examStatsById?.[exam.id] || {
       primary,
       secondary,
@@ -1607,6 +1626,13 @@ const ProgressSection = ({
       actionLabel: 'Начать',
       updatedLabel: '',
     };
+    const achievedCoinMilestones = new Set(
+      MOCK_COIN_MILESTONES
+        .filter((milestone) => examStats.secondary >= milestone.score)
+        .map((milestone) => milestone.score)
+    );
+    const awardedCoinMilestoneSet = new Set(awardedCoinMilestones);
+    const nextCoinMilestone = MOCK_COIN_MILESTONES.find((milestone) => examStats.secondary < milestone.score);
     const isFocusExam = studentMockOverview?.focusExamId === exam.id;
     const isBestExam = studentMockOverview?.bestExamId === exam.id;
     const borderClass = isFocusExam
@@ -1719,12 +1745,47 @@ const ProgressSection = ({
                   )}
                 </div>
 
-                <div className="mt-3 mock-progress-shell rounded-[20px] p-2.5">
-                  <div className="flex items-center justify-between text-[11px] text-gray-400">
-                    <span>Готовность пробника</span>
-                    <span>{`${examStats.progressPercent}%`}</span>
+                <div className="mock-reward-shell mt-3 rounded-[20px] p-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px]">
+                    <span className="font-semibold text-amber-700">{`Баллы: ${examStats.secondary}/100`}</span>
+                    <span className="text-gray-500">{`Готовность: ${examStats.progressPercent}%`}</span>
+                    <span className="text-gray-500">
+                      {nextCoinMilestone
+                        ? `Следующий рубеж: ${nextCoinMilestone.score} баллов`
+                        : 'Все рубежи забраны'}
+                    </span>
                   </div>
-                  <ProgressBar value={examStats.progressPercent} />
+                  <div className="mock-reward-track mt-2.5">
+                    <div className="mock-reward-track__bar">
+                      <div
+                        className="mock-reward-track__fill"
+                        style={{ width: `${Math.max(0, Math.min(100, examStats.secondary))}%` }}
+                      />
+                    </div>
+                    {MOCK_COIN_MILESTONES.map((milestone) => {
+                      const achieved = achievedCoinMilestones.has(milestone.score);
+                      const awarded = awardedCoinMilestoneSet.has(milestone.score);
+                      const edgeClass = milestone.score >= 100
+                        ? 'mock-reward-milestone--edge-end'
+                        : milestone.score <= 30
+                          ? 'mock-reward-milestone--edge-start'
+                          : '';
+                      return (
+                        <div
+                          key={milestone.score}
+                          className={`mock-reward-milestone ${achieved ? 'mock-reward-milestone--achieved' : ''} ${awarded ? 'mock-reward-milestone--awarded' : ''} ${edgeClass}`}
+                          style={{ left: `${milestone.score}%` }}
+                        >
+                          <div className="mock-reward-milestone__label">
+                            <span>{milestone.coins}</span>
+                            <img src={ivanCoin} alt="" aria-hidden="true" className="h-3 w-3 object-contain" />
+                            {awarded && <span className="mock-reward-milestone__check">✓</span>}
+                          </div>
+                          <div className="mock-reward-milestone__tick" />
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
@@ -2510,6 +2571,12 @@ const ProgressSection = ({
               <p className="hidden md:block text-xs text-gray-500">Примерно такое будет на экзамене.</p>
             </div>
           </div>
+          {role === 'student' && (
+            <div className="mock-coins-note flex items-center gap-2 rounded-2xl border border-amber-200/80 bg-amber-50/85 px-3 py-2 text-xs font-semibold text-amber-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]">
+              <img src={ivanCoin} alt="" aria-hidden="true" className="h-4 w-4 shrink-0 object-contain" />
+              <span>За пробники есть рубежи наград: 30 баллов = 30 монет, 50 = 50, 80 = 80, 100 = 100.</span>
+            </div>
+          )}
 
           {mockExamsError && <div className="text-xs text-red-500">{mockExamsError}</div>}
           {showStudentMockPreview && mockAttemptsLoading && (
@@ -2947,10 +3014,10 @@ const ProgressSection = ({
               getPrimaryScoreFromSolved={getPrimaryScoreFromSolved}
               getSecondaryScoreFromPrimary={getSecondaryScoreFromPrimary}
               withStudentId={withStudentId}
-              onAttemptSaved={(examId, attempt) => {
+              onAttemptSaved={(examId, attempt, meta) => {
                 setActiveMockAttempt(attempt);
                 setMockAttemptsByExam((prev) => ({ ...prev, [examId]: attempt }));
-                onMockAttemptSaved?.(examId, attempt);
+                onMockAttemptSaved?.(examId, attempt, meta);
               }}
               onClose={() => {
                 mockAttemptRequestIdRef.current += 1;

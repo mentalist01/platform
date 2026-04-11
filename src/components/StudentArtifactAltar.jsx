@@ -453,11 +453,17 @@ const StudentArtifactAltar = ({
           <img src={ivanCoin} alt="" aria-hidden="true" className="h-5 w-5 object-contain" />
           <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Где взять монеты</div>
         </div>
-        <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-3">
+        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
           <div className="student-artifact-altar__coin-guide-card rounded-2xl border border-white/80 bg-white/80 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.82)]">
             <div className="text-sm font-semibold text-slate-900">Решай Python-задачи</div>
             <div className="mt-1 text-xs leading-5 text-slate-600">
               За новые решённые задачи из раздела Python начисляются монеты. Чем сложнее тема, тем выше награда.
+            </div>
+          </div>
+          <div className="student-artifact-altar__coin-guide-card rounded-2xl border border-white/80 bg-white/80 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.82)]">
+            <div className="text-sm font-semibold text-slate-900">Решай пробники</div>
+            <div className="mt-1 text-xs leading-5 text-slate-600">
+              В пробниках есть рубежи наград: 30 баллов = 30 монет, 50 = 50, 80 = 80, 100 = 100. Улучшай результат и забирай новые рубежи.
             </div>
           </div>
           <div className="student-artifact-altar__coin-guide-card rounded-2xl border border-white/80 bg-white/80 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.82)]">

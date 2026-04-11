@@ -73,8 +73,23 @@ const MockExamModal = ({
     ? rawAnswer
     : (Array.isArray(rawAnswer) ? (rawAnswer[0] ?? '') : '');
 
-  const handleCheck = async () => {
+  const handleCheck = async (event) => {
     if (!currentQuestion || !studentId) return;
+    const buttonRect = event?.currentTarget?.getBoundingClientRect?.();
+    const sourceRect = (
+      buttonRect
+      && Number.isFinite(buttonRect.left)
+      && Number.isFinite(buttonRect.top)
+      && Number.isFinite(buttonRect.width)
+      && Number.isFinite(buttonRect.height)
+    )
+      ? {
+        left: buttonRect.left,
+        top: buttonRect.top,
+        width: buttonRect.width,
+        height: buttonRect.height,
+      }
+      : null;
     if (answerCount > 1) {
       const allowPartial = allowsPartialAnswers(selectedTask);
       const provided = Array.from({ length: answerCount }, (_, i) => String(currentAnswers[i] ?? ''));
@@ -92,7 +107,7 @@ const MockExamModal = ({
         const isCorrect = Boolean(savedSolved[taskKey]);
         setSolved(savedSolved);
         setResults((prev) => ({ ...prev, [taskKey]: isCorrect }));
-        onAttemptSaved?.(exam.id, saved);
+        onAttemptSaved?.(exam.id, saved, { sourceRect });
       }
     } catch (err) {
       const message = typeof err?.message === 'string' ? err.message : '';

@@ -5277,6 +5277,105 @@ const getMockAnswerCountForTask = (taskNumber) => {
 
 const allowsPartialMockAnswers = (taskNumber) => Number(taskNumber) === 25;
 
+const MOCK_TASK_NUMBERS = Array.from({ length: 27 }, (_, index) => index + 1);
+const MOCK_PRIMARY_TO_SECONDARY = {
+  1: 7,
+  2: 14,
+  3: 20,
+  4: 27,
+  5: 34,
+  6: 40,
+  7: 43,
+  8: 46,
+  9: 48,
+  10: 51,
+  11: 54,
+  12: 56,
+  13: 59,
+  14: 62,
+  15: 64,
+  16: 67,
+  17: 70,
+  18: 72,
+  19: 75,
+  20: 78,
+  21: 80,
+  22: 83,
+  23: 85,
+  24: 88,
+  25: 90,
+  26: 93,
+  27: 95,
+  28: 98,
+  29: 100,
+};
+
+const MOCK_COIN_MILESTONES = [
+  { score: 30, coins: 30 },
+  { score: 50, coins: 50 },
+  { score: 80, coins: 80 },
+  { score: 100, coins: 100 },
+];
+
+const normalizeMockScore = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.floor(num)));
+};
+
+const getMockPrimaryScoreFromSolved = (solvedMap) => {
+  const solved = solvedMap && typeof solvedMap === 'object' ? solvedMap : {};
+  return MOCK_TASK_NUMBERS.reduce((sum, taskNumber) => (
+    solved[String(taskNumber)] ? sum + (taskNumber === 26 || taskNumber === 27 ? 2 : 1) : sum
+  ), 0);
+};
+
+const getMockSecondaryScoreFromSolved = (solvedMap) => {
+  const primaryScore = Math.max(0, Math.min(29, getMockPrimaryScoreFromSolved(solvedMap)));
+  if (primaryScore <= 0) return 0;
+  return normalizeMockScore(MOCK_PRIMARY_TO_SECONDARY[primaryScore] || 0);
+};
+
+const normalizeMockCoinMilestones = (value) => {
+  if (!Array.isArray(value)) return [];
+  const allowedScores = new Set(MOCK_COIN_MILESTONES.map((milestone) => milestone.score));
+  return [...new Set(
+    value
+      .map((item) => normalizeMockScore(item))
+      .filter((score) => allowedScores.has(score))
+  )].sort((left, right) => left - right);
+};
+
+const getMockCoinMilestoneScoresForScore = (score) => {
+  const normalizedScore = normalizeMockScore(score);
+  return MOCK_COIN_MILESTONES
+    .filter((milestone) => normalizedScore >= milestone.score)
+    .map((milestone) => milestone.score);
+};
+
+const getMockCoinsForMilestones = (milestoneScores) => {
+  const scores = new Set(normalizeMockCoinMilestones(milestoneScores));
+  return normalizeCoinsTotal(MOCK_COIN_MILESTONES.reduce((sum, milestone) => (
+    scores.has(milestone.score) ? sum + milestone.coins : sum
+  ), 0));
+};
+
+const getPreviouslyAwardedMockCoinMilestones = (attempt) => {
+  if (!attempt || typeof attempt !== 'object') return [];
+  const explicit = normalizeMockCoinMilestones(attempt.coinsAwardedMilestones);
+  if (explicit.length > 0) return explicit;
+  const legacyScore = normalizeMockScore(attempt.coinsAwardedScore ?? attempt.coinsAwarded);
+  return getMockCoinMilestoneScoresForScore(legacyScore);
+};
+
+const deriveCoinsFromMockAttempts = (mockAttempts) => {
+  if (!mockAttempts || typeof mockAttempts !== 'object') return 0;
+  return normalizeCoinsTotal(Object.values(mockAttempts).reduce((sum, attempt) => {
+    if (!attempt || typeof attempt !== 'object') return sum;
+    return sum + getMockCoinsForMilestones(getPreviouslyAwardedMockCoinMilestones(attempt));
+  }, 0));
+};
+
 const getExpectedAnswersForQuestion = (question, count) => {
   if (!question || typeof question !== 'object') {
     return Array.from({ length: count }, () => '');
@@ -5394,14 +5493,21 @@ const recomputeMockSolvedMap = (exam, answersMap) => {
   return solved;
 };
 
-const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt) => {
+const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => {
   const answers = normalizeMockAttemptAnswers(exam, rawAnswers);
+  const coinsAwardedMilestones = getPreviouslyAwardedMockCoinMilestones(meta);
+  const coinsAwardedAt = typeof meta?.coinsAwardedAt === 'string' && meta.coinsAwardedAt.trim()
+    ? meta.coinsAwardedAt.trim()
+    : '';
   return {
     answers,
     solved: recomputeMockSolvedMap(exam, answers),
     updatedAt: typeof updatedAt === 'string' && updatedAt.trim()
       ? updatedAt
       : new Date().toISOString(),
+    coinsAwardedMilestones,
+    coinsAwardedTotal: getMockCoinsForMilestones(coinsAwardedMilestones),
+    ...(coinsAwardedAt ? { coinsAwardedAt } : {}),
   };
 };
 
@@ -5497,8 +5603,9 @@ const getStudentData = (studentId) => {
     const derivedLegacyProgressXp = deriveXpFromLegacyProgress(progress);
     const derivedSolvedCoins = deriveCoinsFromSolvedByTask(solvedByTask);
     const derivedEventsCoins = deriveCoinsFromSolvedEvents(solvedEvents);
+    const derivedMockCoins = deriveCoinsFromMockAttempts(raw.mockAttempts);
     const derivedXp = Math.max(derivedSolvedXp, derivedEventsXp, derivedLegacyProgressXp);
-    const derivedCoins = Math.max(derivedSolvedCoins, derivedEventsCoins);
+    const derivedCoins = Math.max(derivedSolvedCoins, derivedEventsCoins) + derivedMockCoins;
     const coinsSpentTotal = normalizeCoinsSpentTotal(raw.coinsSpentTotal);
     const minXpTotal = normalizeXpTotal(derivedXp + instantArtifactRewards.xp);
     const minCoinsTotal = Math.max(0, normalizeCoinsTotal(derivedCoins + instantArtifactRewards.coins) - coinsSpentTotal);
@@ -9831,7 +9938,7 @@ app.get('/api/mock-exams/attempt', (req, res) => {
   const stored = attempts[String(examId)] && typeof attempts[String(examId)] === 'object'
     ? attempts[String(examId)]
     : {};
-  res.json(normalizeMockAttemptPayload(exam, stored.answers, stored.updatedAt));
+  res.json(normalizeMockAttemptPayload(exam, stored.answers, stored.updatedAt, stored));
 });
 
 app.put('/api/mock-exams/attempt', (req, res) => {
@@ -9850,10 +9957,37 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   }
   const data = getStudentData(student.id);
   const attempts = data.mockAttempts && typeof data.mockAttempts === 'object' ? { ...data.mockAttempts } : {};
-  const normalizedAttempt = normalizeMockAttemptPayload(exam, answers, new Date().toISOString());
+  const previousAttempt = attempts[String(examId)] && typeof attempts[String(examId)] === 'object'
+    ? attempts[String(examId)]
+    : {};
+  const previousAwardedMilestones = getPreviouslyAwardedMockCoinMilestones(previousAttempt);
+  const savedAt = new Date().toISOString();
+  const normalizedAttemptBase = normalizeMockAttemptPayload(exam, answers, savedAt, previousAttempt);
+  const secondaryScore = getMockSecondaryScoreFromSolved(normalizedAttemptBase.solved);
+  const reachedMilestones = getMockCoinMilestoneScoresForScore(secondaryScore);
+  const previousMilestoneSet = new Set(previousAwardedMilestones);
+  const newlyReachedMilestones = reachedMilestones.filter((score) => !previousMilestoneSet.has(score));
+  const coinsAwardedMilestones = normalizeMockCoinMilestones([
+    ...previousAwardedMilestones,
+    ...reachedMilestones,
+  ]);
+  const coinsGained = getMockCoinsForMilestones(newlyReachedMilestones);
+  const normalizedAttempt = {
+    ...normalizedAttemptBase,
+    coinsAwardedMilestones,
+    coinsAwardedTotal: getMockCoinsForMilestones(coinsAwardedMilestones),
+    ...(coinsGained > 0
+      ? { coinsAwardedAt: savedAt }
+      : (normalizedAttemptBase.coinsAwardedAt ? { coinsAwardedAt: normalizedAttemptBase.coinsAwardedAt } : {})),
+  };
   attempts[String(examId)] = normalizedAttempt;
-  const updated = setStudentData(student.id, { ...data, mockAttempts: attempts });
-  res.json(updated.mockAttempts?.[String(examId)] || normalizedAttempt);
+  const coinsTotal = normalizeCoinsTotal(data.coinsTotal) + coinsGained;
+  const updated = setStudentData(student.id, { ...data, mockAttempts: attempts, coinsTotal });
+  res.json({
+    ...(updated.mockAttempts?.[String(examId)] || normalizedAttempt),
+    coinsGained,
+    coinsTotal: updated.coinsTotal,
+  });
 });
 
 app.patch('/api/mock-exams/:id', (req, res) => {
