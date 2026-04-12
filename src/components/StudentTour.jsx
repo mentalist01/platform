@@ -15,6 +15,14 @@ const getTourTargetElement = (targetSelector, fallbackSelector) => (
   findVisibleTourElement(targetSelector) || findVisibleTourElement(fallbackSelector)
 );
 
+const getTourScrollBlock = (element) => {
+  if (!element || typeof window === 'undefined') return 'center';
+  const rect = element.getBoundingClientRect();
+  const viewportHeight = window.innerHeight || document?.documentElement?.clientHeight || 0;
+  if (viewportHeight > 0 && rect.height >= viewportHeight * 0.55) return 'start';
+  return 'center';
+};
+
 const StudentTour = ({
   user,
   view,
@@ -65,7 +73,7 @@ const StudentTour = ({
       const el = getTourTargetElement(targetSelector, fallbackSelector);
       if (!el) return;
       el.scrollIntoView({
-        block: 'start',
+        block: getTourScrollBlock(el),
         inline: 'nearest',
         behavior: 'smooth',
       });
