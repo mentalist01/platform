@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Button } from './ui';
 
 const findVisibleTourElement = (selector) => {
   if (!selector || typeof document === 'undefined') return null;
@@ -23,6 +22,39 @@ const getTourScrollBlock = (element) => {
   return 'center';
 };
 
+const getDialogPlacement = (highlightRect) => {
+  if (typeof window === 'undefined') {
+    return {
+      anchorClass: 'left-3 right-3 bottom-3 sm:left-8 sm:right-auto sm:bottom-6',
+      rowClass: 'flex-row',
+      mascotClass: 'w-24 h-32 sm:w-48 sm:h-56',
+    };
+  }
+
+  const viewportWidth = window.innerWidth || document?.documentElement?.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document?.documentElement?.clientHeight || 0;
+  const centerX = highlightRect ? highlightRect.left + highlightRect.width / 2 : viewportWidth / 2;
+  const centerY = highlightRect ? highlightRect.top + highlightRect.height / 2 : viewportHeight / 2;
+  const placeTop = highlightRect && viewportHeight > 0 && centerY > viewportHeight * 0.52;
+  const placeRight = highlightRect && viewportWidth >= 768 && centerX < viewportWidth * 0.5;
+
+  if (viewportWidth < 640) {
+    return {
+      anchorClass: `left-3 right-3 ${placeTop ? 'top-3' : 'bottom-3'}`,
+      rowClass: 'flex-row',
+      mascotClass: 'w-24 h-32',
+    };
+  }
+
+  return {
+    anchorClass: `${placeTop ? 'top-6' : 'bottom-6'} ${placeRight ? 'right-8' : 'left-8'}`,
+    rowClass: placeRight ? 'flex-row-reverse' : 'flex-row',
+    mascotClass: 'w-44 h-52 lg:w-52 lg:h-60',
+  };
+};
+
+const getDefaultDialogPlacement = () => getDialogPlacement(null);
+
 const StudentTour = ({
   user,
   view,
@@ -36,6 +68,7 @@ const StudentTour = ({
   mascotImages = {},
   defaultMascot,
   enabled = true,
+  onActiveChange,
 }) => {
   const [open, setOpen] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
@@ -54,8 +87,15 @@ const StudentTour = ({
   }, [canShowTour]);
 
   useEffect(() => {
-    if (!enabled) setOpen(false);
+    if (enabled) return undefined;
+    const timer = setTimeout(() => setOpen(false), 0);
+    return () => clearTimeout(timer);
   }, [enabled]);
+
+  useEffect(() => {
+    onActiveChange?.(canShowTour);
+    return () => onActiveChange?.(false);
+  }, [canShowTour, onActiveChange]);
 
   useEffect(() => {
     if (!open) return;
@@ -165,38 +205,88 @@ const StudentTour = ({
 
   const mascotSrc = mascotImages[step.emotion] || defaultMascot;
   const isLast = stepIndex === steps.length - 1;
+  const dialogPlacement = getDefaultDialogPlacement();
+  const dialogSurfaceStyle = {
+    background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(17, 24, 39, 0.96))',
+    color: '#f8fafc',
+  };
 
   return createPortal(
-    <div className="fixed inset-0 z-[2000]">
-      <div className="absolute inset-0 bg-black/40" />
+    <div className="fixed inset-0 z-[2000] pointer-events-none">
+      {!highlightRect && <div className="absolute inset-0 bg-slate-950/70" />}
       {highlightRect && (
         <div
-          className="absolute rounded-3xl ring-2 ring-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] pointer-events-none"
+          className="absolute rounded-3xl ring-2 ring-white/95 pointer-events-none"
           style={{
             top: Math.max(8, highlightRect.top),
             left: Math.max(8, highlightRect.left),
             width: Math.max(0, highlightRect.width),
             height: Math.max(0, highlightRect.height),
+            border: '1px solid rgba(255, 255, 255, 0.92)',
+            outline: '2px solid rgba(250, 204, 21, 0.64)',
+            outlineOffset: '4px',
+            boxShadow: '0 0 0 9999px rgba(2, 6, 23, 0.76), 0 0 42px rgba(250, 204, 21, 0.45)',
           }}
         />
       )}
-      <div className="absolute inset-x-0 bottom-0 sm:bottom-6 flex justify-center sm:justify-end">
-        <div className="surface-card modal-card w-[min(520px,calc(100%-2rem))] rounded-3xl p-4 sm:p-5 mx-4 sm:mx-0 sm:mr-6">
-          <div className="flex items-start gap-3">
-            <img src={mascotSrc} alt="Маскот" className="w-24 h-24 sm:w-28 sm:h-28 object-contain drop-shadow-sm" />
-            <div>
-              <p className="text-xs uppercase tracking-widest text-gray-400">Шаг {stepIndex + 1} из {steps.length}</p>
-              <h3 className="text-lg font-bold text-gray-900">{step.title}</h3>
-              <p className="text-sm text-gray-600 mt-1">{step.text}</p>
-            </div>
+      <div className={`absolute z-10 pointer-events-auto ${dialogPlacement.anchorClass} sm:w-[min(920px,calc(100%-4rem))]`}>
+        <div className={`flex ${dialogPlacement.rowClass} items-end gap-0 sm:gap-4`}>
+          <div className={`relative shrink-0 ${dialogPlacement.mascotClass} -mb-3 sm:-mb-4`}>
+            <img
+              src={mascotSrc}
+              alt="Маскот"
+              className="absolute inset-x-0 bottom-0 h-full w-full object-contain drop-shadow-[0_22px_24px_rgba(0,0,0,0.45)]"
+            />
           </div>
-          <div className="mt-4 flex items-center justify-between gap-2">
-            <button type="button" onClick={() => finishTour(true)} className="text-sm text-gray-400 hover:text-gray-600">Пропустить</button>
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" onClick={handlePrev} disabled={stepIndex === 0}>Назад</Button>
-              <Button onClick={handleNext}>{isLast ? 'Готово' : 'Дальше'}</Button>
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-live="polite"
+            className="relative min-w-0 flex-1 rounded-lg border-2 border-amber-300/90 px-4 py-4 shadow-[0_18px_50px_rgba(0,0,0,0.42)] sm:px-6 sm:py-5"
+            style={dialogSurfaceStyle}
+          >
+            <div className="pointer-events-none absolute left-3 top-3 h-5 w-5 border-l-2 border-t-2 border-amber-300" />
+            <div className="pointer-events-none absolute right-3 top-3 h-5 w-5 border-r-2 border-t-2 border-amber-300" />
+            <div className="pointer-events-none absolute bottom-3 left-3 h-5 w-5 border-b-2 border-l-2 border-amber-300" />
+            <div className="pointer-events-none absolute bottom-3 right-3 h-5 w-5 border-b-2 border-r-2 border-amber-300" />
+
+            <div className="relative z-10">
+              <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase text-amber-200/90">
+                <span>Шаг {stepIndex + 1} из {steps.length}</span>
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                <span>Обучение</span>
+              </div>
+              <h3 className="text-xl font-extrabold leading-tight text-white sm:text-2xl">{step.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-slate-200 sm:text-base">{step.text}</p>
+
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => finishTour(true)}
+                  className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+                >
+                  Пропустить
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePrev}
+                    disabled={stepIndex === 0}
+                    className="rounded-lg border border-slate-500/80 bg-slate-900/60 px-4 py-2 text-sm font-bold text-slate-200 transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    Назад
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleNext}
+                    className="rounded-lg border border-amber-300/80 bg-amber-400 px-5 py-2 text-sm font-extrabold text-slate-950 shadow-[0_8px_0_rgba(146,64,14,0.45)] transition hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100 active:translate-y-[1px] active:shadow-none"
+                  >
+                    {isLast ? 'Готово' : 'Дальше'}
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
+          </section>
         </div>
       </div>
     </div>,

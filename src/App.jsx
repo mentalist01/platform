@@ -10737,6 +10737,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [_HOMEWORK_POPUP_ENTRY, setHomeworkPopupEntry] = useState(null);
   const [homeworkPopupOpen, setHomeworkPopupOpen] = useState(false);
   const [paceForecastPopupOpen, setPaceForecastPopupOpen] = useState(false);
+  const [studentIntroTourActive, setStudentIntroTourActive] = useState(false);
+  const [studentRatingTourActive, setStudentRatingTourActive] = useState(false);
   const [solvedByTask, setSolvedByTask] = useState({});
   const [studentSolvedEvents, setStudentSolvedEvents] = useState([]);
   const [goalTestsLoaded, setGoalTestsLoaded] = useState(false);
@@ -13439,6 +13441,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ? (view === TEACHER_COMMS_VIEW ? resolveTeacherCommsTab(teacherCommsTab) : resolveTeacherCommsTab(view))
     : resolveTeacherCommsTab(teacherCommsTab);
   const isTeacherNotificationsTabOpen = isTeacherCommsView && activeTeacherCommsTab === 'notifications';
+  const shouldShowRatingTour = user.role === 'student' && view === 'rating' && !hasStudentSeenRatingTour(user.id);
+  const shouldShowIntroTour = user.role === 'student' && !shouldShowRatingTour && !hasStudentSeenTour(user.id);
+  const studentTourActive = user.role === 'student'
+    && (studentIntroTourActive || studentRatingTourActive || shouldShowIntroTour || shouldShowRatingTour);
+
+  useEffect(() => {
+    if (studentTourActive) stopGoalFlyAnimation();
+  }, [studentTourActive, stopGoalFlyAnimation]);
 
   return (
     <div className="app-min-h app-shell flex font-sans text-slate-900">
@@ -13515,7 +13525,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           </div>
         </div>
       )}
-      {user.role === 'student' && (
+      {user.role === 'student' && !studentTourActive && (
         <StudentNotificationsCenter
           user={user}
           onOpenMockExam={handleOpenMockGoal}
@@ -13609,7 +13619,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           ))}
         </div>
       )}
-      {streakPopup.open && (
+      {!studentTourActive && streakPopup.open && (
           <div
             className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/30 backdrop-blur-sm streak-overlay"
             onClick={() => setStreakPopup((prev) => ({ ...prev, open: false }))}
@@ -13640,7 +13650,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </div>
           </div>
       )}
-      {levelUpPopup.open && (
+      {!studentTourActive && levelUpPopup.open && (
         <div
           className="fixed inset-0 z-[1350] flex items-center justify-center bg-slate-950/45 backdrop-blur-[3px] levelup-overlay"
           onClick={() => setLevelUpPopup((prev) => ({ ...prev, open: false }))}
@@ -13696,7 +13706,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           </div>
         </div>
       )}
-      {user.role === 'student' && paceForecastPopupOpen && (
+      {user.role === 'student' && !studentTourActive && paceForecastPopupOpen && (
         <div
           className="fixed inset-0 z-[1250] flex items-center justify-center overflow-y-auto bg-black/40 px-2 pt-[max(env(safe-area-inset-top),0.75rem)] pb-[max(env(safe-area-inset-bottom),0.75rem)] backdrop-blur-[2px] sm:px-4 sm:py-4"
           onClick={closePaceForecastPopup}
@@ -13866,7 +13876,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         markSeenTour={markStudentSeenTour}
         mascotImages={MASCOT_IMAGES}
         defaultMascot={mascotGreetings}
-        enabled={!(user.role === 'student' && view === 'rating' && !hasStudentSeenRatingTour(user.id))}
+        enabled={!shouldShowRatingTour}
+        onActiveChange={setStudentIntroTourActive}
         onFinish={() => checkHomeworkPopup()}
       />
       {user.role === 'student' && view === 'rating' && (
@@ -13882,6 +13893,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           mascotImages={MASCOT_IMAGES}
           defaultMascot={mascotGreetings}
           enabled={view === 'rating'}
+          onActiveChange={setStudentRatingTourActive}
         />
       )}
       {/*
@@ -14315,7 +14327,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               </div>
             </div>
           )}
-          {shouldShowGoalBlock && (
+          {shouldShowGoalBlock && !studentTourActive && (
             <div ref={goalSummaryFlyRef} className={goalCollapsed ? 'sticky top-0 z-30 mb-4' : 'mb-4'}>
               {goalCollapsed ? (
                 <div className={`surface-panel rounded-2xl border border-purple-200/80 bg-gradient-to-r from-violet-50 via-white to-fuchsia-50 px-3 py-2 text-sm text-gray-700 shadow-soft flex items-center justify-between gap-1.5 sm:gap-2 sm:px-4 sm:py-2.5 ${goalPanelAnimClass === 'goal-collapse' ? 'goal-collapse' : ''}`}>

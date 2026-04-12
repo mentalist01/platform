@@ -719,7 +719,7 @@ const StudentArtifactAltar = ({
 
   return (
     <>
-    <div className="student-artifact-altar rounded-[28px] border border-amber-200/80 bg-[radial-gradient(circle_at_top,rgba(255,244,214,0.95),rgba(255,255,255,0.94)_52%,rgba(255,248,233,0.98))] px-4 py-4 shadow-[0_22px_50px_rgba(245,158,11,0.12)]" data-tour="rating-altar">
+    <div className="student-artifact-altar rounded-[28px] border border-amber-200/80 bg-[radial-gradient(circle_at_top,rgba(255,244,214,0.95),rgba(255,255,255,0.94)_52%,rgba(255,248,233,0.98))] px-4 py-4 shadow-[0_22px_50px_rgba(245,158,11,0.12)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="student-artifact-altar__header-copy">
           <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Алтарь артефактов</div>
@@ -769,8 +769,9 @@ const StudentArtifactAltar = ({
         </div>
       </div>
 
+      <div className="student-artifact-altar__tour-target mt-4 flow-root" data-tour="rating-altar">
       {legendaryTeasers.length > 0 && (
-        <div className="student-artifact-altar__legendary-teaser mt-4 rounded-[26px] border p-4">
+        <div className="student-artifact-altar__legendary-teaser rounded-[26px] border p-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <div className="student-artifact-altar__legendary-eyebrow text-xs font-bold uppercase tracking-[0.2em]">
@@ -830,7 +831,7 @@ const StudentArtifactAltar = ({
         </div>
       )}
 
-      <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+      <div className={`${legendaryTeasers.length > 0 ? 'mt-4 ' : ''}grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]`}>
         <div className="student-artifact-altar__stage-shell rounded-[26px] border border-amber-200/80 bg-[linear-gradient(160deg,rgba(120,53,15,0.07),rgba(255,255,255,0.76)_38%,rgba(251,191,36,0.16))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
             <div
             className={`artifact-altar-stage ${
@@ -1102,6 +1103,7 @@ const StudentArtifactAltar = ({
               )}
             </div>
         </div>
+      </div>
       </div>
     </div>
     {artifactDetailModal && (typeof document !== 'undefined'
