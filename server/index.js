@@ -231,6 +231,8 @@ const ARTIFACT_RANK_CHANCES = [
   { rank: 'B', chance: 0.30 },
   { rank: 'C', chance: 0.54 },
 ];
+const ARTIFACT_EARLY_PULL_PROTECTION_COUNT = 20;
+const ARTIFACT_EARLY_PULL_PROTECTED_IDS = new Set(['transfer-agreement']);
 const ARTIFACT_CATALOG = ARTIFACT_CATALOG_METADATA;
 const ARTIFACT_CATALOG_BY_ID = new Map(ARTIFACT_CATALOG.map((artifact) => [artifact.id, artifact]));
 const ARTIFACT_IDS_BY_RANK = ARTIFACT_CATALOG.reduce((acc, artifact) => {
@@ -5038,19 +5040,41 @@ const buildStudentArtifactState = (data) => {
   };
 };
 
-const rollArtifactRank = (randomValue = Math.random()) => {
+const rollArtifactRank = (randomValue = Math.random(), chances = ARTIFACT_RANK_CHANCES) => {
+  const safeChances = (Array.isArray(chances) ? chances : ARTIFACT_RANK_CHANCES)
+    .filter((entry) => entry && ARTIFACT_RANK_ORDER.includes(entry.rank) && Number(entry.chance) > 0);
+  const totalChance = safeChances.reduce((sum, entry) => sum + Number(entry.chance), 0);
+  if (totalChance <= 0) return ARTIFACT_RANK_CHANCES[ARTIFACT_RANK_CHANCES.length - 1]?.rank || 'C';
+  const target = Number(randomValue) * totalChance;
   let cursor = 0;
-  for (const entry of ARTIFACT_RANK_CHANCES) {
-    cursor += entry.chance;
-    if (randomValue < cursor) return entry.rank;
+  for (const entry of safeChances) {
+    cursor += Number(entry.chance);
+    if (target < cursor) return entry.rank;
   }
-  return ARTIFACT_RANK_CHANCES[ARTIFACT_RANK_CHANCES.length - 1]?.rank || 'C';
+  return safeChances[safeChances.length - 1]?.rank || 'C';
 };
 
-const rollArtifactReward = () => {
-  const rank = rollArtifactRank();
-  const rankIds = ARTIFACT_IDS_BY_RANK.get(rank) || [];
-  if (rankIds.length <= 0) return ARTIFACT_CATALOG[ARTIFACT_CATALOG.length - 1] || null;
+const getEarlyPullProtectedArtifactIds = (totalPullsBefore = 0) => (
+  normalizeArtifactTotalPulls(totalPullsBefore) < ARTIFACT_EARLY_PULL_PROTECTION_COUNT
+    ? ARTIFACT_EARLY_PULL_PROTECTED_IDS
+    : new Set()
+);
+
+const rollArtifactReward = ({ totalPullsBefore = 0 } = {}) => {
+  const protectedIds = getEarlyPullProtectedArtifactIds(totalPullsBefore);
+  const availableIdsByRank = new Map();
+  ARTIFACT_RANK_ORDER.forEach((rank) => {
+    const rankIds = (ARTIFACT_IDS_BY_RANK.get(rank) || []).filter((artifactId) => !protectedIds.has(artifactId));
+    if (rankIds.length > 0) availableIdsByRank.set(rank, rankIds);
+  });
+  const availableChances = ARTIFACT_RANK_CHANCES.filter((entry) => (
+    (availableIdsByRank.get(entry.rank) || []).length > 0
+  ));
+  const rank = rollArtifactRank(Math.random(), availableChances);
+  const rankIds = availableIdsByRank.get(rank) || [];
+  if (rankIds.length <= 0) {
+    return ARTIFACT_CATALOG.find((artifact) => !protectedIds.has(artifact.id)) || null;
+  }
   const artifactId = rankIds[Math.floor(Math.random() * rankIds.length)];
   return ARTIFACT_CATALOG_BY_ID.get(artifactId) || null;
 };
@@ -9467,7 +9491,8 @@ app.post('/api/students/altar/spin', (req, res) => {
     });
   }
 
-  const artifact = rollArtifactReward();
+  const artifactTotalPullsBefore = normalizeArtifactTotalPulls(data?.artifactTotalPulls);
+  const artifact = rollArtifactReward({ totalPullsBefore: artifactTotalPullsBefore });
   if (!artifact) {
     return res.status(500).json({ error: 'Не удалось выбрать артефакт. Попробуйте еще раз.' });
   }
@@ -9481,7 +9506,7 @@ app.post('/api/students/altar/spin', (req, res) => {
   const xpTotal = normalizeXpTotal(data?.xpTotal) + xpGained;
   const coinsTotal = Math.max(0, currentCoins - ARTIFACT_SPIN_COST + coinsGained);
   const coinsSpentTotal = normalizeCoinsSpentTotal(data?.coinsSpentTotal) + ARTIFACT_SPIN_COST;
-  const artifactTotalPulls = normalizeArtifactTotalPulls(data?.artifactTotalPulls) + 1;
+  const artifactTotalPulls = artifactTotalPullsBefore + 1;
 
   const updated = setStudentData(student.id, {
     ...data,

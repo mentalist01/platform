@@ -81,6 +81,7 @@ const ARTIFACT_LABELS = {
 const ARTIFACT_RANK_ORDER = ['SS', 'S', 'A', 'B', 'C'];
 
 const MIN_SPIN_DURATION_MS = 3000;
+const SPIN_RUPTURE_MS = 520;
 const REVEAL_VISIBLE_MS = 3200;
 const ALTAR_PARTICLES = [
   { angle: '-82deg', distance: '124px', delay: '0ms', size: '12px' },
@@ -327,6 +328,7 @@ const StudentArtifactAltar = ({
     : [];
 
   const [altarPhase, setAltarPhase] = useState('idle');
+  const [spinIntensity, setSpinIntensity] = useState('idle');
   const [displayPull, setDisplayPull] = useState(null);
   const [selectedArtifactId, setSelectedArtifactId] = useState('');
   const isSpinStageActive = altarPhase === 'spinning';
@@ -398,6 +400,7 @@ const StudentArtifactAltar = ({
   const mountedRef = useRef(true);
   const revealTimerRef = useRef(null);
   const resetTimerRef = useRef(null);
+  const spinRuptureTimerRef = useRef(null);
   const spinAudioRef = useRef(null);
 
   const clearRevealTimers = () => {
@@ -411,8 +414,16 @@ const StudentArtifactAltar = ({
     }
   };
 
+  const clearSpinPhaseTimers = () => {
+    if (spinRuptureTimerRef.current) {
+      window.clearTimeout(spinRuptureTimerRef.current);
+      spinRuptureTimerRef.current = null;
+    }
+  };
+
   const clearAnimationTimers = () => {
     clearRevealTimers();
+    clearSpinPhaseTimers();
   };
 
   const stopSpinAudio = () => {
@@ -451,22 +462,30 @@ const StudentArtifactAltar = ({
     pendingAltarRef.current = null;
     hiddenPullRef.current = displayPull || hiddenPullRef.current || null;
     setDisplayPull(null);
+    setSpinIntensity('building');
     setAltarPhase('spinning');
   };
 
   const runReveal = (pull) => {
     clearRevealTimers();
     if (!pull) {
+      clearSpinPhaseTimers();
       stopSpinAudio();
       spinCycleRef.current = false;
       pendingAltarRef.current = null;
       const restoredPull = hiddenPullRef.current || null;
       setDisplayPull(restoredPull);
+      setSpinIntensity('idle');
       setAltarPhase(restoredPull ? 'settled' : 'idle');
       return;
     }
     const elapsed = spinStartedAtRef.current ? Date.now() - spinStartedAtRef.current : MIN_SPIN_DURATION_MS;
     const delay = Math.max(0, MIN_SPIN_DURATION_MS - elapsed);
+    const revealDelay = Math.max(delay, SPIN_RUPTURE_MS);
+    spinRuptureTimerRef.current = window.setTimeout(() => {
+      setSpinIntensity('rupture');
+      spinRuptureTimerRef.current = null;
+    }, Math.max(0, revealDelay - SPIN_RUPTURE_MS));
     revealTimerRef.current = window.setTimeout(() => {
       releaseSpinAudio();
       const nextDisplayAltar = normalizeAltarSnapshot(pendingAltarRef.current);
@@ -475,13 +494,15 @@ const StudentArtifactAltar = ({
         setDisplayAltar(nextDisplayAltar);
       }
       pendingAltarRef.current = null;
+      clearSpinPhaseTimers();
       setDisplayPull(pull);
+      setSpinIntensity('idle');
       setAltarPhase('revealed');
       spinCycleRef.current = false;
       resetTimerRef.current = window.setTimeout(() => {
         setAltarPhase('settled');
       }, REVEAL_VISIBLE_MS);
-    }, delay);
+    }, revealDelay);
   };
 
   useEffect(() => {
@@ -527,6 +548,7 @@ const StudentArtifactAltar = ({
     '--artifact-altar-accent-strong': hexToRgba(stageMeta.accent, hasDisplayStageArtifact ? 0.68 : 0.52),
     '--artifact-altar-accent-faint': hexToRgba(stageMeta.accent, 0.12),
     '--artifact-altar-core-shadow': hexToRgba(stageMeta.accent, hasDisplayStageArtifact ? 0.35 : 0.24),
+    '--artifact-altar-spin-ramp-duration': `${MIN_SPIN_DURATION_MS}ms`,
   };
 
   const altarStageTitle = altarPhase === 'spinning'
@@ -819,7 +841,7 @@ const StudentArtifactAltar = ({
                   : altarPhase === 'settled'
                     ? 'artifact-altar-stage--settled'
                     : 'artifact-altar-stage--idle'
-            }`}
+            } ${altarPhase === 'spinning' ? `artifact-altar-stage--spin-${spinIntensity}` : ''}`}
             style={altarStageStyle}
             aria-live="polite"
           >
