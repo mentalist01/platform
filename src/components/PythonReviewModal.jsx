@@ -2263,32 +2263,6 @@ const PythonReviewModal = ({
                       </div>
                     )}
 
-                    <div className={`rounded-[24px] border p-3 ${softCardClass}`}>
-                      <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Ввод</div>
-                      <div className={`mt-1 text-sm font-semibold ${primaryTextClass}`}>stdin для ручной проверки</div>
-                      <div className={`mt-1 text-xs ${secondaryTextClass}`}>Можно быстро подставить пользовательский ввод и тут же прогнать код.</div>
-                      <textarea
-                        value={questionCodeEntry.input}
-                        onChange={(event) => {
-                          const nextInput = event.target.value ?? '';
-                          const updatedInCollab = setInputInCollab(nextInput);
-                          clearQuestionCodeError(currentId);
-                          if (!updatedInCollab) {
-                            setQuestionCodeEntry(currentId, { input: nextInput });
-                            bumpQuestionCodeVersion(currentId);
-                            setQuestionCodeDirty(currentId, true);
-                            scheduleQuestionSave(currentId);
-                          }
-                        }}
-                        spellCheck={false}
-                        className={`mt-3 min-h-[88px] w-full resize-y rounded-2xl border px-3 py-2 text-xs font-mono leading-5 outline-none transition ${
-                          isDarkTheme
-                            ? 'border-slate-800 bg-slate-950/75 text-slate-100 placeholder:text-slate-500 focus:border-violet-400/50'
-                            : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:border-violet-400'
-                        }`}
-                        placeholder="Введите stdin для ручного запуска"
-                      />
-                    </div>
                   </div>
                 </div>
 
