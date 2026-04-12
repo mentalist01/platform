@@ -719,7 +719,7 @@ const StudentArtifactAltar = ({
 
   return (
     <>
-    <div className="student-artifact-altar rounded-[28px] border border-amber-200/80 bg-[radial-gradient(circle_at_top,rgba(255,244,214,0.95),rgba(255,255,255,0.94)_52%,rgba(255,248,233,0.98))] px-4 py-4 shadow-[0_22px_50px_rgba(245,158,11,0.12)]">
+    <div className="student-artifact-altar rounded-[28px] border border-amber-200/80 bg-[radial-gradient(circle_at_top,rgba(255,244,214,0.95),rgba(255,255,255,0.94)_52%,rgba(255,248,233,0.98))] px-4 py-4 shadow-[0_22px_50px_rgba(245,158,11,0.12)]" data-tour="rating-altar">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="student-artifact-altar__header-copy">
           <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Алтарь артефактов</div>
@@ -730,13 +730,13 @@ const StudentArtifactAltar = ({
             Одна крутка стоит {spinCost} монет.
           </div>
         </div>
-        <div className="student-artifact-altar__wallet inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white/90 px-3 py-1.5 text-sm font-semibold text-amber-700 shadow-sm">
+        <div className="student-artifact-altar__wallet inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white/90 px-3 py-1.5 text-sm font-semibold text-amber-700 shadow-sm" data-tour="rating-coins">
           <img src={ivanCoin} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
           <span>{`${Math.max(0, Math.floor(Number(coinsTotal) || 0)).toLocaleString('ru-RU')} монет`}</span>
         </div>
       </div>
 
-      <div className="student-artifact-altar__coin-guide mt-4 rounded-[24px] border border-amber-200/80 bg-[linear-gradient(180deg,rgba(255,250,235,0.96),rgba(255,255,255,0.92))] p-4 shadow-[0_18px_34px_rgba(245,158,11,0.08)]">
+      <div className="student-artifact-altar__coin-guide mt-4 rounded-[24px] border border-amber-200/80 bg-[linear-gradient(180deg,rgba(255,250,235,0.96),rgba(255,255,255,0.92))] p-4 shadow-[0_18px_34px_rgba(245,158,11,0.08)]" data-tour="rating-coin-guide">
         <div className="flex items-center gap-2">
           <img src={ivanCoin} alt="" aria-hidden="true" className="h-5 w-5 object-contain" />
           <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Где взять монеты</div>
@@ -941,7 +941,7 @@ const StudentArtifactAltar = ({
             </div>
           </div>
 
-          <div className="student-artifact-altar__summon-shell mt-4 rounded-[24px] border border-amber-200/90 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.98),rgba(255,248,220,0.96)_42%,rgba(254,243,199,0.9)_100%)] px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.88),0_18px_30px_rgba(217,119,6,0.12)]">
+          <div className="student-artifact-altar__summon-shell mt-4 rounded-[24px] border border-amber-200/90 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.98),rgba(255,248,220,0.96)_42%,rgba(254,243,199,0.9)_100%)] px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.88),0_18px_30px_rgba(217,119,6,0.12)]" data-tour="rating-altar-spin">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="text-sm font-bold uppercase tracking-[0.18em] text-amber-700">Призыв</div>
@@ -975,7 +975,7 @@ const StudentArtifactAltar = ({
           )}
         </div>
 
-        <div className="student-artifact-altar__collection-shell rounded-[26px] border border-purple-200/70 bg-white/90 p-4 shadow-soft">
+        <div className="student-artifact-altar__collection-shell rounded-[26px] border border-purple-200/70 bg-white/90 p-4 shadow-soft" data-tour="rating-artifacts">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-xs font-bold uppercase tracking-[0.18em] text-purple-600">Коллекция</div>
@@ -1007,7 +1007,7 @@ const StudentArtifactAltar = ({
 
             <div className="mt-4 space-y-3">
               {bonusEntries.length > 0 && (
-                <div className="student-artifact-altar__bonus-shell rounded-2xl border border-violet-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(250,245,255,0.94))] p-2.5">
+                <div className="student-artifact-altar__bonus-shell rounded-2xl border border-violet-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(250,245,255,0.94))] p-2.5" data-tour="rating-artifact-bonuses">
                   <div className="student-artifact-altar__bonus-header flex flex-wrap items-center justify-between gap-2">
                     <div className="student-artifact-altar__bonus-title text-[10px] font-bold uppercase tracking-[0.16em] text-violet-600">
                       Суммарный бонус

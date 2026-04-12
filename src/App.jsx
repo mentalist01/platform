@@ -1065,11 +1065,12 @@ const getStudentLabel = (student) => {
 };
 
 const STUDENT_TOUR_KEY = 'ege_student_onboarding_v1';
+const STUDENT_RATING_TOUR_KEY = 'ege_student_rating_onboarding_v1';
 
-const loadStudentTourStatus = () => {
+const loadTourStatus = (storageKey) => {
   if (typeof localStorage === 'undefined') return {};
   try {
-    const raw = localStorage.getItem(STUDENT_TOUR_KEY);
+    const raw = localStorage.getItem(storageKey);
     const data = raw ? JSON.parse(raw) : {};
     return data && typeof data === 'object' ? data : {};
   } catch {
@@ -1077,12 +1078,31 @@ const loadStudentTourStatus = () => {
   }
 };
 
-const saveStudentTourStatus = (next) => {
+const saveTourStatus = (storageKey, next) => {
   if (typeof localStorage === 'undefined') return;
   try {
-    localStorage.setItem(STUDENT_TOUR_KEY, JSON.stringify(next));
+    localStorage.setItem(storageKey, JSON.stringify(next));
   } catch { /* no-op */ }
 };
+
+const hasStudentSeenStoredTour = (storageKey, studentId) => {
+  if (!studentId) return false;
+  const key = String(studentId);
+  const data = loadTourStatus(storageKey);
+  return Boolean(data?.[key]);
+};
+
+const markStudentSeenStoredTour = (storageKey, studentId) => {
+  if (!studentId) return;
+  const key = String(studentId);
+  const data = loadTourStatus(storageKey);
+  if (data?.[key]) return;
+  saveTourStatus(storageKey, { ...data, [key]: true });
+};
+
+const loadStudentTourStatus = () => loadTourStatus(STUDENT_TOUR_KEY);
+
+const saveStudentTourStatus = (next) => saveTourStatus(STUDENT_TOUR_KEY, next);
 
 const hasStudentSeenTour = (studentId) => {
   if (!studentId) return false;
@@ -1098,6 +1118,10 @@ const markStudentSeenTour = (studentId) => {
   if (data?.[key]) return;
   saveStudentTourStatus({ ...data, [key]: true });
 };
+
+const hasStudentSeenRatingTour = (studentId) => hasStudentSeenStoredTour(STUDENT_RATING_TOUR_KEY, studentId);
+
+const markStudentSeenRatingTour = (studentId) => markStudentSeenStoredTour(STUDENT_RATING_TOUR_KEY, studentId);
 
 const LAST_LOCATION_KEY = 'ege_last_location_v1';
 const DESKTOP_NAV_COLLAPSED_KEY = 'ege_desktop_nav_collapsed_v1';
@@ -2294,6 +2318,127 @@ const STUDENT_TOUR_STEPS = [
     title: 'Готово',
     text: 'Если потеряешься — просто открой нужный раздел слева.',
     emotion: 'approval',
+    menu: 'close'
+  }
+];
+
+const STUDENT_RATING_TOUR_STEPS = [
+  {
+    id: 'rating-entry',
+    title: 'Рейтинг и игра',
+    text: 'Это игровая зона: место в рейтинге, лиги, монеты, артефакты и недельная гонка живут здесь.',
+    emotion: 'greetings',
+    target: '[data-tour="rating-overview"]',
+    fallback: '[data-tour="rating-nav"]',
+    view: 'rating',
+    menu: 'close'
+  },
+  {
+    id: 'rating-nav',
+    title: 'Как вернуться',
+    text: 'Раздел можно открыть из меню. На телефоне он лежит в «Ещё», на компьютере — в списке разделов.',
+    emotion: 'peeking',
+    target: '[data-tour="rating-nav"]',
+    fallback: '[data-tour="nav"]',
+    view: 'rating',
+    menu: 'open'
+  },
+  {
+    id: 'rating-position',
+    title: 'Твоя позиция',
+    text: 'Здесь видно место в общем рейтинге и период, за который считается недельный опыт.',
+    emotion: 'approval',
+    target: '[data-tour="rating-overview"]',
+    view: 'rating',
+    menu: 'close'
+  },
+  {
+    id: 'rating-league',
+    title: 'Лиги и уровень',
+    text: 'Лига зависит от общего XP. Открой «Все лиги», чтобы увидеть диапазоны и следующую цель.',
+    emotion: 'pondering',
+    target: '[data-tour="rating-league"]',
+    fallback: '[data-tour="rating-overview"]',
+    view: 'rating',
+    menu: 'close'
+  },
+  {
+    id: 'rating-name',
+    title: 'Имя в рейтинге',
+    text: 'Если платформа попросит, выбери настоящее имя или короткий псевдоним. Так тебя будут видеть в таблицах.',
+    emotion: 'peeking',
+    target: '[data-tour="rating-name"]',
+    fallback: '[data-tour="rating-overview"]',
+    view: 'rating',
+    menu: 'close'
+  },
+  {
+    id: 'rating-coins',
+    title: 'Монеты',
+    text: 'Монеты дают за Python-задачи, пробники, подарки от учителя и некоторые артефакты.',
+    emotion: 'approval',
+    target: '[data-tour="rating-coin-guide"]',
+    fallback: '[data-tour="rating-coins"]',
+    view: 'rating',
+    menu: 'close'
+  },
+  {
+    id: 'rating-altar',
+    title: 'Алтарь артефактов',
+    text: 'Трать монеты на крутки. Артефакты пополняют коллекцию и могут усиливать опыт или монетные награды.',
+    emotion: 'greetings',
+    target: '[data-tour="rating-altar"]',
+    fallback: '[data-tour="rating-overview"]',
+    view: 'rating',
+    menu: 'close'
+  },
+  {
+    id: 'rating-spin',
+    title: 'Крутка',
+    text: 'Кнопка призыва запускает выпадение. Если монет не хватает, подсказка покажет, сколько ещё нужно.',
+    emotion: 'pondering',
+    target: '[data-tour="rating-altar-spin"]',
+    fallback: '[data-tour="rating-altar"]',
+    view: 'rating',
+    menu: 'close'
+  },
+  {
+    id: 'rating-artifacts',
+    title: 'Коллекция',
+    text: 'Найденные артефакты остаются здесь. Открывай карточки, чтобы посмотреть описание, ранг и бонусы.',
+    emotion: 'peeking',
+    target: '[data-tour="rating-artifacts"]',
+    fallback: '[data-tour="rating-altar"]',
+    view: 'rating',
+    menu: 'close'
+  },
+  {
+    id: 'rating-level-board',
+    title: 'Общий рейтинг',
+    text: 'Эта таблица сортирует учеников по уровню и общему XP. Текущая строка подсвечивается.',
+    emotion: 'approval',
+    target: '[data-tour="rating-level-board"]',
+    fallback: '[data-tour="rating-overview"]',
+    view: 'rating',
+    menu: 'close'
+  },
+  {
+    id: 'rating-week-board',
+    title: 'Недельная гонка',
+    text: 'Здесь видно XP за последние семь дней. Можно догонять даже тех, у кого общий уровень выше.',
+    emotion: 'approval',
+    target: '[data-tour="rating-week-board"]',
+    fallback: '[data-tour="rating-level-board"]',
+    view: 'rating',
+    menu: 'close'
+  },
+  {
+    id: 'rating-done',
+    title: 'Готово',
+    text: 'Игра простая: решай задачи, собирай монеты, крути алтарь, усиливай награды и поднимайся в рейтинге.',
+    emotion: 'approval',
+    target: '[data-tour="rating-overview"]',
+    view: 'rating',
     menu: 'close'
   }
 ];
@@ -13721,8 +13866,24 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         markSeenTour={markStudentSeenTour}
         mascotImages={MASCOT_IMAGES}
         defaultMascot={mascotGreetings}
+        enabled={!(user.role === 'student' && view === 'rating' && !hasStudentSeenRatingTour(user.id))}
         onFinish={() => checkHomeworkPopup()}
       />
+      {user.role === 'student' && view === 'rating' && (
+        <StudentTour
+          user={user}
+          view={view}
+          setView={navigateToView}
+          menuOpen={menuOpen}
+          setMenuOpen={setMenuOpen}
+          steps={STUDENT_RATING_TOUR_STEPS}
+          hasSeenTour={hasStudentSeenRatingTour}
+          markSeenTour={markStudentSeenRatingTour}
+          mascotImages={MASCOT_IMAGES}
+          defaultMascot={mascotGreetings}
+          enabled={view === 'rating'}
+        />
+      )}
       {/*
         Временно скрыто окно "квеста" (домашки).
         Вернуть можно, раскомментировав блок ниже.
@@ -13807,6 +13968,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                         setMenuOpen(false);
                       }}
                       aria-current={isActive ? 'page' : undefined}
+                      data-tour={n.id === 'rating' ? 'rating-nav' : undefined}
                       style={{ '--item-index': idx }}
                       className={`sidebar-nav-item group relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-2xl border px-3.5 py-3 text-left transition-all duration-200 ease-out ${
                         isActive
@@ -13871,6 +14033,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                 setMenuOpen(false);
                               }}
                               aria-current={isActive ? 'page' : undefined}
+                              data-tour={n.id === 'rating' ? 'rating-nav' : undefined}
                               style={{ '--item-index': desktopPrimaryNav.length + idx }}
                               className={`sidebar-nav-item group relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-2xl border px-3.5 py-3 text-left transition-all duration-200 ease-out ${
                                 isActive
@@ -13967,6 +14130,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 }}
                 className={`desktop-nav-fab__item ${isActive ? 'is-active' : ''}`}
                 aria-current={isActive ? 'page' : undefined}
+                data-tour={n.id === 'rating' ? 'rating-nav' : undefined}
                 aria-label={n.label}
                 title={n.label}
               >
@@ -14951,6 +15115,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                         <button
                           key={`mobile-more-${item.id}`}
                           type="button"
+                          data-tour={item.id === 'rating' ? 'rating-nav' : undefined}
                           onClick={() => {
                             navigateToView(item.id);
                             setMenuOpen(false);
@@ -14992,6 +15157,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   <button
                     key={`mobile-nav-${n.id}`}
                     type="button"
+                    data-tour={n.id === 'rating' ? 'rating-nav' : undefined}
                     onClick={() => {
                       if (isMoreButton) {
                         setMenuOpen(true);

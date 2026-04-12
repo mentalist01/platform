@@ -14,13 +14,14 @@ const StudentTour = ({
   markSeenTour,
   mascotImages = {},
   defaultMascot,
+  enabled = true,
 }) => {
   const [open, setOpen] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [highlightRect, setHighlightRect] = useState(null);
   const step = steps[stepIndex] || {};
   const hasSeen = user?.id ? Boolean(hasSeenTour?.(user.id)) : false;
-  const canShowTour = Boolean(user && user.role === 'student' && !hasSeen);
+  const canShowTour = Boolean(enabled && user && user.role === 'student' && !hasSeen);
 
   useEffect(() => {
     if (!canShowTour) return;
@@ -30,6 +31,10 @@ const StudentTour = ({
     }, 250);
     return () => clearTimeout(timer);
   }, [canShowTour]);
+
+  useEffect(() => {
+    if (!enabled) setOpen(false);
+  }, [enabled]);
 
   useEffect(() => {
     if (!open) return;
@@ -49,8 +54,16 @@ const StudentTour = ({
         setHighlightRect(null);
         return;
       }
-      let el = targetSelector ? document.querySelector(targetSelector) : null;
-      if (!el && fallbackSelector) el = document.querySelector(fallbackSelector);
+      const findVisibleElement = (selector) => {
+        if (!selector) return null;
+        const matches = Array.from(document.querySelectorAll(selector));
+        return matches.find((candidate) => {
+          const rect = candidate.getBoundingClientRect();
+          return Boolean(rect.width && rect.height);
+        }) || null;
+      };
+      let el = findVisibleElement(targetSelector);
+      if (!el && fallbackSelector) el = findVisibleElement(fallbackSelector);
       if (!el) {
         setHighlightRect(null);
         return;

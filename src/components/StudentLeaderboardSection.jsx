@@ -278,7 +278,10 @@ const StudentLeaderboardSection = ({
   }, [loadLeaderboard, onStudentCoinsChange, onStudentXpChange, role, spinLoading]);
 
   const renderBoard = (items, type) => (
-    <div className="rounded-3xl border border-purple-200/70 bg-white/90 p-4 shadow-soft">
+    <div
+      className="rounded-3xl border border-purple-200/70 bg-white/90 p-4 shadow-soft"
+      data-tour={type === 'level' ? 'rating-level-board' : 'rating-week-board'}
+    >
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs font-bold uppercase tracking-[0.18em] text-purple-600">
@@ -393,7 +396,7 @@ const StudentLeaderboardSection = ({
 
   if (loading) {
     return (
-      <section className="rounded-3xl border border-purple-200/70 bg-white/90 p-6 text-sm text-gray-600 shadow-soft">
+      <section className="rounded-3xl border border-purple-200/70 bg-white/90 p-6 text-sm text-gray-600 shadow-soft" data-tour="rating-overview">
         Загрузка рейтинга...
       </section>
     );
@@ -401,7 +404,7 @@ const StudentLeaderboardSection = ({
 
   if (error) {
     return (
-      <section className="rounded-3xl border border-rose-200 bg-rose-50/70 p-6 text-sm text-rose-700 shadow-soft">
+      <section className="rounded-3xl border border-rose-200 bg-rose-50/70 p-6 text-sm text-rose-700 shadow-soft" data-tour="rating-overview">
         <div>{error}</div>
         <button
           type="button"
@@ -417,15 +420,15 @@ const StudentLeaderboardSection = ({
 
   if (rows.length === 0) {
     return (
-      <section className="rounded-3xl border border-purple-200/70 bg-white/90 p-6 text-sm text-gray-600 shadow-soft">
+      <section className="rounded-3xl border border-purple-200/70 bg-white/90 p-6 text-sm text-gray-600 shadow-soft" data-tour="rating-overview">
         Учеников для рейтинга пока нет.
       </section>
     );
   }
 
   return (
-    <section className="space-y-4">
-      <div className="surface-panel rounded-3xl border border-purple-200/70 px-4 py-4 text-sm text-gray-700 shadow-soft">
+    <section className="space-y-4" data-tour="rating-section">
+      <div className="surface-panel rounded-3xl border border-purple-200/70 px-4 py-4 text-sm text-gray-700 shadow-soft" data-tour="rating-overview">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="text-xs font-bold uppercase tracking-[0.18em] text-purple-600">Рейтинг учеников</div>
@@ -450,12 +453,13 @@ const StudentLeaderboardSection = ({
         </div>
         {role === 'student' && (
           <div className="mt-3 space-y-2">
-            <div className="rounded-2xl border border-purple-200 bg-white px-3 py-2.5">
+            <div className="rounded-2xl border border-purple-200 bg-white px-3 py-2.5" data-tour="rating-league">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-purple-500">Ваша лига</div>
                 <button
                   type="button"
                   onClick={() => setIsLeagueRangesOpen((prev) => !prev)}
+                  data-tour="rating-league-ranges"
                   className="inline-flex items-center rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-[11px] font-semibold text-purple-700 hover:bg-purple-100"
                   aria-expanded={isLeagueRangesOpen}
                 >
@@ -585,7 +589,7 @@ const StudentLeaderboardSection = ({
       </div>
 
       {needsAliasPrompt && (
-        <div className="rounded-3xl border border-amber-200 bg-amber-50/70 p-4 shadow-soft">
+        <div className="rounded-3xl border border-amber-200 bg-amber-50/70 p-4 shadow-soft" data-tour="rating-name">
           <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Имя в рейтинге</div>
           <div className="mt-1 text-sm font-semibold text-slate-900">
             Сейчас вы отображаетесь как «{currentStudentMeta?.publicName || 'Аноним'}».
