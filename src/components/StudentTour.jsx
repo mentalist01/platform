@@ -2,6 +2,19 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from './ui';
 
+const findVisibleTourElement = (selector) => {
+  if (!selector || typeof document === 'undefined') return null;
+  const matches = Array.from(document.querySelectorAll(selector));
+  return matches.find((candidate) => {
+    const rect = candidate.getBoundingClientRect();
+    return Boolean(rect.width && rect.height);
+  }) || null;
+};
+
+const getTourTargetElement = (targetSelector, fallbackSelector) => (
+  findVisibleTourElement(targetSelector) || findVisibleTourElement(fallbackSelector)
+);
+
 const StudentTour = ({
   user,
   view,
@@ -45,6 +58,25 @@ const StudentTour = ({
   }, [open, stepIndex, step.view, step.menu, view, setView, setMenuOpen]);
 
   useEffect(() => {
+    if (!open || typeof window === 'undefined' || typeof document === 'undefined') return;
+    const targetSelector = step.target;
+    const fallbackSelector = step.fallback;
+    const scrollToTarget = () => {
+      const el = getTourTargetElement(targetSelector, fallbackSelector);
+      if (!el) return;
+      el.scrollIntoView({
+        block: 'center',
+        inline: 'center',
+        behavior: 'smooth',
+      });
+    };
+    const timeouts = [80, 240, 520].map((delay) => window.setTimeout(scrollToTarget, delay));
+    return () => {
+      timeouts.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [open, stepIndex, step.target, step.fallback, view, menuOpen]);
+
+  useEffect(() => {
     if (!open || typeof document === 'undefined') return;
     const targetSelector = step.target;
     const fallbackSelector = step.fallback;
@@ -54,16 +86,7 @@ const StudentTour = ({
         setHighlightRect(null);
         return;
       }
-      const findVisibleElement = (selector) => {
-        if (!selector) return null;
-        const matches = Array.from(document.querySelectorAll(selector));
-        return matches.find((candidate) => {
-          const rect = candidate.getBoundingClientRect();
-          return Boolean(rect.width && rect.height);
-        }) || null;
-      };
-      let el = findVisibleElement(targetSelector);
-      if (!el && fallbackSelector) el = findVisibleElement(fallbackSelector);
+      const el = getTourTargetElement(targetSelector, fallbackSelector);
       if (!el) {
         setHighlightRect(null);
         return;
@@ -86,11 +109,13 @@ const StudentTour = ({
       rafId = requestAnimationFrame(update);
     };
     schedule();
+    const delayedUpdates = [160, 360, 700].map((delay) => setTimeout(schedule, delay));
     window.addEventListener('resize', schedule);
     document.addEventListener('scroll', schedule, true);
     return () => {
       window.removeEventListener('resize', schedule);
       document.removeEventListener('scroll', schedule, true);
+      delayedUpdates.forEach((timer) => clearTimeout(timer));
       cancelAnimationFrame(rafId);
     };
   }, [open, stepIndex, view, menuOpen, step.target, step.fallback]);
