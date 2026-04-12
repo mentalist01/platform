@@ -65,8 +65,8 @@ const StudentTour = ({
       const el = getTourTargetElement(targetSelector, fallbackSelector);
       if (!el) return;
       el.scrollIntoView({
-        block: 'center',
-        inline: 'center',
+        block: 'start',
+        inline: 'nearest',
         behavior: 'smooth',
       });
     };
