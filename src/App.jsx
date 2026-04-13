@@ -1064,6 +1064,12 @@ const getStudentLabel = (student) => {
   return student.name;
 };
 
+const getTeacherNotifStudentLabel = (note) => {
+  const nickname = typeof note?.studentNickname === 'string' ? note.studentNickname.trim() : '';
+  if (nickname) return nickname;
+  return String(note?.studentName || '').trim() || 'Ученик';
+};
+
 const STUDENT_TOUR_KEY = 'ege_student_onboarding_v1';
 const STUDENT_RATING_TOUR_KEY = 'ege_student_rating_onboarding_v1';
 
@@ -1241,6 +1247,7 @@ const normalizeTeacherNotifHistoryEntry = (entry) => {
     timestampMs,
     archivedAtMs,
     studentName: String(entry?.studentName || '').trim(),
+    studentNickname: String(entry?.studentNickname || '').trim(),
     taskNumber: entry?.taskNumber,
     levelId: String(entry?.levelId || '').trim(),
     questionNumber,
@@ -10881,6 +10888,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           timestampMs,
           archivedAtMs: Date.now(),
           studentName: note?.studentName,
+          studentNickname: note?.studentNickname,
           taskNumber: note?.taskNumber,
           levelId: note?.levelId,
           questionNumber: note?.questionNumber,
@@ -13508,7 +13516,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       <>
                         <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Новая отметка</div>
                         <div className="mt-1 font-semibold text-gray-900 truncate">
-                          {note.studentName || 'Ученик'}
+                          {getTeacherNotifStudentLabel(note)}
                         </div>
                         <div className="text-xs text-gray-500">
                           {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
@@ -15004,7 +15012,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                 <>
                                   <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Новая отметка</div>
                                   <div className="mt-1 font-semibold text-gray-900 truncate">
-                                    {note.studentName || 'Ученик'}
+                                    {getTeacherNotifStudentLabel(note)}
                                   </div>
                                   <div className="text-xs text-gray-500">
                                     {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
@@ -15053,7 +15061,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                 <>
                                   <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Отметка</div>
                                   <div className="mt-1 font-semibold text-slate-800 truncate">
-                                    {note.studentName || 'Ученик'}
+                                    {getTeacherNotifStudentLabel(note)}
                                   </div>
                                   <div className="text-xs text-slate-500">
                                     {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}

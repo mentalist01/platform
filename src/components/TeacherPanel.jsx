@@ -1354,7 +1354,7 @@ const TeacherPanel = ({
                             if (e.key === 'Enter') saveEditStudent(student);
                             if (e.key === 'Escape') cancelEditStudent();
                           }}
-                          placeholder="Прозвище (только для вас)"
+                          placeholder="Имя2 (только для вас)"
                           className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
                         />
                         <input
@@ -1400,7 +1400,7 @@ const TeacherPanel = ({
                       <>
                         <p className="teacher-student-card__name font-medium text-gray-800 truncate">{student.name}</p>
                         {student.nickname && (
-                          <p className="teacher-student-card__nickname text-xs text-purple-600 truncate">Прозвище: {student.nickname}</p>
+                          <p className="teacher-student-card__nickname text-xs text-purple-600 truncate">Имя2: {student.nickname}</p>
                         )}
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <span
@@ -1531,7 +1531,7 @@ const TeacherPanel = ({
                     <div className="min-w-0">
                       <p className="font-medium text-gray-700 truncate">{student.name}</p>
                       {student.nickname && (
-                        <p className="text-xs text-purple-600 truncate">Прозвище: {student.nickname}</p>
+                        <p className="text-xs text-purple-600 truncate">Имя2: {student.nickname}</p>
                       )}
                       <p className="text-xs text-gray-500">
                         Удалён: {formatDeletedDate(student.deletedAt) || '—'}

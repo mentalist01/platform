@@ -370,7 +370,7 @@ const StudentLeaderboardSection = ({
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold text-slate-900">{row.displayName}</div>
               {row.showTeacherIdentity && (
-                <div className="truncate text-[11px] text-slate-500">{`Имя: ${row.mainName || '—'} • Прозвище: ${row.nickname || '—'}`}</div>
+                <div className="truncate text-[11px] text-slate-500">{`Имя: ${row.mainName || '—'} • Имя2: ${row.nickname || '—'}`}</div>
               )}
               <div className="text-[11px] text-slate-500">{`${row.league.label} - Уровень ${row.level} - ${row.xpTotalLabel} XP`}</div>
             </div>

@@ -9793,7 +9793,7 @@ app.patch('/api/students/:id', (req, res) => {
   let studentNickname = null;
   if (hasNickname) {
     studentNickname = normalizeStudentNickname(nickname);
-    if (studentNickname.length > 60) return res.status(400).json({ error: 'Прозвище слишком длинное' });
+    if (studentNickname.length > 60) return res.status(400).json({ error: 'Имя2 слишком длинное' });
     if (/[/\\]/.test(studentNickname)) return res.status(400).json({ error: 'Недопустимые символы' });
   }
 
@@ -10336,6 +10336,7 @@ app.get('/api/teacher-solved-events', (req, res) => {
         id: eventId,
         studentId: student.id,
         studentName: student.name,
+        studentNickname: normalizeStudentNickname(student.nickname),
         taskNumber: ev.taskNumber,
         levelId: ev.levelId,
         questionId: ev.questionId,
