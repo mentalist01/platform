@@ -233,6 +233,7 @@ const ARTIFACT_RANK_CHANCES = [
 ];
 const ARTIFACT_EARLY_PULL_PROTECTION_COUNT = 20;
 const ARTIFACT_EARLY_PULL_PROTECTED_IDS = new Set(['transfer-agreement']);
+const ARTIFACT_DISABLED_DROP_IDS = new Set(['transfer-agreement']);
 const ARTIFACT_CATALOG = ARTIFACT_CATALOG_METADATA;
 const ARTIFACT_CATALOG_BY_ID = new Map(ARTIFACT_CATALOG.map((artifact) => [artifact.id, artifact]));
 const ARTIFACT_IDS_BY_RANK = ARTIFACT_CATALOG.reduce((acc, artifact) => {
@@ -5054,14 +5055,16 @@ const rollArtifactRank = (randomValue = Math.random(), chances = ARTIFACT_RANK_C
   return safeChances[safeChances.length - 1]?.rank || 'C';
 };
 
-const getEarlyPullProtectedArtifactIds = (totalPullsBefore = 0) => (
-  normalizeArtifactTotalPulls(totalPullsBefore) < ARTIFACT_EARLY_PULL_PROTECTION_COUNT
-    ? ARTIFACT_EARLY_PULL_PROTECTED_IDS
-    : new Set()
-);
+const getProtectedArtifactDropIds = (totalPullsBefore = 0) => {
+  const protectedIds = new Set(ARTIFACT_DISABLED_DROP_IDS);
+  if (normalizeArtifactTotalPulls(totalPullsBefore) < ARTIFACT_EARLY_PULL_PROTECTION_COUNT) {
+    ARTIFACT_EARLY_PULL_PROTECTED_IDS.forEach((artifactId) => protectedIds.add(artifactId));
+  }
+  return protectedIds;
+};
 
 const rollArtifactReward = ({ totalPullsBefore = 0 } = {}) => {
-  const protectedIds = getEarlyPullProtectedArtifactIds(totalPullsBefore);
+  const protectedIds = getProtectedArtifactDropIds(totalPullsBefore);
   const availableIdsByRank = new Map();
   ARTIFACT_RANK_ORDER.forEach((rank) => {
     const rankIds = (ARTIFACT_IDS_BY_RANK.get(rank) || []).filter((artifactId) => !protectedIds.has(artifactId));
