@@ -244,6 +244,7 @@ const ARTIFACT_IDS_BY_RANK = ARTIFACT_CATALOG.reduce((acc, artifact) => {
 }, new Map());
 const ARTIFACT_XP_GLOBAL_MULTIPLIERS = {
   krylov: 1,
+  duck: 0.15,
   crutch: 0.1,
 };
 const ARTIFACT_XP_TASK_MULTIPLIERS = {
@@ -251,13 +252,25 @@ const ARTIFACT_XP_TASK_MULTIPLIERS = {
     tasks: [15, 16],
     perCopyBonus: 0.5,
   },
+  fleshka: {
+    tasks: [17, 24, 26, 27],
+    perCopyBonus: 0.25,
+  },
   'list-comprehension': {
     tasks: [17],
+    perCopyBonus: 0.5,
+  },
+  rocks: {
+    tasks: [19, 20, 21],
     perCopyBonus: 0.5,
   },
   tears: {
     tasks: [24, 25, 26, 27],
     perCopyBonus: 3,
+  },
+  turtle: {
+    tasks: [6],
+    perCopyBonus: 1,
   },
 };
 const ARTIFACT_COIN_GLOBAL_MULTIPLIERS = {
@@ -266,6 +279,7 @@ const ARTIFACT_COIN_GLOBAL_MULTIPLIERS = {
 };
 const ARTIFACT_INSTANT_REWARDS = {
   black_pen: { xp: 1000, coins: 0 },
+  cookie: { xp: 500, coins: 3 },
   draft: { xp: 1000, coins: 0 },
   coffee: { xp: 0, coins: 5 },
 };
@@ -4823,14 +4837,11 @@ const getArtifactInventoryCount = (inventory = {}, artifactId) => (
   Math.max(0, Math.floor(Number(inventory?.[artifactId]) || 0))
 );
 
-const formatArtifactMultiplier = (value) => {
+const formatArtifactBonusPercent = (value) => {
   const numeric = Number(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) return 'x1';
-  const rounded = Math.round(numeric * 100) / 100;
-  const rendered = Number.isInteger(rounded)
-    ? String(rounded)
-    : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
-  return `x${rendered}`;
+  if (!Number.isFinite(numeric) || numeric <= 1) return '+0%';
+  const percent = Math.round((numeric - 1) * 10000) / 100;
+  return `+${percent.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}%`;
 };
 
 const getArtifactInstantRewardsFromInventory = (inventory = {}) => {
@@ -4905,10 +4916,26 @@ const applyArtifactCoinBonus = (baseReward, inventory = {}) => {
 
 const buildArtifactBonusSummary = (inventory = {}) => {
   const safeInventory = normalizeArtifactInventory(inventory);
+  const hasFleshka = getArtifactInventoryCount(safeInventory, 'fleshka') > 0;
+  const hasListComprehension = getArtifactInventoryCount(safeInventory, 'list-comprehension') > 0;
+  const hasRocks = getArtifactInventoryCount(safeInventory, 'rocks') > 0;
+  const hasTurtle = getArtifactInventoryCount(safeInventory, 'turtle') > 0;
   const commonXpMultiplier = getArtifactSolveXpMultiplier(safeInventory, 1);
+  const task6Multiplier = getArtifactSolveXpMultiplier(safeInventory, 6);
   const task15to16Multiplier = getArtifactSolveXpMultiplier(safeInventory, 15);
   const task17Multiplier = getArtifactSolveXpMultiplier(safeInventory, 17);
-  const task24to27Multiplier = getArtifactSolveXpMultiplier(safeInventory, 24);
+  const fileTaskMultiplier = Math.max(
+    getArtifactSolveXpMultiplier(safeInventory, 17),
+    getArtifactSolveXpMultiplier(safeInventory, 24),
+    getArtifactSolveXpMultiplier(safeInventory, 26),
+    getArtifactSolveXpMultiplier(safeInventory, 27)
+  );
+  const gameTaskMultiplier = Math.max(
+    getArtifactSolveXpMultiplier(safeInventory, 19),
+    getArtifactSolveXpMultiplier(safeInventory, 20),
+    getArtifactSolveXpMultiplier(safeInventory, 21)
+  );
+  const task24to27Multiplier = getArtifactSolveXpMultiplier(safeInventory, 25);
   const solveCoinMultiplier = getArtifactSolveCoinMultiplier(safeInventory);
   const instantRewards = getArtifactInstantRewardsFromInventory(safeInventory);
   const entries = [];
@@ -4918,7 +4945,15 @@ const buildArtifactBonusSummary = (inventory = {}) => {
       id: 'xp-common',
       tone: 'xp',
       label: 'Любой опыт',
-      value: formatArtifactMultiplier(commonXpMultiplier),
+      value: formatArtifactBonusPercent(commonXpMultiplier),
+    });
+  }
+  if (hasTurtle && task6Multiplier > 1.0001 && task6Multiplier !== commonXpMultiplier) {
+    entries.push({
+      id: 'xp-6',
+      tone: 'xp',
+      label: 'XP за 6',
+      value: formatArtifactBonusPercent(task6Multiplier),
     });
   }
   if (task15to16Multiplier > 1.0001 && task15to16Multiplier !== commonXpMultiplier) {
@@ -4926,15 +4961,31 @@ const buildArtifactBonusSummary = (inventory = {}) => {
       id: 'xp-15-16',
       tone: 'xp',
       label: 'XP за 15-16',
-      value: formatArtifactMultiplier(task15to16Multiplier),
+      value: formatArtifactBonusPercent(task15to16Multiplier),
     });
   }
-  if (task17Multiplier > 1.0001 && task17Multiplier !== commonXpMultiplier) {
+  if (hasListComprehension && task17Multiplier > 1.0001 && task17Multiplier !== commonXpMultiplier) {
     entries.push({
       id: 'xp-17',
       tone: 'xp',
       label: 'XP за 17',
-      value: formatArtifactMultiplier(task17Multiplier),
+      value: formatArtifactBonusPercent(task17Multiplier),
+    });
+  }
+  if (hasFleshka && fileTaskMultiplier > 1.0001 && fileTaskMultiplier !== commonXpMultiplier) {
+    entries.push({
+      id: 'xp-files',
+      tone: 'xp',
+      label: 'XP за файлы',
+      value: formatArtifactBonusPercent(fileTaskMultiplier),
+    });
+  }
+  if (hasRocks && gameTaskMultiplier > 1.0001 && gameTaskMultiplier !== commonXpMultiplier) {
+    entries.push({
+      id: 'xp-19-21',
+      tone: 'xp',
+      label: 'XP за 19-21',
+      value: formatArtifactBonusPercent(gameTaskMultiplier),
     });
   }
   if (task24to27Multiplier > 1.0001 && task24to27Multiplier !== commonXpMultiplier) {
@@ -4942,7 +4993,7 @@ const buildArtifactBonusSummary = (inventory = {}) => {
       id: 'xp-24-27',
       tone: 'xp',
       label: 'XP за 24-27',
-      value: formatArtifactMultiplier(task24to27Multiplier),
+      value: formatArtifactBonusPercent(task24to27Multiplier),
     });
   }
   if (solveCoinMultiplier > 1.0001) {
@@ -4950,7 +5001,7 @@ const buildArtifactBonusSummary = (inventory = {}) => {
       id: 'coins-solve',
       tone: 'coins',
       label: 'Монеты за задания',
-      value: formatArtifactMultiplier(solveCoinMultiplier),
+      value: formatArtifactBonusPercent(solveCoinMultiplier),
     });
   }
   if (instantRewards.xp > 0) {
@@ -4973,8 +5024,11 @@ const buildArtifactBonusSummary = (inventory = {}) => {
   return {
     xp: {
       commonMultiplier: Math.round(commonXpMultiplier * 100) / 100,
+      task6Multiplier: Math.round(task6Multiplier * 100) / 100,
       task15to16Multiplier: Math.round(task15to16Multiplier * 100) / 100,
       task17Multiplier: Math.round(task17Multiplier * 100) / 100,
+      fileTaskMultiplier: Math.round(fileTaskMultiplier * 100) / 100,
+      gameTaskMultiplier: Math.round(gameTaskMultiplier * 100) / 100,
       task24to27Multiplier: Math.round(task24to27Multiplier * 100) / 100,
     },
     coins: {

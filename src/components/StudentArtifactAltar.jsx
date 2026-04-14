@@ -71,9 +71,14 @@ const ARTIFACT_LABELS = {
   'list-comprehension': 'List Comprehension',
   python: 'Python',
   crutch: 'Костыль',
+  duck: 'Уточка-дебаггер',
+  fleshka: 'Флешка с файлами',
+  rocks: 'Камни для игры',
+  turtle: 'Черепашка-исполнитель',
   whileTrue: 'while True',
   black_pen: 'Черная ручка',
   coffee: 'Кофе',
+  cookie: 'Печенька',
   draft: 'Черновик',
   'transfer-agreement': 'Права на платформу',
 };
@@ -212,6 +217,18 @@ const ARTIFACT_EFFECTS_BY_ID = {
   crutch: [
     { tone: 'xp', label: 'Любой опыт', type: 'multiplier', perCopyBonus: 0.1, hint: 'Небольшой, но стабильный бонус к опыту.' },
   ],
+  duck: [
+    { tone: 'xp', label: 'Любой опыт', type: 'multiplier', perCopyBonus: 0.15, hint: 'Помогает быстрее замечать ошибки в решениях.' },
+  ],
+  fleshka: [
+    { tone: 'xp', label: 'XP за файлы', type: 'multiplier', perCopyBonus: 0.25, hint: 'Работает на заданиях 17, 24, 26 и 27.' },
+  ],
+  rocks: [
+    { tone: 'xp', label: 'XP за 19-21', type: 'multiplier', perCopyBonus: 0.5, hint: 'Усиливает награду за игровые задачи.' },
+  ],
+  turtle: [
+    { tone: 'xp', label: 'XP за 6', type: 'multiplier', perCopyBonus: 1, hint: 'Работает на задаче про Черепаху.' },
+  ],
   whileTrue: [
     { tone: 'coins', label: 'Монеты за задания', type: 'multiplier', perCopyBonus: 0.2, hint: 'Усиливает монетную награду.' },
   ],
@@ -221,15 +238,20 @@ const ARTIFACT_EFFECTS_BY_ID = {
   coffee: [
     { tone: 'instant', label: 'Разовые монеты', type: 'instant', amount: 5, unit: 'монет', hint: 'Начисляется за каждую найденную копию.' },
   ],
+  cookie: [
+    { tone: 'instant', label: 'Разовый опыт', type: 'instant', amount: 500, unit: 'XP', hint: 'Начисляется за каждую найденную копию.' },
+    { tone: 'instant', label: 'Разовые монеты', type: 'instant', amount: 3, unit: 'монеты', hint: 'Начисляется за каждую найденную копию.' },
+  ],
   draft: [
     { tone: 'instant', label: 'Разовый опыт', type: 'instant', amount: 1000, unit: 'XP', hint: 'Начисляется за каждую найденную копию.' },
   ],
 };
 
-const formatArtifactMultiplier = (value) => {
+const formatArtifactBonusPercent = (value) => {
   const number = Number(value);
-  if (!Number.isFinite(number) || number <= 0) return 'x1';
-  return `x${(Math.round(number * 100) / 100).toLocaleString('ru-RU', { maximumFractionDigits: 2 })}`;
+  if (!Number.isFinite(number) || number <= 1) return '+0%';
+  const percent = Math.round((number - 1) * 10000) / 100;
+  return `+${percent.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}%`;
 };
 
 const formatArtifactInstantAmount = (amount, unit) => {
@@ -268,9 +290,9 @@ const getArtifactDetailEffects = (artifact) => {
       return {
         tone: effect.tone,
         label: effect.label,
-        value: formatArtifactMultiplier(singleMultiplier),
+        value: formatArtifactBonusPercent(singleMultiplier),
         detail: count > 1
-          ? `Сейчас с ${pluralizeArtifactCopies(count)}: ${formatArtifactMultiplier(currentMultiplier)}`
+          ? `Сейчас с ${pluralizeArtifactCopies(count)}: ${formatArtifactBonusPercent(currentMultiplier)}`
           : effect.hint,
       };
     }

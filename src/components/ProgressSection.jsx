@@ -54,6 +54,7 @@ const MOCK_COIN_MILESTONES = [
 ];
 const PROGRESS_XP_GLOBAL_ARTIFACT_BONUSES = {
   krylov: 1,
+  duck: 0.15,
   crutch: 0.1,
 };
 const PROGRESS_XP_TASK_ARTIFACT_BONUSES = {
@@ -61,13 +62,25 @@ const PROGRESS_XP_TASK_ARTIFACT_BONUSES = {
     tasks: [15, 16],
     perCopyBonus: 0.5,
   },
+  fleshka: {
+    tasks: [17, 24, 26, 27],
+    perCopyBonus: 0.25,
+  },
   'list-comprehension': {
     tasks: [17],
+    perCopyBonus: 0.5,
+  },
+  rocks: {
+    tasks: [19, 20, 21],
     perCopyBonus: 0.5,
   },
   tears: {
     tasks: [24, 25, 26, 27],
     perCopyBonus: 3,
+  },
+  turtle: {
+    tasks: [6],
+    perCopyBonus: 1,
   },
 };
 
@@ -78,6 +91,13 @@ const normalizeProgressXpAmount = (value) => {
 };
 
 const formatProgressXpAmount = (value) => normalizeProgressXpAmount(value).toLocaleString('ru-RU');
+
+const formatProgressBonusPercent = (value) => {
+  const multiplier = Number(value);
+  if (!Number.isFinite(multiplier) || multiplier <= 1) return '+0%';
+  const percent = Math.round((multiplier - 1) * 10000) / 100;
+  return `+${percent.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}%`;
+};
 
 const getProgressArtifactInventoryCount = (inventory = {}, artifactId) => (
   Math.max(0, Math.floor(Number(inventory?.[artifactId]) || 0))
@@ -2474,13 +2494,13 @@ const ProgressSection = ({
                       <div className="flex flex-wrap justify-end gap-1.5">
                         <span
                           className="progress-task-xp-badge inline-flex items-center gap-1 rounded-full border border-sky-200/90 bg-sky-50/95 px-2 py-1 text-[10px] font-black text-sky-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
-                          title={`Опыт за тему: получено ${formatProgressXpAmount(xpStats.earnedXp)} из ${formatProgressXpAmount(xpStats.possibleXp)}${hasXpBonus ? `, бонус x${Math.round(xpStats.multiplier * 100) / 100}` : ''}`}
+                          title={`Опыт за тему: получено ${formatProgressXpAmount(xpStats.earnedXp)} из ${formatProgressXpAmount(xpStats.possibleXp)}${hasXpBonus ? `, бонус ${formatProgressBonusPercent(xpStats.multiplier)}` : ''}`}
                         >
                           <span className="progress-task-xp-badge__label text-[9px] font-black uppercase tracking-[0.14em] text-sky-600">XP</span>
                           <span>{`${formatProgressXpAmount(xpStats.earnedXp)} / ${formatProgressXpAmount(xpStats.possibleXp)}`}</span>
                           {hasXpBonus && (
                             <span className="progress-task-xp-badge__bonus rounded-full border border-sky-300/70 bg-white/75 px-1 py-0 text-[9px] leading-4 text-sky-700">
-                              {`x${Math.round(xpStats.multiplier * 100) / 100}`}
+                              {formatProgressBonusPercent(xpStats.multiplier)}
                             </span>
                           )}
                         </span>
