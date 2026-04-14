@@ -9368,8 +9368,9 @@ app.get('/api/students', (req, res) => {
 });
 
 app.get('/api/students/leaderboard', (req, res) => {
-  const { teacherId } = req.query;
+  const { teacherId, studentId } = req.query;
   const requestedTeacherId = typeof teacherId === 'string' ? teacherId.trim() : '';
+  const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
   const includeTeacherIdentity = isTeacherRole(req.auth);
   let students = readStudentsDb().filter(isActiveStudent);
 
@@ -9394,6 +9395,9 @@ app.get('/api/students/leaderboard', (req, res) => {
   const startDay = numberToDayKey(startDayNum) || todayKey;
   const endDay = numberToDayKey(endDayNum) || todayKey;
   const currentStudentId = isStudentRole(req.auth) ? String(req.auth.id || '') : '';
+  const selectedStudentId = isTeacherRole(req.auth) && requestedStudentId
+    ? requestedStudentId
+    : currentStudentId;
   const studentsSortedForAnon = [...students].sort((a, b) => {
     const aTs = Date.parse(a?.createdAt || '');
     const bTs = Date.parse(b?.createdAt || '');
@@ -9434,6 +9438,15 @@ app.get('/api/students/leaderboard', (req, res) => {
   const currentStudentData = currentStudentId
     ? getStudentData(currentStudentId)
     : null;
+  const selectedStudentEntry = selectedStudentId
+    ? (students.find((item) => item.id === selectedStudentId) || null)
+    : null;
+  const selectedStudentItem = selectedStudentId
+    ? (items.find((item) => item.studentId === selectedStudentId) || null)
+    : null;
+  const selectedStudentData = selectedStudentEntry
+    ? getStudentData(selectedStudentId)
+    : null;
 
   return res.json({
     week: {
@@ -9451,7 +9464,17 @@ app.get('/api/students/leaderboard', (req, res) => {
           coinsTotal: normalizeCoinsTotal(currentStudentData?.coinsTotal),
         }
       : null,
-    altar: currentStudentData ? buildStudentArtifactState(currentStudentData) : null,
+    selectedStudent: selectedStudentItem
+      ? {
+          studentId: selectedStudentItem.studentId,
+          publicName: selectedStudentItem.publicName,
+          hasAlias: selectedStudentItem.hasAlias,
+          mainName: normalizeStudentName(selectedStudentEntry?.name || ''),
+          nickname: normalizeStudentNickname(selectedStudentEntry?.nickname || ''),
+          coinsTotal: normalizeCoinsTotal(selectedStudentData?.coinsTotal),
+        }
+      : null,
+    altar: selectedStudentData ? buildStudentArtifactState(selectedStudentData) : null,
   });
 });
 

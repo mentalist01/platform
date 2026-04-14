@@ -1,7 +1,14 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCcw } from 'lucide-react';
+import { Package2, RefreshCcw, Sparkles } from 'lucide-react';
 import { api } from '../services/api';
 import StudentArtifactAltar from './StudentArtifactAltar';
+
+const BONUS_TONE_CLASSNAME = {
+  xp: 'border-violet-200 bg-violet-50/90 text-violet-700',
+  coins: 'border-amber-200 bg-amber-50/90 text-amber-700',
+  instant: 'border-emerald-200 bg-emerald-50/90 text-emerald-700',
+};
+
 const StudentLeaderboardSection = ({
   role,
   userId,
@@ -20,8 +27,18 @@ const StudentLeaderboardSection = ({
   studentCoinsTotal = 0,
   onStudentCoinsChange,
   onStudentXpChange,
+  students = [],
+  activeStudentId = '',
+  onSelectStudent,
+  studentsLoading = false,
+  getStudentLabel,
 }) => {
-  const [leaderboard, setLeaderboard] = useState({ items: [], week: null, currentStudent: null });
+  const [leaderboard, setLeaderboard] = useState({
+    items: [],
+    week: null,
+    currentStudent: null,
+    selectedStudent: null,
+  });
   const [altar, setAltar] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -48,17 +65,23 @@ const StudentLeaderboardSection = ({
     else setLoading(true);
     setError('');
     try {
-      const data = await api.getStudentsLeaderboard();
+      const selectedStudentId = role === 'teacher' ? String(activeStudentId || '').trim() : '';
+      const data = await api.getStudentsLeaderboard(
+        selectedStudentId ? { studentId: selectedStudentId } : undefined
+      );
       if (!mountedRef.current) return;
       const items = Array.isArray(data?.items) ? data.items : [];
       const week = data?.week && typeof data.week === 'object' ? data.week : null;
       const currentStudent = data?.currentStudent && typeof data.currentStudent === 'object'
         ? data.currentStudent
         : null;
+      const selectedStudent = data?.selectedStudent && typeof data.selectedStudent === 'object'
+        ? data.selectedStudent
+        : null;
       const nextAltar = data?.altar && typeof data.altar === 'object'
         ? data.altar
         : null;
-      setLeaderboard({ items, week, currentStudent });
+      setLeaderboard({ items, week, currentStudent, selectedStudent });
       setAltar(nextAltar);
       if (role === 'student') {
         if (currentStudent?.hasAlias && typeof currentStudent.publicName === 'string') {
@@ -72,7 +95,7 @@ const StudentLeaderboardSection = ({
     } catch (err) {
       if (!mountedRef.current) return;
       setError(err?.message || 'Не удалось загрузить рейтинг.');
-      setLeaderboard({ items: [], week: null, currentStudent: null });
+      setLeaderboard({ items: [], week: null, currentStudent: null, selectedStudent: null });
       setAltar(null);
     } finally {
       if (mountedRef.current) {
@@ -80,11 +103,13 @@ const StudentLeaderboardSection = ({
         setRefreshing(false);
       }
     }
-  }, [role]);
+  }, [activeStudentId, role]);
 
   useEffect(() => {
     loadLeaderboard();
   }, [loadLeaderboard]);
+
+  const teacherSelectedStudentId = role === 'teacher' ? String(activeStudentId || '').trim() : '';
 
   const rows = useMemo(() => {
     const list = Array.isArray(leaderboard.items) ? leaderboard.items : [];
@@ -105,6 +130,9 @@ const StudentLeaderboardSection = ({
       const isCurrent = role === 'student' && (
         Boolean(entry?.isCurrent) || (String(userId || '') === studentId)
       );
+      const isSelected = role === 'teacher'
+        && Boolean(teacherSelectedStudentId)
+        && studentId === teacherSelectedStudentId;
       return {
         studentId,
         displayName,
@@ -119,9 +147,39 @@ const StudentLeaderboardSection = ({
         level,
         league,
         isCurrent,
+        isSelected,
       };
     });
-  }, [leaderboard.items, role, userId]);
+  }, [leaderboard.items, role, teacherSelectedStudentId, userId]);
+
+  const teacherStudentOptions = useMemo(() => {
+    if (role !== 'teacher') return [];
+    const sourceStudents = Array.isArray(students) ? students : [];
+    const source = sourceStudents.length > 0
+      ? sourceStudents.map((student) => {
+          const id = String(student?.id || '').trim();
+          if (!id) return null;
+          const providedLabel = typeof getStudentLabel === 'function'
+            ? String(getStudentLabel(student) || '').trim()
+            : '';
+          const name = typeof student?.name === 'string' ? student.name.trim() : '';
+          const nickname = typeof student?.nickname === 'string' ? student.nickname.trim() : '';
+          return {
+            id,
+            label: providedLabel || [name, nickname].filter(Boolean).join(' • ') || 'Ученик',
+          };
+        })
+      : rows.map((row) => ({
+          id: row.studentId,
+          label: row.mainName || row.nickname || row.displayName || 'Ученик',
+        }));
+    const seen = new Set();
+    return source.filter((option) => {
+      if (!option?.id || seen.has(option.id)) return false;
+      seen.add(option.id);
+      return true;
+    });
+  }, [getStudentLabel, role, rows, students]);
 
   const byLevel = useMemo(() => {
     return [...rows].sort((a, b) => {
@@ -190,6 +248,35 @@ const StudentLeaderboardSection = ({
     return fromProfile;
   })();
   const needsAliasPrompt = role === 'student' && currentStudentMeta && !currentStudentMeta.hasAlias;
+  const selectedTeacherRow = role === 'teacher' && teacherSelectedStudentId
+    ? (rows.find((row) => row.studentId === teacherSelectedStudentId) || null)
+    : null;
+  const selectedTeacherMeta = role === 'teacher' && leaderboard?.selectedStudent
+    ? leaderboard.selectedStudent
+    : null;
+  const hasLoadedSelectedTeacher = role === 'teacher'
+    && Boolean(teacherSelectedStudentId)
+    && String(selectedTeacherMeta?.studentId || '').trim() === teacherSelectedStudentId;
+  const selectedTeacherName = selectedTeacherRow?.mainName
+    || selectedTeacherMeta?.mainName
+    || selectedTeacherRow?.displayName
+    || selectedTeacherMeta?.publicName
+    || '';
+  const selectedTeacherSubtitle = selectedTeacherRow
+    ? `${selectedTeacherRow.league.label} - Уровень ${selectedTeacherRow.level} - ${selectedTeacherRow.xpTotalLabel} XP`
+    : '';
+  const teacherBonusEntries = hasLoadedSelectedTeacher && Array.isArray(altar?.bonuses?.entries)
+    ? altar.bonuses.entries.filter((entry) => entry && typeof entry === 'object')
+    : [];
+  const teacherArtifactTotalOwned = hasLoadedSelectedTeacher && Number.isFinite(Number(altar?.totalOwned))
+    ? Math.max(0, Math.floor(Number(altar.totalOwned)))
+    : 0;
+  const teacherArtifactUniqueOwned = hasLoadedSelectedTeacher && Number.isFinite(Number(altar?.uniqueOwned))
+    ? Math.max(0, Math.floor(Number(altar.uniqueOwned)))
+    : 0;
+  const teacherArtifactTotalPulls = hasLoadedSelectedTeacher && Number.isFinite(Number(altar?.totalPulls))
+    ? Math.max(0, Math.floor(Number(altar.totalPulls)))
+    : 0;
 
   const handleSaveAlias = async () => {
     const normalized = String(aliasInput || '').trim();
@@ -277,6 +364,113 @@ const StudentLeaderboardSection = ({
     }
   }, [loadLeaderboard, onStudentCoinsChange, onStudentXpChange, role, spinLoading]);
 
+  const handleTeacherStudentSelect = useCallback((studentId) => {
+    if (role !== 'teacher') return;
+    const normalized = String(studentId || '').trim();
+    if (!normalized) return;
+    if (typeof onSelectStudent === 'function') onSelectStudent(normalized);
+  }, [onSelectStudent, role]);
+
+  const renderTeacherStudentPicker = () => {
+    if (role !== 'teacher') return null;
+    return (
+      <div className="inline-flex w-full items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-purple-100/40 sm:w-auto">
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
+        <select
+          value={teacherSelectedStudentId}
+          onChange={(e) => handleTeacherStudentSelect(e.target.value)}
+          disabled={studentsLoading || teacherStudentOptions.length === 0}
+          className="w-full min-w-0 rounded-xl border border-purple-100 bg-white px-3 py-1.5 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70 sm:min-w-[180px]"
+        >
+          <option value="" disabled>Выберите ученика</option>
+          {teacherStudentOptions.map((student) => (
+            <option key={student.id} value={student.id}>
+              {student.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  };
+
+  const renderTeacherArtifactBonuses = () => {
+    if (role !== 'teacher') return null;
+    const hasSelectedStudent = Boolean(teacherSelectedStudentId);
+    const hasArtifacts = teacherArtifactTotalOwned > 0;
+    const selectedStudentUnavailable = hasSelectedStudent
+      && !hasLoadedSelectedTeacher
+      && !selectedTeacherRow
+      && !refreshing;
+    const selectedLabel = selectedTeacherName || 'ученик';
+    return (
+      <div className="teacher-rating-artifact-bonuses rounded-3xl border border-violet-200/80 bg-white/90 p-4 text-sm text-slate-700 shadow-soft" data-tour="rating-artifact-bonuses">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="teacher-rating-artifact-bonuses__eyebrow flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-violet-600">
+              <Sparkles size={14} />
+              Бонусы артефактов
+            </div>
+            <div className="teacher-rating-artifact-bonuses__name mt-1 text-base font-semibold text-slate-900">
+              {hasSelectedStudent ? selectedLabel : 'Выберите ученика'}
+            </div>
+            <div className="teacher-rating-artifact-bonuses__subtitle mt-1 text-xs text-slate-500">
+              {hasSelectedStudent
+                ? (selectedTeacherSubtitle || 'Сводка по выбранному ученику')
+                : 'После выбора здесь появятся все активные бонусы его артефактов.'}
+            </div>
+          </div>
+          {hasSelectedStudent && (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="teacher-rating-artifact-bonuses__stat inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-700">
+                <Package2 size={14} />
+                {`${teacherArtifactUniqueOwned} уник.`}
+              </div>
+              <div className="teacher-rating-artifact-bonuses__stat inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-700">
+                {`${teacherArtifactTotalOwned} всего`}
+              </div>
+              <div className="teacher-rating-artifact-bonuses__stat inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-700">
+                {`${teacherArtifactTotalPulls} круток`}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {!hasSelectedStudent ? (
+          <div className="teacher-rating-artifact-bonuses__state mt-4 rounded-2xl border border-dashed border-violet-200 bg-violet-50/60 px-4 py-5 text-center text-sm text-violet-700">
+            Выберите ученика вверху страницы или нажмите на строку в рейтинге.
+          </div>
+        ) : !hasLoadedSelectedTeacher ? (
+          <div className="teacher-rating-artifact-bonuses__state mt-4 rounded-2xl border border-dashed border-violet-200 bg-violet-50/60 px-4 py-5 text-center text-sm text-violet-700">
+            {selectedStudentUnavailable
+              ? 'Выбранный ученик недоступен. Выберите другого ученика из списка.'
+              : 'Загружаем бонусы выбранного ученика...'}
+          </div>
+        ) : teacherBonusEntries.length > 0 ? (
+          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {teacherBonusEntries.map((entry) => (
+              <div
+                key={String(entry.id || `${entry.label}-${entry.value}`)}
+                className={`teacher-rating-artifact-bonuses__card rounded-2xl border px-3 py-2 shadow-sm ${BONUS_TONE_CLASSNAME[entry.tone] || 'border-slate-200 bg-slate-50/90 text-slate-700'}`}
+                data-tone={String(entry.tone || 'default')}
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <div className="min-w-0 truncate text-xs font-semibold">{entry.label || 'Бонус'}</div>
+                  <div className="shrink-0 whitespace-nowrap text-base font-black">{entry.value || 'Активен'}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="teacher-rating-artifact-bonuses__state mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-5 text-center text-sm text-slate-500">
+            {hasArtifacts
+              ? 'У ученика есть артефакты, но активных бонусов от них пока нет.'
+              : 'У ученика пока нет выбитых артефактов.'}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderBoard = (items, type) => (
     <div
       className="rounded-3xl border border-purple-200/70 bg-white/90 p-4 shadow-soft"
@@ -302,13 +496,27 @@ const StudentLeaderboardSection = ({
           const topPlaceDecor = TOP_PLACE_NUMBER_DECOR[index];
           const leagueAuraStyle = getLeagueAuraStyle(row.league.id);
           const isAbsoluteLeague = isAbsoluteOrAboveLeague(row.league.id);
+          const canSelectRow = role === 'teacher' && typeof onSelectStudent === 'function';
+          const rowStateClass = row.isSelected
+            ? 'border-amber-300 bg-amber-50/80 ring-1 ring-amber-200'
+            : row.isCurrent
+              ? 'border-purple-300 bg-purple-50/80'
+              : 'border-purple-100 bg-white';
           return (
             <div
               key={`${type}-${row.studentId}`}
-              className={`flex items-center gap-3 rounded-2xl border px-3 py-2.5 ${
-                row.isCurrent
-                  ? 'border-purple-300 bg-purple-50/80'
-                  : 'border-purple-100 bg-white'
+              role={canSelectRow ? 'button' : undefined}
+              tabIndex={canSelectRow ? 0 : undefined}
+              aria-pressed={canSelectRow ? row.isSelected : undefined}
+              onClick={canSelectRow ? () => handleTeacherStudentSelect(row.studentId) : undefined}
+              onKeyDown={canSelectRow ? (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  handleTeacherStudentSelect(row.studentId);
+                }
+              } : undefined}
+              className={`flex items-center gap-3 rounded-2xl border px-3 py-2.5 transition ${rowStateClass} ${
+                canSelectRow ? 'cursor-pointer hover:border-amber-300 hover:bg-amber-50/70 focus:outline-none focus:ring-2 focus:ring-amber-200' : ''
               }`}
             >
             <div
@@ -441,15 +649,18 @@ const StudentLeaderboardSection = ({
               {`Период XP: ${weekRangeLabel}`}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => loadLeaderboard({ silent: true })}
-            disabled={refreshing}
-            className="inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-white px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-50 disabled:opacity-60"
-          >
-            <RefreshCcw size={14} className={refreshing ? 'animate-spin' : ''} />
-            {refreshing ? 'Обновляем...' : 'Обновить'}
-          </button>
+          <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+            {renderTeacherStudentPicker()}
+            <button
+              type="button"
+              onClick={() => loadLeaderboard({ silent: true })}
+              disabled={refreshing}
+              className="inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-white px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-50 disabled:opacity-60"
+            >
+              <RefreshCcw size={14} className={refreshing ? 'animate-spin' : ''} />
+              {refreshing ? 'Обновляем...' : 'Обновить'}
+            </button>
+          </div>
         </div>
         {role === 'student' && (
           <div className="mt-3 space-y-2">
@@ -587,6 +798,8 @@ const StudentLeaderboardSection = ({
           </div>
         )}
       </div>
+
+      {renderTeacherArtifactBonuses()}
 
       {needsAliasPrompt && (
         <div className="rounded-3xl border border-amber-200 bg-amber-50/70 p-4 shadow-soft" data-tour="rating-name">

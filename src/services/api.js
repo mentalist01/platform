@@ -452,9 +452,13 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
-  getStudentsLeaderboard: async (teacherId) => {
+  getStudentsLeaderboard: async (teacherIdOrOptions = '', maybeOptions = {}) => {
+    const options = teacherIdOrOptions && typeof teacherIdOrOptions === 'object'
+      ? teacherIdOrOptions
+      : { ...maybeOptions, teacherId: teacherIdOrOptions };
     const params = new URLSearchParams();
-    if (teacherId) params.append('teacherId', String(teacherId));
+    if (options?.teacherId) params.append('teacherId', String(options.teacherId));
+    if (options?.studentId) params.append('studentId', String(options.studentId));
     const qs = params.toString();
     const res = await apiFetch(qs ? `/api/students/leaderboard?${qs}` : '/api/students/leaderboard');
     if (!res.ok) throw new Error(await parseApiError(res));

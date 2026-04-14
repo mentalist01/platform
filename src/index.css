@@ -10003,6 +10003,65 @@ html[data-theme='dark'] .student-artifact-altar__bonus-card[data-tone='instant']
   color: rgba(167, 243, 208, 0.96) !important;
 }
 
+html[data-theme='dark'] .teacher-rating-artifact-bonuses {
+  border-color: rgba(129, 140, 248, 0.38) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(168, 85, 247, 0.16), transparent 38%),
+    radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.12), transparent 36%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(11, 18, 32, 0.86)) !important;
+  color: rgba(203, 213, 225, 0.94) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.1),
+    0 18px 42px rgba(2, 6, 23, 0.42) !important;
+}
+
+html[data-theme='dark'] .teacher-rating-artifact-bonuses__eyebrow {
+  color: rgba(216, 180, 254, 0.96) !important;
+}
+
+html[data-theme='dark'] .teacher-rating-artifact-bonuses__name {
+  color: rgba(248, 250, 252, 0.98) !important;
+}
+
+html[data-theme='dark'] .teacher-rating-artifact-bonuses__subtitle {
+  color: rgba(148, 163, 184, 0.9) !important;
+}
+
+html[data-theme='dark'] .teacher-rating-artifact-bonuses__stat {
+  border-color: rgba(100, 116, 139, 0.48) !important;
+  background: rgba(15, 23, 42, 0.68) !important;
+  color: rgba(203, 213, 225, 0.94) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+html[data-theme='dark'] .teacher-rating-artifact-bonuses__state {
+  border-color: rgba(129, 140, 248, 0.32) !important;
+  background: rgba(30, 41, 59, 0.42) !important;
+  color: rgba(199, 210, 254, 0.94) !important;
+}
+
+html[data-theme='dark'] .teacher-rating-artifact-bonuses__card {
+  background: rgba(15, 23, 42, 0.66) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 24px rgba(2, 6, 23, 0.26) !important;
+}
+
+html[data-theme='dark'] .teacher-rating-artifact-bonuses__card[data-tone='xp'] {
+  border-color: rgba(167, 139, 250, 0.34) !important;
+  color: rgba(233, 213, 255, 0.98) !important;
+}
+
+html[data-theme='dark'] .teacher-rating-artifact-bonuses__card[data-tone='coins'] {
+  border-color: rgba(251, 191, 36, 0.34) !important;
+  color: rgba(253, 230, 138, 0.98) !important;
+}
+
+html[data-theme='dark'] .teacher-rating-artifact-bonuses__card[data-tone='instant'] {
+  border-color: rgba(52, 211, 153, 0.34) !important;
+  color: rgba(167, 243, 208, 0.98) !important;
+}
+
 html[data-theme='dark'] .student-artifact-altar__empty {
   border-color: rgba(71, 85, 105, 0.7) !important;
   background: rgba(15, 23, 42, 0.52) !important;

@@ -14667,6 +14667,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 setStudentXpTotal(normalizedXp);
                 setXpDisplayTotal(normalizedXp);
               }}
+              students={studentsWithNicknames}
+              activeStudentId={activeStudentId}
+              onSelectStudent={setActiveStudentId}
+              studentsLoading={studentsLoading}
+              getStudentLabel={getStudentLabel}
             />
           )}
           {view === 'python' && (
