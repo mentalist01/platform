@@ -4734,11 +4734,11 @@
 @keyframes artifactAltarSpinnerRampAura {
   0% {
     opacity: 0.55;
-    filter: blur(18px) brightness(0.82);
+    filter: blur(20px) brightness(0.82);
   }
   100% {
     opacity: 1;
-    filter: blur(14px) brightness(1.46);
+    filter: blur(22px) brightness(1.26);
   }
 }
 
@@ -5218,11 +5218,11 @@
 }
 
 .artifact-altar-stage__spinner-aura {
-  width: 108%;
-  height: 108%;
+  width: 124%;
+  height: 124%;
   background:
-    radial-gradient(circle, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.4) 27%, var(--artifact-altar-accent-mid, rgba(245, 158, 11, 0.34)) 56%, rgba(255, 255, 255, 0) 100%);
-  filter: blur(14px);
+    radial-gradient(circle, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.34) 24%, var(--artifact-altar-accent-soft, rgba(245, 158, 11, 0.18)) 48%, var(--artifact-altar-accent-faint, rgba(245, 158, 11, 0.12)) 70%, rgba(255, 255, 255, 0) 92%);
+  filter: blur(18px);
   transition: filter 720ms ease;
   animation: artifactAltarSpinnerCorePulse 1s ease-in-out infinite;
 }
@@ -5417,10 +5417,10 @@
 
 .artifact-altar-stage--spinning .artifact-altar-stage__focus {
   background:
-    radial-gradient(circle, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.92) 22%, var(--artifact-altar-accent-mid, rgba(245, 158, 11, 0.34)) 56%, rgba(255, 255, 255, 0) 100%);
+    radial-gradient(circle, rgba(255, 255, 255, 0.94) 0%, rgba(255, 255, 255, 0.78) 18%, var(--artifact-altar-accent-soft, rgba(245, 158, 11, 0.18)) 44%, var(--artifact-altar-accent-faint, rgba(245, 158, 11, 0.12)) 68%, rgba(255, 255, 255, 0) 92%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.96),
-    0 0 78px var(--artifact-altar-core-shadow, rgba(245, 158, 11, 0.32));
+    0 0 58px var(--artifact-altar-core-shadow, rgba(245, 158, 11, 0.24));
+  overflow: visible;
   animation: none;
 }
 
@@ -9843,10 +9843,9 @@ html[data-theme='dark'] .artifact-altar-stage__focus {
 
 html[data-theme='dark'] .artifact-altar-stage--spinning .artifact-altar-stage__focus {
   background:
-    radial-gradient(circle, rgba(255, 255, 255, 0.34) 0%, rgba(255, 255, 255, 0.18) 22%, var(--artifact-altar-accent-mid, rgba(245, 158, 11, 0.34)) 56%, rgba(255, 255, 255, 0) 100%);
+    radial-gradient(circle, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.14) 20%, var(--artifact-altar-accent-soft, rgba(245, 158, 11, 0.18)) 44%, var(--artifact-altar-accent-faint, rgba(245, 158, 11, 0.12)) 70%, rgba(255, 255, 255, 0) 92%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    0 0 78px var(--artifact-altar-core-shadow, rgba(245, 158, 11, 0.28));
+    0 0 68px var(--artifact-altar-core-shadow, rgba(245, 158, 11, 0.2));
 }
 
 html[data-theme='dark'] .artifact-altar-stage__status-row {
@@ -9860,16 +9859,20 @@ html[data-theme='dark'] .artifact-altar-stage__status-row {
 
 html[data-theme='dark'] .artifact-altar-stage__title-band {
   background:
-    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.14), rgba(51, 65, 85, 0.86) 46%, rgba(30, 41, 59, 0.92) 100%);
-  border-color: rgba(251, 191, 36, 0.2);
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.22), rgba(251, 191, 36, 0.18) 48%, rgba(120, 53, 15, 0.22) 100%),
+    linear-gradient(180deg, rgba(69, 47, 18, 0.82), rgba(36, 28, 18, 0.76));
+  border-color: rgba(251, 191, 36, 0.3);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 12px 26px rgba(2, 6, 23, 0.32);
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 24px rgba(251, 191, 36, 0.08),
+    0 12px 26px rgba(2, 6, 23, 0.3);
 }
 
 html[data-theme='dark'] .artifact-altar-stage__title {
-  color: rgba(248, 250, 252, 0.98);
-  text-shadow: 0 12px 30px rgba(2, 6, 23, 0.48);
+  color: rgba(255, 251, 235, 0.98);
+  text-shadow:
+    0 0 18px rgba(251, 191, 36, 0.14),
+    0 12px 30px rgba(2, 6, 23, 0.48);
 }
 
 html[data-theme='dark'] .artifact-altar-stage__subtitle {
