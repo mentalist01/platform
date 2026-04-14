@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { ChevronDown, X } from 'lucide-react';
 import { api } from '../services/api';
 import {
   DEFAULT_MOCK_EXAM_BADGE_THEME_ID,
@@ -49,6 +49,7 @@ const MockExamEditorModal = ({
   const [badges, setBadges] = useState(() => normalizeMockExamBadges(exam?.badges));
   const [badgeDraftLabel, setBadgeDraftLabel] = useState('');
   const [badgeDraftTheme, setBadgeDraftTheme] = useState(DEFAULT_MOCK_EXAM_BADGE_THEME_ID);
+  const [badgesExpanded, setBadgesExpanded] = useState(false);
   const [selectedTask, setSelectedTask] = useState(MOCK_TASK_NUMBERS[0] || 1);
   const [question, setQuestion] = useState('');
   const [answerInputs, setAnswerInputs] = useState(['']);
@@ -71,6 +72,7 @@ const MockExamEditorModal = ({
     setBadges(normalizeMockExamBadges(exam?.badges));
     setBadgeDraftLabel('');
     setBadgeDraftTheme(DEFAULT_MOCK_EXAM_BADGE_THEME_ID);
+    setBadgesExpanded(false);
   }, [exam?.id]);
 
   useEffect(() => {
@@ -386,92 +388,108 @@ const MockExamEditorModal = ({
               </div>
 
               <div className="rounded-2xl border border-purple-100 bg-gradient-to-br from-white via-purple-50/60 to-fuchsia-50/60 p-3">
-                <div className="flex items-start justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setBadgesExpanded((prev) => !prev)}
+                  aria-expanded={badgesExpanded}
+                  className="flex w-full items-start justify-between gap-3 text-left"
+                >
                   <div>
                     <div className="text-xs font-semibold text-gray-700">Тематические бейджи</div>
                     <div className="mt-1 text-[11px] text-gray-500">
                       Например: "Реальный экзамен", "Новый формат", "Сложный уровень".
                     </div>
                   </div>
-                  <span className="rounded-full border border-white/80 bg-white/80 px-2.5 py-1 text-[10px] font-semibold text-gray-500">
-                    {`${badges.length}/${MOCK_EXAM_BADGE_MAX_ITEMS}`}
-                  </span>
-                </div>
-                {badges.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {badges.map((item, index) => {
-                      const theme = getMockExamBadgeTheme(item.themeId);
-                      return (
-                        <button
-                          key={`${item.themeId}-${item.label}-${index}`}
-                          type="button"
-                          onClick={() => removeBadge(index)}
-                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition hover:scale-[1.01] ${theme.badgeClassName}`}
-                          title="Удалить бейдж"
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="rounded-full border border-white/80 bg-white/80 px-2.5 py-1 text-[10px] font-semibold text-gray-500">
+                      {`${badges.length}/${MOCK_EXAM_BADGE_MAX_ITEMS}`}
+                    </span>
+                    <ChevronDown
+                      size={16}
+                      className={`mt-0.5 text-gray-400 transition-transform ${badgesExpanded ? 'rotate-180' : ''}`}
+                    />
+                  </div>
+                </button>
+
+                {badgesExpanded && (
+                  <>
+                    {badges.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {badges.map((item, index) => {
+                          const theme = getMockExamBadgeTheme(item.themeId);
+                          return (
+                            <button
+                              key={`${item.themeId}-${item.label}-${index}`}
+                              type="button"
+                              onClick={() => removeBadge(index)}
+                              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition hover:scale-[1.01] ${theme.badgeClassName}`}
+                              title="Удалить бейдж"
+                            >
+                              <span>{item.label}</span>
+                              <span className="text-white/80">x</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div className="mt-3 space-y-2">
+                      <input
+                        type="text"
+                        value={badgeDraftLabel}
+                        onChange={(e) => {
+                          setBadgeDraftLabel(e.target.value);
+                          setError('');
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            addBadge();
+                          }
+                        }}
+                        className="w-full rounded-xl border border-purple-200 bg-white/90 px-3 py-2 text-sm outline-none focus:border-purple-500"
+                        placeholder="Текст бейджа"
+                      />
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                        <select
+                          value={badgeDraftTheme}
+                          onChange={(e) => setBadgeDraftTheme(e.target.value)}
+                          className="w-full rounded-xl border border-purple-200 bg-white/90 px-3 py-2 text-sm outline-none focus:border-purple-500"
                         >
-                          <span>{item.label}</span>
-                          <span className="text-white/80">x</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                          {MOCK_EXAM_BADGE_THEME_OPTIONS.map((theme) => (
+                            <option key={theme.id} value={theme.id}>{theme.label}</option>
+                          ))}
+                        </select>
+                        <Button
+                          type="button"
+                          onClick={() => addBadge()}
+                          disabled={saving || badges.length >= MOCK_EXAM_BADGE_MAX_ITEMS}
+                          className="w-full justify-center sm:min-w-[132px]"
+                        >
+                          Добавить
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {MOCK_EXAM_BADGE_SUGGESTIONS.map((item) => {
+                        const theme = getMockExamBadgeTheme(item.themeId);
+                        return (
+                          <button
+                            key={`${item.themeId}-${item.label}`}
+                            type="button"
+                            onClick={() => addBadge(item.label, item.themeId)}
+                            disabled={saving || badges.length >= MOCK_EXAM_BADGE_MAX_ITEMS}
+                            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60 ${theme.badgeClassName}`}
+                          >
+                            <span className={`inline-block h-2.5 w-2.5 rounded-full border ${theme.swatchClassName}`} />
+                            {item.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
-
-                <div className="mt-3 space-y-2">
-                  <input
-                    type="text"
-                    value={badgeDraftLabel}
-                    onChange={(e) => {
-                      setBadgeDraftLabel(e.target.value);
-                      setError('');
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addBadge();
-                      }
-                    }}
-                    className="w-full rounded-xl border border-purple-200 bg-white/90 px-3 py-2 text-sm outline-none focus:border-purple-500"
-                    placeholder="Текст бейджа"
-                  />
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                    <select
-                      value={badgeDraftTheme}
-                      onChange={(e) => setBadgeDraftTheme(e.target.value)}
-                      className="w-full rounded-xl border border-purple-200 bg-white/90 px-3 py-2 text-sm outline-none focus:border-purple-500"
-                    >
-                      {MOCK_EXAM_BADGE_THEME_OPTIONS.map((theme) => (
-                        <option key={theme.id} value={theme.id}>{theme.label}</option>
-                      ))}
-                    </select>
-                    <Button
-                      type="button"
-                      onClick={() => addBadge()}
-                      disabled={saving || badges.length >= MOCK_EXAM_BADGE_MAX_ITEMS}
-                      className="w-full justify-center sm:min-w-[132px]"
-                    >
-                      Добавить
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {MOCK_EXAM_BADGE_SUGGESTIONS.map((item) => {
-                    const theme = getMockExamBadgeTheme(item.themeId);
-                    return (
-                      <button
-                        key={`${item.themeId}-${item.label}`}
-                        type="button"
-                        onClick={() => addBadge(item.label, item.themeId)}
-                        disabled={saving || badges.length >= MOCK_EXAM_BADGE_MAX_ITEMS}
-                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60 ${theme.badgeClassName}`}
-                      >
-                        <span className={`inline-block h-2.5 w-2.5 rounded-full border ${theme.swatchClassName}`} />
-                        {item.label}
-                      </button>
-                    );
-                  })}
-                </div>
               </div>
 
               <div>
