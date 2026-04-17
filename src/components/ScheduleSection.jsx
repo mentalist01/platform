@@ -190,6 +190,7 @@ const ScheduleSection = ({
   const [deletingId, setDeletingId] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
   const [scheduleCompactMode, setScheduleCompactMode] = useState(false);
+  const [studentScheduleCollapsed, setStudentScheduleCollapsed] = useState(role === 'student');
   const [lessonSchedule, setLessonSchedule] = useState([]);
   const [scheduleForm, setScheduleForm] = useState({ ...DEFAULT_SCHEDULE_FORM });
   const [scheduleLoading, setScheduleLoading] = useState(false);
@@ -1139,10 +1140,15 @@ const ScheduleSection = ({
   const nextHomeworkPendingShortLabel = nextHomeworkPendingGoal?.heading
     ? String(nextHomeworkPendingGoal.heading).split('·')[0].trim()
     : '';
+  const isStudentScheduleCollapsed = role === 'student' && studentScheduleCollapsed;
 
   useEffect(() => {
     setShowHistory(false);
   }, [effectiveStudentId, totalHomeworkCount]);
+
+  useEffect(() => {
+    setStudentScheduleCollapsed(role === 'student');
+  }, [effectiveStudentId, role]);
 
   const renderHomeworkEntryCard = (entry, section = 'next', key) => {
     if (!entry) return null;
@@ -1836,249 +1842,270 @@ const ScheduleSection = ({
                   : 'Изменения отправляются преподавателю на подтверждение. Расписание обновится после одобрения.'}
               </p>
             </div>
-            <span className="schedule-shell__lessons-count rounded-full border border-sky-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
-              {`Слотов: ${sortedSchedule.length}`}
-            </span>
-          </div>
-
-          {role === 'student' && (
-            <div className="schedule-shell__reminder-card rounded-2xl border border-sky-200/80 bg-white/90 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-sky-700">Уведомления о занятиях</div>
-                  <div className="mt-1 text-xs text-slate-600">{lessonReminderStatusText}</div>
-                  {(lessonReminderError || (pushError && pushError !== lessonReminderStatusText)) && (
-                    <div className="mt-1 text-xs text-rose-600">{lessonReminderError || pushError}</div>
-                  )}
-                </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="schedule-shell__lessons-count rounded-full border border-sky-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
+                {`Слотов: ${sortedSchedule.length}`}
+              </span>
+              {role === 'student' && (
                 <button
                   type="button"
-                  onClick={handleToggleLessonReminder}
-                  disabled={lessonReminderLoading || lessonReminderSaving || pushSyncing || pushBusy || !pushReady}
-                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
-                    !pushEnabled
-                      ? 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100'
-                      : (lessonReminderEnabled
-                          ? 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
-                          : 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100')
-                  } disabled:cursor-not-allowed disabled:opacity-60`}
+                  onClick={() => setStudentScheduleCollapsed((prev) => !prev)}
+                  aria-expanded={!isStudentScheduleCollapsed}
+                  aria-controls="student-schedule-details"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-white/90 px-3 py-1 text-[11px] font-semibold text-sky-700 shadow-sm transition hover:bg-sky-50"
                 >
-                  {(pushEnabled && lessonReminderEnabled) ? <BellOff size={14} /> : <Bell size={14} />}
-                  {lessonReminderSaving
-                    ? 'Сохраняем...'
-                    : (!pushEnabled
-                        ? 'Включить push'
-                        : (lessonReminderEnabled ? 'Отключить напоминания' : 'Включить напоминания'))}
+                  <ChevronRight
+                    size={13}
+                    className={`transition-transform ${isStudentScheduleCollapsed ? '' : 'rotate-90'}`}
+                  />
+                  {isStudentScheduleCollapsed ? 'Показать' : 'Свернуть'}
                 </button>
-              </div>
+              )}
             </div>
-          )}
+          </div>
 
-          {scheduleRequestNotice && (
-            <div className="schedule-shell__notice-success rounded-2xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs font-semibold text-emerald-700">
-              {scheduleRequestNotice}
-            </div>
-          )}
-
-          {role === 'teacher' && effectiveStudentId && (
-            <div className="schedule-shell__requests-card rounded-2xl border border-amber-200/80 bg-amber-50/70 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-amber-700">
-                  Запросы на изменение расписания
+          {!isStudentScheduleCollapsed && (
+            <div id={role === 'student' ? 'student-schedule-details' : undefined} className="space-y-4">
+              {role === 'student' && (
+                <div className="schedule-shell__reminder-card rounded-2xl border border-sky-200/80 bg-white/90 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-sky-700">Уведомления о занятиях</div>
+                      <div className="mt-1 text-xs text-slate-600">{lessonReminderStatusText}</div>
+                      {(lessonReminderError || (pushError && pushError !== lessonReminderStatusText)) && (
+                        <div className="mt-1 text-xs text-rose-600">{lessonReminderError || pushError}</div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleToggleLessonReminder}
+                      disabled={lessonReminderLoading || lessonReminderSaving || pushSyncing || pushBusy || !pushReady}
+                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                        !pushEnabled
+                          ? 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100'
+                          : (lessonReminderEnabled
+                              ? 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                              : 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100')
+                      } disabled:cursor-not-allowed disabled:opacity-60`}
+                    >
+                      {(pushEnabled && lessonReminderEnabled) ? <BellOff size={14} /> : <Bell size={14} />}
+                      {lessonReminderSaving
+                        ? 'Сохраняем...'
+                        : (!pushEnabled
+                            ? 'Включить push'
+                            : (lessonReminderEnabled ? 'Отключить напоминания' : 'Включить напоминания'))}
+                    </button>
+                  </div>
                 </div>
-                <span className="rounded-full border border-amber-300 bg-white/90 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
-                  {`Ожидают: ${pendingScheduleRequests.length}`}
-                </span>
-              </div>
-              {scheduleRequestsLoading ? (
-                <div className="mt-2 text-xs text-slate-600">Загружаем запросы...</div>
-              ) : pendingScheduleRequests.length === 0 ? (
-                <div className="mt-2 text-xs text-slate-600">Новых запросов нет.</div>
-              ) : (
-                <div className="mt-2 space-y-2">
-                  {pendingScheduleRequests.map((requestEntry) => {
-                    const before = requestEntry.previousEntry || null;
-                    const after = requestEntry.proposedEntry || null;
-                    const beforeLabel = [before?.day, before?.time].filter(Boolean).join(', ');
-                    const afterLabel = [after?.day, after?.time].filter(Boolean).join(', ');
-                    return (
-                      <div key={requestEntry.id} className="schedule-shell__request-item rounded-xl border border-amber-200 bg-white/95 p-2.5 text-xs">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-semibold text-amber-700">
-                            {formatScheduleRequestTypeLabel(requestEntry.type)}
-                          </span>
-                          <span className="text-slate-500">
-                            {requestEntry.createdAt ? formatDate(requestEntry.createdAt) : ''}
+              )}
+
+              {scheduleRequestNotice && (
+                <div className="schedule-shell__notice-success rounded-2xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs font-semibold text-emerald-700">
+                  {scheduleRequestNotice}
+                </div>
+              )}
+
+              {role === 'teacher' && effectiveStudentId && (
+                <div className="schedule-shell__requests-card rounded-2xl border border-amber-200/80 bg-amber-50/70 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-amber-700">
+                      Запросы на изменение расписания
+                    </div>
+                    <span className="rounded-full border border-amber-300 bg-white/90 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                      {`Ожидают: ${pendingScheduleRequests.length}`}
+                    </span>
+                  </div>
+                  {scheduleRequestsLoading ? (
+                    <div className="mt-2 text-xs text-slate-600">Загружаем запросы...</div>
+                  ) : pendingScheduleRequests.length === 0 ? (
+                    <div className="mt-2 text-xs text-slate-600">Новых запросов нет.</div>
+                  ) : (
+                    <div className="mt-2 space-y-2">
+                      {pendingScheduleRequests.map((requestEntry) => {
+                        const before = requestEntry.previousEntry || null;
+                        const after = requestEntry.proposedEntry || null;
+                        const beforeLabel = [before?.day, before?.time].filter(Boolean).join(', ');
+                        const afterLabel = [after?.day, after?.time].filter(Boolean).join(', ');
+                        return (
+                          <div key={requestEntry.id} className="schedule-shell__request-item rounded-xl border border-amber-200 bg-white/95 p-2.5 text-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-semibold text-amber-700">
+                                {formatScheduleRequestTypeLabel(requestEntry.type)}
+                              </span>
+                              <span className="text-slate-500">
+                                {requestEntry.createdAt ? formatDate(requestEntry.createdAt) : ''}
+                              </span>
+                            </div>
+                            {requestEntry.type === SCHEDULE_REQUEST_TYPE_CREATE && (
+                              <div className="mt-1 text-slate-700">{`Новый слот: ${afterLabel || 'без времени'}`}</div>
+                            )}
+                            {requestEntry.type === SCHEDULE_REQUEST_TYPE_UPDATE && (
+                              <div className="mt-1 text-slate-700">
+                                {`Было: ${beforeLabel || '—'} → Стало: ${afterLabel || '—'}`}
+                              </div>
+                            )}
+                            {requestEntry.type === SCHEDULE_REQUEST_TYPE_DELETE && (
+                              <div className="mt-1 text-slate-700">{`Удалить слот: ${beforeLabel || '—'}`}</div>
+                            )}
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleResolveScheduleRequest(requestEntry, 'approve')}
+                                disabled={scheduleRequestActionBusyId === requestEntry.id}
+                                className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+                              >
+                                {scheduleRequestActionBusyId === requestEntry.id ? 'Обработка...' : 'Одобрить'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleResolveScheduleRequest(requestEntry, 'reject')}
+                                disabled={scheduleRequestActionBusyId === requestEntry.id}
+                                className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                              >
+                                Отклонить
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {role === 'student' && (
+                <div className="schedule-shell__student-requests-card rounded-2xl border border-purple-200/80 bg-white/90 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-purple-700">
+                      Запросы на изменение расписания
+                    </div>
+                    <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700">
+                      {`Ожидают: ${pendingScheduleRequests.length}`}
+                    </span>
+                  </div>
+                  {scheduleRequestsLoading ? (
+                    <div className="mt-2 text-xs text-slate-600">Проверяем статус запросов...</div>
+                  ) : sortedScheduleRequests.length === 0 ? (
+                    <div className="mt-2 text-xs text-slate-600">Вы ещё не отправляли запросы.</div>
+                  ) : (
+                    <div className="mt-2 space-y-1.5">
+                      {sortedScheduleRequests.slice(0, 4).map((requestEntry) => (
+                        <div key={requestEntry.id} className="schedule-shell__request-row flex flex-wrap items-center justify-between gap-2 rounded-lg border border-purple-100 bg-white px-2.5 py-1.5 text-xs">
+                          <span className="text-slate-700">{formatScheduleRequestTypeLabel(requestEntry.type)}</span>
+                          <span className={`font-semibold ${
+                            requestEntry.status === SCHEDULE_REQUEST_STATUS_PENDING
+                              ? 'text-amber-700'
+                              : requestEntry.status === SCHEDULE_REQUEST_STATUS_APPROVED
+                                ? 'text-emerald-700'
+                                : 'text-rose-700'
+                          }`}
+                          >
+                            {formatScheduleRequestStatusLabel(requestEntry.status)}
                           </span>
                         </div>
-                        {requestEntry.type === SCHEDULE_REQUEST_TYPE_CREATE && (
-                          <div className="mt-1 text-slate-700">{`Новый слот: ${afterLabel || 'без времени'}`}</div>
-                        )}
-                        {requestEntry.type === SCHEDULE_REQUEST_TYPE_UPDATE && (
-                          <div className="mt-1 text-slate-700">
-                            {`Было: ${beforeLabel || '—'} → Стало: ${afterLabel || '—'}`}
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px]">
+                <select
+                  value={scheduleForm.weekdayKey}
+                  onChange={(e) => setScheduleForm((prev) => ({ ...prev, weekdayKey: e.target.value }))}
+                  className="schedule-shell__field px-4 py-2 rounded-xl bg-white border border-sky-100 focus:border-sky-500 outline-none"
+                >
+                  {SCHEDULE_WEEKDAYS.map((item) => (
+                    <option key={item.key} value={item.key}>{item.label}</option>
+                  ))}
+                </select>
+                <input
+                  type="time"
+                  value={scheduleForm.time}
+                  onChange={(e) => setScheduleForm((prev) => ({ ...prev, time: e.target.value }))}
+                  className="schedule-shell__field px-4 py-2 rounded-xl bg-white border border-sky-100 focus:border-sky-500 outline-none"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button onClick={handleSaveSchedule} disabled={scheduleSaving || !effectiveStudentId} className="md:px-5">
+                  <Save size={16} /> {scheduleSaving
+                    ? 'Сохранение...'
+                    : (role === 'student'
+                      ? (scheduleEditingId ? 'Отправить запрос на изменение' : 'Отправить запрос на добавление')
+                      : (scheduleEditingId ? 'Сохранить слот' : 'Добавить слот'))}
+                </Button>
+                {scheduleEditingId && (
+                  <button
+                    type="button"
+                    onClick={resetScheduleForm}
+                    className="schedule-shell__cancel-btn px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Отменить
+                  </button>
+                )}
+              </div>
+
+              {scheduleLoading && sortedSchedule.length === 0 ? (
+                <div className="schedule-shell__loading inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-600">
+                  <RefreshCcw size={14} className="animate-spin" />
+                  Загружаем график...
+                </div>
+              ) : sortedSchedule.length === 0 ? (
+                <div className="schedule-shell__empty rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-4 text-sm text-slate-500">
+                  Слоты занятий пока не заданы.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {sortedSchedule.map((entry) => {
+                    return (
+                      <div key={entry.id || `${entry.weekdayKey}-${entry.time}-${entry.createdAt || 'slot'}`} className="schedule-shell__slot-card rounded-2xl border border-sky-100/80 bg-white/90 p-4 shadow-sm shadow-sky-100/40">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="schedule-shell__chip-day inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
+                                <Calendar size={13} />
+                                {entry.day || 'День не указан'}
+                              </span>
+                              <span className="schedule-shell__chip-time inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                                <Clock3 size={13} />
+                                {entry.time || 'Время не указано'}
+                              </span>
+                              {entry.date && (
+                                <span className="schedule-shell__chip-date inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500">
+                                  {formatDate(entry.date)}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                        )}
-                        {requestEntry.type === SCHEDULE_REQUEST_TYPE_DELETE && (
-                          <div className="mt-1 text-slate-700">{`Удалить слот: ${beforeLabel || '—'}`}</div>
-                        )}
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleResolveScheduleRequest(requestEntry, 'approve')}
-                            disabled={scheduleRequestActionBusyId === requestEntry.id}
-                            className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
-                          >
-                            {scheduleRequestActionBusyId === requestEntry.id ? 'Обработка...' : 'Одобрить'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleResolveScheduleRequest(requestEntry, 'reject')}
-                            disabled={scheduleRequestActionBusyId === requestEntry.id}
-                            className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
-                          >
-                            Отклонить
-                          </button>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => startEditSchedule(entry)}
+                              disabled={scheduleDeletingId === entry.id}
+                              className="schedule-shell__slot-edit inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                            >
+                              <Pencil size={13} />
+                              Изменить
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSchedule(entry)}
+                              disabled={scheduleDeletingId === entry.id}
+                              className="schedule-shell__slot-delete inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50/80 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
+                            >
+                              <Trash2 size={13} />
+                              {scheduleDeletingId === entry.id
+                                ? (role === 'student' ? 'Отправка...' : 'Удаление...')
+                                : (role === 'student' ? 'Запросить удаление' : 'Удалить')}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
                   })}
                 </div>
               )}
-            </div>
-          )}
-
-          {role === 'student' && (
-            <div className="schedule-shell__student-requests-card rounded-2xl border border-purple-200/80 bg-white/90 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-purple-700">
-                  Запросы на изменение расписания
-                </div>
-                <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700">
-                  {`Ожидают: ${pendingScheduleRequests.length}`}
-                </span>
-              </div>
-              {scheduleRequestsLoading ? (
-                <div className="mt-2 text-xs text-slate-600">Проверяем статус запросов...</div>
-              ) : sortedScheduleRequests.length === 0 ? (
-                <div className="mt-2 text-xs text-slate-600">Вы ещё не отправляли запросы.</div>
-              ) : (
-                <div className="mt-2 space-y-1.5">
-                  {sortedScheduleRequests.slice(0, 4).map((requestEntry) => (
-                    <div key={requestEntry.id} className="schedule-shell__request-row flex flex-wrap items-center justify-between gap-2 rounded-lg border border-purple-100 bg-white px-2.5 py-1.5 text-xs">
-                      <span className="text-slate-700">{formatScheduleRequestTypeLabel(requestEntry.type)}</span>
-                      <span className={`font-semibold ${
-                        requestEntry.status === SCHEDULE_REQUEST_STATUS_PENDING
-                          ? 'text-amber-700'
-                          : requestEntry.status === SCHEDULE_REQUEST_STATUS_APPROVED
-                            ? 'text-emerald-700'
-                            : 'text-rose-700'
-                      }`}
-                      >
-                        {formatScheduleRequestStatusLabel(requestEntry.status)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px]">
-            <select
-              value={scheduleForm.weekdayKey}
-              onChange={(e) => setScheduleForm((prev) => ({ ...prev, weekdayKey: e.target.value }))}
-              className="schedule-shell__field px-4 py-2 rounded-xl bg-white border border-sky-100 focus:border-sky-500 outline-none"
-            >
-              {SCHEDULE_WEEKDAYS.map((item) => (
-                <option key={item.key} value={item.key}>{item.label}</option>
-              ))}
-            </select>
-            <input
-              type="time"
-              value={scheduleForm.time}
-              onChange={(e) => setScheduleForm((prev) => ({ ...prev, time: e.target.value }))}
-              className="schedule-shell__field px-4 py-2 rounded-xl bg-white border border-sky-100 focus:border-sky-500 outline-none"
-            />
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={handleSaveSchedule} disabled={scheduleSaving || !effectiveStudentId} className="md:px-5">
-              <Save size={16} /> {scheduleSaving
-                ? 'Сохранение...'
-                : (role === 'student'
-                  ? (scheduleEditingId ? 'Отправить запрос на изменение' : 'Отправить запрос на добавление')
-                  : (scheduleEditingId ? 'Сохранить слот' : 'Добавить слот'))}
-            </Button>
-            {scheduleEditingId && (
-              <button
-                type="button"
-                onClick={resetScheduleForm}
-                className="schedule-shell__cancel-btn px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50"
-              >
-                Отменить
-              </button>
-            )}
-          </div>
-
-          {scheduleLoading && sortedSchedule.length === 0 ? (
-            <div className="schedule-shell__loading inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-600">
-              <RefreshCcw size={14} className="animate-spin" />
-              Загружаем график...
-            </div>
-          ) : sortedSchedule.length === 0 ? (
-            <div className="schedule-shell__empty rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-4 text-sm text-slate-500">
-              Слоты занятий пока не заданы.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {sortedSchedule.map((entry) => {
-                return (
-                  <div key={entry.id || `${entry.weekdayKey}-${entry.time}-${entry.createdAt || 'slot'}`} className="schedule-shell__slot-card rounded-2xl border border-sky-100/80 bg-white/90 p-4 shadow-sm shadow-sky-100/40">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="schedule-shell__chip-day inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
-                            <Calendar size={13} />
-                            {entry.day || 'День не указан'}
-                          </span>
-                          <span className="schedule-shell__chip-time inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700">
-                            <Clock3 size={13} />
-                            {entry.time || 'Время не указано'}
-                          </span>
-                          {entry.date && (
-                            <span className="schedule-shell__chip-date inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500">
-                              {formatDate(entry.date)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => startEditSchedule(entry)}
-                          disabled={scheduleDeletingId === entry.id}
-                          className="schedule-shell__slot-edit inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
-                        >
-                          <Pencil size={13} />
-                          Изменить
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteSchedule(entry)}
-                          disabled={scheduleDeletingId === entry.id}
-                          className="schedule-shell__slot-delete inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50/80 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
-                        >
-                          <Trash2 size={13} />
-                          {scheduleDeletingId === entry.id
-                            ? (role === 'student' ? 'Отправка...' : 'Удаление...')
-                            : (role === 'student' ? 'Запросить удаление' : 'Удалить')}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
             </div>
           )}
         </Card>
