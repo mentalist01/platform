@@ -1170,6 +1170,8 @@ const ProgressSection = ({
     notes: 'Заметки',
     mocks: 'Пробники'
   };
+  const isStudentMocksSection = role === 'student' && section === 'mocks';
+  const isStudentSecondarySection = role === 'student' && section !== 'progress';
   const mobilePathLayout = useMemo(() => {
     const ringSize = 124;
     const strokeWidth = 10;
@@ -2140,15 +2142,15 @@ const ProgressSection = ({
   }
 
   return (
-    <div className="space-y-4 md:space-y-6 animate-fadeIn" data-tour="progress">
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-4 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
+    <div className={`${isStudentSecondarySection ? 'space-y-3 md:space-y-4' : 'space-y-4 md:space-y-6'} animate-fadeIn`} data-tour="progress">
+      <div className={`progress-overview-card relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 shadow-[0_16px_34px_rgba(99,102,241,0.14)] ${isStudentSecondarySection ? 'progress-overview-card--compact' : 'p-4 md:p-6'}`}>
         <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
         <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
-        <div className="relative z-10 flex flex-col gap-3 md:gap-5">
-          <div className="flex flex-col gap-3 md:gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-2.5 md:space-y-3">
+        <div className={`relative z-10 flex flex-col ${isStudentSecondarySection ? 'gap-2.5 md:gap-3' : 'gap-3 md:gap-5'}`}>
+          <div className={`flex flex-col ${isStudentSecondarySection ? 'gap-2.5 md:gap-3' : 'gap-3 md:gap-4'} lg:flex-row lg:items-start lg:justify-between`}>
+            <div className={isStudentSecondarySection ? 'space-y-1.5' : 'space-y-2.5 md:space-y-3'}>
               <div>
-                <h2 className="text-xl md:text-2xl font-bold text-gray-900">Успеваемость</h2>
+                <h2 className={`${isStudentSecondarySection ? 'text-lg md:text-xl' : 'text-xl md:text-2xl'} font-bold text-gray-900`}>Успеваемость</h2>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -2156,18 +2158,18 @@ const ProgressSection = ({
             </div>
           </div>
 
-          <div className="relative overflow-hidden rounded-2xl border border-purple-200/80 bg-white/80 p-3 md:p-4 shadow-[0_10px_24px_rgba(99,102,241,0.12)]">
+          <div className={`progress-overview-meter relative overflow-hidden rounded-2xl border border-purple-200/80 bg-white/80 shadow-[0_10px_24px_rgba(99,102,241,0.12)] ${isStudentSecondarySection ? 'progress-overview-meter--compact' : 'p-3 md:p-4'}`}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="rounded-full bg-purple-600 px-2.5 py-1 text-[10px] md:text-xs font-bold uppercase tracking-[0.14em] md:tracking-widest text-white">
                   {getProgressHeadline(totalMasteryRounded)}
                 </div>
               </div>
-              <div className="text-2xl md:text-3xl font-extrabold text-purple-700 drop-shadow-sm">
+              <div className={`${isStudentSecondarySection ? 'text-xl md:text-2xl' : 'text-2xl md:text-3xl'} font-extrabold text-purple-700 drop-shadow-sm`}>
                 {totalMasteryLabel} {getBallLabel(totalMasteryRounded)}
               </div>
             </div>
-            <div className="relative mt-2.5 md:mt-3 h-6 md:h-8 w-full overflow-hidden rounded-full border border-purple-100 bg-white/90">
+            <div className={`relative ${isStudentSecondarySection ? 'mt-2 h-4 md:h-5' : 'mt-2.5 md:mt-3 h-6 md:h-8'} w-full overflow-hidden rounded-full border border-purple-100 bg-white/90`}>
               <div
                 className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.45)] transition-[width] duration-700 ease-out"
                 style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
@@ -2181,7 +2183,7 @@ const ProgressSection = ({
         </div>
       </div>
 
-      <div className="grid w-full grid-cols-3 gap-1.5 rounded-2xl border border-slate-200 bg-white/85 p-1.5 md:inline-flex md:w-fit md:flex-wrap md:gap-2 md:p-2">
+      <div className={`progress-section-tabs grid w-full grid-cols-3 gap-1.5 rounded-2xl border border-slate-200 bg-white/85 p-1.5 md:inline-flex md:w-fit md:flex-wrap md:gap-2 md:p-2 ${isStudentSecondarySection ? 'progress-section-tabs--compact' : ''}`}>
         {sectionTabs.map((item) => {
           const Icon = item.icon;
           const active = section === item.id;
@@ -2460,7 +2462,7 @@ const ProgressSection = ({
             </div>
           )}
 
-          <div className={`${role === 'student' ? 'hidden md:grid' : 'grid'} grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 stagger-children`}>
+          <div className={`${role === 'student' ? 'hidden md:grid' : 'grid'} progress-tests-grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 stagger-children`}>
             {taskList.map((task, idx) => {
               const val = Math.max(0, Math.min(100, Number(progressMap[task.id] || 0)));
               const clickable = role === 'student' || role === 'teacher';
@@ -2484,7 +2486,7 @@ const ProgressSection = ({
               return (
                 <div key={task.id} style={{ '--i': idx }} className="space-y-2">
                   <Card
-                    className={`group relative p-3.5 md:p-4 ${cardTone} ${clickable ? 'cursor-pointer' : ''}`}
+                    className={`progress-topic-card group relative overflow-hidden p-3.5 md:p-4 ${cardTone} ${clickable ? 'cursor-pointer' : ''}`}
                     onClick={
                       clickable
                         ? () => {
@@ -2661,20 +2663,30 @@ const ProgressSection = ({
       )}
 
       {section === 'notes' && (
-        <div className="space-y-3 md:space-y-4">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-lg font-bold text-gray-800">Заметки учителя</h3>
-            <span className="hidden md:inline text-xs text-gray-400">Комментируйте задания кратко</span>
+        <div className="notes-teacher-section space-y-3 md:space-y-4">
+          <div className="notes-teacher-header flex flex-wrap items-center justify-between gap-3 rounded-3xl border p-3 md:p-4">
+            <h3 className="text-base md:text-lg font-bold text-gray-800">Заметки учителя</h3>
+            <div className="hidden md:flex flex-wrap items-center gap-2 text-[11px] font-semibold">
+              <span className="notes-summary-pill notes-summary-pill--total">
+                {`Всего ${notesCards.length}`}
+              </span>
+              <span className="notes-summary-pill notes-summary-pill--filled">
+                {`С заметкой ${notesFilledCount}`}
+              </span>
+              <span className="notes-summary-pill notes-summary-pill--empty">
+                {`Пусто ${notesEmptyCount}`}
+              </span>
+            </div>
           </div>
-          <div className="md:hidden rounded-2xl border border-purple-100/80 bg-white/90 p-3 shadow-sm">
+          <div className="notes-mobile-tools md:hidden rounded-2xl border border-purple-100/80 bg-white/90 p-3 shadow-sm">
             <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold">
-              <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-1 text-purple-700">
+              <span className="notes-summary-pill notes-summary-pill--total">
                 {`Всего: ${notesCards.length}`}
               </span>
-              <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700">
+              <span className="notes-summary-pill notes-summary-pill--filled">
                 {`С заметкой: ${notesFilledCount}`}
               </span>
-              <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-slate-600">
+              <span className="notes-summary-pill notes-summary-pill--empty">
                 {`Пусто: ${notesEmptyCount}`}
               </span>
             </div>
@@ -2710,26 +2722,26 @@ const ProgressSection = ({
           </div>
 
           {filteredNotesCards.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-white/75 px-4 py-6 text-center text-sm text-slate-500">
+            <div className="notes-empty-state rounded-2xl border border-dashed border-slate-200 bg-white/75 px-4 py-6 text-center text-sm text-slate-500">
               По этим параметрам заметок не найдено.
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2.5 md:gap-3 stagger-children">
+            <div className="notes-card-grid grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2.5 md:gap-3 stagger-children">
               {filteredNotesCards.map(({ task, idx, num, note, hasNote }) => (
                 <div
                   key={task.id ?? num}
                   style={{ '--i': idx }}
-                  className={`rounded-2xl md:rounded-3xl border p-3 md:p-4 flex flex-col gap-2.5 md:gap-3 transition-all duration-200 shadow-sm hover:shadow-md ${
+                  className={`notes-card rounded-2xl md:rounded-3xl border p-3 md:p-4 flex flex-col gap-2.5 md:gap-3 transition-all duration-200 shadow-sm hover:shadow-md ${
                     hasNote
-                      ? 'border-emerald-300 bg-gradient-to-br from-emerald-50 via-white to-emerald-50'
-                      : 'border-gray-200 bg-gradient-to-br from-white via-gray-50 to-gray-100'
+                      ? 'notes-card--filled border-emerald-300 bg-gradient-to-br from-emerald-50 via-white to-emerald-50'
+                      : 'notes-card--empty border-gray-200 bg-gradient-to-br from-white via-gray-50 to-gray-100'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex items-start gap-2.5">
                       <div
-                        className={`w-9 h-9 md:w-9 md:h-9 shrink-0 rounded-xl md:rounded-2xl flex items-center justify-center text-sm font-bold ${
-                          hasNote ? 'bg-emerald-600 text-white shadow-md shadow-emerald-200' : 'bg-white text-gray-500 border border-gray-200'
+                        className={`notes-task-badge w-9 h-9 md:w-9 md:h-9 shrink-0 rounded-xl md:rounded-2xl flex items-center justify-center text-sm font-bold ${
+                          hasNote ? 'notes-task-badge--filled bg-emerald-600 text-white shadow-md shadow-emerald-200' : 'bg-white text-gray-500 border border-gray-200'
                         }`}
                       >
                         {getTaskDisplayNumber(task)}
@@ -2778,7 +2790,7 @@ const ProgressSection = ({
                         }}
                         onBlur={(e) => saveTaskNote(num, e.target.value.trim())}
                         placeholder="Комментарий..."
-                        className={`w-full min-h-[92px] md:min-h-[70px] text-[13px] md:text-xs px-3 py-2.5 rounded-2xl border outline-none resize-none transition-colors ${
+                        className={`notes-textarea w-full min-h-[92px] md:min-h-[70px] text-[13px] md:text-xs px-3 py-2.5 rounded-2xl border outline-none resize-none transition-colors ${
                           hasNote
                             ? 'bg-white/80 border-emerald-200 focus:border-emerald-500'
                             : 'bg-white border-gray-200 focus:border-purple-500'
@@ -2802,21 +2814,21 @@ const ProgressSection = ({
       )}
 
       {section === 'mocks' && (
-        <div className={role === 'student' ? 'mock-student-page space-y-5 md:space-y-6' : 'space-y-4 md:space-y-6'}>
+        <div className={role === 'student' ? 'mock-student-page space-y-4 md:space-y-5' : 'space-y-4 md:space-y-6'}>
           {role === 'student' ? (
-            <div className="mock-student-hero relative overflow-hidden rounded-[30px] p-4 md:p-5">
-              <div className="mock-student-hero__grid relative z-[1] grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
-                <div className="space-y-4">
-                  <div className="mock-hero-kicker inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.22em]">
+            <div className="mock-student-hero relative overflow-hidden rounded-[28px] p-3.5 md:p-4">
+              <div className="mock-student-hero__grid relative z-[1] grid gap-3 md:gap-4 lg:grid-cols-[minmax(0,1fr)_190px] lg:items-center">
+                <div className="space-y-3">
+                  <div className="mock-hero-kicker inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em]">
                     <BookOpen size={14} />
                     Пробники
                   </div>
                   <div>
-                    <h3 className="mock-hero-title max-w-3xl text-2xl font-display font-bold leading-tight md:text-3xl">
+                    <h3 className="mock-hero-title max-w-3xl text-[1.55rem] font-display font-bold leading-[1.08] md:text-[2rem]">
                       Тренировка перед экзаменом.
                     </h3>
                   </div>
-                  <div className="mock-coin-rules flex flex-wrap gap-2">
+                  <div className="mock-coin-rules flex flex-wrap gap-1.5 md:gap-2">
                     {MOCK_COIN_MILESTONES.map((milestone) => (
                       <span key={`hero-coin-${milestone.score}`} className="mock-coin-chip inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold">
                         <span>{`${milestone.score} б.`}</span>
@@ -2827,12 +2839,12 @@ const ProgressSection = ({
                     ))}
                   </div>
                 </div>
-                <div className="mock-hero-meter rounded-[28px] p-4">
-                  <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-slate-400">Готовность</div>
-                  <div className="mock-hero-meter-value mt-3 font-display text-5xl font-bold leading-none">
+                <div className="mock-hero-meter rounded-[24px] p-3.5 md:p-4">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Готовность</div>
+                  <div className="mock-hero-meter-value mt-2 font-display text-4xl font-bold leading-none md:text-5xl">
                     {studentMockOverview ? `${studentMockOverview.overallProgressPercent}%` : '0%'}
                   </div>
-                  <div className="mt-2 text-sm text-slate-400">
+                  <div className="mt-1.5 text-xs md:text-sm text-slate-400">
                     {studentMockOverview?.hasMockTasks
                       ? `${studentMockOverview.totalSolvedCount}/${studentMockOverview.totalTaskCount} закрыто`
                       : 'Заданий пока нет'}

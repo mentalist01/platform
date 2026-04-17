@@ -552,6 +552,155 @@
     -webkit-backdrop-filter: blur(10px);
   }
 
+  .progress-overview-card--compact {
+    padding: 0.875rem;
+    border-radius: 1.5rem;
+    box-shadow:
+      0 12px 30px rgba(99, 102, 241, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.58);
+  }
+
+  .progress-overview-meter--compact {
+    padding: 0.75rem 1rem;
+  }
+
+  .progress-section-tabs {
+    align-self: flex-start;
+    box-shadow:
+      0 10px 26px rgba(15, 23, 42, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.76);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  .progress-section-tabs--compact {
+    margin-bottom: 0.1rem;
+  }
+
+  @media (min-width: 768px) {
+    .progress-overview-card--compact {
+      padding: 1rem 1.125rem;
+    }
+
+    .progress-section-tabs--compact {
+      margin-top: -0.1rem;
+    }
+  }
+
+  .progress-tests-grid {
+    align-items: stretch;
+  }
+
+  .progress-topic-card {
+    min-height: 100%;
+    border-color: rgba(203, 213, 225, 0.72);
+    box-shadow:
+      0 14px 32px rgba(15, 23, 42, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  }
+
+  .progress-topic-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background:
+      radial-gradient(circle at 0% 0%, rgba(168, 85, 247, 0.12), transparent 34%),
+      linear-gradient(115deg, rgba(255, 255, 255, 0.32), transparent 42%);
+    opacity: 0.68;
+    pointer-events: none;
+  }
+
+  .progress-topic-card > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .notes-teacher-header,
+  .notes-mobile-tools,
+  .notes-empty-state {
+    border-color: rgba(203, 213, 225, 0.62);
+    background:
+      radial-gradient(circle at 0% 0%, rgba(168, 85, 247, 0.1), transparent 34%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.88));
+    box-shadow:
+      0 12px 28px rgba(15, 23, 42, 0.07),
+      inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  }
+
+  .notes-summary-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    border: 1px solid rgba(203, 213, 225, 0.74);
+    background: rgba(255, 255, 255, 0.74);
+    padding: 0.32rem 0.62rem;
+    color: rgb(71, 85, 105);
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .notes-summary-pill--total {
+    border-color: rgba(168, 85, 247, 0.24);
+    background: rgba(250, 245, 255, 0.72);
+    color: rgb(126, 34, 206);
+  }
+
+  .notes-summary-pill--filled {
+    border-color: rgba(52, 211, 153, 0.28);
+    background: rgba(236, 253, 245, 0.76);
+    color: rgb(4, 120, 87);
+  }
+
+  .notes-summary-pill--empty {
+    color: rgb(71, 85, 105);
+  }
+
+  .notes-card {
+    position: relative;
+    overflow: hidden;
+    box-shadow:
+      0 12px 28px rgba(15, 23, 42, 0.07),
+      inset 0 1px 0 rgba(255, 255, 255, 0.74);
+  }
+
+  .notes-card::before {
+    content: '';
+    position: absolute;
+    inset-block: 16px;
+    left: 0;
+    width: 3px;
+    border-radius: 0 999px 999px 0;
+    background: linear-gradient(180deg, #94a3b8, #cbd5e1);
+    opacity: 0.72;
+  }
+
+  .notes-card--filled::before {
+    background: linear-gradient(180deg, #10b981, #34d399);
+    opacity: 0.95;
+  }
+
+  .notes-card > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .notes-task-badge {
+    box-shadow:
+      0 10px 18px rgba(15, 23, 42, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  }
+
+  .notes-task-badge--filled {
+    box-shadow:
+      0 10px 22px rgba(16, 185, 129, 0.18),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+
+  .notes-textarea {
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+
   .mock-summary-best {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.9));
     border: 1px solid rgba(226, 232, 240, 0.9);
@@ -591,22 +740,24 @@
   .mock-student-hero::after {
     content: '';
     position: absolute;
-    right: -90px;
-    bottom: -120px;
+    right: -80px;
+    bottom: -112px;
     z-index: 0;
-    width: 320px;
-    height: 320px;
+    width: 280px;
+    height: 280px;
     border-radius: 999px;
-    background: radial-gradient(circle, rgba(245, 158, 11, 0.22), transparent 68%);
+    background: radial-gradient(circle, rgba(245, 158, 11, 0.18), transparent 68%);
     filter: blur(2px);
   }
 
   .mock-coin-chip {
-    min-width: 5.6rem;
+    min-width: 5.05rem;
     justify-content: center;
     border: 1px solid rgba(14, 165, 233, 0.18);
     background: rgba(255, 255, 255, 0.74);
     color: rgb(15, 23, 42);
+    letter-spacing: -0.01em;
+    white-space: nowrap;
     box-shadow:
       0 8px 18px rgba(15, 23, 42, 0.08),
       inset 0 1px 0 rgba(255, 255, 255, 0.76);
@@ -635,6 +786,22 @@
       inset 0 1px 0 rgba(255, 255, 255, 0.82);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
+  }
+
+  @media (min-width: 1024px) {
+    .mock-hero-meter {
+      min-height: 8.3rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .mock-coin-chip {
+      min-width: auto;
+      padding-inline: 0.65rem;
+    }
   }
 
   .mock-command-center,
@@ -6511,6 +6678,105 @@ html[data-theme='dark'] .surface-card {
 html[data-theme='dark'] .surface-panel {
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(15, 23, 42, 0.8));
   border-color: rgba(100, 116, 139, 0.36);
+}
+
+html[data-theme='dark'] .progress-overview-card--compact {
+  box-shadow:
+    0 14px 34px rgba(2, 6, 23, 0.3),
+    inset 0 1px 0 rgba(148, 163, 184, 0.1);
+}
+
+html[data-theme='dark'] .progress-overview-meter--compact {
+  background: rgba(15, 23, 42, 0.62) !important;
+  border-color: rgba(148, 163, 184, 0.22) !important;
+}
+
+html[data-theme='dark'] .progress-section-tabs {
+  border-color: rgba(100, 116, 139, 0.42);
+  background: rgba(15, 23, 42, 0.68);
+  box-shadow:
+    0 16px 36px rgba(2, 6, 23, 0.26),
+    inset 0 1px 0 rgba(148, 163, 184, 0.1);
+}
+
+html[data-theme='dark'] .progress-topic-card {
+  border-color: rgba(71, 85, 105, 0.56);
+  box-shadow:
+    0 18px 38px rgba(2, 6, 23, 0.28),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+html[data-theme='dark'] .progress-topic-card::before {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(168, 85, 247, 0.13), transparent 34%),
+    linear-gradient(115deg, rgba(255, 255, 255, 0.05), transparent 42%);
+  opacity: 0.82;
+}
+
+html[data-theme='dark'] .notes-teacher-header,
+html[data-theme='dark'] .notes-mobile-tools,
+html[data-theme='dark'] .notes-empty-state {
+  border-color: rgba(71, 85, 105, 0.52);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(168, 85, 247, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.84), rgba(15, 23, 42, 0.72));
+  box-shadow:
+    0 16px 36px rgba(2, 6, 23, 0.26),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+html[data-theme='dark'] .notes-summary-pill {
+  border-color: rgba(100, 116, 139, 0.54);
+  background: rgba(15, 23, 42, 0.55);
+  color: rgba(203, 213, 225, 0.9);
+}
+
+html[data-theme='dark'] .notes-summary-pill--total {
+  border-color: rgba(168, 85, 247, 0.36);
+  background: rgba(88, 28, 135, 0.22);
+  color: rgba(233, 213, 255, 0.94);
+}
+
+html[data-theme='dark'] .notes-summary-pill--filled {
+  border-color: rgba(52, 211, 153, 0.34);
+  background: rgba(6, 78, 59, 0.24);
+  color: rgba(167, 243, 208, 0.94);
+}
+
+html[data-theme='dark'] .notes-card {
+  box-shadow:
+    0 16px 34px rgba(2, 6, 23, 0.26),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+html[data-theme='dark'] .notes-card--filled {
+  border-color: rgba(52, 211, 153, 0.34) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(16, 185, 129, 0.12), transparent 34%),
+    linear-gradient(155deg, rgba(15, 23, 42, 0.86), rgba(15, 23, 42, 0.74)) !important;
+}
+
+html[data-theme='dark'] .notes-card--empty {
+  border-color: rgba(71, 85, 105, 0.5) !important;
+  background:
+    linear-gradient(155deg, rgba(15, 23, 42, 0.84), rgba(30, 41, 59, 0.62)) !important;
+}
+
+html[data-theme='dark'] .notes-task-badge {
+  border-color: rgba(100, 116, 139, 0.48);
+  background: rgba(15, 23, 42, 0.68);
+  color: rgba(203, 213, 225, 0.9);
+}
+
+html[data-theme='dark'] .notes-task-badge--filled {
+  background: linear-gradient(145deg, rgba(16, 185, 129, 0.9), rgba(5, 150, 105, 0.8));
+  color: white;
+}
+
+html[data-theme='dark'] .notes-textarea {
+  background: rgba(15, 23, 42, 0.62) !important;
+  border-color: rgba(100, 116, 139, 0.5) !important;
+  color: rgba(226, 232, 240, 0.96) !important;
 }
 
 html[data-theme='dark'] .mock-summary-best {
