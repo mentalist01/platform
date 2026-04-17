@@ -2807,18 +2807,18 @@ const ProgressSection = ({
             <div className="mock-student-hero relative overflow-hidden rounded-[30px] p-4 md:p-5">
               <div className="mock-student-hero__grid relative z-[1] grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
                 <div className="space-y-4">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-sky-300/35 bg-sky-300/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.22em] text-sky-200">
+                  <div className="mock-hero-kicker inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.22em]">
                     <BookOpen size={14} />
                     Пробники
                   </div>
                   <div>
-                    <h3 className="max-w-3xl text-2xl font-display font-bold leading-tight text-white md:text-3xl">
+                    <h3 className="mock-hero-title max-w-3xl text-2xl font-display font-bold leading-tight md:text-3xl">
                       Тренировка перед экзаменом.
                     </h3>
                   </div>
                   <div className="mock-coin-rules flex flex-wrap gap-2">
                     {MOCK_COIN_MILESTONES.map((milestone) => (
-                      <span key={`hero-coin-${milestone.score}`} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold">
+                      <span key={`hero-coin-${milestone.score}`} className="mock-coin-chip inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold">
                         <span>{`${milestone.score} б.`}</span>
                         <span className="text-slate-400">→</span>
                         <span>{milestone.coins}</span>
@@ -2829,7 +2829,7 @@ const ProgressSection = ({
                 </div>
                 <div className="mock-hero-meter rounded-[28px] p-4">
                   <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-slate-400">Готовность</div>
-                  <div className="mt-3 font-display text-5xl font-bold leading-none text-white">
+                  <div className="mock-hero-meter-value mt-3 font-display text-5xl font-bold leading-none">
                     {studentMockOverview ? `${studentMockOverview.overallProgressPercent}%` : '0%'}
                   </div>
                   <div className="mt-2 text-sm text-slate-400">
