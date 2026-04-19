@@ -9426,6 +9426,198 @@ html[data-theme='dark'] .to-sky-50\/70 {
   border-color: rgba(59, 130, 246, 0.5);
 }
 
+.notes-explorer-shell .notes-explorer-create-folder {
+  box-shadow:
+    0 10px 22px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+@keyframes notesFolderRowPress {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes notesFolderIconOpen {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  45% {
+    transform: translateY(-2px) scale(1.08);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes notesFolderChevronOpen {
+  0% {
+    transform: translateX(0);
+  }
+  55% {
+    transform: translateX(4px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row {
+  cursor: pointer;
+  position: relative;
+  transition: background 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row td {
+  transition: background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row:hover td {
+  background:
+    linear-gradient(90deg, rgba(255, 251, 235, 0.72), rgba(239, 246, 255, 0.76));
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row:hover .notes-explorer-folder-name {
+  color: #0f172a;
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row.is-selected td {
+  background:
+    linear-gradient(90deg, rgba(219, 234, 254, 0.96), rgba(239, 246, 255, 0.84));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    inset 0 -1px 0 rgba(147, 197, 253, 0.28);
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row.is-selected .notes-explorer-folder-name {
+  color: #0b3a82;
+  font-weight: 700;
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row.is-selected .notes-explorer-folder-name-cell {
+  box-shadow:
+    inset 3px 0 0 rgba(37, 99, 235, 0.74),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    inset 0 -1px 0 rgba(147, 197, 253, 0.28);
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row.is-pressing:not(.is-opening) td {
+  background:
+    linear-gradient(90deg, rgba(254, 243, 199, 0.84), rgba(219, 234, 254, 0.72));
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row:hover .notes-explorer-inline-folder-icon {
+  transform: translateY(-1px) scale(1.04);
+  filter: drop-shadow(0 8px 12px rgba(217, 119, 6, 0.18));
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row:active .notes-explorer-inline-folder-icon {
+  transform: translateY(1px) scale(0.96);
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row.is-opening td {
+  background:
+    linear-gradient(90deg, rgba(254, 243, 199, 0.92), rgba(219, 234, 254, 0.9), rgba(254, 243, 199, 0.78));
+  background-size: 220% 100%;
+  animation: notesFolderRowPress 0.28s ease;
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row.is-opening .notes-explorer-inline-folder-icon {
+  animation: notesFolderIconOpen 0.26s ease;
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row.is-opening .notes-explorer-folder-open-chevron {
+  animation: notesFolderChevronOpen 0.26s ease;
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row:focus-visible {
+  outline: none;
+  box-shadow: inset 3px 0 0 rgba(37, 99, 235, 0.78);
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row.is-drop-target {
+  background: linear-gradient(90deg, rgba(219, 234, 254, 0.9), rgba(239, 246, 255, 0.72)) !important;
+  box-shadow: inset 3px 0 0 rgba(37, 99, 235, 0.72);
+}
+
+.notes-explorer-shell .notes-explorer-inline-folder-icon {
+  position: relative;
+  overflow: visible;
+  border: 0 !important;
+  background: transparent !important;
+  color: #b45309;
+  box-shadow: none !important;
+  transition: transform 0.18s ease, filter 0.18s ease;
+}
+
+.notes-explorer-shell .notes-explorer-inline-folder-icon::before,
+.notes-explorer-shell .notes-explorer-inline-folder-icon::after {
+  content: '';
+  position: absolute;
+  display: block;
+  pointer-events: none;
+}
+
+.notes-explorer-shell .notes-explorer-inline-folder-icon::before {
+  left: 5px;
+  top: 5px;
+  width: 15px;
+  height: 7px;
+  border-radius: 5px 5px 2px 2px;
+  background: linear-gradient(180deg, #fde68a, #f59e0b);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.notes-explorer-shell .notes-explorer-inline-folder-icon::after {
+  left: 2px;
+  right: 2px;
+  bottom: 4px;
+  height: 19px;
+  border: 1px solid rgba(180, 83, 9, 0.24);
+  border-radius: 6px;
+  background:
+    radial-gradient(circle at 35% 18%, rgba(255, 255, 255, 0.42), transparent 32%),
+    linear-gradient(180deg, #fbbf24, #d97706);
+  box-shadow:
+    0 8px 14px rgba(217, 119, 6, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+.notes-explorer-shell .notes-explorer-inline-folder-icon svg {
+  opacity: 0;
+}
+
+.notes-explorer-shell .notes-explorer-folder-open-btn {
+  overflow: hidden;
+}
+
+.notes-explorer-shell .notes-explorer-folder-open-chevron {
+  transition: transform 0.18s ease;
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row:hover .notes-explorer-folder-open-chevron,
+.notes-explorer-shell .notes-explorer-folder-open-btn:hover .notes-explorer-folder-open-chevron {
+  transform: translateX(2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notes-explorer-shell .notes-explorer-folder-file-row,
+  .notes-explorer-shell .notes-explorer-folder-file-row td,
+  .notes-explorer-shell .notes-explorer-inline-folder-icon,
+  .notes-explorer-shell .notes-explorer-folder-open-chevron {
+    transition: none;
+  }
+
+  .notes-explorer-shell .notes-explorer-folder-file-row.is-opening td,
+  .notes-explorer-shell .notes-explorer-folder-file-row.is-opening .notes-explorer-inline-folder-icon,
+  .notes-explorer-shell .notes-explorer-folder-file-row.is-opening .notes-explorer-folder-open-chevron {
+    animation: none;
+  }
+}
+
 .notes-explorer-shell .notes-explorer-panel.notes-explorer-folder-panel .notes-explorer-folder-tree {
   border: 1px solid rgba(148, 163, 184, 0.35);
   background:
@@ -9623,6 +9815,16 @@ html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-rename-inpu
 html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-input::placeholder,
 html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-rename-input::placeholder {
   color: rgba(148, 163, 184, 0.92);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-create-folder {
+  border-color: rgba(82, 101, 130, 0.64) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(96, 165, 250, 0.08), transparent 24%),
+    linear-gradient(180deg, rgba(15, 25, 43, 0.96), rgba(11, 20, 35, 0.94)) !important;
+  box-shadow:
+    0 14px 30px rgba(2, 6, 23, 0.24),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08);
 }
 
 html[data-theme='dark'] .notes-explorer-shell .notes-explorer-panel.notes-explorer-folder-panel .notes-explorer-folder-tree {
@@ -10177,6 +10379,72 @@ html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table tbody tr {
 html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table tbody tr:hover {
   background:
     linear-gradient(180deg, rgba(20, 31, 49, 0.92), rgba(17, 27, 44, 0.9)) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-file-row:hover td {
+  background:
+    linear-gradient(90deg, rgba(33, 47, 72, 0.94), rgba(18, 45, 72, 0.86)) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-file-row:hover .notes-explorer-inline-folder-icon {
+  filter: drop-shadow(0 8px 14px rgba(245, 158, 11, 0.24));
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-file-row.is-selected td {
+  background:
+    linear-gradient(90deg, rgba(28, 67, 126, 0.78), rgba(15, 49, 84, 0.72)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(147, 197, 253, 0.1),
+    inset 0 -1px 0 rgba(96, 165, 250, 0.16);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-file-row.is-selected .notes-explorer-folder-name {
+  color: rgba(219, 234, 254, 0.99) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-file-row.is-selected .notes-explorer-folder-name-cell {
+  box-shadow:
+    inset 3px 0 0 rgba(125, 211, 252, 0.82),
+    inset 0 1px 0 rgba(147, 197, 253, 0.1),
+    inset 0 -1px 0 rgba(96, 165, 250, 0.16);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-file-row.is-pressing:not(.is-opening) td {
+  background:
+    linear-gradient(90deg, rgba(95, 65, 18, 0.54), rgba(13, 72, 111, 0.58)) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-file-row.is-opening td {
+  background:
+    linear-gradient(90deg, rgba(95, 65, 18, 0.62), rgba(13, 72, 111, 0.66), rgba(95, 65, 18, 0.48)) !important;
+  background-size: 220% 100%;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-file-row.is-drop-target {
+  background:
+    linear-gradient(180deg, rgba(16, 56, 119, 0.5), rgba(9, 42, 83, 0.42)) !important;
+  box-shadow: inset 3px 0 0 rgba(125, 211, 252, 0.8);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-inline-folder-icon {
+  border: 0 !important;
+  background: transparent !important;
+  color: rgba(251, 191, 36, 0.96);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-inline-folder-icon::before {
+  background: linear-gradient(180deg, rgba(253, 230, 138, 0.98), rgba(245, 158, 11, 0.95));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-inline-folder-icon::after {
+  border-color: rgba(251, 191, 36, 0.22);
+  background:
+    radial-gradient(circle at 35% 18%, rgba(254, 243, 199, 0.24), transparent 32%),
+    linear-gradient(180deg, rgba(245, 158, 11, 0.96), rgba(180, 83, 9, 0.94));
+  box-shadow:
+    0 10px 18px rgba(245, 158, 11, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
 html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table tbody tr.notes-row-selected {
@@ -11730,4 +11998,462 @@ html[data-theme='dark'] .student-artifact-altar__legendary-card[data-rank='SS'] 
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* Notes explorer UX polish */
+.notes-explorer-shell {
+  --notes-explorer-border-light: rgba(148, 163, 184, 0.24);
+  --notes-explorer-border-strong: rgba(96, 165, 250, 0.42);
+  --notes-explorer-surface: rgba(255, 255, 255, 0.86);
+  --notes-explorer-surface-raised: rgba(255, 255, 255, 0.94);
+  --notes-explorer-text: #0f172a;
+  --notes-explorer-muted: #64748b;
+  --notes-explorer-blue: #2563eb;
+}
+
+.notes-explorer-shell .notes-explorer-window {
+  border-color: rgba(96, 165, 250, 0.28) !important;
+  background:
+    radial-gradient(circle at 2% 0%, rgba(59, 130, 246, 0.09), transparent 28%),
+    linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(255, 255, 255, 0.9)) !important;
+  box-shadow:
+    0 22px 46px rgba(15, 23, 42, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82) !important;
+}
+
+.notes-explorer-shell .notes-explorer-toolbar {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(248, 250, 252, 0.98), rgba(255, 255, 255, 0.92)),
+    radial-gradient(circle at 94% 0%, rgba(124, 58, 237, 0.07), transparent 28%) !important;
+  border-color: rgba(148, 163, 184, 0.22) !important;
+}
+
+.notes-explorer-shell .notes-explorer-toolbar::before {
+  content: none;
+}
+
+.notes-explorer-shell .notes-explorer-toolbar > * {
+  position: relative;
+  z-index: 1;
+}
+
+.notes-explorer-shell .notes-explorer-title {
+  color: var(--notes-explorer-text) !important;
+  letter-spacing: 0.005em;
+}
+
+.notes-explorer-shell .notes-explorer-toolbar-subtitle {
+  max-width: 520px;
+  color: var(--notes-explorer-muted) !important;
+}
+
+.notes-explorer-shell .notes-explorer-address {
+  min-height: 34px;
+  border-color: rgba(148, 163, 184, 0.3) !important;
+  background: rgba(255, 255, 255, 0.74) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.74),
+    0 1px 0 rgba(15, 23, 42, 0.03);
+}
+
+.notes-explorer-shell .notes-explorer-stat {
+  border-color: rgba(148, 163, 184, 0.3) !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  color: #475569 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.66);
+}
+
+.notes-explorer-shell .notes-explorer-files {
+  border-style: solid !important;
+  border-color: rgba(96, 165, 250, 0.24) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(14, 165, 233, 0.08), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(248, 250, 252, 0.7)) !important;
+  box-shadow:
+    0 22px 42px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
+.notes-explorer-shell .notes-explorer-files.is-dragging {
+  border-style: dashed !important;
+  border-color: rgba(37, 99, 235, 0.74) !important;
+  background:
+    radial-gradient(circle at 12% 16%, rgba(59, 130, 246, 0.16), transparent 24%),
+    radial-gradient(circle at 88% 70%, rgba(168, 85, 247, 0.13), transparent 28%),
+    linear-gradient(180deg, rgba(239, 246, 255, 0.94), rgba(255, 255, 255, 0.86)) !important;
+}
+
+.notes-explorer-shell .notes-explorer-command-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.notes-explorer-shell .notes-explorer-search-bar {
+  margin: 0 !important;
+  border-color: var(--notes-explorer-border-light) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.76)) !important;
+  box-shadow:
+    0 12px 24px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.notes-explorer-shell .notes-explorer-search-bar {
+  display: flex;
+  align-items: center;
+}
+
+.notes-explorer-shell .notes-explorer-search-row {
+  width: 100%;
+}
+
+.notes-explorer-shell .notes-explorer-command-actions {
+  flex-shrink: 0;
+}
+
+.notes-explorer-shell .notes-explorer-search-input-wrap {
+  min-height: 44px;
+  border-color: rgba(148, 163, 184, 0.3) !important;
+  background: rgba(255, 255, 255, 0.82) !important;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.notes-explorer-shell .notes-explorer-search-input-wrap:focus-within {
+  border-color: rgba(37, 99, 235, 0.6) !important;
+  background: rgba(255, 255, 255, 0.98) !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.notes-explorer-shell .notes-explorer-python-card {
+  margin: 0 !important;
+  border-color: var(--notes-explorer-border-light) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.76)) !important;
+  box-shadow:
+    0 12px 24px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.notes-explorer-shell .notes-explorer-python-summary {
+  min-height: 34px;
+}
+
+.notes-explorer-shell .notes-explorer-python-title {
+  color: #172033 !important;
+}
+
+.notes-explorer-shell .notes-explorer-python-subtitle {
+  color: #64748b !important;
+}
+
+.notes-explorer-shell .notes-explorer-python-toggle,
+.notes-explorer-shell .notes-explorer-folder-add-btn,
+.notes-explorer-shell .notes-explorer-upload-btn {
+  min-height: 38px;
+  border-radius: 12px !important;
+}
+
+.notes-explorer-shell .notes-explorer-python-quick-btn {
+  min-width: 132px;
+  border-color: rgba(148, 163, 184, 0.3) !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  color: #334155 !important;
+  box-shadow: none !important;
+}
+
+.notes-explorer-shell .notes-explorer-python-quick-btn:hover:not(:disabled) {
+  border-color: rgba(59, 130, 246, 0.42) !important;
+  background: rgba(239, 246, 255, 0.9) !important;
+  color: #1d4ed8 !important;
+}
+
+.notes-explorer-shell .notes-explorer-upload-btn {
+  border-color: rgba(37, 99, 235, 0.35) !important;
+  background: linear-gradient(135deg, #2563eb, #7c3aed) !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 14px 28px rgba(37, 99, 235, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.26) !important;
+}
+
+.notes-explorer-shell .notes-explorer-files-meta {
+  margin-bottom: 8px !important;
+  padding: 0 2px;
+  color: #64748b !important;
+}
+
+.notes-explorer-shell .notes-explorer-interaction-hint {
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(255, 255, 255, 0.54);
+  padding: 3px 8px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.notes-explorer-shell .notes-explorer-files-meta-path {
+  color: #7c8aa0 !important;
+}
+
+.notes-explorer-shell .notes-explorer-table {
+  border-radius: 18px !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  box-shadow:
+    0 16px 34px rgba(15, 23, 42, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.notes-explorer-shell .notes-explorer-table thead {
+  background:
+    linear-gradient(180deg, rgba(241, 245, 249, 0.94), rgba(226, 232, 240, 0.74)) !important;
+}
+
+.notes-explorer-shell .notes-explorer-table thead th {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  color: #64748b !important;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+
+.notes-explorer-shell .notes-explorer-table tbody tr {
+  transition: background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.notes-explorer-shell .notes-explorer-table tbody td {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.notes-explorer-shell .notes-explorer-table tbody tr:hover:not(.is-selected) td {
+  background: rgba(248, 250, 252, 0.86);
+}
+
+.notes-explorer-shell .notes-explorer-table tbody tr .notes-explorer-file-action-btn {
+  opacity: 0.66;
+  transform: scale(0.98);
+  transition: opacity 0.16s ease, transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.notes-explorer-shell .notes-explorer-table tbody tr:hover .notes-explorer-file-action-btn,
+.notes-explorer-shell .notes-explorer-table tbody tr:focus-within .notes-explorer-file-action-btn {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row.is-selected td {
+  background:
+    linear-gradient(90deg, rgba(219, 234, 254, 0.98), rgba(239, 246, 255, 0.9)) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell {
+  --notes-explorer-border-light: rgba(86, 106, 139, 0.48);
+  --notes-explorer-border-strong: rgba(125, 211, 252, 0.46);
+  --notes-explorer-surface: rgba(10, 19, 34, 0.86);
+  --notes-explorer-surface-raised: rgba(14, 25, 44, 0.94);
+  --notes-explorer-text: rgba(237, 244, 255, 0.96);
+  --notes-explorer-muted: rgba(156, 173, 196, 0.94);
+  --notes-explorer-blue: rgba(96, 165, 250, 0.96);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-window {
+  border-color: rgba(95, 118, 153, 0.5) !important;
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.13), transparent 28%),
+    linear-gradient(180deg, rgba(8, 15, 29, 0.98), rgba(10, 17, 31, 0.94)) !important;
+  box-shadow:
+    0 28px 58px rgba(2, 6, 23, 0.52),
+    inset 0 1px 0 rgba(148, 163, 184, 0.1) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-toolbar {
+  background:
+    linear-gradient(180deg, rgba(18, 29, 50, 0.96), rgba(10, 19, 34, 0.96)) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-toolbar::before,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-toolbar::after {
+  content: none !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-title {
+  color: var(--notes-explorer-text) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-toolbar-subtitle {
+  color: var(--notes-explorer-muted) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-address,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-stat {
+  border-color: rgba(86, 106, 139, 0.52) !important;
+  background: rgba(6, 12, 24, 0.6) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.07);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-files {
+  border-style: solid !important;
+  border-color: rgba(86, 106, 139, 0.52) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(14, 165, 233, 0.1), transparent 30%),
+    linear-gradient(180deg, rgba(11, 20, 35, 0.88), rgba(7, 14, 28, 0.84)) !important;
+  box-shadow:
+    0 22px 44px rgba(2, 6, 23, 0.28),
+    inset 0 1px 0 rgba(148, 163, 184, 0.06);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-files.is-dragging {
+  border-style: dashed !important;
+  border-color: rgba(125, 211, 252, 0.96) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-search-bar,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-python-card {
+  border-color: rgba(82, 101, 130, 0.58) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(96, 165, 250, 0.08), transparent 24%),
+    linear-gradient(180deg, rgba(15, 25, 43, 0.94), rgba(10, 19, 34, 0.92)) !important;
+  box-shadow:
+    0 14px 30px rgba(2, 6, 23, 0.22),
+    inset 0 1px 0 rgba(148, 163, 184, 0.07);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-python-quick-btn {
+  border-color: rgba(82, 101, 130, 0.58) !important;
+  background: rgba(8, 15, 28, 0.72) !important;
+  color: var(--notes-explorer-muted) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-python-quick-btn:hover:not(:disabled) {
+  border-color: rgba(125, 211, 252, 0.42) !important;
+  background: rgba(19, 31, 52, 0.88) !important;
+  color: var(--notes-explorer-text) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-search-input-wrap {
+  border-color: rgba(82, 101, 130, 0.66) !important;
+  background: rgba(6, 12, 24, 0.82) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-search-input-wrap:focus-within {
+  border-color: rgba(125, 211, 252, 0.56) !important;
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-python-title {
+  color: var(--notes-explorer-text) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-python-subtitle,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-files-meta,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-files-meta-path {
+  color: var(--notes-explorer-muted) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-interaction-hint {
+  border-color: rgba(82, 101, 130, 0.44);
+  background: rgba(6, 12, 24, 0.42);
+  color: var(--notes-explorer-muted);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-upload-btn {
+  border-color: rgba(125, 211, 252, 0.26) !important;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.98), rgba(124, 58, 237, 0.94)) !important;
+  color: rgba(255, 255, 255, 0.98) !important;
+  box-shadow:
+    0 16px 30px rgba(37, 99, 235, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table {
+  border-color: rgba(84, 103, 131, 0.58) !important;
+  background:
+    linear-gradient(180deg, rgba(8, 15, 28, 0.9), rgba(7, 13, 24, 0.86)) !important;
+  box-shadow:
+    0 18px 36px rgba(2, 6, 23, 0.26),
+    inset 0 1px 0 rgba(148, 163, 184, 0.06);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table thead {
+  background:
+    linear-gradient(180deg, rgba(32, 45, 67, 0.96), rgba(24, 35, 56, 0.96)) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-table tbody tr:hover:not(.is-selected) td {
+  background: rgba(20, 31, 49, 0.88) !important;
+}
+
+@media (max-width: 920px) {
+  .notes-explorer-shell .notes-explorer-command-actions {
+    width: 100%;
+  }
+
+  .notes-explorer-shell .notes-explorer-python-quick-btn {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .notes-explorer-shell .notes-explorer-window,
+  .notes-explorer-shell .notes-explorer-files {
+    border-radius: 20px !important;
+  }
+
+  .notes-explorer-shell .notes-explorer-table th:nth-child(2),
+  .notes-explorer-shell .notes-explorer-table td:nth-child(2),
+  .notes-explorer-shell .notes-explorer-table th:nth-child(4),
+  .notes-explorer-shell .notes-explorer-table td:nth-child(4) {
+    display: none;
+  }
+
+  .notes-explorer-shell .notes-explorer-table tbody tr .notes-explorer-file-action-btn {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (hover: none) {
+  .notes-explorer-shell .notes-explorer-table tbody tr .notes-explorer-file-action-btn {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Keep folder selection calm and Windows-like instead of rainbow gradients. */
+.notes-explorer-shell .notes-explorer-folder-file-row.is-selected td,
+.notes-explorer-shell .notes-explorer-folder-file-row.is-pressing:not(.is-opening) td,
+.notes-explorer-shell .notes-explorer-folder-file-row.is-opening td {
+  background: rgba(219, 234, 254, 0.88) !important;
+  background-size: auto !important;
+  animation: none !important;
+}
+
+.notes-explorer-shell .notes-explorer-folder-file-row.is-selected .notes-explorer-folder-name-cell,
+.notes-explorer-shell .notes-explorer-folder-file-row.is-pressing .notes-explorer-folder-name-cell,
+.notes-explorer-shell .notes-explorer-folder-file-row.is-opening .notes-explorer-folder-name-cell {
+  box-shadow:
+    inset 3px 0 0 rgba(37, 99, 235, 0.72),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -1px 0 rgba(147, 197, 253, 0.22) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-file-row.is-selected td,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-file-row.is-pressing:not(.is-opening) td,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-file-row.is-opening td {
+  background: rgba(30, 58, 94, 0.72) !important;
+  background-size: auto !important;
+  animation: none !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-file-row.is-selected .notes-explorer-folder-name-cell,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-file-row.is-pressing .notes-explorer-folder-name-cell,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-file-row.is-opening .notes-explorer-folder-name-cell {
+  box-shadow:
+    inset 3px 0 0 rgba(125, 211, 252, 0.74),
+    inset 0 1px 0 rgba(147, 197, 253, 0.08),
+    inset 0 -1px 0 rgba(96, 165, 250, 0.12) !important;
 }

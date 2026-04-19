@@ -35,7 +35,7 @@ const mergeFolderLists = (lists) => {
 };
 const AUTO_REFRESH_INTERVAL_MS = 5000;
 const DEFAULT_NOTES_CATEGORY = 'class';
-const ROOT_FOLDER_LABEL = 'Без папки';
+const ROOT_FOLDER_LABEL = 'Материалы задания';
 
 const formatRussianCountLabel = (count, one, few, many) => {
   const value = Math.abs(Number(count) || 0);
@@ -89,6 +89,9 @@ const NotesSection = ({
   const [foldersError, setFoldersError] = useState('');
   const [foldersLoaded, setFoldersLoaded] = useState(false);
   const [currentFolderId, setCurrentFolderId] = useState(null);
+  const [selectedFolderId, setSelectedFolderId] = useState(null);
+  const [pressingFolderId, setPressingFolderId] = useState(null);
+  const [openingFolderId, setOpeningFolderId] = useState(null);
   const [newFolderName, setNewFolderName] = useState('');
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [renamingFolderId, setRenamingFolderId] = useState(null);
@@ -130,6 +133,8 @@ const NotesSection = ({
   const folderRestoreTargetRef = useRef(null);
   const initializedStudentKeyRef = useRef('');
   const dragDepthRef = useRef(0);
+  const folderPressTimeoutRef = useRef(null);
+  const folderOpenTimeoutRef = useRef(null);
   const fileRef = useRef(null);
   const pyRunnerWorkerRef = useRef(null);
   const pyRunnerPendingRef = useRef(new Map());
@@ -137,11 +142,48 @@ const NotesSection = ({
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const getFileUrl = (file) => withStudentId(file?.url, effectiveStudentId);
+  const clearFolderMotionTimers = () => {
+    if (folderPressTimeoutRef.current) {
+      clearTimeout(folderPressTimeoutRef.current);
+      folderPressTimeoutRef.current = null;
+    }
+    if (folderOpenTimeoutRef.current) {
+      clearTimeout(folderOpenTimeoutRef.current);
+      folderOpenTimeoutRef.current = null;
+    }
+  };
   const selectFolder = (folderId) => {
+    clearFolderMotionTimers();
+    setSelectedFolderId(null);
+    setPressingFolderId(null);
+    setOpeningFolderId(null);
     pendingFolderIdRef.current = null;
     folderRestoreTargetRef.current = null;
     restoringRef.current = false;
     setCurrentFolderId(folderId || null);
+  };
+  const startFolderPressFeedback = (folderId) => {
+    if (!folderId || folderOpenTimeoutRef.current) return;
+    if (folderPressTimeoutRef.current) clearTimeout(folderPressTimeoutRef.current);
+    setPressingFolderId(folderId);
+    folderPressTimeoutRef.current = setTimeout(() => {
+      setPressingFolderId((current) => (current === folderId ? null : current));
+      folderPressTimeoutRef.current = null;
+    }, 180);
+  };
+  const openFolderWithAnimation = (folderId) => {
+    if (!folderId) {
+      selectFolder(null);
+      return;
+    }
+    clearFolderMotionTimers();
+    setSelectedFolderId(folderId);
+    setPressingFolderId(null);
+    setOpeningFolderId(folderId);
+    folderOpenTimeoutRef.current = setTimeout(() => {
+      folderOpenTimeoutRef.current = null;
+      selectFolder(folderId);
+    }, 190);
   };
 
   const taskOptions = MOCK_TASKS;
@@ -172,6 +214,10 @@ const NotesSection = ({
     editingPyIdRef.current = editingPyId;
   }, [editingPyId]);
 
+  useEffect(() => () => {
+    clearFolderMotionTimers();
+  }, []);
+
   useEffect(() => {
     const studentKey = effectiveStudentId ? String(effectiveStudentId) : '';
     if (initializedStudentKeyRef.current === studentKey) return;
@@ -195,6 +241,9 @@ const NotesSection = ({
     setFolders([]);
     setFoldersLoaded(false);
     setFiles([]);
+    setSelectedFolderId(null);
+    setPressingFolderId(null);
+    setOpeningFolderId(null);
     setSelectedFileIds({});
     setExpandedPyIds({});
     setExpandedPdfIds({});
@@ -1899,11 +1948,11 @@ const NotesSection = ({
     currentFolderId ? f.folderId === currentFolderId : !f.folderId
   ));
   const uploadBlockedByRole = !canUploadToCurrentFolder;
-  const currentFolderPath = (() => {
-    if (!currentFolderId) return [];
+  const getFolderPathSegments = (folderId) => {
+    if (!folderId) return [];
     const labels = [];
     const visited = new Set();
-    let cursorId = currentFolderId;
+    let cursorId = folderId;
     while (cursorId && !visited.has(cursorId)) {
       visited.add(cursorId);
       const folder = foldersById.get(cursorId);
@@ -1912,13 +1961,31 @@ const NotesSection = ({
       cursorId = normalizeParentFolderId(folder.parentFolderId);
     }
     return labels.reverse();
-  })();
+  };
+  const getFolderPathLabel = (folder) => {
+    const segments = getFolderPathSegments(folder?.id);
+    return segments.length ? segments.join(' / ') : ROOT_FOLDER_LABEL;
+  };
+  const formatExplorerDate = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '—';
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return raw;
+    return new Intl.DateTimeFormat('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(parsed).replace(',', '');
+  };
+  const currentFolderPath = getFolderPathSegments(currentFolderId);
   const currentFolderLabel = currentFolderPath.length
     ? currentFolderPath[currentFolderPath.length - 1]
     : ROOT_FOLDER_LABEL;
   const currentFolderPathLabel = currentFolderPath.length
     ? `Материалы урока / ${currentFolderPath.join(' / ')}`
-    : `Материалы урока / ${ROOT_FOLDER_LABEL.toLowerCase()}`;
+    : `Материалы урока / ${ROOT_FOLDER_LABEL}`;
   const normalizedFileSearch = fileSearch.trim().toLowerCase();
   const isSearchMode = Boolean(normalizedFileSearch);
   const visibleFiles = isSearchMode
@@ -1934,14 +2001,47 @@ const NotesSection = ({
       return haystack.includes(normalizedFileSearch);
     })
     : filtered;
+  const currentChildFolders = folderChildrenByParent.get(currentFolderId || '__root__') || [];
+  const visibleFolders = isSearchMode
+    ? normalizedFolders.filter((folder) => {
+      const haystack = [
+        folder?.name,
+        getFolderPathLabel(folder),
+        isLessonSharedFolder(folder) ? 'файлы к уроку' : 'папка',
+      ]
+        .map((value) => String(value || '').toLowerCase())
+        .join(' ');
+      return haystack.includes(normalizedFileSearch);
+    })
+    : currentChildFolders;
+  const sortedVisibleFolders = [...visibleFolders].sort((left, right) => {
+    const leftShared = isLessonSharedFolder(left);
+    const rightShared = isLessonSharedFolder(right);
+    if (leftShared !== rightShared) return leftShared ? -1 : 1;
+    return String(left?.name || '').localeCompare(String(right?.name || ''), 'ru');
+  });
+  const sortedVisibleFiles = [...visibleFiles].sort((left, right) => (
+    String(left?.name || '').localeCompare(String(right?.name || ''), 'ru')
+  ));
+  const visibleExplorerItems = [
+    ...sortedVisibleFolders.map((folder) => ({ kind: 'folder', id: `folder-${folder.id}`, folder })),
+    ...sortedVisibleFiles.map((file) => ({ kind: 'file', id: `file-${file.id}`, file })),
+  ];
   const currentFolderFilesLabel = `${filtered.length} ${formatRussianCountLabel(
     filtered.length,
     'файл',
     'файла',
     'файлов'
   )}`;
-  const searchResultsLabel = `${visibleFiles.length} ${formatRussianCountLabel(
-    visibleFiles.length,
+  const currentFolderFoldersLabel = `${currentChildFolders.length} ${formatRussianCountLabel(
+    currentChildFolders.length,
+    'папка',
+    'папки',
+    'папок'
+  )}`;
+  const currentFolderItemsLabel = `${currentFolderFoldersLabel}, ${currentFolderFilesLabel}`;
+  const searchResultsLabel = `${visibleExplorerItems.length} ${formatRussianCountLabel(
+    visibleExplorerItems.length,
     'совпадение',
     'совпадения',
     'совпадений'
@@ -1958,8 +2058,8 @@ const NotesSection = ({
     : isSearchMode
       ? `По запросу "${fileSearch.trim()}" ничего не найдено.`
       : currentFolderId
-        ? `В папке "${currentFolderLabel}" пока нет файлов.`
-        : 'Здесь пока нет файлов.';
+        ? `В папке "${currentFolderLabel}" пока нет папок и файлов.`
+        : 'Здесь пока нет папок и файлов.';
   const pyEditorOptions = {
     minimap: { enabled: false },
     fontSize: 14,
@@ -2014,6 +2114,14 @@ const NotesSection = ({
               {renderStudentPicker()}
               <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} multiple disabled={uploadBlockedByRole} />
               <Button
+                variant="secondary"
+                onClick={() => setIsCreatingFolder((v) => !v)}
+                disabled={uploadBlockedByRole}
+                className="notes-explorer-folder-add-btn w-full sm:w-auto"
+              >
+                <FolderPlus size={16} /> Новая папка
+              </Button>
+              <Button
                 onClick={() => fileRef.current?.click()}
                 disabled={isUploading || uploadBlockedByRole}
                 className="notes-explorer-upload-btn w-full sm:w-auto min-w-[156px]"
@@ -2049,7 +2157,7 @@ const NotesSection = ({
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold md:text-xs">
             <span className="notes-explorer-stat inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700 md:px-2.5">
-              {`Папка: ${currentFolderFilesLabel}`}
+              {`Открыто: ${currentFolderItemsLabel}`}
             </span>
             {isSearchMode && (
               <span className="notes-explorer-stat inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700 md:px-2.5">
@@ -2069,190 +2177,28 @@ const NotesSection = ({
               Осталось: {formatBytes(remainingBytes)}
             </span>
           </div>
+          {isCreatingFolder && (
+            <div className="notes-explorer-create-folder mt-3 flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white/85 p-2.5 md:flex-row">
+              <input
+                type="text"
+                value={newFolderName}
+                onChange={(e) => { setNewFolderName(e.target.value); setFoldersError(''); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreateFolder();
+                  if (e.key === 'Escape') setIsCreatingFolder(false);
+                }}
+                placeholder={currentFolderId ? 'Название подпапки' : 'Название папки'}
+                className="notes-explorer-folder-input flex-1 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+                autoFocus
+              />
+              <Button onClick={handleCreateFolder} disabled={!newFolderName.trim() || uploadBlockedByRole} className="notes-explorer-folder-create-submit w-full md:w-auto">
+                Создать
+              </Button>
+            </div>
+          )}
+          {foldersError && <p className="mt-2 text-xs text-red-500">{foldersError}</p>}
         </div>
       </div>
-
-      <div className="md:hidden grid grid-cols-1 gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            setShowMobileFolderTools((prev) => !prev);
-          }}
-          className={`notes-explorer-mobile-toggle rounded-xl border px-3 py-2 text-xs font-semibold ${
-            showMobileFolderTools
-              ? 'border-purple-500 bg-purple-50 text-purple-700'
-              : 'border-slate-200 bg-white text-slate-600'
-          }`}
-        >
-          {showMobileFolderTools ? 'Скрыть папки' : `Папки (${normalizedFolders.length})`}
-        </button>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-[320px,minmax(0,1fr)] md:items-start">
-        <div className="space-y-3">
-          <Card className={`notes-explorer-panel notes-explorer-folder-panel space-y-4 border-slate-200 bg-white/90 ${showMobileFolderTools ? 'block' : 'hidden'} md:block`}>
-            <div className="notes-explorer-folder-header flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="notes-explorer-folder-title font-bold text-gray-800">Папки</h3>
-              </div>
-              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-                <Button
-                  variant="secondary"
-                  onClick={() => setIsCreatingFolder((v) => !v)}
-                  disabled={uploadBlockedByRole}
-                  className="notes-explorer-folder-add-btn w-full sm:w-auto"
-                >
-                  <FolderPlus size={16} /> Новая папка
-                </Button>
-              </div>
-            </div>
-
-            {isCreatingFolder && (
-              <div className="flex flex-col md:flex-row gap-2 mb-3">
-                <input
-                  type="text"
-                  value={newFolderName}
-                  onChange={(e) => { setNewFolderName(e.target.value); setFoldersError(''); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); }}
-                  placeholder={currentFolderId ? 'Название подпапки' : 'Название папки'}
-                  className="notes-explorer-folder-input flex-1 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
-                />
-                <Button onClick={handleCreateFolder} disabled={!newFolderName.trim() || uploadBlockedByRole} className="notes-explorer-folder-create-submit w-full md:w-auto">
-                  Создать
-                </Button>
-              </div>
-            )}
-
-            <div className="notes-explorer-folder-tree space-y-1 rounded-2xl p-2">
-              <button
-                onClick={() => selectFolder(null)}
-                onDragOver={(e) => handleFolderDragOver(e, 'root')}
-                onDragLeave={(e) => handleFolderDragLeave(e, 'root')}
-                onDrop={(e) => handleFolderDrop(e, null)}
-                className={`notes-explorer-folder-row notes-explorer-folder-row-root ${
-                  dragOverFolderId === 'root'
-                    ? 'is-drop-target'
-                    : currentFolderId === null
-                      ? 'is-current'
-                      : ''
-                }`}
-                type="button"
-              >
-                <span className="notes-explorer-folder-label">
-                  <Folder size={16} className="notes-explorer-folder-icon" />
-                  <span className="notes-explorer-folder-name">{ROOT_FOLDER_LABEL}</span>
-                </span>
-                <span className="notes-explorer-folder-row-meta">
-                  <span className="notes-explorer-folder-count">{folderCounts.root}</span>
-                </span>
-              </button>
-              {folderTreeEntries.map(({ folder, depth, hasChildren, isExpanded }) => {
-                const sharedFolder = isLessonSharedFolder(folder);
-                const isCurrentFolder = currentFolderId === folder.id;
-                const canDeleteCurrentFolder = canDeleteFolder(folder);
-                const folderFileCount = folderCounts.map.get(folder.id) || 0;
-                const indent = Math.min(depth, 8) * 16;
-                return (
-                  <div
-                    key={folder.id}
-                    onClick={() => {
-                      if (renamingFolderId !== folder.id) selectFolder(folder.id);
-                    }}
-                    onKeyDown={(e) => {
-                      if (renamingFolderId === folder.id) return;
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        selectFolder(folder.id);
-                      }
-                    }}
-                    onDoubleClick={() => {
-                      if (!sharedFolder) startRenameFolder(folder);
-                    }}
-                    onDragOver={(e) => handleFolderDragOver(e, folder.id)}
-                    onDragLeave={(e) => handleFolderDragLeave(e, folder.id)}
-                    onDrop={(e) => handleFolderDrop(e, folder.id)}
-                    className={`notes-explorer-folder-row ${
-                      dragOverFolderId === folder.id
-                        ? 'is-drop-target'
-                        : isCurrentFolder
-                          ? 'is-current'
-                          : ''
-                    } ${sharedFolder ? 'is-shared' : ''}`}
-                    style={{ paddingLeft: `${12 + indent}px` }}
-                    role="button"
-                    tabIndex={renamingFolderId === folder.id ? -1 : 0}
-                  >
-                    <div className="notes-explorer-folder-label">
-                      {hasChildren ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setExpandedFolderIds((prev) => {
-                              const next = { ...(prev || {}) };
-                              if (next[folder.id]) delete next[folder.id];
-                              else next[folder.id] = true;
-                              return next;
-                            });
-                          }}
-                          className="notes-explorer-folder-toggle"
-                          aria-label={isExpanded ? 'Свернуть папку' : 'Развернуть папку'}
-                          title={isExpanded ? 'Свернуть папку' : 'Развернуть папку'}
-                        >
-                          <ChevronRight size={14} className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                        </button>
-                      ) : (
-                        <span className="notes-explorer-folder-toggle-spacer" />
-                      )}
-                      {renamingFolderId === folder.id && !sharedFolder ? (
-                        <input
-                          value={renameFolderValue}
-                          onChange={(e) => setRenameFolderValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') saveRenameFolder(folder);
-                            if (e.key === 'Escape') cancelRenameFolder();
-                          }}
-                          onBlur={() => {
-                            if (!isRenamingFolder) saveRenameFolder(folder);
-                          }}
-                          className="notes-explorer-folder-rename-input px-2 py-1 rounded-lg bg-white border border-purple-100 focus:border-purple-500 outline-none text-sm"
-                          autoFocus
-                        />
-                      ) : (
-                        <span className="notes-explorer-folder-label">
-                          <Folder size={16} className="notes-explorer-folder-icon" />
-                          <span className="notes-explorer-folder-name">{folder.name}</span>
-                        </span>
-                      )}
-                    </div>
-                    {renamingFolderId === folder.id && !sharedFolder ? null : (
-                      <span className="notes-explorer-folder-row-meta">
-                        {canDeleteCurrentFolder && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteFolder(folder);
-                            }}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            disabled={deletingFolderId === folder.id}
-                            className="notes-explorer-folder-delete-btn"
-                            title="Удалить папку"
-                            aria-label="Удалить папку"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
-                        <span className="notes-explorer-folder-count">{folderFileCount}</span>
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            {foldersError && <p className="text-xs text-red-500 mt-2">{foldersError}</p>}
-          </Card>
-        </div>
 
       <div
         onDrop={uploadBlockedByRole ? undefined : handleDrop}
@@ -2260,7 +2206,7 @@ const NotesSection = ({
         onDragOver={uploadBlockedByRole ? undefined : handleDragOver}
         onDragLeave={uploadBlockedByRole ? undefined : handleDragLeave}
         data-tour="files"
-        className={`notes-explorer-files rounded-3xl border-2 border-dashed p-3.5 md:p-5 transition-all ${
+        className={`notes-explorer-files rounded-3xl border p-3.5 md:p-5 transition-all ${
           isDragging ? 'is-dragging' : ''
         } ${
           uploadBlockedByRole
@@ -2270,17 +2216,52 @@ const NotesSection = ({
             : 'border-slate-200 bg-gradient-to-br from-white via-white to-slate-50/70'
         }`}
       >
-        <div className="notes-explorer-python-card mb-3 rounded-2xl border border-slate-200/80 bg-white/85 p-3 md:mb-4 md:p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2.5">
-            <div>
-              <h3 className="notes-explorer-python-title text-sm font-bold text-gray-800">Быстро создать Python-файл</h3>
-              <p className="notes-explorer-python-subtitle text-xs text-slate-500">Новый `.py` файл сразу появится в открытой папке</p>
+        <div className="notes-explorer-command-stack mb-3 md:mb-4">
+          <div className="notes-explorer-search-bar rounded-2xl border border-slate-200/80 bg-white/85 p-3">
+            <div className="notes-explorer-search-row flex flex-col gap-2 md:flex-row md:items-center">
+              <label className="notes-explorer-search-input-wrap flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <Search size={16} className="notes-explorer-search-icon shrink-0" />
+                <input
+                  type="text"
+                  value={fileSearch}
+                  onChange={(e) => setFileSearch(e.target.value)}
+                  placeholder="Поиск файлов и папок"
+                  className="notes-explorer-search-input min-w-0 flex-1 bg-transparent text-sm outline-none"
+                />
+              </label>
+              <div className="notes-explorer-command-actions flex flex-wrap items-center gap-2">
+                {fileSearch.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setFileSearch('')}
+                    className="notes-explorer-folder-tree-action self-start md:self-auto"
+                  >
+                    Очистить
+                  </button>
+                )}
+                <Button
+                  variant="secondary"
+                  onClick={() => setShowPyCreator((v) => !v)}
+                  disabled={uploadBlockedByRole}
+                  className="notes-explorer-python-toggle notes-explorer-python-quick-btn w-full sm:w-auto"
+                >
+                  <Plus size={16} /> {showPyCreator ? 'Скрыть Python' : 'Python-файл'}
+                </Button>
+              </div>
             </div>
-            <Button variant="secondary" onClick={() => setShowPyCreator((v) => !v)} disabled={uploadBlockedByRole} className="notes-explorer-python-toggle w-full sm:w-auto">
-              <Plus size={16} /> {showPyCreator ? 'Скрыть' : 'Создать'}
-            </Button>
           </div>
+
           {showPyCreator && (
+          <div className="notes-explorer-python-card is-expanded rounded-2xl border border-slate-200/80 bg-white/85 p-3 md:p-4">
+            <div className="notes-explorer-python-summary flex flex-wrap items-center justify-between gap-2.5">
+              <div className="notes-explorer-python-copy">
+                <h3 className="notes-explorer-python-title text-sm font-bold text-gray-800">Новый Python-файл</h3>
+                <p className="notes-explorer-python-subtitle text-xs text-slate-500">Сохранится в папке: {currentFolderLabel}</p>
+              </div>
+              <Button variant="secondary" onClick={() => setShowPyCreator(false)} disabled={uploadBlockedByRole} className="notes-explorer-python-toggle w-full sm:w-auto">
+                Скрыть
+              </Button>
+            </div>
             <div className="mt-3 space-y-3">
               <div className="flex flex-col md:flex-row gap-2">
                 <input
@@ -2315,31 +2296,8 @@ const NotesSection = ({
               </div>
               {pyDraftError && <p className="text-xs text-red-500">{pyDraftError}</p>}
             </div>
-          )}
-        </div>
-
-        <div className="notes-explorer-search-bar mb-3 rounded-2xl border border-slate-200/80 bg-white/85 p-3">
-          <div className="flex flex-col gap-2 md:flex-row md:items-center">
-            <label className="notes-explorer-search-input-wrap flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-              <Search size={16} className="notes-explorer-search-icon shrink-0" />
-              <input
-                type="text"
-                value={fileSearch}
-                onChange={(e) => setFileSearch(e.target.value)}
-                placeholder="Поиск файлов"
-                className="notes-explorer-search-input min-w-0 flex-1 bg-transparent text-sm outline-none"
-              />
-            </label>
-            {fileSearch.trim() && (
-              <button
-                type="button"
-                onClick={() => setFileSearch('')}
-                className="notes-explorer-folder-tree-action self-start md:self-auto"
-              >
-                Очистить поиск
-              </button>
-            )}
           </div>
+          )}
         </div>
 
         <div className="notes-explorer-files-meta mb-3 md:mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
@@ -2347,17 +2305,20 @@ const NotesSection = ({
             <span>В эту папку материалы добавляет только учитель</span>
           ) : (
             <>
-              <span className="hidden md:inline">Перетащите файл сюда или вставьте изображение через Ctrl+V</span>
+              <span className="hidden md:inline">Перетащите файлы сюда или вставьте изображение через Ctrl+V</span>
               <span className="md:hidden">Загрузите файл или вставьте изображение</span>
             </>
           )}
+          <span className="notes-explorer-interaction-hint hidden xl:inline">
+            Папки: клик выделяет, быстрый второй открывает
+          </span>
           <span className="notes-explorer-files-meta-path text-[11px] md:text-xs text-slate-400">
             {isSearchMode ? `${searchResultsLabel}` : currentFolderPathLabel} • Осталось {formatBytes(remainingBytes)}
           </span>
           {isUploading && <span className="notes-explorer-files-meta-progress text-xs font-bold text-purple-600">Загрузка...</span>}
         </div>
 
-        {visibleFiles.length === 0 ? (
+        {visibleExplorerItems.length === 0 ? (
           <div className="notes-explorer-empty-state rounded-2xl border border-dashed border-slate-200 bg-white/80 p-6 text-center md:p-10">
             <h4 className="notes-explorer-empty-title text-sm font-semibold">{emptyStateTitle}</h4>
             <p className="notes-explorer-empty-text mt-2 text-sm">{emptyStateText}</p>
@@ -2376,7 +2337,151 @@ const NotesSection = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleFiles.map((f) => {
+                  {visibleExplorerItems.map((item) => {
+                    if (item.kind === 'folder') {
+                      const folder = item.folder;
+                      const sharedFolder = isLessonSharedFolder(folder);
+                      const folderFileCount = folderCounts.map.get(folder.id) || 0;
+                      const childFolderCount = (folderChildrenByParent.get(folder.id) || []).length;
+                      const canDeleteCurrentFolder = canDeleteFolder(folder);
+                      const isDropTarget = dragOverFolderId === folder.id;
+                      const isSelectedFolder = selectedFolderId === folder.id;
+                      const isPressingFolder = pressingFolderId === folder.id;
+                      const isOpeningFolder = openingFolderId === folder.id;
+                      const folderItemsLabel = `${childFolderCount} ${formatRussianCountLabel(
+                        childFolderCount,
+                        'папка',
+                        'папки',
+                        'папок'
+                      )}, ${folderFileCount} ${formatRussianCountLabel(folderFileCount, 'файл', 'файла', 'файлов')}`;
+                      return (
+                        <tr
+                          key={item.id}
+                          className={`notes-explorer-folder-file-row border-t border-slate-100 hover:bg-slate-50 ${
+                            isDropTarget ? 'is-drop-target' : ''
+                          } ${isSelectedFolder ? 'is-selected' : ''} ${
+                            isPressingFolder ? 'is-pressing' : ''
+                          } ${isOpeningFolder ? 'is-opening' : ''}`}
+                          onMouseDown={(e) => {
+                            if (e.button !== 0 || renamingFolderId === folder.id) return;
+                            startFolderPressFeedback(folder.id);
+                          }}
+                          onClick={() => {
+                            if (renamingFolderId === folder.id) return;
+                            setSelectedFolderId(folder.id);
+                            setSelectedFileIds({});
+                          }}
+                          onDoubleClick={() => openFolderWithAnimation(folder.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              openFolderWithAnimation(folder.id);
+                              return;
+                            }
+                            if (e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedFolderId(folder.id);
+                              setSelectedFileIds({});
+                            }
+                          }}
+                          onDragOver={(e) => handleFolderDragOver(e, folder.id)}
+                          onDragLeave={(e) => handleFolderDragLeave(e, folder.id)}
+                          onDrop={(e) => handleFolderDrop(e, folder.id)}
+                          role="button"
+                          tabIndex={renamingFolderId === folder.id ? -1 : 0}
+                          title="Один клик — выделить, двойной — открыть папку"
+                        >
+                          <td className="notes-explorer-folder-name-cell px-3 py-2.5">
+                            <div className="flex min-w-[220px] items-center gap-2">
+                              <span className="notes-explorer-inline-folder-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border">
+                                <Folder size={20} />
+                              </span>
+                              <div className="min-w-0">
+                                {renamingFolderId === folder.id && !sharedFolder ? (
+                                  <input
+                                    value={renameFolderValue}
+                                    onChange={(e) => setRenameFolderValue(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') saveRenameFolder(folder);
+                                      if (e.key === 'Escape') cancelRenameFolder();
+                                    }}
+                                    onBlur={() => {
+                                      if (!isRenamingFolder) saveRenameFolder(folder);
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onDoubleClick={(e) => e.stopPropagation()}
+                                    className="notes-explorer-folder-rename-input w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm outline-none focus:border-blue-500"
+                                    autoFocus
+                                  />
+                                ) : (
+                                  <>
+                                    <span className="notes-explorer-folder-name notes-explorer-file-name block truncate font-medium text-slate-800">
+                                      {folder.name}
+                                    </span>
+                                    {isSearchMode && (
+                                      <span className="notes-explorer-file-path block truncate text-xs">
+                                        {getFolderPathLabel(folder)}
+                                      </span>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-600">
+                            {sharedFolder ? 'Папка урока' : 'Папка с файлами'}
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-600">{folderItemsLabel}</td>
+                          <td className="px-3 py-2.5 text-slate-500">{formatExplorerDate(folder.updatedAt || folder.createdAt)}</td>
+                          <td className="px-3 py-2.5">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openFolderWithAnimation(folder.id);
+                                }}
+                                className="notes-explorer-file-action-btn notes-explorer-folder-open-btn rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                                title="Открыть папку"
+                              >
+                                <ChevronRight className="notes-explorer-folder-open-chevron" size={16} />
+                              </button>
+                              {!sharedFolder && (
+                                <button
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    startRenameFolder(folder);
+                                  }}
+                                  className="notes-explorer-file-action-btn rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                                  title="Переименовать папку"
+                                  type="button"
+                                >
+                                  <Pencil size={16} />
+                                </button>
+                              )}
+                              {canDeleteCurrentFolder && (
+                                <button
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteFolder(folder);
+                                  }}
+                                  disabled={deletingFolderId === folder.id}
+                                  className="notes-explorer-file-action-btn notes-explorer-file-action-btn-danger rounded-md p-1.5 text-rose-500 hover:bg-rose-50 disabled:opacity-50"
+                                  title="Удалить папку"
+                                  type="button"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+                    const f = item.file;
                     const manageable = canManageFile(f);
                     const isPreviewable = isPyFile(f.name) || isPdfFile(f.name) || isImageFile(f);
                     const isExpanded = Boolean(expandedPyIds[f.id] || expandedPdfIds[f.id] || expandedImageIds[f.id]);
@@ -2396,6 +2501,8 @@ const NotesSection = ({
                           }}
                           onDragEnd={handleDragEndFile}
                           onClick={(e) => {
+                            setSelectedFolderId(null);
+                            setPressingFolderId(null);
                             if (e.ctrlKey || e.metaKey) {
                               if (!manageable) return;
                               setSelectedFileIds((prev) => {
@@ -2656,7 +2763,6 @@ const NotesSection = ({
             </div>
           </div>
         )}
-      </div>
       </div>
     </div>
   );
