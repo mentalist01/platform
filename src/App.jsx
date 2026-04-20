@@ -6720,6 +6720,7 @@ const CollabSection = ({
                 <BoardSection
                   embedded
                   hideStudentPicker
+                  showEmbeddedSummonButton={isTeacher}
                   role={role}
                   userId={userId}
                   userName={userName}
@@ -7401,6 +7402,7 @@ const BoardSection = ({
   studentsLoading,
   embedded = false,
   hideStudentPicker = false,
+  showEmbeddedSummonButton = false,
 }) => {
   const isTeacher = role === 'teacher';
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
@@ -7500,7 +7502,7 @@ const BoardSection = ({
   const boardPasteFocusedRef = useRef(false);
   const drawStateRef = useRef({ drawing: false, points: [], start: null, end: null });
   const panStateRef = useRef({ active: false, startX: 0, startY: 0, originX: 0, originY: 0 });
-  const dragImageRef = useRef({ active: false, id: null, offsetX: 0, offsetY: 0 });
+  const dragImageRef = useRef({ active: false, id: null, offsetX: 0, offsetY: 0, x: null, y: null });
   const minimapRef = useRef(null);
   const minimapRenderTimerRef = useRef(null);
   const viewportHydratedRef = useRef(false);
@@ -7575,7 +7577,7 @@ const BoardSection = ({
   const resetBoardInteractionState = useCallback(() => {
     drawStateRef.current = { drawing: false, points: [], start: null, end: null };
     panStateRef.current = { active: false, startX: 0, startY: 0, originX: 0, originY: 0 };
-    dragImageRef.current = { active: false, id: null, offsetX: 0, offsetY: 0 };
+    dragImageRef.current = { active: false, id: null, offsetX: 0, offsetY: 0, x: null, y: null };
     eraserStateRef.current = { active: false };
     selectingRef.current = { active: false, start: null, current: null };
     selectionDragRef.current = { active: false, startX: 0, startY: 0, items: null, baseSelection: null };
@@ -8562,7 +8564,12 @@ const BoardSection = ({
     imageDragRafRef.current = requestAnimationFrame(() => {
       imageDragRafRef.current = null;
       const next = pendingImageMoveRef.current;
-      if (next) updateImagePosition(next.id, next.x, next.y);
+      const drag = dragImageRef.current;
+      if (!next || !drag.active || drag.id !== next.id) return;
+      drag.x = next.x;
+      drag.y = next.y;
+      renderBoard();
+      renderOverlay();
     });
   };
 
@@ -8891,14 +8898,50 @@ const BoardSection = ({
     }, localOriginRef.current);
   };
 
+  const getSelectionDragPreviewItem = (item) => {
+    const drag = selectionDragRef.current;
+    const pending = pendingSelectionMoveRef.current;
+    if (!item || !drag.active || !Array.isArray(drag.items) || !pending) return item;
+    const snapshot = drag.items.find((entry) => entry?.id === item.id);
+    if (!snapshot) return item;
+    const dx = Number(pending.dx) || 0;
+    const dy = Number(pending.dy) || 0;
+    if (snapshot.type === 'stroke') {
+      return {
+        ...item,
+        points: (snapshot.points || []).map((pt) => {
+          const pressure = Number(pt?.pressure);
+          if (Number.isFinite(pressure)) {
+            return { x: (pt.x || 0) + dx, y: (pt.y || 0) + dy, pressure };
+          }
+          return { x: (pt.x || 0) + dx, y: (pt.y || 0) + dy };
+        }),
+      };
+    }
+    if (snapshot.type === 'line') {
+      return {
+        ...item,
+        start: { x: (snapshot.start?.x || 0) + dx, y: (snapshot.start?.y || 0) + dy },
+        end: { x: (snapshot.end?.x || 0) + dx, y: (snapshot.end?.y || 0) + dy },
+      };
+    }
+    if (snapshot.type === 'image') {
+      return {
+        ...item,
+        x: (snapshot.x || 0) + dx,
+        y: (snapshot.y || 0) + dy,
+      };
+    }
+    return item;
+  };
+
   const scheduleSelectionMove = (dx, dy) => {
     pendingSelectionMoveRef.current = { dx, dy };
     if (selectionMoveRafRef.current) return;
     selectionMoveRafRef.current = requestAnimationFrame(() => {
       selectionMoveRafRef.current = null;
-      const pending = pendingSelectionMoveRef.current;
-      if (!pending) return;
-      applySelectionMove(pending.dx, pending.dy);
+      renderBoard();
+      renderOverlay();
     });
   };
 
@@ -9161,8 +9204,17 @@ const BoardSection = ({
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, pixelWidth, pixelHeight);
     ctx.setTransform(scale, 0, 0, scale, -originX * scale, -originY * scale);
+    const drag = dragImageRef.current;
     items.forEach((item) => {
-      drawBoardItemToScene(ctx, item);
+      const selectionPreviewItem = getSelectionDragPreviewItem(item);
+      const renderItem = drag.active && selectionPreviewItem?.type === 'image' && selectionPreviewItem.id === drag.id
+        ? {
+          ...selectionPreviewItem,
+          x: Number.isFinite(Number(drag.x)) ? Number(drag.x) : selectionPreviewItem.x,
+          y: Number.isFinite(Number(drag.y)) ? Number(drag.y) : selectionPreviewItem.y,
+        }
+        : selectionPreviewItem;
+      drawBoardItemToScene(ctx, renderItem);
     });
     const nextScene = {
       canvas,
@@ -9378,16 +9430,24 @@ const BoardSection = ({
       ctx.fillRect(selectionBox.x, selectionBox.y, selectionBox.width, selectionBox.height);
       ctx.restore();
     }
-    if (tool === 'move' && selectedImage) {
+    const drag = dragImageRef.current;
+    const overlaySelectedImage = selectedImage && drag.active && drag.id === selectedImage.id
+      ? {
+        ...selectedImage,
+        x: Number.isFinite(Number(drag.x)) ? Number(drag.x) : selectedImage.x,
+        y: Number.isFinite(Number(drag.y)) ? Number(drag.y) : selectedImage.y,
+      }
+      : selectedImage;
+    if (tool === 'move' && overlaySelectedImage) {
       ctx.save();
       ctx.strokeStyle = 'rgba(99, 102, 241, 0.9)';
       ctx.lineWidth = 1.5 / (zoomRef.current || 1);
       ctx.setLineDash([6 / (zoomRef.current || 1), 4 / (zoomRef.current || 1)]);
       ctx.strokeRect(
-        selectedImage.x || 0,
-        selectedImage.y || 0,
-        selectedImage.width || 0,
-        selectedImage.height || 0
+        overlaySelectedImage.x || 0,
+        overlaySelectedImage.y || 0,
+        overlaySelectedImage.width || 0,
+        overlaySelectedImage.height || 0
       );
       ctx.restore();
     }
@@ -9853,6 +9913,8 @@ const BoardSection = ({
           id: hit.item.id,
           offsetX: point.x - (hit.item.x || 0),
           offsetY: point.y - (hit.item.y || 0),
+          x: hit.item.x || 0,
+          y: hit.item.y || 0,
         };
         event.currentTarget.setPointerCapture(event.pointerId);
         return;
@@ -9981,7 +10043,20 @@ const BoardSection = ({
       return;
     }
     if (dragImageRef.current.active) {
+      if (imageDragRafRef.current) {
+        cancelAnimationFrame(imageDragRafRef.current);
+        imageDragRafRef.current = null;
+      }
+      const drag = dragImageRef.current;
+      const pending = pendingImageMoveRef.current;
+      const finalX = pending?.id === drag.id ? pending.x : drag.x;
+      const finalY = pending?.id === drag.id ? pending.y : drag.y;
+      pendingImageMoveRef.current = null;
       dragImageRef.current.active = false;
+      dragImageRef.current = { active: false, id: null, offsetX: 0, offsetY: 0, x: null, y: null };
+      if (Number.isFinite(Number(finalX)) && Number.isFinite(Number(finalY))) {
+        updateImagePosition(drag.id, Number(finalX), Number(finalY));
+      }
       undoManagerRef.current?.stopCapturing();
       return;
     }
@@ -10203,10 +10278,7 @@ const BoardSection = ({
   const statusLabel = status === 'connected'
     ? 'Подключено'
     : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено');
-  const statusClass = status === 'connected'
-    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-    : 'border-amber-200 bg-amber-50 text-amber-700';
-  const isCompactBoardChrome = isFullscreen || embedded;
+  const statusToneClass = status === 'connected' ? 'is-connected' : 'is-waiting';
   const boardShellClass = isFullscreen
     ? 'animate-fadeIn h-full min-h-0 flex flex-col overflow-hidden'
     : (embedded
@@ -10216,7 +10288,7 @@ const BoardSection = ({
     ? 'p-1 md:p-1.5 h-full min-h-0 flex flex-col overflow-hidden'
     : (embedded
       ? 'board-embedded-card relative h-full min-h-0 rounded-[1rem] border border-gray-200 bg-white p-2 md:p-2.5 shadow-sm flex flex-col overflow-hidden'
-      : 'p-2.5 md:p-3 md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-hidden');
+      : 'relative overflow-visible p-2.5 md:p-3 md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-visible');
   const activeWidth = tool === 'line' ? lineWidth : penWidth;
   const widthTargetLabel = tool === 'line' ? 'Линия' : 'Карандаш';
   const showWidthControls = tool === 'pen' || tool === 'line';
@@ -10230,13 +10302,21 @@ const BoardSection = ({
     if (tool === 'line') setLineWidth(nextValue);
     else setPenWidth(nextValue);
   };
+  const boardToolbarButtonClass = (options = {}) => {
+    const { active = false, danger = false, wide = false, accent = false } = options;
+    return [
+      'board-toolbar__button',
+      active ? 'is-active' : '',
+      danger ? 'is-danger' : '',
+      wide ? 'is-wide' : '',
+      accent ? 'is-accent' : '',
+    ].filter(Boolean).join(' ');
+  };
   const renderStudentPicker = () => {
     if (!isTeacher || hideStudentPicker) return null;
     return (
-      <div className={`inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 shadow-sm shadow-purple-100/40 ${
-        isCompactBoardChrome ? 'px-2 py-1' : 'px-2.5 py-1.5'
-      }`}>
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
+      <div className="board-toolbar__student-picker">
+        <span className="board-toolbar__student-picker-label">Ученик</span>
         <select
           value={activeStudentId || ''}
           onChange={(e) => {
@@ -10244,9 +10324,7 @@ const BoardSection = ({
             onSelectStudent?.(value || null);
           }}
           disabled={studentsLoading || (students || []).length === 0}
-          className={`w-full min-w-0 rounded-xl border border-purple-100 bg-white px-3 py-1 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70 ${
-            isCompactBoardChrome ? 'sm:min-w-[150px]' : 'sm:min-w-[180px]'
-          }`}
+          className="board-toolbar__student-select"
         >
           <option value="" disabled>Выберите ученика</option>
           {(students || []).map((student) => (
@@ -10258,41 +10336,34 @@ const BoardSection = ({
       </div>
     );
   };
+  const summonStudentButton = isTeacher ? (
+    <button
+      type="button"
+      onClick={handleSummonStudent}
+      disabled={!roomId}
+      className="board-toolbar__summon-button"
+    >
+      Призвать к себе
+    </button>
+  ) : null;
   const boardSessionActions = (
     <>
       {renderStudentPicker()}
-      <Button
-        variant="secondary"
+      <button
+        type="button"
         onClick={() => setSaveModalOpen(true)}
-        className={`flex items-center gap-2 text-xs ${
-          isCompactBoardChrome ? 'h-7 px-2 py-0.5' : 'h-8 px-2.5 py-1'
-        }`}
+        className="board-toolbar__action-button board-toolbar__action-button--save"
         disabled={!roomId}
       >
-        <Save size={16} />
+        <Save size={14} />
         Сохранить в конспекты
-      </Button>
-      {isTeacher && (
-        <button
-          type="button"
-          onClick={handleSummonStudent}
-          disabled={!roomId}
-          className={`inline-flex items-center gap-2 rounded-full border border-purple-200 bg-white text-[11px] font-semibold text-purple-700 hover:bg-purple-50 disabled:opacity-60 ${
-            isCompactBoardChrome ? 'px-2 py-0.5' : 'px-2.5 py-0.5'
-          }`}
-        >
-          Призвать ко мне
-        </button>
-      )}
-      <span className={`inline-flex items-center rounded-full border text-[11px] font-semibold ${statusClass} ${
-        isCompactBoardChrome ? 'px-2 py-0.5' : 'px-2.5 py-0.5'
-      }`}>
+      </button>
+      {summonStudentButton}
+      <span className={`board-toolbar__status-chip ${statusToneClass}`}>
         {statusLabel}
       </span>
       {roomId && (
-        <span className={`inline-flex items-center rounded-full border border-slate-200 bg-white text-[11px] font-semibold text-slate-600 ${
-          isCompactBoardChrome ? 'px-2 py-0.5' : 'px-2.5 py-0.5'
-        }`}>
+        <span className="board-toolbar__status-chip is-muted">
           Онлайн: {peerCount}
         </span>
       )}
@@ -10423,121 +10494,116 @@ const BoardSection = ({
   ) : null;
   const boardCardContent = (
     <>
-      <div className={`board-toolbar flex flex-wrap items-center ${isFullscreen ? 'mt-0 gap-1.5' : 'mt-0 gap-1'}`}>
+      <div className={`board-toolbar ${isFullscreen ? 'board-toolbar--fullscreen' : ''} ${embedded ? 'board-toolbar--embedded' : ''} ${!isFullscreen && !embedded ? 'board-toolbar--floating' : ''}`}>
         {!isFullscreen && !embedded && (
-          <div className="hidden xl:inline-flex max-w-full items-center gap-1 rounded-lg border border-purple-100 bg-purple-50/60 px-2 py-1 text-[10px] text-gray-700">
-            <span className="font-bold uppercase tracking-wide text-purple-600">Сессия</span>
-            <span className="max-w-[220px] truncate font-semibold text-gray-800 lg:max-w-[320px]">{sessionTitle}</span>
+          <div className="board-toolbar__session hidden xl:inline-flex">
+            <span className="board-toolbar__eyebrow">Сессия</span>
+            <span className="board-toolbar__session-title">{sessionTitle}</span>
           </div>
         )}
-        <button
-          type="button"
-          onClick={() => setTool('pen')}
-          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
-            tool === 'pen' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-          }`}
-          aria-label="Карандаш"
-          title="Карандаш"
-        >
-          <Pencil size={13} />
-        </button>
 
-        <button
-          type="button"
-          onClick={() => setTool('line')}
-          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
-            tool === 'line' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-          }`}
-          aria-label="Линия"
-          title="Линия"
-        >
-          <Minus size={13} />
-        </button>
+        <div className="board-toolbar__group board-toolbar__group--tools" aria-label="Инструменты доски">
+          <button
+            type="button"
+            onClick={() => setTool('pen')}
+            className={boardToolbarButtonClass({ active: tool === 'pen' })}
+            aria-label="Карандаш"
+            title="Карандаш"
+          >
+            <Pencil size={14} />
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setTool('select')}
-          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
-            tool === 'select' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-          }`}
-          aria-label="Выделение"
-          title="Выделение"
-        >
-          <MousePointer2 size={13} />
-        </button>
+          <button
+            type="button"
+            onClick={() => setTool('line')}
+            className={boardToolbarButtonClass({ active: tool === 'line' })}
+            aria-label="Линия"
+            title="Линия"
+          >
+            <Minus size={14} />
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setTool('move')}
-          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
-            tool === 'move' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-          }`}
-          aria-label="Перемещение"
-          title="Перемещение"
-        >
-          <Hand size={13} />
-        </button>
+          <button
+            type="button"
+            onClick={() => setTool('select')}
+            className={boardToolbarButtonClass({ active: tool === 'select' })}
+            aria-label="Выделение"
+            title="Выделение"
+          >
+            <MousePointer2 size={14} />
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setTool('eraser')}
-          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition ${
-            tool === 'eraser' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-          }`}
-          aria-label="Ластик"
-          title="Ластик"
-        >
-          <Eraser size={13} />
-        </button>
+          <button
+            type="button"
+            onClick={() => setTool('move')}
+            className={boardToolbarButtonClass({ active: tool === 'move' })}
+            aria-label="Перемещение"
+            title="Перемещение"
+          >
+            <Hand size={14} />
+          </button>
 
-        <div className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white p-0.5">
+          <button
+            type="button"
+            onClick={() => setTool('eraser')}
+            className={boardToolbarButtonClass({ active: tool === 'eraser' })}
+            aria-label="Ластик"
+            title="Ластик"
+          >
+            <Eraser size={14} />
+          </button>
+        </div>
+
+        <div className="board-toolbar__group board-toolbar__group--history" aria-label="История доски">
           <button
             type="button"
             onClick={handleUndo}
             disabled={!canUndo}
-            className="inline-flex items-center justify-center rounded-lg px-1.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            className={boardToolbarButtonClass()}
             aria-label="Отменить"
             title="Отменить"
           >
-            <Undo2 size={13} />
+            <Undo2 size={14} />
           </button>
           <button
             type="button"
             onClick={handleRedo}
             disabled={!canRedo}
-            className="inline-flex items-center justify-center rounded-lg px-1.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            className={boardToolbarButtonClass()}
             aria-label="Вернуть"
             title="Вернуть"
           >
-            <RefreshCcw size={13} />
+            <RefreshCcw size={14} />
           </button>
           <button
             type="button"
             onClick={handleClearBoard}
             disabled={!canClear}
-            className="inline-flex items-center justify-center rounded-lg px-1.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+            className={boardToolbarButtonClass({ danger: true })}
             aria-label="Очистить доску"
             title="Очистить доску"
           >
-            <Trash2 size={13} />
+            <Trash2 size={14} />
           </button>
         </div>
 
-        <div ref={settingsRef} className="relative">
+        <div ref={settingsRef} className="board-toolbar__group board-toolbar__group--settings relative">
           <button
             type="button"
             onClick={() => setIsSettingsOpen((prev) => !prev)}
-            className="inline-flex h-8 items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
+            className={boardToolbarButtonClass({ wide: !embedded, active: isSettingsOpen })}
+            aria-label="Цвет и размер"
+            title="Цвет и размер"
           >
-            <Settings size={13} />
-            <span className={embedded ? 'sr-only' : ''}>Цвет и размер</span>
+            <Settings size={14} />
+            <span className={embedded ? 'sr-only' : 'board-toolbar__button-label'}>Цвет и размер</span>
             <span
-              className="ml-1 inline-flex h-2.5 w-2.5 rounded-full border border-white/80"
+              className="board-toolbar__color-dot"
               style={{ backgroundColor: color }}
             />
           </button>
           {isSettingsOpen && (
-            <div className="absolute right-0 z-30 mt-2 w-72 rounded-2xl border border-gray-200 bg-white p-3 shadow-lg">
+            <div className="board-toolbar__settings-popover absolute right-0 top-full z-40 mt-2 w-72 rounded-2xl border border-gray-200 bg-white p-3 shadow-lg">
               <div className="space-y-3">
                 <div>
                   <div className="text-[11px] uppercase tracking-wide text-gray-500">{`Толщина (${widthTargetLabel})`}</div>
@@ -10626,58 +10692,61 @@ const BoardSection = ({
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => zoomBy(1 / 1.12)}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50"
-          aria-label="Отдалить"
-          title="Отдалить"
-        >
-          <Minus size={13} />
-        </button>
+        <div className="board-toolbar__group board-toolbar__group--zoom" aria-label="Масштаб доски">
+          <button
+            type="button"
+            onClick={() => zoomBy(1 / 1.12)}
+            className={boardToolbarButtonClass()}
+            aria-label="Отдалить"
+            title="Отдалить"
+          >
+            <Minus size={14} />
+          </button>
 
-        <div className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 min-w-[56px]">
-          {zoomLabel}
+          <div className="board-toolbar__zoom-value">
+            {zoomLabel}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => zoomBy(1.12)}
+            className={boardToolbarButtonClass()}
+            aria-label="Приблизить"
+            title="Приблизить"
+          >
+            <Plus size={14} />
+          </button>
+
+          <button
+            type="button"
+            onClick={resetView}
+            className={boardToolbarButtonClass({ wide: true })}
+            aria-label="Сброс масштаба"
+            title="Сброс масштаба"
+          >
+            Сброс
+          </button>
         </div>
 
-        <button
-          type="button"
-          onClick={() => zoomBy(1.12)}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50"
-          aria-label="Приблизить"
-          title="Приблизить"
-        >
-          <Plus size={13} />
-        </button>
-
-        <button
-          type="button"
-          onClick={resetView}
-          className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
-          aria-label="Сброс масштаба"
-          title="Сброс масштаба"
-        >
-          Сброс
-        </button>
-
         {!isFullscreen && !embedded && (
-          <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <div className="board-toolbar__actions">
             {boardSessionActions}
           </div>
         )}
         {isFullscreen && (
-          <div className="ml-auto flex flex-wrap items-center gap-1">
+          <div className="board-toolbar__actions">
             {boardSessionActions}
           </div>
         )}
+        {!isFullscreen && embedded && showEmbeddedSummonButton && summonStudentButton}
         <button
           type="button"
           onClick={toggleFullscreen}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-purple-500 bg-purple-600 text-xs font-semibold text-white hover:bg-purple-700"
+          className={boardToolbarButtonClass({ accent: true })}
           aria-label={isFullscreen ? 'Обычный экран' : 'Полный экран'}
           title={isFullscreen ? 'Обычный экран' : 'Полный экран'}
         >
-          {isFullscreen ? <Minimize2 size={13} /> : <Expand size={13} />}
+          {isFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
         </button>
       </div>
 
@@ -10696,7 +10765,7 @@ const BoardSection = ({
             boardPasteFocusedRef.current = false;
           }
         }}
-        className={`board-canvas-surface ${isFullscreen ? 'mt-1 flex-1 min-h-0 h-auto' : (embedded ? 'mt-2 flex-1 min-h-0 h-full' : 'mt-2 h-[68vh] min-h-[320px] sm:min-h-[360px] md:h-auto md:min-h-[54vh] md:flex-1')} relative w-full rounded-2xl border border-gray-200 bg-white outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60 overflow-hidden ${
+        className={`board-canvas-surface ${isFullscreen ? 'mt-1 flex-1 min-h-0 h-auto' : (embedded ? 'mt-2 flex-1 min-h-0 h-full' : 'mt-0 h-[68vh] min-h-[320px] sm:min-h-[360px] md:h-auto md:min-h-[54vh] md:flex-1')} relative w-full rounded-2xl border border-gray-200 bg-white outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60 overflow-hidden ${
           summonNotice ? 'ring-2 ring-amber-400/70 ring-offset-2 ring-offset-white' : ''
         }`}
         title={!isFullscreen ? 'Вставка картинки: Ctrl+V. Лимит 10 МБ. Панорамирование: удерживайте Space и тяните.' : undefined}
