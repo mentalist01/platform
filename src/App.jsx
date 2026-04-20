@@ -10285,7 +10285,7 @@ const BoardSection = ({
       ? 'animate-fadeIn h-full min-h-0 flex flex-col overflow-hidden'
       : 'animate-fadeIn pb-2 md:pb-0 md:flex md:flex-1 md:min-h-0 md:flex-col md:overflow-hidden');
   const boardCardClass = isFullscreen
-    ? 'p-1 md:p-1.5 h-full min-h-0 flex flex-col overflow-hidden'
+    ? 'relative p-1 md:p-1.5 h-full min-h-0 flex flex-col overflow-hidden'
     : (embedded
       ? 'board-embedded-card relative h-full min-h-0 rounded-[1rem] border border-gray-200 bg-white p-2 md:p-2.5 shadow-sm flex flex-col overflow-hidden'
       : 'relative overflow-visible p-2.5 md:p-3 md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-visible');
@@ -10742,7 +10742,7 @@ const BoardSection = ({
         <button
           type="button"
           onClick={toggleFullscreen}
-          className={boardToolbarButtonClass({ accent: true })}
+          className={`${boardToolbarButtonClass({ accent: true })} board-toolbar__fullscreen-button`}
           aria-label={isFullscreen ? 'Обычный экран' : 'Полный экран'}
           title={isFullscreen ? 'Обычный экран' : 'Полный экран'}
         >
@@ -10765,7 +10765,7 @@ const BoardSection = ({
             boardPasteFocusedRef.current = false;
           }
         }}
-        className={`board-canvas-surface ${isFullscreen ? 'mt-1 flex-1 min-h-0 h-auto' : (embedded ? 'mt-2 flex-1 min-h-0 h-full' : 'mt-0 h-[68vh] min-h-[320px] sm:min-h-[360px] md:h-auto md:min-h-[54vh] md:flex-1')} relative w-full rounded-2xl border border-gray-200 bg-white outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60 overflow-hidden ${
+        className={`board-canvas-surface ${isFullscreen ? 'mt-0 flex-1 min-h-0 h-auto' : (embedded ? 'mt-2 flex-1 min-h-0 h-full' : 'mt-0 h-[68vh] min-h-[320px] sm:min-h-[360px] md:h-auto md:min-h-[54vh] md:flex-1')} relative w-full rounded-2xl border border-gray-200 bg-white outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60 overflow-hidden ${
           summonNotice ? 'ring-2 ring-amber-400/70 ring-offset-2 ring-offset-white' : ''
         }`}
         title={!isFullscreen ? 'Вставка картинки: Ctrl+V. Лимит 10 МБ. Панорамирование: удерживайте Space и тяните.' : undefined}

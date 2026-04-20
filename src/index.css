@@ -13094,9 +13094,9 @@ html[data-theme='dark'] .board-toolbar__zoom-value {
   --board-toolbar-control-font: 0.72rem;
   position: absolute;
   left: 1rem;
+  right: 1rem;
   top: 1rem;
   z-index: 35;
-  max-width: calc(100% - 2rem);
   flex-wrap: nowrap;
   overflow: visible;
   border-color: rgba(148, 163, 184, 0.22);
@@ -13153,7 +13153,7 @@ html[data-theme='dark'] .board-toolbar__zoom-value {
 @media (max-width: 900px) {
   .board-toolbar--floating {
     left: 0.75rem;
-    max-width: calc(100% - 1.5rem);
+    right: 0.75rem;
     top: 0.75rem;
   }
 }
@@ -13165,6 +13165,11 @@ html[data-theme='dark'] .board-toolbar__zoom-value {
   --board-toolbar-control-size: 2rem;
   --board-toolbar-control-radius: 0.78rem;
   --board-toolbar-control-font: 0.72rem;
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  top: 0.75rem;
+  z-index: 40;
   flex-wrap: nowrap;
   overflow: visible;
   border-color: rgba(148, 163, 184, 0.22);
@@ -13175,6 +13180,10 @@ html[data-theme='dark'] .board-toolbar__zoom-value {
   padding: 0.28rem;
   box-shadow: 0 12px 26px rgba(15, 23, 42, 0.18);
   scrollbar-width: none;
+}
+
+.board-toolbar--fullscreen ~ .board-canvas-surface .board-minimap-shell {
+  top: 4.3rem;
 }
 
 .board-toolbar--fullscreen::-webkit-scrollbar {
