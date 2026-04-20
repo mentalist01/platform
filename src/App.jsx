@@ -2780,8 +2780,8 @@ const CollabSection = ({
   const isFullscreenLight = isCollabFullscreen && !isDarkTheme;
   const collabShellClass = isCollabFullscreen
     ? (isFullscreenDark
-      ? 'collab-workspace-shell animate-fadeIn relative isolate flex h-screen h-[100dvh] w-screen w-[100dvw] flex-col overflow-hidden bg-[radial-gradient(circle_at_0%_0%,_rgba(56,189,248,0.26),_transparent_36%),radial-gradient(circle_at_100%_0%,_rgba(168,85,247,0.28),_transparent_40%),radial-gradient(circle_at_52%_120%,_rgba(14,116,144,0.28),_transparent_46%),linear-gradient(180deg,_rgba(2,6,23,1)_0%,_rgba(9,13,28,1)_48%,_rgba(2,6,23,1)_100%)] text-slate-100 px-0.5 py-0.5 sm:px-1 sm:py-1 md:px-1.5 md:py-1.5'
-      : 'collab-workspace-shell animate-fadeIn relative isolate flex h-screen h-[100dvh] w-screen w-[100dvw] flex-col overflow-hidden bg-[radial-gradient(circle_at_0%_0%,_rgba(56,189,248,0.16),_transparent_36%),radial-gradient(circle_at_100%_0%,_rgba(147,51,234,0.16),_transparent_40%),radial-gradient(circle_at_56%_115%,_rgba(56,189,248,0.14),_transparent_46%),linear-gradient(180deg,_rgba(248,250,252,1)_0%,_rgba(237,242,255,0.96)_50%,_rgba(248,250,252,1)_100%)] text-slate-900 px-0.5 py-0.5 sm:px-1 sm:py-1 md:px-1.5 md:py-1.5')
+      ? 'collab-workspace-shell animate-fadeIn relative isolate flex h-screen h-[100dvh] w-screen w-[100dvw] flex-col overflow-hidden bg-[radial-gradient(circle_at_0%_0%,_rgba(56,189,248,0.26),_transparent_36%),radial-gradient(circle_at_100%_0%,_rgba(168,85,247,0.28),_transparent_40%),radial-gradient(circle_at_52%_120%,_rgba(14,116,144,0.28),_transparent_46%),linear-gradient(180deg,_rgba(2,6,23,1)_0%,_rgba(9,13,28,1)_48%,_rgba(2,6,23,1)_100%)] text-slate-100 p-0 sm:p-0.5 md:p-1'
+      : 'collab-workspace-shell animate-fadeIn relative isolate flex h-screen h-[100dvh] w-screen w-[100dvw] flex-col overflow-hidden bg-[radial-gradient(circle_at_0%_0%,_rgba(56,189,248,0.16),_transparent_36%),radial-gradient(circle_at_100%_0%,_rgba(147,51,234,0.16),_transparent_40%),radial-gradient(circle_at_56%_115%,_rgba(56,189,248,0.14),_transparent_46%),linear-gradient(180deg,_rgba(248,250,252,1)_0%,_rgba(237,242,255,0.96)_50%,_rgba(248,250,252,1)_100%)] text-slate-900 p-0 sm:p-0.5 md:p-1')
     : (isDesktopCollabCompact
       ? 'collab-workspace-shell animate-fadeIn h-full md:flex md:min-h-0 md:flex-col md:overflow-hidden'
       : 'collab-workspace-shell animate-fadeIn pb-10');
@@ -2793,9 +2793,9 @@ const CollabSection = ({
       isFullscreenDark
         ? 'border-slate-700/75 ring-cyan-300/10 bg-slate-950/54 shadow-[0_30px_72px_rgba(2,6,23,0.62)]'
         : 'border-slate-200/90 ring-violet-200/80 bg-white/82 shadow-[0_30px_72px_rgba(15,23,42,0.14)]'
-    } p-1 sm:p-1.5 md:p-2 backdrop-blur-xl`
+    } p-0.5 sm:p-1 md:p-1 backdrop-blur-xl`
     : (isDesktopCollabCompact
-      ? 'collab-workspace-card p-2 md:p-2.5 flex min-h-0 flex-1 flex-col overflow-hidden'
+      ? 'collab-workspace-card p-1 md:p-1.5 flex min-h-0 flex-1 flex-col overflow-hidden'
       : 'collab-workspace-card p-4 md:p-6');
   const collabTitleClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-50' : 'text-slate-900') : 'text-gray-900';
   const collabSubtitleClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-300/90' : 'text-slate-600') : 'text-gray-500';
@@ -2809,7 +2809,7 @@ const CollabSection = ({
     : 'border-purple-100 bg-purple-50/70';
   const collabToolbarDividerClass = isCollabFullscreen ? (isFullscreenDark ? 'bg-slate-500/70' : 'bg-slate-300/80') : 'bg-purple-200';
   const collabSessionValueClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-50' : 'text-slate-800') : collabSessionTextClass;
-  const collabIconButtonBase = `inline-flex ${isCollabFullscreen ? 'h-8 w-8' : (isDesktopCollabCompact ? 'h-7 w-7' : 'h-8 w-8')} items-center justify-center rounded-xl border transition-all duration-200 hover:-translate-y-[1px] active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 ${
+  const collabIconButtonBase = `inline-flex ${isCollabFullscreen ? 'h-7 w-7' : (isDesktopCollabCompact ? 'h-6 w-6' : 'h-7 w-7')} items-center justify-center rounded-[0.8rem] border transition-all duration-200 hover:-translate-y-[1px] active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 ${
     isFullscreenDark
       ? 'focus-visible:ring-cyan-300/70 focus-visible:ring-offset-slate-950'
       : 'focus-visible:ring-purple-400/70 focus-visible:ring-offset-white'
@@ -5939,7 +5939,7 @@ const CollabSection = ({
   ) : null;
 
   const editorPane = (
-    <div className={`collab-editor-surface ${showEditorHeader ? '' : 'collab-editor-surface--flush'} relative flex flex-col overflow-hidden rounded-2xl border ${isSplitCollabLayout ? 'h-full' : ''} ${
+    <div className={`collab-editor-surface ${showEditorHeader ? '' : 'collab-editor-surface--flush'} relative flex flex-col overflow-hidden rounded-xl border ${isSplitCollabLayout ? 'h-full' : ''} ${
       isCollabFullscreen
         ? (isFullscreenDark
           ? 'border-slate-700/90 ring-1 ring-cyan-400/10 bg-slate-950/82 shadow-[0_24px_46px_rgba(2,6,23,0.52)]'
@@ -6013,12 +6013,12 @@ const CollabSection = ({
     <div className={`collab-aux-panel ${isSplitCollabLayout ? 'space-y-1' : 'space-y-2'} ${
       isCollabFullscreen
         ? (isFullscreenDark
-          ? `rounded-2xl border p-2.5 shadow-[inset_0_1px_0_rgba(148,163,184,0.12)] ${
+          ? `rounded-xl border p-1.5 shadow-[inset_0_1px_0_rgba(148,163,184,0.12)] ${
             isTestFileMode
               ? 'border-cyan-400/30 bg-slate-900/78 ring-1 ring-cyan-300/12'
               : 'border-slate-700/80 bg-slate-900/68'
           }`
-          : 'rounded-2xl border border-slate-200/90 bg-white/92 p-2.5 shadow-[0_10px_28px_rgba(148,163,184,0.14)]')
+          : 'rounded-xl border border-slate-200/90 bg-white/92 p-1.5 shadow-[0_10px_28px_rgba(148,163,184,0.14)]')
         : ''
     }`}>
       <div className="flex items-center justify-between gap-2">
@@ -6505,21 +6505,21 @@ const CollabSection = ({
       aria-valuenow={Math.round(notesPdfPanelHeight)}
       onPointerDown={handleNotesPdfResizeStart}
       onDoubleClick={handleNotesPdfResizeReset}
-      className="group -mt-1 flex h-7 cursor-row-resize select-none touch-none items-center justify-center"
+      className="group absolute inset-x-0 bottom-0 z-30 flex h-6 translate-y-[32%] cursor-row-resize select-none touch-none items-center justify-center"
       title="Тяните вверх или вниз, чтобы изменить высоту. Двойной клик — сброс."
     >
-      <div className="relative flex w-full items-center justify-center">
-        <div className={`absolute inset-x-0 top-1/2 h-[2px] -translate-y-1/2 rounded-full transition ${
+      <div className="relative flex h-full w-full items-center justify-center">
+        <div className={`absolute inset-x-2 top-1/2 h-[2px] -translate-y-1/2 rounded-full transition ${
           isFullscreenDark
             ? 'bg-slate-700/80 group-hover:bg-violet-400/80'
-            : 'bg-gray-300 group-hover:bg-purple-400'
+            : 'bg-slate-300/90 group-hover:bg-purple-400'
         }`} />
-        <div className={`relative inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold shadow-sm transition-all duration-150 group-hover:-translate-y-[1px] ${
+        <div className={`relative inline-flex items-center gap-1 rounded-full border px-2 py-[3px] text-[10px] font-semibold shadow-sm transition-all duration-150 group-hover:-translate-y-[1px] ${
           isFullscreenDark
             ? 'border-slate-600 bg-slate-950 text-slate-100 group-hover:border-violet-400'
             : 'border-purple-200 bg-white text-purple-700 group-hover:border-purple-300'
         }`}>
-          <ChevronsUpDown size={12} />
+          <ChevronsUpDown size={11} aria-hidden="true" />
           <span className="hidden sm:inline">Тяни вверх/вниз</span>
           <span className="sm:hidden">Тяни</span>
         </div>
@@ -6527,7 +6527,7 @@ const CollabSection = ({
     </div>
   );
   const notesPdfPane = (
-    <div className={`collab-top-pane rounded-xl border ${isCollabFullscreen ? 'px-2 py-1.5' : 'px-1.5 py-1'} ${isSplitCollabLayout ? 'space-y-0.5' : 'space-y-1'} ${
+    <div className={`collab-top-pane ${canResizeTopPane ? 'collab-top-pane--resizable' : ''} rounded-xl border ${isCollabFullscreen ? 'px-1 pt-1 pb-0' : 'px-1 pt-0.5 pb-0'} ${isSplitCollabLayout ? 'space-y-0.5' : 'space-y-1'} ${
       isFullscreenDark
         ? 'border-slate-700/80 bg-slate-900/70'
         : 'border-gray-200 bg-white'
@@ -6707,58 +6707,62 @@ const CollabSection = ({
           )}
           {isNotesBoardMode ? (
             <>
-              <div
-                ref={notesPdfPreviewRef}
-                className={`collab-board-stage overflow-hidden rounded-lg border ${
-                  isFullscreenDark
-                    ? 'border-slate-700/80 bg-slate-950/30'
-                    : 'border-gray-200 bg-gray-50'
-                }`}
-                style={{ height: `${notesPdfPanelHeight}px` }}
-              >
-                <BoardSection
-                  embedded
-                  hideStudentPicker
-                  showEmbeddedSummonButton={isTeacher}
-                  role={role}
-                  userId={userId}
-                  userName={userName}
-                  teacherId={teacherId}
-                  tasks={tasks}
-                  students={students}
-                  activeStudentId={activeStudentId}
-                  onSelectStudent={onSelectStudent}
-                  studentsLoading={studentsLoading}
-                />
+              <div className="relative">
+                <div
+                  ref={notesPdfPreviewRef}
+                  className={`collab-board-stage overflow-hidden rounded-[0.7rem] ${
+                    isFullscreenDark
+                      ? 'border-slate-700/80 bg-slate-950/30'
+                      : 'border-gray-200 bg-gray-50'
+                  }`}
+                  style={{ height: `${notesPdfPanelHeight}px` }}
+                >
+                  <BoardSection
+                    embedded
+                    hideStudentPicker
+                    showEmbeddedSummonButton={isTeacher}
+                    role={role}
+                    userId={userId}
+                    userName={userName}
+                    teacherId={teacherId}
+                    tasks={tasks}
+                    students={students}
+                    activeStudentId={activeStudentId}
+                    onSelectStudent={onSelectStudent}
+                    studentsLoading={studentsLoading}
+                  />
+                </div>
+                {notesTopPaneResizeHandle}
               </div>
-              {notesTopPaneResizeHandle}
             </>
           ) : selectedNotesPdfFile ? (
             <>
-              <div className={`collab-pdf-stage overflow-hidden rounded-lg border ${
-                isFullscreenDark
-                  ? 'border-slate-700/80 bg-slate-950/60'
-                  : 'border-gray-200 bg-gray-50'
-              }`} style={{ height: `${notesPdfPanelHeight}px` }} ref={notesPdfPreviewRef}>
-                {notesPdfPreviewState.status === 'ready' && selectedNotesPdfEmbedUrl ? (
-                  <iframe
-                    title={selectedNotesPdfFile.name || 'PDF из конспектов'}
-                    src={selectedNotesPdfEmbedUrl}
-                    className="h-full w-full"
-                  />
-                ) : (
-                  <div className={`flex h-full items-center justify-center px-4 text-center text-sm ${
-                    notesPdfPreviewState.status === 'error'
-                      ? 'text-rose-500'
-                      : (isFullscreenDark ? 'text-slate-300' : 'text-gray-500')
-                  }`}>
-                    {notesPdfPreviewState.status === 'checking'
-                      ? 'Проверяем доступ к PDF...'
-                      : (notesPdfPreviewState.message || 'Не удалось открыть PDF.')}
-                  </div>
-                )}
+              <div className="relative">
+                <div className={`collab-pdf-stage overflow-hidden rounded-[0.7rem] border ${
+                  isFullscreenDark
+                    ? 'border-slate-700/80 bg-slate-950/60'
+                    : 'border-gray-200 bg-gray-50'
+                }`} style={{ height: `${notesPdfPanelHeight}px` }} ref={notesPdfPreviewRef}>
+                  {notesPdfPreviewState.status === 'ready' && selectedNotesPdfEmbedUrl ? (
+                    <iframe
+                      title={selectedNotesPdfFile.name || 'PDF из конспектов'}
+                      src={selectedNotesPdfEmbedUrl}
+                      className="h-full w-full"
+                    />
+                  ) : (
+                    <div className={`flex h-full items-center justify-center px-4 text-center text-sm ${
+                      notesPdfPreviewState.status === 'error'
+                        ? 'text-rose-500'
+                        : (isFullscreenDark ? 'text-slate-300' : 'text-gray-500')
+                    }`}>
+                      {notesPdfPreviewState.status === 'checking'
+                        ? 'Проверяем доступ к PDF...'
+                        : (notesPdfPreviewState.message || 'Не удалось открыть PDF.')}
+                    </div>
+                  )}
+                </div>
+                {notesTopPaneResizeHandle}
               </div>
-              {notesTopPaneResizeHandle}
             </>
           ) : (
             <div className={`rounded-lg border px-2 py-1.5 text-[10px] ${
@@ -6783,11 +6787,11 @@ const CollabSection = ({
     : (runStatus === 'stopped' || runError ? 'danger' : ((runOutput || runError) ? 'ready' : 'idle'));
 
   const resultHeader = (
-    <div className={`collab-result-header flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between ${
+    <div className={`collab-result-header flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between ${
       isCollabFullscreen
         ? (isFullscreenDark
-          ? 'rounded-xl border border-slate-700/75 bg-slate-900/70 px-2.5 py-2'
-          : 'rounded-xl border border-slate-200 bg-white/92 px-2.5 py-2')
+          ? 'rounded-lg border border-slate-700/75 bg-slate-900/70 px-2 py-1.5'
+          : 'rounded-lg border border-slate-200 bg-white/92 px-2 py-1.5')
         : ''
     }`}>
       <div>
@@ -6806,7 +6810,7 @@ const CollabSection = ({
     </div>
   );
 
-  const resultConsoleClass = `collab-result-console rounded-2xl border p-3 text-sm font-mono ${
+  const resultConsoleClass = `collab-result-console rounded-xl border p-2 text-sm font-mono ${
     isFullscreenDark
       ? 'bg-slate-950/92 text-slate-100'
       : (isFullscreenLight ? 'bg-slate-900 text-slate-100' : 'bg-slate-950 text-slate-100')
@@ -6960,9 +6964,9 @@ const CollabSection = ({
         onClick={() => setSaveModalOpen(true)}
         className={`flex items-center ${
           isCollabFullscreen
-            ? 'gap-1 !h-8 !min-h-8 !px-2.5 !py-0 !text-[10px]'
+            ? 'gap-1 !h-7 !min-h-7 !px-2 !py-0 !text-[10px]'
             : (isDesktopCollabCompact
-              ? 'gap-1.5 !h-9 !min-h-[2.25rem] !px-3 !py-0 !text-[11px] sm:!text-[11px]'
+              ? 'gap-1 !h-7 !min-h-7 !px-2.5 !py-0 !text-[10px] sm:!text-[10px]'
               : 'gap-2')
         } ${
           isCollabFullscreen
@@ -6972,21 +6976,21 @@ const CollabSection = ({
             : ''
         }`}
       >
-        <Save size={16} />
+        <Save size={14} />
         Сохранить в конспекты
       </Button>
       <span className={`inline-flex items-center rounded-full border font-semibold ${
         isCollabFullscreen
-          ? 'h-8 px-2.5 text-[10px]'
-          : (isDesktopCollabCompact ? 'h-9 px-3 text-[11px]' : 'px-3 py-1 text-xs')
+          ? 'h-7 px-2 text-[10px]'
+          : (isDesktopCollabCompact ? 'h-7 px-2.5 text-[10px]' : 'px-3 py-1 text-xs')
       } ${statusClass}`}>
         {statusLabel}
       </span>
       {roomId && (
         <span className={`inline-flex items-center rounded-full border font-semibold ${
           isCollabFullscreen
-            ? 'h-8 px-2.5 text-[10px]'
-            : (isDesktopCollabCompact ? 'h-9 px-3 text-[11px]' : 'px-3 py-1 text-xs')
+            ? 'h-7 px-2 text-[10px]'
+            : (isDesktopCollabCompact ? 'h-7 px-2.5 text-[10px]' : 'px-3 py-1 text-xs')
         } ${
           isCollabFullscreen
             ? (isFullscreenDark
@@ -7002,7 +7006,7 @@ const CollabSection = ({
         onClick={toggleCollabFullscreen}
         className={`inline-flex items-center rounded-full border font-semibold transition-all duration-200 hover:-translate-y-[1px] active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${
           isDesktopCollabCompact || isCollabFullscreen
-            ? 'h-8 w-8 justify-center rounded-xl p-0 text-[11px]'
+            ? 'h-7 w-7 justify-center rounded-[0.8rem] p-0 text-[10px]'
             : 'gap-2 px-3 py-1 text-xs'
         } ${
           isCollabFullscreen
@@ -7014,7 +7018,7 @@ const CollabSection = ({
         title={isCollabFullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'}
         aria-label={isCollabFullscreen ? 'Свернуть' : 'На весь экран'}
       >
-        {isCollabFullscreen ? <Minimize2 size={isDesktopCollabCompact ? 16 : 15} /> : <Expand size={isDesktopCollabCompact ? 16 : 14} />}
+        {isCollabFullscreen ? <Minimize2 size={isDesktopCollabCompact ? 14 : 13} /> : <Expand size={isDesktopCollabCompact ? 14 : 13} />}
         {!isDesktopCollabCompact && !isCollabFullscreen && 'На весь экран'}
       </button>
     </div>
@@ -7089,7 +7093,7 @@ const CollabSection = ({
                 type="button"
                 onClick={handleFormatCode}
                 disabled={!roomId}
-                className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
+                className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
               >
                 Автоформат
               </button>
@@ -7097,15 +7101,15 @@ const CollabSection = ({
           </div>
         )}
 
-        <div className={`collab-top-pane-wrap ${isCollabFullscreen || isDesktopCollabCompact ? 'mt-1' : 'mt-2'}`}>
+        <div className={`collab-top-pane-wrap relative ${canResizeTopPane ? 'pb-0.5' : ''} ${isCollabFullscreen || isDesktopCollabCompact ? 'mt-0.5' : 'mt-2'}`}>
           {notesPdfPane}
         </div>
 
-        <div className={`${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-1 flex flex-wrap items-center gap-1.5' : 'mt-1.5 flex flex-wrap items-center gap-1.5') : ''}`}>
+        <div className={`${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-0 flex flex-wrap items-center gap-1.5' : 'mt-0.5 flex flex-wrap items-center gap-1.5') : ''}`}>
           <div className={`collab-code-toolbar max-w-full flex flex-wrap items-center gap-2 rounded-xl border ${
             isCollabFullscreen
-              ? 'min-w-0 flex-1 rounded-2xl px-2 py-1 sm:px-2.5 sm:py-1.5'
-              : (isDesktopCollabCompact ? 'mt-0 px-1.5 py-1' : 'mt-3 inline-flex px-2 py-1.5')
+              ? 'min-w-0 flex-1 rounded-xl px-0.5 py-px sm:px-1 sm:py-0.5'
+              : (isDesktopCollabCompact ? 'mt-0 px-0.5 py-px' : 'mt-3 inline-flex px-1.5 py-1')
           } ${collabToolbarClass}`}>
             {(isCollabFullscreen || isDesktopCollabCompact) && (
               <>
@@ -7262,7 +7266,7 @@ const CollabSection = ({
                 type="button"
                 onClick={handleFormatCode}
                 disabled={!roomId}
-                className={`inline-flex h-8 items-center rounded-lg border px-2.5 py-0 text-[11px] font-semibold transition disabled:opacity-50 ${
+                className={`inline-flex h-7 items-center rounded-lg border px-2 py-0 text-[10px] font-semibold transition disabled:opacity-50 ${
                   isCollabFullscreen
                     ? (isFullscreenDark
                       ? 'border-slate-600/80 bg-slate-900/80 text-slate-100 hover:border-cyan-400/70 hover:bg-slate-800/90'
@@ -7287,8 +7291,8 @@ const CollabSection = ({
         {isSplitCollabLayout ? (
           <div
             ref={splitLayoutRef}
-            className={`collab-split-layout ${isDesktopCollabCompact ? 'mt-2 flex-1' : (isCollabFullscreen ? 'mt-1 flex-1' : 'mt-1')} grid min-h-0 items-stretch ${
-              isCollabFullscreen ? 'gap-2' : 'gap-0.5'
+            className={`collab-split-layout ${isDesktopCollabCompact ? 'mt-0.5 flex-1' : (isCollabFullscreen ? 'mt-0.5 flex-1' : 'mt-1')} grid min-h-0 items-stretch ${
+              isCollabFullscreen ? 'gap-1' : 'gap-0'
             }`}
             style={{
               gridTemplateColumns: isCollabFullscreen
@@ -7335,7 +7339,7 @@ const CollabSection = ({
             </div>
             <div className="collab-output-pane min-h-0 min-w-0">
               <div className={`collab-output-stack flex min-h-0 flex-col ${isCollabFullscreen ? 'gap-1.5' : 'gap-1.5'}`} style={{ height: isCollabFullscreen ? '100%' : editorHeight }}>
-                <div className={`collab-result-card min-h-0 flex flex-1 flex-col rounded-2xl border ${isCollabFullscreen ? 'p-1.5' : 'p-2'} ${
+                <div className={`collab-result-card min-h-0 flex flex-1 flex-col rounded-xl border ${isCollabFullscreen ? 'p-1' : 'p-1.5'} ${
                   isCollabFullscreen
                     ? (isFullscreenDark
                       ? 'border-slate-700/85 ring-1 ring-cyan-400/10 bg-slate-950/72 shadow-[0_16px_34px_rgba(2,6,23,0.4),inset_0_1px_0_rgba(148,163,184,0.12)]'
@@ -7343,7 +7347,7 @@ const CollabSection = ({
                     : 'border-gray-200 bg-white'
                 }`}>
                   {resultHeader}
-                  <div className="collab-result-body mt-2 min-h-0 flex-1">
+                  <div className="collab-result-body mt-1 min-h-0 flex-1">
                     {resultConsole}
                   </div>
                 </div>
@@ -10274,7 +10278,7 @@ const BoardSection = ({
   const boardCardClass = isFullscreen
     ? 'relative p-1 md:p-1.5 h-full min-h-0 flex flex-col overflow-hidden'
     : (embedded
-      ? 'board-embedded-card relative h-full min-h-0 rounded-[1rem] border border-gray-200 bg-white p-2 md:p-2.5 shadow-sm flex flex-col overflow-hidden'
+      ? 'board-embedded-card relative h-full min-h-0 rounded-[0.7rem] border-0 bg-white p-0 shadow-none flex flex-col overflow-hidden'
       : 'relative overflow-visible p-2.5 md:p-3 md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-visible');
   const activeWidth = tool === 'line' ? lineWidth : penWidth;
   const widthTargetLabel = tool === 'line' ? 'Линия' : 'Карандаш';
@@ -10749,7 +10753,7 @@ const BoardSection = ({
             boardPasteFocusedRef.current = false;
           }
         }}
-        className={`board-canvas-surface ${isFullscreen ? 'mt-0 flex-1 min-h-0 h-auto' : (embedded ? 'mt-2 flex-1 min-h-0 h-full' : 'mt-0 h-[68vh] min-h-[320px] sm:min-h-[360px] md:h-auto md:min-h-[54vh] md:flex-1')} relative w-full rounded-2xl border border-gray-200 bg-white outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60 overflow-hidden ${
+        className={`board-canvas-surface ${isFullscreen ? 'mt-0 flex-1 min-h-0 h-auto' : (embedded ? 'mt-1 flex-1 min-h-0 h-full' : 'mt-0 h-[68vh] min-h-[320px] sm:min-h-[360px] md:h-auto md:min-h-[54vh] md:flex-1')} relative w-full ${embedded ? 'rounded-[0.7rem]' : 'rounded-2xl'} ${embedded ? 'border-0' : 'border border-gray-200'} bg-white outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60 overflow-hidden ${
           summonNotice ? 'ring-2 ring-amber-400/70 ring-offset-2 ring-offset-white' : ''
         }`}
         title={!isFullscreen ? 'Вставка картинки: Ctrl+V. Лимит 10 МБ. Панорамирование: удерживайте Space и тяните.' : undefined}
