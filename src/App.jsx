@@ -10495,259 +10495,256 @@ const BoardSection = ({
   const boardCardContent = (
     <>
       <div className={`board-toolbar ${isFullscreen ? 'board-toolbar--fullscreen' : ''} ${embedded ? 'board-toolbar--embedded' : ''} ${!isFullscreen && !embedded ? 'board-toolbar--floating' : ''}`}>
-        {!isFullscreen && !embedded && (
-          <div className="board-toolbar__session hidden xl:inline-flex">
-            <span className="board-toolbar__eyebrow">Сессия</span>
-            <span className="board-toolbar__session-title">{sessionTitle}</span>
+        <div className="board-toolbar__strip board-toolbar__strip--tools">
+          <div className="board-toolbar__group board-toolbar__group--tools" aria-label="Инструменты доски">
+            <button
+              type="button"
+              onClick={() => setTool('pen')}
+              className={boardToolbarButtonClass({ active: tool === 'pen' })}
+              aria-label="Карандаш"
+              title="Карандаш"
+            >
+              <Pencil size={14} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setTool('line')}
+              className={boardToolbarButtonClass({ active: tool === 'line' })}
+              aria-label="Линия"
+              title="Линия"
+            >
+              <Minus size={14} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setTool('select')}
+              className={boardToolbarButtonClass({ active: tool === 'select' })}
+              aria-label="Выделение"
+              title="Выделение"
+            >
+              <MousePointer2 size={14} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setTool('move')}
+              className={boardToolbarButtonClass({ active: tool === 'move' })}
+              aria-label="Перемещение"
+              title="Перемещение"
+            >
+              <Hand size={14} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setTool('eraser')}
+              className={boardToolbarButtonClass({ active: tool === 'eraser' })}
+              aria-label="Ластик"
+              title="Ластик"
+            >
+              <Eraser size={14} />
+            </button>
           </div>
-        )}
 
-        <div className="board-toolbar__group board-toolbar__group--tools" aria-label="Инструменты доски">
-          <button
-            type="button"
-            onClick={() => setTool('pen')}
-            className={boardToolbarButtonClass({ active: tool === 'pen' })}
-            aria-label="Карандаш"
-            title="Карандаш"
-          >
-            <Pencil size={14} />
-          </button>
+          <div className="board-toolbar__group board-toolbar__group--history" aria-label="История доски">
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={!canUndo}
+              className={boardToolbarButtonClass()}
+              aria-label="Отменить"
+              title="Отменить"
+            >
+              <Undo2 size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={handleRedo}
+              disabled={!canRedo}
+              className={boardToolbarButtonClass()}
+              aria-label="Вернуть"
+              title="Вернуть"
+            >
+              <RefreshCcw size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={handleClearBoard}
+              disabled={!canClear}
+              className={boardToolbarButtonClass({ danger: true })}
+              aria-label="Очистить доску"
+              title="Очистить доску"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
 
-          <button
-            type="button"
-            onClick={() => setTool('line')}
-            className={boardToolbarButtonClass({ active: tool === 'line' })}
-            aria-label="Линия"
-            title="Линия"
-          >
-            <Minus size={14} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setTool('select')}
-            className={boardToolbarButtonClass({ active: tool === 'select' })}
-            aria-label="Выделение"
-            title="Выделение"
-          >
-            <MousePointer2 size={14} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setTool('move')}
-            className={boardToolbarButtonClass({ active: tool === 'move' })}
-            aria-label="Перемещение"
-            title="Перемещение"
-          >
-            <Hand size={14} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setTool('eraser')}
-            className={boardToolbarButtonClass({ active: tool === 'eraser' })}
-            aria-label="Ластик"
-            title="Ластик"
-          >
-            <Eraser size={14} />
-          </button>
-        </div>
-
-        <div className="board-toolbar__group board-toolbar__group--history" aria-label="История доски">
-          <button
-            type="button"
-            onClick={handleUndo}
-            disabled={!canUndo}
-            className={boardToolbarButtonClass()}
-            aria-label="Отменить"
-            title="Отменить"
-          >
-            <Undo2 size={14} />
-          </button>
-          <button
-            type="button"
-            onClick={handleRedo}
-            disabled={!canRedo}
-            className={boardToolbarButtonClass()}
-            aria-label="Вернуть"
-            title="Вернуть"
-          >
-            <RefreshCcw size={14} />
-          </button>
-          <button
-            type="button"
-            onClick={handleClearBoard}
-            disabled={!canClear}
-            className={boardToolbarButtonClass({ danger: true })}
-            aria-label="Очистить доску"
-            title="Очистить доску"
-          >
-            <Trash2 size={14} />
-          </button>
-        </div>
-
-        <div ref={settingsRef} className="board-toolbar__group board-toolbar__group--settings relative">
-          <button
-            type="button"
-            onClick={() => setIsSettingsOpen((prev) => !prev)}
-            className={boardToolbarButtonClass({ wide: !embedded, active: isSettingsOpen })}
-            aria-label="Цвет и размер"
-            title="Цвет и размер"
-          >
-            <Settings size={14} />
-            <span className={embedded ? 'sr-only' : 'board-toolbar__button-label'}>Цвет и размер</span>
-            <span
-              className="board-toolbar__color-dot"
-              style={{ backgroundColor: color }}
-            />
-          </button>
-          {isSettingsOpen && (
-            <div className="board-toolbar__settings-popover absolute right-0 top-full z-40 mt-2 w-72 rounded-2xl border border-gray-200 bg-white p-3 shadow-lg">
-              <div className="space-y-3">
-                <div>
-                  <div className="text-[11px] uppercase tracking-wide text-gray-500">{`Толщина (${widthTargetLabel})`}</div>
-                  <div className="mt-1 flex items-center gap-2">
-                    <input
-                      type="range"
-                      min={BOARD_MIN_WIDTH}
-                      max={BOARD_MAX_WIDTH}
-                      step={BOARD_WIDTH_STEP}
-                      value={activeWidth}
-                      onChange={handleWidthChange}
-                      disabled={!showWidthControls}
-                      className={`w-full accent-purple-600 ${showWidthControls ? '' : 'opacity-40'}`}
-                    />
-                    <span className="w-8 text-right text-xs font-semibold text-gray-600">{formattedWidth}</span>
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[11px] uppercase tracking-wide text-gray-500">Цвет</div>
-                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                    {BOARD_COLORS.map((swatch) => (
-                      <button
-                        key={swatch}
-                        type="button"
-                        onClick={() => setColor(swatch)}
-                        className={`h-7 w-7 rounded-full border-2 transition ${
-                          color === swatch ? 'border-gray-900 scale-110' : 'border-white/80'
-                        }`}
-                        style={{ backgroundColor: swatch }}
-                        aria-label={`Цвет ${swatch}`}
+          <div ref={settingsRef} className="board-toolbar__group board-toolbar__group--settings relative">
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen((prev) => !prev)}
+              className={boardToolbarButtonClass({ wide: !embedded, active: isSettingsOpen })}
+              aria-label="Цвет и размер"
+              title="Цвет и размер"
+            >
+              <Settings size={14} />
+              <span className={embedded ? 'sr-only' : 'board-toolbar__button-label'}>Цвет и размер</span>
+              <span
+                className="board-toolbar__color-dot"
+                style={{ backgroundColor: color }}
+              />
+            </button>
+            {isSettingsOpen && (
+              <div className="board-toolbar__settings-popover absolute right-0 top-full z-40 mt-2 w-72 rounded-2xl border border-gray-200 bg-white p-3 shadow-lg">
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wide text-gray-500">{`Толщина (${widthTargetLabel})`}</div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={BOARD_MIN_WIDTH}
+                        max={BOARD_MAX_WIDTH}
+                        step={BOARD_WIDTH_STEP}
+                        value={activeWidth}
+                        onChange={handleWidthChange}
+                        disabled={!showWidthControls}
+                        className={`w-full accent-purple-600 ${showWidthControls ? '' : 'opacity-40'}`}
                       />
-                    ))}
-                  </div>
-                </div>
-                <div className="border-t border-gray-100 pt-3">
-                  <label className="flex items-center gap-2 text-xs text-gray-600">
-                    <input
-                      type="checkbox"
-                      checked={shareMyCursor}
-                      onChange={(event) => setShareMyCursor(event.target.checked)}
-                      className="h-4 w-4 accent-purple-600"
-                    />
-                    Показывать мой курсор
-                  </label>
-                </div>
-                <div className="border-t border-gray-100 pt-3">
-                  <label className="flex items-center gap-2 text-xs text-gray-600">
-                    <input
-                      type="checkbox"
-                      checked={lowBandwidthMode}
-                      onChange={(event) => setLowBandwidthMode(event.target.checked)}
-                      className="h-4 w-4 accent-purple-600"
-                    />
-                    Режим слабого интернета
-                  </label>
-                  <div className="mt-1 text-[11px] text-gray-400">
-                    Реже отправляет курсор и превью линий, чтобы снизить трафик.
-                  </div>
-                </div>
-                {tool === 'move' && selectedImage && (
-                  <div className="border-t border-gray-100 pt-3">
-                    <div className="text-[11px] uppercase tracking-wide text-gray-500">Изображение</div>
-                    <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
-                      <span>{selectedImageLabel}</span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => resizeImageByFactor(selectedImage.id, 1 - BOARD_IMAGE_SCALE_STEP)}
-                          className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-                        >
-                          -
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => resizeImageByFactor(selectedImage.id, 1 + BOARD_IMAGE_SCALE_STEP)}
-                          className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-                        >
-                          +
-                        </button>
-                      </div>
+                      <span className="w-8 text-right text-xs font-semibold text-gray-600">{formattedWidth}</span>
                     </div>
                   </div>
-                )}
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wide text-gray-500">Цвет</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      {BOARD_COLORS.map((swatch) => (
+                        <button
+                          key={swatch}
+                          type="button"
+                          onClick={() => setColor(swatch)}
+                          className={`h-7 w-7 rounded-full border-2 transition ${
+                            color === swatch ? 'border-gray-900 scale-110' : 'border-white/80'
+                          }`}
+                          style={{ backgroundColor: swatch }}
+                          aria-label={`Цвет ${swatch}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <div className="border-t border-gray-100 pt-3">
+                    <label className="flex items-center gap-2 text-xs text-gray-600">
+                      <input
+                        type="checkbox"
+                        checked={shareMyCursor}
+                        onChange={(event) => setShareMyCursor(event.target.checked)}
+                        className="h-4 w-4 accent-purple-600"
+                      />
+                      Показывать мой курсор
+                    </label>
+                  </div>
+                  <div className="border-t border-gray-100 pt-3">
+                    <label className="flex items-center gap-2 text-xs text-gray-600">
+                      <input
+                        type="checkbox"
+                        checked={lowBandwidthMode}
+                        onChange={(event) => setLowBandwidthMode(event.target.checked)}
+                        className="h-4 w-4 accent-purple-600"
+                      />
+                      Режим слабого интернета
+                    </label>
+                    <div className="mt-1 text-[11px] text-gray-400">
+                      Реже отправляет курсор и превью линий, чтобы снизить трафик.
+                    </div>
+                  </div>
+                  {tool === 'move' && selectedImage && (
+                    <div className="border-t border-gray-100 pt-3">
+                      <div className="text-[11px] uppercase tracking-wide text-gray-500">Изображение</div>
+                      <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
+                        <span>{selectedImageLabel}</span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => resizeImageByFactor(selectedImage.id, 1 - BOARD_IMAGE_SCALE_STEP)}
+                            className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                          >
+                            -
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => resizeImageByFactor(selectedImage.id, 1 + BOARD_IMAGE_SCALE_STEP)}
+                            className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
+            )}
+          </div>
+
+          <div className="board-toolbar__group board-toolbar__group--zoom" aria-label="Масштаб доски">
+            <button
+              type="button"
+              onClick={() => zoomBy(1 / 1.12)}
+              className={boardToolbarButtonClass()}
+              aria-label="Отдалить"
+              title="Отдалить"
+            >
+              <Minus size={14} />
+            </button>
+
+            <div className="board-toolbar__zoom-value">
+              {zoomLabel}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => zoomBy(1.12)}
+              className={boardToolbarButtonClass()}
+              aria-label="Приблизить"
+              title="Приблизить"
+            >
+              <Plus size={14} />
+            </button>
+
+            <button
+              type="button"
+              onClick={resetView}
+              className={boardToolbarButtonClass({ wide: true })}
+              aria-label="Сброс масштаба"
+              title="Сброс масштаба"
+            >
+              Сброс
+            </button>
+          </div>
+        </div>
+
+        <div className="board-toolbar__strip board-toolbar__strip--actions">
+          {!isFullscreen && !embedded && (
+            <div className="board-toolbar__actions">
+              {boardSessionActions}
             </div>
           )}
-        </div>
-
-        <div className="board-toolbar__group board-toolbar__group--zoom" aria-label="Масштаб доски">
+          {isFullscreen && (
+            <div className="board-toolbar__actions">
+              {boardSessionActions}
+            </div>
+          )}
+          {!isFullscreen && embedded && showEmbeddedSummonButton && summonStudentButton}
           <button
             type="button"
-            onClick={() => zoomBy(1 / 1.12)}
-            className={boardToolbarButtonClass()}
-            aria-label="Отдалить"
-            title="Отдалить"
+            onClick={toggleFullscreen}
+            className={`${boardToolbarButtonClass({ accent: true })} board-toolbar__fullscreen-button`}
+            aria-label={isFullscreen ? 'Обычный экран' : 'Полный экран'}
+            title={isFullscreen ? 'Обычный экран' : 'Полный экран'}
           >
-            <Minus size={14} />
-          </button>
-
-          <div className="board-toolbar__zoom-value">
-            {zoomLabel}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => zoomBy(1.12)}
-            className={boardToolbarButtonClass()}
-            aria-label="Приблизить"
-            title="Приблизить"
-          >
-            <Plus size={14} />
-          </button>
-
-          <button
-            type="button"
-            onClick={resetView}
-            className={boardToolbarButtonClass({ wide: true })}
-            aria-label="Сброс масштаба"
-            title="Сброс масштаба"
-          >
-            Сброс
+            {isFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
           </button>
         </div>
-
-        {!isFullscreen && !embedded && (
-          <div className="board-toolbar__actions">
-            {boardSessionActions}
-          </div>
-        )}
-        {isFullscreen && (
-          <div className="board-toolbar__actions">
-            {boardSessionActions}
-          </div>
-        )}
-        {!isFullscreen && embedded && showEmbeddedSummonButton && summonStudentButton}
-        <button
-          type="button"
-          onClick={toggleFullscreen}
-          className={`${boardToolbarButtonClass({ accent: true })} board-toolbar__fullscreen-button`}
-          aria-label={isFullscreen ? 'Обычный экран' : 'Полный экран'}
-          title={isFullscreen ? 'Обычный экран' : 'Полный экран'}
-        >
-          {isFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
-        </button>
       </div>
 
       {pasteError && (
