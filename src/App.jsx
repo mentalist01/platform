@@ -2765,14 +2765,14 @@ const CollabSection = ({
   const notesPdfMinHeight = isMobileViewport ? 90 : 120;
   const notesPdfMaxHeight = isCollabFullscreen
     ? (isMobileViewport ? 520 : 760)
-    : (isDesktopCollabCompact ? 380 : 560);
+    : (isDesktopCollabCompact ? 260 : 560);
   const clampNotesPdfHeight = useCallback(
     (value) => Math.max(notesPdfMinHeight, Math.min(notesPdfMaxHeight, Math.round(value))),
     [notesPdfMinHeight, notesPdfMaxHeight]
   );
   const preferredBoardTopPaneHeight = useMemo(
-    () => clampNotesPdfHeight(isMobileViewport ? 260 : (isCollabFullscreen ? 360 : 320)),
-    [clampNotesPdfHeight, isMobileViewport, isCollabFullscreen]
+    () => clampNotesPdfHeight(isMobileViewport ? 220 : (isCollabFullscreen ? 360 : (isDesktopCollabCompact ? 220 : 300))),
+    [clampNotesPdfHeight, isMobileViewport, isCollabFullscreen, isDesktopCollabCompact]
   );
   const isNotesBoardMode = notesPanelMode === COLLAB_TOP_PANE_MODE_BOARD;
   const canResizeTopPane = notesPdfPanelOpen && (isNotesBoardMode || Boolean(selectedNotesPdfFile));
@@ -2780,23 +2780,23 @@ const CollabSection = ({
   const isFullscreenLight = isCollabFullscreen && !isDarkTheme;
   const collabShellClass = isCollabFullscreen
     ? (isFullscreenDark
-      ? 'animate-fadeIn relative isolate flex h-screen h-[100dvh] w-screen w-[100dvw] flex-col overflow-hidden bg-[radial-gradient(circle_at_0%_0%,_rgba(56,189,248,0.26),_transparent_36%),radial-gradient(circle_at_100%_0%,_rgba(168,85,247,0.28),_transparent_40%),radial-gradient(circle_at_52%_120%,_rgba(14,116,144,0.28),_transparent_46%),linear-gradient(180deg,_rgba(2,6,23,1)_0%,_rgba(9,13,28,1)_48%,_rgba(2,6,23,1)_100%)] text-slate-100 px-0.5 py-0.5 sm:px-1 sm:py-1 md:px-1.5 md:py-1.5'
-      : 'animate-fadeIn relative isolate flex h-screen h-[100dvh] w-screen w-[100dvw] flex-col overflow-hidden bg-[radial-gradient(circle_at_0%_0%,_rgba(56,189,248,0.16),_transparent_36%),radial-gradient(circle_at_100%_0%,_rgba(147,51,234,0.16),_transparent_40%),radial-gradient(circle_at_56%_115%,_rgba(56,189,248,0.14),_transparent_46%),linear-gradient(180deg,_rgba(248,250,252,1)_0%,_rgba(237,242,255,0.96)_50%,_rgba(248,250,252,1)_100%)] text-slate-900 px-0.5 py-0.5 sm:px-1 sm:py-1 md:px-1.5 md:py-1.5')
+      ? 'collab-workspace-shell animate-fadeIn relative isolate flex h-screen h-[100dvh] w-screen w-[100dvw] flex-col overflow-hidden bg-[radial-gradient(circle_at_0%_0%,_rgba(56,189,248,0.26),_transparent_36%),radial-gradient(circle_at_100%_0%,_rgba(168,85,247,0.28),_transparent_40%),radial-gradient(circle_at_52%_120%,_rgba(14,116,144,0.28),_transparent_46%),linear-gradient(180deg,_rgba(2,6,23,1)_0%,_rgba(9,13,28,1)_48%,_rgba(2,6,23,1)_100%)] text-slate-100 px-0.5 py-0.5 sm:px-1 sm:py-1 md:px-1.5 md:py-1.5'
+      : 'collab-workspace-shell animate-fadeIn relative isolate flex h-screen h-[100dvh] w-screen w-[100dvw] flex-col overflow-hidden bg-[radial-gradient(circle_at_0%_0%,_rgba(56,189,248,0.16),_transparent_36%),radial-gradient(circle_at_100%_0%,_rgba(147,51,234,0.16),_transparent_40%),radial-gradient(circle_at_56%_115%,_rgba(56,189,248,0.14),_transparent_46%),linear-gradient(180deg,_rgba(248,250,252,1)_0%,_rgba(237,242,255,0.96)_50%,_rgba(248,250,252,1)_100%)] text-slate-900 px-0.5 py-0.5 sm:px-1 sm:py-1 md:px-1.5 md:py-1.5')
     : (isDesktopCollabCompact
-      ? 'animate-fadeIn h-full md:flex md:min-h-0 md:flex-col md:overflow-hidden'
-      : 'animate-fadeIn pb-10');
+      ? 'collab-workspace-shell animate-fadeIn h-full md:flex md:min-h-0 md:flex-col md:overflow-hidden'
+      : 'collab-workspace-shell animate-fadeIn pb-10');
   const collabShellStyle = isDesktopCollabCompact
     ? { height: compactCollabHeight, maxHeight: compactCollabHeight }
     : undefined;
   const collabCardClass = isCollabFullscreen
-    ? `relative z-[1] flex min-h-0 flex-1 flex-col ${isMobileViewport ? 'overflow-visible' : 'overflow-hidden'} border ring-1 ${
+    ? `collab-workspace-card relative z-[1] flex min-h-0 flex-1 flex-col ${isMobileViewport ? 'overflow-visible' : 'overflow-hidden'} border ring-1 ${
       isFullscreenDark
         ? 'border-slate-700/75 ring-cyan-300/10 bg-slate-950/54 shadow-[0_30px_72px_rgba(2,6,23,0.62)]'
         : 'border-slate-200/90 ring-violet-200/80 bg-white/82 shadow-[0_30px_72px_rgba(15,23,42,0.14)]'
     } p-1 sm:p-1.5 md:p-2 backdrop-blur-xl`
     : (isDesktopCollabCompact
-      ? 'p-2 md:p-2.5 flex min-h-0 flex-1 flex-col overflow-hidden'
-      : 'p-4 md:p-6');
+      ? 'collab-workspace-card p-2 md:p-2.5 flex min-h-0 flex-1 flex-col overflow-hidden'
+      : 'collab-workspace-card p-4 md:p-6');
   const collabTitleClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-50' : 'text-slate-900') : 'text-gray-900';
   const collabSubtitleClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-300/90' : 'text-slate-600') : 'text-gray-500';
   const collabLabelClass = isCollabFullscreen ? (isFullscreenDark ? 'text-cyan-300' : 'text-violet-600') : 'text-purple-600';
@@ -5559,6 +5559,7 @@ const CollabSection = ({
         : 'border-amber-200 bg-amber-50/95 text-amber-700 shadow-[0_6px_14px_rgba(252,211,77,0.22)]')
       : 'border-amber-200 bg-amber-50 text-amber-700');
   const isSplitCollabLayout = (isCollabFullscreen || isDesktopCollabCompact) && !isMobileViewport;
+  const showEditorHeader = !isSplitCollabLayout;
   const sessionLabel = roomId
     ? (isTeacher
       ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
@@ -5939,58 +5940,78 @@ const CollabSection = ({
   ) : null;
 
   const editorPane = (
-    <div className={`relative overflow-hidden rounded-2xl border ${isSplitCollabLayout ? 'h-full' : ''} ${
+    <div className={`collab-editor-surface ${showEditorHeader ? '' : 'collab-editor-surface--flush'} relative flex flex-col overflow-hidden rounded-2xl border ${isSplitCollabLayout ? 'h-full' : ''} ${
       isCollabFullscreen
         ? (isFullscreenDark
           ? 'border-slate-700/90 ring-1 ring-cyan-400/10 bg-slate-950/82 shadow-[0_24px_46px_rgba(2,6,23,0.52)]'
           : 'border-slate-300/80 ring-1 ring-slate-200/70 bg-slate-950 shadow-[0_20px_44px_rgba(71,85,105,0.3)]')
         : 'border-gray-800'
     }`}>
-      {!roomId && (
-        <div className={`absolute inset-0 z-10 flex items-center justify-center px-3 text-center text-sm ${
-          isFullscreenDark
-            ? 'bg-slate-950/80 text-slate-100'
-            : (isFullscreenLight ? 'bg-white/85 text-slate-800' : 'bg-slate-900/70 text-slate-100')
-        }`}>
-          Выберите ученика, чтобы открыть совместный документ.
+      {showEditorHeader && (
+        <div className="collab-editor-header">
+          <div className="collab-editor-file">
+            <span className="collab-editor-file-dot" />
+            <span>main.py</span>
+            <span className="collab-editor-pill">Python</span>
+          </div>
+          <div className="collab-editor-meta">
+            <span>{roomId ? 'Совместный документ' : 'Выберите ученика'}</span>
+            <span className={`collab-editor-connection collab-editor-connection--${status || 'idle'}`}>
+              {roomId ? statusLabel : 'Комната не открыта'}
+            </span>
+          </div>
         </div>
       )}
-      <Editor
-        height={isSplitCollabLayout ? '100%' : editorHeight}
-        language="python"
-        theme={resolveMonacoColorTheme(theme)}
-        beforeMount={ensureMonacoColorTheme}
-        defaultValue=""
-        onMount={handleEditorMount}
-        options={editorOptions}
-        loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
-      />
-      {remoteEditorCursorMarkers.map((cursor) => (
-        <div
-          key={cursor.id}
-          className="pointer-events-none absolute z-[15] select-none"
-          style={{
-            left: `${cursor.left}px`,
-            top: `${cursor.top}px`,
-            transform: 'translate(-1px, -1px)',
-          }}
-        >
-          <svg width="15" height="20" viewBox="0 0 15 20" fill="none" aria-hidden>
-            <path
-              d="M1 1L7.2 16L9.6 10.9L14 9.3L1 1Z"
-              fill={cursor.color}
-              stroke="white"
-              strokeWidth="1.15"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
-      ))}
+      <div
+        className="collab-editor-body relative min-h-0 flex-1"
+        style={isSplitCollabLayout ? undefined : { height: editorHeight }}
+      >
+        {!roomId && (
+          <div className={`absolute inset-0 z-10 flex items-center justify-center px-3 text-center text-sm ${
+            isFullscreenDark
+              ? 'bg-slate-950/80 text-slate-100'
+              : (isFullscreenLight ? 'bg-white/85 text-slate-800' : 'bg-slate-900/70 text-slate-100')
+          }`}>
+            Выберите ученика, чтобы открыть совместный документ.
+          </div>
+        )}
+        <Editor
+          height="100%"
+          language="python"
+          theme={resolveMonacoColorTheme(theme)}
+          beforeMount={ensureMonacoColorTheme}
+          defaultValue=""
+          onMount={handleEditorMount}
+          options={editorOptions}
+          loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+        />
+        {remoteEditorCursorMarkers.map((cursor) => (
+          <div
+            key={cursor.id}
+            className="pointer-events-none absolute z-[15] select-none"
+            style={{
+              left: `${cursor.left}px`,
+              top: `${cursor.top}px`,
+              transform: 'translate(-1px, -1px)',
+            }}
+          >
+            <svg width="15" height="20" viewBox="0 0 15 20" fill="none" aria-hidden>
+              <path
+                d="M1 1L7.2 16L9.6 10.9L14 9.3L1 1Z"
+                fill={cursor.color}
+                stroke="white"
+                strokeWidth="1.15"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+        ))}
+      </div>
     </div>
   );
 
   const inputPane = (
-    <div className={`${isSplitCollabLayout ? 'space-y-1' : 'space-y-2'} ${
+    <div className={`collab-aux-panel ${isSplitCollabLayout ? 'space-y-1' : 'space-y-2'} ${
       isCollabFullscreen
         ? (isFullscreenDark
           ? `rounded-2xl border p-2.5 shadow-[inset_0_1px_0_rgba(148,163,184,0.12)] ${
@@ -6507,7 +6528,7 @@ const CollabSection = ({
     </div>
   );
   const notesPdfPane = (
-    <div className={`rounded-xl border ${isCollabFullscreen ? 'px-2 py-1.5' : 'px-1.5 py-1'} ${isSplitCollabLayout ? 'space-y-0.5' : 'space-y-1'} ${
+    <div className={`collab-top-pane rounded-xl border ${isCollabFullscreen ? 'px-2 py-1.5' : 'px-1.5 py-1'} ${isSplitCollabLayout ? 'space-y-0.5' : 'space-y-1'} ${
       isFullscreenDark
         ? 'border-slate-700/80 bg-slate-900/70'
         : 'border-gray-200 bg-white'
@@ -6689,7 +6710,7 @@ const CollabSection = ({
             <>
               <div
                 ref={notesPdfPreviewRef}
-                className={`overflow-hidden rounded-lg border ${
+                className={`collab-board-stage overflow-hidden rounded-lg border ${
                   isFullscreenDark
                     ? 'border-slate-700/80 bg-slate-950/30'
                     : 'border-gray-200 bg-gray-50'
@@ -6714,7 +6735,7 @@ const CollabSection = ({
             </>
           ) : selectedNotesPdfFile ? (
             <>
-              <div className={`overflow-hidden rounded-lg border ${
+              <div className={`collab-pdf-stage overflow-hidden rounded-lg border ${
                 isFullscreenDark
                   ? 'border-slate-700/80 bg-slate-950/60'
                   : 'border-gray-200 bg-gray-50'
@@ -6752,8 +6773,17 @@ const CollabSection = ({
       )}
     </div>
   );
+  const resultStatusLabel = runStatus === 'running'
+    ? 'Выполняется'
+    : (runStatus === 'stopped'
+      ? 'Остановлено'
+      : ((runOutput || runError) ? 'Вывод готов' : 'Готов к запуску'));
+  const resultStatusTone = runStatus === 'running'
+    ? 'running'
+    : (runStatus === 'stopped' || runError ? 'danger' : ((runOutput || runError) ? 'ready' : 'idle'));
+
   const resultHeader = (
-    <div className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between ${
+    <div className={`collab-result-header flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between ${
       isCollabFullscreen
         ? (isFullscreenDark
           ? 'rounded-xl border border-slate-700/75 bg-slate-900/70 px-2.5 py-2'
@@ -6769,10 +6799,14 @@ const CollabSection = ({
           </div>
         )}
       </div>
+      <div className={`collab-run-status collab-run-status--${resultStatusTone}`}>
+        <span className="collab-run-status-dot" />
+        {resultStatusLabel}
+      </div>
     </div>
   );
 
-  const resultConsoleClass = `rounded-2xl border p-3 text-sm font-mono ${
+  const resultConsoleClass = `collab-result-console rounded-2xl border p-3 text-sm font-mono ${
     isFullscreenDark
       ? 'bg-slate-950/92 text-slate-100'
       : (isFullscreenLight ? 'bg-slate-900 text-slate-100' : 'bg-slate-950 text-slate-100')
@@ -6849,7 +6883,7 @@ const CollabSection = ({
           )}
         </>
       ) : (
-        <div className="text-slate-400">Здесь появится вывод программы.</div>
+        <div className="collab-result-empty text-slate-400">Здесь появится вывод программы.</div>
       )}
     </div>
   );
@@ -7064,12 +7098,12 @@ const CollabSection = ({
           </div>
         )}
 
-        <div className={isCollabFullscreen || isDesktopCollabCompact ? 'mt-1' : 'mt-2'}>
+        <div className={`collab-top-pane-wrap ${isCollabFullscreen || isDesktopCollabCompact ? 'mt-1' : 'mt-2'}`}>
           {notesPdfPane}
         </div>
 
         <div className={`${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-1 flex flex-wrap items-center gap-1.5' : 'mt-1.5 flex flex-wrap items-center gap-1.5') : ''}`}>
-          <div className={`max-w-full flex flex-wrap items-center gap-2 rounded-xl border ${
+          <div className={`collab-code-toolbar max-w-full flex flex-wrap items-center gap-2 rounded-xl border ${
             isCollabFullscreen
               ? 'min-w-0 flex-1 rounded-2xl px-2 py-1 sm:px-2.5 sm:py-1.5'
               : (isDesktopCollabCompact ? 'mt-0 px-1.5 py-1' : 'mt-3 inline-flex px-2 py-1.5')
@@ -7078,6 +7112,16 @@ const CollabSection = ({
               <>
                 <span className={`text-[10px] font-bold uppercase tracking-widest ${collabSessionLabelClass}`}>Сессия</span>
                 <span className={`${isCollabFullscreen ? 'max-w-[360px]' : 'max-w-[220px]'} truncate text-[11px] font-semibold ${collabSessionValueClass}`}>{sessionLabel}</span>
+                <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
+              </>
+            )}
+            {isSplitCollabLayout && (
+              <>
+                <span className="collab-toolbar-file-tab">
+                  <span className="collab-editor-file-dot" />
+                  <span>main.py</span>
+                  <span className="collab-editor-pill">Python</span>
+                </span>
                 <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
               </>
             )}
@@ -7255,7 +7299,7 @@ const CollabSection = ({
         {isSplitCollabLayout ? (
           <div
             ref={splitLayoutRef}
-            className={`${isDesktopCollabCompact ? 'mt-2 flex-1' : (isCollabFullscreen ? 'mt-1 flex-1' : 'mt-1')} grid min-h-0 items-stretch ${
+            className={`collab-split-layout ${isDesktopCollabCompact ? 'mt-2 flex-1' : (isCollabFullscreen ? 'mt-1 flex-1' : 'mt-1')} grid min-h-0 items-stretch ${
               isCollabFullscreen ? 'gap-2' : 'gap-0.5'
             }`}
             style={{
@@ -7267,7 +7311,7 @@ const CollabSection = ({
               height: (isCollabFullscreen || isDesktopCollabCompact) ? '100%' : undefined,
             }}
           >
-            <div className="min-h-0 min-w-0">
+            <div className="collab-editor-pane min-h-0 min-w-0">
               {editorPane}
             </div>
             <div
@@ -7279,7 +7323,7 @@ const CollabSection = ({
               aria-valuenow={Math.round(splitLeftWidth)}
               onPointerDown={handleSplitResizeStart}
               onDoubleClick={handleSplitResizeReset}
-              className={`group relative flex ${isCollabFullscreen ? 'w-[14px]' : 'w-[10px]'} cursor-col-resize select-none touch-none items-center justify-center`}
+              className={`collab-split-resizer group relative flex ${isCollabFullscreen ? 'w-[14px]' : 'w-[10px]'} cursor-col-resize select-none touch-none items-center justify-center`}
               title="Перетащите, чтобы изменить ширину. Двойной клик — сброс."
             >
               <div className={`${isCollabFullscreen ? 'h-full w-[3px]' : 'h-full w-[2px]'} rounded-full transition ${
@@ -7301,9 +7345,9 @@ const CollabSection = ({
                 }`} />
               </div>
             </div>
-            <div className="min-h-0 min-w-0">
-              <div className={`flex min-h-0 flex-col ${isCollabFullscreen ? 'gap-1.5' : 'gap-1.5'}`} style={{ height: isCollabFullscreen ? '100%' : editorHeight }}>
-                <div className={`min-h-0 flex flex-1 flex-col rounded-2xl border ${isCollabFullscreen ? 'p-1.5' : 'p-2'} ${
+            <div className="collab-output-pane min-h-0 min-w-0">
+              <div className={`collab-output-stack flex min-h-0 flex-col ${isCollabFullscreen ? 'gap-1.5' : 'gap-1.5'}`} style={{ height: isCollabFullscreen ? '100%' : editorHeight }}>
+                <div className={`collab-result-card min-h-0 flex flex-1 flex-col rounded-2xl border ${isCollabFullscreen ? 'p-1.5' : 'p-2'} ${
                   isCollabFullscreen
                     ? (isFullscreenDark
                       ? 'border-slate-700/85 ring-1 ring-cyan-400/10 bg-slate-950/72 shadow-[0_16px_34px_rgba(2,6,23,0.4),inset_0_1px_0_rgba(148,163,184,0.12)]'
@@ -7311,7 +7355,7 @@ const CollabSection = ({
                     : 'border-gray-200 bg-white'
                 }`}>
                   {resultHeader}
-                  <div className="mt-2 min-h-0 flex-1">
+                  <div className="collab-result-body mt-2 min-h-0 flex-1">
                     {resultConsole}
                   </div>
                 </div>
@@ -7438,6 +7482,7 @@ const BoardSection = ({
   const boardSizeRef = useRef(boardSize);
   const offsetRef = useRef(offset);
   const zoomRef = useRef(zoom);
+  const toolRef = useRef(tool);
   const boardItemsRef = useRef([]);
   const boardEstimatedBytesRef = useRef(0);
   const boardImageUsageRef = useRef(new Map());
@@ -7450,6 +7495,9 @@ const BoardSection = ({
   const scheduleBoardSceneRenderRef = useRef(null);
   const imageCacheRef = useRef(new Map());
   const lastPointerRef = useRef({ x: 0, y: 0 });
+  const lastPointerClientRef = useRef(null);
+  const pointerInsideBoardRef = useRef(false);
+  const boardPasteFocusedRef = useRef(false);
   const drawStateRef = useRef({ drawing: false, points: [], start: null, end: null });
   const panStateRef = useRef({ active: false, startX: 0, startY: 0, originX: 0, originY: 0 });
   const dragImageRef = useRef({ active: false, id: null, offsetX: 0, offsetY: 0 });
@@ -7932,10 +7980,15 @@ const BoardSection = ({
   }, [boardSize]);
 
   useEffect(() => {
+    if (pointerInsideBoardRef.current) return;
     const centerX = offset.x + (boardSize.width / (zoom || 1)) / 2;
     const centerY = offset.y + (boardSize.height / (zoom || 1)) / 2;
     lastPointerRef.current = { x: centerX, y: centerY };
   }, [boardSize.width, boardSize.height, zoom, offset]);
+
+  useEffect(() => {
+    toolRef.current = tool;
+  }, [tool]);
 
   useEffect(() => {
     offsetRef.current = offset;
@@ -8115,6 +8168,91 @@ const BoardSection = ({
       x: worldX,
       y: worldY,
     };
+  };
+
+  const rememberBoardPointer = (event) => {
+    const point = getCanvasPoint(event);
+    lastPointerRef.current = point;
+    lastPointerClientRef.current = {
+      x: Number(event?.clientX) || 0,
+      y: Number(event?.clientY) || 0,
+    };
+    pointerInsideBoardRef.current = true;
+    return point;
+  };
+
+  const clearBoardPointer = () => {
+    pointerInsideBoardRef.current = false;
+    lastPointerClientRef.current = null;
+  };
+
+  const getBoardViewportCenterPoint = () => {
+    const surface = overlayRef.current || canvasRef.current || containerRef.current;
+    const rect = surface?.getBoundingClientRect?.();
+    if (rect) {
+      const surfacePoint = getCanvasSurfacePoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      if (surfacePoint) {
+        const currentZoom = zoomRef.current || 1;
+        return {
+          x: offsetRef.current.x + surfacePoint.x / currentZoom,
+          y: offsetRef.current.y + surfacePoint.y / currentZoom,
+        };
+      }
+    }
+    const currentZoom = zoomRef.current || 1;
+    return {
+      x: offsetRef.current.x + (boardSizeRef.current.width / currentZoom) / 2,
+      y: offsetRef.current.y + (boardSizeRef.current.height / currentZoom) / 2,
+    };
+  };
+
+  const getBoardPastePoint = () => {
+    if (pointerInsideBoardRef.current && lastPointerClientRef.current) {
+      const surfacePoint = getCanvasSurfacePoint(lastPointerClientRef.current.x, lastPointerClientRef.current.y);
+      if (surfacePoint) {
+        const currentZoom = zoomRef.current || 1;
+        return {
+          x: offsetRef.current.x + surfacePoint.x / currentZoom,
+          y: offsetRef.current.y + surfacePoint.y / currentZoom,
+        };
+      }
+    }
+    if (
+      pointerInsideBoardRef.current
+      && lastPointerRef.current
+      && Number.isFinite(Number(lastPointerRef.current.x))
+      && Number.isFinite(Number(lastPointerRef.current.y))
+    ) {
+      return lastPointerRef.current;
+    }
+    return getBoardViewportCenterPoint();
+  };
+
+  const getBoardPasteScale = (imageWidth, imageHeight) => {
+    const sourceWidth = Math.max(1, Number(imageWidth) || 1);
+    const sourceHeight = Math.max(1, Number(imageHeight) || 1);
+    const currentZoom = zoomRef.current || 1;
+    const viewportWidth = Math.max(BOARD_IMAGE_MIN_SIZE, (boardSizeRef.current.width || 1) / currentZoom);
+    const viewportHeight = Math.max(BOARD_IMAGE_MIN_SIZE, (boardSizeRef.current.height || 1) / currentZoom);
+    const maxDimension = Math.max(sourceWidth, sourceHeight, 1);
+    const maxDimensionScale = maxDimension > BOARD_IMAGE_MAX_SIZE ? BOARD_IMAGE_MAX_SIZE / maxDimension : 1;
+    const fitScale = Math.min(
+      1,
+      (viewportWidth * 0.78) / sourceWidth,
+      (viewportHeight * 0.78) / sourceHeight
+    );
+    return Math.max(BOARD_IMAGE_MIN_SIZE / maxDimension, Math.min(maxDimensionScale, fitScale));
+  };
+
+  const shouldHandleBoardImagePaste = (event) => {
+    const root = boardRootRef.current;
+    if (!root || !roomId) return false;
+    const target = event?.target;
+    if (target?.nodeType && root.contains(target)) return boardPasteFocusedRef.current;
+    if (typeof document === 'undefined') return false;
+    const active = document.activeElement;
+    if (active?.nodeType && root.contains(active)) return boardPasteFocusedRef.current;
+    return boardPasteFocusedRef.current && (!active || active === document.body || active === document.documentElement);
   };
 
   const getPenPressure = (event) => {
@@ -9295,6 +9433,17 @@ const BoardSection = ({
     return () => window.removeEventListener('blur', handleBlur);
   }, [scheduleCursorUpdate]);
 
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const handleDocumentPointerDown = (event) => {
+      const root = boardRootRef.current;
+      if (!root || !event.target?.nodeType) return;
+      if (!root.contains(event.target)) boardPasteFocusedRef.current = false;
+    };
+    document.addEventListener('pointerdown', handleDocumentPointerDown, true);
+    return () => document.removeEventListener('pointerdown', handleDocumentPointerDown, true);
+  }, []);
+
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container || typeof ResizeObserver === 'undefined') return undefined;
@@ -9495,6 +9644,7 @@ const BoardSection = ({
   useEffect(() => {
     const handlePaste = (event) => {
       if (!roomId || !yItemsRef.current) return;
+      if (!shouldHandleBoardImagePaste(event)) return;
       const clipboardItems = event.clipboardData?.items || [];
       const imageItem = Array.from(clipboardItems).find((item) => item.type?.startsWith('image/'));
       if (!imageItem) return;
@@ -9511,11 +9661,10 @@ const BoardSection = ({
         const dataUrl = String(reader.result || '');
         const img = new Image();
         img.onload = () => {
-          const maxDimension = Math.max(img.width || 0, img.height || 0, 1);
-          const scale = maxDimension > BOARD_IMAGE_MAX_SIZE ? BOARD_IMAGE_MAX_SIZE / maxDimension : 1;
+          const scale = getBoardPasteScale(img.width, img.height);
           const widthPx = Math.max(1, img.width * scale);
           const heightPx = Math.max(1, img.height * scale);
-          const pointer = lastPointerRef.current || { x: 0, y: 0 };
+          const pointer = getBoardPastePoint();
           const x = pointer.x - widthPx / 2;
           const y = pointer.y - heightPx / 2;
           const entry = {
@@ -9541,6 +9690,8 @@ const BoardSection = ({
             docInstance.transact(() => {
               yItemsRef.current?.push([entry]);
             }, localOriginRef.current);
+            if (toolRef.current === 'move') setSelectedImageId(entry.id);
+            lastPointerRef.current = { x: pointer.x, y: pointer.y };
           }
         };
         img.src = dataUrl;
@@ -9632,8 +9783,9 @@ const BoardSection = ({
 
   const handlePointerDown = (event) => {
     if (!roomId) return;
-    const point = getCanvasPoint(event);
-    lastPointerRef.current = point;
+    boardPasteFocusedRef.current = true;
+    containerRef.current?.focus?.({ preventScroll: true });
+    const point = rememberBoardPointer(event);
     scheduleCursorUpdate(point);
     if (event.pointerType === 'touch') event.preventDefault();
     if (isSpaceDown || event.button === 1 || event.button === 2) {
@@ -9727,8 +9879,7 @@ const BoardSection = ({
   };
 
   const handlePointerMove = (event) => {
-    const point = getCanvasPoint(event);
-    lastPointerRef.current = point;
+    const point = rememberBoardPointer(event);
     scheduleCursorUpdate(point);
     if (eraserStateRef.current.active) {
       eraseAtPoint(point);
@@ -9889,6 +10040,7 @@ const BoardSection = ({
 
   const handlePointerLeave = () => {
     handlePointerUp();
+    clearBoardPointer();
     scheduleCursorUpdate(null);
   };
 
@@ -10063,7 +10215,7 @@ const BoardSection = ({
   const boardCardClass = isFullscreen
     ? 'p-1 md:p-1.5 h-full min-h-0 flex flex-col overflow-hidden'
     : (embedded
-      ? 'h-full min-h-0 rounded-[1rem] border border-gray-200 bg-white p-2 md:p-2.5 shadow-sm flex flex-col overflow-hidden'
+      ? 'board-embedded-card relative h-full min-h-0 rounded-[1rem] border border-gray-200 bg-white p-2 md:p-2.5 shadow-sm flex flex-col overflow-hidden'
       : 'p-2.5 md:p-3 md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-hidden');
   const activeWidth = tool === 'line' ? lineWidth : penWidth;
   const widthTargetLabel = tool === 'line' ? 'Линия' : 'Карандаш';
@@ -10271,7 +10423,7 @@ const BoardSection = ({
   ) : null;
   const boardCardContent = (
     <>
-      <div className={`flex flex-wrap items-center ${isFullscreen ? 'mt-0 gap-1.5' : 'mt-0 gap-1'}`}>
+      <div className={`board-toolbar flex flex-wrap items-center ${isFullscreen ? 'mt-0 gap-1.5' : 'mt-0 gap-1'}`}>
         {!isFullscreen && !embedded && (
           <div className="hidden xl:inline-flex max-w-full items-center gap-1 rounded-lg border border-purple-100 bg-purple-50/60 px-2 py-1 text-[10px] text-gray-700">
             <span className="font-bold uppercase tracking-wide text-purple-600">Сессия</span>
@@ -10378,7 +10530,7 @@ const BoardSection = ({
             className="inline-flex h-8 items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
           >
             <Settings size={13} />
-            Цвет и размер
+            <span className={embedded ? 'sr-only' : ''}>Цвет и размер</span>
             <span
               className="ml-1 inline-flex h-2.5 w-2.5 rounded-full border border-white/80"
               style={{ backgroundColor: color }}
@@ -10508,7 +10660,7 @@ const BoardSection = ({
           Сброс
         </button>
 
-        {!isFullscreen && (
+        {!isFullscreen && !embedded && (
           <div className="ml-auto flex flex-wrap items-center gap-1.5">
             {boardSessionActions}
           </div>
@@ -10535,7 +10687,16 @@ const BoardSection = ({
 
       <div
         ref={containerRef}
-        className={`${isFullscreen ? 'mt-1 flex-1 min-h-0 h-auto' : (embedded ? 'mt-2 flex-1 min-h-0 h-full' : 'mt-2 h-[68vh] min-h-[320px] sm:min-h-[360px] md:h-auto md:min-h-[54vh] md:flex-1')} relative w-full rounded-2xl border border-gray-200 bg-white overflow-hidden ${
+        tabIndex={roomId ? 0 : -1}
+        role="application"
+        aria-label="Доска урока. Нажмите, затем вставьте картинку через Ctrl+V."
+        onFocus={() => { boardPasteFocusedRef.current = true; }}
+        onBlur={(event) => {
+          if (!boardRootRef.current?.contains(event.relatedTarget)) {
+            boardPasteFocusedRef.current = false;
+          }
+        }}
+        className={`board-canvas-surface ${isFullscreen ? 'mt-1 flex-1 min-h-0 h-auto' : (embedded ? 'mt-2 flex-1 min-h-0 h-full' : 'mt-2 h-[68vh] min-h-[320px] sm:min-h-[360px] md:h-auto md:min-h-[54vh] md:flex-1')} relative w-full rounded-2xl border border-gray-200 bg-white outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60 overflow-hidden ${
           summonNotice ? 'ring-2 ring-amber-400/70 ring-offset-2 ring-offset-white' : ''
         }`}
         title={!isFullscreen ? 'Вставка картинки: Ctrl+V. Лимит 10 МБ. Панорамирование: удерживайте Space и тяните.' : undefined}
@@ -10564,6 +10725,7 @@ const BoardSection = ({
               : (tool === 'pen' || tool === 'line' || tool === 'eraser' ? 'crosshair' : (tool === 'move' ? 'grab' : 'default'))
           }}
           onPointerDown={handlePointerDown}
+          onPointerEnter={rememberBoardPointer}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerLeave={handlePointerLeave}
@@ -10606,7 +10768,16 @@ const BoardSection = ({
   );
 
   return (
-    <div ref={boardRootRef} className={boardShellClass}>
+    <div
+      ref={boardRootRef}
+      className={boardShellClass}
+      onFocusCapture={() => { boardPasteFocusedRef.current = true; }}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          boardPasteFocusedRef.current = false;
+        }
+      }}
+    >
       {isTeacher && !activeStudentId && (
         <div className="mb-2.5 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 flex items-start gap-2">
           <AlertTriangle size={18} className="mt-0.5" />

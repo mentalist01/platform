@@ -12457,3 +12457,489 @@ html[data-theme='dark'] .notes-explorer-shell .notes-explorer-folder-file-row.is
     inset 0 1px 0 rgba(147, 197, 253, 0.08),
     inset 0 -1px 0 rgba(96, 165, 250, 0.12) !important;
 }
+
+/* Collaborative code workspace polish. */
+.collab-workspace-shell {
+  --collab-glow-cyan: rgba(56, 189, 248, 0.18);
+  --collab-glow-violet: rgba(147, 51, 234, 0.16);
+  --collab-border: rgba(148, 163, 184, 0.32);
+  --collab-border-strong: rgba(99, 102, 241, 0.28);
+  --collab-panel: rgba(255, 255, 255, 0.88);
+  --collab-panel-raised: rgba(255, 255, 255, 0.94);
+  --collab-panel-soft: rgba(248, 250, 252, 0.84);
+  --collab-terminal: #050917;
+  --collab-terminal-soft: #081121;
+  --collab-muted: rgba(100, 116, 139, 0.96);
+}
+
+html[data-theme='dark'] .collab-workspace-shell {
+  --collab-glow-cyan: rgba(34, 211, 238, 0.16);
+  --collab-glow-violet: rgba(168, 85, 247, 0.18);
+  --collab-border: rgba(83, 104, 135, 0.56);
+  --collab-border-strong: rgba(125, 211, 252, 0.22);
+  --collab-panel: rgba(8, 15, 29, 0.86);
+  --collab-panel-raised: rgba(12, 21, 38, 0.92);
+  --collab-panel-soft: rgba(15, 23, 42, 0.74);
+  --collab-terminal: #030712;
+  --collab-terminal-soft: #07101f;
+  --collab-muted: rgba(154, 169, 193, 0.96);
+}
+
+.collab-workspace-card {
+  border-radius: 1.45rem !important;
+  border-color: var(--collab-border) !important;
+  background:
+    radial-gradient(circle at 0% 0%, var(--collab-glow-cyan), transparent 32%),
+    radial-gradient(circle at 100% 0%, var(--collab-glow-violet), transparent 34%),
+    linear-gradient(180deg, var(--collab-panel), var(--collab-panel-soft)) !important;
+  box-shadow:
+    0 28px 62px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.54) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card {
+  box-shadow:
+    0 30px 70px rgba(2, 6, 23, 0.44),
+    inset 0 1px 0 rgba(148, 163, 184, 0.1) !important;
+}
+
+.collab-top-pane {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1.15rem !important;
+  border-color: var(--collab-border) !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.9)) !important;
+  box-shadow:
+    0 10px 24px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+}
+
+.collab-top-pane::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.86), transparent);
+  pointer-events: none;
+}
+
+.collab-top-pane > * {
+  position: relative;
+  z-index: 1;
+}
+
+html[data-theme='dark'] .collab-top-pane {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(34, 211, 238, 0.1), transparent 34%),
+    linear-gradient(180deg, rgba(12, 20, 36, 0.92), rgba(7, 13, 26, 0.88)) !important;
+  box-shadow:
+    0 12px 30px rgba(2, 6, 23, 0.26),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+.collab-board-stage,
+.collab-pdf-stage {
+  border-radius: 1rem !important;
+  border-color: rgba(148, 163, 184, 0.36) !important;
+  background:
+    linear-gradient(135deg, rgba(248, 250, 252, 0.98), rgba(255, 255, 255, 0.96)) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.68),
+    0 14px 28px rgba(15, 23, 42, 0.08) !important;
+}
+
+html[data-theme='dark'] .collab-pdf-stage {
+  border-color: rgba(86, 106, 139, 0.54) !important;
+  background:
+    linear-gradient(135deg, rgba(226, 232, 240, 0.98), rgba(248, 250, 252, 0.96)) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.36),
+    0 16px 34px rgba(2, 6, 23, 0.28) !important;
+}
+
+html[data-theme='dark'] .collab-board-stage {
+  border-color: rgba(226, 232, 240, 0.62) !important;
+  background: #ffffff !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.82),
+    0 12px 26px rgba(2, 6, 23, 0.2) !important;
+}
+
+.board-embedded-card {
+  border-color: rgba(226, 232, 240, 0.78) !important;
+  background: #ffffff !important;
+}
+
+html[data-theme='dark'] .board-embedded-card {
+  border-color: rgba(226, 232, 240, 0.58) !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.board-embedded-card .board-toolbar {
+  position: absolute;
+  left: 0.5rem;
+  top: 0.5rem;
+  z-index: 32;
+  max-width: calc(100% - 1rem);
+  border: 1px solid rgba(51, 65, 85, 0.18);
+  border-radius: 0.9rem;
+  background: rgba(15, 23, 42, 0.74);
+  padding: 0.28rem;
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.board-embedded-card .board-toolbar > button,
+.board-embedded-card .board-toolbar > div > button,
+.board-embedded-card .board-toolbar > div:not([class*="absolute"]) {
+  height: 1.75rem !important;
+  min-height: 1.75rem !important;
+}
+
+.board-embedded-card .board-toolbar button,
+.board-embedded-card .board-toolbar > div.inline-flex {
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  background-color: rgba(15, 23, 42, 0.72) !important;
+  color: rgba(226, 232, 240, 0.95) !important;
+}
+
+.board-embedded-card .board-toolbar button:hover {
+  background-color: rgba(30, 41, 59, 0.92) !important;
+}
+
+.board-embedded-card .board-toolbar button[aria-label="Карандаш"].bg-purple-600,
+.board-embedded-card .board-toolbar button[aria-label="Линия"].bg-purple-600,
+.board-embedded-card .board-toolbar button[aria-label="Выделение"].bg-purple-600,
+.board-embedded-card .board-toolbar button[aria-label="Перемещение"].bg-purple-600,
+.board-embedded-card .board-toolbar button[aria-label="Ластик"].bg-purple-600 {
+  border-color: rgba(192, 132, 252, 0.74) !important;
+  background-color: rgba(147, 51, 234, 0.96) !important;
+  color: #ffffff !important;
+}
+
+.board-embedded-card .board-canvas-surface {
+  margin-top: 0 !important;
+  border-color: rgba(226, 232, 240, 0.72) !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .board-embedded-card .board-canvas-surface {
+  border-color: rgba(226, 232, 240, 0.56) !important;
+  background: #ffffff !important;
+}
+
+.collab-code-toolbar {
+  border-radius: 1rem !important;
+  border-color: var(--collab-border) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.88)) !important;
+  box-shadow:
+    0 14px 30px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76) !important;
+}
+
+.collab-toolbar-file-tab {
+  display: inline-flex;
+  min-height: 1.55rem;
+  align-items: center;
+  gap: 0.38rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.42);
+  padding: 0.16rem 0.55rem 0.16rem 0.42rem;
+  color: rgba(226, 232, 240, 0.96);
+  font-family: "JetBrains Mono", Menlo, Monaco, "Courier New", monospace;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+html[data-theme='dark'] .collab-code-toolbar {
+  background:
+    linear-gradient(180deg, rgba(18, 28, 48, 0.94), rgba(8, 15, 29, 0.9)) !important;
+  box-shadow:
+    0 16px 34px rgba(2, 6, 23, 0.26),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+.collab-code-toolbar button:not(:disabled) {
+  will-change: transform;
+}
+
+.collab-code-toolbar button:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.collab-split-layout {
+  gap: 0.65rem !important;
+}
+
+.collab-editor-surface {
+  border-radius: 1.2rem !important;
+  border-color: rgba(30, 41, 59, 0.72) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(56, 189, 248, 0.1), transparent 28%),
+    linear-gradient(180deg, var(--collab-terminal-soft), var(--collab-terminal)) !important;
+  box-shadow:
+    0 18px 44px rgba(2, 6, 23, 0.22),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+.collab-editor-header {
+  position: relative;
+  z-index: 13;
+  display: flex;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.72);
+  background:
+    linear-gradient(180deg, rgba(18, 27, 45, 0.96), rgba(8, 15, 29, 0.96));
+  padding: 0.28rem 0.65rem 0.28rem 0.75rem;
+  color: rgba(226, 232, 240, 0.95);
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+.collab-editor-file,
+.collab-editor-meta {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.collab-editor-file {
+  font-family: "JetBrains Mono", Menlo, Monaco, "Courier New", monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.collab-editor-meta {
+  justify-content: flex-end;
+  color: rgba(148, 163, 184, 0.94);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.collab-editor-file-dot {
+  width: 0.58rem;
+  height: 0.58rem;
+  border-radius: 999px;
+  background: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.13), 0 0 16px rgba(56, 189, 248, 0.42);
+}
+
+.collab-editor-pill,
+.collab-editor-connection {
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.74);
+  padding: 0.18rem 0.5rem;
+  color: rgba(203, 213, 225, 0.94);
+  font-family: "Manrope", system-ui, sans-serif;
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.collab-editor-connection--connected {
+  border-color: rgba(52, 211, 153, 0.32);
+  background: rgba(6, 95, 70, 0.28);
+  color: rgba(187, 247, 208, 0.96);
+}
+
+.collab-editor-connection--connecting {
+  border-color: rgba(251, 191, 36, 0.32);
+  background: rgba(146, 64, 14, 0.24);
+  color: rgba(254, 240, 138, 0.96);
+}
+
+.collab-editor-connection--idle,
+.collab-editor-connection--disconnected {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.56);
+  color: rgba(148, 163, 184, 0.96);
+}
+
+.collab-editor-body {
+  background: #020617;
+}
+
+.collab-editor-surface::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 12;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.46), rgba(168, 85, 247, 0.3), transparent);
+  pointer-events: none;
+}
+
+.collab-editor-surface .monaco-editor,
+.collab-editor-surface .overflow-guard {
+  border-radius: 0 0 1.2rem 1.2rem;
+}
+
+.collab-editor-surface--flush .monaco-editor,
+.collab-editor-surface--flush .overflow-guard {
+  border-radius: inherit;
+}
+
+.collab-editor-surface--flush::before {
+  z-index: 8;
+  opacity: 0.72;
+}
+
+.collab-board-stage .board-minimap-shell {
+  border-color: rgba(100, 116, 139, 0.38);
+  background: rgba(248, 250, 252, 0.78);
+  box-shadow:
+    0 10px 20px rgba(15, 23, 42, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.58);
+  transform: scale(0.92);
+  transform-origin: top right;
+}
+
+html[data-theme='dark'] .collab-board-stage .board-minimap-shell {
+  border-color: rgba(100, 116, 139, 0.36);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow:
+    0 10px 22px rgba(2, 6, 23, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.collab-split-resizer {
+  opacity: 0.72;
+  transition: opacity 0.2s ease, filter 0.2s ease;
+}
+
+.collab-split-resizer:hover,
+.collab-split-resizer:focus-visible {
+  opacity: 1;
+  filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.28));
+}
+
+.collab-result-card {
+  border-radius: 1.2rem !important;
+  border-color: var(--collab-border) !important;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.08), transparent 30%),
+    linear-gradient(180deg, var(--collab-panel-raised), var(--collab-panel-soft)) !important;
+  box-shadow:
+    0 18px 42px rgba(15, 23, 42, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.58) !important;
+}
+
+html[data-theme='dark'] .collab-result-card {
+  box-shadow:
+    0 18px 44px rgba(2, 6, 23, 0.34),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+.collab-result-header {
+  border-radius: 0.95rem !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(248, 250, 252, 0.48)) !important;
+}
+
+html[data-theme='dark'] .collab-result-header {
+  border-color: rgba(83, 104, 135, 0.48) !important;
+  background:
+    linear-gradient(180deg, rgba(20, 31, 52, 0.9), rgba(10, 18, 34, 0.82)) !important;
+}
+
+.collab-run-status {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(255, 255, 255, 0.62);
+  padding: 0.28rem 0.6rem;
+  color: rgba(71, 85, 105, 0.98);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+html[data-theme='dark'] .collab-run-status {
+  border-color: rgba(83, 104, 135, 0.5);
+  background: rgba(3, 7, 18, 0.42);
+  color: rgba(203, 213, 225, 0.94);
+}
+
+.collab-run-status-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.9);
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.12);
+}
+
+.collab-run-status--running .collab-run-status-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14), 0 0 14px rgba(245, 158, 11, 0.45);
+}
+
+.collab-run-status--ready .collab-run-status-dot {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14), 0 0 14px rgba(34, 197, 94, 0.34);
+}
+
+.collab-run-status--danger .collab-run-status-dot {
+  background: #fb7185;
+  box-shadow: 0 0 0 3px rgba(251, 113, 133, 0.14), 0 0 14px rgba(251, 113, 133, 0.34);
+}
+
+.collab-result-console {
+  border-radius: 1rem !important;
+  border-color: rgba(51, 65, 85, 0.8) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(56, 189, 248, 0.11), transparent 30%),
+    linear-gradient(180deg, #06101f, #020617) !important;
+  line-height: 1.62;
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.08),
+    inset 0 -42px 80px rgba(2, 6, 23, 0.28) !important;
+}
+
+.collab-result-empty {
+  display: flex;
+  min-height: 100%;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed rgba(148, 163, 184, 0.24);
+  border-radius: 0.8rem;
+  background: rgba(15, 23, 42, 0.28);
+  padding: 1.25rem;
+  text-align: center;
+}
+
+.collab-aux-panel {
+  border-radius: 1.15rem;
+}
+
+html[data-theme='dark'] .collab-aux-panel textarea {
+  caret-color: rgba(125, 211, 252, 0.95);
+}
+
+@media (max-width: 920px) {
+  .collab-workspace-card {
+    border-radius: 1.15rem !important;
+  }
+
+  .collab-split-layout {
+    gap: 0.5rem !important;
+  }
+
+  .collab-code-toolbar {
+    width: 100%;
+  }
+}
