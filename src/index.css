@@ -13536,6 +13536,47 @@ html:not([data-theme='dark']) .board-toolbar--fullscreen .board-toolbar__student
   font-size: var(--board-toolbar-control-font);
 }
 
+html:not([data-theme='dark']) .board-embedded-card .board-toolbar {
+  --board-toolbar-button: rgba(255, 255, 255, 0.84);
+  --board-toolbar-button-hover: rgba(248, 250, 252, 0.98);
+  --board-toolbar-text: rgba(30, 41, 59, 0.94);
+  border-color: rgba(148, 163, 184, 0.34);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(56, 189, 248, 0.16), transparent 40%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(248, 250, 252, 0.78));
+  box-shadow:
+    0 12px 28px rgba(15, 23, 42, 0.13),
+    0 0 0 1px rgba(255, 255, 255, 0.72) inset;
+}
+
+html:not([data-theme='dark']) .board-embedded-card .board-toolbar__group {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(241, 245, 249, 0.76);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+html:not([data-theme='dark']) .board-embedded-card .board-toolbar__button:not(.is-active),
+html:not([data-theme='dark']) .board-embedded-card .board-toolbar__zoom-value {
+  background: rgba(255, 255, 255, 0.84);
+  color: rgba(30, 41, 59, 0.95);
+}
+
+html:not([data-theme='dark']) .board-embedded-card .board-toolbar__button:not(.is-active):not(:disabled):hover {
+  border-color: rgba(59, 130, 246, 0.26);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.1);
+}
+
+html:not([data-theme='dark']) .board-embedded-card .board-toolbar__action-button--save,
+html:not([data-theme='dark']) .board-embedded-card .board-toolbar__summon-button {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.84);
+  color: rgba(30, 41, 59, 0.96);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
 .board-toolbar--floating .board-toolbar__button.is-active,
 .board-toolbar--fullscreen .board-toolbar__button.is-active,
 .board-embedded-card .board-toolbar__button.is-active {
@@ -13856,6 +13897,17 @@ html[data-theme='dark'] .collab-run-status {
     inset 0 -42px 80px rgba(2, 6, 23, 0.28) !important;
 }
 
+html:not([data-theme='dark']) .collab-result-console {
+  border-color: rgba(203, 213, 225, 0.88) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(56, 189, 248, 0.1), transparent 34%),
+    linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.94)) !important;
+  color: rgba(51, 65, 85, 0.96) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    inset 0 -34px 70px rgba(226, 232, 240, 0.45) !important;
+}
+
 .collab-result-empty {
   display: flex;
   min-height: 100%;
@@ -13868,8 +13920,26 @@ html[data-theme='dark'] .collab-run-status {
   text-align: center;
 }
 
+html:not([data-theme='dark']) .collab-result-empty {
+  border-color: rgba(148, 163, 184, 0.34);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(248, 250, 252, 0.58));
+  color: rgba(100, 116, 139, 0.96);
+}
+
 .collab-aux-panel {
   border-radius: 1.15rem;
+}
+
+html:not([data-theme='dark']) .collab-aux-panel {
+  border-color: rgba(203, 213, 225, 0.82) !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+}
+
+html:not([data-theme='dark']) .collab-aux-panel textarea {
+  background: rgba(255, 255, 255, 0.74) !important;
+  color: rgba(30, 41, 59, 0.96) !important;
+  caret-color: rgba(59, 130, 246, 0.95);
 }
 
 html[data-theme='dark'] .collab-aux-panel textarea {

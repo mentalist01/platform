@@ -2808,7 +2808,6 @@ const CollabSection = ({
       : 'border-slate-200/90 bg-white/90 text-slate-800 shadow-[0_12px_30px_rgba(148,163,184,0.2),inset_0_1px_0_rgba(255,255,255,0.9)] backdrop-blur-xl')
     : 'border-purple-100 bg-purple-50/70';
   const collabToolbarDividerClass = isCollabFullscreen ? (isFullscreenDark ? 'bg-slate-500/70' : 'bg-slate-300/80') : 'bg-purple-200';
-  const collabSessionLabelClass = isCollabFullscreen ? (isFullscreenDark ? 'text-cyan-200' : 'text-violet-600') : collabLabelClass;
   const collabSessionValueClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-50' : 'text-slate-800') : collabSessionTextClass;
   const collabIconButtonBase = `inline-flex ${isCollabFullscreen ? 'h-8 w-8' : (isDesktopCollabCompact ? 'h-7 w-7' : 'h-8 w-8')} items-center justify-center rounded-xl border transition-all duration-200 hover:-translate-y-[1px] active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 ${
     isFullscreenDark
@@ -7083,7 +7082,6 @@ const CollabSection = ({
         {!isCollabFullscreen && !isDesktopCollabCompact && (
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
-              <div className={`text-xs font-bold uppercase tracking-widest ${collabLabelClass}`}>Сессия</div>
               <div className={`text-sm font-semibold ${collabSessionTextClass}`}>{sessionLabel}</div>
             </div>
             <div className="flex flex-wrap items-center gap-2 md:justify-end">
@@ -7111,18 +7109,7 @@ const CollabSection = ({
           } ${collabToolbarClass}`}>
             {(isCollabFullscreen || isDesktopCollabCompact) && (
               <>
-                <span className={`text-[10px] font-bold uppercase tracking-widest ${collabSessionLabelClass}`}>Сессия</span>
                 <span className={`${isCollabFullscreen ? 'max-w-[360px]' : 'max-w-[220px]'} truncate text-[11px] font-semibold ${collabSessionValueClass}`}>{sessionLabel}</span>
-                <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
-              </>
-            )}
-            {isSplitCollabLayout && (
-              <>
-                <span className="collab-toolbar-file-tab">
-                  <span className="collab-editor-file-dot" />
-                  <span>main.py</span>
-                  <span className="collab-editor-pill">Python</span>
-                </span>
                 <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
               </>
             )}
