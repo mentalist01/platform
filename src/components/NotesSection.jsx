@@ -3,11 +3,13 @@ import {
   ArrowLeft,
   ChevronRight,
   Download,
+  FileCode2,
+  FileSpreadsheet,
   FileText,
   Folder,
+  FolderOpen,
   FolderPlus,
   Image as ImageIcon,
-  Monitor,
   Pencil,
   Plus,
   Search,
@@ -1238,57 +1240,23 @@ const NotesSection = ({
   );
 
   const FileIcon = ({ name, compact = false }) => {
-    const badgeClass = compact
-      ? 'h-8 w-8 rounded-lg border border-slate-200 bg-white'
-      : 'w-10 h-10 bg-transparent';
-    const typeClass = compact
-      ? 'mt-0 text-[9px]'
-      : 'mt-1 text-[10px]';
-
-    if (isImageFile(name)) {
-      return (
-        <div className={`flex flex-col items-center ${compact ? 'w-8' : 'w-12'}`}>
-          <div className={`flex items-center justify-center ${badgeClass}`}>
-            <ImageIcon size={22} className="text-violet-600" />
-          </div>
-          {!compact && <span className={`font-bold text-violet-700 ${typeClass}`}>IMG</span>}
-        </div>
-      );
-    }
-    if (isPdfFile(name)) {
-      return (
-        <div className={`flex flex-col items-center ${compact ? 'w-8' : 'w-12'}`}>
-          <div className={`flex items-center justify-center ${badgeClass}`}>
-            <PdfLogo />
-          </div>
-          {!compact && <span className={`font-bold text-red-600 ${typeClass}`}>PDF</span>}
-        </div>
-      );
-    }
-    if (isExcelFile(name)) {
-      return (
-        <div className={`flex flex-col items-center ${compact ? 'w-8' : 'w-12'}`}>
-          <div className={`flex items-center justify-center ${badgeClass}`}>
-            <ExcelLogo />
-          </div>
-          {!compact && <span className={`font-bold text-green-700 ${typeClass}`}>XLS</span>}
-        </div>
-      );
-    }
-    if (isPyFile(name)) {
-      return (
-        <div className={`flex flex-col items-center ${compact ? 'w-8' : 'w-12'}`}>
-          <div className={`flex items-center justify-center ${badgeClass}`}>
-            <PyLogo />
-          </div>
-          {!compact && <span className={`font-bold text-blue-600 ${typeClass}`}>PY</span>}
-        </div>
-      );
-    }
+    const config = isImageFile(name)
+      ? { Icon: ImageIcon, label: 'IMG', className: 'notes-file-icon--image' }
+      : isPdfFile(name)
+        ? { Icon: FileText, label: 'PDF', className: 'notes-file-icon--pdf' }
+        : isExcelFile(name)
+          ? { Icon: FileSpreadsheet, label: 'XLS', className: 'notes-file-icon--excel' }
+          : isPyFile(name)
+            ? { Icon: FileCode2, label: 'PY', className: 'notes-file-icon--python' }
+            : { Icon: FileText, label: 'FILE', className: 'notes-file-icon--default' };
+    const iconSize = compact ? 16 : 18;
     return (
-      <div className={`flex items-center justify-center ${badgeClass}`}>
-        <FileText size={20} className="text-gray-600"/>
-      </div>
+      <span className={`notes-file-icon ${compact ? 'is-compact' : ''} ${config.className}`}>
+        <span className="notes-file-icon__tile">
+          <config.Icon size={iconSize} strokeWidth={1.9} />
+        </span>
+        {!compact && <span className="notes-file-icon__label">{config.label}</span>}
+      </span>
     );
   };
 
@@ -1781,8 +1749,8 @@ const NotesSection = ({
   const renderStudentPicker = () => {
     if (role !== 'teacher') return null;
     return (
-      <div className="notes-explorer-student-picker inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-purple-100/40">
-        <span className="text-[11px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
+      <div className="notes-explorer-student-picker notes-student-picker inline-flex w-full sm:w-auto items-center gap-2">
+        <span className="notes-student-picker__label">Ученик</span>
         <select
           value={activeStudentId || ''}
           onChange={(e) => {
@@ -1790,7 +1758,7 @@ const NotesSection = ({
             onSelectStudent?.(value || null);
           }}
           disabled={studentsLoading || studentsList.length === 0}
-          className="notes-explorer-student-picker-select w-full min-w-0 sm:min-w-[180px] rounded-xl border border-purple-100 bg-white px-3 py-1.5 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
+          className="notes-explorer-student-picker-select notes-student-picker__select w-full min-w-0 sm:min-w-[180px] outline-none disabled:opacity-70"
         >
           <option value="" disabled>Выберите ученика</option>
           {studentsList.map((student) => (
@@ -1806,6 +1774,15 @@ const NotesSection = ({
   const tasksWithFilesCount = taskOptions.reduce((sum, task) => {
     return sum + ((taskCounts.get(task.number) || 0) > 0 ? 1 : 0);
   }, 0);
+  const tasksCompletionRatio = taskOptions.length > 0
+    ? Math.min(1, Math.max(0, tasksWithFilesCount / taskOptions.length))
+    : 0;
+  const totalFilesLabel = `${files.length} ${formatRussianCountLabel(
+    files.length,
+    'файл',
+    'файла',
+    'файлов'
+  )}`;
 
   const openTaskExplorer = (taskNumber) => {
     const normalized = normalizeTaskNumber(taskNumber);
@@ -1837,18 +1814,16 @@ const NotesSection = ({
 
   const renderNotesIntro = (message) => (
     <div className="animate-fadeIn space-y-4">
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-4 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
-        <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
-        <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
-        <div className="relative z-10 space-y-3 md:space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="notes-empty-state notes-landing-hero rounded-[2rem] border p-5 md:p-7">
+        <div className="notes-landing-hero__body space-y-4">
+          <div className="notes-landing-hero__header flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h2 className="text-xl md:text-2xl font-bold text-gray-900">Конспекты</h2>
-              <p className="hidden md:block text-sm text-slate-600">Материалы по заданиям, папкам и категориям</p>
+              <h2 className="notes-landing-title text-2xl font-bold md:text-3xl">Конспекты</h2>
+              <p className="notes-landing-subtitle hidden text-sm md:block">Материалы по заданиям, папкам и категориям</p>
             </div>
             {renderStudentPicker()}
           </div>
-          <div className="rounded-2xl border border-dashed border-purple-200 bg-white/75 px-3 py-2.5 md:px-4 md:py-3 text-[13px] md:text-sm text-slate-600">
+          <div className="notes-landing-message rounded-2xl border border-dashed px-3 py-3 text-[13px] md:px-4 md:py-3.5 md:text-sm">
             {message}
           </div>
         </div>
@@ -1867,69 +1842,81 @@ const NotesSection = ({
   }
 
   if (!currentTask) return (
-    <div className="animate-fadeIn space-y-4 md:space-y-5" data-tour="notes">
-      <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 p-4 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
-        <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
-        <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
-        <div className="relative z-10 flex flex-col gap-3 md:gap-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="animate-fadeIn space-y-5 md:space-y-6" data-tour="notes">
+      <div className="notes-landing-hero rounded-[2rem] border p-5 md:p-7">
+        <div className="notes-landing-hero__body flex flex-col gap-4 md:gap-5">
+          <div className="notes-landing-hero__header flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h2 className="text-xl md:text-2xl font-bold text-gray-900">Конспекты</h2>
-              <p className="hidden md:block text-sm text-slate-600">Выберите задание, чтобы открыть файловый проводник</p>
+              <h2 className="notes-landing-title text-2xl font-bold md:text-3xl">Конспекты</h2>
+              <p className="notes-landing-subtitle hidden text-sm md:block">Выберите задание, чтобы открыть файловый проводник</p>
             </div>
             {renderStudentPicker()}
           </div>
-          <div className="flex flex-wrap gap-1.5 md:gap-2 text-[11px] md:text-xs font-semibold">
-            <span className="inline-flex items-center rounded-full border border-purple-200 bg-white/90 px-2 py-1 md:px-2.5 text-purple-700">
-              {`Файлов: ${files.length}`}
+          <div className="notes-landing-stats flex flex-wrap gap-2 text-[11px] font-semibold md:text-xs">
+            <span className="notes-summary-pill notes-summary-pill--total">
+              {`Файлов: ${totalFilesLabel}`}
             </span>
-            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-white/90 px-2 py-1 md:px-2.5 text-emerald-700">
+            <span className="notes-summary-pill notes-summary-pill--filled">
               <span className="sm:hidden">{`Заполнено: ${tasksWithFilesCount}/${taskOptions.length}`}</span>
               <span className="hidden sm:inline">{`Заполнено заданий: ${tasksWithFilesCount}/${taskOptions.length}`}</span>
             </span>
           </div>
+          <div className="notes-landing-progress" aria-hidden="true">
+            <span
+              className="notes-landing-progress__fill"
+              style={{
+                width: `${tasksWithFilesCount === 0 ? 0 : Math.max(10, tasksCompletionRatio * 100)}%`,
+                minWidth: tasksWithFilesCount === 0 ? 0 : '0.75rem'
+              }}
+            />
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5 sm:gap-4">
+      <div className="notes-landing-grid grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
         {taskOptions.map((task) => {
           const taskFilesCount = taskCounts.get(task.number) || 0;
           const hasFiles = taskFilesCount > 0;
+          const taskFilesLabel = `${taskFilesCount} ${formatRussianCountLabel(
+            taskFilesCount,
+            'файл',
+            'файла',
+            'файлов'
+          )}`;
           return (
             <Card
               key={task.number}
               onClick={() => openTaskExplorer(task.number)}
-              className={`group space-y-2.5 md:space-y-3 p-3 sm:p-5 ${
+              className={`notes-card notes-landing-card group p-3.5 sm:p-5 ${
                 hasFiles
-                  ? 'border-purple-200/80 bg-gradient-to-br from-purple-50/65 via-white to-fuchsia-50/35'
-                  : 'border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-slate-100/70'
+                  ? 'notes-card--filled notes-landing-card--filled'
+                  : 'notes-card--empty notes-landing-card--empty'
               }`}
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="inline-flex items-center rounded-lg border border-purple-200 bg-white/90 px-2 py-1 text-[11px] md:text-xs font-bold text-purple-700">
+              <div className="notes-landing-card__top flex items-center justify-between gap-2">
+                <span className={`notes-task-badge notes-landing-card__badge inline-flex items-center rounded-xl border px-2.5 py-1 text-[11px] font-bold md:text-xs ${
+                  hasFiles ? 'notes-task-badge--filled' : ''
+                }`}>
                   №{getTaskDisplayNumber(task)}
                 </span>
                 <span
-                  className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] md:text-[11px] font-semibold ${
+                  className={`notes-summary-pill notes-landing-card__status text-[10px] md:text-[11px] ${
                     hasFiles
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                      : 'border-slate-200 bg-slate-100 text-slate-500'
+                      ? 'notes-summary-pill--filled'
+                      : 'notes-summary-pill--empty'
                   }`}
                 >
-                  {hasFiles ? `${taskFilesCount} файлов` : 'Пусто'}
+                  {hasFiles ? taskFilesLabel : 'Пусто'}
                 </span>
               </div>
-              <div className="flex items-center gap-3">
-                <span className={`inline-flex h-9 w-9 md:h-11 md:w-11 items-center justify-center rounded-xl md:rounded-2xl border ${
-                  hasFiles ? 'border-purple-200 bg-white text-purple-600' : 'border-slate-200 bg-white text-slate-400'
+              <div className="notes-landing-card__body flex items-center gap-3">
+                <span className={`notes-landing-card__icon inline-flex items-center justify-center rounded-2xl border ${
+                  hasFiles ? 'is-filled' : ''
                 }`}>
-                  <Folder size={19} />
+                  <Folder size={18} />
                 </span>
-                <p className="hidden sm:block text-xs text-slate-500">
-                  {hasFiles ? 'Открыть материалы задания' : 'Добавьте материалы для этой темы'}
-                </p>
-                <p className="sm:hidden text-[11px] text-slate-500">
-                  {hasFiles ? 'Открыть' : 'Пусто'}
+                <p className="notes-landing-card__text text-[11px] sm:text-xs">
+                  {hasFiles ? 'Открыть материалы' : 'Добавьте материалы'}
                 </p>
               </div>
             </Card>
@@ -1983,9 +1970,6 @@ const NotesSection = ({
   const currentFolderLabel = currentFolderPath.length
     ? currentFolderPath[currentFolderPath.length - 1]
     : ROOT_FOLDER_LABEL;
-  const currentFolderPathLabel = currentFolderPath.length
-    ? `Материалы урока / ${currentFolderPath.join(' / ')}`
-    : `Материалы урока / ${ROOT_FOLDER_LABEL}`;
   const normalizedFileSearch = fileSearch.trim().toLowerCase();
   const isSearchMode = Boolean(normalizedFileSearch);
   const visibleFiles = isSearchMode
@@ -2077,10 +2061,11 @@ const NotesSection = ({
   const pdfPreviewHeight = isMobileViewport ? '48vh' : '60vh';
   const imagePreviewMaxHeight = isMobileViewport ? '56vh' : '72vh';
   const currentTaskLabel = formatTaskNumber(currentTask) || currentTask;
-  const currentCategoryLabel = 'Материалы урока';
   const uploadButtonLabel = isUploading
     ? 'Загрузка...'
     : (uploadBlockedByRole ? 'Только учитель' : 'Загрузить');
+  const explorerOverviewLabel = isSearchMode ? `Найдено: ${searchResultsLabel}` : currentFolderItemsLabel;
+  const remainingSpaceLabel = `Свободно ${formatBytes(remainingBytes)}`;
   const handleExplorerBack = () => {
     if (currentFolderId) {
       selectFolder(currentFolderParentId);
@@ -2093,8 +2078,8 @@ const NotesSection = ({
     <div className="notes-explorer-shell animate-fadeIn space-y-4 md:space-y-5" data-tour="notes">
       <div className="notes-explorer-window overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-[0_14px_28px_rgba(15,23,42,0.08)]">
         <div className="notes-explorer-toolbar border-b border-slate-200 bg-gradient-to-b from-slate-50 to-white px-3 py-3 md:px-4 md:py-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex min-w-0 items-start gap-2">
+          <div className="notes-explorer-toolbar-main flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="notes-explorer-toolbar-copy flex min-w-0 items-start gap-2.5 md:gap-3">
               <Button
                 variant="secondary"
                 onClick={handleExplorerBack}
@@ -2104,40 +2089,31 @@ const NotesSection = ({
                 <ArrowLeft size={16} />
                 Назад
               </Button>
-              <div className="space-y-1">
+              <div className="notes-explorer-toolbar-heading min-w-0 space-y-1">
                 <h3 className="notes-explorer-title text-base font-semibold text-slate-900 md:text-lg">
-                  {`Материалы: задание ${currentTaskLabel}`}
+                  {`Задание ${currentTaskLabel}`}
                 </h3>
+                <p className="notes-explorer-toolbar-subtitle text-sm text-slate-600">
+                  {explorerOverviewLabel}
+                </p>
               </div>
             </div>
-            <div className="notes-explorer-quick-actions flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+            <div className="notes-explorer-toolbar-side flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end lg:w-auto">
               {renderStudentPicker()}
-              <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} multiple disabled={uploadBlockedByRole} />
-              <Button
-                variant="secondary"
-                onClick={() => setIsCreatingFolder((v) => !v)}
-                disabled={uploadBlockedByRole}
-                className="notes-explorer-folder-add-btn w-full sm:w-auto"
-              >
-                <FolderPlus size={16} /> Новая папка
-              </Button>
-              <Button
-                onClick={() => fileRef.current?.click()}
-                disabled={isUploading || uploadBlockedByRole}
-                className="notes-explorer-upload-btn w-full sm:w-auto min-w-[156px]"
-              >
-                <Upload size={18} /> {uploadButtonLabel}
-              </Button>
+              {role !== 'student' && (
+                <span className={`notes-explorer-stat notes-explorer-stat-remaining inline-flex items-center rounded-full border px-2.5 py-1.5 text-xs font-semibold ${
+                  remainingBytes <= 10 * 1024 * 1024
+                    ? 'border-rose-200 bg-rose-50 text-rose-600'
+                    : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                }`}>
+                  {remainingSpaceLabel}
+                </span>
+              )}
             </div>
           </div>
-          <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center">
+          <div className="notes-explorer-toolbar-path mt-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div className="notes-explorer-address flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm whitespace-nowrap text-slate-600">
-              <Monitor size={14} className="shrink-0 text-slate-500" />
-              <span className="shrink-0 text-slate-700">Материалы</span>
-              <ChevronRight size={13} className="shrink-0 text-slate-300" />
-              <span className="shrink-0">{`Задание ${currentTaskLabel}`}</span>
-              <ChevronRight size={13} className="shrink-0 text-slate-300" />
-              <span className="shrink-0">{currentCategoryLabel}</span>
+              <span className="shrink-0 text-slate-700">{`Задание ${currentTaskLabel}`}</span>
               {currentFolderPath.length > 0 ? (
                 currentFolderPath.map((segment, index) => (
                   <React.Fragment key={`address-path-segment-${index}`}>
@@ -2150,52 +2126,16 @@ const NotesSection = ({
               ) : (
                 <>
                   <ChevronRight size={13} className="shrink-0 text-slate-300" />
-                  <span className="notes-explorer-address-empty shrink-0 text-slate-500">{ROOT_FOLDER_LABEL}</span>
+                  <span className="notes-explorer-address-empty shrink-0 text-slate-500">Все материалы</span>
                 </>
               )}
             </div>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold md:text-xs">
-            <span className="notes-explorer-stat inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700 md:px-2.5">
-              {`Открыто: ${currentFolderItemsLabel}`}
-            </span>
-            {isSearchMode && (
-              <span className="notes-explorer-stat inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700 md:px-2.5">
-                {`Поиск: ${searchResultsLabel}`}
-              </span>
+            {uploadBlockedByRole && (
+              <p className="notes-explorer-toolbar-note text-sm text-slate-500">
+                В эту папку материалы добавляет только учитель.
+              </p>
             )}
-            {role !== 'student' && (
-              <span className="notes-explorer-stat inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-700 md:px-2.5">
-                {`Использовано: ${formatBytes(taskUsageBytes)} / ${formatBytes(totalLimitBytes)}`}
-              </span>
-            )}
-            <span className={`notes-explorer-stat notes-explorer-stat-remaining inline-flex items-center rounded-full border px-2 py-1 md:px-2.5 ${
-              remainingBytes <= 10 * 1024 * 1024
-                ? 'border-rose-200 bg-rose-50 text-rose-600'
-                : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-            }`}>
-              Осталось: {formatBytes(remainingBytes)}
-            </span>
           </div>
-          {isCreatingFolder && (
-            <div className="notes-explorer-create-folder mt-3 flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white/85 p-2.5 md:flex-row">
-              <input
-                type="text"
-                value={newFolderName}
-                onChange={(e) => { setNewFolderName(e.target.value); setFoldersError(''); }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreateFolder();
-                  if (e.key === 'Escape') setIsCreatingFolder(false);
-                }}
-                placeholder={currentFolderId ? 'Название подпапки' : 'Название папки'}
-                className="notes-explorer-folder-input flex-1 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
-                autoFocus
-              />
-              <Button onClick={handleCreateFolder} disabled={!newFolderName.trim() || uploadBlockedByRole} className="notes-explorer-folder-create-submit w-full md:w-auto">
-                Создать
-              </Button>
-            </div>
-          )}
           {foldersError && <p className="mt-2 text-xs text-red-500">{foldersError}</p>}
         </div>
       </div>
@@ -2216,47 +2156,90 @@ const NotesSection = ({
             : 'border-slate-200 bg-gradient-to-br from-white via-white to-slate-50/70'
         }`}
       >
+        <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} multiple disabled={uploadBlockedByRole} />
         <div className="notes-explorer-command-stack mb-3 md:mb-4">
-          <div className="notes-explorer-search-bar rounded-2xl border border-slate-200/80 bg-white/85 p-3">
-            <div className="notes-explorer-search-row flex flex-col gap-2 md:flex-row md:items-center">
+          <div className="notes-explorer-files-toolbar flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="notes-explorer-search-row flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
               <label className="notes-explorer-search-input-wrap flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
                 <Search size={16} className="notes-explorer-search-icon shrink-0" />
                 <input
                   type="text"
                   value={fileSearch}
                   onChange={(e) => setFileSearch(e.target.value)}
-                  placeholder="Поиск файлов и папок"
+                  placeholder="Поиск по папке"
                   className="notes-explorer-search-input min-w-0 flex-1 bg-transparent text-sm outline-none"
                 />
               </label>
-              <div className="notes-explorer-command-actions flex flex-wrap items-center gap-2">
-                {fileSearch.trim() && (
-                  <button
-                    type="button"
-                    onClick={() => setFileSearch('')}
-                    className="notes-explorer-folder-tree-action self-start md:self-auto"
-                  >
-                    Очистить
-                  </button>
-                )}
-                <Button
-                  variant="secondary"
-                  onClick={() => setShowPyCreator((v) => !v)}
-                  disabled={uploadBlockedByRole}
-                  className="notes-explorer-python-toggle notes-explorer-python-quick-btn w-full sm:w-auto"
+              {fileSearch.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setFileSearch('')}
+                  className="notes-explorer-folder-tree-action self-start sm:self-auto"
                 >
-                  <Plus size={16} /> {showPyCreator ? 'Скрыть Python' : 'Python-файл'}
-                </Button>
-              </div>
+                  Очистить
+                </button>
+              )}
+            </div>
+            <div className="notes-explorer-quick-actions flex flex-wrap items-center gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => setIsCreatingFolder((v) => !v)}
+                disabled={uploadBlockedByRole}
+                className="notes-explorer-folder-add-btn w-full sm:w-auto"
+              >
+                <FolderPlus size={16} /> {isCreatingFolder ? 'Скрыть папку' : 'Новая папка'}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => setShowPyCreator((v) => !v)}
+                disabled={uploadBlockedByRole}
+                className="notes-explorer-python-toggle notes-explorer-python-quick-btn w-full sm:w-auto"
+              >
+                <Plus size={16} /> {showPyCreator ? 'Скрыть Python' : 'Python-файл'}
+              </Button>
+              <Button
+                onClick={() => fileRef.current?.click()}
+                disabled={isUploading || uploadBlockedByRole}
+                className="notes-explorer-upload-btn w-full sm:w-auto min-w-[148px]"
+              >
+                <Upload size={18} /> {uploadButtonLabel}
+              </Button>
             </div>
           </div>
+
+          {isCreatingFolder && (
+            <div className="notes-explorer-create-folder mt-3 flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white/85 p-2.5 md:flex-row">
+              <input
+                type="text"
+                value={newFolderName}
+                onChange={(e) => { setNewFolderName(e.target.value); setFoldersError(''); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreateFolder();
+                  if (e.key === 'Escape') setIsCreatingFolder(false);
+                }}
+                placeholder={currentFolderId ? 'Название подпапки' : 'Название папки'}
+                className="notes-explorer-folder-input flex-1 rounded-xl border border-purple-100 bg-white px-4 py-2 outline-none focus:border-purple-500"
+                autoFocus
+              />
+              <Button
+                variant="secondary"
+                onClick={() => setIsCreatingFolder(false)}
+                className="w-full md:w-auto"
+              >
+                Отмена
+              </Button>
+              <Button onClick={handleCreateFolder} disabled={!newFolderName.trim() || uploadBlockedByRole} className="notes-explorer-folder-create-submit w-full md:w-auto">
+                Создать
+              </Button>
+            </div>
+          )}
 
           {showPyCreator && (
           <div className="notes-explorer-python-card is-expanded rounded-2xl border border-slate-200/80 bg-white/85 p-3 md:p-4">
             <div className="notes-explorer-python-summary flex flex-wrap items-center justify-between gap-2.5">
               <div className="notes-explorer-python-copy">
                 <h3 className="notes-explorer-python-title text-sm font-bold text-gray-800">Новый Python-файл</h3>
-                <p className="notes-explorer-python-subtitle text-xs text-slate-500">Сохранится в папке: {currentFolderLabel}</p>
+                <p className="notes-explorer-python-subtitle text-xs text-slate-500">{currentFolderLabel}</p>
               </div>
               <Button variant="secondary" onClick={() => setShowPyCreator(false)} disabled={uploadBlockedByRole} className="notes-explorer-python-toggle w-full sm:w-auto">
                 Скрыть
@@ -2290,32 +2273,13 @@ const NotesSection = ({
                   loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
                 />
               </div>
-              <div className="notes-explorer-python-meta flex flex-wrap items-center justify-between text-xs text-gray-400 gap-2">
-                <span>Файл сохранится в папке: {currentFolderLabel}</span>
-                <span>Размер: {formatBytes(getPyDraftSize(pyDraftCode))}</span>
+              <div className="notes-explorer-python-meta flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400">
+                <span>{`Размер: ${formatBytes(getPyDraftSize(pyDraftCode))}`}</span>
               </div>
               {pyDraftError && <p className="text-xs text-red-500">{pyDraftError}</p>}
             </div>
           </div>
           )}
-        </div>
-
-        <div className="notes-explorer-files-meta mb-3 md:mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
-          {uploadBlockedByRole ? (
-            <span>В эту папку материалы добавляет только учитель</span>
-          ) : (
-            <>
-              <span className="hidden md:inline">Перетащите файлы сюда или вставьте изображение через Ctrl+V</span>
-              <span className="md:hidden">Загрузите файл или вставьте изображение</span>
-            </>
-          )}
-          <span className="notes-explorer-interaction-hint hidden xl:inline">
-            Папки: клик выделяет, быстрый второй открывает
-          </span>
-          <span className="notes-explorer-files-meta-path text-[11px] md:text-xs text-slate-400">
-            {isSearchMode ? `${searchResultsLabel}` : currentFolderPathLabel} • Осталось {formatBytes(remainingBytes)}
-          </span>
-          {isUploading && <span className="notes-explorer-files-meta-progress text-xs font-bold text-purple-600">Загрузка...</span>}
         </div>
 
         {visibleExplorerItems.length === 0 ? (
@@ -2330,9 +2294,7 @@ const NotesSection = ({
                 <thead className="bg-slate-100 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-3 py-2 text-left">Имя</th>
-                    <th className="px-3 py-2 text-left">Тип</th>
-                    <th className="px-3 py-2 text-left">Размер</th>
-                    <th className="px-3 py-2 text-left">Дата</th>
+                    <th className="px-3 py-2 text-left">Сведения</th>
                     <th className="px-3 py-2 text-right">Действия</th>
                   </tr>
                 </thead>
@@ -2392,9 +2354,9 @@ const NotesSection = ({
                           title="Один клик — выделить, двойной — открыть папку"
                         >
                           <td className="notes-explorer-folder-name-cell px-3 py-2.5">
-                            <div className="flex min-w-[220px] items-center gap-2">
+                            <div className="flex min-w-[220px] items-center gap-3">
                               <span className="notes-explorer-inline-folder-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border">
-                                <Folder size={20} />
+                                <FolderOpen size={18} />
                               </span>
                               <div className="min-w-0">
                                 {renamingFolderId === folder.id && !sharedFolder ? (
@@ -2415,9 +2377,14 @@ const NotesSection = ({
                                   />
                                 ) : (
                                   <>
-                                    <span className="notes-explorer-folder-name notes-explorer-file-name block truncate font-medium text-slate-800">
-                                      {folder.name}
-                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <span className="notes-explorer-folder-name notes-explorer-file-name block truncate font-medium text-slate-800">
+                                        {folder.name}
+                                      </span>
+                                      {sharedFolder && (
+                                        <span className="notes-explorer-folder-shared-badge">Урок</span>
+                                      )}
+                                    </div>
                                     {isSearchMode && (
                                       <span className="notes-explorer-file-path block truncate text-xs">
                                         {getFolderPathLabel(folder)}
@@ -2428,13 +2395,9 @@ const NotesSection = ({
                               </div>
                             </div>
                           </td>
-                          <td className="px-3 py-2.5 text-slate-600">
-                            {sharedFolder ? 'Папка урока' : 'Папка с файлами'}
-                          </td>
                           <td className="px-3 py-2.5 text-slate-600">{folderItemsLabel}</td>
-                          <td className="px-3 py-2.5 text-slate-500">{formatExplorerDate(folder.updatedAt || folder.createdAt)}</td>
                           <td className="px-3 py-2.5">
-                            <div className="flex items-center justify-end gap-1.5">
+                            <div className="notes-explorer-row-actions flex items-center justify-end gap-1.5">
                               <button
                                 type="button"
                                 onMouseDown={(e) => e.stopPropagation()}
@@ -2489,11 +2452,13 @@ const NotesSection = ({
                     return (
                       <React.Fragment key={f.id}>
                         <tr
-                          className={`border-t border-slate-100 ${
-                            isSelected
-                              ? 'notes-row-selected bg-blue-100/80'
-                              : (isExpanded ? 'notes-row-expanded bg-blue-50/55' : 'hover:bg-slate-50')
-                          } ${isPreviewable ? 'cursor-pointer' : ''}`}
+                          className={`notes-explorer-file-row border-t border-slate-100 ${
+                            isSelected ? 'is-selected' : ''
+                          } ${
+                            isExpanded ? 'is-preview-open' : ''
+                          } ${
+                            isPreviewable ? 'is-previewable' : ''
+                          }`}
                           draggable={renamingId !== f.id && manageable}
                           onDragStart={(e) => {
                             if (!manageable) return;
@@ -2513,19 +2478,30 @@ const NotesSection = ({
                               });
                               return;
                             }
+                            setSelectedFileIds({ [f.id]: true });
+                          }}
+                          onDoubleClick={() => {
                             if (isPreviewable) toggleFilePreview(f);
                           }}
                           onKeyDown={(e) => {
-                            if ((e.key === 'Enter' || e.key === ' ') && isPreviewable) {
+                            if (e.key === 'Enter' && isPreviewable) {
                               e.preventDefault();
                               toggleFilePreview(f);
+                              return;
+                            }
+                            if (e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedFolderId(null);
+                              setPressingFolderId(null);
+                              setSelectedFileIds({ [f.id]: true });
                             }
                           }}
-                          role={isPreviewable ? 'button' : undefined}
-                          tabIndex={isPreviewable ? 0 : undefined}
+                          role="button"
+                          tabIndex={renamingId === f.id ? -1 : 0}
+                          title={isPreviewable ? 'Один клик — выделить, двойной — открыть файл' : 'Выделить файл'}
                         >
                           <td className="px-3 py-2.5">
-                            <div className="flex min-w-[220px] items-center gap-2">
+                            <div className="flex min-w-[220px] items-center gap-3">
                               <FileIcon name={f.name} compact />
                               <div className="min-w-0">
                                 {renamingId === f.id ? (
@@ -2561,11 +2537,33 @@ const NotesSection = ({
                               </div>
                             </div>
                           </td>
-                          <td className="px-3 py-2.5 text-slate-600">{getFileTypeLabel(f)}</td>
-                          <td className="px-3 py-2.5 text-slate-600">{f.size}</td>
-                          <td className="px-3 py-2.5 text-slate-500">{f.date}</td>
+                          <td className="px-3 py-2.5 text-slate-600">
+                            <div className="flex flex-col gap-0.5">
+                              <span>{f.size}</span>
+                              {!isSearchMode && (
+                                <span className="text-xs text-slate-400">{getFileTypeLabel(f)}</span>
+                              )}
+                            </div>
+                          </td>
                           <td className="px-3 py-2.5">
-                            <div className="flex items-center justify-end gap-1.5">
+                            <div className="notes-explorer-row-actions flex items-center justify-end gap-1.5">
+                              {isPreviewable && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleFilePreview(f);
+                                  }}
+                                  className="notes-explorer-file-action-btn notes-explorer-folder-open-btn rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                                  title={isExpanded ? 'Скрыть предпросмотр' : 'Открыть предпросмотр'}
+                                  type="button"
+                                >
+                                  <ChevronRight
+                                    className="notes-explorer-folder-open-chevron"
+                                    size={16}
+                                    style={{ transform: isExpanded ? 'rotate(90deg)' : undefined }}
+                                  />
+                                </button>
+                              )}
                               {!isPyFile(f.name) && (
                                 <button
                                   onClick={(e) => {
@@ -2610,7 +2608,7 @@ const NotesSection = ({
                         </tr>
                         {isPyFile(f.name) && (
                           <tr className={`${expandedPyIds[f.id] ? '' : 'hidden'}`}>
-                            <td colSpan={5} className="notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3">
+                            <td colSpan={3} className="notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3">
                               <div className="notes-explorer-preview-panel space-y-2 rounded-xl border border-slate-200 bg-white p-2">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                   <span className="text-xs text-gray-500">
@@ -2732,7 +2730,7 @@ const NotesSection = ({
                         )}
                         {isPdfFile(f.name) && (
                           <tr className={`${expandedPdfIds[f.id] ? '' : 'hidden'}`}>
-                            <td colSpan={5} className="notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3">
+                            <td colSpan={3} className="notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3">
                               <div className="notes-explorer-preview-panel overflow-hidden rounded-xl border border-slate-200 bg-white">
                                 <iframe
                                   title={f.name}
@@ -2746,7 +2744,7 @@ const NotesSection = ({
                         )}
                         {isImageFile(f) && (
                           <tr className={`${expandedImageIds[f.id] ? '' : 'hidden'}`}>
-                            <td colSpan={5} className="notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3">
+                            <td colSpan={3} className="notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3">
                               <ImageViewer
                                 src={getFileUrl(f)}
                                 alt={f.name || 'Изображение'}
