@@ -1,11 +1,19 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, Download, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  CircleAlert,
+  FileDown,
+  X,
+} from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import MockExamBadges, { MockExamBadgeSticker } from './MockExamBadges';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
 import { Button } from './ui';
+
 const MockExamModal = ({
   exam,
   studentId,
@@ -17,6 +25,7 @@ const MockExamModal = ({
   allowsPartialAnswers,
   getPrimaryScoreFromSolved,
   getSecondaryScoreFromPrimary,
+  getLocalDayKey,
   withStudentId,
   theme = '',
 }) => {
@@ -27,6 +36,8 @@ const MockExamModal = ({
   const [saveError, setSaveError] = useState('');
   const [expandedImage, setExpandedImage] = useState(null);
   const hasLocalAttemptChangesRef = useRef(false);
+  const latestInitialAttemptRef = useRef(initialAttempt);
+  const firstTaskNumber = MOCK_TASK_NUMBERS[0];
 
   const readAttemptAnswers = (attempt) => (
     attempt?.answers && typeof attempt.answers === 'object' ? attempt.answers : {}
@@ -36,14 +47,17 @@ const MockExamModal = ({
   );
 
   useEffect(() => {
+    latestInitialAttemptRef.current = initialAttempt;
+  }, [initialAttempt]);
+
+  useEffect(() => {
     hasLocalAttemptChangesRef.current = false;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setAnswers(readAttemptAnswers(initialAttempt));
-    setSolved(readAttemptSolved(initialAttempt));
+    setAnswers(readAttemptAnswers(latestInitialAttemptRef.current));
+    setSolved(readAttemptSolved(latestInitialAttemptRef.current));
     setResults({});
     setSaveError('');
-    setSelectedTask(MOCK_TASK_NUMBERS[0]);
-  }, [exam?.id, studentId]);
+    setSelectedTask(firstTaskNumber);
+  }, [exam?.id, studentId, firstTaskNumber]);
 
   useEffect(() => {
     if (hasLocalAttemptChangesRef.current) return;
@@ -72,9 +86,52 @@ const MockExamModal = ({
   const singleAnswer = typeof rawAnswer === 'string'
     ? rawAnswer
     : (Array.isArray(rawAnswer) ? (rawAnswer[0] ?? '') : '');
+  const solvedCount = Object.values(solved || {}).filter(Boolean).length;
+  const primaryScore = getPrimaryScoreFromSolved(solved);
+  const secondaryScore = getSecondaryScoreFromPrimary(primaryScore);
+  const totalTaskCount = MOCK_TASK_NUMBERS.length;
+  const selectedTaskIndex = Math.max(0, MOCK_TASK_NUMBERS.indexOf(selectedTask));
+  const progressPercent = totalTaskCount > 0
+    ? Math.min(100, Math.round((solvedCount / totalTaskCount) * 100))
+    : 0;
+  const isFirstTask = selectedTaskIndex <= 0;
+  const isLastTask = selectedTaskIndex >= totalTaskCount - 1;
+  const screenshots = (Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [])
+    .map((img) => ({ ...img, url: withStudentId(img?.url, studentId) }));
+  const files = (Array.isArray(currentQuestion?.files) ? currentQuestion.files : [])
+    .map((file) => ({ ...file, url: withStudentId(file?.url, studentId) }));
+  const hasQuestionText = Boolean(String(currentQuestion?.question || '').trim());
+  const screenshotMaxHeightClass = hasQuestionText
+    ? 'max-h-[30vh] sm:max-h-[36vh] lg:max-h-[42vh] xl:max-h-[50vh]'
+    : 'max-h-[36vh] sm:max-h-[44vh] lg:max-h-[50vh] xl:max-h-[58vh]';
+  const isDarkTheme = String(theme || '').trim().toLowerCase() === 'dark';
+  const stickerSurface = isDarkTheme ? 'dark' : 'light';
+  const examBadges = normalizeMockExamBadges(exam?.badges);
+  const primaryBadge = examBadges[0] || null;
+  const secondaryBadges = examBadges.slice(1);
+  const isCurrentTaskSolved = Boolean(solved[taskKey]);
+  const allowPartialForTask = answerCount > 1 ? allowsPartialAnswers(selectedTask) : false;
+  const isAnswerReady = answerCount > 1
+    ? (
+      allowPartialForTask
+        ? currentAnswers.some((value) => String(value ?? '').trim())
+        : currentAnswers.every((value) => String(value ?? '').trim())
+    )
+    : Boolean(String(singleAnswer ?? '').trim());
+  const canCheck = Boolean(currentQuestion && studentId && isAnswerReady);
+
+  const handlePrevTask = () => {
+    if (isFirstTask) return;
+    setSelectedTask(MOCK_TASK_NUMBERS[selectedTaskIndex - 1]);
+  };
+
+  const handleNextTask = () => {
+    if (isLastTask) return;
+    setSelectedTask(MOCK_TASK_NUMBERS[selectedTaskIndex + 1]);
+  };
 
   const handleCheck = async (event) => {
-    if (!currentQuestion || !studentId) return;
+    if (!currentQuestion || !studentId || !isAnswerReady) return;
     const buttonRect = event?.currentTarget?.getBoundingClientRect?.();
     const sourceRect = (
       buttonRect
@@ -90,18 +147,13 @@ const MockExamModal = ({
         height: buttonRect.height,
       }
       : null;
-    if (answerCount > 1) {
-      const allowPartial = allowsPartialAnswers(selectedTask);
-      const provided = Array.from({ length: answerCount }, (_, i) => String(currentAnswers[i] ?? ''));
-      if (!allowPartial && provided.some((val) => !val.trim())) return;
-      if (allowPartial && provided.every((val) => !val.trim())) return;
-    } else {
-      if (!String(singleAnswer ?? '').trim()) return;
-    }
     hasLocalAttemptChangesRef.current = true;
     setSaveError('');
     try {
-      const saved = await api.saveMockAttempt(studentId, exam.id, { answers });
+      const saved = await api.saveMockAttempt(studentId, exam.id, {
+        answers,
+        localDay: typeof getLocalDayKey === 'function' ? getLocalDayKey() : undefined,
+      });
       if (saved && typeof saved === 'object') {
         const savedSolved = readAttemptSolved(saved);
         const isCorrect = Boolean(savedSolved[taskKey]);
@@ -115,282 +167,460 @@ const MockExamModal = ({
     }
   };
 
-  const solvedCount = Object.values(solved || {}).filter(Boolean).length;
-  const primaryScore = getPrimaryScoreFromSolved(solved);
-  const secondaryScore = getSecondaryScoreFromPrimary(primaryScore);
-  const firstTaskNumber = MOCK_TASK_NUMBERS[0];
-  const lastTaskNumber = MOCK_TASK_NUMBERS[MOCK_TASK_NUMBERS.length - 1];
-  const progressPercent = Math.min(100, Math.round((solvedCount / lastTaskNumber) * 100));
-  const isFirstTask = selectedTask === firstTaskNumber;
-  const isLastTask = selectedTask === lastTaskNumber;
-  const handlePrevTask = () => setSelectedTask((prev) => Math.max(firstTaskNumber, prev - 1));
-  const handleNextTask = () => setSelectedTask((prev) => Math.min(lastTaskNumber, prev + 1));
-  const screenshots = (Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [])
-    .map((img) => ({ ...img, url: withStudentId(img?.url, studentId) }));
-  const files = (Array.isArray(currentQuestion?.files) ? currentQuestion.files : [])
-    .map((file) => ({ ...file, url: withStudentId(file?.url, studentId) }));
-  const hasQuestionText = Boolean(String(currentQuestion?.question || '').trim());
-  const screenshotMaxHeightClass = hasQuestionText
-    ? 'max-h-[24vh] sm:max-h-[28vh] md:max-h-[32vh] lg:max-h-[36vh]'
-    : 'max-h-[30vh] sm:max-h-[34vh] md:max-h-[38vh] lg:max-h-[44vh]';
-  const stickerSurface = String(theme || '').trim().toLowerCase() === 'dark' ? 'dark' : 'light';
-  const examBadges = normalizeMockExamBadges(exam?.badges);
-  const primaryBadge = examBadges[0] || null;
-  const secondaryBadges = examBadges.slice(1);
+  const shellClassName = isDarkTheme
+    ? 'border-white/10 text-slate-100'
+    : 'border-purple-100/70 text-slate-900';
+  const shellStyle = isDarkTheme
+    ? {
+      background: [
+        'radial-gradient(circle at 0% 0%, rgba(124, 58, 237, 0.24), transparent 28%)',
+        'radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.16), transparent 24%)',
+        'linear-gradient(180deg, rgba(7, 17, 31, 0.98), rgba(12, 23, 40, 0.98))',
+      ].join(', '),
+    }
+    : {
+      background: [
+        'radial-gradient(circle at 0% 0%, rgba(168, 85, 247, 0.12), transparent 28%)',
+        'radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.08), transparent 24%)',
+        'linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(250, 245, 255, 0.96))',
+      ].join(', '),
+    };
+  const panelClassName = isDarkTheme
+    ? 'border-white/10 bg-white/[0.05] shadow-[0_18px_40px_rgba(2,6,23,0.34)] backdrop-blur-xl'
+    : 'border-slate-200/70 bg-white/92 shadow-[0_14px_34px_rgba(15,23,42,0.08)] backdrop-blur-xl';
+  const mutedPanelClassName = isDarkTheme
+    ? 'border-white/10 bg-white/[0.04] shadow-[0_12px_28px_rgba(2,6,23,0.26)] backdrop-blur-xl'
+    : 'border-slate-200/70 bg-white/88 shadow-[0_12px_26px_rgba(15,23,42,0.07)] backdrop-blur-xl';
+  const summaryPanelClassName = isDarkTheme
+    ? 'border-violet-400/20 bg-white/[0.06] shadow-[0_24px_50px_rgba(76,29,149,0.24)] backdrop-blur-xl'
+    : 'border-purple-200/80 bg-white/90 shadow-[0_18px_40px_rgba(124,58,237,0.14)] backdrop-blur-xl';
+  const summaryPanelStyle = isDarkTheme
+    ? {
+      background: [
+        'linear-gradient(145deg, rgba(124, 58, 237, 0.22), rgba(14, 165, 233, 0.08) 140%)',
+        'linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03))',
+      ].join(', '),
+    }
+    : {
+      background: [
+        'linear-gradient(145deg, rgba(139, 92, 246, 0.14), rgba(236, 72, 153, 0.08) 120%)',
+        'linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(250, 245, 255, 0.9))',
+      ].join(', '),
+    };
+  const labelClassName = 'text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400';
+  const metaPillClassName = isDarkTheme
+    ? 'rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-slate-200'
+    : 'rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 text-xs text-slate-600';
+  const closeButtonClassName = isDarkTheme
+    ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]'
+    : 'border-slate-200 bg-white/90 text-slate-600 hover:bg-slate-100';
+  const navButtonClassName = isDarkTheme
+    ? 'border-white/10 bg-white/[0.05] text-slate-200 hover:border-violet-400/40 hover:bg-violet-500/10 disabled:opacity-35 disabled:cursor-not-allowed'
+    : 'border-slate-200 bg-white/95 text-slate-600 hover:border-purple-300 hover:bg-purple-50 disabled:opacity-40 disabled:cursor-not-allowed';
+  const inputClassName = isDarkTheme
+    ? 'w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:border-violet-400 outline-none'
+    : 'w-full rounded-2xl border border-slate-200 bg-slate-50/90 px-4 py-3 text-slate-800 placeholder:text-slate-400 focus:border-purple-500 outline-none';
+  const attachmentLinkClassName = isDarkTheme
+    ? 'flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-200 transition hover:border-violet-400/40 hover:bg-violet-500/10'
+    : 'flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 transition hover:border-purple-300 hover:bg-purple-50';
+  const statusPillClassName = isCurrentTaskSolved
+    ? (isDarkTheme
+      ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+      : 'border border-emerald-200 bg-emerald-50 text-emerald-700')
+    : (isDarkTheme
+      ? 'border border-white/10 bg-white/[0.05] text-slate-300'
+      : 'border border-slate-200 bg-slate-100 text-slate-600');
+
+  const getTaskButtonClassName = (taskNumber, compact = false) => {
+    const isSelected = taskNumber === selectedTask;
+    const isSolvedTask = Boolean(solved[String(taskNumber)]);
+    const sizeClassName = compact
+      ? 'h-11 min-w-[2.9rem] px-3 rounded-2xl text-sm'
+      : 'h-12 rounded-2xl text-sm';
+
+    if (isSelected) {
+      return `${sizeClassName} border border-violet-400 bg-violet-500 text-white shadow-[0_14px_24px_rgba(139,92,246,0.32)]`;
+    }
+
+    if (isSolvedTask) {
+      return isDarkTheme
+        ? `${sizeClassName} border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 hover:border-emerald-400/50 hover:bg-emerald-500/14`
+        : `${sizeClassName} border border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100`;
+    }
+
+    return isDarkTheme
+      ? `${sizeClassName} border border-white/10 bg-white/[0.04] text-slate-300 hover:border-violet-400/35 hover:bg-violet-500/10 hover:text-white`
+      : `${sizeClassName} border border-slate-200 bg-white/90 text-slate-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700`;
+  };
 
   if (!exam) return null;
 
+  const renderTaskPicker = (compact = false) => (
+    <div className={compact ? 'flex gap-2 overflow-x-auto pb-1' : 'grid grid-cols-4 gap-2'}>
+      {MOCK_TASK_NUMBERS.map((taskNumber) => (
+        <button
+          key={taskNumber}
+          type="button"
+          onClick={() => setSelectedTask(taskNumber)}
+          className={`${getTaskButtonClassName(taskNumber, compact)} transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/60`}
+        >
+          {taskNumber}
+        </button>
+      ))}
+    </div>
+  );
+
   const modal = (
-    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="surface-card modal-card rounded-3xl w-full max-w-6xl max-h-[96vh] p-4 md:p-6 shadow-2xl relative flex flex-col overflow-hidden bg-gradient-to-br from-white via-white to-purple-50/60 border border-purple-100/60">
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <div className="min-w-0 flex-1 space-y-2">
+    <div className="fixed inset-0 z-50 modal-backdrop flex items-center justify-center bg-black/65 p-3 backdrop-blur-md sm:p-4">
+      <div
+        className={`modal-card relative flex max-h-[96vh] w-full max-w-[96rem] flex-col overflow-hidden rounded-[2rem] border p-4 shadow-2xl md:p-6 ${shellClassName}`}
+        style={shellStyle}
+      >
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-white/8 to-transparent" />
+
+        <div className="relative mb-5 flex items-start gap-4">
+          <div className="min-w-0 flex-1 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-2 rounded-full bg-purple-50 text-purple-700 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em]">
+              <span className={`${isDarkTheme ? 'border border-violet-400/20 bg-violet-500/12 text-violet-100' : 'bg-purple-50 text-purple-700'} inline-flex items-center rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em]`}>
                 Пробник
               </span>
-              <span className="inline-flex items-center rounded-full border border-purple-100 bg-white/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+              <span className={`${isDarkTheme ? 'border-white/10 bg-white/[0.05] text-slate-300' : 'border-purple-100 bg-white/80 text-gray-500'} inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest`}>
                 ЕГЭ
               </span>
             </div>
-            <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-2 md:gap-4">
-              <h3 className="text-2xl md:text-3xl font-display font-bold text-gray-900">{exam.title}</h3>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                <span className="px-2 py-1 rounded-full border border-purple-100 bg-white/80 hidden sm:inline-flex">
-                  Баллы: <span className="font-semibold text-purple-700">{secondaryScore}</span>
-                  <span className="text-gray-400">{` (${primaryScore} перв.)`}</span>
-                </span>
-                <span className="px-2 py-1 rounded-full border border-gray-200 bg-white/80 hidden sm:inline-flex">
-                  Решено: <span className="font-semibold text-gray-700">{solvedCount}</span>/27
-                </span>
-                <span className="px-2 py-1 rounded-full border border-purple-100 bg-white/80 sm:hidden">
-                  Баллы: <span className="font-semibold text-purple-700">{secondaryScore}</span>
-                </span>
+
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+              <div className="min-w-0 space-y-3">
+                <h3 className={`text-2xl font-display font-bold tracking-[-0.04em] md:text-[2.25rem] ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                  {exam.title}
+                </h3>
+                {secondaryBadges.length > 0 && <MockExamBadges badges={secondaryBadges} size="sm" className="gap-2" />}
+                <div className="flex flex-wrap items-center gap-2 lg:hidden">
+                  <span className={metaPillClassName}>
+                    Баллы <span className="ml-1 font-semibold">{secondaryScore}</span>
+                  </span>
+                  <span className={metaPillClassName}>
+                    Решено <span className="ml-1 font-semibold">{solvedCount}/{totalTaskCount}</span>
+                  </span>
+                </div>
               </div>
-            </div>
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-              <div className="min-w-0 space-y-2">
-                {secondaryBadges.length > 0 && <MockExamBadges badges={secondaryBadges} size="md" />}
-              </div>
+
               {primaryBadge && (
-                <div className="flex justify-start md:justify-end">
+                <div className="hidden shrink-0 justify-end md:flex">
                   <MockExamBadgeSticker badge={primaryBadge} size="sm" surface={stickerSurface} />
                 </div>
               )}
             </div>
-            <div className="max-w-xs hidden sm:block">
-              <div className="flex items-center justify-between text-[11px] text-gray-400">
-                <span>Прогресс</span>
-                <span>{progressPercent}%</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Закрыть пробник"
+            className={`relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition ${closeButtonClassName}`}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="relative grid min-h-0 flex-1 gap-4 lg:grid-cols-[18.5rem_minmax(0,1fr)] xl:gap-5">
+          <aside className="hidden min-h-0 flex-col gap-4 lg:flex">
+            <div
+              className={`rounded-[1.75rem] border p-4 ${summaryPanelClassName}`}
+              style={summaryPanelStyle}
+            >
+              <div className={labelClassName}>Прогресс</div>
+              <div className={`mt-3 text-3xl font-display font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                {secondaryScore} баллов
               </div>
-              <div className="mt-1 h-2 rounded-full bg-purple-100/70 overflow-hidden">
+              <div className={`mt-1 text-sm ${isDarkTheme ? 'text-slate-300' : 'text-slate-500'}`}>
+                {primaryScore} первичных
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className={`${isDarkTheme ? 'border-white/10 bg-black/10 text-slate-200' : 'border-white/50 bg-white/50 text-slate-700'} rounded-2xl border px-3 py-2`}>
+                  <div className="text-[10px] uppercase tracking-[0.18em] opacity-70">Решено</div>
+                  <div className="mt-1 text-base font-semibold">{solvedCount}/{totalTaskCount}</div>
+                </div>
+                <div className={`${isDarkTheme ? 'border-white/10 bg-black/10 text-slate-200' : 'border-white/50 bg-white/50 text-slate-700'} rounded-2xl border px-3 py-2`}>
+                  <div className="text-[10px] uppercase tracking-[0.18em] opacity-70">Готово</div>
+                  <div className="mt-1 text-base font-semibold">{progressPercent}%</div>
+                </div>
+              </div>
+
+              <div className={`mt-4 h-2 overflow-hidden rounded-full ${isDarkTheme ? 'bg-white/10' : 'bg-white/60'}`}>
                 <div
-                  className="h-2 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 transition-all duration-500"
+                  className={`h-full rounded-full ${isDarkTheme ? 'bg-white' : 'bg-gradient-to-r from-violet-500 to-fuchsia-500'}`}
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
             </div>
-          </div>
-          <button onClick={onClose} className="p-2 bg-white/90 border border-gray-200 rounded-full hover:bg-gray-100"><X size={20}/></button>
-        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4 flex-1 min-h-0 overflow-hidden">
-          <div className="surface-panel rounded-2xl p-3 overflow-y-auto hidden lg:block">
-            <div className="rounded-2xl bg-gradient-to-br from-purple-600 via-purple-600 to-fuchsia-500 text-white p-4 shadow-sm relative overflow-hidden">
-              <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-purple-100">Прогресс</div>
-              <div className="mt-2 text-2xl font-display font-bold">{secondaryScore} баллов</div>
-              <div className="text-xs text-purple-100">{primaryScore} первичных</div>
-              <div className="mt-3 h-2 rounded-full bg-white/25 overflow-hidden">
-                <div className="h-2 rounded-full bg-white transition-all duration-500" style={{ width: `${progressPercent}%` }} />
+            <div className={`flex min-h-0 flex-1 flex-col rounded-[1.75rem] border p-4 ${panelClassName}`}>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className={labelClassName}>Задания</div>
+                <div className={`${isDarkTheme ? 'text-slate-500' : 'text-slate-400'} text-xs`}>
+                  1-{totalTaskCount}
+                </div>
               </div>
-              <div className="mt-2 text-[11px] text-purple-100">{solvedCount} из 27 решено</div>
-            </div>
 
-            <div className="mt-3 sm:mt-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-xs font-semibold text-gray-500">Задания</div>
-                <div className="text-[10px] text-gray-400">1–27</div>
-              </div>
-              <div className="grid grid-cols-5 sm:grid-cols-6 lg:grid-cols-4 gap-2">
-                {MOCK_TASK_NUMBERS.map((num) => (
-                  <button
-                    key={num}
-                    type="button"
-                    onClick={() => setSelectedTask(num)}
-                    className={`h-10 rounded-xl border text-xs font-semibold transition-all duration-200 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/60 ${
-                      num === selectedTask
-                        ? 'border-purple-500 bg-purple-600 text-white shadow-md shadow-purple-200'
-                        : (solved[String(num)] ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:border-emerald-400' : 'border-gray-200 text-gray-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700')
-                    }`}
-                  >
-                    {num}
-                  </button>
-                ))}
+              {renderTaskPicker(false)}
+
+              <div className={`mt-auto grid gap-2 pt-4 text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                <div className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full bg-violet-500" />
+                  Текущее
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+                  Решено
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${isDarkTheme ? 'bg-slate-600' : 'bg-slate-300'}`} />
+                  Остальные
+                </div>
               </div>
             </div>
+          </aside>
 
-            <div className="mt-4 grid grid-cols-1 gap-2 text-[11px] text-gray-500">
-              <div className="flex items-center gap-2">
-                <span className="inline-block h-2.5 w-2.5 rounded-full bg-purple-600" />
-                Текущее
+          <section className="flex min-h-0 flex-col gap-4">
+            <div className={`rounded-[1.5rem] border p-3.5 lg:hidden ${mutedPanelClassName}`}>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div className={labelClassName}>Навигация</div>
+                <div className={`${isDarkTheme ? 'text-slate-400' : 'text-slate-500'} text-xs`}>
+                  {selectedTaskIndex + 1} из {totalTaskCount}
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-400" />
-                Решено
+
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className={metaPillClassName}>
+                  Баллы <span className="ml-1 font-semibold">{secondaryScore}</span>
+                </span>
+                <span className={metaPillClassName}>
+                  Решено <span className="ml-1 font-semibold">{solvedCount}/{totalTaskCount}</span>
+                </span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="inline-block h-2.5 w-2.5 rounded-full bg-gray-300" />
-                Не решено
+
+              <div className={`mb-3 h-2 overflow-hidden rounded-full ${isDarkTheme ? 'bg-white/10' : 'bg-slate-200/80'}`}>
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500"
+                  style={{ width: `${progressPercent}%` }}
+                />
               </div>
+
+              {renderTaskPicker(true)}
             </div>
-          </div>
 
-          <div className="mock-exam-scroll min-h-0 overflow-y-auto pr-1">
-            {!currentQuestion ? (
-              <div className="rounded-2xl border border-dashed border-gray-200 p-6 text-gray-500 text-sm bg-white/70">
-                Задание {selectedTask} ещё не добавлено преподавателем.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white/90 border border-purple-100/60 px-4 py-3 shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-purple-500">Задание</span>
-                    <span className="text-lg font-display font-bold text-gray-900">№ {selectedTask}</span>
-                    <span className="text-[10px] uppercase tracking-widest text-gray-400">ЕГЭ</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handlePrevTask}
-                      disabled={isFirstTask}
-                      className="h-9 w-9 rounded-full border border-gray-200 bg-white/90 text-gray-500 transition hover:border-purple-300 hover:bg-purple-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                      aria-label="Предыдущее задание"
-                    >
-                      <ChevronRight size={16} className="rotate-180 mx-auto" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleNextTask}
-                      disabled={isLastTask}
-                      className="h-9 w-9 rounded-full border border-gray-200 bg-white/90 text-gray-500 transition hover:border-purple-300 hover:bg-purple-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                      aria-label="Следующее задание"
-                    >
-                      <ChevronRight size={16} className="mx-auto" />
-                    </button>
+            <div className={`rounded-[1.5rem] border p-4 ${panelClassName}`}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className={labelClassName}>Задание</div>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <span className={`text-2xl font-display font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                      № {selectedTask}
+                    </span>
+                    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${statusPillClassName}`}>
+                      {isCurrentTaskSolved ? 'Решено' : 'Открыто'}
+                    </span>
                   </div>
                 </div>
-                {currentQuestion?.question && (
-                  <div className="whitespace-pre-wrap text-gray-900 text-base leading-relaxed bg-white/90 border border-purple-100/60 border-l-4 border-l-purple-400/60 rounded-2xl p-4 pl-5 shadow-sm">
-                    {currentQuestion.question}
-                  </div>
-                )}
 
-                {screenshots.length > 0 && (
-                  <div className="space-y-3">
-                    {screenshots.map((img) => (
-                      <img
-                        key={img.storageName || img.url}
-                        src={img.url}
-                        alt={img.name || 'Скриншот'}
-                        className={`mx-auto block w-auto max-w-full ${screenshotMaxHeightClass} rounded-2xl border border-gray-200 object-contain bg-white cursor-pointer shadow-sm hover:shadow-lg transition-shadow`}
-                        onClick={() => setExpandedImage(img.url)}
+                <div className="flex items-center gap-2">
+                  <span className={metaPillClassName}>
+                    {selectedTaskIndex + 1}/{totalTaskCount}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handlePrevTask}
+                    disabled={isFirstTask}
+                    className={`inline-flex h-10 w-10 items-center justify-center rounded-full border transition ${navButtonClassName}`}
+                    aria-label="Предыдущее задание"
+                  >
+                    <ArrowLeft size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleNextTask}
+                    disabled={isLastTask}
+                    className={`inline-flex h-10 w-10 items-center justify-center rounded-full border transition ${navButtonClassName}`}
+                    aria-label="Следующее задание"
+                  >
+                    <ArrowRight size={16} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="mock-exam-scroll min-h-0 flex-1 overflow-y-auto pr-1">
+              {!currentQuestion ? (
+                <div className={`rounded-[1.75rem] border border-dashed p-6 text-sm ${isDarkTheme ? 'border-white/10 bg-white/[0.04] text-slate-300' : 'border-slate-200 bg-white/70 text-slate-500'}`}>
+                  Задание {selectedTask} ещё не добавлено преподавателем.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <section className={`rounded-[1.75rem] border p-4 sm:p-5 ${panelClassName}`}>
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                      <div className={labelClassName}>Условие</div>
+                      {(screenshots.length > 0 || files.length > 0) && (
+                        <div className={`${isDarkTheme ? 'text-slate-500' : 'text-slate-400'} text-xs`}>
+                          {screenshots.length > 0 && `${screenshots.length} изображ.`}
+                          {screenshots.length > 0 && files.length > 0 ? ' · ' : ''}
+                          {files.length > 0 && `${files.length} файл.`}
+                        </div>
+                      )}
+                    </div>
+
+                    {currentQuestion?.question && (
+                      <div className={`whitespace-pre-wrap text-[15px] leading-7 sm:text-base ${isDarkTheme ? 'text-slate-100' : 'text-slate-800'}`}>
+                        {currentQuestion.question}
+                      </div>
+                    )}
+
+                    {screenshots.length > 0 && (
+                      <div className={`${currentQuestion?.question ? 'mt-5' : ''} space-y-3`}>
+                        {screenshots.map((img) => (
+                          <img
+                            key={img.storageName || img.url}
+                            src={img.url}
+                            alt={img.name || 'Скриншот'}
+                            className={`mx-auto block w-auto max-w-full ${screenshotMaxHeightClass} cursor-zoom-in rounded-[1.4rem] border object-contain shadow-sm transition-shadow hover:shadow-lg ${isDarkTheme ? 'border-white/10 bg-slate-950/80' : 'border-slate-200 bg-white'}`}
+                            onClick={() => setExpandedImage(img.url)}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {files.length > 0 && (
+                      <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                        {files.map((file) => (
+                          <a
+                            key={file.storageName || file.url}
+                            href={buildDownloadUrl(file.url)}
+                            download={file?.name || undefined}
+                            className={attachmentLinkClassName}
+                          >
+                            <span className="min-w-0 truncate">{file.name || 'Файл'}</span>
+                            <FileDown size={18} className="shrink-0 text-violet-500" />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                </div>
+              )}
+            </div>
+
+            {currentQuestion ? (
+              <div className={`rounded-[1.75rem] border p-4 ${panelClassName}`}>
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                  <div className="min-w-0 flex-1 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className={labelClassName}>Ответ</div>
+                      {results[taskKey] !== undefined && (
+                        <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${
+                          results[taskKey]
+                            ? (isDarkTheme
+                              ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                              : 'border border-emerald-200 bg-emerald-50 text-emerald-700')
+                            : (isDarkTheme
+                              ? 'border border-rose-500/30 bg-rose-500/10 text-rose-200'
+                              : 'border border-rose-200 bg-rose-50 text-rose-600')
+                        }`}>
+                          {results[taskKey] ? <CheckCircle2 size={14} /> : <CircleAlert size={14} />}
+                          {results[taskKey] ? 'Верно' : 'Неверно'}
+                        </div>
+                      )}
+                    </div>
+
+                    {answerCount > 1 ? (
+                      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                        {Array.from({ length: answerCount }).map((_, idx) => (
+                          <input
+                            key={idx}
+                            type="text"
+                            value={currentAnswers[idx] ?? ''}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              hasLocalAttemptChangesRef.current = true;
+                              setSaveError('');
+                              setAnswers((prev) => {
+                                const next = { ...prev };
+                                const prevEntry = next[taskKey];
+                                const arr = Array.isArray(prevEntry)
+                                  ? [...prevEntry]
+                                  : (typeof prevEntry === 'string'
+                                    ? [prevEntry, ...Array.from({ length: Math.max(0, answerCount - 1) }, () => '')]
+                                    : Array.from({ length: answerCount }, () => '')
+                                  );
+                                arr[idx] = value;
+                                next[taskKey] = arr;
+                                return next;
+                              });
+                            }}
+                            placeholder={`Ответ ${idx + 1}`}
+                            className={inputClassName}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        value={singleAnswer}
+                        onChange={(e) => {
+                          hasLocalAttemptChangesRef.current = true;
+                          setSaveError('');
+                          setAnswers((prev) => ({ ...prev, [taskKey]: e.target.value }));
+                        }}
+                        placeholder="Введите ответ..."
+                        className={inputClassName}
                       />
-                    ))}
-                  </div>
-                )}
+                    )}
 
-                {files.length > 0 && (
-                  <div className="space-y-2">
-                    {files.map((file) => (
-                      <a
-                        key={file.storageName || file.url}
-                        href={buildDownloadUrl(file.url)}
-                        download={file?.name || undefined}
-                        className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-700 hover:border-purple-300 hover:bg-purple-50"
-                      >
-                        <span className="truncate">{file.name || 'Файл'}</span>
-                        <Download size={16} className="text-purple-600" />
-                      </a>
-                    ))}
+                    {saveError && (
+                      <div className="text-sm text-rose-500">{saveError}</div>
+                    )}
                   </div>
-                )}
 
-                <div className="rounded-2xl border border-purple-100/70 bg-white/95 p-3 shadow-sm">
-                  <div className="text-xs font-bold text-gray-400 uppercase mb-2">Ответ ученика</div>
-                  {answerCount > 1 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {Array.from({ length: answerCount }).map((_, idx) => (
-                        <input
-                          key={idx}
-                          type="text"
-                          value={currentAnswers[idx] ?? ''}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            hasLocalAttemptChangesRef.current = true;
-                            setSaveError('');
-                            setAnswers((prev) => {
-                              const next = { ...prev };
-                              const prevEntry = next[taskKey];
-                              const arr = Array.isArray(prevEntry)
-                                ? [...prevEntry]
-                                : (typeof prevEntry === 'string'
-                                  ? [prevEntry, ...Array.from({ length: Math.max(0, answerCount - 1) }, () => '')]
-                                  : Array.from({ length: answerCount }, () => '')
-                                );
-                              arr[idx] = value;
-                              next[taskKey] = arr;
-                              return next;
-                            });
-                          }}
-                          placeholder={`Ответ ${idx + 1}`}
-                          className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <input
-                      type="text"
-                      value={singleAnswer}
-                      onChange={(e) => {
-                        hasLocalAttemptChangesRef.current = true;
-                        setSaveError('');
-                        setAnswers((prev) => ({ ...prev, [taskKey]: e.target.value }));
-                      }}
-                      placeholder="Введите ответ..."
-                      className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-                    />
-                  )}
-                  {results[taskKey] !== undefined && (
-                    <div className={`mt-2 inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
-                      results[taskKey]
-                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        : 'bg-rose-50 text-rose-600 border border-rose-200'
-                    }`}>
-                      {results[taskKey] ? 'Верно' : 'Неверно'}
-                    </div>
-                  )}
-                  {saveError && (
-                    <div className="mt-2 text-xs text-rose-600">{saveError}</div>
-                  )}
+                  <div className="flex w-full flex-col gap-2 sm:flex-row xl:w-auto xl:flex-col">
+                    <Button
+                      variant="secondary"
+                      onClick={onClose}
+                      className={`w-full sm:w-auto xl:min-w-[9rem] ${isDarkTheme ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]' : ''}`}
+                    >
+                      Закрыть
+                    </Button>
+                    <Button
+                      onClick={handleCheck}
+                      disabled={!canCheck}
+                      className="w-full sm:w-auto xl:min-w-[9rem]"
+                    >
+                      Проверить
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className={`rounded-[1.5rem] border p-4 ${mutedPanelClassName}`}>
+                <div className="flex justify-end">
+                  <Button
+                    variant="secondary"
+                    onClick={onClose}
+                    className={`w-full sm:w-auto ${isDarkTheme ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]' : ''}`}
+                  >
+                    Закрыть
+                  </Button>
                 </div>
               </div>
             )}
-          </div>
-        </div>
-
-        <div className="pt-4 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="text-xs text-gray-500 bg-white/80 border border-gray-200 rounded-full px-3 py-1 self-start whitespace-nowrap">
-            Задание {selectedTask} из 27
-          </div>
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-            <Button variant="secondary" onClick={onClose} className="w-full sm:w-auto">Закрыть</Button>
-            <Button onClick={handleCheck} disabled={!currentQuestion} className="w-full sm:w-auto">Проверить</Button>
-          </div>
+          </section>
         </div>
       </div>
 
       {expandedImage && (
-        <div className="fixed inset-0 z-[60] bg-black/80 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setExpandedImage(null)}>
+        <div
+          className="fixed inset-0 z-[60] modal-backdrop flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          onClick={() => setExpandedImage(null)}
+        >
           <img src={expandedImage} alt="Просмотр" className="max-h-[90vh] max-w-[90vw] rounded-2xl shadow-2xl" />
         </div>
       )}
@@ -400,7 +630,4 @@ const MockExamModal = ({
   return typeof document !== 'undefined' ? createPortal(modal, document.body) : null;
 };
 
-
-
 export default MockExamModal;
-
