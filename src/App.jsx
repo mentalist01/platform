@@ -5562,13 +5562,9 @@ const CollabSection = ({
         ? 'border-amber-300/45 bg-amber-500/18 text-amber-100 shadow-[0_6px_16px_rgba(217,119,6,0.2)]'
         : 'border-amber-200 bg-amber-50/95 text-amber-700 shadow-[0_6px_14px_rgba(252,211,77,0.22)]')
       : 'border-amber-200 bg-amber-50 text-amber-700');
+  const SHOW_COLLAB_AUTOFORMAT = false;
   const isSplitCollabLayout = (isCollabFullscreen || isDesktopCollabCompact) && !isMobileViewport;
   const showEditorHeader = !isSplitCollabLayout;
-  const sessionLabel = roomId
-    ? (isTeacher
-      ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
-      : 'Учитель + ученик')
-    : 'Не выбрана';
   const remoteEditorCursorMarkers = useMemo(() => {
     if (!COLLAB_EDITOR_CURSOR_ENABLED) return [];
     const layoutVersion = editorViewportVersion;
@@ -7082,11 +7078,8 @@ const CollabSection = ({
       )}
 
       <Card className={collabCardClass}>
-        {!isCollabFullscreen && !isDesktopCollabCompact && (
-          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-            <div>
-              <div className={`text-sm font-semibold ${collabSessionTextClass}`}>{sessionLabel}</div>
-            </div>
+        {SHOW_COLLAB_AUTOFORMAT && !isCollabFullscreen && !isDesktopCollabCompact && (
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-end">
             <div className="flex flex-wrap items-center gap-2 md:justify-end">
               <button
                 type="button"
@@ -7110,12 +7103,6 @@ const CollabSection = ({
               ? 'min-w-0 flex-1 rounded-xl px-0.5 py-px sm:px-1 sm:py-0.5'
               : (isDesktopCollabCompact ? 'mt-0 px-0.5 py-px' : 'mt-3 inline-flex px-1.5 py-1')
           } ${collabToolbarClass}`}>
-            {(isCollabFullscreen || isDesktopCollabCompact) && (
-              <>
-                <span className={`${isCollabFullscreen ? 'max-w-[360px]' : 'max-w-[220px]'} truncate text-[11px] font-semibold ${collabSessionValueClass}`}>{sessionLabel}</span>
-                <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
-              </>
-            )}
           <button
             type="button"
             onClick={() => handleRunCode('all')}
@@ -7258,7 +7245,7 @@ const CollabSection = ({
           >
             <Trash2 size={14} />
           </button>
-          {(isCollabFullscreen || isDesktopCollabCompact) && (
+          {SHOW_COLLAB_AUTOFORMAT && (isCollabFullscreen || isDesktopCollabCompact) && (
             <>
               <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
               <button
