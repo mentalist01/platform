@@ -104,6 +104,7 @@ const MockExamModal = ({
   const screenshotMaxHeightClass = hasQuestionText
     ? 'max-h-[30vh] sm:max-h-[36vh] lg:max-h-[42vh] xl:max-h-[50vh]'
     : 'max-h-[36vh] sm:max-h-[44vh] lg:max-h-[50vh] xl:max-h-[58vh]';
+  const shouldFitSingleScreenshot = !hasQuestionText && screenshots.length === 1;
   const isDarkTheme = String(theme || '').trim().toLowerCase() === 'dark';
   const stickerSurface = isDarkTheme ? 'dark' : 'light';
   const examBadges = normalizeMockExamBadges(exam?.badges);
@@ -236,7 +237,7 @@ const MockExamModal = ({
     const isSolvedTask = Boolean(solved[String(taskNumber)]);
     const sizeClassName = compact
       ? 'h-11 min-w-[2.9rem] px-3 rounded-2xl text-sm'
-      : 'h-12 rounded-2xl text-sm';
+      : 'h-11 rounded-2xl text-sm';
 
     if (isSelected) {
       return `${sizeClassName} border border-violet-400 bg-violet-500 text-white shadow-[0_14px_24px_rgba(139,92,246,0.32)]`;
@@ -278,7 +279,7 @@ const MockExamModal = ({
       >
         <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-white/8 to-transparent" />
 
-        <div className="relative mb-5 flex items-start gap-4">
+        <div className="relative mb-4 flex items-start gap-4">
           <div className="min-w-0 flex-1 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className={`${isDarkTheme ? 'border border-violet-400/20 bg-violet-500/12 text-violet-100' : 'bg-purple-50 text-purple-700'} inline-flex items-center rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em]`}>
@@ -323,10 +324,10 @@ const MockExamModal = ({
           </button>
         </div>
 
-        <div className="relative grid min-h-0 flex-1 gap-4 lg:grid-cols-[18.5rem_minmax(0,1fr)] xl:gap-5">
-          <aside className="hidden min-h-0 flex-col gap-4 lg:flex">
+        <div className="relative grid min-h-0 flex-1 gap-3 lg:grid-cols-[18.5rem_minmax(0,1fr)] xl:gap-4">
+          <aside className="hidden min-h-0 flex-col gap-3 lg:flex">
             <div
-              className={`rounded-[1.75rem] border p-4 ${summaryPanelClassName}`}
+              className={`rounded-[1.75rem] border p-3.5 ${summaryPanelClassName}`}
               style={summaryPanelStyle}
             >
               <div className={labelClassName}>Прогресс</div>
@@ -356,17 +357,19 @@ const MockExamModal = ({
               </div>
             </div>
 
-            <div className={`flex min-h-0 flex-1 flex-col rounded-[1.75rem] border p-4 ${panelClassName}`}>
-              <div className="mb-3 flex items-center justify-between gap-3">
+            <div className={`flex min-h-0 flex-1 flex-col rounded-[1.75rem] border p-3.5 ${panelClassName}`}>
+              <div className="mb-2.5 flex items-center justify-between gap-3">
                 <div className={labelClassName}>Задания</div>
                 <div className={`${isDarkTheme ? 'text-slate-500' : 'text-slate-400'} text-xs`}>
                   1-{totalTaskCount}
                 </div>
               </div>
 
-              {renderTaskPicker(false)}
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                {renderTaskPicker(false)}
+              </div>
 
-              <div className={`mt-auto grid gap-2 pt-4 text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+              <div className={`shrink-0 grid gap-1.5 pt-3 text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
                 <div className="flex items-center gap-2">
                   <span className="h-2.5 w-2.5 rounded-full bg-violet-500" />
                   Текущее
@@ -383,7 +386,7 @@ const MockExamModal = ({
             </div>
           </aside>
 
-          <section className="flex min-h-0 flex-col gap-4">
+          <section className="flex min-h-0 flex-col gap-3">
             <div className={`rounded-[1.5rem] border p-3.5 lg:hidden ${mutedPanelClassName}`}>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div className={labelClassName}>Навигация</div>
@@ -411,7 +414,7 @@ const MockExamModal = ({
               {renderTaskPicker(true)}
             </div>
 
-            <div className={`rounded-[1.5rem] border p-4 ${panelClassName}`}>
+            <div className={`rounded-[1.5rem] border p-3.5 ${panelClassName}`}>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className={labelClassName}>Задание</div>
@@ -451,15 +454,15 @@ const MockExamModal = ({
               </div>
             </div>
 
-            <div className="mock-exam-scroll min-h-0 flex-1 overflow-y-auto pr-1">
+            <div className={`mock-exam-scroll min-h-0 flex-1 pr-1 ${shouldFitSingleScreenshot ? 'overflow-hidden' : 'overflow-y-auto'}`}>
               {!currentQuestion ? (
                 <div className={`rounded-[1.75rem] border border-dashed p-6 text-sm ${isDarkTheme ? 'border-white/10 bg-white/[0.04] text-slate-300' : 'border-slate-200 bg-white/70 text-slate-500'}`}>
                   Задание {selectedTask} ещё не добавлено преподавателем.
                 </div>
               ) : (
-                <div className="space-y-4">
-                  <section className={`rounded-[1.75rem] border p-4 sm:p-5 ${panelClassName}`}>
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div className={shouldFitSingleScreenshot ? 'flex h-full min-h-0 flex-col' : 'space-y-4'}>
+                  <section className={`rounded-[1.75rem] border p-3.5 sm:p-4 ${panelClassName} ${shouldFitSingleScreenshot ? 'flex h-full min-h-0 flex-col' : ''}`}>
+                    <div className={`flex flex-wrap items-center justify-between gap-3 ${shouldFitSingleScreenshot ? 'mb-3' : 'mb-4'}`}>
                       <div className={labelClassName}>Условие</div>
                       {(screenshots.length > 0 || files.length > 0) && (
                         <div className={`${isDarkTheme ? 'text-slate-500' : 'text-slate-400'} text-xs`}>
@@ -477,13 +480,13 @@ const MockExamModal = ({
                     )}
 
                     {screenshots.length > 0 && (
-                      <div className={`${currentQuestion?.question ? 'mt-5' : ''} space-y-3`}>
+                      <div className={`${currentQuestion?.question ? 'mt-5' : (shouldFitSingleScreenshot ? 'mt-1' : '')} ${shouldFitSingleScreenshot ? 'flex min-h-0 flex-1 items-center justify-center' : 'space-y-3'}`}>
                         {screenshots.map((img) => (
                           <img
                             key={img.storageName || img.url}
                             src={img.url}
                             alt={img.name || 'Скриншот'}
-                            className={`mx-auto block w-auto max-w-full ${screenshotMaxHeightClass} cursor-zoom-in rounded-[1.4rem] border object-contain shadow-sm transition-shadow hover:shadow-lg ${isDarkTheme ? 'border-white/10 bg-slate-950/80' : 'border-slate-200 bg-white'}`}
+                            className={`mx-auto block ${shouldFitSingleScreenshot ? 'h-full max-h-full w-auto max-w-full' : `w-auto max-w-full ${screenshotMaxHeightClass}`} cursor-zoom-in rounded-[1.4rem] border object-contain shadow-sm transition-shadow hover:shadow-lg ${isDarkTheme ? 'border-white/10 bg-slate-950/80' : 'border-slate-200 bg-white'}`}
                             onClick={() => setExpandedImage(img.url)}
                           />
                         ))}
@@ -511,7 +514,7 @@ const MockExamModal = ({
             </div>
 
             {currentQuestion ? (
-              <div className={`rounded-[1.75rem] border p-4 ${panelClassName}`}>
+              <div className={`rounded-[1.75rem] border p-3.5 ${panelClassName}`}>
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
                   <div className="min-w-0 flex-1 space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
