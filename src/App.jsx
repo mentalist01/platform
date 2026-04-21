@@ -10271,12 +10271,12 @@ const BoardSection = ({
     ? 'animate-fadeIn h-full min-h-0 flex flex-col overflow-hidden'
     : (embedded
       ? 'animate-fadeIn h-full min-h-0 flex flex-col overflow-hidden'
-      : 'animate-fadeIn pb-2 md:pb-0 md:flex md:flex-1 md:min-h-0 md:flex-col md:overflow-hidden');
+      : 'animate-fadeIn flex flex-1 min-h-0 flex-col overflow-hidden pb-2 md:pb-0');
   const boardCardClass = isFullscreen
-    ? 'relative p-1 md:p-1.5 h-full min-h-0 flex flex-col overflow-hidden'
+    ? 'board-surface-card board-surface-card--fullscreen relative h-full min-h-0 flex flex-col overflow-hidden rounded-none border-0 bg-transparent shadow-none'
     : (embedded
       ? 'board-embedded-card relative h-full min-h-0 rounded-[0.7rem] border-0 bg-white p-0 shadow-none flex flex-col overflow-hidden'
-      : 'relative overflow-visible p-2.5 md:p-3 md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-visible');
+      : 'board-surface-card board-surface-card--main relative overflow-visible rounded-none border-0 bg-transparent shadow-none flex min-h-0 flex-1 flex-col overflow-visible');
   const activeWidth = tool === 'line' ? lineWidth : penWidth;
   const widthTargetLabel = tool === 'line' ? 'Линия' : 'Карандаш';
   const showWidthControls = tool === 'pen' || tool === 'line';
@@ -10750,7 +10750,7 @@ const BoardSection = ({
             boardPasteFocusedRef.current = false;
           }
         }}
-        className={`board-canvas-surface ${isFullscreen ? 'mt-0 flex-1 min-h-0 h-auto' : (embedded ? 'mt-1 flex-1 min-h-0 h-full' : 'mt-0 h-[68vh] min-h-[320px] sm:min-h-[360px] md:h-auto md:min-h-[54vh] md:flex-1')} relative w-full ${embedded ? 'rounded-[0.7rem]' : 'rounded-2xl'} ${embedded ? 'border-0' : 'border border-gray-200'} bg-white outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60 overflow-hidden ${
+        className={`board-canvas-surface board-canvas-outline ${isFullscreen ? 'mt-0 flex-1 min-h-0 h-auto' : (embedded ? 'mt-1 flex-1 min-h-0 h-full' : 'mt-0 h-[74vh] min-h-[360px] sm:min-h-[400px] md:h-auto md:min-h-[61vh] md:flex-1')} relative w-full ${embedded ? 'rounded-[0.7rem]' : 'rounded-[1.15rem]'} bg-white outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60 overflow-hidden ${
           summonNotice ? 'ring-2 ring-amber-400/70 ring-offset-2 ring-offset-white' : ''
         }`}
         title={!isFullscreen ? 'Вставка картинки: Ctrl+V. Лимит 10 МБ. Панорамирование: удерживайте Space и тяните.' : undefined}
@@ -11063,9 +11063,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       : isCallSessionActive
         ? (callPanelExpanded ? 'floating' : 'collapsed')
         : 'hidden';
-  const mainLayoutClass = (isBoardView || isCallView || isCollabView)
-    ? 'flex-1 overflow-hidden px-3 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-3.5 sm:pt-3 sm:pb-4 md:px-5 md:pt-4 md:pb-4 lg:px-6 lg:pb-5'
-    : 'flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8';
+  const mainLayoutClass = isBoardView
+    ? 'flex-1 overflow-hidden px-0 pt-1 pb-[calc(env(safe-area-inset-bottom)+5.1rem)] sm:px-0.5 sm:pt-1.5 sm:pb-2.5 md:px-1 md:pt-2 md:pb-3 lg:px-1.5 lg:pb-3.5'
+    : ((isCallView || isCollabView)
+      ? 'flex-1 overflow-hidden px-3 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-3.5 sm:pt-3 sm:pb-4 md:px-5 md:pt-4 md:pb-4 lg:px-6 lg:pb-5'
+      : 'flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8');
   const mainContentShellClass = `main-content-shell animate-soft${
     (isBoardView || isCallView || isCollabView) ? ' h-full min-h-0 flex flex-col overflow-hidden' : ''
   }`;

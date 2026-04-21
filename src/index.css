@@ -540,9 +540,41 @@
     -webkit-backdrop-filter: blur(12px);
   }
 
-  .surface-card:hover {
-    box-shadow: var(--shadow-lift);
+.surface-card:hover {
+  box-shadow: var(--shadow-lift);
+}
+
+.board-surface-card.surface-card {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  padding: 0 !important;
+}
+
+.board-surface-card--fullscreen.surface-card {
+  padding: 0.25rem !important;
+}
+
+.board-surface-card--main.surface-card {
+  padding: 0 !important;
+}
+
+@media (min-width: 768px) {
+  .board-surface-card--fullscreen.surface-card {
+    padding: 0.5rem !important;
   }
+}
+
+.board-canvas-outline {
+  border: 2px solid rgba(148, 163, 184, 0.28);
+}
+
+html[data-theme='dark'] .board-canvas-outline {
+  border-color: rgba(148, 163, 184, 0.4);
+}
 
   .surface-panel {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.93), rgba(255, 255, 255, 0.88));
@@ -12729,12 +12761,12 @@ html[data-theme='dark'] .board-toolbar {
 }
 
 .board-toolbar__button.is-active {
-  border-color: rgba(125, 211, 252, 0.62);
-  background: linear-gradient(135deg, #38bdf8, #8b5cf6 58%, #d946ef);
+  border-color: rgba(96, 165, 250, 0.72);
+  background: linear-gradient(180deg, #5aa2f8, #2563eb);
   color: #ffffff;
   box-shadow:
-    0 10px 22px rgba(99, 102, 241, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.34);
+    0 8px 18px rgba(37, 99, 235, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
 .board-toolbar__button.is-danger {
@@ -13493,6 +13525,120 @@ html:not([data-theme='dark']) .board-toolbar--fullscreen .board-toolbar__student
   }
 }
 
+.board-toolbar--floating,
+.board-toolbar--fullscreen {
+  --board-toolbar-button: rgba(255, 255, 255, 0.92);
+  --board-toolbar-button-hover: rgba(255, 255, 255, 0.98);
+  --board-toolbar-text: rgba(30, 41, 59, 0.94);
+}
+
+.board-toolbar--floating {
+  left: 1.35rem;
+  right: 1.35rem;
+  top: 0.95rem;
+}
+
+.board-toolbar--fullscreen {
+  left: 1rem;
+  right: 1rem;
+  top: 0.85rem;
+}
+
+.board-toolbar--floating .board-toolbar__button,
+.board-toolbar--fullscreen .board-toolbar__button,
+.board-toolbar--floating .board-toolbar__zoom-value,
+.board-toolbar--fullscreen .board-toolbar__zoom-value {
+  border-color: rgba(148, 163, 184, 0.3);
+  background: rgba(255, 255, 255, 0.92);
+  color: rgba(30, 41, 59, 0.94);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 8px 18px rgba(15, 23, 42, 0.12);
+}
+
+.board-toolbar--floating .board-toolbar__button:not(:disabled):hover,
+.board-toolbar--fullscreen .board-toolbar__button:not(:disabled):hover {
+  border-color: rgba(59, 130, 246, 0.24);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.12);
+}
+
+.board-toolbar--floating .board-toolbar__button.is-wide,
+.board-toolbar--fullscreen .board-toolbar__button.is-wide {
+  padding-inline: 0.72rem;
+  gap: 0.38rem;
+}
+
+.board-toolbar--floating .board-toolbar__action-button--save,
+.board-toolbar--fullscreen .board-toolbar__action-button--save {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.92);
+  color: rgba(30, 41, 59, 0.96);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 8px 18px rgba(15, 23, 42, 0.12);
+}
+
+.board-toolbar--floating .board-toolbar__student-picker,
+.board-toolbar--fullscreen .board-toolbar__student-picker {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 8px 18px rgba(15, 23, 42, 0.1);
+}
+
+.board-toolbar--floating .board-toolbar__student-picker-label,
+.board-toolbar--fullscreen .board-toolbar__student-picker-label {
+  color: rgba(71, 85, 105, 0.9);
+}
+
+.board-toolbar--floating .board-toolbar__student-select,
+.board-toolbar--fullscreen .board-toolbar__student-select {
+  background: rgba(255, 255, 255, 0.94);
+  color: rgba(30, 41, 59, 0.96);
+}
+
+.board-toolbar--floating .board-toolbar__status-chip,
+.board-toolbar--fullscreen .board-toolbar__status-chip {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.88);
+  color: rgba(51, 65, 85, 0.94);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+.board-toolbar--floating .board-toolbar__status-chip.is-muted,
+.board-toolbar--fullscreen .board-toolbar__status-chip.is-muted {
+  color: rgba(71, 85, 105, 0.9);
+}
+
+.board-toolbar--floating ~ .board-canvas-surface .board-minimap-shell {
+  top: 4.85rem;
+}
+
+.board-toolbar--fullscreen ~ .board-canvas-surface .board-minimap-shell {
+  top: 5rem;
+}
+
+@media (max-width: 1180px) {
+  .board-toolbar--floating {
+    left: 1rem;
+    right: 1rem;
+    top: 0.75rem;
+  }
+
+  .board-toolbar--fullscreen {
+    top: 0.75rem;
+  }
+
+  .board-toolbar--floating ~ .board-canvas-surface .board-minimap-shell,
+  .board-toolbar--fullscreen ~ .board-canvas-surface .board-minimap-shell {
+    top: 7.8rem;
+  }
+}
+
 .board-embedded-card .board-toolbar {
   --board-toolbar-button: rgba(15, 23, 42, 0.62);
   --board-toolbar-button-hover: rgba(30, 41, 59, 0.92);
@@ -13621,16 +13767,13 @@ html:not([data-theme='dark']) .board-embedded-card .board-toolbar__summon-button
 .board-toolbar--floating .board-toolbar__button.is-active,
 .board-toolbar--fullscreen .board-toolbar__button.is-active,
 .board-embedded-card .board-toolbar__button.is-active {
-  border-color: rgba(125, 211, 252, 0.88);
-  background:
-    radial-gradient(circle at 30% 0%, rgba(255, 255, 255, 0.32), transparent 36%),
-    linear-gradient(135deg, #22d3ee, #8b5cf6 58%, #d946ef);
+  border-color: rgba(96, 165, 250, 0.92);
+  background: linear-gradient(180deg, #5aa2f8, #2563eb);
   color: #ffffff;
   box-shadow:
-    0 0 0 1px rgba(125, 211, 252, 0.24),
-    0 0 22px rgba(34, 211, 238, 0.32),
-    0 10px 24px rgba(99, 102, 241, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.36);
+    0 0 0 1px rgba(96, 165, 250, 0.18),
+    0 10px 22px rgba(37, 99, 235, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .board-toolbar--floating .board-toolbar__button.is-active::after,
@@ -13650,15 +13793,188 @@ html:not([data-theme='dark']) .board-embedded-card .board-toolbar__summon-button
 
 .board-embedded-card .board-canvas-surface {
   margin-top: 0 !important;
-  border-color: transparent !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
   background: #ffffff !important;
   box-shadow: none !important;
 }
 
 html[data-theme='dark'] .board-embedded-card .board-canvas-surface {
-  border-color: transparent !important;
+  border-color: rgba(148, 163, 184, 0.4) !important;
   background: #ffffff !important;
   box-shadow: none !important;
+}
+
+.board-embedded-card .board-toolbar {
+  left: 0.9rem !important;
+  right: 0.9rem !important;
+  top: 0.72rem !important;
+  max-width: calc(100% - 1.8rem) !important;
+}
+
+.board-embedded-card .board-toolbar__button,
+.board-embedded-card .board-toolbar__zoom-value {
+  border-color: rgba(148, 163, 184, 0.34) !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  color: rgba(30, 41, 59, 0.96) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 8px 18px rgba(15, 23, 42, 0.12) !important;
+}
+
+.board-embedded-card .board-toolbar__button.is-wide {
+  padding-inline: 0.72rem !important;
+  gap: 0.38rem !important;
+}
+
+.board-embedded-card .board-toolbar__action-button--save,
+.board-embedded-card .board-toolbar__summon-button {
+  border-color: rgba(148, 163, 184, 0.3) !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  color: rgba(30, 41, 59, 0.96) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.76),
+    0 8px 18px rgba(15, 23, 42, 0.1) !important;
+}
+
+.board-embedded-card .board-toolbar__student-picker,
+.board-embedded-card .board-toolbar__status-chip {
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  background: rgba(255, 255, 255, 0.92) !important;
+  color: rgba(51, 65, 85, 0.94) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.74),
+    0 8px 18px rgba(15, 23, 42, 0.08) !important;
+}
+
+.board-embedded-card .board-toolbar__student-picker-label {
+  color: rgba(71, 85, 105, 0.9) !important;
+}
+
+.board-embedded-card .board-toolbar__student-select {
+  background: rgba(255, 255, 255, 0.96) !important;
+  color: rgba(30, 41, 59, 0.96) !important;
+}
+
+html[data-theme='dark'] .board-toolbar--floating {
+  left: 1.55rem !important;
+  right: 1.55rem !important;
+  top: 1rem !important;
+  --board-toolbar-button: rgba(255, 255, 255, 0.96) !important;
+  --board-toolbar-button-hover: rgba(255, 255, 255, 1) !important;
+  --board-toolbar-text: rgba(30, 41, 59, 0.96) !important;
+}
+
+html[data-theme='dark'] .board-toolbar--fullscreen {
+  left: 1.15rem !important;
+  right: 1.15rem !important;
+  top: 0.9rem !important;
+  --board-toolbar-button: rgba(255, 255, 255, 0.96) !important;
+  --board-toolbar-button-hover: rgba(255, 255, 255, 1) !important;
+  --board-toolbar-text: rgba(30, 41, 59, 0.96) !important;
+}
+
+html[data-theme='dark'] .board-toolbar--floating .board-toolbar__button,
+html[data-theme='dark'] .board-toolbar--fullscreen .board-toolbar__button,
+html[data-theme='dark'] .board-toolbar--floating .board-toolbar__zoom-value,
+html[data-theme='dark'] .board-toolbar--fullscreen .board-toolbar__zoom-value {
+  border-color: rgba(148, 163, 184, 0.34) !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  color: rgba(30, 41, 59, 0.96) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 8px 18px rgba(15, 23, 42, 0.12) !important;
+}
+
+html[data-theme='dark'] .board-toolbar--floating .board-toolbar__button:not(.is-active):not(:disabled):hover,
+html[data-theme='dark'] .board-toolbar--fullscreen .board-toolbar__button:not(.is-active):not(:disabled):hover {
+  border-color: rgba(59, 130, 246, 0.26) !important;
+  background: rgba(255, 255, 255, 1) !important;
+  color: rgba(15, 23, 42, 0.96) !important;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.14) !important;
+}
+
+html[data-theme='dark'] .board-toolbar--floating .board-toolbar__button.is-wide,
+html[data-theme='dark'] .board-toolbar--fullscreen .board-toolbar__button.is-wide {
+  padding-inline: 0.78rem !important;
+  gap: 0.38rem !important;
+}
+
+html[data-theme='dark'] .board-toolbar--floating .board-toolbar__button.is-active,
+html[data-theme='dark'] .board-toolbar--fullscreen .board-toolbar__button.is-active,
+html[data-theme='dark'] .board-embedded-card .board-toolbar__button.is-active {
+  border-color: rgba(96, 165, 250, 0.96) !important;
+  background: linear-gradient(180deg, #5aa2f8, #2563eb) !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px rgba(96, 165, 250, 0.22),
+    0 10px 24px rgba(37, 99, 235, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
+}
+
+html[data-theme='dark'] .board-toolbar--floating .board-toolbar__button.is-active::after,
+html[data-theme='dark'] .board-toolbar--fullscreen .board-toolbar__button.is-active::after,
+html[data-theme='dark'] .board-embedded-card .board-toolbar__button.is-active::after {
+  background: rgba(255, 255, 255, 0.94) !important;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.6) !important;
+}
+
+html[data-theme='dark'] .board-toolbar--floating .board-toolbar__action-button--save,
+html[data-theme='dark'] .board-toolbar--fullscreen .board-toolbar__action-button--save,
+html[data-theme='dark'] .board-toolbar--floating .board-toolbar__summon-button,
+html[data-theme='dark'] .board-toolbar--fullscreen .board-toolbar__summon-button {
+  border-color: rgba(148, 163, 184, 0.3) !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+  color: rgba(30, 41, 59, 0.96) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 8px 18px rgba(15, 23, 42, 0.1) !important;
+}
+
+html[data-theme='dark'] .board-toolbar--floating .board-toolbar__student-picker,
+html[data-theme='dark'] .board-toolbar--fullscreen .board-toolbar__student-picker,
+html[data-theme='dark'] .board-toolbar--floating .board-toolbar__status-chip,
+html[data-theme='dark'] .board-toolbar--fullscreen .board-toolbar__status-chip {
+  border-color: rgba(148, 163, 184, 0.3) !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  color: rgba(51, 65, 85, 0.94) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.76),
+    0 8px 18px rgba(15, 23, 42, 0.08) !important;
+}
+
+html[data-theme='dark'] .board-toolbar--floating .board-toolbar__student-picker-label,
+html[data-theme='dark'] .board-toolbar--fullscreen .board-toolbar__student-picker-label,
+html[data-theme='dark'] .board-toolbar--floating .board-toolbar__status-chip.is-muted,
+html[data-theme='dark'] .board-toolbar--fullscreen .board-toolbar__status-chip.is-muted {
+  color: rgba(71, 85, 105, 0.9) !important;
+}
+
+html[data-theme='dark'] .board-toolbar--floating .board-toolbar__student-select,
+html[data-theme='dark'] .board-toolbar--fullscreen .board-toolbar__student-select {
+  background: rgba(255, 255, 255, 0.98) !important;
+  color: rgba(30, 41, 59, 0.96) !important;
+}
+
+html[data-theme='dark'] .board-toolbar--floating ~ .board-canvas-surface .board-minimap-shell {
+  top: 5rem !important;
+}
+
+html[data-theme='dark'] .board-toolbar--fullscreen ~ .board-canvas-surface .board-minimap-shell {
+  top: 5.1rem !important;
+}
+
+@media (max-width: 1180px) {
+  html[data-theme='dark'] .board-toolbar--floating,
+  html[data-theme='dark'] .board-toolbar--fullscreen {
+    left: 1rem !important;
+    right: 1rem !important;
+    top: 0.78rem !important;
+  }
+
+  html[data-theme='dark'] .board-toolbar--floating ~ .board-canvas-surface .board-minimap-shell,
+  html[data-theme='dark'] .board-toolbar--fullscreen ~ .board-canvas-surface .board-minimap-shell {
+    top: 7.9rem !important;
+  }
 }
 
 .collab-code-toolbar {
