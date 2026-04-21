@@ -9,6 +9,22 @@ const BONUS_TONE_CLASSNAME = {
   instant: 'border-emerald-200 bg-emerald-50/90 text-emerald-700',
 };
 
+const getLeagueIconClassName = (leagueId, size = 'default') => {
+  if (leagueId === 'blank') {
+    return size === 'sm' ? 'h-8 w-8' : 'h-[2.35rem] w-[2.35rem]';
+  }
+
+  if (leagueId === 'celestial') {
+    if (size === 'sm') return 'h-10 w-10 max-w-none scale-[1.12]';
+    if (size === 'md') return 'h-[2.8rem] w-[2.8rem] max-w-none scale-[1.28]';
+    return 'h-12 w-12 max-w-none scale-[1.34]';
+  }
+
+  if (size === 'sm') return 'h-10 w-10 max-w-none scale-[1.12]';
+  if (size === 'md') return 'h-11 w-11 max-w-none scale-[1.16]';
+  return 'h-12 w-12 max-w-none scale-[1.2]';
+};
+
 const StudentLeaderboardSection = ({
   role,
   userId,
@@ -545,13 +561,7 @@ const StudentLeaderboardSection = ({
                 <img
                   src={row.league.icon}
                   alt={row.league.label}
-                  className={`relative z-[1] aspect-square object-contain ${
-                    row.league.id === 'blank'
-                      ? 'h-[2.35rem] w-[2.35rem]'
-                      : row.league.id === 'celestial'
-                        ? 'h-14 w-14 max-w-none scale-[1.56]'
-                        : 'h-12 w-12 max-w-none scale-[1.2]'
-                  }`}
+                  className={`relative z-[1] aspect-square object-contain ${getLeagueIconClassName(row.league.id)}`}
                   loading="lazy"
                 />
               ) : (
@@ -704,13 +714,7 @@ const StudentLeaderboardSection = ({
                     <img
                       src={currentLeague.icon}
                       alt={currentLeague.label}
-                      className={`relative z-[1] aspect-square object-contain ${
-                        currentLeague.id === 'blank'
-                          ? 'h-[2.35rem] w-[2.35rem]'
-                          : currentLeague.id === 'celestial'
-                            ? 'h-14 w-14 max-w-none scale-[1.56]'
-                            : 'h-12 w-12 max-w-none scale-[1.2]'
-                      }`}
+                      className={`relative z-[1] aspect-square object-contain ${getLeagueIconClassName(currentLeague.id, 'md')}`}
                       loading="lazy"
                     />
                   ) : (
@@ -770,13 +774,7 @@ const StudentLeaderboardSection = ({
                             <img
                               src={leagueItem.icon}
                               alt={leagueItem.label}
-                              className={`relative z-[1] aspect-square object-contain ${
-                                leagueItem.id === 'blank'
-                                  ? 'h-8 w-8'
-                                  : leagueItem.id === 'celestial'
-                                    ? 'h-11 w-11 max-w-none scale-[1.28]'
-                                    : 'h-10 w-10 max-w-none scale-[1.12]'
-                              }`}
+                              className={`relative z-[1] aspect-square object-contain ${getLeagueIconClassName(leagueItem.id, 'sm')}`}
                               loading="lazy"
                             />
                           ) : (
