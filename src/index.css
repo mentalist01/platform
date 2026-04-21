@@ -12842,14 +12842,27 @@ html[data-theme='dark'] .board-toolbar__action-button--save {
   background: var(--board-toolbar-button);
 }
 
-html[data-theme='dark'] .board-toolbar__summon-button:not(:disabled):hover,
-.board-toolbar--floating .board-toolbar__summon-button:not(:disabled):hover,
-.board-toolbar--fullscreen .board-toolbar__summon-button:not(:disabled):hover,
-.board-embedded-card .board-toolbar__summon-button:not(:disabled):hover {
-  border-color: rgba(125, 211, 252, 0.42);
+html[data-theme='dark'] .board-toolbar__summon-button {
+  border-color: rgba(96, 165, 250, 0.56);
   background:
-    radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.24), transparent 42%),
-    linear-gradient(135deg, rgba(14, 165, 233, 0.22), rgba(168, 85, 247, 0.26));
+    radial-gradient(circle at 12% 18%, rgba(56, 189, 248, 0.34), transparent 44%),
+    linear-gradient(135deg, rgba(238, 242, 255, 0.96), rgba(224, 231, 255, 0.95) 56%, rgba(233, 213, 255, 0.95));
+  color: rgba(88, 28, 135, 0.98);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 10px 24px rgba(79, 70, 229, 0.16);
+}
+
+html[data-theme='dark'] .board-toolbar__summon-button:not(:disabled):hover {
+  border-color: rgba(59, 130, 246, 0.7);
+  background:
+    radial-gradient(circle at 12% 18%, rgba(34, 211, 238, 0.42), transparent 42%),
+    linear-gradient(135deg, rgba(238, 242, 255, 0.99), rgba(221, 214, 254, 0.98) 56%, rgba(216, 180, 254, 0.97));
+  color: rgba(76, 29, 149, 1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 12px 28px rgba(79, 70, 229, 0.22);
 }
 
 .board-toolbar__action-button:not(:disabled):hover {
@@ -13882,50 +13895,6 @@ html[data-theme='dark'] .collab-result-header {
   border-color: rgba(83, 104, 135, 0.48) !important;
   background:
     linear-gradient(180deg, rgba(20, 31, 52, 0.9), rgba(10, 18, 34, 0.82)) !important;
-}
-
-.collab-run-status {
-  display: inline-flex;
-  width: fit-content;
-  align-items: center;
-  gap: 0.45rem;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  background: rgba(255, 255, 255, 0.62);
-  padding: 0.28rem 0.6rem;
-  color: rgba(71, 85, 105, 0.98);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-html[data-theme='dark'] .collab-run-status {
-  border-color: rgba(83, 104, 135, 0.5);
-  background: rgba(3, 7, 18, 0.42);
-  color: rgba(203, 213, 225, 0.94);
-}
-
-.collab-run-status-dot {
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.9);
-  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.12);
-}
-
-.collab-run-status--running .collab-run-status-dot {
-  background: #f59e0b;
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14), 0 0 14px rgba(245, 158, 11, 0.45);
-}
-
-.collab-run-status--ready .collab-run-status-dot {
-  background: #22c55e;
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14), 0 0 14px rgba(34, 197, 94, 0.34);
-}
-
-.collab-run-status--danger .collab-run-status-dot {
-  background: #fb7185;
-  box-shadow: 0 0 0 3px rgba(251, 113, 133, 0.14), 0 0 14px rgba(251, 113, 133, 0.34);
 }
 
 .collab-result-console {

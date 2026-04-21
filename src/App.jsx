@@ -2495,6 +2495,7 @@ const CollabSection = ({
   const [saveSuccess, setSaveSuccess] = useState('');
   const [saveNameError, setSaveNameError] = useState(false);
   const [runInput, setRunInput] = useState('');
+  const [stdinPanelOpen, setStdinPanelOpen] = useState(false);
   const [collabAuxPanelMode, setCollabAuxPanelMode] = useState(COLLAB_AUX_PANEL_MODE_INPUT);
   const [testFileText, setTestFileText] = useState('');
   const [runOutput, setRunOutput] = useState('');
@@ -3949,6 +3950,10 @@ const CollabSection = ({
   useEffect(() => {
     debugTraceRef.current = Array.isArray(debugTrace) ? debugTrace : [];
   }, [debugTrace]);
+
+  useEffect(() => {
+    setStdinPanelOpen(false);
+  }, [roomId]);
 
   useEffect(() => {
     debugStepIndexRef.current = Number.isInteger(debugStepIndex) ? debugStepIndex : -1;
@@ -5663,6 +5668,10 @@ const CollabSection = ({
   }, [testFileText]);
   const isTestFileMode = collabAuxPanelMode === COLLAB_AUX_PANEL_MODE_TEST_FILE;
   const isCollabDarkUi = isDarkTheme;
+  const stdinInputCharCount = String(runInput ?? '').length;
+  const stdinToggleLabel = stdinPanelOpen
+    ? 'Скрыть'
+    : (stdinInputCharCount ? `Показать • ${formatCollabSymbolCount(stdinInputCharCount)}` : 'Показать');
   const testFileFontSize = isSplitCollabLayout ? 14 : 15;
   const testFileTypographyStyle = useMemo(() => ({
     fontFamily: '"JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
@@ -6025,196 +6034,219 @@ const CollabSection = ({
         <div className={`${isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>
           {isTestFileMode ? 'test.txt' : 'Ввод (stdin)'}
         </div>
-        <div className={`inline-flex items-center rounded-xl border p-0.5 ${
-          isCollabDarkUi
-            ? 'border-slate-700/80 bg-slate-950/70'
-            : 'border-gray-200 bg-gray-100'
-        }`}>
-          <button
-            type="button"
-            onClick={() => setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_INPUT)}
-            className={`rounded-lg transition ${
-              isSplitCollabLayout ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1 text-[11px]'
-            } ${
-              !isTestFileMode
-                ? (isCollabDarkUi
-                  ? 'bg-violet-500/25 text-violet-100 shadow-[0_4px_14px_rgba(139,92,246,0.24)]'
-                  : 'bg-white text-violet-700 shadow-sm')
-                : (isCollabDarkUi
-                  ? 'text-slate-300 hover:text-slate-100'
-                  : 'text-gray-500 hover:text-gray-700')
-            }`}
-          >
-            stdin
-          </button>
-          <button
-            type="button"
-            onClick={() => setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_TEST_FILE)}
-            className={`rounded-lg transition ${
-              isSplitCollabLayout ? 'px-2.5 py-1 text-[10px]' : 'px-3 py-1.5 text-[11px]'
-            } ${
-              isTestFileMode
-                ? (isCollabDarkUi
-                  ? 'bg-cyan-400/22 text-cyan-50 ring-1 ring-cyan-300/45 shadow-[0_0_0_1px_rgba(34,211,238,0.14),0_8px_24px_rgba(6,182,212,0.22)]'
-                  : 'bg-cyan-50 text-cyan-800 ring-1 ring-cyan-300 shadow-[0_8px_20px_rgba(34,211,238,0.18)]')
-                : (isCollabDarkUi
-                  ? 'text-slate-300 hover:text-slate-100'
-                  : 'text-gray-500 hover:text-gray-700')
-            }`}
-          >
-            test.txt
-          </button>
+        <div className="flex items-center gap-1.5">
+          {!isTestFileMode && (
+            <button
+              type="button"
+              onClick={() => setStdinPanelOpen((prev) => !prev)}
+              aria-expanded={stdinPanelOpen}
+              className={`inline-flex items-center rounded-xl border transition ${
+                isSplitCollabLayout ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1 text-[11px]'
+              } ${
+                isCollabDarkUi
+                  ? 'border-slate-600/80 bg-slate-950/70 text-slate-200 hover:border-violet-400 hover:text-white'
+                  : 'border-gray-200 bg-white text-gray-600 hover:border-purple-300 hover:text-purple-700'
+              }`}
+            >
+              {stdinToggleLabel}
+            </button>
+          )}
+          <div className={`inline-flex items-center rounded-xl border p-0.5 ${
+            isCollabDarkUi
+              ? 'border-slate-700/80 bg-slate-950/70'
+              : 'border-gray-200 bg-gray-100'
+          }`}>
+            <button
+              type="button"
+              onClick={() => {
+                setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_INPUT);
+                setStdinPanelOpen(true);
+              }}
+              className={`rounded-lg transition ${
+                isSplitCollabLayout ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1 text-[11px]'
+              } ${
+                !isTestFileMode
+                  ? (isCollabDarkUi
+                    ? 'bg-violet-500/25 text-violet-100 shadow-[0_4px_14px_rgba(139,92,246,0.24)]'
+                    : 'bg-white text-violet-700 shadow-sm')
+                  : (isCollabDarkUi
+                    ? 'text-slate-300 hover:text-slate-100'
+                    : 'text-gray-500 hover:text-gray-700')
+              }`}
+            >
+              stdin
+            </button>
+            <button
+              type="button"
+              onClick={() => setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_TEST_FILE)}
+              className={`rounded-lg transition ${
+                isSplitCollabLayout ? 'px-2.5 py-1 text-[10px]' : 'px-3 py-1.5 text-[11px]'
+              } ${
+                isTestFileMode
+                  ? (isCollabDarkUi
+                    ? 'bg-cyan-400/22 text-cyan-50 ring-1 ring-cyan-300/45 shadow-[0_0_0_1px_rgba(34,211,238,0.14),0_8px_24px_rgba(6,182,212,0.22)]'
+                    : 'bg-cyan-50 text-cyan-800 ring-1 ring-cyan-300 shadow-[0_8px_20px_rgba(34,211,238,0.18)]')
+                  : (isCollabDarkUi
+                    ? 'text-slate-300 hover:text-slate-100'
+                    : 'text-gray-500 hover:text-gray-700')
+              }`}
+            >
+              test.txt
+            </button>
+          </div>
         </div>
       </div>
-      <div className={isTestFileMode ? (
-        isCollabDarkUi
-          ? 'rounded-2xl border border-cyan-400/25 bg-slate-950/72'
-          : 'rounded-2xl border border-cyan-200 bg-white'
-      ) : ''}>
-        <div>
-          {isTestFileMode && (
-            <div className={`mx-2 mt-2 rounded-xl border px-3 py-2 ${
-              isCollabDarkUi
-                ? 'border-cyan-400/18 bg-slate-900/88 text-slate-100'
-                : 'border-cyan-200/90 bg-cyan-50/70 text-slate-800'
-            }`}>
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2">
-                  <FileText size={12} className={isCollabDarkUi ? 'text-cyan-300' : 'text-cyan-700'} />
-                  <span className="truncate text-[11px] font-semibold">test.txt</span>
-                  {roomId && remoteParticipants.length > 0 && (
+      {(isTestFileMode || stdinPanelOpen) && (
+        <div className={isTestFileMode ? (
+          isCollabDarkUi
+            ? 'rounded-2xl border border-cyan-400/25 bg-slate-950/72'
+            : 'rounded-2xl border border-cyan-200 bg-white'
+        ) : ''}>
+          <div>
+            {isTestFileMode && (
+              <div className={`mx-2 mt-2 rounded-xl border px-3 py-2 ${
+                isCollabDarkUi
+                  ? 'border-cyan-400/18 bg-slate-900/88 text-slate-100'
+                  : 'border-cyan-200/90 bg-cyan-50/70 text-slate-800'
+              }`}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <FileText size={12} className={isCollabDarkUi ? 'text-cyan-300' : 'text-cyan-700'} />
+                    <span className="truncate text-[11px] font-semibold">test.txt</span>
+                    {roomId && remoteParticipants.length > 0 && (
+                      <span className={`text-[10px] ${
+                        isCollabDarkUi ? 'text-slate-400' : 'text-slate-500'
+                      }`}>
+                        {`онлайн: ${remoteParticipants.length + 1}`}
+                      </span>
+                    )}
+                    <div className="hidden sm:flex w-[13rem] min-w-0">
+                      <span
+                        title={primaryRemoteTestFileSelection?.details.label || ''}
+                        aria-hidden={!primaryRemoteTestFileSelection}
+                        className={`inline-flex w-full items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium transition-opacity duration-150 ${
+                          isCollabDarkUi
+                            ? 'border-violet-300/22 bg-violet-400/8 text-violet-50'
+                            : 'border-violet-200 bg-white text-violet-800'
+                        } ${
+                          primaryRemoteTestFileSelection ? 'opacity-100' : 'pointer-events-none opacity-0'
+                        }`}
+                      >
+                        <span
+                          className="inline-flex h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: primaryRemoteTestFileSelection?.color || 'transparent' }}
+                        />
+                        <span className="truncate">{remoteTestFileSelectionLabel || ' '}</span>
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <div className="flex w-[4.6rem] justify-end">
+                      <span
+                        title={localTestFileSelectionDetails?.label || ''}
+                        aria-hidden={!localTestFileSelectionDetails}
+                        className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium transition-opacity duration-150 ${
+                          isCollabDarkUi
+                            ? 'border-cyan-300/30 bg-cyan-400/8 text-cyan-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+                            : 'border-cyan-200 bg-white text-cyan-800 shadow-[0_1px_2px_rgba(14,165,233,0.08)]'
+                        } ${
+                          localTestFileSelectionDetails ? 'opacity-100' : 'pointer-events-none opacity-0'
+                        }`}
+                      >
+                        <span className={`inline-flex min-w-[1.35rem] items-center justify-center rounded-full px-1.5 py-[1px] text-[10px] font-semibold leading-none ${
+                          isCollabDarkUi
+                            ? 'bg-cyan-300/18 text-cyan-50'
+                            : 'bg-cyan-100 text-cyan-900'
+                        }`}>
+                          {localTestFileSelectionDetails?.charCount ?? 0}
+                        </span>
+                        <span className={`leading-none ${
+                          isCollabDarkUi ? 'text-cyan-100/80' : 'text-cyan-800/75'
+                        }`}>
+                          симв.
+                        </span>
+                      </span>
+                    </div>
                     <span className={`text-[10px] ${
                       isCollabDarkUi ? 'text-slate-400' : 'text-slate-500'
                     }`}>
-                      {`онлайн: ${remoteParticipants.length + 1}`}
+                      {`${testFileStats.lines} стр.`}
                     </span>
-                  )}
-                  <div className="hidden sm:flex w-[13rem] min-w-0">
-                    <span
-                      title={primaryRemoteTestFileSelection?.details.label || ''}
-                      aria-hidden={!primaryRemoteTestFileSelection}
-                      className={`inline-flex w-full items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium transition-opacity duration-150 ${
-                        isCollabDarkUi
-                          ? 'border-violet-300/22 bg-violet-400/8 text-violet-50'
-                          : 'border-violet-200 bg-white text-violet-800'
-                      } ${
-                        primaryRemoteTestFileSelection ? 'opacity-100' : 'pointer-events-none opacity-0'
-                      }`}
-                    >
-                      <span
-                        className="inline-flex h-2 w-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: primaryRemoteTestFileSelection?.color || 'transparent' }}
-                      />
-                      <span className="truncate">{remoteTestFileSelectionLabel || ' '}</span>
+                    <span className={`text-[10px] ${
+                      isCollabDarkUi ? 'text-slate-400' : 'text-slate-500'
+                    }`}>
+                      {formatCollabSymbolCount(testFileStats.chars)}
                     </span>
                   </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <div className="flex w-[4.6rem] justify-end">
-                    <span
-                      title={localTestFileSelectionDetails?.label || ''}
-                      aria-hidden={!localTestFileSelectionDetails}
-                      className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium transition-opacity duration-150 ${
-                        isCollabDarkUi
-                          ? 'border-cyan-300/30 bg-cyan-400/8 text-cyan-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-                          : 'border-cyan-200 bg-white text-cyan-800 shadow-[0_1px_2px_rgba(14,165,233,0.08)]'
-                      } ${
-                        localTestFileSelectionDetails ? 'opacity-100' : 'pointer-events-none opacity-0'
-                      }`}
-                    >
-                      <span className={`inline-flex min-w-[1.35rem] items-center justify-center rounded-full px-1.5 py-[1px] text-[10px] font-semibold leading-none ${
-                        isCollabDarkUi
-                          ? 'bg-cyan-300/18 text-cyan-50'
-                          : 'bg-cyan-100 text-cyan-900'
-                      }`}>
-                        {localTestFileSelectionDetails?.charCount ?? 0}
-                      </span>
-                      <span className={`leading-none ${
-                        isCollabDarkUi ? 'text-cyan-100/80' : 'text-cyan-800/75'
-                      }`}>
-                        симв.
-                      </span>
-                    </span>
-                  </div>
-                  <span className={`text-[10px] ${
-                    isCollabDarkUi ? 'text-slate-400' : 'text-slate-500'
-                  }`}>
-                    {`${testFileStats.lines} стр.`}
-                  </span>
-                  <span className={`text-[10px] ${
-                    isCollabDarkUi ? 'text-slate-400' : 'text-slate-500'
-                  }`}>
-                    {formatCollabSymbolCount(testFileStats.chars)}
-                  </span>
                 </div>
               </div>
-            </div>
-          )}
-          {isTestFileMode ? (
-            <div className={`relative mt-1.5 overflow-hidden rounded-[1.1rem] border ${
-              isCollabDarkUi
-                ? 'border-cyan-300/22 bg-[linear-gradient(180deg,rgba(8,20,36,0.96),rgba(4,12,24,0.98))] shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_16px_32px_rgba(3,7,18,0.35)]'
-                : 'border-cyan-200 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.1),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,252,255,0.96))] shadow-[0_10px_24px_rgba(34,211,238,0.1)]'
-            }`}>
-              {remoteTestFileSelectionSegments.length > 0 && (
-                <pre
-                  ref={testFileHighlightOverlayRef}
-                  aria-hidden
-                  className={`collab-selection-overlay pointer-events-none absolute inset-0 m-0 overflow-auto whitespace-pre-wrap break-words text-transparent ${testFileTextPaddingClass}`}
-                  style={testFileTypographyStyle}
-                >
-                  {remoteTestFileSelectionSegments.map((segment) => (
-                    <span
-                      key={segment.key}
-                      style={segment.selection ? buildCollabSelectionHighlightStyle(segment.selection.color) : undefined}
-                    >
-                      {segment.text}
-                    </span>
-                  ))}
-                </pre>
-              )}
+            )}
+            {isTestFileMode ? (
+              <div className={`relative mt-1.5 overflow-hidden rounded-[1.1rem] border ${
+                isCollabDarkUi
+                  ? 'border-cyan-300/22 bg-[linear-gradient(180deg,rgba(8,20,36,0.96),rgba(4,12,24,0.98))] shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_16px_32px_rgba(3,7,18,0.35)]'
+                  : 'border-cyan-200 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.1),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,252,255,0.96))] shadow-[0_10px_24px_rgba(34,211,238,0.1)]'
+              }`}>
+                {remoteTestFileSelectionSegments.length > 0 && (
+                  <pre
+                    ref={testFileHighlightOverlayRef}
+                    aria-hidden
+                    className={`collab-selection-overlay pointer-events-none absolute inset-0 m-0 overflow-auto whitespace-pre-wrap break-words text-transparent ${testFileTextPaddingClass}`}
+                    style={testFileTypographyStyle}
+                  >
+                    {remoteTestFileSelectionSegments.map((segment) => (
+                      <span
+                        key={segment.key}
+                        style={segment.selection ? buildCollabSelectionHighlightStyle(segment.selection.color) : undefined}
+                      >
+                        {segment.text}
+                      </span>
+                    ))}
+                  </pre>
+                )}
+                <textarea
+                  ref={testFileTextareaRef}
+                  value={testFileText}
+                  onChange={(e) => handleTestFileTextChange(e.target.value)}
+                  onPointerDown={handleCollabTestFilePointerDown}
+                  onSelect={syncCollabTestFileSelectionFromTextarea}
+                  onKeyUp={syncCollabTestFileSelectionFromTextarea}
+                  onMouseUp={syncCollabTestFileSelectionFromTextarea}
+                  onBlur={clearCollabTestFileSelection}
+                  onScroll={syncCollabTestFileOverlayScroll}
+                  rows={auxTextareaRows}
+                  spellCheck={false}
+                  disabled={!roomId}
+                  placeholder={roomId ? 'Введите содержимое test.txt.' : 'Выберите ученика, чтобы редактировать test.txt.'}
+                  style={{
+                    ...(testFileTextareaHeight ? { height: `${testFileTextareaHeight}px` } : {}),
+                    ...testFileTypographyStyle,
+                  }}
+                  className={`relative z-[1] block w-full resize-y border-0 bg-transparent outline-none ${testFileTextPaddingClass} ${
+                    isCollabDarkUi
+                      ? 'text-slate-50 placeholder:text-slate-500'
+                      : 'text-slate-800 placeholder:text-slate-400'
+                  } disabled:cursor-not-allowed disabled:opacity-70`}
+                />
+              </div>
+            ) : (
               <textarea
-                ref={testFileTextareaRef}
-                value={testFileText}
-                onChange={(e) => handleTestFileTextChange(e.target.value)}
-                onPointerDown={handleCollabTestFilePointerDown}
-                onSelect={syncCollabTestFileSelectionFromTextarea}
-                onKeyUp={syncCollabTestFileSelectionFromTextarea}
-                onMouseUp={syncCollabTestFileSelectionFromTextarea}
-                onBlur={clearCollabTestFileSelection}
-                onScroll={syncCollabTestFileOverlayScroll}
+                value={runInput}
+                onChange={(e) => setRunInput(e.target.value)}
                 rows={auxTextareaRows}
-                spellCheck={false}
-                disabled={!roomId}
-                placeholder={roomId ? 'Введите содержимое test.txt.' : 'Выберите ученика, чтобы редактировать test.txt.'}
-                style={{
-                  ...(testFileTextareaHeight ? { height: `${testFileTextareaHeight}px` } : {}),
-                  ...testFileTypographyStyle,
-                }}
-                className={`relative z-[1] block w-full resize-y border-0 bg-transparent outline-none ${testFileTextPaddingClass} ${
-                  isCollabDarkUi
-                    ? 'text-slate-50 placeholder:text-slate-500'
-                    : 'text-slate-800 placeholder:text-slate-400'
+                placeholder="Если нужен ввод, вставьте его сюда."
+                className={`w-full rounded-2xl border outline-none ${
+                  isSplitCollabLayout ? 'px-2.5 py-1.5 text-[11px]' : 'px-3 py-2 text-xs'
+                } ${
+                  isFullscreenDark
+                    ? 'border-slate-700/80 bg-slate-900/70 text-slate-100 focus:border-violet-400'
+                    : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
                 } disabled:cursor-not-allowed disabled:opacity-70`}
               />
-            </div>
-          ) : (
-            <textarea
-              value={runInput}
-              onChange={(e) => setRunInput(e.target.value)}
-              rows={auxTextareaRows}
-              placeholder="Если нужен ввод, вставьте его сюда."
-              className={`w-full rounded-2xl border outline-none ${
-                isSplitCollabLayout ? 'px-2.5 py-1.5 text-[11px]' : 'px-3 py-2 text-xs'
-              } ${
-                isFullscreenDark
-                  ? 'border-slate-700/80 bg-slate-900/70 text-slate-100 focus:border-violet-400'
-                  : 'border-gray-200 bg-gray-50 text-gray-700 focus:border-purple-500'
-              } disabled:cursor-not-allowed disabled:opacity-70`}
-            />
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      )}
       <div className={`rounded-2xl border p-2 ${isSplitCollabLayout ? 'space-y-1' : 'space-y-2'} ${
         isFullscreenDark
           ? 'border-slate-700/80 bg-slate-900/70'
@@ -6777,39 +6809,6 @@ const CollabSection = ({
       )}
     </div>
   );
-  const resultStatusLabel = runStatus === 'running'
-    ? 'Выполняется'
-    : (runStatus === 'stopped'
-      ? 'Остановлено'
-      : ((runOutput || runError) ? 'Вывод готов' : 'Готов к запуску'));
-  const resultStatusTone = runStatus === 'running'
-    ? 'running'
-    : (runStatus === 'stopped' || runError ? 'danger' : ((runOutput || runError) ? 'ready' : 'idle'));
-
-  const resultHeader = (
-    <div className={`collab-result-header flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between ${
-      isCollabFullscreen
-        ? (isFullscreenDark
-          ? 'rounded-lg border border-slate-700/75 bg-slate-900/70 px-2 py-1.5'
-          : 'rounded-lg border border-slate-200 bg-white/92 px-2 py-1.5')
-        : ''
-    }`}>
-      <div>
-        <div className={`text-[11px] font-semibold uppercase tracking-widest ${collabHintClass}`}>Результат</div>
-        {(runAuthor || runTimestamp) && (
-          <div className={`text-[11px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
-            {runAuthor ? `Запустил: ${runAuthor}` : 'Запуск'}
-            {runTimestamp ? ` • ${new Date(runTimestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
-          </div>
-        )}
-      </div>
-      <div className={`collab-run-status collab-run-status--${resultStatusTone}`}>
-        <span className="collab-run-status-dot" />
-        {resultStatusLabel}
-      </div>
-    </div>
-  );
-
   const resultConsoleClass = `collab-result-console rounded-xl border p-2 text-sm font-mono ${
     isFullscreenDark
       ? 'bg-slate-950/92 text-slate-100'
@@ -7346,8 +7345,7 @@ const CollabSection = ({
                       : 'border-slate-200 ring-1 ring-violet-200/80 bg-white/92 shadow-[0_14px_30px_rgba(148,163,184,0.2)]')
                     : 'border-gray-200 bg-white'
                 }`}>
-                  {resultHeader}
-                  <div className="collab-result-body mt-1 min-h-0 flex-1">
+                  <div className="collab-result-body min-h-0 flex-1">
                     {resultConsole}
                   </div>
                 </div>
@@ -7366,7 +7364,6 @@ const CollabSection = ({
                 {inputPane}
               </div>
               <div className={`lg:col-span-2 ${isCollabFullscreen ? 'space-y-2.5' : 'space-y-2'}`}>
-                {resultHeader}
                 {resultConsole}
                 {debugPane}
               </div>
@@ -14549,7 +14546,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       key={`lesson-quick-${item.id}`}
                       type="button"
                       onClick={() => navigateToView(item.id)}
-                      className={`lesson-quick-nav__item flex h-12 min-w-0 items-center justify-center gap-2 rounded-lg px-2.5 text-sm font-semibold transition-colors ${
+                      className={`lesson-quick-nav__item flex h-10 min-w-0 items-center justify-center gap-2 rounded-lg px-2.5 text-sm font-semibold transition-colors ${
                         isActive
                           ? 'bg-purple-600 text-white shadow-sm'
                           : 'border border-purple-100 bg-white text-slate-700 hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700'
