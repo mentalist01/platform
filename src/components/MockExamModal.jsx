@@ -112,6 +112,7 @@ const MockExamModal = ({
   const secondaryBadges = examBadges.slice(1);
   const isCurrentTaskSolved = Boolean(solved[taskKey]);
   const allowPartialForTask = answerCount > 1 ? allowsPartialAnswers(selectedTask) : false;
+  const hasLargeAnswerGrid = answerCount > 6;
   const isAnswerReady = answerCount > 1
     ? (
       allowPartialForTask
@@ -514,9 +515,9 @@ const MockExamModal = ({
             </div>
 
             {currentQuestion ? (
-              <div className={`rounded-[1.75rem] border p-3.5 ${panelClassName}`}>
-                <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-                  <div className="min-w-0 flex-1 space-y-3">
+              <div className={`rounded-[1.75rem] border p-3.5 ${panelClassName} ${hasLargeAnswerGrid ? 'lg:max-h-[35vh]' : ''}`}>
+                <div className="flex min-h-0 flex-col gap-4 xl:flex-row xl:justify-between">
+                  <div className="min-w-0 flex flex-1 flex-col gap-3 min-h-0">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className={labelClassName}>Ответ</div>
                       {results[taskKey] !== undefined && (
@@ -535,56 +536,58 @@ const MockExamModal = ({
                       )}
                     </div>
 
-                    {answerCount > 1 ? (
-                      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                        {Array.from({ length: answerCount }).map((_, idx) => (
-                          <input
-                            key={idx}
-                            type="text"
-                            value={currentAnswers[idx] ?? ''}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              hasLocalAttemptChangesRef.current = true;
-                              setSaveError('');
-                              setAnswers((prev) => {
-                                const next = { ...prev };
-                                const prevEntry = next[taskKey];
-                                const arr = Array.isArray(prevEntry)
-                                  ? [...prevEntry]
-                                  : (typeof prevEntry === 'string'
-                                    ? [prevEntry, ...Array.from({ length: Math.max(0, answerCount - 1) }, () => '')]
-                                    : Array.from({ length: answerCount }, () => '')
-                                  );
-                                arr[idx] = value;
-                                next[taskKey] = arr;
-                                return next;
-                              });
-                            }}
-                            placeholder={`Ответ ${idx + 1}`}
-                            className={inputClassName}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <input
-                        type="text"
-                        value={singleAnswer}
-                        onChange={(e) => {
-                          hasLocalAttemptChangesRef.current = true;
-                          setSaveError('');
-                          setAnswers((prev) => ({ ...prev, [taskKey]: e.target.value }));
-                        }}
-                        placeholder="Введите ответ..."
-                        className={inputClassName}
-                      />
-                    )}
+                    <div className={hasLargeAnswerGrid ? 'min-h-0 flex-1 overflow-y-auto pr-1' : ''}>
+                      {answerCount > 1 ? (
+                        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                          {Array.from({ length: answerCount }).map((_, idx) => (
+                            <input
+                              key={idx}
+                              type="text"
+                              value={currentAnswers[idx] ?? ''}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                hasLocalAttemptChangesRef.current = true;
+                                setSaveError('');
+                                setAnswers((prev) => {
+                                  const next = { ...prev };
+                                  const prevEntry = next[taskKey];
+                                  const arr = Array.isArray(prevEntry)
+                                    ? [...prevEntry]
+                                    : (typeof prevEntry === 'string'
+                                      ? [prevEntry, ...Array.from({ length: Math.max(0, answerCount - 1) }, () => '')]
+                                      : Array.from({ length: answerCount }, () => '')
+                                    );
+                                  arr[idx] = value;
+                                  next[taskKey] = arr;
+                                  return next;
+                                });
+                              }}
+                              placeholder={`Ответ ${idx + 1}`}
+                              className={inputClassName}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <input
+                          type="text"
+                          value={singleAnswer}
+                          onChange={(e) => {
+                            hasLocalAttemptChangesRef.current = true;
+                            setSaveError('');
+                            setAnswers((prev) => ({ ...prev, [taskKey]: e.target.value }));
+                          }}
+                          placeholder="Введите ответ..."
+                          className={inputClassName}
+                        />
+                      )}
+                    </div>
 
                     {saveError && (
                       <div className="text-sm text-rose-500">{saveError}</div>
                     )}
                   </div>
 
-                  <div className="flex w-full flex-col gap-2 sm:flex-row xl:w-auto xl:flex-col">
+                  <div className="flex w-full shrink-0 flex-col gap-2 sm:flex-row xl:w-auto xl:flex-col xl:self-end">
                     <Button
                       variant="secondary"
                       onClick={onClose}
