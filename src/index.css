@@ -950,10 +950,127 @@ html[data-theme='dark'] .board-canvas-outline {
     box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
   }
 
+  .mock-page-shell {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .mock-page-shell::before {
+    content: '';
+    position: absolute;
+    inset: -14px -10px -18px;
+    z-index: -1;
+    border-radius: 36px;
+    background:
+      radial-gradient(circle at 10% 0%, rgba(168, 85, 247, 0.14), transparent 34%),
+      radial-gradient(circle at 92% 8%, rgba(217, 70, 239, 0.1), transparent 30%);
+    pointer-events: none;
+  }
+
+  .mock-teacher-hero {
+    border: 1px solid rgba(196, 181, 253, 0.28);
+    background:
+      radial-gradient(circle at 100% 0%, rgba(216, 180, 254, 0.16), transparent 32%),
+      linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(248, 245, 255, 0.96) 56%, rgba(242, 233, 255, 0.94));
+    box-shadow:
+      0 20px 48px rgba(88, 28, 135, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.84);
+  }
+
+  .mock-teacher-kicker {
+    border: 1px solid rgba(168, 85, 247, 0.22);
+    background: rgba(168, 85, 247, 0.1);
+    color: rgb(107, 33, 168);
+  }
+
+  .mock-teacher-title {
+    color: rgb(30, 27, 75);
+  }
+
+  .mock-teacher-subtitle {
+    margin-top: 0.55rem;
+    color: rgb(107, 114, 128);
+  }
+
+  .mock-create-input {
+    background: rgba(255, 255, 255, 0.82);
+    border-color: rgba(196, 181, 253, 0.44);
+    color: rgb(30, 27, 75);
+    box-shadow:
+      0 12px 24px rgba(88, 28, 135, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  }
+
+  .mock-create-input::placeholder {
+    color: rgb(139, 92, 246);
+  }
+
+  .mock-create-input:focus {
+    border-color: rgba(168, 85, 247, 0.62);
+    box-shadow:
+      0 0 0 3px rgba(168, 85, 247, 0.16),
+      0 14px 30px rgba(88, 28, 135, 0.12);
+  }
+
+  .mock-teacher-card {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    background:
+      radial-gradient(circle at 100% 0%, rgba(216, 180, 254, 0.16), transparent 32%),
+      radial-gradient(circle at 0% 100%, rgba(139, 92, 246, 0.08), transparent 30%),
+      linear-gradient(160deg, rgba(255, 255, 255, 0.98), rgba(249, 245, 255, 0.94));
+    border-color: rgba(221, 214, 254, 0.86);
+    box-shadow:
+      0 18px 42px rgba(88, 28, 135, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.84);
+  }
+
+  .mock-teacher-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg, rgba(255, 255, 255, 0.22), transparent 38%);
+    pointer-events: none;
+  }
+
+  .mock-access-panel {
+    border: 1px solid rgba(216, 180, 254, 0.52);
+    background:
+      radial-gradient(circle at 100% 0%, rgba(216, 180, 254, 0.16), transparent 34%),
+      linear-gradient(180deg, rgba(250, 245, 255, 0.94), rgba(245, 240, 255, 0.88));
+    box-shadow:
+      0 16px 34px rgba(88, 28, 135, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  }
+
+  .mock-chart-icon {
+    border-color: rgba(216, 180, 254, 0.56);
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.9), transparent 42%),
+      linear-gradient(145deg, rgba(139, 92, 246, 0.14), rgba(217, 70, 239, 0.1));
+    color: rgb(126, 34, 206);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  }
+
+  .mock-chart-badge {
+    border: 1px solid rgba(216, 180, 254, 0.52);
+    background: linear-gradient(180deg, rgba(250, 245, 255, 0.94), rgba(243, 232, 255, 0.86));
+    color: rgb(126, 34, 206);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  }
+
+  .mock-insight-pill {
+    border: 1px solid rgba(233, 213, 255, 0.82);
+    background: rgba(255, 255, 255, 0.88);
+    color: rgb(88, 28, 135);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  }
+
   .mock-summary-best {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.9));
-    border: 1px solid rgba(226, 232, 240, 0.9);
-    box-shadow: 0 10px 24px rgba(148, 163, 184, 0.1);
+    background: linear-gradient(180deg, rgba(250, 245, 255, 0.94), rgba(244, 237, 255, 0.9));
+    border: 1px solid rgba(216, 180, 254, 0.56);
+    box-shadow: 0 10px 24px rgba(88, 28, 135, 0.12);
   }
 
   .mock-coins-note {
@@ -966,12 +1083,12 @@ html[data-theme='dark'] .board-canvas-outline {
   .mock-student-hero {
     isolation: isolate;
     background:
-      radial-gradient(circle at 12% -18%, rgba(56, 189, 248, 0.22), transparent 34%),
-      radial-gradient(circle at 92% 8%, rgba(168, 85, 247, 0.2), transparent 36%),
-      linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(240, 249, 255, 0.94) 48%, rgba(245, 243, 255, 0.96));
-    border: 1px solid rgba(125, 211, 252, 0.28);
+      radial-gradient(circle at 10% -16%, rgba(139, 92, 246, 0.24), transparent 34%),
+      radial-gradient(circle at 92% 10%, rgba(217, 70, 239, 0.18), transparent 38%),
+      linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(248, 245, 255, 0.96) 52%, rgba(242, 233, 255, 0.94));
+    border: 1px solid rgba(168, 85, 247, 0.24);
     box-shadow:
-      0 24px 58px rgba(15, 23, 42, 0.1),
+      0 24px 58px rgba(88, 28, 135, 0.12),
       inset 0 1px 0 rgba(255, 255, 255, 0.84);
   }
 
@@ -981,8 +1098,8 @@ html[data-theme='dark'] .board-canvas-outline {
     inset: 0;
     z-index: 0;
     background:
-      linear-gradient(115deg, rgba(255, 255, 255, 0.52), transparent 34%),
-      repeating-linear-gradient(-28deg, rgba(14, 165, 233, 0.08) 0 1px, transparent 1px 20px);
+      linear-gradient(115deg, rgba(255, 255, 255, 0.5), transparent 34%),
+      repeating-linear-gradient(-28deg, rgba(168, 85, 247, 0.08) 0 1px, transparent 1px 20px);
     opacity: 0.9;
   }
 
@@ -995,29 +1112,29 @@ html[data-theme='dark'] .board-canvas-outline {
     width: 280px;
     height: 280px;
     border-radius: 999px;
-    background: radial-gradient(circle, rgba(245, 158, 11, 0.18), transparent 68%);
+    background: radial-gradient(circle, rgba(192, 132, 252, 0.18), transparent 68%);
     filter: blur(2px);
   }
 
   .mock-coin-chip {
     min-width: 5.05rem;
     justify-content: center;
-    border: 1px solid rgba(14, 165, 233, 0.18);
-    background: rgba(255, 255, 255, 0.74);
-    color: rgb(15, 23, 42);
+    border: 1px solid rgba(168, 85, 247, 0.2);
+    background: rgba(255, 255, 255, 0.76);
+    color: rgb(88, 28, 135);
     letter-spacing: -0.01em;
     white-space: nowrap;
     box-shadow:
-      0 8px 18px rgba(15, 23, 42, 0.08),
+      0 8px 18px rgba(88, 28, 135, 0.1),
       inset 0 1px 0 rgba(255, 255, 255, 0.76);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
   }
 
   .mock-hero-kicker {
-    border: 1px solid rgba(14, 165, 233, 0.22);
-    background: rgba(14, 165, 233, 0.09);
-    color: rgb(3, 105, 161);
+    border: 1px solid rgba(168, 85, 247, 0.22);
+    background: rgba(168, 85, 247, 0.09);
+    color: rgb(107, 33, 168);
   }
 
   .mock-hero-title,
@@ -1027,11 +1144,11 @@ html[data-theme='dark'] .board-canvas-outline {
 
   .mock-hero-meter {
     background:
-      radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.12), transparent 44%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(248, 250, 252, 0.78));
-    border: 1px solid rgba(203, 213, 225, 0.5);
+      radial-gradient(circle at 100% 0%, rgba(192, 132, 252, 0.16), transparent 44%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(248, 245, 255, 0.82));
+    border: 1px solid rgba(216, 180, 254, 0.56);
     box-shadow:
-      0 18px 38px rgba(15, 23, 42, 0.1),
+      0 18px 38px rgba(88, 28, 135, 0.12),
       inset 0 1px 0 rgba(255, 255, 255, 0.82);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
@@ -1056,19 +1173,20 @@ html[data-theme='dark'] .board-canvas-outline {
   .mock-command-center,
   .mock-list-shell,
   .mock-statistics-card {
-    border-color: rgba(148, 163, 184, 0.22);
+    border-color: rgba(196, 181, 253, 0.28);
     background:
-      radial-gradient(circle at 0% 0%, rgba(56, 189, 248, 0.08), transparent 34%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.9));
+      radial-gradient(circle at 0% 0%, rgba(168, 85, 247, 0.08), transparent 34%),
+      radial-gradient(circle at 100% 0%, rgba(217, 70, 239, 0.05), transparent 30%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(250, 245, 255, 0.92));
   }
 
   .mock-readiness-panel {
     position: relative;
     overflow: hidden;
     background:
-      radial-gradient(circle at 95% 4%, rgba(14, 165, 233, 0.14), transparent 34%),
-      linear-gradient(155deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.9));
-    border: 1px solid rgba(203, 213, 225, 0.76);
+      radial-gradient(circle at 95% 4%, rgba(192, 132, 252, 0.18), transparent 34%),
+      linear-gradient(155deg, rgba(255, 255, 255, 0.96), rgba(245, 240, 255, 0.92));
+    border: 1px solid rgba(221, 214, 254, 0.86);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84);
   }
 
@@ -1080,7 +1198,7 @@ html[data-theme='dark'] .board-canvas-outline {
     width: 150px;
     height: 150px;
     border-radius: 999px;
-    background: radial-gradient(circle, rgba(56, 189, 248, 0.14), transparent 66%);
+    background: radial-gradient(circle, rgba(168, 85, 247, 0.16), transparent 66%);
     pointer-events: none;
   }
 
@@ -1088,36 +1206,37 @@ html[data-theme='dark'] .board-canvas-outline {
   .mock-ticket-mark {
     background:
       radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.92), transparent 38%),
-      linear-gradient(145deg, rgba(14, 165, 233, 0.16), rgba(168, 85, 247, 0.14));
-    border: 1px solid rgba(125, 211, 252, 0.46);
+      linear-gradient(145deg, rgba(139, 92, 246, 0.18), rgba(217, 70, 239, 0.14));
+    border: 1px solid rgba(196, 181, 253, 0.56);
     box-shadow:
-      0 12px 28px rgba(14, 165, 233, 0.12),
+      0 12px 28px rgba(139, 92, 246, 0.14),
       inset 0 1px 0 rgba(255, 255, 255, 0.76);
+    color: rgb(126, 34, 206);
   }
 
   .mock-list-shell {
     box-shadow:
-      0 18px 42px rgba(15, 23, 42, 0.08),
+      0 20px 48px rgba(88, 28, 135, 0.1),
       inset 0 1px 0 rgba(255, 255, 255, 0.8);
   }
 
   .mock-student-card {
     isolation: isolate;
     background:
-      radial-gradient(circle at 3% 0%, rgba(56, 189, 248, 0.12), transparent 30%),
-      radial-gradient(circle at 94% 0%, rgba(168, 85, 247, 0.12), transparent 34%),
-      linear-gradient(165deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.93));
-    border-color: rgba(203, 213, 225, 0.78);
+      radial-gradient(circle at 4% 0%, rgba(139, 92, 246, 0.12), transparent 30%),
+      radial-gradient(circle at 96% 0%, rgba(217, 70, 239, 0.12), transparent 34%),
+      linear-gradient(165deg, rgba(255, 255, 255, 0.98), rgba(249, 245, 255, 0.94));
+    border-color: rgba(221, 214, 254, 0.82);
     box-shadow:
-      0 16px 42px rgba(15, 23, 42, 0.08),
+      0 16px 42px rgba(88, 28, 135, 0.08),
       inset 0 1px 0 rgba(255, 255, 255, 0.82);
   }
 
   .mock-student-card:hover {
-    border-color: rgba(125, 211, 252, 0.58);
+    border-color: rgba(192, 132, 252, 0.62);
     box-shadow:
-      0 26px 58px rgba(14, 165, 233, 0.14),
-      0 12px 34px rgba(79, 70, 229, 0.12);
+      0 26px 58px rgba(139, 92, 246, 0.16),
+      0 12px 34px rgba(168, 85, 247, 0.12);
   }
 
   .mock-student-card::before {
@@ -1127,7 +1246,7 @@ html[data-theme='dark'] .board-canvas-outline {
     left: 0;
     width: 4px;
     border-radius: 0 999px 999px 0;
-    background: linear-gradient(180deg, #38bdf8, #a855f7, #f59e0b);
+    background: linear-gradient(180deg, #8b5cf6, #d946ef, #7c3aed);
     opacity: 0.92;
   }
 
@@ -1137,7 +1256,7 @@ html[data-theme='dark'] .board-canvas-outline {
     z-index: -1;
     background:
       linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.34) 38%, transparent 54%),
-      radial-gradient(circle at 100% 100%, rgba(245, 158, 11, 0.12), transparent 36%);
+      radial-gradient(circle at 100% 100%, rgba(217, 70, 239, 0.12), transparent 36%);
     opacity: 0.46;
     pointer-events: none;
   }
@@ -1159,18 +1278,18 @@ html[data-theme='dark'] .board-canvas-outline {
   }
 
   .mock-empty-note {
-    background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.9));
-    border: 1px dashed rgba(148, 163, 184, 0.42);
+    background: linear-gradient(180deg, rgba(250, 245, 255, 0.94), rgba(255, 255, 255, 0.92));
+    border: 1px dashed rgba(192, 132, 252, 0.38);
   }
 
   .mock-state-chip {
     display: inline-flex;
     align-items: center;
     border-radius: 999px;
-    border: 1px solid rgba(203, 213, 225, 0.82);
-    background: rgba(255, 255, 255, 0.76);
+    border: 1px solid rgba(221, 214, 254, 0.86);
+    background: rgba(252, 250, 255, 0.88);
     padding: 0.28rem 0.66rem;
-    color: rgb(71, 85, 105);
+    color: rgb(88, 28, 135);
     font-size: 10px;
     font-weight: 800;
     letter-spacing: 0.16em;
@@ -1198,35 +1317,35 @@ html[data-theme='dark'] .board-canvas-outline {
 
   .mock-card-command {
     background:
-      radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.12), transparent 34%),
-      linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.92));
-    border-color: rgba(226, 232, 240, 0.9);
+      radial-gradient(circle at 100% 0%, rgba(217, 70, 239, 0.12), transparent 34%),
+      linear-gradient(180deg, rgba(249, 245, 255, 0.94), rgba(255, 255, 255, 0.92));
+    border-color: rgba(221, 214, 254, 0.9);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
   }
 
   .mock-score-orb {
     --score: 0%;
     background:
-      conic-gradient(from 210deg, #38bdf8 0 var(--score), rgba(226, 232, 240, 0.92) var(--score) 100%);
+      conic-gradient(from 210deg, #8b5cf6 0 var(--score), rgba(233, 213, 255, 0.82) var(--score) 100%);
     box-shadow:
-      0 18px 34px rgba(14, 165, 233, 0.14),
+      0 18px 34px rgba(139, 92, 246, 0.16),
       inset 0 1px 0 rgba(255, 255, 255, 0.92);
   }
 
   .mock-score-orb__inner {
     background: rgba(255, 255, 255, 0.94);
-    border: 1px solid rgba(226, 232, 240, 0.92);
+    border: 1px solid rgba(221, 214, 254, 0.9);
   }
 
   .mock-score-orb--empty {
-    background: linear-gradient(180deg, rgba(226, 232, 240, 0.9), rgba(248, 250, 252, 0.94));
+    background: linear-gradient(180deg, rgba(233, 213, 255, 0.76), rgba(248, 245, 255, 0.92));
   }
 
   .mock-start-button {
-    background: linear-gradient(135deg, #38bdf8, #8b5cf6 52%, #d946ef) !important;
+    background: linear-gradient(135deg, #7c3aed, #a855f7 52%, #d946ef) !important;
     color: white !important;
     border: 0 !important;
-    box-shadow: 0 16px 34px rgba(79, 70, 229, 0.25) !important;
+    box-shadow: 0 16px 34px rgba(126, 34, 206, 0.26) !important;
   }
 
   .mock-start-button:disabled {
@@ -1335,35 +1454,36 @@ html[data-theme='dark'] .board-canvas-outline {
   }
 
   .mock-summary-track {
-    background: linear-gradient(180deg, rgba(241, 245, 249, 0.92), rgba(248, 250, 252, 0.9));
-    border: 1px solid rgba(226, 232, 240, 0.95);
+    background: linear-gradient(180deg, rgba(245, 240, 255, 0.94), rgba(250, 245, 255, 0.9));
+    border: 1px solid rgba(233, 213, 255, 0.95);
   }
 
   .mock-summary-stat {
-    background: linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.92));
-    border: 1px solid rgba(226, 232, 240, 0.92);
+    background: linear-gradient(180deg, rgba(249, 245, 255, 0.94), rgba(255, 255, 255, 0.92));
+    border: 1px solid rgba(233, 213, 255, 0.92);
   }
 
   .mock-focus-card {
     background:
-      radial-gradient(circle at 100% 0%, rgba(192, 132, 252, 0.12), transparent 42%),
-      radial-gradient(circle at 0% 100%, rgba(96, 165, 250, 0.1), transparent 34%),
-      linear-gradient(150deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.92));
-    border: 1px solid rgba(216, 180, 254, 0.55);
+      radial-gradient(circle at 100% 0%, rgba(217, 70, 239, 0.12), transparent 42%),
+      radial-gradient(circle at 0% 100%, rgba(168, 85, 247, 0.12), transparent 34%),
+      linear-gradient(150deg, rgba(255, 255, 255, 0.95), rgba(249, 245, 255, 0.92));
+    border: 1px solid rgba(216, 180, 254, 0.62);
     box-shadow:
-      0 14px 34px rgba(168, 85, 247, 0.08),
+      0 14px 34px rgba(126, 34, 206, 0.1),
       inset 0 1px 0 rgba(255, 255, 255, 0.85);
   }
 
   .mock-focus-icon {
-    background: rgba(255, 255, 255, 0.76);
-    border: 1px solid rgba(216, 180, 254, 0.58);
+    background: rgba(255, 255, 255, 0.82);
+    border: 1px solid rgba(216, 180, 254, 0.62);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
+    color: rgb(126, 34, 206);
   }
 
   .mock-action-icon {
-    background: linear-gradient(180deg, rgba(248, 250, 252, 0.95), rgba(241, 245, 249, 0.92));
-    border: 1px solid rgba(226, 232, 240, 0.94);
+    background: linear-gradient(180deg, rgba(249, 245, 255, 0.95), rgba(245, 240, 255, 0.92));
+    border: 1px solid rgba(233, 213, 255, 0.92);
   }
 
   .mock-action-icon--focus {
@@ -1377,40 +1497,41 @@ html[data-theme='dark'] .board-canvas-outline {
   }
 
   .mock-meta-pill {
-    background: linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(241, 245, 249, 0.88));
-    border: 1px solid rgba(226, 232, 240, 0.92);
+    background: linear-gradient(180deg, rgba(249, 245, 255, 0.94), rgba(245, 240, 255, 0.9));
+    border: 1px solid rgba(233, 213, 255, 0.92);
   }
 
   .mock-meta-pill--score {
-    background: linear-gradient(180deg, rgba(250, 245, 255, 0.96), rgba(243, 232, 255, 0.78));
-    border-color: rgba(216, 180, 254, 0.56);
+    background: linear-gradient(180deg, rgba(250, 245, 255, 0.98), rgba(243, 232, 255, 0.84));
+    border-color: rgba(216, 180, 254, 0.62);
   }
 
   .mock-progress-shell {
-    background: linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(241, 245, 249, 0.9));
-    border: 1px solid rgba(226, 232, 240, 0.94);
+    background: linear-gradient(180deg, rgba(249, 245, 255, 0.94), rgba(245, 240, 255, 0.9));
+    border: 1px solid rgba(233, 213, 255, 0.94);
   }
 
   .mock-action-dock {
     background:
-      linear-gradient(180deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 0.88)),
+      radial-gradient(circle at 100% 0%, rgba(216, 180, 254, 0.12), transparent 36%),
+      linear-gradient(180deg, rgba(249, 245, 255, 0.9), rgba(255, 255, 255, 0.88)),
       linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.4));
-    border-color: rgba(226, 232, 240, 0.94);
+    border-color: rgba(233, 213, 255, 0.94);
   }
 
   .mock-score-box {
-    background: linear-gradient(180deg, rgba(250, 245, 255, 0.68), rgba(255, 255, 255, 0.92));
-    border: 1px solid rgba(216, 180, 254, 0.42);
+    background: linear-gradient(180deg, rgba(243, 232, 255, 0.74), rgba(255, 255, 255, 0.92));
+    border: 1px solid rgba(216, 180, 254, 0.5);
   }
 
   .mock-status-pill {
-    background: linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(241, 245, 249, 0.9));
-    border: 1px solid rgba(226, 232, 240, 0.92);
+    background: linear-gradient(180deg, rgba(249, 245, 255, 0.94), rgba(245, 240, 255, 0.9));
+    border: 1px solid rgba(233, 213, 255, 0.92);
   }
 
   .mock-insight-card {
-    background: linear-gradient(180deg, rgba(248, 250, 252, 0.95), rgba(255, 255, 255, 0.92));
-    border: 1px solid rgba(226, 232, 240, 0.94);
+    background: linear-gradient(180deg, rgba(249, 245, 255, 0.95), rgba(255, 255, 255, 0.92));
+    border: 1px solid rgba(233, 213, 255, 0.92);
   }
 
   .mock-insight-card--strong {
@@ -1429,9 +1550,9 @@ html[data-theme='dark'] .board-canvas-outline {
 
   .mock-task-chart-panel {
     background:
-      radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.08), transparent 34%),
-      linear-gradient(180deg, rgba(248, 250, 252, 0.95), rgba(255, 255, 255, 0.94));
-    border: 1px solid rgba(226, 232, 240, 0.94);
+      radial-gradient(circle at 100% 0%, rgba(217, 70, 239, 0.1), transparent 34%),
+      linear-gradient(180deg, rgba(249, 245, 255, 0.95), rgba(255, 255, 255, 0.94));
+    border: 1px solid rgba(233, 213, 255, 0.94);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
   }
 
@@ -1471,10 +1592,10 @@ html[data-theme='dark'] .board-canvas-outline {
   }
 
   .mock-task-chart-tooltip {
-    background: rgba(255, 255, 255, 0.96);
-    border: 1px solid rgba(226, 232, 240, 0.96);
+    background: rgba(255, 255, 255, 0.98);
+    border: 1px solid rgba(233, 213, 255, 0.96);
     box-shadow:
-      0 16px 36px rgba(15, 23, 42, 0.12),
+      0 16px 36px rgba(88, 28, 135, 0.14),
       inset 0 1px 0 rgba(255, 255, 255, 0.86);
   }
 
@@ -1912,8 +2033,8 @@ html[data-theme='dark'] .board-canvas-outline {
   will-change: transform, box-shadow;
   transform-origin: center;
   box-shadow:
-    0 18px 34px rgba(15, 23, 42, 0.12),
-    0 6px 14px rgba(148, 163, 184, 0.12),
+    0 18px 34px rgba(88, 28, 135, 0.1),
+    0 6px 14px rgba(192, 132, 252, 0.14),
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
     inset 0 -2px 0 rgba(255, 255, 255, 0.26);
   transition: transform 0.22s ease, box-shadow 0.26s ease, border-color 0.26s ease, filter 0.26s ease, background-position 0.28s ease;
@@ -1948,8 +2069,8 @@ html[data-theme='dark'] .board-canvas-outline {
 .python-learning-shell .python-learning-overview-card:hover {
   transform: translateY(-8px) scale(1.012);
   box-shadow:
-    0 28px 54px rgba(15, 23, 42, 0.18),
-    0 10px 24px rgba(148, 163, 184, 0.14),
+    0 28px 54px rgba(88, 28, 135, 0.16),
+    0 10px 24px rgba(192, 132, 252, 0.16),
     inset 0 1px 0 rgba(255, 255, 255, 0.88),
     inset 0 -2px 0 rgba(255, 255, 255, 0.34);
 }
@@ -1972,10 +2093,10 @@ html[data-theme='dark'] .board-canvas-outline {
   justify-content: center;
   border-radius: 1rem;
   border: 1px solid rgba(255, 255, 255, 0.84);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.72));
-  color: rgba(51, 65, 85, 0.9);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(250, 245, 255, 0.82));
+  color: rgba(109, 40, 217, 0.9);
   box-shadow:
-    0 10px 18px rgba(148, 163, 184, 0.18),
+    0 10px 18px rgba(192, 132, 252, 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.92);
   transition: transform 0.22s ease, border-color 0.22s ease, background-color 0.22s ease, color 0.22s ease, box-shadow 0.22s ease;
 }
@@ -1991,16 +2112,17 @@ html[data-theme='dark'] .board-canvas-outline {
 }
 
 .python-learning-shell .python-learning-overview-card__action--active {
-  border-color: rgba(15, 23, 42, 0.08);
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.14), rgba(15, 23, 42, 0.08));
-  color: rgba(15, 23, 42, 0.9);
+  border-color: rgba(167, 139, 250, 0.36);
+  background: linear-gradient(180deg, rgba(167, 139, 250, 0.18), rgba(109, 40, 217, 0.12));
+  color: rgba(88, 28, 135, 0.92);
   box-shadow:
-    0 12px 20px rgba(15, 23, 42, 0.12),
+    0 12px 20px rgba(147, 51, 234, 0.16),
     inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 .python-learning-shell .python-learning-overview-card__icon,
-.python-learning-shell .python-learning-overview-card__count {
+.python-learning-shell .python-learning-overview-card__count,
+.python-learning-shell .python-learning-overview-card__status {
   transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease, background-color 0.22s ease;
 }
 
@@ -2010,6 +2132,12 @@ html[data-theme='dark'] .board-canvas-outline {
 
 .python-learning-shell .python-learning-overview-card__count {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.python-learning-shell .python-learning-overview-card__status {
+  box-shadow:
+    0 10px 18px rgba(147, 51, 234, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
 .python-learning-shell .python-learning-overview-card:hover .python-learning-overview-card__icon {
@@ -2024,8 +2152,8 @@ html[data-theme='dark'] .board-canvas-outline {
 .python-learning-shell .python-learning-overview-card:active {
   transform: translateY(-2px) scale(0.996);
   box-shadow:
-    0 14px 28px rgba(15, 23, 42, 0.14),
-    0 4px 12px rgba(148, 163, 184, 0.12),
+    0 14px 28px rgba(88, 28, 135, 0.14),
+    0 4px 12px rgba(192, 132, 252, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.84),
     inset 0 -1px 0 rgba(255, 255, 255, 0.22);
 }
@@ -2038,41 +2166,79 @@ html[data-theme='dark'] .board-canvas-outline {
 }
 
 .python-learning-shell .python-learning-overview-card--active {
-  transform: translateY(-4px) scale(1.006);
-  filter: saturate(1.08);
+  transform: translateY(-5px) scale(1.008);
+  filter: saturate(1.12) brightness(1.015);
   box-shadow:
-    0 28px 54px rgba(15, 23, 42, 0.2),
-    0 10px 24px rgba(148, 163, 184, 0.14),
+    0 28px 54px rgba(88, 28, 135, 0.18),
+    0 10px 24px rgba(192, 132, 252, 0.14),
     inset 0 1px 0 rgba(255, 255, 255, 0.88),
     inset 0 -2px 0 rgba(255, 255, 255, 0.3);
 }
 
-.python-learning-shell .python-learning-overview-card[data-section='topics'][data-active='true'] {
-  border-color: rgba(14, 165, 233, 0.74) !important;
+.python-learning-shell .python-learning-overview-card[data-active='true']::before {
+  opacity: 1;
+}
+
+.python-learning-shell .python-learning-overview-card[data-active='true']::after {
+  opacity: 0.92;
+  transform: scaleX(1.02);
+}
+
+.python-learning-shell .python-learning-overview-card[data-active='true'] .python-learning-overview-card__icon {
+  transform: translateY(-1px) scale(1.06);
   box-shadow:
-    0 30px 58px rgba(14, 165, 233, 0.2),
+    0 14px 24px rgba(147, 51, 234, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.python-learning-shell .python-learning-overview-card[data-active='true'] .python-learning-overview-card__count,
+.python-learning-shell .python-learning-overview-card[data-active='true'] .python-learning-overview-card__status {
+  transform: translateY(-1px);
+}
+
+.python-learning-shell .python-learning-overview-card[data-section='topics'][data-active='true'] {
+  border-color: rgba(147, 51, 234, 0.74) !important;
+  box-shadow:
+    0 30px 58px rgba(147, 51, 234, 0.2),
     0 12px 24px rgba(15, 23, 42, 0.12),
-    inset 0 1px 0 rgba(240, 249, 255, 0.88);
+    inset 0 1px 0 rgba(243, 232, 255, 0.88),
+    inset 4px 0 0 rgba(168, 85, 247, 0.92);
 }
 
 .python-learning-shell .python-learning-overview-card[data-section='exam-prep'][data-active='true'] {
-  border-color: rgba(245, 158, 11, 0.72) !important;
+  border-color: rgba(192, 38, 211, 0.7) !important;
   box-shadow:
-    0 30px 58px rgba(249, 115, 22, 0.2),
+    0 30px 58px rgba(192, 38, 211, 0.18),
     0 12px 24px rgba(15, 23, 42, 0.12),
-    inset 0 1px 0 rgba(255, 247, 237, 0.9);
+    inset 0 1px 0 rgba(250, 245, 255, 0.9),
+    inset 4px 0 0 rgba(217, 70, 239, 0.88);
+}
+
+.python-learning-shell .python-learning-focus-card .text-cyan-700\/80,
+.python-learning-shell .python-learning-focus-card .text-emerald-700\/80 {
+  color: rgba(109, 40, 217, 0.9) !important;
+}
+
+.python-mobile-panel--task .text-cyan-200,
+.python-mobile-panel--task .text-emerald-200 {
+  color: rgb(233, 213, 255) !important;
 }
 
   .python-learning-shell .python-learning-section-shell {
     animation-delay: calc(230ms + (var(--python-section-i, 0) * 85ms));
   }
 
-  .python-learning-task-card {
-    opacity: 0;
-    animation: pythonTaskReveal 0.44s cubic-bezier(0.22, 0.7, 0.24, 1) both;
-    animation-delay: calc(120ms + (var(--python-card-i, 0) * 45ms));
-    will-change: transform, opacity;
-  }
+.python-learning-task-card {
+  opacity: 0;
+  animation: pythonTaskReveal 0.44s cubic-bezier(0.22, 0.7, 0.24, 1) both;
+  animation-delay: calc(120ms + (var(--python-card-i, 0) * 45ms));
+  will-change: transform, opacity;
+}
+
+.python-learning-task-card__glow,
+.python-learning-task-card__toolbar-btn {
+  transition: opacity 0.24s ease, background 0.24s ease, border-color 0.24s ease, box-shadow 0.24s ease, color 0.24s ease;
+}
 
   .python-learning-task-card:hover {
     transform: translateY(-4px) scale(1.008);
@@ -3076,10 +3242,10 @@ html[data-theme='dark'] .board-canvas-outline {
   animation: callPanelIn 0.52s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .call-scene-shell {
-  --call-scene-surface-start: rgba(255, 255, 255, 0.96);
-  --call-scene-surface-end: rgba(248, 250, 252, 0.94);
-  --call-scene-accent: rgba(56, 189, 248, 0.28);
-  --call-scene-accent-strong: rgba(14, 165, 233, 0.34);
+  --call-scene-surface-start: rgba(252, 248, 255, 0.96);
+  --call-scene-surface-end: rgba(245, 240, 255, 0.94);
+  --call-scene-accent: rgba(168, 85, 247, 0.24);
+  --call-scene-accent-strong: rgba(139, 92, 246, 0.34);
   background:
     radial-gradient(circle at 8% -10%, rgba(255, 255, 255, 0.56), transparent 42%),
     linear-gradient(156deg, var(--call-scene-surface-start), var(--call-scene-surface-end));
@@ -3087,20 +3253,7 @@ html[data-theme='dark'] .board-canvas-outline {
   animation: callPanelIn 0.52s cubic-bezier(0.16, 1, 0.3, 1) both, callSceneBreath 8.4s ease-in-out infinite;
 }
 .call-scene-shell::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border-radius: inherit;
-  padding: 1px;
-  background:
-    linear-gradient(120deg, rgba(255, 255, 255, 0.3), transparent 35%, var(--call-scene-accent), transparent 72%, rgba(255, 255, 255, 0.2)),
-    radial-gradient(circle at 20% -10%, rgba(255, 255, 255, 0.5), transparent 45%);
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  opacity: 0.75;
-  animation: callStatusChipShine 8.6s ease-in-out infinite;
+  display: none;
 }
 .call-scene-shell::after {
   content: "";
@@ -3114,22 +3267,22 @@ html[data-theme='dark'] .board-canvas-outline {
   opacity: 0.55;
 }
 .call-scene--connected {
-  --call-scene-surface-start: rgba(236, 253, 245, 0.97);
-  --call-scene-surface-end: rgba(220, 252, 231, 0.93);
-  --call-scene-accent: rgba(16, 185, 129, 0.28);
-  --call-scene-accent-strong: rgba(16, 185, 129, 0.44);
+  --call-scene-surface-start: rgba(247, 243, 255, 0.97);
+  --call-scene-surface-end: rgba(237, 233, 254, 0.93);
+  --call-scene-accent: rgba(139, 92, 246, 0.28);
+  --call-scene-accent-strong: rgba(168, 85, 247, 0.42);
 }
 .call-scene--waiting {
-  --call-scene-surface-start: rgba(239, 246, 255, 0.97);
-  --call-scene-surface-end: rgba(224, 242, 254, 0.92);
-  --call-scene-accent: rgba(56, 189, 248, 0.3);
-  --call-scene-accent-strong: rgba(56, 189, 248, 0.42);
+  --call-scene-surface-start: rgba(250, 245, 255, 0.97);
+  --call-scene-surface-end: rgba(243, 232, 255, 0.92);
+  --call-scene-accent: rgba(192, 132, 252, 0.28);
+  --call-scene-accent-strong: rgba(168, 85, 247, 0.42);
 }
 .call-scene--connecting {
-  --call-scene-surface-start: rgba(255, 253, 246, 0.97);
-  --call-scene-surface-end: rgba(255, 247, 232, 0.93);
-  --call-scene-accent: rgba(245, 158, 11, 0.19);
-  --call-scene-accent-strong: rgba(245, 158, 11, 0.31);
+  --call-scene-surface-start: rgba(253, 244, 255, 0.97);
+  --call-scene-surface-end: rgba(250, 232, 255, 0.93);
+  --call-scene-accent: rgba(217, 70, 239, 0.2);
+  --call-scene-accent-strong: rgba(192, 132, 252, 0.32);
 }
 .call-scene--problem {
   --call-scene-surface-start: rgba(255, 241, 242, 0.97);
@@ -3138,10 +3291,10 @@ html[data-theme='dark'] .board-canvas-outline {
   --call-scene-accent-strong: rgba(244, 63, 94, 0.42);
 }
 .call-scene--idle {
-  --call-scene-surface-start: rgba(255, 255, 255, 0.96);
-  --call-scene-surface-end: rgba(241, 245, 249, 0.94);
-  --call-scene-accent: rgba(148, 163, 184, 0.24);
-  --call-scene-accent-strong: rgba(148, 163, 184, 0.36);
+  --call-scene-surface-start: rgba(252, 248, 255, 0.96);
+  --call-scene-surface-end: rgba(245, 240, 255, 0.94);
+  --call-scene-accent: rgba(168, 85, 247, 0.22);
+  --call-scene-accent-strong: rgba(168, 85, 247, 0.34);
 }
 .call-collapsed-card { animation: callPanelIn 0.28s ease-out both; }
 .call-floating-toolbar { animation: fadeSoft 0.22s ease-out both; }
@@ -3171,7 +3324,7 @@ html[data-theme='dark'] .board-canvas-outline {
   background:
     radial-gradient(circle at 20% 12%, rgba(255, 255, 255, 0.16), transparent 38%),
     repeating-linear-gradient(120deg, rgba(255, 255, 255, 0.09) 0 1px, transparent 1px 26px),
-    repeating-linear-gradient(30deg, rgba(14, 165, 233, 0.09) 0 1px, transparent 1px 32px);
+    repeating-linear-gradient(30deg, rgba(168, 85, 247, 0.09) 0 1px, transparent 1px 32px);
   mix-blend-mode: soft-light;
   opacity: 0.34;
   animation: callGridDrift 17s ease-in-out infinite;
@@ -3182,7 +3335,7 @@ html[data-theme='dark'] .board-canvas-outline {
   inset: -22%;
   background-image:
     radial-gradient(circle at 15% 20%, rgba(255, 255, 255, 0.14), transparent 26%),
-    radial-gradient(circle at 82% 78%, rgba(56, 189, 248, 0.18), transparent 34%),
+    radial-gradient(circle at 82% 78%, rgba(168, 85, 247, 0.18), transparent 34%),
     repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 3px);
   opacity: 0.12;
   mix-blend-mode: screen;
@@ -3225,7 +3378,7 @@ html[data-theme='dark'] .board-canvas-outline {
   width: calc(2px + (var(--call-particle-index, 0) * 0.08px));
   height: calc(2px + (var(--call-particle-index, 0) * 0.08px));
   border-radius: 9999px;
-  background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.95), rgba(125, 211, 252, 0.72));
+  background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.95), rgba(196, 181, 253, 0.72));
   opacity: 0;
   filter: blur(0.3px);
   animation: callParticleFloat calc(4.8s + (var(--call-particle-index, 0) * 0.22s)) ease-in-out infinite;
@@ -3246,11 +3399,11 @@ html[data-theme='dark'] .board-canvas-outline {
 }
 .call-light-ribbon--one {
   top: 10%;
-  background: linear-gradient(90deg, rgba(14, 165, 233, 0.18), rgba(56, 189, 248, 0.34), rgba(45, 212, 191, 0.2));
+  background: linear-gradient(90deg, rgba(139, 92, 246, 0.18), rgba(168, 85, 247, 0.34), rgba(217, 70, 239, 0.2));
 }
 .call-light-ribbon--two {
   top: 62%;
-  background: linear-gradient(90deg, rgba(16, 185, 129, 0.16), rgba(99, 102, 241, 0.28), rgba(56, 189, 248, 0.12));
+  background: linear-gradient(90deg, rgba(126, 34, 206, 0.14), rgba(217, 70, 239, 0.26), rgba(168, 85, 247, 0.14));
   animation-duration: 21s;
   animation-delay: -6.5s;
 }
@@ -3259,8 +3412,8 @@ html[data-theme='dark'] .board-canvas-outline {
   position: absolute;
   inset: -20% -8%;
   background:
-    linear-gradient(110deg, transparent 24%, rgba(255, 255, 255, 0.34) 42%, rgba(56, 189, 248, 0.22) 52%, transparent 66%),
-    linear-gradient(128deg, transparent 44%, rgba(16, 185, 129, 0.18) 58%, transparent 76%);
+    linear-gradient(110deg, transparent 24%, rgba(255, 255, 255, 0.34) 42%, rgba(168, 85, 247, 0.22) 52%, transparent 66%),
+    linear-gradient(128deg, transparent 44%, rgba(217, 70, 239, 0.16) 58%, transparent 76%);
   mix-blend-mode: screen;
   opacity: 0.22;
   transform: translate3d(-34%, 0, 0) skewX(-12deg);
@@ -3268,13 +3421,13 @@ html[data-theme='dark'] .board-canvas-outline {
 }
 .call-scene--connected .call-scene-sweep {
   background:
-    linear-gradient(110deg, transparent 24%, rgba(255, 255, 255, 0.34) 42%, rgba(16, 185, 129, 0.24) 52%, transparent 66%),
-    linear-gradient(128deg, transparent 44%, rgba(52, 211, 153, 0.2) 58%, transparent 76%);
+    linear-gradient(110deg, transparent 24%, rgba(255, 255, 255, 0.34) 42%, rgba(139, 92, 246, 0.24) 52%, transparent 66%),
+    linear-gradient(128deg, transparent 44%, rgba(168, 85, 247, 0.18) 58%, transparent 76%);
 }
 .call-scene--connecting .call-scene-sweep {
   background:
-    linear-gradient(110deg, transparent 24%, rgba(255, 255, 255, 0.34) 42%, rgba(245, 158, 11, 0.17) 52%, transparent 66%),
-    linear-gradient(128deg, transparent 44%, rgba(251, 191, 36, 0.12) 58%, transparent 76%);
+    linear-gradient(110deg, transparent 24%, rgba(255, 255, 255, 0.34) 42%, rgba(217, 70, 239, 0.18) 52%, transparent 66%),
+    linear-gradient(128deg, transparent 44%, rgba(192, 132, 252, 0.14) 58%, transparent 76%);
 }
 .call-scene--problem .call-scene-sweep {
   background:
@@ -3325,13 +3478,13 @@ html[data-theme='dark'] .board-canvas-outline {
   animation: callStatusChipShine 5.8s ease-in-out infinite;
 }
 .call-status-chip--connected {
-  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.18), 0 8px 22px rgba(16, 185, 129, 0.18);
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.18), 0 8px 22px rgba(139, 92, 246, 0.18);
 }
 .call-status-chip--waiting {
-  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.16), 0 8px 20px rgba(14, 165, 233, 0.16);
+  box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.16), 0 8px 20px rgba(168, 85, 247, 0.16);
 }
 .call-status-chip--connecting {
-  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.18), 0 8px 22px rgba(245, 158, 11, 0.16);
+  box-shadow: 0 0 0 1px rgba(217, 70, 239, 0.18), 0 8px 22px rgba(217, 70, 239, 0.16);
 }
 .call-status-chip--problem {
   box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.16), 0 8px 22px rgba(239, 68, 68, 0.16);
@@ -3345,18 +3498,18 @@ html[data-theme='dark'] .board-canvas-outline {
   background: rgb(148, 163, 184);
 }
 .call-status-dot--connected {
-  --call-dot-glow: rgba(16, 185, 129, 0.48);
-  background: rgb(16, 185, 129);
+  --call-dot-glow: rgba(139, 92, 246, 0.48);
+  background: rgb(139, 92, 246);
   animation: callStatusPulse 1.9s ease-in-out infinite;
 }
 .call-status-dot--waiting {
-  --call-dot-glow: rgba(56, 189, 248, 0.42);
-  background: rgb(56, 189, 248);
+  --call-dot-glow: rgba(168, 85, 247, 0.42);
+  background: rgb(168, 85, 247);
   animation: callStatusPulse 1.7s ease-in-out infinite;
 }
 .call-status-dot--connecting {
-  --call-dot-glow: rgba(245, 158, 11, 0.5);
-  background: rgb(245, 158, 11);
+  --call-dot-glow: rgba(217, 70, 239, 0.46);
+  background: rgb(217, 70, 239);
   animation: callStatusPulse 1.2s ease-in-out infinite;
 }
 .call-status-dot--problem {
@@ -3709,19 +3862,19 @@ html[data-theme='dark'] .board-canvas-outline {
   animation: callControlsBreathe 7.2s ease-in-out infinite;
 }
 .call-controls-wrap.call-scene--connected {
-  background: linear-gradient(150deg, rgba(236, 253, 245, 0.78), rgba(209, 250, 229, 0.74));
+  background: linear-gradient(150deg, rgba(247, 243, 255, 0.82), rgba(237, 233, 254, 0.76));
 }
 .call-controls-wrap.call-scene--waiting {
-  background: linear-gradient(150deg, rgba(239, 246, 255, 0.8), rgba(224, 242, 254, 0.72));
+  background: linear-gradient(150deg, rgba(250, 245, 255, 0.84), rgba(243, 232, 255, 0.74));
 }
 .call-controls-wrap.call-scene--connecting {
-  background: linear-gradient(150deg, rgba(255, 253, 247, 0.88), rgba(254, 246, 226, 0.76));
+  background: linear-gradient(150deg, rgba(253, 244, 255, 0.84), rgba(250, 232, 255, 0.76));
 }
 .call-controls-wrap.call-scene--problem {
   background: linear-gradient(150deg, rgba(255, 241, 242, 0.82), rgba(255, 228, 230, 0.72));
 }
 .call-controls-wrap.call-scene--idle {
-  background: linear-gradient(150deg, rgba(255, 255, 255, 0.88), rgba(248, 250, 252, 0.76));
+  background: linear-gradient(150deg, rgba(252, 248, 255, 0.88), rgba(245, 240, 255, 0.76));
 }
 .call-controls-wrap::before {
   content: none;
@@ -3867,7 +4020,7 @@ html[data-theme='dark'] .board-canvas-outline {
 .call-lesson-chat:hover .call-lesson-chat-list,
 .call-lesson-chat:focus-within .call-lesson-chat-list {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, rgba(56, 189, 248, 0.34) 46%, rgba(168, 85, 247, 0.34)) transparent;
+  scrollbar-color: color-mix(in srgb, rgba(168, 85, 247, 0.42) 54%, rgba(217, 70, 239, 0.34)) transparent;
 }
 .call-lesson-chat:hover .call-lesson-chat-list::-webkit-scrollbar,
 .call-lesson-chat:focus-within .call-lesson-chat-list::-webkit-scrollbar {
@@ -3876,7 +4029,7 @@ html[data-theme='dark'] .board-canvas-outline {
 }
 .call-lesson-chat:hover .call-lesson-chat-list::-webkit-scrollbar-thumb,
 .call-lesson-chat:focus-within .call-lesson-chat-list::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, rgba(56, 189, 248, 0.34) 46%, rgba(168, 85, 247, 0.34));
+  background: color-mix(in srgb, rgba(168, 85, 247, 0.42) 54%, rgba(217, 70, 239, 0.34));
 }
 .call-lesson-chat-bubble {
   will-change: transform, opacity;
@@ -3949,6 +4102,12 @@ html[data-theme='dark'] .board-canvas-outline {
 .call-prejoin-stage {
   min-height: clamp(220px, 30vw, 280px);
   gap: 1.25rem;
+  border-color: rgba(196, 181, 253, 0.46);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(248, 245, 255, 0.92) 56%, rgba(237, 233, 254, 0.86));
+  box-shadow:
+    0 20px 48px rgba(88, 28, 135, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.66);
   backdrop-filter: blur(18px);
 }
 .call-prejoin-stage::after {
@@ -3958,10 +4117,10 @@ html[data-theme='dark'] .board-canvas-outline {
   pointer-events: none;
   border-radius: 999px;
   background:
-    radial-gradient(circle at center, rgba(56, 189, 248, 0.1), transparent 56%),
-    radial-gradient(circle at 70% 50%, rgba(168, 85, 247, 0.12), transparent 44%);
-  filter: blur(18px);
-  opacity: 0.9;
+    radial-gradient(circle at 30% 44%, rgba(168, 85, 247, 0.14), transparent 36%),
+    radial-gradient(circle at 74% 38%, rgba(217, 70, 239, 0.12), transparent 28%);
+  filter: blur(22px);
+  opacity: 0.78;
 }
 .call-prejoin-main {
   position: relative;
@@ -3977,12 +4136,12 @@ html[data-theme='dark'] .board-canvas-outline {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .call-header-status-pill[data-tone='good'] {
-  border-color: rgba(52, 211, 153, 0.24);
-  color: rgba(167, 243, 208, 0.96);
+  border-color: rgba(168, 85, 247, 0.24);
+  color: rgba(109, 40, 217, 0.96);
 }
 .call-header-status-pill[data-tone='active'] {
-  border-color: rgba(56, 189, 248, 0.24);
-  color: rgba(186, 230, 253, 0.96);
+  border-color: rgba(168, 85, 247, 0.24);
+  color: rgba(126, 34, 206, 0.96);
 }
 .call-header-status-pill[data-tone='problem'] {
   border-color: rgba(244, 63, 94, 0.24);
@@ -4001,14 +4160,17 @@ html[data-theme='dark'] .board-canvas-outline {
 .call-prejoin-glance-card {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.7rem;
   min-height: 0;
-  padding: 0.82rem 0.95rem;
+  min-width: 176px;
+  padding: 0.9rem 1rem;
   border-radius: 1rem;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  background: linear-gradient(160deg, rgba(15, 23, 42, 0.26), rgba(15, 23, 42, 0.08));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(196, 181, 253, 0.34);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.84), rgba(245, 243, 255, 0.78));
+  box-shadow:
+    0 14px 28px rgba(88, 28, 135, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.62);
   overflow: hidden;
 }
 .call-prejoin-glance-card::before {
@@ -4016,34 +4178,47 @@ html[data-theme='dark'] .board-canvas-outline {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 58%);
-  opacity: 0.7;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.58), transparent 62%),
+    radial-gradient(circle at 100% 0%, rgba(216, 180, 254, 0.22), transparent 36%);
+  opacity: 0.95;
+}
+.call-prejoin-glance-card[data-tone='idle'] {
+  border-color: rgba(196, 181, 253, 0.3);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.82), rgba(243, 244, 255, 0.76));
 }
 .call-prejoin-glance-card[data-tone='good'] {
-  border-color: rgba(52, 211, 153, 0.28);
+  border-color: rgba(168, 85, 247, 0.28);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.86), rgba(243, 232, 255, 0.82));
 }
 .call-prejoin-glance-card[data-tone='active'] {
-  border-color: rgba(56, 189, 248, 0.24);
+  border-color: rgba(147, 51, 234, 0.32);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.88), rgba(237, 233, 254, 0.86));
 }
 .call-prejoin-glance-card[data-tone='accent'] {
-  border-color: rgba(168, 85, 247, 0.28);
+  border-color: rgba(217, 70, 239, 0.28);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.86), rgba(250, 232, 255, 0.82));
 }
 .call-prejoin-glance-card[data-tone='problem'] {
   border-color: rgba(244, 63, 94, 0.28);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.84), rgba(255, 241, 242, 0.8));
 }
 .call-prejoin-glance-icon {
   position: relative;
   z-index: 1;
   display: inline-flex;
-  width: 2rem;
-  height: 2rem;
+  width: 2.2rem;
+  height: 2.2rem;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   border-radius: 0.8rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(226, 232, 240, 0.94);
+  border: 1px solid rgba(196, 181, 253, 0.4);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(237, 233, 254, 0.88));
+  box-shadow:
+    0 8px 18px rgba(167, 139, 250, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  color: rgba(109, 40, 217, 0.92);
 }
 .call-prejoin-glance-label {
   position: relative;
@@ -4052,7 +4227,7 @@ html[data-theme='dark'] .board-canvas-outline {
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: rgba(226, 232, 240, 0.62);
+  color: rgba(109, 40, 217, 0.68);
 }
 .call-prejoin-glance-value {
   position: relative;
@@ -4061,7 +4236,7 @@ html[data-theme='dark'] .board-canvas-outline {
   font-size: 0.9rem;
   line-height: 1.35;
   font-weight: 600;
-  color: rgba(248, 250, 252, 0.94);
+  color: rgba(15, 23, 42, 0.92);
   text-wrap: pretty;
 }
 .call-prejoin-note {
@@ -4073,6 +4248,12 @@ html[data-theme='dark'] .board-canvas-outline {
   width: 100%;
   max-width: 320px;
   justify-self: end;
+  border-color: rgba(196, 181, 253, 0.42);
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.9), rgba(245, 243, 255, 0.88) 62%, rgba(237, 233, 254, 0.82));
+  box-shadow:
+    0 18px 40px rgba(88, 28, 135, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.64);
 }
 .call-prejoin-stage .call-waiting-card::after {
   content: "";
@@ -4083,21 +4264,27 @@ html[data-theme='dark'] .board-canvas-outline {
   height: 150px;
   pointer-events: none;
   border-radius: 999px;
-  background: radial-gradient(circle, rgba(56, 189, 248, 0.24), transparent 70%);
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.22), transparent 70%);
   filter: blur(16px);
   opacity: 0.75;
 }
 .call-prejoin-stage .call-waiting-card[data-presence='live'] {
-  border-color: rgba(52, 211, 153, 0.2);
+  border-color: rgba(147, 51, 234, 0.28);
 }
 .call-prejoin-stage[data-state='idle'] {
-  box-shadow: 0 22px 48px rgba(56, 189, 248, 0.08);
+  box-shadow:
+    0 24px 56px rgba(109, 40, 217, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.66);
 }
 .call-prejoin-stage[data-state='connecting'] {
-  box-shadow: 0 22px 48px rgba(245, 158, 11, 0.14);
+  box-shadow:
+    0 24px 56px rgba(168, 85, 247, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.66);
 }
 .call-prejoin-stage[data-state='problem'] {
-  box-shadow: 0 24px 52px rgba(244, 63, 94, 0.16);
+  box-shadow:
+    0 24px 56px rgba(244, 63, 94, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.66);
 }
 .call-media-stage {
   min-height: 264px;
@@ -4118,16 +4305,16 @@ html[data-theme='dark'] .board-canvas-outline {
   backdrop-filter: blur(18px);
 }
 .call-primary-cta {
-  box-shadow: 0 20px 44px rgba(16, 185, 129, 0.24);
+  box-shadow: 0 20px 44px rgba(126, 34, 206, 0.24);
 }
 .call-primary-cta:not(:disabled) {
-  background: linear-gradient(135deg, rgb(52 211 153), rgb(16 185 129));
-  border-color: rgba(167, 243, 208, 0.72);
-  color: rgb(2 6 23);
+  background: linear-gradient(135deg, rgb(124 58 237), rgb(168 85 247));
+  border-color: rgba(196, 181, 253, 0.72);
+  color: rgb(255 255 255);
 }
 .call-primary-cta:not(:disabled):hover {
-  background: linear-gradient(135deg, rgb(110 231 183), rgb(52 211 153));
-  border-color: rgba(209, 250, 229, 0.82);
+  background: linear-gradient(135deg, rgb(139 92 246), rgb(192 132 252));
+  border-color: rgba(233, 213, 255, 0.82);
 }
 .call-waiting-card {
   position: relative;
@@ -4147,8 +4334,8 @@ html[data-theme='dark'] .board-canvas-outline {
   box-shadow: 0 0 0 6px rgba(148, 163, 184, 0.1);
 }
 .call-waiting-presence-dot[data-live='true'] {
-  background: rgb(52, 211, 153);
-  box-shadow: 0 0 0 6px rgba(52, 211, 153, 0.12);
+  background: rgb(139, 92, 246);
+  box-shadow: 0 0 0 6px rgba(139, 92, 246, 0.14);
 }
 .call-hero-panel::before {
   content: "";
@@ -4167,8 +4354,68 @@ html[data-theme='dark'] .board-canvas-outline {
 .call-primary-cta[data-attention='true'] {
   animation: callPrimaryCtaPulse 2.8s ease-in-out infinite;
 }
+.call-panel-root--floating,
+.call-collapsed-shell,
+.call-section-shell,
+.call-scene-shell,
+.call-collapsed-card,
+.call-floating-toolbar,
+.call-main-header,
+.call-participant-entry,
+.call-media-video,
+.call-video-scan,
+.call-waiting-avatar,
+.call-empty-participant-avatar,
+.call-chat-badge.is-live,
+.call-primary-cta[data-attention='true'],
+.call-waiting-hint,
+.call-control-btn--active,
+.call-speaking-ring,
+.call-speaking-ring::before,
+.call-speaking-ring::after,
+.call-avatar-card::before,
+.call-status-chip::after {
+  animation: none !important;
+}
+
+.call-aurora,
+.call-grid-overlay,
+.call-noise-overlay,
+.call-orbit-ring,
+.call-particle-field,
+.call-light-ribbon,
+.call-scene-sweep,
+.call-energy-wave {
+  animation: none !important;
+}
+
+.call-grid-overlay,
+.call-noise-overlay,
+.call-orbit-ring,
+.call-particle-field,
+.call-light-ribbon,
+.call-scene-sweep,
+.call-energy-wave {
+  display: none;
+}
+
+.call-status-chip::after,
+.call-video-scan {
+  opacity: 0 !important;
+}
+
+.call-participant-entry,
+.call-media-video,
+.call-waiting-avatar,
+.call-empty-participant-avatar {
+  transform: none !important;
+}
 .call-control-btn--labeled {
   min-width: 0;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.12);
+}
+.call-control-btn--compact {
+  position: relative;
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.12);
 }
 .call-control-label {
@@ -4202,6 +4449,36 @@ html[data-theme='dark'] .board-canvas-outline {
 .call-controls-group--danger {
   margin-left: auto;
 }
+.call-controls-layout--compact {
+  position: relative;
+  min-height: 3rem;
+  justify-content: flex-end;
+  padding-inline: clamp(0.15rem, 0.8vw, 0.4rem);
+}
+.call-controls-layout--compact .call-controls-group {
+  flex: 0 0 auto;
+}
+.call-controls-layout--compact .call-controls-group--media {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  flex: 0 0 auto;
+  justify-content: center;
+  transform: translate(-50%, -50%);
+}
+.call-controls-layout--compact .call-controls-group--utility,
+.call-controls-layout--compact .call-controls-group--danger {
+  justify-content: flex-end;
+}
+.call-controls-layout--compact .call-controls-group--danger {
+  margin-left: 0;
+}
+.call-controls-layout--compact .call-chat-badge {
+  min-width: 1.05rem;
+  height: 1.05rem;
+  padding: 0 0.26rem;
+  font-size: 0.62rem;
+}
 .call-chat-badge {
   position: relative;
   z-index: 1;
@@ -4212,8 +4489,8 @@ html[data-theme='dark'] .board-canvas-outline {
   justify-content: center;
   padding: 0 0.4rem;
   border-radius: 999px;
-  border: 1px solid rgba(167, 139, 250, 0.42);
-  background: rgba(99, 102, 241, 0.16);
+  border: 1px solid rgba(168, 85, 247, 0.42);
+  background: rgba(139, 92, 246, 0.16);
   font-size: 0.72rem;
   font-weight: 700;
   line-height: 1;
@@ -4270,7 +4547,7 @@ html[data-theme='dark'] .board-canvas-outline {
   box-shadow: 0 18px 38px rgba(245, 158, 11, 0.12);
 }
 .call-empty-state-card[data-state='waiting'] {
-  box-shadow: 0 18px 38px rgba(14, 165, 233, 0.12);
+  box-shadow: 0 18px 38px rgba(126, 34, 206, 0.12);
 }
 .call-chat-panel .call-lesson-chat-bubble {
   opacity: 1;
@@ -4289,6 +4566,14 @@ html[data-theme='dark'] .board-canvas-outline {
   }
   .call-controls-group--danger {
     margin-left: 0;
+  }
+  .call-controls-layout--compact {
+    min-height: 0;
+    justify-content: center;
+  }
+  .call-controls-layout--compact .call-controls-group--media {
+    position: static;
+    transform: none;
   }
 }
 @media (max-width: 768px) {
@@ -4318,6 +4603,26 @@ html[data-theme='dark'] .board-canvas-outline {
   }
   .call-controls-group--danger .call-control-btn {
     width: 100%;
+  }
+  .call-controls-layout--compact {
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+  }
+  .call-controls-layout--compact .call-controls-group {
+    width: auto;
+    justify-content: center;
+  }
+  .call-controls-layout--compact .call-controls-group--media {
+    position: static;
+    transform: none;
+    width: auto;
+  }
+  .call-controls-layout--compact .call-controls-group--media .call-control-btn,
+  .call-controls-layout--compact .call-controls-group--utility .call-control-btn,
+  .call-controls-layout--compact .call-controls-group--danger .call-control-btn {
+    flex: 0 0 auto;
+    width: 2.75rem;
   }
   .call-empty-participant {
     flex-direction: column;
@@ -7116,10 +7421,116 @@ html[data-theme='dark'] .notes-textarea {
   color: rgba(226, 232, 240, 0.96) !important;
 }
 
+html[data-theme='dark'] .mock-page-shell::before {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(168, 85, 247, 0.2), transparent 36%),
+    radial-gradient(circle at 92% 10%, rgba(217, 70, 239, 0.14), transparent 32%);
+}
+
+html[data-theme='dark'] .mock-page-shell [class~='text-gray-900'],
+html[data-theme='dark'] .mock-page-shell [class~='text-gray-800'] {
+  color: rgb(248, 250, 252) !important;
+}
+
+html[data-theme='dark'] .mock-page-shell [class~='text-gray-700'],
+html[data-theme='dark'] .mock-page-shell [class~='text-gray-600'] {
+  color: rgb(226, 232, 240) !important;
+}
+
+html[data-theme='dark'] .mock-page-shell [class~='text-gray-500'],
+html[data-theme='dark'] .mock-page-shell [class~='text-gray-400'] {
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .mock-teacher-hero {
+  border-color: rgba(129, 140, 248, 0.3);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.18), transparent 34%),
+    linear-gradient(135deg, rgba(30, 27, 75, 0.88), rgba(17, 24, 39, 0.8));
+  box-shadow:
+    0 24px 54px rgba(9, 4, 30, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .mock-teacher-kicker {
+  border-color: rgba(196, 181, 253, 0.28);
+  background: rgba(91, 33, 182, 0.28);
+  color: rgb(233, 213, 255);
+}
+
+html[data-theme='dark'] .mock-teacher-title {
+  color: white;
+}
+
+html[data-theme='dark'] .mock-teacher-subtitle {
+  color: rgba(196, 181, 253, 0.78);
+}
+
+html[data-theme='dark'] .mock-create-input {
+  background: rgba(49, 46, 129, 0.18);
+  border-color: rgba(129, 140, 248, 0.26);
+  color: rgb(248, 250, 252);
+  box-shadow:
+    0 14px 28px rgba(9, 4, 30, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .mock-create-input::placeholder {
+  color: rgba(196, 181, 253, 0.54);
+}
+
+html[data-theme='dark'] .mock-create-input:focus {
+  border-color: rgba(196, 181, 253, 0.56);
+  box-shadow:
+    0 0 0 3px rgba(139, 92, 246, 0.18),
+    0 16px 32px rgba(9, 4, 30, 0.32);
+}
+
+html[data-theme='dark'] .mock-teacher-card {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.18), transparent 32%),
+    radial-gradient(circle at 0% 100%, rgba(217, 70, 239, 0.1), transparent 30%),
+    linear-gradient(160deg, rgba(30, 27, 75, 0.82), rgba(17, 24, 39, 0.74));
+  border-color: rgba(129, 140, 248, 0.36);
+  box-shadow:
+    0 20px 48px rgba(9, 4, 30, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .mock-access-panel {
+  border-color: rgba(129, 140, 248, 0.34);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.16), transparent 34%),
+    linear-gradient(180deg, rgba(49, 46, 129, 0.28), rgba(15, 23, 42, 0.82));
+  box-shadow:
+    0 18px 36px rgba(9, 4, 30, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .mock-chart-icon {
+  border-color: rgba(129, 140, 248, 0.34);
+  background:
+    radial-gradient(circle at 30% 20%, rgba(196, 181, 253, 0.18), transparent 42%),
+    linear-gradient(145deg, rgba(91, 33, 182, 0.32), rgba(49, 46, 129, 0.2));
+  color: rgb(196, 181, 253);
+}
+
+html[data-theme='dark'] .mock-chart-badge {
+  border-color: rgba(196, 181, 253, 0.28);
+  background: linear-gradient(180deg, rgba(91, 33, 182, 0.34), rgba(49, 46, 129, 0.24));
+  color: rgb(233, 213, 255);
+}
+
+html[data-theme='dark'] .mock-insight-pill {
+  border-color: rgba(129, 140, 248, 0.3);
+  background: rgba(30, 27, 75, 0.44);
+  color: rgb(226, 232, 240);
+}
+
 html[data-theme='dark'] .mock-summary-best {
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(30, 41, 59, 0.62));
-  border-color: rgba(100, 116, 139, 0.42);
-  box-shadow: 0 16px 28px rgba(2, 6, 23, 0.28);
+  background: linear-gradient(180deg, rgba(49, 46, 129, 0.34), rgba(30, 41, 59, 0.56));
+  border-color: rgba(129, 140, 248, 0.34);
+  box-shadow: 0 16px 28px rgba(15, 23, 42, 0.3);
 }
 
 html[data-theme='dark'] .mock-coins-note {
@@ -7133,34 +7544,34 @@ html[data-theme='dark'] .mock-coins-note {
 
 html[data-theme='dark'] .mock-student-hero {
   background:
-    radial-gradient(circle at 12% -18%, rgba(56, 189, 248, 0.34), transparent 34%),
-    radial-gradient(circle at 92% 8%, rgba(168, 85, 247, 0.38), transparent 36%),
-    linear-gradient(135deg, rgba(2, 6, 23, 0.96), rgba(15, 23, 42, 0.94) 48%, rgba(49, 46, 129, 0.9));
-  border-color: rgba(125, 211, 252, 0.24);
+    radial-gradient(circle at 10% -16%, rgba(168, 85, 247, 0.38), transparent 34%),
+    radial-gradient(circle at 92% 10%, rgba(217, 70, 239, 0.24), transparent 36%),
+    linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 27, 75, 0.94) 48%, rgba(88, 28, 135, 0.86));
+  border-color: rgba(196, 181, 253, 0.28);
   box-shadow:
-    0 28px 70px rgba(2, 6, 23, 0.28),
+    0 28px 70px rgba(9, 4, 30, 0.38),
     inset 0 1px 0 rgba(255, 255, 255, 0.11);
 }
 
 html[data-theme='dark'] .mock-student-hero::before {
   background:
     linear-gradient(115deg, rgba(255, 255, 255, 0.08), transparent 34%),
-    repeating-linear-gradient(-28deg, rgba(125, 211, 252, 0.08) 0 1px, transparent 1px 20px);
+    repeating-linear-gradient(-28deg, rgba(196, 181, 253, 0.08) 0 1px, transparent 1px 20px);
 }
 
 html[data-theme='dark'] .mock-coin-chip {
-  border-color: rgba(125, 211, 252, 0.16);
-  background: rgba(15, 23, 42, 0.32);
-  color: rgba(254, 243, 199, 0.96);
+  border-color: rgba(196, 181, 253, 0.24);
+  background: rgba(30, 27, 75, 0.46);
+  color: rgba(245, 243, 255, 0.96);
   box-shadow:
-    0 8px 18px rgba(2, 6, 23, 0.12),
+    0 8px 18px rgba(9, 4, 30, 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 html[data-theme='dark'] .mock-hero-kicker {
-  border-color: rgba(125, 211, 252, 0.35);
-  background: rgba(14, 165, 233, 0.1);
-  color: rgb(186, 230, 253);
+  border-color: rgba(196, 181, 253, 0.38);
+  background: rgba(91, 33, 182, 0.24);
+  color: rgb(233, 213, 255);
 }
 
 html[data-theme='dark'] .mock-hero-title,
@@ -7170,11 +7581,11 @@ html[data-theme='dark'] .mock-hero-meter-value {
 
 html[data-theme='dark'] .mock-hero-meter {
   background:
-    radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.2), transparent 44%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(2, 6, 23, 0.54));
-  border-color: rgba(148, 163, 184, 0.22);
+    radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.22), transparent 44%),
+    linear-gradient(180deg, rgba(30, 27, 75, 0.72), rgba(15, 23, 42, 0.58));
+  border-color: rgba(129, 140, 248, 0.26);
   box-shadow:
-    0 18px 44px rgba(2, 6, 23, 0.24),
+    0 18px 44px rgba(9, 4, 30, 0.28),
     inset 0 1px 0 rgba(255, 255, 255, 0.09);
 }
 
@@ -7182,49 +7593,51 @@ html[data-theme='dark'] .mock-command-center,
 html[data-theme='dark'] .mock-list-shell,
 html[data-theme='dark'] .mock-statistics-card {
   background:
-    radial-gradient(circle at 0% 0%, rgba(56, 189, 248, 0.08), transparent 34%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(15, 23, 42, 0.78));
-  border-color: rgba(100, 116, 139, 0.42);
+    radial-gradient(circle at 0% 0%, rgba(168, 85, 247, 0.12), transparent 34%),
+    radial-gradient(circle at 100% 0%, rgba(217, 70, 239, 0.08), transparent 30%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(30, 27, 75, 0.78));
+  border-color: rgba(91, 33, 182, 0.34);
   box-shadow:
-    0 20px 46px rgba(2, 6, 23, 0.3),
+    0 20px 46px rgba(9, 4, 30, 0.34),
     inset 0 1px 0 rgba(148, 163, 184, 0.09);
 }
 
 html[data-theme='dark'] .mock-readiness-panel {
   background:
-    radial-gradient(circle at 95% 4%, rgba(56, 189, 248, 0.14), transparent 34%),
-    linear-gradient(155deg, rgba(30, 41, 59, 0.78), rgba(15, 23, 42, 0.7));
-  border-color: rgba(71, 85, 105, 0.58);
+    radial-gradient(circle at 95% 4%, rgba(168, 85, 247, 0.2), transparent 34%),
+    linear-gradient(155deg, rgba(30, 27, 75, 0.8), rgba(15, 23, 42, 0.72));
+  border-color: rgba(129, 140, 248, 0.34);
   box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.1);
 }
 
 html[data-theme='dark'] .mock-readiness-icon,
 html[data-theme='dark'] .mock-ticket-mark {
   background:
-    radial-gradient(circle at 30% 20%, rgba(125, 211, 252, 0.22), transparent 38%),
-    linear-gradient(145deg, rgba(14, 165, 233, 0.16), rgba(168, 85, 247, 0.14));
-  border-color: rgba(125, 211, 252, 0.34);
+    radial-gradient(circle at 30% 20%, rgba(196, 181, 253, 0.22), transparent 38%),
+    linear-gradient(145deg, rgba(91, 33, 182, 0.32), rgba(168, 85, 247, 0.18));
+  border-color: rgba(196, 181, 253, 0.34);
   box-shadow:
-    0 14px 32px rgba(14, 165, 233, 0.08),
+    0 14px 32px rgba(91, 33, 182, 0.16),
     inset 0 1px 0 rgba(148, 163, 184, 0.12);
+  color: rgb(221, 214, 254);
 }
 
 html[data-theme='dark'] .mock-student-card {
   background:
-    radial-gradient(circle at 4% 0%, rgba(56, 189, 248, 0.12), transparent 32%),
-    radial-gradient(circle at 96% 0%, rgba(168, 85, 247, 0.14), transparent 36%),
-    linear-gradient(165deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.82));
-  border-color: rgba(71, 85, 105, 0.58);
+    radial-gradient(circle at 4% 0%, rgba(168, 85, 247, 0.14), transparent 32%),
+    radial-gradient(circle at 96% 0%, rgba(217, 70, 239, 0.14), transparent 36%),
+    linear-gradient(165deg, rgba(15, 23, 42, 0.92), rgba(30, 27, 75, 0.82));
+  border-color: rgba(129, 140, 248, 0.3);
   box-shadow:
-    0 18px 46px rgba(2, 6, 23, 0.32),
+    0 18px 46px rgba(9, 4, 30, 0.34),
     inset 0 1px 0 rgba(148, 163, 184, 0.1);
 }
 
 html[data-theme='dark'] .mock-student-card:hover {
-  border-color: rgba(125, 211, 252, 0.46);
+  border-color: rgba(196, 181, 253, 0.48);
   box-shadow:
-    0 30px 62px rgba(2, 6, 23, 0.46),
-    0 12px 36px rgba(14, 165, 233, 0.1);
+    0 30px 62px rgba(9, 4, 30, 0.46),
+    0 12px 36px rgba(91, 33, 182, 0.16);
 }
 
 html[data-theme='dark'] .mock-student-card--empty {
@@ -7236,14 +7649,14 @@ html[data-theme='dark'] .mock-student-card--empty {
 
 html[data-theme='dark'] .mock-student-card__shine {
   background:
-    linear-gradient(110deg, transparent 0%, rgba(125, 211, 252, 0.08) 38%, transparent 54%),
-    radial-gradient(circle at 100% 100%, rgba(245, 158, 11, 0.12), transparent 36%);
+    linear-gradient(110deg, transparent 0%, rgba(196, 181, 253, 0.08) 38%, transparent 54%),
+    radial-gradient(circle at 100% 100%, rgba(217, 70, 239, 0.12), transparent 36%);
 }
 
 html[data-theme='dark'] .mock-state-chip {
-  border-color: rgba(71, 85, 105, 0.64);
-  background: rgba(15, 23, 42, 0.68);
-  color: rgb(148, 163, 184);
+  border-color: rgba(129, 140, 248, 0.36);
+  background: rgba(30, 27, 75, 0.52);
+  color: rgb(196, 181, 253);
 }
 
 html[data-theme='dark'] .mock-state-chip--focus {
@@ -7267,32 +7680,32 @@ html[data-theme='dark'] .mock-state-chip--progress {
 
 html[data-theme='dark'] .mock-card-command {
   background:
-    radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.16), transparent 34%),
-    linear-gradient(180deg, rgba(30, 41, 59, 0.76), rgba(15, 23, 42, 0.72));
-  border-color: rgba(71, 85, 105, 0.56);
+    radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.18), transparent 34%),
+    linear-gradient(180deg, rgba(30, 27, 75, 0.76), rgba(15, 23, 42, 0.72));
+  border-color: rgba(129, 140, 248, 0.28);
   box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.1);
 }
 
 html[data-theme='dark'] .mock-score-orb {
   background:
-    conic-gradient(from 210deg, #38bdf8 0 var(--score), rgba(51, 65, 85, 0.94) var(--score) 100%);
+    conic-gradient(from 210deg, #8b5cf6 0 var(--score), rgba(49, 46, 129, 0.42) var(--score) 100%);
   box-shadow:
-    0 18px 34px rgba(14, 165, 233, 0.08),
+    0 18px 34px rgba(91, 33, 182, 0.18),
     inset 0 1px 0 rgba(148, 163, 184, 0.14);
 }
 
 html[data-theme='dark'] .mock-score-orb__inner {
   background: rgba(15, 23, 42, 0.94);
-  border-color: rgba(71, 85, 105, 0.66);
+  border-color: rgba(129, 140, 248, 0.34);
 }
 
 html[data-theme='dark'] .mock-score-orb--empty {
-  background: linear-gradient(180deg, rgba(51, 65, 85, 0.82), rgba(15, 23, 42, 0.9));
+  background: linear-gradient(180deg, rgba(49, 46, 129, 0.42), rgba(15, 23, 42, 0.9));
 }
 
 html[data-theme='dark'] .mock-empty-note {
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.68), rgba(30, 41, 59, 0.58));
-  border-color: rgba(71, 85, 105, 0.62);
+  background: linear-gradient(180deg, rgba(30, 27, 75, 0.62), rgba(15, 23, 42, 0.74));
+  border-color: rgba(129, 140, 248, 0.32);
 }
 
 html[data-theme='dark'] .mock-reward-shell {
@@ -7351,35 +7764,36 @@ html[data-theme='dark'] .mock-insight-card {
 }
 
 html[data-theme='dark'] .mock-summary-track {
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.7), rgba(30, 41, 59, 0.62));
-  border-color: rgba(71, 85, 105, 0.55);
+  background: linear-gradient(180deg, rgba(30, 27, 75, 0.66), rgba(15, 23, 42, 0.66));
+  border-color: rgba(129, 140, 248, 0.3);
 }
 
 html[data-theme='dark'] .mock-summary-stat {
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.7), rgba(17, 24, 39, 0.62));
-  border-color: rgba(71, 85, 105, 0.54);
+  background: linear-gradient(180deg, rgba(30, 27, 75, 0.66), rgba(17, 24, 39, 0.64));
+  border-color: rgba(129, 140, 248, 0.3);
 }
 
 html[data-theme='dark'] .mock-focus-card {
   background:
-    radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.18), transparent 42%),
-    radial-gradient(circle at 0% 100%, rgba(59, 130, 246, 0.12), transparent 34%),
-    linear-gradient(155deg, rgba(30, 41, 59, 0.78), rgba(17, 24, 39, 0.72));
-  border-color: rgba(129, 140, 248, 0.4);
+    radial-gradient(circle at 100% 0%, rgba(217, 70, 239, 0.18), transparent 42%),
+    radial-gradient(circle at 0% 100%, rgba(168, 85, 247, 0.14), transparent 34%),
+    linear-gradient(155deg, rgba(30, 27, 75, 0.78), rgba(17, 24, 39, 0.72));
+  border-color: rgba(129, 140, 248, 0.42);
   box-shadow:
-    0 18px 36px rgba(15, 23, 42, 0.28),
+    0 18px 36px rgba(9, 4, 30, 0.34),
     inset 0 1px 0 rgba(148, 163, 184, 0.1);
 }
 
 html[data-theme='dark'] .mock-focus-icon {
-  background: rgba(15, 23, 42, 0.72);
-  border-color: rgba(129, 140, 248, 0.42);
+  background: rgba(30, 27, 75, 0.64);
+  border-color: rgba(196, 181, 253, 0.34);
   box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.1);
+  color: rgb(221, 214, 254);
 }
 
 html[data-theme='dark'] .mock-action-icon {
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(17, 24, 39, 0.64));
-  border-color: rgba(71, 85, 105, 0.58);
+  background: linear-gradient(180deg, rgba(30, 27, 75, 0.68), rgba(17, 24, 39, 0.66));
+  border-color: rgba(129, 140, 248, 0.28);
 }
 
 html[data-theme='dark'] .mock-action-icon--focus {
@@ -7393,40 +7807,40 @@ html[data-theme='dark'] .mock-action-icon--best {
 }
 
 html[data-theme='dark'] .mock-meta-pill {
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.68), rgba(30, 41, 59, 0.56));
-  border-color: rgba(71, 85, 105, 0.56);
+  background: linear-gradient(180deg, rgba(30, 27, 75, 0.62), rgba(15, 23, 42, 0.6));
+  border-color: rgba(129, 140, 248, 0.28);
 }
 
 html[data-theme='dark'] .mock-meta-pill--score {
-  background: linear-gradient(180deg, rgba(76, 29, 149, 0.24), rgba(30, 41, 59, 0.66));
-  border-color: rgba(129, 140, 248, 0.42);
+  background: linear-gradient(180deg, rgba(91, 33, 182, 0.34), rgba(30, 27, 75, 0.7));
+  border-color: rgba(196, 181, 253, 0.34);
 }
 
 html[data-theme='dark'] .mock-progress-shell {
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(30, 41, 59, 0.6));
-  border-color: rgba(71, 85, 105, 0.54);
+  background: linear-gradient(180deg, rgba(30, 27, 75, 0.66), rgba(15, 23, 42, 0.62));
+  border-color: rgba(129, 140, 248, 0.28);
 }
 
 html[data-theme='dark'] .mock-action-dock {
   background:
-    radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.14), transparent 36%),
-    linear-gradient(180deg, rgba(30, 41, 59, 0.78), rgba(15, 23, 42, 0.72));
-  border-color: rgba(71, 85, 105, 0.56);
+    radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.18), transparent 36%),
+    linear-gradient(180deg, rgba(30, 27, 75, 0.78), rgba(15, 23, 42, 0.72));
+  border-color: rgba(129, 140, 248, 0.28);
 }
 
 html[data-theme='dark'] .mock-score-box {
-  background: linear-gradient(180deg, rgba(49, 46, 129, 0.34), rgba(15, 23, 42, 0.76));
-  border-color: rgba(129, 140, 248, 0.34);
+  background: linear-gradient(180deg, rgba(91, 33, 182, 0.3), rgba(15, 23, 42, 0.76));
+  border-color: rgba(196, 181, 253, 0.24);
 }
 
 html[data-theme='dark'] .mock-status-pill {
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.68), rgba(17, 24, 39, 0.58));
-  border-color: rgba(71, 85, 105, 0.56);
+  background: linear-gradient(180deg, rgba(30, 27, 75, 0.62), rgba(17, 24, 39, 0.6));
+  border-color: rgba(129, 140, 248, 0.28);
 }
 
 html[data-theme='dark'] .mock-insight-card {
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(17, 24, 39, 0.64));
-  border-color: rgba(71, 85, 105, 0.56);
+  background: linear-gradient(180deg, rgba(30, 27, 75, 0.66), rgba(17, 24, 39, 0.64));
+  border-color: rgba(129, 140, 248, 0.3);
 }
 
 html[data-theme='dark'] .mock-insight-card--strong {
@@ -7445,9 +7859,9 @@ html[data-theme='dark'] .mock-insight-card--weak {
 
 html[data-theme='dark'] .mock-task-chart-panel {
   background:
-    radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.14), transparent 34%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.74), rgba(17, 24, 39, 0.66));
-  border-color: rgba(71, 85, 105, 0.56);
+    radial-gradient(circle at 100% 0%, rgba(217, 70, 239, 0.16), transparent 34%),
+    linear-gradient(180deg, rgba(30, 27, 75, 0.72), rgba(17, 24, 39, 0.66));
+  border-color: rgba(129, 140, 248, 0.3);
   box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.08);
 }
 
@@ -7474,11 +7888,11 @@ html[data-theme='dark'] .mock-task-chart-point--active {
 }
 
 html[data-theme='dark'] .mock-task-chart-tooltip {
-  background: rgba(15, 23, 42, 0.96);
-  border-color: rgba(71, 85, 105, 0.7);
+  background: rgba(30, 27, 75, 0.96);
+  border-color: rgba(129, 140, 248, 0.34);
   box-shadow:
-    0 16px 36px rgba(2, 6, 23, 0.34),
-    inset 0 1px 0 rgba(148, 163, 184, 0.08);
+    0 16px 36px rgba(9, 4, 30, 0.4),
+    inset 0 1px 0 rgba(196, 181, 253, 0.08);
 }
 
 html[data-theme='dark'] .mock-task-chart-tooltip .text-gray-900 {
@@ -8290,8 +8704,8 @@ html[data-theme='dark'] .schedule-skill-tree__legend-shell {
 }
 
 html[data-theme='dark'] .call-controls-wrap::before {
-  background: linear-gradient(118deg, rgba(148, 163, 184, 0.12), transparent 35%, rgba(56, 189, 248, 0.12) 56%, transparent 74%);
-  opacity: 0.3;
+  background: linear-gradient(118deg, rgba(99, 102, 241, 0.08), transparent 35%, rgba(139, 92, 246, 0.1) 56%, transparent 74%);
+  opacity: 0.14;
 }
 
 html[data-theme='dark'] .call-control-btn:hover:not(:disabled) {
@@ -8362,12 +8776,12 @@ html[data-theme='dark'] .call-lesson-chat-bubble {
 
 html[data-theme='dark'] .call-lesson-chat:hover .call-lesson-chat-list,
 html[data-theme='dark'] .call-lesson-chat:focus-within .call-lesson-chat-list {
-  scrollbar-color: color-mix(in srgb, rgba(56, 189, 248, 0.44) 48%, rgba(167, 139, 250, 0.44)) transparent;
+  scrollbar-color: color-mix(in srgb, rgba(168, 85, 247, 0.48) 58%, rgba(217, 70, 239, 0.4)) transparent;
 }
 
 html[data-theme='dark'] .call-lesson-chat:hover .call-lesson-chat-list::-webkit-scrollbar-thumb,
 html[data-theme='dark'] .call-lesson-chat:focus-within .call-lesson-chat-list::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, rgba(56, 189, 248, 0.44) 48%, rgba(167, 139, 250, 0.44));
+  background: color-mix(in srgb, rgba(168, 85, 247, 0.48) 58%, rgba(217, 70, 239, 0.4));
 }
 
 html[data-theme='dark'] .call-status-chip::after {
@@ -8377,30 +8791,46 @@ html[data-theme='dark'] .call-status-chip::after {
 
 html[data-theme='dark'] .call-media-stage::before,
 html[data-theme='dark'] .call-peers-stage::before {
-  opacity: 0.34;
+  opacity: 0.16;
   background:
-    radial-gradient(circle at 18% -8%, rgba(186, 230, 253, 0.16), transparent 45%),
-    linear-gradient(118deg, transparent 20%, rgba(148, 163, 184, 0.12) 42%, transparent 68%);
+    radial-gradient(circle at 18% -8%, rgba(129, 140, 248, 0.12), transparent 42%),
+    linear-gradient(118deg, transparent 20%, rgba(99, 102, 241, 0.08) 42%, transparent 68%);
 }
 
 html[data-theme='dark'] .call-media-tile:hover {
   box-shadow: 0 20px 36px rgba(2, 6, 23, 0.56);
 }
 
+html[data-theme='dark'] .call-media-stage,
+html[data-theme='dark'] .call-peers-stage {
+  border-color: rgba(99, 102, 241, 0.16) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(99, 102, 241, 0.04),
+    0 18px 36px rgba(2, 6, 23, 0.28);
+}
+
 html[data-theme='dark'] .call-controls-rail::after {
-  background: linear-gradient(116deg, transparent 24%, rgba(186, 230, 253, 0.34) 46%, transparent 72%);
+  background: linear-gradient(116deg, transparent 24%, rgba(129, 140, 248, 0.16) 46%, transparent 72%);
+  opacity: 0.16;
+}
+
+html[data-theme='dark'] .call-controls-wrap {
+  border-color: rgba(99, 102, 241, 0.16) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(99, 102, 241, 0.04),
+    0 16px 32px rgba(2, 6, 23, 0.24);
 }
 
 html[data-theme='dark'] .call-controls-wrap.call-scene--connected {
-  background: linear-gradient(150deg, rgba(6, 78, 59, 0.58), rgba(4, 120, 87, 0.44));
+  background: linear-gradient(150deg, rgba(76, 29, 149, 0.52), rgba(49, 46, 129, 0.44));
 }
 
 html[data-theme='dark'] .call-controls-wrap.call-scene--waiting {
-  background: linear-gradient(150deg, rgba(8, 47, 73, 0.58), rgba(3, 105, 161, 0.38));
+  background: linear-gradient(150deg, rgba(88, 28, 135, 0.54), rgba(49, 46, 129, 0.42));
 }
 
 html[data-theme='dark'] .call-controls-wrap.call-scene--connecting {
-  background: linear-gradient(150deg, rgba(101, 61, 30, 0.44), rgba(66, 46, 33, 0.54));
+  background: linear-gradient(150deg, rgba(112, 26, 117, 0.42), rgba(88, 28, 135, 0.54));
 }
 
 html[data-theme='dark'] .call-controls-wrap.call-scene--problem {
@@ -8408,11 +8838,59 @@ html[data-theme='dark'] .call-controls-wrap.call-scene--problem {
 }
 
 html[data-theme='dark'] .call-controls-wrap.call-scene--idle {
-  background: linear-gradient(150deg, rgba(8, 16, 30, 0.86), rgba(10, 33, 50, 0.78));
+  background: linear-gradient(150deg, rgba(17, 16, 43, 0.88), rgba(49, 46, 129, 0.74));
 }
 
 html[data-theme='dark'] .call-controls-wrap.call-scene--idle.call-controls-rail {
   animation: none;
+}
+
+html[data-theme='dark'] .call-collapsed-card,
+html[data-theme='dark'] .call-floating-toolbar {
+  border-color: rgba(99, 102, 241, 0.12) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(99, 102, 241, 0.03),
+    0 14px 30px rgba(2, 6, 23, 0.34) !important;
+}
+
+html[data-theme='dark'] .call-collapsed-card .call-status-chip {
+  box-shadow: inset 0 1px 0 rgba(196, 181, 253, 0.04);
+}
+
+html[data-theme='dark'] .call-collapsed-card .rounded-md,
+html[data-theme='dark'] .call-floating-toolbar .rounded-md {
+  box-shadow:
+    inset 0 0 0 1px rgba(99, 102, 241, 0.02),
+    0 8px 18px rgba(2, 6, 23, 0.18);
+}
+
+.lesson-quick-nav__shell,
+.lesson-quick-nav__item {
+  transition: border-color 0.24s ease, background-color 0.24s ease, box-shadow 0.24s ease, color 0.24s ease;
+}
+
+html[data-theme='dark'] .lesson-quick-nav__shell {
+  border-color: rgba(99, 102, 241, 0.16) !important;
+  background: rgba(12, 20, 36, 0.88) !important;
+  box-shadow:
+    0 14px 28px rgba(2, 6, 23, 0.24),
+    inset 0 1px 0 rgba(148, 163, 184, 0.04);
+}
+
+html[data-theme='dark'] .lesson-quick-nav__item--inactive {
+  border-color: rgba(99, 102, 241, 0.14) !important;
+  background: rgba(18, 28, 48, 0.72) !important;
+  color: rgba(226, 232, 240, 0.78) !important;
+}
+
+html[data-theme='dark'] .lesson-quick-nav__item--inactive:hover {
+  border-color: rgba(129, 140, 248, 0.24) !important;
+  background: rgba(30, 41, 59, 0.86) !important;
+  color: rgba(233, 213, 255, 0.92) !important;
+}
+
+html[data-theme='dark'] .lesson-quick-nav__item--active {
+  box-shadow: 0 12px 24px rgba(126, 34, 206, 0.22) !important;
 }
 
 html[data-theme='dark'] .call-scene--idle .call-orbit-ring,
@@ -8426,43 +8904,43 @@ html[data-theme='dark'] .call-scene--idle.call-section-shell::after {
 }
 
 html[data-theme='dark'] .call-prejoin-stage {
-  border-color: rgba(125, 211, 252, 0.1);
+  border-color: rgba(196, 181, 253, 0.12);
   background:
-    linear-gradient(145deg, rgba(7, 15, 28, 0.9), rgba(10, 22, 38, 0.86) 58%, rgba(9, 33, 48, 0.72));
+    linear-gradient(145deg, rgba(13, 11, 31, 0.92), rgba(24, 16, 52, 0.88) 58%, rgba(44, 24, 76, 0.72));
   box-shadow:
-    0 18px 44px rgba(2, 12, 27, 0.24),
+    0 18px 44px rgba(28, 14, 61, 0.28),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 html[data-theme='dark'] .call-prejoin-stage::after {
   background:
-    radial-gradient(circle at 30% 44%, rgba(34, 211, 238, 0.1), transparent 34%),
-    radial-gradient(circle at 74% 38%, rgba(56, 189, 248, 0.09), transparent 28%);
+    radial-gradient(circle at 30% 44%, rgba(168, 85, 247, 0.12), transparent 34%),
+    radial-gradient(circle at 74% 38%, rgba(217, 70, 239, 0.1), transparent 28%);
   filter: blur(22px);
   opacity: 0.52;
 }
 
 html[data-theme='dark'] .call-hero-panel::before {
   background:
-    radial-gradient(circle at 82% 20%, rgba(56, 189, 248, 0.12) 0%, transparent 34%),
+    radial-gradient(circle at 82% 20%, rgba(168, 85, 247, 0.14) 0%, transparent 34%),
     linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 48%);
   opacity: 0.62;
 }
 
 html[data-theme='dark'] .call-header-status-pill {
-  background: rgba(9, 18, 34, 0.44);
-  border-color: rgba(125, 211, 252, 0.1);
+  background: rgba(30, 27, 75, 0.34);
+  border-color: rgba(196, 181, 253, 0.12);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 html[data-theme='dark'] .call-header-status-pill[data-tone='good'] {
-  border-color: rgba(45, 212, 191, 0.28);
-  color: rgba(204, 251, 241, 0.94);
+  border-color: rgba(196, 181, 253, 0.28);
+  color: rgba(233, 213, 255, 0.94);
 }
 
 html[data-theme='dark'] .call-header-status-pill[data-tone='active'] {
-  border-color: rgba(56, 189, 248, 0.3);
-  color: rgba(224, 242, 254, 0.94);
+  border-color: rgba(196, 181, 253, 0.3);
+  color: rgba(233, 213, 255, 0.94);
 }
 
 html[data-theme='dark'] .call-header-status-pill[data-tone='problem'] {
@@ -8471,8 +8949,8 @@ html[data-theme='dark'] .call-header-status-pill[data-tone='problem'] {
 }
 
 html[data-theme='dark'] .call-prejoin-glance-card {
-  border-color: rgba(148, 163, 184, 0.12);
-  background: rgba(8, 18, 31, 0.34);
+  border-color: rgba(129, 140, 248, 0.14);
+  background: rgba(24, 16, 52, 0.34);
   box-shadow: none;
 }
 
@@ -8486,18 +8964,18 @@ html[data-theme='dark'] .call-prejoin-glance-card[data-tone='idle'] {
 }
 
 html[data-theme='dark'] .call-prejoin-glance-card[data-tone='good'] {
-  border-color: rgba(45, 212, 191, 0.2);
-  background: rgba(8, 30, 36, 0.34);
+  border-color: rgba(196, 181, 253, 0.22);
+  background: rgba(36, 22, 68, 0.34);
 }
 
 html[data-theme='dark'] .call-prejoin-glance-card[data-tone='active'] {
-  border-color: rgba(56, 189, 248, 0.22);
-  background: rgba(8, 24, 38, 0.34);
+  border-color: rgba(196, 181, 253, 0.24);
+  background: rgba(49, 24, 86, 0.34);
 }
 
 html[data-theme='dark'] .call-prejoin-glance-card[data-tone='accent'] {
-  border-color: rgba(129, 140, 248, 0.2);
-  background: rgba(20, 21, 46, 0.34);
+  border-color: rgba(217, 70, 239, 0.22);
+  background: rgba(67, 22, 80, 0.34);
 }
 
 html[data-theme='dark'] .call-prejoin-glance-card[data-tone='problem'] {
@@ -8522,10 +9000,10 @@ html[data-theme='dark'] .call-prejoin-glance-value {
 }
 
 html[data-theme='dark'] .call-prejoin-stage .call-waiting-card {
-  border-color: rgba(125, 211, 252, 0.1);
-  background: rgba(10, 20, 34, 0.5);
+  border-color: rgba(196, 181, 253, 0.12);
+  background: rgba(22, 16, 48, 0.54);
   box-shadow:
-    0 16px 34px rgba(2, 12, 27, 0.2),
+    0 16px 34px rgba(28, 14, 61, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
@@ -8534,21 +9012,21 @@ html[data-theme='dark'] .call-waiting-card::before {
 }
 
 html[data-theme='dark'] .call-prejoin-stage .call-waiting-card::after {
-  background: radial-gradient(circle, rgba(34, 211, 238, 0.14), transparent 66%);
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.16), transparent 66%);
   filter: blur(16px);
   opacity: 0.42;
 }
 
 html[data-theme='dark'] .call-prejoin-stage .call-waiting-card[data-presence='live'] {
-  border-color: rgba(45, 212, 191, 0.18);
+  border-color: rgba(196, 181, 253, 0.2);
 }
 
 html[data-theme='dark'] .call-prejoin-stage[data-state='idle'] {
-  box-shadow: 0 18px 40px rgba(8, 145, 178, 0.08);
+  box-shadow: 0 18px 40px rgba(91, 33, 182, 0.12);
 }
 
 html[data-theme='dark'] .call-prejoin-stage[data-state='connecting'] {
-  box-shadow: 0 18px 40px rgba(245, 158, 11, 0.1);
+  box-shadow: 0 18px 40px rgba(217, 70, 239, 0.12);
 }
 
 html[data-theme='dark'] .call-prejoin-stage[data-state='problem'] {
@@ -8556,15 +9034,15 @@ html[data-theme='dark'] .call-prejoin-stage[data-state='problem'] {
 }
 
 html[data-theme='dark'] .call-primary-cta {
-  background: linear-gradient(135deg, rgba(103, 232, 249, 0.98), rgba(34, 211, 238, 0.96)) !important;
-  border-color: rgba(165, 243, 252, 0.6) !important;
-  color: rgb(8 15 28) !important;
-  box-shadow: 0 12px 24px rgba(34, 211, 238, 0.16);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.98), rgba(217, 70, 239, 0.96)) !important;
+  border-color: rgba(216, 180, 254, 0.54) !important;
+  color: rgb(255 255 255) !important;
+  box-shadow: 0 12px 24px rgba(126, 34, 206, 0.22);
 }
 
 html[data-theme='dark'] .call-primary-cta:hover:not(:disabled) {
-  background: linear-gradient(135deg, rgba(165, 243, 252, 1), rgba(103, 232, 249, 0.98)) !important;
-  border-color: rgba(224, 242, 254, 0.82) !important;
+  background: linear-gradient(135deg, rgba(167, 139, 250, 1), rgba(232, 121, 249, 0.98)) !important;
+  border-color: rgba(233, 213, 255, 0.82) !important;
 }
 
 html[data-theme='dark'] .call-primary-cta[data-attention='true'] {
@@ -8586,13 +9064,17 @@ html[data-theme='dark'] .call-control-btn--labeled {
   box-shadow: 0 6px 14px rgba(2, 12, 27, 0.12);
 }
 
+html[data-theme='dark'] .call-control-btn--compact {
+  box-shadow: 0 6px 14px rgba(2, 12, 27, 0.12);
+}
+
 html[data-theme='dark'] .call-waiting-avatar {
   animation: none;
   box-shadow: 0 10px 18px rgba(2, 12, 27, 0.14);
 }
 
 html[data-theme='dark'] .call-control-btn::before {
-  background: radial-gradient(circle at 25% 20%, rgba(186, 230, 253, 0.24), transparent 58%);
+  background: radial-gradient(circle at 25% 20%, rgba(196, 181, 253, 0.24), transparent 58%);
 }
 
 html[data-theme='dark'] .call-control-btn[data-live='true']::before {
@@ -9133,14 +9615,24 @@ html[data-theme='dark'] .mobile-level-arrow::after {
 }
 
 html[data-theme='dark'] .python-learning-shell .python-learning-hero {
-  border-color: rgba(100, 116, 139, 0.5) !important;
+  border-color: rgba(129, 140, 248, 0.24) !important;
   background:
-    radial-gradient(circle at 90% -20%, rgba(14, 165, 233, 0.2), transparent 46%),
-    radial-gradient(circle at -12% 110%, rgba(251, 191, 36, 0.12), transparent 54%),
-    linear-gradient(156deg, rgba(15, 23, 42, 0.94), rgba(15, 23, 42, 0.9)) !important;
+    radial-gradient(circle at 92% -18%, rgba(99, 102, 241, 0.14), transparent 42%),
+    radial-gradient(circle at -12% 110%, rgba(139, 92, 246, 0.08), transparent 52%),
+    linear-gradient(156deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.92), rgba(15, 23, 42, 0.95)) !important;
   box-shadow:
-    0 22px 44px rgba(2, 6, 23, 0.58),
-    inset 0 1px 0 rgba(148, 163, 184, 0.14);
+    0 22px 44px rgba(2, 6, 23, 0.56),
+    inset 0 1px 0 rgba(196, 181, 253, 0.08);
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-hero > :nth-child(1) {
+  background: rgba(99, 102, 241, 0.16) !important;
+  opacity: 0.4;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-hero > :nth-child(2) {
+  background: rgba(79, 70, 229, 0.12) !important;
+  opacity: 0.32;
 }
 
 html[data-theme='dark'] .python-learning-shell .python-learning-progress-card,
@@ -9148,12 +9640,12 @@ html[data-theme='dark'] .python-learning-shell .python-learning-focus-card,
 html[data-theme='dark'] .python-learning-shell .python-learning-overview-card,
 html[data-theme='dark'] .python-learning-shell .python-learning-section-shell,
 html[data-theme='dark'] .python-learning-shell .python-learning-task-card {
-  border-color: rgba(100, 116, 139, 0.46) !important;
+  border-color: rgba(129, 140, 248, 0.22) !important;
   background:
-    linear-gradient(162deg, rgba(30, 41, 59, 0.94), rgba(15, 23, 42, 0.9)) !important;
+    linear-gradient(162deg, rgba(15, 23, 42, 0.95), rgba(19, 28, 47, 0.92), rgba(15, 23, 42, 0.9)) !important;
   box-shadow:
-    0 14px 30px rgba(2, 6, 23, 0.48),
-    inset 0 1px 0 rgba(148, 163, 184, 0.15) !important;
+    0 14px 30px rgba(2, 6, 23, 0.46),
+    inset 0 1px 0 rgba(196, 181, 253, 0.08) !important;
 }
 
 html[data-theme='dark'] .python-learning-shell .python-task-coin-badge {
@@ -9173,72 +9665,152 @@ html[data-theme='dark'] .python-learning-shell .python-task-coin-badge .bg-white
 
 html[data-theme='dark'] .python-learning-shell .python-learning-overview-card:hover {
   box-shadow:
-    0 30px 58px rgba(2, 6, 23, 0.66),
-    0 12px 24px rgba(2, 6, 23, 0.3),
-    inset 0 1px 0 rgba(148, 163, 184, 0.18),
-    inset 0 -1px 0 rgba(148, 163, 184, 0.08) !important;
+    0 28px 52px rgba(2, 6, 23, 0.62),
+    0 10px 22px rgba(79, 70, 229, 0.12),
+    inset 0 1px 0 rgba(196, 181, 253, 0.12),
+    inset 0 -1px 0 rgba(196, 181, 253, 0.06) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card::before {
+  background:
+    linear-gradient(128deg, rgba(99, 102, 241, 0.08), rgba(255, 255, 255, 0) 36%),
+    radial-gradient(circle at 100% 0%, rgba(129, 140, 248, 0.12), transparent 28%);
+  opacity: 0.34;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card::after {
+  background: linear-gradient(90deg, rgba(129, 140, 248, 0.08), rgba(167, 139, 250, 0.24), rgba(129, 140, 248, 0.08));
+  opacity: 0.2;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card:hover::before {
+  opacity: 0.44;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card:hover::after {
+  opacity: 0.3;
 }
 
 html[data-theme='dark'] .python-learning-shell .python-learning-overview-card__action {
-  border-color: rgba(71, 85, 105, 0.72);
-  background: linear-gradient(180deg, rgba(30, 41, 59, 0.88), rgba(15, 23, 42, 0.82));
-  color: rgba(226, 232, 240, 0.88);
+  border-color: rgba(129, 140, 248, 0.26);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.78), rgba(30, 27, 75, 0.72));
+  color: rgba(224, 231, 255, 0.9);
   box-shadow:
     0 12px 20px rgba(2, 6, 23, 0.26),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    inset 0 1px 0 rgba(196, 181, 253, 0.06);
 }
 
 html[data-theme='dark'] .python-learning-shell .python-learning-overview-card:hover .python-learning-overview-card__action {
-  border-color: rgba(129, 140, 248, 0.64);
-  background: linear-gradient(180deg, rgba(67, 56, 202, 0.48), rgba(49, 46, 129, 0.38));
-  color: rgba(224, 231, 255, 0.96);
+  border-color: rgba(167, 139, 250, 0.44);
+  background: linear-gradient(180deg, rgba(79, 70, 229, 0.42), rgba(67, 56, 202, 0.24));
+  color: rgba(238, 242, 255, 0.96);
   box-shadow:
-    0 16px 26px rgba(30, 27, 75, 0.38),
-    inset 0 1px 0 rgba(199, 210, 254, 0.08);
+    0 16px 26px rgba(49, 46, 129, 0.26),
+    inset 0 1px 0 rgba(233, 213, 255, 0.06);
 }
 
 html[data-theme='dark'] .python-learning-shell .python-learning-overview-card__action--active {
-  border-color: rgba(129, 140, 248, 0.52);
-  background: linear-gradient(180deg, rgba(99, 102, 241, 0.26), rgba(67, 56, 202, 0.2));
-  color: rgba(224, 231, 255, 0.98);
+  border-color: rgba(167, 139, 250, 0.34);
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.24), rgba(79, 70, 229, 0.16));
+  color: rgba(224, 231, 255, 0.96);
 }
 
 html[data-theme='dark'] .python-learning-shell .python-learning-overview-card__icon,
-html[data-theme='dark'] .python-learning-shell .python-learning-overview-card__count {
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card__count,
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card__status {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 html[data-theme='dark'] .python-learning-shell .python-learning-overview-card--active {
   box-shadow:
-    0 30px 58px rgba(2, 6, 23, 0.68),
-    0 12px 24px rgba(2, 6, 23, 0.3),
-    inset 0 1px 0 rgba(196, 181, 253, 0.18),
-    inset 0 -1px 0 rgba(196, 181, 253, 0.08) !important;
+    0 30px 58px rgba(2, 6, 23, 0.66),
+    0 12px 24px rgba(2, 6, 23, 0.28),
+    inset 0 1px 0 rgba(196, 181, 253, 0.14),
+    inset 0 -1px 0 rgba(196, 181, 253, 0.06) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card[data-active='true'] .python-learning-overview-card__icon {
+  box-shadow:
+    0 16px 28px rgba(79, 70, 229, 0.24),
+    inset 0 1px 0 rgba(196, 181, 253, 0.12);
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card[data-active='true'] .python-learning-overview-card__count {
+  border-color: rgba(167, 139, 250, 0.24);
+  background: rgba(30, 41, 59, 0.88);
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card__status {
+  border-color: rgba(167, 139, 250, 0.3);
+  background: linear-gradient(180deg, rgba(79, 70, 229, 0.28), rgba(67, 56, 202, 0.18));
+  color: rgba(224, 231, 255, 0.96);
 }
 
 html[data-theme='dark'] .python-learning-shell .python-learning-overview-card[data-section='topics'][data-active='true'] {
-  border-color: rgba(56, 189, 248, 0.72) !important;
+  border-color: rgba(129, 140, 248, 0.46) !important;
   box-shadow:
-    0 30px 58px rgba(8, 145, 178, 0.24),
-    0 12px 24px rgba(2, 6, 23, 0.3),
-    inset 0 1px 0 rgba(125, 211, 252, 0.16),
-    inset 0 -1px 0 rgba(125, 211, 252, 0.08) !important;
+    0 28px 52px rgba(49, 46, 129, 0.22),
+    0 12px 24px rgba(2, 6, 23, 0.28),
+    inset 0 1px 0 rgba(196, 181, 253, 0.14),
+    inset 0 -1px 0 rgba(196, 181, 253, 0.06),
+    inset 4px 0 0 rgba(129, 140, 248, 0.82) !important;
 }
 
 html[data-theme='dark'] .python-learning-shell .python-learning-overview-card[data-section='exam-prep'][data-active='true'] {
-  border-color: rgba(251, 191, 36, 0.68) !important;
+  border-color: rgba(168, 85, 247, 0.42) !important;
   box-shadow:
-    0 30px 58px rgba(180, 83, 9, 0.26),
-    0 12px 24px rgba(2, 6, 23, 0.3),
-    inset 0 1px 0 rgba(253, 230, 138, 0.14),
-    inset 0 -1px 0 rgba(253, 230, 138, 0.08) !important;
+    0 28px 52px rgba(88, 28, 135, 0.2),
+    0 12px 24px rgba(2, 6, 23, 0.28),
+    inset 0 1px 0 rgba(245, 208, 254, 0.12),
+    inset 0 -1px 0 rgba(245, 208, 254, 0.06),
+    inset 4px 0 0 rgba(168, 85, 247, 0.78) !important;
 }
 
 html[data-theme='dark'] .python-learning-shell .python-learning-section-shell {
   background:
-    radial-gradient(circle at 94% -24%, rgba(14, 165, 233, 0.2), transparent 42%),
-    radial-gradient(circle at -12% 112%, rgba(251, 191, 36, 0.12), transparent 54%),
-    linear-gradient(160deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.9)) !important;
+    radial-gradient(circle at 94% -24%, rgba(99, 102, 241, 0.14), transparent 38%),
+    radial-gradient(circle at -12% 112%, rgba(139, 92, 246, 0.08), transparent 50%),
+    linear-gradient(160deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.92), rgba(15, 23, 42, 0.91)) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-section-shell > :first-child {
+  opacity: 0.2 !important;
+  background:
+    linear-gradient(90deg, rgba(99, 102, 241, 0.12), rgba(99, 102, 241, 0.02) 46%, rgba(139, 92, 246, 0.08)) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card__glow {
+  background:
+    radial-gradient(circle at center, rgba(129, 140, 248, 0.2), rgba(99, 102, 241, 0.06) 42%, transparent 72%) !important;
+  opacity: 0.42;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card__toolbar-btn {
+  border-color: rgba(129, 140, 248, 0.22) !important;
+  background: rgba(30, 41, 59, 0.82) !important;
+  box-shadow:
+    0 10px 18px rgba(2, 6, 23, 0.26),
+    inset 0 1px 0 rgba(196, 181, 253, 0.06);
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card__toolbar-btn.text-slate-600 {
+  color: rgba(226, 232, 240, 0.82) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card__toolbar-btn.text-rose-500 {
+  color: rgba(251, 113, 133, 0.86) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card__toolbar-btn:hover {
+  background: rgba(49, 46, 129, 0.7) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-hero > :nth-child(1) {
+  opacity: 0.24;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-hero > :nth-child(2) {
+  opacity: 0.18;
 }
 
 html[data-theme='dark'] .python-learning-shell .bg-cyan-50,
@@ -9263,11 +9835,16 @@ html[data-theme='dark'] .python-learning-shell .bg-amber-100\/90 {
 html[data-theme='dark'] .python-learning-shell .text-cyan-700\/80,
 html[data-theme='dark'] .python-learning-shell .text-cyan-800,
 html[data-theme='dark'] .python-learning-shell .text-cyan-900 {
-  color: rgb(125, 211, 252) !important;
+  color: rgb(216, 180, 254) !important;
 }
 
 html[data-theme='dark'] .python-learning-shell .text-emerald-700\/80 {
-  color: rgb(110, 231, 183) !important;
+  color: rgb(216, 180, 254) !important;
+}
+
+html[data-theme='dark'] .python-mobile-panel--task .text-cyan-200,
+html[data-theme='dark'] .python-mobile-panel--task .text-emerald-200 {
+  color: rgb(233, 213, 255) !important;
 }
 
 html[data-theme='dark'] .python-learning-shell .border-cyan-200,
@@ -13066,11 +13643,11 @@ html[data-theme='dark'] .board-toolbar {
 }
 
 .board-toolbar__button.is-active {
-  border-color: rgba(96, 165, 250, 0.72);
-  background: linear-gradient(180deg, #5aa2f8, #2563eb);
+  border-color: rgba(168, 85, 247, 0.72);
+  background: linear-gradient(180deg, #a855f7, #7c3aed);
   color: #ffffff;
   box-shadow:
-    0 8px 18px rgba(37, 99, 235, 0.24),
+    0 8px 18px rgba(124, 58, 237, 0.24),
     inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
@@ -14072,12 +14649,12 @@ html:not([data-theme='dark']) .board-embedded-card .board-toolbar__summon-button
 .board-toolbar--floating .board-toolbar__button.is-active,
 .board-toolbar--fullscreen .board-toolbar__button.is-active,
 .board-embedded-card .board-toolbar__button.is-active {
-  border-color: rgba(96, 165, 250, 0.92);
-  background: linear-gradient(180deg, #5aa2f8, #2563eb);
+  border-color: rgba(168, 85, 247, 0.92);
+  background: linear-gradient(180deg, #a855f7, #7c3aed);
   color: #ffffff;
   box-shadow:
-    0 0 0 1px rgba(96, 165, 250, 0.18),
-    0 10px 22px rgba(37, 99, 235, 0.24),
+    0 0 0 1px rgba(168, 85, 247, 0.18),
+    0 10px 22px rgba(124, 58, 237, 0.24),
     inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
@@ -14207,12 +14784,12 @@ html[data-theme='dark'] .board-toolbar--fullscreen .board-toolbar__button.is-wid
 html[data-theme='dark'] .board-toolbar--floating .board-toolbar__button.is-active,
 html[data-theme='dark'] .board-toolbar--fullscreen .board-toolbar__button.is-active,
 html[data-theme='dark'] .board-embedded-card .board-toolbar__button.is-active {
-  border-color: rgba(96, 165, 250, 0.96) !important;
-  background: linear-gradient(180deg, #5aa2f8, #2563eb) !important;
+  border-color: rgba(168, 85, 247, 0.96) !important;
+  background: linear-gradient(180deg, #a855f7, #7c3aed) !important;
   color: #ffffff !important;
   box-shadow:
-    0 0 0 1px rgba(96, 165, 250, 0.22),
-    0 10px 24px rgba(37, 99, 235, 0.28),
+    0 0 0 1px rgba(168, 85, 247, 0.22),
+    0 10px 24px rgba(124, 58, 237, 0.28),
     inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
 }
 

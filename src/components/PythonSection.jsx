@@ -7,7 +7,7 @@ import PythonReviewModal from './PythonReviewModal';
 import PythonTestModal from './PythonTestModal';
 import StudentTestModal from './StudentTestModal';
 import TheoryRecordingEditor from './TheoryRecordingEditor';
-import { Button, Card, ProgressBar } from './ui';
+import { Button, Card } from './ui';
 import {
   buildPythonSubsectionModel,
   createPythonSubsectionId,
@@ -52,22 +52,22 @@ const PYTHON_TASK_SECTION_UI = {
   topics: {
     icon: BookOpen,
     badge: 'Фундамент',
-    shellClass: 'border-cyan-200/70 bg-gradient-to-br from-cyan-50/75 via-white to-blue-50/80',
-    headerClass: 'from-cyan-500/20 via-sky-500/16 to-blue-500/20',
-    chipClass: 'border-cyan-300/70 bg-cyan-100/90 text-cyan-800',
-    cardClass: 'border-cyan-200/80 bg-gradient-to-br from-cyan-50/65 via-white to-sky-50/70',
-    hoverClass: 'hover:border-cyan-400/80 hover:shadow-[0_18px_32px_rgba(14,165,233,0.2)]',
-    numberClass: 'border-cyan-200 bg-cyan-100/80 text-cyan-800',
+    shellClass: 'border-purple-200/70 bg-gradient-to-br from-purple-50/70 via-white to-fuchsia-50/40',
+    headerClass: 'from-purple-500/18 via-violet-500/14 to-fuchsia-500/16',
+    chipClass: 'border-purple-300/70 bg-purple-100/90 text-purple-800',
+    cardClass: 'border-purple-200/80 bg-gradient-to-br from-purple-50/70 via-white to-fuchsia-50/45',
+    hoverClass: 'hover:border-purple-300/80 hover:shadow-[0_18px_32px_rgba(147,51,234,0.18)]',
+    numberClass: 'border-purple-200 bg-purple-100/80 text-purple-800',
   },
   'exam-prep': {
     icon: Target,
     badge: 'Практика ЕГЭ',
-    shellClass: 'border-amber-200/75 bg-gradient-to-br from-amber-50/80 via-white to-orange-50/70',
-    headerClass: 'from-amber-500/18 via-orange-500/14 to-rose-500/16',
-    chipClass: 'border-amber-300/70 bg-amber-100/90 text-amber-800',
-    cardClass: 'border-amber-200/85 bg-gradient-to-br from-amber-50/70 via-white to-orange-50/65',
-    hoverClass: 'hover:border-amber-400/80 hover:shadow-[0_18px_32px_rgba(249,115,22,0.2)]',
-    numberClass: 'border-amber-200 bg-amber-100/80 text-amber-800',
+    shellClass: 'border-violet-200/80 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50/45',
+    headerClass: 'from-violet-500/18 via-purple-500/14 to-fuchsia-500/18',
+    chipClass: 'border-violet-200/80 bg-violet-50/70 text-fuchsia-700',
+    cardClass: 'border-violet-200/80 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50/45',
+    hoverClass: 'hover:border-purple-300/80 hover:shadow-[0_18px_32px_rgba(168,85,247,0.18)]',
+    numberClass: 'border-violet-200 bg-violet-50/70 text-fuchsia-700',
   },
 };
 
@@ -1541,8 +1541,8 @@ const PythonSection = ({
       const rawVal = Number(progressMap[task.id] || 0);
       const val = Number.isFinite(rawVal) ? Math.max(0, Math.min(100, rawVal)) : 0;
       const ringColor = val >= 85
-        ? '#10b981'
-        : (val >= 60 ? '#8b5cf6' : (val >= 40 ? '#f59e0b' : '#9ca3af'));
+        ? '#8b5cf6'
+        : (val >= 60 ? '#c026d3' : (val >= 40 ? '#7c3aed' : '#9ca3af'));
       const numericSeed = Number(task?.number);
       const seed = Number.isFinite(numericSeed) ? numericSeed : (idx + 1);
       const jitter = ((seed * 13) % 11) - 5;
@@ -1678,9 +1678,9 @@ const PythonSection = ({
     const hasCoinBonus = coinStats.multiplier > 1.0001;
     const sectionUi = PYTHON_TASK_SECTION_UI[section?.id] || {
       badge: 'Раздел',
-      cardClass: 'border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-slate-100/75',
-      hoverClass: 'hover:border-slate-300/80 hover:shadow-[0_16px_28px_rgba(148,163,184,0.22)]',
-      numberClass: 'border-slate-200 bg-slate-100/80 text-slate-700',
+      cardClass: 'border-purple-200/70 bg-gradient-to-br from-white via-purple-50/40 to-fuchsia-50/40',
+      hoverClass: 'hover:border-purple-300/80 hover:shadow-[0_16px_28px_rgba(147,51,234,0.16)]',
+      numberClass: 'border-purple-200 bg-purple-50/80 text-purple-700',
     };
     return (
       <Card
@@ -1703,7 +1703,7 @@ const PythonSection = ({
                 event.stopPropagation();
                 startEditTaskCard(task);
               }}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-white/90 text-slate-600 transition hover:border-purple-200 hover:text-purple-700"
+              className="python-learning-task-card__toolbar-btn inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-white/90 text-slate-600 transition hover:border-purple-200 hover:text-purple-700"
               title="Редактировать карточку"
             >
               <Pencil size={14} />
@@ -1715,14 +1715,14 @@ const PythonSection = ({
                 handleDeleteTaskCard(task);
               }}
               disabled={cardSaving}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-white/90 text-rose-500 transition hover:border-rose-200 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+              className="python-learning-task-card__toolbar-btn inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-white/90 text-rose-500 transition hover:border-rose-200 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
               title="Удалить карточку"
             >
               <Trash2 size={14} />
             </button>
           </div>
         )}
-        <div className="absolute -right-10 -top-12 h-32 w-32 rounded-full bg-white/45 blur-2xl" />
+        <div className="python-learning-task-card__glow absolute -right-10 -top-12 h-32 w-32 rounded-full bg-white/45 blur-2xl" />
         <div className="relative z-10 p-4 md:p-5">
           <div className={`mb-2.5 flex items-center justify-between gap-2 ${role === 'teacher' ? 'pr-20' : ''}`}>
             <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-[11px] md:text-xs font-extrabold ${sectionUi.numberClass}`}>
@@ -1748,7 +1748,12 @@ const PythonSection = ({
             <span>{section?.id === 'exam-prep' ? 'Прогресс подготовки' : 'Прогресс темы'}</span>
             <span className="text-sm md:text-base font-extrabold text-slate-800">{val}%</span>
           </div>
-          <ProgressBar value={val} />
+          <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full border border-purple-100/80 bg-white/75 shadow-[inset_0_1px_1px_rgba(255,255,255,0.72)]">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-purple-500 via-violet-500 to-fuchsia-500 transition-[width] duration-700 ease-out shadow-[0_0_18px_rgba(168,85,247,0.26)]"
+              style={{ width: `${val}%` }}
+            />
+          </div>
 
         </div>
       </Card>
@@ -1808,13 +1813,13 @@ const PythonSection = ({
 
   return (
     <div className="python-learning-shell space-y-4 md:space-y-6 animate-fadeIn">
-      <div className="python-learning-hero relative overflow-hidden rounded-[2rem] border border-slate-200/80 bg-gradient-to-br from-slate-50 via-white to-cyan-50/70 p-4 md:p-6 shadow-[0_24px_48px_rgba(15,23,42,0.14)]">
-        <div aria-hidden className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-cyan-200/40 blur-3xl" />
-        <div aria-hidden className="pointer-events-none absolute -left-20 bottom-0 h-56 w-56 rounded-full bg-amber-200/40 blur-3xl" />
+      <div className="python-learning-hero relative overflow-hidden rounded-[2rem] border border-purple-200/80 bg-gradient-to-br from-purple-50/70 via-white to-fuchsia-50/45 p-4 md:p-6 shadow-[0_24px_48px_rgba(88,28,135,0.16)]">
+        <div aria-hidden className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-purple-200/40 blur-3xl" />
+        <div aria-hidden className="pointer-events-none absolute -left-20 bottom-0 h-56 w-56 rounded-full bg-purple-100/40 blur-3xl" />
         <div className="relative z-10 space-y-4 md:space-y-5">
           <div className="flex flex-col gap-3 md:gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div className="space-y-2.5">
-              <div className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white/80 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.13em] text-slate-600">
+              <div className="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50/80 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.13em] text-purple-700">
                 <Sparkles size={13} />
                 Персональный трек Python
               </div>
@@ -1825,15 +1830,15 @@ const PythonSection = ({
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 text-[11px] md:text-xs font-semibold">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white/85 px-2.5 py-1 text-slate-700">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-purple-50/80 px-2.5 py-1 text-purple-700">
                   <BarChart2 size={13} />
                   {`Общий прогресс: ${totalMasteryLabel}%`}
                 </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50/90 px-2.5 py-1 text-emerald-700">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50/70 px-2.5 py-1 text-violet-700">
                   <CheckCircle size={13} />
                   {`Уверенно: ${masteredTopicsCount}/${taskList.length}`}
                 </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50/90 px-2.5 py-1 text-amber-700">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-purple-50/80 px-2.5 py-1 text-fuchsia-700">
                   <RefreshCcw size={12} />
                   {`Подтянуть: ${needsPracticeTopicsCount}`}
                 </span>
@@ -1845,14 +1850,14 @@ const PythonSection = ({
           </div>
 
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="python-learning-progress-card relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-[0_14px_28px_rgba(15,23,42,0.08)]">
+            <div className="python-learning-progress-card relative overflow-hidden rounded-2xl border border-purple-200/80 bg-gradient-to-br from-white via-white to-purple-50/60 p-4 shadow-[0_14px_28px_rgba(88,28,135,0.08)]">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Общий прогресс курса</div>
                 <div className="text-2xl md:text-3xl font-black text-slate-900">{totalMasteryLabel}%</div>
               </div>
-              <div className="relative h-8 w-full overflow-hidden rounded-full border border-slate-200 bg-slate-100">
+              <div className="relative h-8 w-full overflow-hidden rounded-full border border-purple-100/80 bg-purple-50/60">
                 <div
-                  className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500 shadow-[0_0_18px_rgba(14,165,233,0.35)] transition-[width] duration-700 ease-out"
+                  className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-500 via-violet-500 to-fuchsia-500 shadow-[0_0_18px_rgba(168,85,247,0.35)] transition-[width] duration-700 ease-out"
                   style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
                 />
                 <div
@@ -1864,7 +1869,7 @@ const PythonSection = ({
                 0% — старт • 100% — уверенное владение материалом.
               </div>
             </div>
-            <div className="python-learning-focus-card rounded-2xl border border-slate-200/80 bg-white/85 p-4 shadow-[0_14px_28px_rgba(15,23,42,0.08)]">
+            <div className="python-learning-focus-card rounded-2xl border border-violet-200/70 bg-gradient-to-br from-white via-white to-fuchsia-50/40 p-4 shadow-[0_14px_28px_rgba(88,28,135,0.08)]">
               <div className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Фокус недели</div>
               <div className="mt-2 text-sm font-semibold text-slate-700">
                 {needsPracticeTopicsCount > 0
@@ -1872,13 +1877,13 @@ const PythonSection = ({
                   : 'Отличный темп. Можно переходить к сложным заданиям.'}
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 px-3 py-2">
+                <div className="rounded-xl border border-purple-200 bg-purple-50/70 px-3 py-2">
                   <div className="text-cyan-700/80">Всего карточек</div>
-                  <div className="mt-1 text-base font-black text-cyan-900">{taskList.length}</div>
+                  <div className="mt-1 text-base font-black text-purple-800">{taskList.length}</div>
                 </div>
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2">
+                <div className="rounded-xl border border-violet-200 bg-violet-50/70 px-3 py-2">
                   <div className="text-emerald-700/80">Закрыто уверенно</div>
-                  <div className="mt-1 text-base font-black text-emerald-900">{masteredTopicsCount}</div>
+                  <div className="mt-1 text-base font-black text-purple-800">{masteredTopicsCount}</div>
                 </div>
               </div>
             </div>
@@ -1906,7 +1911,7 @@ const PythonSection = ({
                     style={{ '--python-overview-i': `${sectionIdx}` }}
                     className={`python-learning-overview-card w-full rounded-2xl border p-3.5 text-left shadow-[0_12px_26px_rgba(15,23,42,0.08)] transition-all duration-300 md:p-4 ${sectionUi.shellClass} ${
                       isActive
-                        ? 'python-learning-overview-card--active ring-2 ring-white/70 shadow-[0_16px_34px_rgba(15,23,42,0.14)]'
+                        ? 'python-learning-overview-card--active ring-2 ring-violet-300/55 shadow-[0_16px_34px_rgba(15,23,42,0.14)]'
                         : 'hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(15,23,42,0.12)]'
                     }`}
                     >
@@ -1921,6 +1926,11 @@ const PythonSection = ({
                            </div>
                         </div>
                         <div className="flex items-center gap-2">
+                          {isActive && (
+                            <span className="python-learning-overview-card__status rounded-full border border-purple-200 bg-purple-50/80 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-purple-700">
+                              Активно
+                            </span>
+                          )}
                           <div className="python-learning-overview-card__count rounded-full border border-white/80 bg-white/80 px-2.5 py-1 text-xs font-bold text-slate-700">
                             {`${tasksInSection.length} карточек`}
                           </div>
@@ -1974,7 +1984,7 @@ const PythonSection = ({
             <div className="mt-3">
               <div
                 ref={mobilePythonPathCanvasRef}
-                className="mobile-topic-path-canvas relative overflow-visible rounded-2xl border border-purple-100/80 bg-gradient-to-b from-white/95 via-purple-50/55 to-sky-50/45 px-1.5 py-2"
+                className="mobile-topic-path-canvas relative overflow-visible rounded-2xl border border-purple-100/80 bg-gradient-to-b from-white/95 via-purple-50/60 to-fuchsia-50/45 px-1.5 py-2"
                 style={{ height: `${mobilePythonPathLayout.height}px` }}
               >
                 <div className="pointer-events-none absolute inset-0 z-0" aria-hidden="true">
@@ -2003,18 +2013,18 @@ const PythonSection = ({
                   const isStable = node.val >= 60 && node.val < 85;
                   const isWarmingUp = node.val >= 40 && node.val < 60;
                   const ringGlow = isMastered
-                    ? 'rgba(16,185,129,0.34)'
-                    : (isStable ? 'rgba(139,92,246,0.34)' : (isWarmingUp ? 'rgba(245,158,11,0.34)' : 'rgba(148,163,184,0.26)'));
+                    ? 'rgba(139,92,246,0.36)'
+                    : (isStable ? 'rgba(192,38,211,0.34)' : (isWarmingUp ? 'rgba(124,58,237,0.32)' : 'rgba(148,163,184,0.26)'));
                   const progressAngle = Math.max(0, Math.min(360, Number(node.val || 0) * 3.6));
                   const statusLabel = isMastered
                     ? 'Сильная'
                     : (isStable ? 'В темпе' : (isWarmingUp ? 'Практика' : 'Фокус'));
                   const statusTone = isMastered
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    ? 'border-purple-200 bg-purple-50 text-purple-700'
                     : (isStable
-                        ? 'border-purple-200 bg-purple-50 text-purple-700'
+                        ? 'border-violet-200 bg-violet-50 text-violet-700'
                         : (isWarmingUp
-                            ? 'border-amber-200 bg-amber-50 text-amber-700'
+                            ? 'border-purple-200 bg-purple-50 text-fuchsia-700'
                             : 'border-slate-200 bg-slate-50 text-slate-600'));
                   return (
                     <button
@@ -2258,7 +2268,7 @@ const PythonSection = ({
             </div>
           </div>
 
-          <div className="rounded-3xl border border-cyan-200/20 bg-gradient-to-br from-cyan-500/8 via-slate-950/20 to-sky-500/8 p-4 md:p-5 space-y-4 shadow-[0_18px_36px_rgba(8,47,73,0.18)]">
+          <div className="rounded-3xl border border-purple-200/20 bg-gradient-to-br from-purple-500/10 via-slate-950/20 to-violet-500/8 p-4 md:p-5 space-y-4 shadow-[0_18px_36px_rgba(88,28,135,0.18)]">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-200">Шаг 1</div>
@@ -2268,7 +2278,7 @@ const PythonSection = ({
                 </p>
               </div>
               {isEditingCard && (
-                <span className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-[11px] font-semibold text-cyan-100">
+                <span className="rounded-full border border-purple-300/30 bg-purple-400/10 px-3 py-1 text-[11px] font-semibold text-purple-100">
                   {`Редактирование карточки №${editingCardNumber}`}
                 </span>
               )}
@@ -2335,7 +2345,7 @@ const PythonSection = ({
             {cardError && <div className="text-xs text-red-500">{cardError}</div>}
           </div>
 
-          <div className="rounded-3xl border border-emerald-200/20 bg-gradient-to-br from-emerald-500/8 via-slate-950/20 to-teal-500/8 p-4 md:p-5 space-y-4 shadow-[0_18px_36px_rgba(6,78,59,0.16)]">
+          <div className="rounded-3xl border border-violet-200/20 bg-gradient-to-br from-violet-500/10 via-slate-950/20 to-fuchsia-500/8 p-4 md:p-5 space-y-4 shadow-[0_18px_36px_rgba(76,29,149,0.18)]">
             <div className="flex flex-col gap-1">
               <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-200">Шаг 2</div>
               <h4 className="text-lg font-black text-white">Подразделы карточки</h4>
@@ -2343,7 +2353,7 @@ const PythonSection = ({
             </div>
             <div className="flex flex-wrap gap-2">
               {manageSubsections.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-emerald-300/20 bg-slate-950/20 px-3 py-3 text-sm text-slate-300">
+                <div className="rounded-2xl border border-dashed border-violet-300/20 bg-slate-950/20 px-3 py-3 text-sm text-slate-300">
                   Пока нет подразделов. Можно начать с задач без подраздела или сразу добавить первую группу ниже.
                 </div>
               ) : (

@@ -14522,7 +14522,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </div>
           )}
           {(user.role === 'student' || user.role === 'teacher') && lessonQuickNav.length > 1 && lessonQuickNavIds.includes(view) && (
-            <div className="mb-2 rounded-2xl border border-purple-200/70 bg-white/90 p-1.5 shadow-sm">
+            <div className="lesson-quick-nav__shell mb-2 rounded-2xl border border-purple-200/70 bg-white/90 p-1.5 shadow-sm">
               <div
                 className="grid gap-1"
                 style={{ gridTemplateColumns: `repeat(${Math.max(1, lessonQuickNav.length)}, minmax(0, 1fr))` }}
@@ -14537,8 +14537,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       onClick={() => navigateToView(item.id)}
                       className={`lesson-quick-nav__item flex h-10 min-w-0 items-center justify-center gap-2 rounded-lg px-2.5 text-sm font-semibold transition-colors ${
                         isActive
-                          ? 'bg-purple-600 text-white shadow-sm'
-                          : 'border border-purple-100 bg-white text-slate-700 hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700'
+                          ? 'lesson-quick-nav__item--active bg-purple-600 text-white shadow-sm'
+                          : 'lesson-quick-nav__item--inactive border border-purple-100 bg-white text-slate-700 hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700'
                       }`}
                     >
                       <Icon size={18} />

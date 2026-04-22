@@ -577,8 +577,8 @@ const MediaTile = ({
   const isScreenShareTile = videoKind === 'screen';
   const isStaticFullscreen = isFullscreen && isScreenShareTile;
   const speakingRingClass = isDarkTheme
-    ? 'call-speaking-ring ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900'
-    : 'call-speaking-ring ring-2 ring-emerald-400/80 ring-offset-2 ring-offset-slate-50';
+    ? 'call-speaking-ring ring-2 ring-violet-300/85 ring-offset-2 ring-offset-slate-900'
+    : 'call-speaking-ring ring-2 ring-violet-400/80 ring-offset-2 ring-offset-slate-50';
   const videoCardClass = isDarkTheme
     ? 'call-media-tile relative overflow-hidden border border-white/15 bg-slate-900 shadow-[0_10px_26px_rgba(2,6,23,0.45)]'
     : 'call-media-tile relative overflow-hidden border border-slate-200 bg-white shadow-[0_8px_20px_rgba(15,23,42,0.14)]';
@@ -602,7 +602,7 @@ const MediaTile = ({
     : 'flex h-full w-full items-center justify-center text-sm font-semibold text-slate-700';
   const compactAvatarBadgeClass = isDarkTheme
     ? 'absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border border-slate-900 bg-slate-500'
-    : 'absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border border-white bg-emerald-500';
+    : 'absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border border-white bg-violet-500';
   const compactTitleClass = isDarkTheme ? 'truncate text-xs font-semibold text-slate-100' : 'truncate text-xs font-semibold text-slate-700';
   const compactSubtitleClass = isDarkTheme ? 'truncate text-[11px] text-slate-400' : 'truncate text-[11px] text-slate-500';
   const placeholderWrapClass = isDarkTheme
@@ -4434,26 +4434,26 @@ const CallSection = ({
   const statusChipClass = isDarkTheme
     ? (isConnected
       ? hasActiveMediaConnection
-        ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
+        ? 'border-violet-400/24 bg-violet-500/14 text-violet-100'
         : hasMediaConnectionIssue
-          ? 'border-rose-300/40 bg-rose-500/15 text-rose-100'
+          ? 'border-rose-400/28 bg-rose-500/12 text-rose-100'
           : hasPendingPeerConnection
-            ? 'border-amber-300/40 bg-amber-500/15 text-amber-200'
-            : 'border-sky-300/40 bg-sky-500/15 text-sky-200'
+            ? 'border-fuchsia-400/26 bg-fuchsia-500/12 text-fuchsia-100'
+            : 'border-violet-400/22 bg-violet-500/12 text-violet-100'
       : isConnecting
-        ? 'border-amber-300/40 bg-amber-500/15 text-amber-200'
-        : 'border-slate-600/60 bg-slate-800/70 text-slate-200')
+        ? 'border-fuchsia-400/26 bg-fuchsia-500/12 text-fuchsia-100'
+        : 'border-violet-400/18 bg-violet-950/62 text-slate-200')
     : (isConnected
       ? hasActiveMediaConnection
-        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+        ? 'border-violet-200 bg-violet-50 text-violet-700'
         : hasMediaConnectionIssue
           ? 'border-rose-200 bg-rose-50 text-rose-700'
           : hasPendingPeerConnection
-            ? 'border-amber-200 bg-amber-50 text-amber-700'
-            : 'border-sky-200 bg-sky-50 text-sky-700'
+            ? 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700'
+            : 'border-violet-200 bg-violet-50 text-violet-700'
       : isConnecting
-        ? 'border-amber-200 bg-amber-50 text-amber-700'
-        : 'border-slate-200 bg-slate-100 text-slate-600');
+        ? 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700'
+        : 'border-violet-200 bg-violet-50 text-violet-700');
   const statusText = isConnected
     ? hasActiveMediaConnection
       ? 'Вы в звонке'
@@ -4475,9 +4475,9 @@ const CallSection = ({
   const canToggleCamera = isConnected && !cameraBusy;
   const canToggleScreen = isConnected && !screenBusy;
   const qualityClass = connectionStats.quality === 'good'
-    ? (isDarkTheme ? 'text-emerald-300' : 'text-emerald-700')
+    ? (isDarkTheme ? 'text-violet-200' : 'text-violet-700')
     : connectionStats.quality === 'ok'
-      ? (isDarkTheme ? 'text-amber-300' : 'text-amber-700')
+      ? (isDarkTheme ? 'text-fuchsia-200' : 'text-fuchsia-700')
       : connectionStats.quality === 'poor'
         ? (isDarkTheme ? 'text-rose-300' : 'text-rose-700')
         : (isDarkTheme ? 'text-slate-300' : 'text-slate-600');
@@ -4638,37 +4638,37 @@ const CallSection = ({
   const sceneConnectionClass = isConnected ? 'call-scene--connected' : 'call-scene--disconnected';
 
   const sectionShellClass = isDarkTheme
-    ? `call-section-shell call-scene-shell relative overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-[0_24px_64px_rgba(2,6,23,0.42)] md:p-6 ${sceneStatusClass} ${sceneConnectionClass}`
-    : `call-section-shell call-scene-shell relative overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 p-4 shadow-[0_24px_60px_rgba(15,23,42,0.12)] md:p-6 ${sceneStatusClass} ${sceneConnectionClass}`;
+    ? `call-section-shell call-scene-shell relative overflow-hidden rounded-3xl bg-[#0d0b1f]/95 p-4 shadow-[0_24px_64px_rgba(46,16,101,0.38)] md:p-6 ${sceneStatusClass} ${sceneConnectionClass}`
+    : `call-section-shell call-scene-shell relative overflow-hidden rounded-3xl border border-violet-200/80 bg-[rgba(252,248,255,0.98)] p-4 shadow-[0_26px_72px_rgba(88,28,135,0.14)] md:p-6 ${sceneStatusClass} ${sceneConnectionClass}`;
   const sectionGlowPrimaryClass = isDarkTheme
-    ? 'call-aurora call-aurora--primary pointer-events-none absolute -left-16 -top-20 h-60 w-60 rounded-full bg-sky-500/10 blur-3xl'
-    : 'call-aurora call-aurora--primary pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-violet-200/45 blur-3xl';
+    ? 'call-aurora call-aurora--primary pointer-events-none absolute -left-16 -top-20 h-60 w-60 rounded-full bg-violet-500/12 blur-3xl'
+    : 'call-aurora call-aurora--primary pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-violet-300/42 blur-3xl';
   const sectionGlowSecondaryClass = isDarkTheme
-    ? 'call-aurora call-aurora--secondary pointer-events-none absolute -bottom-20 right-[-18px] h-56 w-56 rounded-full bg-cyan-500/8 blur-3xl'
-    : 'call-aurora call-aurora--secondary pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-sky-200/40 blur-3xl';
+    ? 'call-aurora call-aurora--secondary pointer-events-none absolute -bottom-20 right-[-18px] h-56 w-56 rounded-full bg-fuchsia-500/10 blur-3xl'
+    : 'call-aurora call-aurora--secondary pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-fuchsia-200/34 blur-3xl';
   const collapsedCardClass = isDarkTheme
-    ? 'call-collapsed-card flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/95 px-3 py-2 shadow-[0_14px_30px_rgba(2,6,23,0.45)] backdrop-blur cursor-grab active:cursor-grabbing'
-    : 'call-collapsed-card flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 px-3 py-2 shadow-[0_12px_26px_rgba(15,23,42,0.14)] backdrop-blur cursor-grab active:cursor-grabbing';
+    ? 'call-collapsed-card flex items-center gap-2 rounded-2xl border border-violet-500/12 bg-[#100d22]/96 px-3 py-2 shadow-[0_14px_30px_rgba(17,24,39,0.42)] backdrop-blur cursor-grab active:cursor-grabbing'
+    : 'call-collapsed-card flex items-center gap-2 rounded-2xl border border-violet-200 bg-white/95 px-3 py-2 shadow-[0_12px_26px_rgba(88,28,135,0.12)] backdrop-blur cursor-grab active:cursor-grabbing';
   const collapsedTextClass = isDarkTheme ? 'text-slate-200' : 'text-slate-600';
   const floatingToolbarClass = isDarkTheme
-    ? 'call-floating-toolbar mb-3 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 cursor-grab active:cursor-grabbing'
-    : 'call-floating-toolbar mb-3 flex items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 cursor-grab active:cursor-grabbing';
+    ? 'call-floating-toolbar mb-3 flex items-center justify-between gap-2 rounded-xl border border-violet-500/12 bg-[#100d22]/88 px-3 py-2 cursor-grab active:cursor-grabbing'
+    : 'call-floating-toolbar mb-3 flex items-center justify-between gap-2 rounded-xl border border-violet-200/80 bg-white/90 px-3 py-2 cursor-grab active:cursor-grabbing';
   const floatingToolbarLabelClass = isDarkTheme ? 'text-slate-200' : 'text-slate-700';
   const ghostButtonClass = isDarkTheme
-    ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-slate-800 text-slate-200 transition hover:bg-slate-700 cursor-grab active:cursor-grabbing'
-    : 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-100 cursor-grab active:cursor-grabbing';
+    ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-violet-400/12 bg-slate-900/74 text-slate-200 transition hover:bg-slate-800/90 cursor-grab active:cursor-grabbing'
+    : 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-violet-200 bg-white text-violet-700 transition hover:bg-violet-50 cursor-grab active:cursor-grabbing';
   const actionButtonClass = isDarkTheme
-    ? 'inline-flex h-7 items-center justify-center gap-1 rounded-md border border-white/15 bg-slate-800 px-2 text-xs font-semibold text-slate-100 transition hover:bg-slate-700'
-    : 'inline-flex h-7 items-center justify-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100';
+    ? 'inline-flex h-7 items-center justify-center gap-1 rounded-md border border-violet-400/12 bg-slate-900/74 px-2 text-xs font-semibold text-slate-100 transition hover:bg-slate-800/90'
+    : 'inline-flex h-7 items-center justify-center gap-1 rounded-md border border-violet-200 bg-white px-2 text-xs font-semibold text-violet-700 transition hover:bg-violet-50';
   const collapseButtonClass = isDarkTheme
-    ? 'inline-flex items-center gap-1 rounded-md border border-white/15 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-100 transition hover:bg-slate-700'
-    : 'inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-100';
+    ? 'inline-flex items-center gap-1 rounded-md border border-violet-400/12 bg-slate-900/74 px-2.5 py-1 text-xs font-semibold text-slate-100 transition hover:bg-slate-800/90'
+    : 'inline-flex items-center gap-1 rounded-md border border-violet-200 bg-white px-2.5 py-1 text-xs font-semibold text-violet-700 transition hover:bg-violet-50';
   const hangupButtonClass = isDarkTheme
-    ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-400/40 bg-rose-500/15 text-rose-100 transition hover:bg-rose-500/25'
+    ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-500/26 bg-rose-500/12 text-rose-100 transition hover:bg-rose-500/18'
     : 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-rose-100';
   const headerEyebrowClass = isDarkTheme
-    ? 'text-[12px] font-semibold tracking-[0.08em] text-sky-200/84'
-    : 'text-[12px] font-semibold tracking-[0.08em] text-sky-700/84';
+    ? 'text-[12px] font-semibold tracking-[0.08em] text-violet-200/84'
+    : 'text-[12px] font-semibold tracking-[0.08em] text-violet-700/84';
   const headerTitleClass = isDarkTheme
     ? 'call-main-title mt-1 text-2xl font-semibold tracking-tight text-white'
     : 'call-main-title mt-1 text-2xl font-semibold tracking-tight text-slate-900';
@@ -4680,44 +4680,45 @@ const CallSection = ({
     : 'call-header-status-line mt-3 max-w-4xl text-sm font-medium leading-6 text-slate-600';
   const headerStatusListClass = 'call-header-status-list mt-3 flex flex-wrap gap-1.5';
   const headerStatusPillClass = isDarkTheme
-    ? 'call-header-status-pill inline-flex items-center rounded-full border border-sky-300/10 bg-slate-950/30 px-2.5 py-1 text-[11px] font-semibold text-slate-100/82'
-    : 'call-header-status-pill inline-flex items-center rounded-full border border-slate-200/80 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-600';
+    ? 'call-header-status-pill inline-flex items-center rounded-full border border-violet-300/14 bg-violet-950/32 px-2.5 py-1 text-[11px] font-semibold text-slate-100/82'
+    : 'call-header-status-pill inline-flex items-center rounded-full border border-violet-200/80 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-600';
   const teacherCardClass = isDarkTheme
-    ? 'mt-3 rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2.5 backdrop-blur'
-    : 'mt-3 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-3 py-2.5 backdrop-blur';
-  const teacherLabelClass = isDarkTheme ? 'text-[11px] font-semibold uppercase tracking-wide text-slate-300' : 'text-[11px] font-semibold uppercase tracking-wide text-slate-600';
+    ? 'mt-3 rounded-2xl border border-violet-400/16 bg-violet-950/30 px-3 py-2.5 backdrop-blur'
+    : 'mt-3 rounded-2xl border border-violet-200/80 bg-violet-50/70 px-3 py-2.5 backdrop-blur';
+  const teacherLabelClass = isDarkTheme ? 'text-[11px] font-semibold uppercase tracking-wide text-violet-200/84' : 'text-[11px] font-semibold uppercase tracking-wide text-violet-700';
   const teacherSelectClass = isDarkTheme
-    ? 'h-9 w-full rounded-xl border border-white/15 bg-slate-900 px-3 text-sm text-slate-100 outline-none transition focus:border-violet-400'
-    : 'h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-violet-400';
+    ? 'h-9 w-full rounded-xl border border-violet-300/16 bg-slate-900/82 px-3 text-sm text-slate-100 outline-none transition focus:border-violet-300'
+    : 'h-9 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-violet-400';
   const mutedTextClass = isDarkTheme ? 'text-xs text-slate-400 md:text-right' : 'text-xs text-slate-500 md:text-right';
   const errorBoxClass = isDarkTheme
     ? 'mt-4 flex items-start gap-2 rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100'
     : 'mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700';
   const mediaSectionClass = isDarkTheme
-    ? 'call-media-stage rounded-2xl border border-white/10 bg-slate-900/70 p-4 md:p-6'
-    : 'call-media-stage rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 md:p-6';
+    ? 'call-media-stage rounded-2xl border border-violet-400/14 bg-violet-950/22 p-4 md:p-6'
+    : 'call-media-stage rounded-2xl border border-violet-200/80 bg-violet-50/72 p-4 md:p-6';
   const emptyPeersHintClass = isDarkTheme ? 'text-xs leading-5 text-slate-300/80' : 'text-xs leading-5 text-slate-500';
   const statsGridTextClass = isDarkTheme ? 'call-stats-grid mt-4 grid gap-2 text-xs text-slate-200 sm:grid-cols-2 xl:grid-cols-5' : 'call-stats-grid mt-4 grid gap-2 text-xs text-slate-700 sm:grid-cols-2 xl:grid-cols-5';
   const statCardClass = isDarkTheme
-    ? 'call-stat-card rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2'
-    : 'call-stat-card rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2';
+    ? 'call-stat-card rounded-xl border border-violet-400/14 bg-violet-950/36 px-3 py-2'
+    : 'call-stat-card rounded-xl border border-violet-200/80 bg-white/82 px-3 py-2';
   const statStrongClass = isDarkTheme ? 'font-semibold text-white' : 'font-semibold text-slate-900';
   const connectionHintClass = isDarkTheme ? 'call-connection-hint mt-2 text-xs text-slate-400' : 'call-connection-hint mt-2 text-xs text-slate-500';
   const controlsWrapClass = isDarkTheme
-    ? 'call-controls-wrap call-controls-rail mt-4 rounded-2xl border border-white/10 bg-slate-900/80 p-2.5 backdrop-blur'
-    : 'call-controls-wrap call-controls-rail mt-4 rounded-2xl border border-slate-200/80 bg-white/90 p-2.5 backdrop-blur';
+    ? 'call-controls-wrap call-controls-rail mt-4 rounded-2xl border border-violet-400/14 bg-violet-950/32 p-2.5 backdrop-blur'
+    : 'call-controls-wrap call-controls-rail mt-4 rounded-2xl border border-violet-200/80 bg-white/92 p-2.5 backdrop-blur';
   const baseControlButtonClass = 'call-control-btn inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition disabled:cursor-not-allowed disabled:opacity-45';
   const labeledControlButtonClass = 'call-control-btn call-control-btn--labeled inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border px-3.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45';
+  const compactControlButtonClass = 'call-control-btn call-control-btn--compact inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition disabled:cursor-not-allowed disabled:opacity-45';
   const callLayoutClass = showInlineLessonChat && lessonChatExpanded
     ? 'call-experience-grid mt-4 grid min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start'
     : 'call-experience-grid mt-4 grid min-h-0 gap-3';
   const callMainColumnClass = 'call-main-column min-w-0 space-y-3 md:space-y-4';
   const heroPanelClass = isDarkTheme
-    ? 'call-hero-panel grid gap-4 rounded-[28px] border border-sky-300/10 bg-slate-950/38 p-5 shadow-[0_18px_42px_rgba(2,12,27,0.28)] md:p-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch'
-    : 'call-hero-panel grid gap-5 rounded-[28px] border border-slate-200/80 bg-white/90 p-5 shadow-[0_18px_42px_rgba(15,23,42,0.1)] md:p-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch';
+    ? 'call-hero-panel grid gap-4 rounded-[28px] border border-violet-300/14 bg-[#0f1028]/48 p-5 shadow-[0_18px_42px_rgba(46,16,101,0.24)] md:p-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch'
+    : 'call-hero-panel grid gap-5 rounded-[28px] border border-violet-200/80 bg-white/90 p-5 shadow-[0_18px_42px_rgba(88,28,135,0.1)] md:p-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch';
   const heroEyebrowClass = isDarkTheme
-    ? 'text-[12px] font-semibold tracking-[0.12em] text-cyan-200/78'
-    : 'text-[12px] font-semibold tracking-[0.12em] text-sky-700/80';
+    ? 'text-[12px] font-semibold tracking-[0.12em] text-fuchsia-200/78'
+    : 'text-[12px] font-semibold tracking-[0.12em] text-violet-700/80';
   const heroTitleClass = isDarkTheme
     ? 'mt-2 text-[clamp(1.75rem,2.45vw,2.45rem)] font-semibold leading-[0.98] tracking-tight text-white'
     : 'mt-2 text-[clamp(1.9rem,2.8vw,2.8rem)] font-semibold leading-[0.96] tracking-tight text-slate-900';
@@ -4726,23 +4727,23 @@ const CallSection = ({
     : 'mt-3 max-w-[52ch] text-[15px] leading-7 text-slate-700';
   const heroHintClass = isDarkTheme ? 'call-prejoin-note mt-4 text-sm text-slate-300/74' : 'call-prejoin-note mt-4 text-sm text-slate-500';
   const prejoinSecondaryActionClass = isDarkTheme
-    ? `${labeledControlButtonClass} h-12 rounded-2xl border border-white/8 bg-slate-950/18 px-4 text-slate-100/92 hover:border-sky-300/18 hover:bg-slate-900/36`
-    : `${labeledControlButtonClass} h-12 rounded-2xl border border-slate-200 bg-white px-4 text-slate-700 hover:bg-slate-100`;
+    ? `${labeledControlButtonClass} h-12 rounded-2xl border border-violet-300/14 bg-violet-950/26 px-4 text-slate-100/92 hover:border-violet-300/24 hover:bg-violet-900/38`
+    : `${labeledControlButtonClass} h-12 rounded-2xl border border-violet-200 bg-white px-4 text-violet-700 hover:bg-violet-50`;
   const prejoinUtilityActionClass = isDarkTheme
-    ? `${baseControlButtonClass} h-12 w-12 rounded-2xl border border-white/8 bg-slate-950/18 text-slate-100/88 hover:border-sky-300/18 hover:bg-slate-900/36`
-    : `${baseControlButtonClass} h-12 w-12 rounded-2xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-100`;
+    ? `${baseControlButtonClass} h-12 w-12 rounded-2xl border border-violet-300/14 bg-violet-950/26 text-slate-100/88 hover:border-violet-300/24 hover:bg-violet-900/38`
+    : `${baseControlButtonClass} h-12 w-12 rounded-2xl border border-violet-200 bg-white text-violet-700 hover:bg-violet-50`;
   const heroPrimaryButtonClass = isDarkTheme
-    ? `${labeledControlButtonClass} call-primary-cta h-12 min-w-[188px] rounded-2xl border border-cyan-200/44 bg-cyan-400/92 px-5 text-[15px] text-slate-950 disabled:opacity-100 hover:bg-cyan-300`
-    : `${labeledControlButtonClass} call-primary-cta h-12 min-w-[196px] rounded-2xl border border-emerald-300/70 bg-emerald-400 px-5 text-[15px] text-slate-950 hover:bg-emerald-300`;
+    ? `${labeledControlButtonClass} call-primary-cta h-12 min-w-[188px] rounded-2xl border border-violet-200/42 bg-violet-500/92 px-5 text-[15px] text-white disabled:opacity-100 hover:bg-violet-400`
+    : `${labeledControlButtonClass} call-primary-cta h-12 min-w-[196px] rounded-2xl border border-violet-300/70 bg-violet-500 px-5 text-[15px] text-white hover:bg-violet-400`;
   const waitingCardClass = isDarkTheme
-    ? 'call-waiting-card flex flex-col justify-between gap-4 rounded-[28px] border border-sky-300/10 bg-slate-950/42 p-5 shadow-[0_16px_36px_rgba(2,12,27,0.22)]'
-    : 'call-waiting-card flex flex-col justify-between gap-5 rounded-[28px] border border-slate-200/80 bg-slate-50/92 p-5 shadow-[0_18px_42px_rgba(15,23,42,0.08)]';
+    ? 'call-waiting-card flex flex-col justify-between gap-4 rounded-[28px] border border-violet-300/14 bg-violet-950/30 p-5 shadow-[0_16px_36px_rgba(46,16,101,0.18)]'
+    : 'call-waiting-card flex flex-col justify-between gap-5 rounded-[28px] border border-violet-200/80 bg-violet-50/92 p-5 shadow-[0_18px_42px_rgba(88,28,135,0.08)]';
   const waitingAvatarClass = isDarkTheme
-    ? 'call-waiting-avatar relative flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] border border-sky-300/12 bg-slate-950/82 text-lg font-semibold text-white'
-    : 'call-waiting-avatar relative flex h-16 w-16 shrink-0 items-center justify-center rounded-[22px] border border-slate-200 bg-white text-xl font-semibold text-slate-700';
+    ? 'call-waiting-avatar relative flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] border border-violet-300/16 bg-violet-950/78 text-lg font-semibold text-white'
+    : 'call-waiting-avatar relative flex h-16 w-16 shrink-0 items-center justify-center rounded-[22px] border border-violet-200 bg-white text-xl font-semibold text-violet-700';
   const waitingRoleClass = isDarkTheme
-    ? 'inline-flex w-fit items-center rounded-full border border-white/8 bg-transparent px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-200/74'
-    : 'inline-flex w-fit items-center rounded-full border border-sky-200/80 bg-sky-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700';
+    ? 'inline-flex w-fit items-center rounded-full border border-violet-300/18 bg-violet-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-100/84'
+    : 'inline-flex w-fit items-center rounded-full border border-violet-200/80 bg-violet-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-violet-700';
   const waitingNameClass = isDarkTheme ? 'mt-4 text-xl font-semibold text-white' : 'mt-4 text-xl font-semibold text-slate-900';
   const waitingMetaClass = isDarkTheme ? 'text-sm font-medium leading-6 text-slate-300/82' : 'text-sm font-medium leading-6 text-slate-500';
   const waitingPresenceRowClass = isDarkTheme ? 'mt-3 flex items-center gap-2 text-slate-300/82' : 'mt-3 flex items-center gap-2 text-slate-500';
@@ -4751,11 +4752,11 @@ const CallSection = ({
     ? 'border-white/15 bg-slate-800 text-slate-200 hover:bg-slate-700'
     : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100';
   const micOnControlClass = isDarkTheme
-    ? 'border-sky-300/40 bg-sky-400/20 text-sky-100 hover:bg-sky-400/30'
-    : 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100';
+    ? 'border-violet-300/40 bg-violet-400/20 text-violet-100 hover:bg-violet-400/30'
+    : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100';
   const cameraOnControlClass = isDarkTheme
-    ? 'border-cyan-300/40 bg-cyan-400/20 text-cyan-100 hover:bg-cyan-400/30'
-    : 'border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100';
+    ? 'border-fuchsia-300/40 bg-fuchsia-400/18 text-fuchsia-100 hover:bg-fuchsia-400/28'
+    : 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 hover:bg-fuchsia-100';
   const screenOnControlClass = isDarkTheme
     ? 'border-violet-300/40 bg-violet-400/20 text-violet-100 hover:bg-violet-400/30'
     : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100';
@@ -4772,8 +4773,8 @@ const CallSection = ({
     ? `${baseControlButtonClass} border border-white/15 bg-slate-800 text-slate-200 hover:bg-slate-700`
     : `${baseControlButtonClass} border border-slate-200 bg-white text-slate-700 hover:bg-slate-100`;
   const micSettingsButtonActiveClass = isDarkTheme
-    ? 'border-emerald-300/40 bg-emerald-400/20 text-emerald-100'
-    : 'border-emerald-200 bg-emerald-50 text-emerald-700';
+    ? 'border-violet-300/40 bg-violet-400/20 text-violet-100'
+    : 'border-violet-200 bg-violet-50 text-violet-700';
   const micSettingsPopupClass = isDarkTheme
     ? 'fixed z-[90] rounded-xl border border-white/15 bg-slate-900/95 p-3 shadow-[0_16px_34px_rgba(2,6,23,0.55)] backdrop-blur'
     : 'fixed z-[90] rounded-xl border border-slate-200 bg-white/95 p-3 shadow-[0_16px_34px_rgba(15,23,42,0.2)] backdrop-blur';
@@ -4787,12 +4788,12 @@ const CallSection = ({
     ? 'absolute inset-y-0 left-0 rounded-full bg-slate-400/90 transition-[width] duration-100'
     : 'absolute inset-y-0 left-0 rounded-full bg-slate-400 transition-[width] duration-100';
   const micLevelMeterThresholdClass = isDarkTheme
-    ? 'pointer-events-none absolute -top-1 -bottom-1 w-[2px] rounded bg-emerald-300'
-    : 'pointer-events-none absolute -top-1 -bottom-1 w-[2px] rounded bg-emerald-500';
+    ? 'pointer-events-none absolute -top-1 -bottom-1 w-[2px] rounded bg-violet-300'
+    : 'pointer-events-none absolute -top-1 -bottom-1 w-[2px] rounded bg-violet-500';
   const micLevelMeterHintClass = isDarkTheme ? 'text-[11px] text-slate-400' : 'text-[11px] text-slate-500';
   const speakingRingClass = isDarkTheme
-    ? 'call-speaking-ring ring-2 ring-emerald-300/85 ring-offset-2 ring-offset-slate-900'
-    : 'call-speaking-ring ring-2 ring-emerald-400/80 ring-offset-2 ring-offset-slate-50';
+    ? 'call-speaking-ring ring-2 ring-violet-300/85 ring-offset-2 ring-offset-slate-900'
+    : 'call-speaking-ring ring-2 ring-violet-400/80 ring-offset-2 ring-offset-slate-50';
   const avatarCardClass = isDarkTheme
     ? 'call-avatar-card relative flex h-20 w-20 items-center justify-center rounded-full border bg-slate-800 text-2xl font-semibold text-slate-100 shadow-[0_10px_26px_rgba(2,6,23,0.45)]'
     : 'call-avatar-card relative flex h-20 w-20 items-center justify-center rounded-full border border-slate-200 bg-white text-2xl font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.12)]';
@@ -4805,7 +4806,7 @@ const CallSection = ({
     ? 'call-waiting-hint mt-3 text-center text-sm text-slate-300'
     : 'call-waiting-hint mt-3 text-center text-sm text-slate-600';
   const modalOverlayClass = isDarkTheme ? 'fixed inset-0 z-50' : 'fixed inset-0 z-50 bg-slate-900/10';
-  const popupRangeClass = isDarkTheme ? 'h-2 flex-1 accent-emerald-300' : 'h-2 flex-1 accent-emerald-500';
+  const popupRangeClass = isDarkTheme ? 'h-2 flex-1 accent-violet-300' : 'h-2 flex-1 accent-violet-500';
   const popupToneClass = isDarkTheme ? 'text-slate-200' : 'text-slate-700';
   const lessonChatSectionClass = isDarkTheme
     ? 'call-lesson-chat call-chat-panel group/lesson flex min-h-[340px] min-w-0 flex-col rounded-[24px] border border-white/10 bg-slate-950/56 p-3.5 shadow-[0_20px_48px_rgba(2,6,23,0.26)] backdrop-blur'
@@ -4816,8 +4817,8 @@ const CallSection = ({
     ? 'call-chat-header-avatar inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/12 bg-slate-900 text-sm font-semibold text-white'
     : 'call-chat-header-avatar inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-sm font-semibold text-slate-700';
   const lessonChatToggleClass = isDarkTheme
-    ? `${labeledControlButtonClass} border ${lessonChatExpanded ? 'border-violet-300/45 bg-violet-400/22 text-violet-50 hover:bg-violet-400/30' : 'border-white/15 bg-slate-800 text-slate-100 hover:bg-slate-700'}`
-    : `${labeledControlButtonClass} border ${lessonChatExpanded ? 'border-violet-300 bg-violet-500/20 text-violet-700 hover:bg-violet-500/30' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'}`;
+    ? `${compactControlButtonClass} ${lessonChatExpanded ? 'border-violet-300/45 bg-violet-400/22 text-violet-50 hover:bg-violet-400/30' : 'border-white/15 bg-slate-800 text-slate-100 hover:bg-slate-700'}`
+    : `${compactControlButtonClass} ${lessonChatExpanded ? 'border-violet-300 bg-violet-500/20 text-violet-700 hover:bg-violet-500/30' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'}`;
   const lessonChatHeaderTitleClass = isDarkTheme ? 'truncate text-[15px] font-semibold text-white' : 'truncate text-[15px] font-semibold text-slate-900';
   const lessonChatHeaderMetaClass = isDarkTheme ? 'mt-0.5 truncate text-[11px] text-slate-300/72' : 'mt-0.5 truncate text-[11px] text-slate-500';
   const lessonChatCollapseClass = isDarkTheme
@@ -4834,8 +4835,8 @@ const CallSection = ({
     ? 'border-violet-300/35 bg-violet-400/16 text-violet-50'
     : 'border-violet-200/80 bg-violet-500/12 text-violet-900';
   const lessonChatPeerClass = isDarkTheme
-    ? 'border-cyan-300/28 bg-cyan-400/12'
-    : 'border-sky-200/80 bg-sky-500/10';
+    ? 'border-violet-300/28 bg-violet-500/12'
+    : 'border-violet-200/80 bg-violet-500/10';
   const lessonChatMetaClass = isDarkTheme ? 'mt-1 text-[10px] text-slate-300/80' : 'mt-1 text-[10px] text-slate-500';
   const lessonChatEmptyClass = isDarkTheme
     ? 'call-lesson-chat-empty flex min-h-[180px] flex-1 flex-col items-center justify-center gap-2 rounded-[22px] border border-dashed border-white/10 bg-slate-900/28 px-4 text-center'
@@ -5113,7 +5114,8 @@ const CallSection = ({
                             <span className="call-prejoin-glance-icon" aria-hidden="true">
                               <Icon size={16} />
                             </span>
-                            <div className="min-w-0">
+                            <div className="min-w-0 space-y-1">
+                              <p className="call-prejoin-glance-label">{label}</p>
                               <p className="call-prejoin-glance-value" aria-label={`${label}: ${value}`}>{value}</p>
                             </div>
                           </div>
@@ -5254,14 +5256,14 @@ const CallSection = ({
               )}
 
               {isConnected && (
-                <div className={`${controlsWrapClass} call-controls-layout ${sceneStatusClass}`}>
+                <div className={`${controlsWrapClass} call-controls-layout call-controls-layout--compact ${sceneStatusClass}`}>
                 <div className="call-controls-group call-controls-group--media">
                   <button
                     type="button"
                     onClick={toggleMic}
                     disabled={!canToggleMic}
                     data-live={micEnabled ? 'true' : 'false'}
-                    className={`${labeledControlButtonClass} call-control-btn--mic ${micEnabled ? 'call-control-btn--active' : ''} border ${
+                    className={`${compactControlButtonClass} call-control-btn--mic ${micEnabled ? 'call-control-btn--active' : ''} ${
                       micEnabled
                         ? micOnControlClass
                         : neutralControlClass
@@ -5270,14 +5272,13 @@ const CallSection = ({
                     title={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
                   >
                     {micBusy ? <Loader2 size={18} className="animate-spin" /> : (micEnabled ? <Mic size={18} /> : <MicOff size={18} />)}
-                    <span className="call-control-label">Микрофон</span>
                   </button>
                   <button
                     type="button"
                     onClick={toggleCamera}
                     disabled={!canToggleCamera}
                     data-live={cameraEnabled ? 'true' : 'false'}
-                    className={`${labeledControlButtonClass} call-control-btn--camera ${cameraEnabled ? 'call-control-btn--active' : ''} border ${
+                    className={`${compactControlButtonClass} call-control-btn--camera ${cameraEnabled ? 'call-control-btn--active' : ''} ${
                       cameraEnabled
                         ? cameraOnControlClass
                         : neutralControlClass
@@ -5286,14 +5287,13 @@ const CallSection = ({
                     title={cameraEnabled ? 'Выключить камеру' : 'Включить камеру'}
                   >
                     {cameraBusy ? <Loader2 size={18} className="animate-spin" /> : (cameraEnabled ? <Camera size={18} /> : <CameraOff size={18} />)}
-                    <span className="call-control-label">Камера</span>
                   </button>
                   <button
                     type="button"
                     onClick={toggleScreenShare}
                     disabled={!canToggleScreen}
                     data-live={screenSharing ? 'true' : 'false'}
-                    className={`${labeledControlButtonClass} call-control-btn--screen ${screenSharing ? 'call-control-btn--active' : ''} border ${
+                    className={`${compactControlButtonClass} call-control-btn--screen ${screenSharing ? 'call-control-btn--active' : ''} ${
                       screenSharing
                         ? screenOnControlClass
                         : neutralControlClass
@@ -5302,7 +5302,6 @@ const CallSection = ({
                     title={screenSharing ? 'Остановить показ экрана' : 'Показать экран'}
                   >
                     {screenBusy ? <Loader2 size={18} className="animate-spin" /> : (screenSharing ? <MonitorX size={18} /> : <MonitorUp size={18} />)}
-                    <span className="call-control-label">Экран</span>
                   </button>
                 </div>
                 <div className="call-controls-group call-controls-group--utility">
@@ -5316,9 +5315,8 @@ const CallSection = ({
                       data-live={lessonChatExpanded ? 'true' : 'false'}
                     >
                       <MessageSquare size={16} />
-                      <span className="call-control-label">{lessonChatExpanded ? 'Чат открыт' : 'Чат'}</span>
                       {chatBadgeText && (
-                        <span className={`call-chat-badge ${lessonChatExpanded ? '' : 'is-live'}`}>{chatBadgeText}</span>
+                        <span className={`call-chat-badge absolute -right-1 -top-1 ${lessonChatExpanded ? '' : 'is-live'}`}>{chatBadgeText}</span>
                       )}
                     </button>
                   )}
@@ -5336,12 +5334,11 @@ const CallSection = ({
                         });
                       }}
                       disabled={!canToggleMic}
-                      className={`${labeledControlButtonClass} call-control-btn--settings border ${micSettingsOpen ? micSettingsButtonActiveClass : neutralControlClass}`}
+                      className={`${compactControlButtonClass} call-control-btn--settings ${micSettingsOpen ? micSettingsButtonActiveClass : neutralControlClass}`}
                       aria-label="Ещё настройки"
                       title="Ещё настройки"
                     >
                       <Settings size={16} />
-                      <span className="call-control-label">Ещё</span>
                     </button>
                   </div>
                 </div>
@@ -5350,12 +5347,11 @@ const CallSection = ({
                     type="button"
                     onClick={stopCall}
                     disabled={!canStop}
-                    className={`${labeledControlButtonClass} call-control-btn--hangup border border-rose-300/60 bg-rose-500 text-white hover:bg-rose-400`}
+                    className={`${compactControlButtonClass} call-control-btn--hangup border border-rose-300/60 bg-rose-500 text-white hover:bg-rose-400`}
                     aria-label="Завершить звонок"
                     title="Завершить звонок"
                   >
                     <PhoneOff size={18} />
-                    <span className="call-control-label">Завершить</span>
                   </button>
                 </div>
                 </div>
