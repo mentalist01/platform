@@ -2,6 +2,7 @@
 import { Package2, RefreshCcw, Sparkles } from 'lucide-react';
 import { api } from '../services/api';
 import StudentArtifactAltar from './StudentArtifactAltar';
+import StudentLeaderboardProfileModal from './StudentLeaderboardProfileModal';
 
 const BONUS_TONE_CLASSNAME = {
   xp: 'border-violet-200 bg-violet-50/90 text-violet-700',
@@ -67,7 +68,16 @@ const StudentLeaderboardSection = ({
   const [isLeagueRangesOpen, setIsLeagueRangesOpen] = useState(false);
   const [spinLoading, setSpinLoading] = useState(false);
   const [spinError, setSpinError] = useState('');
+  const [studentProfileState, setStudentProfileState] = useState({
+    open: false,
+    studentId: '',
+    row: null,
+    data: null,
+    loading: false,
+    error: '',
+  });
   const mountedRef = useRef(true);
+  const studentProfileRequestIdRef = useRef(0);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -293,6 +303,22 @@ const StudentLeaderboardSection = ({
   const teacherArtifactTotalPulls = hasLoadedSelectedTeacher && Number.isFinite(Number(altar?.totalPulls))
     ? Math.max(0, Math.floor(Number(altar.totalPulls)))
     : 0;
+  const activeProfileStudentId = String(studentProfileState.studentId || '').trim();
+  const activeProfileRow = activeProfileStudentId
+    ? (rows.find((row) => row.studentId === activeProfileStudentId) || studentProfileState.row || null)
+    : null;
+  const activeProfileLevelPosition = activeProfileStudentId
+    ? (() => {
+        const index = byLevel.findIndex((row) => row.studentId === activeProfileStudentId);
+        return index >= 0 ? index + 1 : null;
+      })()
+    : null;
+  const activeProfileWeeklyPosition = activeProfileStudentId
+    ? (() => {
+        const index = byWeeklyXp.findIndex((row) => row.studentId === activeProfileStudentId);
+        return index >= 0 ? index + 1 : null;
+      })()
+    : null;
 
   const handleSaveAlias = async () => {
     const normalized = String(aliasInput || '').trim();
@@ -386,6 +412,73 @@ const StudentLeaderboardSection = ({
     if (!normalized) return;
     if (typeof onSelectStudent === 'function') onSelectStudent(normalized);
   }, [onSelectStudent, role]);
+
+  const loadStudentProfile = useCallback(async (studentId, row = null) => {
+    const normalizedStudentId = String(studentId || '').trim();
+    if (!normalizedStudentId) return;
+    const requestId = studentProfileRequestIdRef.current + 1;
+    studentProfileRequestIdRef.current = requestId;
+    setStudentProfileState((prev) => ({
+      open: true,
+      studentId: normalizedStudentId,
+      row: row || prev.row,
+      data: prev.studentId === normalizedStudentId ? prev.data : null,
+      loading: true,
+      error: '',
+    }));
+    try {
+      const data = await api.getLeaderboardStudentProfile(normalizedStudentId);
+      if (!mountedRef.current || studentProfileRequestIdRef.current !== requestId) return;
+      setStudentProfileState((prev) => (
+        prev.studentId === normalizedStudentId
+          ? {
+              ...prev,
+              open: true,
+              row: row || prev.row,
+              data: data && typeof data === 'object' ? data : null,
+              loading: false,
+              error: '',
+            }
+          : prev
+      ));
+    } catch (err) {
+      if (!mountedRef.current || studentProfileRequestIdRef.current !== requestId) return;
+      setStudentProfileState((prev) => (
+        prev.studentId === normalizedStudentId
+          ? {
+              ...prev,
+              open: true,
+              row: row || prev.row,
+              loading: false,
+              error: err?.message || 'Не удалось загрузить профиль ученика.',
+            }
+          : prev
+      ));
+    }
+  }, []);
+
+  const handleOpenStudentProfile = useCallback((row) => {
+    if (role !== 'student') return;
+    const normalizedStudentId = String(row?.studentId || '').trim();
+    if (!normalizedStudentId) return;
+    void loadStudentProfile(normalizedStudentId, row);
+  }, [loadStudentProfile, role]);
+
+  const handleCloseStudentProfile = useCallback(() => {
+    studentProfileRequestIdRef.current += 1;
+    setStudentProfileState((prev) => ({
+      ...prev,
+      open: false,
+      loading: false,
+      error: '',
+    }));
+  }, []);
+
+  const handleRetryStudentProfile = useCallback(() => {
+    const normalizedStudentId = String(studentProfileState.studentId || '').trim();
+    if (!normalizedStudentId) return;
+    void loadStudentProfile(normalizedStudentId, studentProfileState.row);
+  }, [loadStudentProfile, studentProfileState.row, studentProfileState.studentId]);
 
   const renderTeacherStudentPicker = () => {
     if (role !== 'teacher') return null;
@@ -513,26 +606,49 @@ const StudentLeaderboardSection = ({
           const leagueAuraStyle = getLeagueAuraStyle(row.league.id);
           const isAbsoluteLeague = isAbsoluteOrAboveLeague(row.league.id);
           const canSelectRow = role === 'teacher' && typeof onSelectStudent === 'function';
+          const canOpenProfile = role === 'student';
+          const isInteractiveRow = canSelectRow || canOpenProfile;
+          const isProfileActive = canOpenProfile
+            && studentProfileState.open
+            && String(studentProfileState.studentId || '') === row.studentId;
           const rowStateClass = row.isSelected
             ? 'border-amber-300 bg-amber-50/80 ring-1 ring-amber-200'
+            : isProfileActive
+              ? 'border-sky-300 bg-sky-50/80 ring-1 ring-sky-200'
             : row.isCurrent
               ? 'border-purple-300 bg-purple-50/80'
               : 'border-purple-100 bg-white';
+          const interactiveClassName = canSelectRow
+            ? 'cursor-pointer hover:border-amber-300 hover:bg-amber-50/70 focus:outline-none focus:ring-2 focus:ring-amber-200'
+            : canOpenProfile
+              ? 'cursor-pointer hover:border-sky-300 hover:bg-sky-50/70 focus:outline-none focus:ring-2 focus:ring-sky-200'
+              : '';
+          const handleRowActivate = () => {
+            if (canSelectRow) {
+              handleTeacherStudentSelect(row.studentId);
+              return;
+            }
+            if (canOpenProfile) {
+              handleOpenStudentProfile(row);
+            }
+          };
           return (
             <div
               key={`${type}-${row.studentId}`}
-              role={canSelectRow ? 'button' : undefined}
-              tabIndex={canSelectRow ? 0 : undefined}
+              role={isInteractiveRow ? 'button' : undefined}
+              tabIndex={isInteractiveRow ? 0 : undefined}
               aria-pressed={canSelectRow ? row.isSelected : undefined}
-              onClick={canSelectRow ? () => handleTeacherStudentSelect(row.studentId) : undefined}
-              onKeyDown={canSelectRow ? (event) => {
+              aria-haspopup={canOpenProfile ? 'dialog' : undefined}
+              aria-expanded={canOpenProfile ? isProfileActive : undefined}
+              onClick={isInteractiveRow ? handleRowActivate : undefined}
+              onKeyDown={isInteractiveRow ? (event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
-                  handleTeacherStudentSelect(row.studentId);
+                  handleRowActivate();
                 }
               } : undefined}
               className={`flex items-center gap-3 rounded-2xl border px-3 py-2.5 transition ${rowStateClass} ${
-                canSelectRow ? 'cursor-pointer hover:border-amber-300 hover:bg-amber-50/70 focus:outline-none focus:ring-2 focus:ring-amber-200' : ''
+                interactiveClassName
               }`}
             >
             <div
@@ -658,6 +774,11 @@ const StudentLeaderboardSection = ({
             <div className="mt-2 inline-flex items-center rounded-full border border-purple-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-purple-700">
               {`Период XP: ${weekRangeLabel}`}
             </div>
+            {role === 'student' && (
+              <div className="mt-2 text-xs text-slate-500">
+                Нажмите на ученика в рейтинге, чтобы открыть его полный профиль.
+              </div>
+            )}
           </div>
           <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
             {renderTeacherStudentPicker()}
@@ -886,6 +1007,25 @@ const StudentLeaderboardSection = ({
         {renderBoard(byLevel, 'level')}
         {renderBoard(byWeeklyXp, 'week')}
       </div>
+
+      <StudentLeaderboardProfileModal
+        open={role === 'student' && studentProfileState.open}
+        row={activeProfileRow}
+        profile={studentProfileState.data}
+        loading={studentProfileState.loading}
+        error={studentProfileState.error}
+        levelPosition={activeProfileLevelPosition}
+        weeklyPosition={activeProfileWeeklyPosition}
+        onClose={handleCloseStudentProfile}
+        onRetry={handleRetryStudentProfile}
+        getLeagueByXp={getLeagueByXp}
+        getLeagueAuraStyle={getLeagueAuraStyle}
+        isAbsoluteOrAboveLeague={isAbsoluteOrAboveLeague}
+        ABSOLUTE_AURA_CROWN_STYLE={ABSOLUTE_AURA_CROWN_STYLE}
+        XP_PER_LEVEL={XP_PER_LEVEL}
+        formatStreakDate={formatStreakDate}
+        getLeagueIconClassName={getLeagueIconClassName}
+      />
     </section>
   );
 };

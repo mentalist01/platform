@@ -464,6 +464,14 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getLeaderboardStudentProfile: async (studentId) => {
+    const normalizedStudentId = String(studentId || '').trim();
+    if (!normalizedStudentId) throw new Error('studentId required');
+    const qs = new URLSearchParams({ studentId: normalizedStudentId }).toString();
+    const res = await apiFetch(`/api/students/leaderboard-profile?${qs}`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   setLeaderboardAlias: async (payload) => {
     const bodyPayload = typeof payload === 'string'
       ? { alias: payload }

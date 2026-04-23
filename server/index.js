@@ -5339,6 +5339,311 @@ const getRecentXpFromSolvedEvents = (events, endDayNum, days = LEADERBOARD_WEEK_
   return xpTotal;
 };
 
+const buildLeaderboardAnonNameMap = (students = []) => {
+  const orderedStudents = [...students].sort((a, b) => {
+    const aTs = Date.parse(a?.createdAt || '');
+    const bTs = Date.parse(b?.createdAt || '');
+    if (Number.isFinite(aTs) && Number.isFinite(bTs) && aTs !== bTs) return aTs - bTs;
+    return String(a?.id || '').localeCompare(String(b?.id || ''), 'ru');
+  });
+  return new Map(
+    orderedStudents.map((student, index) => [student.id, `Аноним ${index + 1}`])
+  );
+};
+
+const getSolvedQuestionCountFromSolvedByTask = (solvedByTask) => {
+  if (!solvedByTask || typeof solvedByTask !== 'object') return 0;
+  let solvedQuestions = 0;
+  Object.values(solvedByTask).forEach((taskEntry) => {
+    if (!taskEntry || typeof taskEntry !== 'object') return;
+    Object.entries(taskEntry).forEach(([levelKey, levelEntry]) => {
+      if (String(levelKey || '').startsWith('_')) return;
+      if (!levelEntry || typeof levelEntry !== 'object') return;
+      const solvedList = Array.isArray(levelEntry.solved) ? levelEntry.solved : [];
+      solvedQuestions += new Set(solvedList.map((id) => String(id))).size;
+    });
+  });
+  return Math.max(0, Math.floor(solvedQuestions));
+};
+
+const LEADERBOARD_PROFILE_TASK_TITLES = {
+  '1': 'Анализ информационных моделей',
+  '2': 'Таблицы истинности',
+  '3': 'Поиск в БД',
+  '4': 'Кодирование (Фано)',
+  '5': 'Анализ алгоритмов',
+  '6': 'Циклы',
+  '7': 'Изображения и звук',
+  '8': 'Комбинаторика',
+  '9': 'Excel',
+  '10': 'Word',
+  '11': 'Вычисление информации',
+  '12': 'Исполнители',
+  '13': 'Графы',
+  '14': 'Системы счисления',
+  '15': 'Алгебра логики',
+  '16': 'Рекурсия',
+  '17': 'Последовательности',
+  '18': 'Робот (ДП)',
+  '19': 'Теория игр (1)',
+  '20': 'Теория игр (2)',
+  '21': 'Теория игр (3)',
+  '22': 'Многопроцессорные',
+  '23': 'Динамика (Исполнитель)',
+  '24': 'Строки',
+  '25': 'Маски чисел',
+  '26': 'Жадные алгоритмы',
+  '27': 'Анализ данных',
+};
+
+const getLeaderboardProfileTaskTitle = (taskId) => {
+  const numericTaskId = Number(taskId);
+  if (!Number.isFinite(numericTaskId)) return 'Тема';
+  const normalizedTaskId = String(Math.trunc(numericTaskId));
+  return LEADERBOARD_PROFILE_TASK_TITLES[normalizedTaskId] || `Задание ${normalizedTaskId}`;
+};
+
+const getLeaderboardProfileStrongestTasks = (progressByTaskId, limit = 3) => {
+  if (!(progressByTaskId instanceof Map)) return [];
+  const parsedLimit = Number(limit);
+  const maxItems = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : 3;
+
+  return [...progressByTaskId.entries()]
+    .map(([taskId, percent]) => {
+      const numericTaskId = Number(taskId);
+      if (!Number.isFinite(numericTaskId)) return null;
+      const normalizedPercent = Math.max(0, Math.min(100, Number(percent) || 0));
+      if (normalizedPercent <= 0) return null;
+      return {
+        taskId: String(Math.trunc(numericTaskId)),
+        taskNumber: Math.trunc(numericTaskId),
+        title: getLeaderboardProfileTaskTitle(taskId),
+        percent: normalizedPercent,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      if (right.percent !== left.percent) return right.percent - left.percent;
+      return left.taskNumber - right.taskNumber;
+    })
+    .slice(0, maxItems);
+};
+
+const getLeaderboardProfileProgressSummary = (studentData, testsDb) => {
+  const progress = recomputeProgressFromSolved(studentData);
+  const progressByTaskId = new Map();
+  Object.entries(progress || {}).forEach(([taskId, value]) => {
+    const taskNum = Number(taskId);
+    if (!Number.isFinite(taskNum)) return;
+    const normalizedTaskId = String(Math.trunc(taskNum));
+    const normalizedValue = Math.max(0, Math.min(100, Number(value) || 0));
+    progressByTaskId.set(normalizedTaskId, normalizedValue);
+  });
+
+  const taskIds = new Set();
+  Object.entries(testsDb || {}).forEach(([taskId, taskValue]) => {
+    const taskNum = Number(taskId);
+    if (!Number.isFinite(taskNum)) return;
+    if (!taskValue || typeof taskValue !== 'object') return;
+    taskIds.add(String(Math.trunc(taskNum)));
+  });
+  progressByTaskId.forEach((_value, taskId) => taskIds.add(taskId));
+
+  let startedTasks = 0;
+  let completedTasks = 0;
+  let totalProgress = 0;
+  taskIds.forEach((taskId) => {
+    const value = progressByTaskId.get(taskId) || 0;
+    if (value > 0) startedTasks += 1;
+    if (value >= 100) completedTasks += 1;
+    totalProgress += value;
+  });
+
+  const totalTasks = taskIds.size;
+  const overallPercent = totalTasks > 0
+    ? Math.max(0, Math.min(100, Math.round(totalProgress / totalTasks)))
+    : 0;
+
+  return {
+    startedTasks,
+    completedTasks,
+    totalTasks,
+    solvedQuestions: getSolvedQuestionCountFromSolvedByTask(studentData?.solvedByTask),
+    overallPercent,
+    strongestTasks: getLeaderboardProfileStrongestTasks(progressByTaskId),
+  };
+};
+
+const getLeaderboardProfileActivitySummary = (events, endDayNum, days = LEADERBOARD_WEEK_DAYS) => {
+  const summary = {
+    weeklySolvedQuestions: 0,
+    weeklyActiveDays: 0,
+    totalActiveDays: 0,
+    lastSolvedAt: null,
+  };
+  if (!Array.isArray(events) || events.length <= 0) return summary;
+
+  const parsedDays = Number(days);
+  const periodDays = Number.isFinite(parsedDays) && parsedDays > 0
+    ? Math.floor(parsedDays)
+    : LEADERBOARD_WEEK_DAYS;
+  const fallbackEnd = dayKeyToNumber(new Date().toISOString().slice(0, 10));
+  const safeEndDayNum = Number.isFinite(endDayNum) ? Math.floor(endDayNum) : fallbackEnd;
+  const startDayNum = Number.isFinite(safeEndDayNum)
+    ? safeEndDayNum - Math.max(periodDays - 1, 0)
+    : null;
+  const seenIds = new Set();
+  const weeklyDaySet = new Set();
+  const totalDaySet = new Set();
+  let latestSolvedAt = '';
+  let latestSolvedAtMs = 0;
+
+  events.forEach((event) => {
+    const eventId = typeof event?.id === 'string' ? event.id.trim() : '';
+    if (eventId) {
+      if (seenIds.has(eventId)) return;
+      seenIds.add(eventId);
+    }
+
+    const solvedAt = typeof event?.solvedAt === 'string' && !Number.isNaN(Date.parse(event.solvedAt))
+      ? new Date(event.solvedAt).toISOString()
+      : '';
+    if (solvedAt) {
+      const solvedAtMs = Date.parse(solvedAt);
+      if (Number.isFinite(solvedAtMs) && solvedAtMs > latestSolvedAtMs) {
+        latestSolvedAtMs = solvedAtMs;
+        latestSolvedAt = solvedAt;
+      }
+    }
+
+    const dayKey = getSolvedEventDayKey(event);
+    const dayNum = dayKeyToNumber(dayKey);
+    if (dayKey) totalDaySet.add(dayKey);
+    if (!Number.isFinite(dayNum) || !Number.isFinite(startDayNum) || !Number.isFinite(safeEndDayNum)) return;
+    if (dayNum < startDayNum || dayNum > safeEndDayNum) return;
+    summary.weeklySolvedQuestions += 1;
+    if (dayKey) weeklyDaySet.add(dayKey);
+  });
+
+  summary.weeklyActiveDays = weeklyDaySet.size;
+  summary.totalActiveDays = totalDaySet.size;
+  summary.lastSolvedAt = latestSolvedAt || null;
+  return summary;
+};
+
+const getLeaderboardProfileMockTaskCounts = (mockExam, attempt) => {
+  const solvedMap = attempt?.solved && typeof attempt.solved === 'object' ? attempt.solved : {};
+  const taskKeys = mockExam?.tasks && typeof mockExam.tasks === 'object'
+    ? Object.keys(mockExam.tasks).map((taskId) => String(taskId || '').trim()).filter(Boolean)
+    : [];
+  if (taskKeys.length > 0) {
+    let solvedTasks = 0;
+    taskKeys.forEach((taskId) => {
+      if (Boolean(solvedMap[String(taskId)])) solvedTasks += 1;
+    });
+    return {
+      solvedTasks,
+      totalTasks: taskKeys.length,
+    };
+  }
+
+  const solvedTasks = Object.values(solvedMap).reduce((sum, value) => (value ? sum + 1 : sum), 0);
+  return {
+    solvedTasks,
+    totalTasks: solvedTasks > 0 ? MOCK_TASK_NUMBERS.length : 0,
+  };
+};
+
+const getLeaderboardProfileMockSummary = (mockAttempts, mockExamById = {}) => {
+  const emptySummary = {
+    attemptsCount: 0,
+    solvedCount: 0,
+    completedCount: 0,
+    bestScore: 0,
+    averageScore: 0,
+    perfectCount: 0,
+    best: null,
+  };
+
+  const attempts = mockAttempts && typeof mockAttempts === 'object'
+    ? Object.entries(mockAttempts).filter(([_examId, attempt]) => attempt && typeof attempt === 'object')
+    : [];
+  if (attempts.length <= 0) {
+    return emptySummary;
+  }
+
+  const normalizedResults = attempts.map(([examId, attempt]) => {
+    const normalizedExamId = String(examId || '').trim();
+    const mockExam = normalizedExamId ? mockExamById?.[normalizedExamId] : null;
+    const score = getMockSecondaryScoreFromSolved(attempt?.solved);
+    const { solvedTasks, totalTasks } = getLeaderboardProfileMockTaskCounts(mockExam, attempt);
+    const updatedAt = typeof attempt?.updatedAt === 'string' && attempt.updatedAt.trim()
+      ? attempt.updatedAt.trim()
+      : '';
+    const parsedUpdatedAt = updatedAt ? Date.parse(updatedAt) : NaN;
+    return {
+      examId: normalizedExamId,
+      title: typeof mockExam?.title === 'string' && mockExam.title.trim()
+        ? mockExam.title.trim()
+        : 'Пробник',
+      score,
+      solvedTasks,
+      totalTasks,
+      updatedAt: updatedAt || null,
+      updatedAtMs: Number.isFinite(parsedUpdatedAt) ? parsedUpdatedAt : 0,
+    };
+  });
+
+  const solvedResults = normalizedResults.filter((item) => item.score > 0 || item.solvedTasks > 0);
+  if (solvedResults.length <= 0) {
+    return {
+      ...emptySummary,
+      attemptsCount: attempts.length,
+    };
+  }
+
+  const totalScore = solvedResults.reduce((sum, item) => sum + item.score, 0);
+  const best = solvedResults.reduce((currentBest, item) => {
+    if (!currentBest) return item;
+    if (item.score !== currentBest.score) return item.score > currentBest.score ? item : currentBest;
+    if (item.solvedTasks !== currentBest.solvedTasks) {
+      return item.solvedTasks > currentBest.solvedTasks ? item : currentBest;
+    }
+    if (item.updatedAtMs !== currentBest.updatedAtMs) {
+      return item.updatedAtMs > currentBest.updatedAtMs ? item : currentBest;
+    }
+    return currentBest;
+  }, null);
+
+  return {
+    attemptsCount: attempts.length,
+    solvedCount: solvedResults.length,
+    completedCount: solvedResults.filter((item) => item.totalTasks > 0 && item.solvedTasks >= item.totalTasks).length,
+    bestScore: Math.max(...solvedResults.map((item) => item.score)),
+    averageScore: Math.round(totalScore / solvedResults.length),
+    perfectCount: solvedResults.filter((item) => item.score >= 100).length,
+    best: best
+      ? {
+          examId: best.examId,
+          title: best.title,
+          score: best.score,
+          solvedTasks: best.solvedTasks,
+          totalTasks: best.totalTasks,
+          updatedAt: best.updatedAt,
+        }
+      : null,
+  };
+};
+
+const getHighestArtifactRankFromCollection = (collection = []) => {
+  for (const rank of ARTIFACT_RANK_ORDER) {
+    if (collection.some((artifact) => String(artifact?.rank || '') === rank)) {
+      return rank;
+    }
+  }
+  return '';
+};
+
 const normalizeAnswerValue = (value) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 
 const getAnswerCountForTask = (taskNumber) => {
@@ -9452,15 +9757,7 @@ app.get('/api/students/leaderboard', (req, res) => {
   const selectedStudentId = isTeacherRole(req.auth) && requestedStudentId
     ? requestedStudentId
     : currentStudentId;
-  const studentsSortedForAnon = [...students].sort((a, b) => {
-    const aTs = Date.parse(a?.createdAt || '');
-    const bTs = Date.parse(b?.createdAt || '');
-    if (Number.isFinite(aTs) && Number.isFinite(bTs) && aTs !== bTs) return aTs - bTs;
-    return String(a?.id || '').localeCompare(String(b?.id || ''), 'ru');
-  });
-  const anonNameById = new Map(
-    studentsSortedForAnon.map((student, index) => [student.id, `Аноним ${index + 1}`])
-  );
+  const anonNameById = buildLeaderboardAnonNameMap(students);
 
   const items = students.map((student) => {
     const data = getStudentData(student.id);
@@ -9529,6 +9826,86 @@ app.get('/api/students/leaderboard', (req, res) => {
         }
       : null,
     altar: selectedStudentData ? buildStudentArtifactState(selectedStudentData) : null,
+  });
+});
+
+app.get('/api/students/leaderboard-profile', (req, res) => {
+  const requestedStudentId = typeof req.query?.studentId === 'string'
+    ? req.query.studentId.trim()
+    : '';
+  if (!requestedStudentId) {
+    return res.status(400).json({ error: 'studentId required' });
+  }
+
+  const targetStudent = findStudentById(requestedStudentId);
+  if (!targetStudent || targetStudent.deletedAt) {
+    return res.status(404).json({ error: 'Ученик не найден' });
+  }
+
+  if (isStudentRole(req.auth)) {
+    const currentStudent = ensureStudentAccess(req, res, req.auth?.id);
+    if (!currentStudent) return;
+    if (String(currentStudent.teacherId || '').trim() !== String(targetStudent.teacherId || '').trim()) {
+      return res.status(403).json({ error: 'Профиль доступен только внутри вашей группы.' });
+    }
+  } else if (isTeacherRole(req.auth)) {
+    if (String(targetStudent.teacherId || '').trim() !== String(req.auth.id || '').trim()) {
+      return forbid(res);
+    }
+  } else if (!isAdminRole(req.auth)) {
+    return forbid(res);
+  }
+
+  const groupStudents = readStudentsDb().filter((student) => (
+    isActiveStudent(student)
+    && String(student.teacherId || '').trim() === String(targetStudent.teacherId || '').trim()
+  ));
+  const anonNameById = buildLeaderboardAnonNameMap(groupStudents);
+  const testsDb = readTestsDb();
+  const mockExamById = readMockExamsDb().reduce((acc, exam) => {
+    const examId = String(exam?.id || '').trim();
+    if (examId) acc[examId] = exam;
+    return acc;
+  }, {});
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const fallbackEndDayNum = Math.floor(Date.now() / DAY_MS);
+  const parsedTodayNum = dayKeyToNumber(todayKey);
+  const endDayNum = Number.isFinite(parsedTodayNum) ? parsedTodayNum : fallbackEndDayNum;
+  const data = getStudentData(targetStudent.id);
+  const artifactState = buildStudentArtifactState(data);
+  const xpTotal = normalizeXpTotal(data?.xpTotal);
+  const coinsBalance = normalizeCoinsTotal(data?.coinsTotal);
+  const coinsSpentTotal = normalizeCoinsSpentTotal(data?.coinsSpentTotal);
+  const alias = normalizeLeaderboardAlias(data?.leaderboardAlias);
+
+  return res.json({
+    studentId: targetStudent.id,
+    publicName: alias || anonNameById.get(targetStudent.id) || 'Аноним',
+    hasAlias: Boolean(alias),
+    isCurrent: isStudentRole(req.auth) && String(req.auth.id || '') === targetStudent.id,
+    level: Math.floor(xpTotal / XP_PER_LEVEL) + 1,
+    xpTotal,
+    weeklyXp: getRecentXpFromSolvedEvents(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS),
+    streak: normalizeStreak(data?.streak),
+    progress: getLeaderboardProfileProgressSummary(data, testsDb),
+    activity: getLeaderboardProfileActivitySummary(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS),
+    mocks: getLeaderboardProfileMockSummary(data?.mockAttempts, mockExamById),
+    coins: {
+      balance: coinsBalance,
+      spentTotal: coinsSpentTotal,
+      earnedTotal: coinsBalance + coinsSpentTotal,
+    },
+    artifacts: {
+      totalPulls: normalizeArtifactTotalPulls(artifactState?.totalPulls),
+      totalOwned: Math.max(0, Math.floor(Number(artifactState?.totalOwned) || 0)),
+      uniqueOwned: Math.max(0, Math.floor(Number(artifactState?.uniqueOwned) || 0)),
+      collection: Array.isArray(artifactState?.collection) ? artifactState.collection : [],
+      lastPull: artifactState?.lastPull || null,
+      bonuses: artifactState?.bonuses && typeof artifactState.bonuses === 'object'
+        ? artifactState.bonuses
+        : { entries: [] },
+      highestRank: getHighestArtifactRankFromCollection(artifactState?.collection),
+    },
   });
 });
 
