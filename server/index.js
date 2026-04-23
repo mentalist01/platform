@@ -5396,17 +5396,141 @@ const LEADERBOARD_PROFILE_TASK_TITLES = {
   '27': 'Анализ данных',
 };
 
-const getLeaderboardProfileTaskTitle = (taskId) => {
-  const numericTaskId = Number(taskId);
-  if (!Number.isFinite(numericTaskId)) return 'Тема';
-  const normalizedTaskId = String(Math.trunc(numericTaskId));
-  return LEADERBOARD_PROFILE_TASK_TITLES[normalizedTaskId] || `Задание ${normalizedTaskId}`;
+const LEADERBOARD_PROFILE_TIME_ZONE = process.env.PLATFORM_TIME_ZONE || process.env.TZ || 'Europe/Moscow';
+const LEADERBOARD_PROFILE_PYTHON_TASK_CATALOG_KEY = '__pythonTaskCatalog';
+const LEADERBOARD_PROFILE_DEFAULT_PYTHON_TASKS = [
+  { number: 101, title: 'Ввод и вывод данных', displayNumber: '1.0', sectionId: 'topics' },
+  { number: 102, title: 'Переменные', displayNumber: '1.1', sectionId: 'topics' },
+  { number: 103, title: 'Условия', displayNumber: '2', sectionId: 'topics' },
+  { number: 104, title: 'Вычисления', displayNumber: '3', sectionId: 'topics' },
+  { number: 105, title: 'Цикл for', displayNumber: '4', sectionId: 'topics' },
+  { number: 106, title: 'Строки', displayNumber: '5', sectionId: 'topics' },
+  { number: 107, title: 'Цикл while', displayNumber: '6', sectionId: 'topics' },
+  { number: 108, title: 'Списки', displayNumber: '7.0', sectionId: 'topics' },
+  { number: 109, title: 'Кортежи', displayNumber: '7.1', sectionId: 'topics' },
+  { number: 110, title: 'Функции и рекурсия', displayNumber: '8', sectionId: 'topics' },
+  { number: 111, title: 'Двумерные массивы', displayNumber: '9', sectionId: 'topics' },
+  { number: 205, title: 'Подготовка к заданию 5', displayNumber: '5', sectionId: 'exam-prep' },
+  { number: 208, title: 'Подготовка к заданию 8', displayNumber: '8', sectionId: 'exam-prep' },
+  { number: 214, title: 'Подготовка к заданию 14', displayNumber: '14', sectionId: 'exam-prep' },
+  { number: 216, title: 'Подготовка к заданию 16', displayNumber: '16', sectionId: 'exam-prep' },
+  { number: 217, title: 'Подготовка к заданию 17', displayNumber: '17', sectionId: 'exam-prep' },
+  { number: 223, title: 'Подготовка к заданию 23', displayNumber: '23', sectionId: 'exam-prep' },
+  { number: 224, title: 'Подготовка к заданию 24', displayNumber: '24', sectionId: 'exam-prep' },
+  { number: 225, title: 'Подготовка к заданию 25', displayNumber: '25', sectionId: 'exam-prep' },
+  { number: 226, title: 'Подготовка к заданию 26', displayNumber: '26', sectionId: 'exam-prep' },
+  { number: 227, title: 'Подготовка к заданию 27', displayNumber: '27', sectionId: 'exam-prep' },
+];
+
+const getLeaderboardProfileDayKey = (value) => {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: LEADERBOARD_PROFILE_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const byType = parts.reduce((acc, part) => {
+      if (part.type !== 'literal') acc[part.type] = part.value;
+      return acc;
+    }, {});
+    return normalizeDayKey(`${byType.year}-${byType.month}-${byType.day}`);
+  } catch {
+    return normalizeDayKey(date.toISOString().slice(0, 10));
+  }
 };
 
-const getLeaderboardProfileStrongestTasks = (progressByTaskId, limit = 3) => {
+const getLeaderboardProfilePreparationSummary = (student, now = new Date()) => {
+  const joinedAt = typeof student?.createdAt === 'string' ? student.createdAt.trim() : '';
+  const startDay = joinedAt ? getLeaderboardProfileDayKey(joinedAt) : null;
+  const endDay = getLeaderboardProfileDayKey(now);
+  const startDayNum = dayKeyToNumber(startDay);
+  const endDayNum = dayKeyToNumber(endDay);
+  const days = Number.isFinite(startDayNum) && Number.isFinite(endDayNum)
+    ? Math.max(0, endDayNum - startDayNum + 1)
+    : 0;
+
+  return {
+    joinedAt,
+    startDay,
+    days,
+  };
+};
+
+const normalizeLeaderboardProfilePythonTask = (task) => {
+  if (!task || typeof task !== 'object' || Array.isArray(task)) return null;
+  const numericTaskId = Number(task.number ?? task.id);
+  if (!Number.isFinite(numericTaskId)) return null;
+  const taskNumber = Math.trunc(numericTaskId);
+  if (taskNumber < 100) return null;
+  const title = String(task.title || '').trim();
+  if (!title) return null;
+  const displayNumber = String(task.displayNumber || '').trim() || String(taskNumber);
+  const sectionId = String(task.sectionId || '').trim();
+  return {
+    taskId: String(taskNumber),
+    taskNumber,
+    title,
+    displayNumber,
+    sectionId,
+  };
+};
+
+const getLeaderboardProfilePythonTaskMap = (testsDb) => {
+  const pythonTaskMap = new Map();
+  LEADERBOARD_PROFILE_DEFAULT_PYTHON_TASKS.forEach((task) => {
+    const normalizedTask = normalizeLeaderboardProfilePythonTask(task);
+    if (normalizedTask) pythonTaskMap.set(normalizedTask.taskId, normalizedTask);
+  });
+
+  const catalog = Array.isArray(testsDb?.[LEADERBOARD_PROFILE_PYTHON_TASK_CATALOG_KEY])
+    ? testsDb[LEADERBOARD_PROFILE_PYTHON_TASK_CATALOG_KEY]
+    : [];
+  catalog.forEach((task) => {
+    const normalizedTask = normalizeLeaderboardProfilePythonTask(task);
+    if (normalizedTask) pythonTaskMap.set(normalizedTask.taskId, normalizedTask);
+  });
+
+  return pythonTaskMap;
+};
+
+const getLeaderboardProfileTaskMeta = (taskId, pythonTaskMap) => {
+  const numericTaskId = Number(taskId);
+  if (!Number.isFinite(numericTaskId)) {
+    return {
+      taskId: '',
+      taskNumber: 0,
+      title: 'Тема',
+      displayNumber: '',
+      isPython: false,
+    };
+  }
+  const normalizedTaskId = String(Math.trunc(numericTaskId));
+  const pythonTask = pythonTaskMap instanceof Map ? pythonTaskMap.get(normalizedTaskId) : null;
+  if (pythonTask) {
+    return {
+      ...pythonTask,
+      isPython: true,
+    };
+  }
+
+  const taskNumber = Math.trunc(numericTaskId);
+  return {
+    taskId: normalizedTaskId,
+    taskNumber,
+    title: LEADERBOARD_PROFILE_TASK_TITLES[normalizedTaskId] || `Задание ${normalizedTaskId}`,
+    displayNumber: normalizedTaskId,
+    isPython: false,
+  };
+};
+
+const getLeaderboardProfileStrongestTasks = (progressByTaskId, testsDb, limit = 3) => {
   if (!(progressByTaskId instanceof Map)) return [];
   const parsedLimit = Number(limit);
   const maxItems = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : 3;
+  const pythonTaskMap = getLeaderboardProfilePythonTaskMap(testsDb);
 
   return [...progressByTaskId.entries()]
     .map(([taskId, percent]) => {
@@ -5414,10 +5538,9 @@ const getLeaderboardProfileStrongestTasks = (progressByTaskId, limit = 3) => {
       if (!Number.isFinite(numericTaskId)) return null;
       const normalizedPercent = Math.max(0, Math.min(100, Number(percent) || 0));
       if (normalizedPercent <= 0) return null;
+      const taskMeta = getLeaderboardProfileTaskMeta(taskId, pythonTaskMap);
       return {
-        taskId: String(Math.trunc(numericTaskId)),
-        taskNumber: Math.trunc(numericTaskId),
-        title: getLeaderboardProfileTaskTitle(taskId),
+        ...taskMeta,
         percent: normalizedPercent,
       };
     })
@@ -5470,7 +5593,7 @@ const getLeaderboardProfileProgressSummary = (studentData, testsDb) => {
     totalTasks,
     solvedQuestions: getSolvedQuestionCountFromSolvedByTask(studentData?.solvedByTask),
     overallPercent,
-    strongestTasks: getLeaderboardProfileStrongestTasks(progressByTaskId),
+    strongestTasks: getLeaderboardProfileStrongestTasks(progressByTaskId, testsDb),
   };
 };
 
@@ -9887,6 +10010,7 @@ app.get('/api/students/leaderboard-profile', (req, res) => {
     xpTotal,
     weeklyXp: getRecentXpFromSolvedEvents(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS),
     streak: normalizeStreak(data?.streak),
+    preparation: getLeaderboardProfilePreparationSummary(targetStudent),
     progress: getLeaderboardProfileProgressSummary(data, testsDb),
     activity: getLeaderboardProfileActivitySummary(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS),
     mocks: getLeaderboardProfileMockSummary(data?.mockAttempts, mockExamById),

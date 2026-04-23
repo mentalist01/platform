@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Award,
+  CalendarDays,
   Flame,
   Package2,
   Shield,
@@ -92,6 +93,16 @@ const clampPercent = (value) => Math.max(0, Math.min(100, Math.round(Number(valu
 const formatNumber = (value) => clampNumber(value).toLocaleString('ru-RU');
 
 const formatPercent = (value) => `${clampPercent(value)}%`;
+
+const formatDayCount = (value) => {
+  const count = clampNumber(value);
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  const unit = mod10 === 1 && mod100 !== 11
+    ? 'день'
+    : (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14) ? 'дня' : 'дней');
+  return `${formatNumber(count)} ${unit}`;
+};
 
 const formatDateTime = (value) => {
   if (typeof value !== 'string' || !value.trim()) return '—';
@@ -282,27 +293,34 @@ const ArtifactPreview = ({ artifact }) => {
   );
 };
 
-const StrengthCard = ({ strength }) => (
-  <div className="rounded-[1.35rem] bg-slate-950/55 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-    <div className="flex items-start justify-between gap-3">
-      <div className="inline-flex h-11 min-w-[2.75rem] items-center justify-center rounded-2xl bg-emerald-500/12 px-3 text-lg font-black text-emerald-50">
-        {`№${strength.taskNumber}`}
+const StrengthCard = ({ strength }) => {
+  const displayNumber = String(strength?.displayNumber || strength?.taskNumber || '').trim();
+  const badgeLabel = strength?.isPython
+    ? `Python ${displayNumber || 'тема'}`
+    : `№${displayNumber || strength?.taskNumber || ''}`;
+
+  return (
+    <div className="rounded-[1.35rem] bg-slate-950/55 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="inline-flex h-11 min-w-[2.75rem] items-center justify-center rounded-2xl bg-emerald-500/12 px-3 text-lg font-black text-emerald-50">
+          {badgeLabel}
+        </div>
+        <span className="rounded-full bg-white/5 px-2.5 py-1 text-[11px] font-black tracking-[0.14em] text-white">
+          {formatPercent(strength.percent)}
+        </span>
       </div>
-      <span className="rounded-full bg-white/5 px-2.5 py-1 text-[11px] font-black tracking-[0.14em] text-white">
-        {formatPercent(strength.percent)}
-      </span>
+      <div className="mt-3 text-sm font-semibold leading-snug text-white">
+        {strength.title}
+      </div>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/8">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-emerald-300 via-cyan-300 to-sky-400"
+          style={{ width: `${clampPercent(strength.percent)}%` }}
+        />
+      </div>
     </div>
-    <div className="mt-3 text-sm font-semibold leading-snug text-white">
-      {strength.title}
-    </div>
-    <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/8">
-      <div
-        className="h-full rounded-full bg-gradient-to-r from-emerald-300 via-cyan-300 to-sky-400"
-        style={{ width: `${clampPercent(strength.percent)}%` }}
-      />
-    </div>
-  </div>
-);
+  );
+};
 
 const StudentLeaderboardProfileModal = ({
   open,
@@ -361,6 +379,7 @@ const StudentLeaderboardProfileModal = ({
     const progressSummary = profileData?.progress && typeof profileData.progress === 'object' ? profileData.progress : {};
     const activitySummary = profileData?.activity && typeof profileData.activity === 'object' ? profileData.activity : {};
     const streakSummary = profileData?.streak && typeof profileData.streak === 'object' ? profileData.streak : {};
+    const preparationSummary = profileData?.preparation && typeof profileData.preparation === 'object' ? profileData.preparation : {};
     const mockSummary = profileData?.mocks && typeof profileData.mocks === 'object' ? profileData.mocks : {};
     const coinSummary = profileData?.coins && typeof profileData.coins === 'object' ? profileData.coins : {};
     const artifactSummary = profileData?.artifacts && typeof profileData.artifacts === 'object' ? profileData.artifacts : {};
@@ -388,6 +407,7 @@ const StudentLeaderboardProfileModal = ({
       progressSummary,
       activitySummary,
       streakSummary,
+      preparationSummary,
       mockSummary,
       coinSummary,
       artifactSummary,
@@ -420,6 +440,7 @@ const StudentLeaderboardProfileModal = ({
     progressSummary,
     activitySummary,
     streakSummary,
+    preparationSummary,
     mockSummary,
     coinSummary,
     artifactSummary,
@@ -438,6 +459,7 @@ const StudentLeaderboardProfileModal = ({
   const quickStats = [
     { key: 'week-xp', icon: TrendingUp, label: 'XP 7д', value: formatNumber(resolvedWeeklyXp), tone: 'sky' },
     { key: 'streak', icon: Flame, label: 'Серия', value: formatNumber(streakSummary.current), tone: 'amber' },
+    { key: 'prep-days', icon: CalendarDays, label: 'Подготовка', value: formatDayCount(preparationSummary.days), tone: 'emerald' },
     { key: 'solved', icon: Target, label: 'Реш.', value: formatNumber(progressSummary.solvedQuestions), tone: 'emerald' },
     { key: 'coins', icon: Star, label: 'Монеты', value: formatNumber(coinSummary.balance), tone: 'violet' },
   ];
