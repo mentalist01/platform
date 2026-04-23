@@ -4683,28 +4683,28 @@ const CallSection = ({
     ? 'call-header-status-pill inline-flex items-center rounded-full border border-violet-300/14 bg-violet-950/32 px-2.5 py-1 text-[11px] font-semibold text-slate-100/82'
     : 'call-header-status-pill inline-flex items-center rounded-full border border-violet-200/80 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-600';
   const teacherCardClass = isDarkTheme
-    ? 'mt-3 rounded-2xl border border-violet-400/16 bg-violet-950/30 px-3 py-2.5 backdrop-blur'
+    ? 'mt-3 rounded-2xl border border-violet-500/10 bg-violet-950/26 px-3 py-2.5 backdrop-blur'
     : 'mt-3 rounded-2xl border border-violet-200/80 bg-violet-50/70 px-3 py-2.5 backdrop-blur';
   const teacherLabelClass = isDarkTheme ? 'text-[11px] font-semibold uppercase tracking-wide text-violet-200/84' : 'text-[11px] font-semibold uppercase tracking-wide text-violet-700';
   const teacherSelectClass = isDarkTheme
-    ? 'h-9 w-full rounded-xl border border-violet-300/16 bg-slate-900/82 px-3 text-sm text-slate-100 outline-none transition focus:border-violet-300'
-    : 'h-9 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-violet-400';
+    ? 'call-student-select h-9 w-full rounded-xl border border-violet-500/12 bg-slate-950/72 px-3 text-sm text-slate-100 outline-none transition focus:border-violet-400/50'
+    : 'call-student-select h-9 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-violet-400';
   const mutedTextClass = isDarkTheme ? 'text-xs text-slate-400 md:text-right' : 'text-xs text-slate-500 md:text-right';
   const errorBoxClass = isDarkTheme
     ? 'mt-4 flex items-start gap-2 rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100'
     : 'mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700';
   const mediaSectionClass = isDarkTheme
-    ? 'call-media-stage rounded-2xl border border-violet-400/14 bg-violet-950/22 p-4 md:p-6'
+    ? 'call-media-stage rounded-2xl border border-violet-500/10 bg-violet-950/18 p-4 md:p-6'
     : 'call-media-stage rounded-2xl border border-violet-200/80 bg-violet-50/72 p-4 md:p-6';
   const emptyPeersHintClass = isDarkTheme ? 'text-xs leading-5 text-slate-300/80' : 'text-xs leading-5 text-slate-500';
   const statsGridTextClass = isDarkTheme ? 'call-stats-grid mt-4 grid gap-2 text-xs text-slate-200 sm:grid-cols-2 xl:grid-cols-5' : 'call-stats-grid mt-4 grid gap-2 text-xs text-slate-700 sm:grid-cols-2 xl:grid-cols-5';
   const statCardClass = isDarkTheme
-    ? 'call-stat-card rounded-xl border border-violet-400/14 bg-violet-950/36 px-3 py-2'
+    ? 'call-stat-card rounded-xl border border-violet-500/10 bg-violet-950/30 px-3 py-2'
     : 'call-stat-card rounded-xl border border-violet-200/80 bg-white/82 px-3 py-2';
   const statStrongClass = isDarkTheme ? 'font-semibold text-white' : 'font-semibold text-slate-900';
   const connectionHintClass = isDarkTheme ? 'call-connection-hint mt-2 text-xs text-slate-400' : 'call-connection-hint mt-2 text-xs text-slate-500';
   const controlsWrapClass = isDarkTheme
-    ? 'call-controls-wrap call-controls-rail mt-4 rounded-2xl border border-violet-400/14 bg-violet-950/32 p-2.5 backdrop-blur'
+    ? 'call-controls-wrap call-controls-rail mt-4 rounded-2xl border border-violet-500/10 bg-violet-950/28 p-2.5 backdrop-blur'
     : 'call-controls-wrap call-controls-rail mt-4 rounded-2xl border border-violet-200/80 bg-white/92 p-2.5 backdrop-blur';
   const baseControlButtonClass = 'call-control-btn inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition disabled:cursor-not-allowed disabled:opacity-45';
   const labeledControlButtonClass = 'call-control-btn call-control-btn--labeled inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border px-3.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45';
@@ -4714,7 +4714,7 @@ const CallSection = ({
     : 'call-experience-grid mt-4 grid min-h-0 gap-3';
   const callMainColumnClass = 'call-main-column min-w-0 space-y-3 md:space-y-4';
   const heroPanelClass = isDarkTheme
-    ? 'call-hero-panel grid gap-4 rounded-[28px] border border-violet-300/14 bg-[#0f1028]/48 p-5 shadow-[0_18px_42px_rgba(46,16,101,0.24)] md:p-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch'
+    ? 'call-hero-panel grid gap-4 rounded-[28px] border border-violet-500/10 bg-[#0f1028]/44 p-5 shadow-[0_18px_42px_rgba(46,16,101,0.24)] md:p-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch'
     : 'call-hero-panel grid gap-5 rounded-[28px] border border-violet-200/80 bg-white/90 p-5 shadow-[0_18px_42px_rgba(88,28,135,0.1)] md:p-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch';
   const heroEyebrowClass = isDarkTheme
     ? 'text-[12px] font-semibold tracking-[0.12em] text-fuchsia-200/78'
@@ -4727,29 +4727,29 @@ const CallSection = ({
     : 'mt-3 max-w-[52ch] text-[15px] leading-7 text-slate-700';
   const heroHintClass = isDarkTheme ? 'call-prejoin-note mt-4 text-sm text-slate-300/74' : 'call-prejoin-note mt-4 text-sm text-slate-500';
   const prejoinSecondaryActionClass = isDarkTheme
-    ? `${labeledControlButtonClass} h-12 rounded-2xl border border-violet-300/14 bg-violet-950/26 px-4 text-slate-100/92 hover:border-violet-300/24 hover:bg-violet-900/38`
+    ? `${labeledControlButtonClass} h-12 rounded-2xl border border-violet-500/10 bg-violet-950/22 px-4 text-slate-100/92 hover:border-violet-400/18 hover:bg-violet-900/34`
     : `${labeledControlButtonClass} h-12 rounded-2xl border border-violet-200 bg-white px-4 text-violet-700 hover:bg-violet-50`;
   const prejoinUtilityActionClass = isDarkTheme
-    ? `${baseControlButtonClass} h-12 w-12 rounded-2xl border border-violet-300/14 bg-violet-950/26 text-slate-100/88 hover:border-violet-300/24 hover:bg-violet-900/38`
+    ? `${baseControlButtonClass} h-12 w-12 rounded-2xl border border-violet-500/10 bg-violet-950/22 text-slate-100/88 hover:border-violet-400/18 hover:bg-violet-900/34`
     : `${baseControlButtonClass} h-12 w-12 rounded-2xl border border-violet-200 bg-white text-violet-700 hover:bg-violet-50`;
   const heroPrimaryButtonClass = isDarkTheme
-    ? `${labeledControlButtonClass} call-primary-cta h-12 min-w-[188px] rounded-2xl border border-violet-200/42 bg-violet-500/92 px-5 text-[15px] text-white disabled:opacity-100 hover:bg-violet-400`
+    ? `${labeledControlButtonClass} call-primary-cta h-12 min-w-[188px] rounded-2xl border border-violet-300/18 bg-violet-500/92 px-5 text-[15px] text-white disabled:opacity-100 hover:bg-violet-400`
     : `${labeledControlButtonClass} call-primary-cta h-12 min-w-[196px] rounded-2xl border border-violet-300/70 bg-violet-500 px-5 text-[15px] text-white hover:bg-violet-400`;
   const waitingCardClass = isDarkTheme
-    ? 'call-waiting-card flex flex-col justify-between gap-4 rounded-[28px] border border-violet-300/14 bg-violet-950/30 p-5 shadow-[0_16px_36px_rgba(46,16,101,0.18)]'
+    ? 'call-waiting-card flex flex-col justify-between gap-4 rounded-[28px] border border-violet-500/10 bg-violet-950/26 p-5 shadow-[0_16px_36px_rgba(46,16,101,0.18)]'
     : 'call-waiting-card flex flex-col justify-between gap-5 rounded-[28px] border border-violet-200/80 bg-violet-50/92 p-5 shadow-[0_18px_42px_rgba(88,28,135,0.08)]';
   const waitingAvatarClass = isDarkTheme
-    ? 'call-waiting-avatar relative flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] border border-violet-300/16 bg-violet-950/78 text-lg font-semibold text-white'
+    ? 'call-waiting-avatar relative flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] border border-violet-500/10 bg-violet-950/68 text-lg font-semibold text-white'
     : 'call-waiting-avatar relative flex h-16 w-16 shrink-0 items-center justify-center rounded-[22px] border border-violet-200 bg-white text-xl font-semibold text-violet-700';
   const waitingRoleClass = isDarkTheme
-    ? 'inline-flex w-fit items-center rounded-full border border-violet-300/18 bg-violet-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-100/84'
+    ? 'inline-flex w-fit items-center rounded-full bg-violet-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-100/84'
     : 'inline-flex w-fit items-center rounded-full border border-violet-200/80 bg-violet-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-violet-700';
   const waitingNameClass = isDarkTheme ? 'mt-4 text-xl font-semibold text-white' : 'mt-4 text-xl font-semibold text-slate-900';
   const waitingMetaClass = isDarkTheme ? 'text-sm font-medium leading-6 text-slate-300/82' : 'text-sm font-medium leading-6 text-slate-500';
   const waitingPresenceRowClass = isDarkTheme ? 'mt-3 flex items-center gap-2 text-slate-300/82' : 'mt-3 flex items-center gap-2 text-slate-500';
   const micSensitivityLabelClass = isDarkTheme ? 'text-xs font-semibold text-slate-200' : 'text-xs font-semibold text-slate-700';
   const neutralControlClass = isDarkTheme
-    ? 'border-white/15 bg-slate-800 text-slate-200 hover:bg-slate-700'
+    ? 'border-slate-700/80 bg-slate-900/80 text-slate-200 hover:bg-slate-800'
     : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100';
   const micOnControlClass = isDarkTheme
     ? 'border-violet-300/40 bg-violet-400/20 text-violet-100 hover:bg-violet-400/30'
@@ -4761,25 +4761,25 @@ const CallSection = ({
     ? 'border-violet-300/40 bg-violet-400/20 text-violet-100 hover:bg-violet-400/30'
     : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100';
   const popupCardClass = isDarkTheme
-    ? 'absolute w-[244px] rounded-xl border border-white/15 bg-slate-900/95 p-3 shadow-[0_16px_34px_rgba(2,6,23,0.55)] backdrop-blur'
+    ? 'absolute w-[244px] rounded-xl border border-slate-700/80 bg-slate-900/95 p-3 shadow-[0_16px_34px_rgba(2,6,23,0.55)] backdrop-blur'
     : 'absolute w-[244px] rounded-xl border border-slate-200 bg-white/95 p-3 shadow-[0_16px_34px_rgba(15,23,42,0.2)] backdrop-blur';
   const popupTitleClass = isDarkTheme ? 'truncate text-xs font-semibold text-slate-100' : 'truncate text-xs font-semibold text-slate-800';
   const popupHintClass = isDarkTheme ? 'mt-0.5 text-[11px] text-slate-400' : 'mt-0.5 text-[11px] text-slate-500';
   const popupButtonClass = isDarkTheme
-    ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-slate-800 text-sm font-semibold text-slate-200 transition hover:bg-slate-700'
+    ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-700/80 bg-slate-800 text-sm font-semibold text-slate-200 transition hover:bg-slate-700'
     : 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-semibold text-slate-700 transition hover:bg-slate-100';
   const popupValueClass = isDarkTheme ? 'w-10 text-right text-xs font-semibold text-slate-200' : 'w-10 text-right text-xs font-semibold text-slate-700';
   const micSettingsButtonClass = isDarkTheme
-    ? `${baseControlButtonClass} border border-white/15 bg-slate-800 text-slate-200 hover:bg-slate-700`
+    ? `${baseControlButtonClass} border border-slate-700/80 bg-slate-800 text-slate-200 hover:bg-slate-700`
     : `${baseControlButtonClass} border border-slate-200 bg-white text-slate-700 hover:bg-slate-100`;
   const micSettingsButtonActiveClass = isDarkTheme
     ? 'border-violet-300/40 bg-violet-400/20 text-violet-100'
     : 'border-violet-200 bg-violet-50 text-violet-700';
   const micSettingsPopupClass = isDarkTheme
-    ? 'fixed z-[90] rounded-xl border border-white/15 bg-slate-900/95 p-3 shadow-[0_16px_34px_rgba(2,6,23,0.55)] backdrop-blur'
+    ? 'fixed z-[90] rounded-xl border border-slate-700/80 bg-slate-900/95 p-3 shadow-[0_16px_34px_rgba(2,6,23,0.55)] backdrop-blur'
     : 'fixed z-[90] rounded-xl border border-slate-200 bg-white/95 p-3 shadow-[0_16px_34px_rgba(15,23,42,0.2)] backdrop-blur';
   const micSettingsSectionClass = isDarkTheme
-    ? 'rounded-lg border border-white/10 bg-slate-900/50 p-2'
+    ? 'rounded-lg border border-slate-800/90 bg-slate-900/50 p-2'
     : 'rounded-lg border border-slate-200/60 bg-white/70 p-2';
   const micLevelMeterPopupTrackClass = isDarkTheme
     ? 'relative h-2 flex-1 overflow-hidden rounded-full bg-slate-700'
@@ -4809,20 +4809,20 @@ const CallSection = ({
   const popupRangeClass = isDarkTheme ? 'h-2 flex-1 accent-violet-300' : 'h-2 flex-1 accent-violet-500';
   const popupToneClass = isDarkTheme ? 'text-slate-200' : 'text-slate-700';
   const lessonChatSectionClass = isDarkTheme
-    ? 'call-lesson-chat call-chat-panel group/lesson flex min-h-[340px] min-w-0 flex-col rounded-[24px] border border-white/10 bg-slate-950/56 p-3.5 shadow-[0_20px_48px_rgba(2,6,23,0.26)] backdrop-blur'
+    ? 'call-lesson-chat call-chat-panel group/lesson flex min-h-[340px] min-w-0 flex-col rounded-[24px] border border-transparent bg-slate-950/56 p-3.5 shadow-[0_20px_48px_rgba(2,6,23,0.26)] backdrop-blur'
     : 'call-lesson-chat call-chat-panel group/lesson flex min-h-[340px] min-w-0 flex-col rounded-[24px] border border-slate-200/80 bg-white/92 p-3.5 shadow-[0_18px_44px_rgba(15,23,42,0.1)] backdrop-blur';
   const lessonChatHeaderClass = 'call-chat-header mb-3 flex items-start justify-between gap-3';
   const lessonChatHeaderIdentityClass = 'flex min-w-0 items-center gap-3';
   const lessonChatHeaderAvatarClass = isDarkTheme
-    ? 'call-chat-header-avatar inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/12 bg-slate-900 text-sm font-semibold text-white'
+    ? 'call-chat-header-avatar inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-transparent bg-slate-900/88 text-sm font-semibold text-white'
     : 'call-chat-header-avatar inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-sm font-semibold text-slate-700';
   const lessonChatToggleClass = isDarkTheme
-    ? `${compactControlButtonClass} ${lessonChatExpanded ? 'border-violet-300/45 bg-violet-400/22 text-violet-50 hover:bg-violet-400/30' : 'border-white/15 bg-slate-800 text-slate-100 hover:bg-slate-700'}`
+    ? `${compactControlButtonClass} ${lessonChatExpanded ? 'border-transparent bg-violet-400/18 text-violet-50 hover:bg-violet-400/24' : 'border-transparent bg-slate-800/92 text-slate-100 hover:bg-slate-700'}`
     : `${compactControlButtonClass} ${lessonChatExpanded ? 'border-violet-300 bg-violet-500/20 text-violet-700 hover:bg-violet-500/30' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'}`;
   const lessonChatHeaderTitleClass = isDarkTheme ? 'truncate text-[15px] font-semibold text-white' : 'truncate text-[15px] font-semibold text-slate-900';
   const lessonChatHeaderMetaClass = isDarkTheme ? 'mt-0.5 truncate text-[11px] text-slate-300/72' : 'mt-0.5 truncate text-[11px] text-slate-500';
   const lessonChatCollapseClass = isDarkTheme
-    ? 'inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/12 bg-white/6 text-slate-200 transition hover:bg-white/10'
+    ? 'inline-flex h-9 w-9 items-center justify-center rounded-full border border-transparent bg-white/6 text-slate-200 transition hover:bg-white/10'
     : 'inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100';
   const lessonChatBodyClass = 'flex min-h-0 flex-1 flex-col';
   const lessonChatListClass = lessonChatMessages.length > 0
@@ -4832,39 +4832,39 @@ const CallSection = ({
     ? 'call-lesson-chat-bubble relative rounded-2xl border px-3 py-2 text-[13px] text-slate-100 backdrop-blur-sm transition-all duration-300'
     : 'call-lesson-chat-bubble relative rounded-2xl border px-3 py-2 text-[13px] text-slate-700 backdrop-blur-sm transition-all duration-300';
   const lessonChatMineClass = isDarkTheme
-    ? 'border-violet-300/35 bg-violet-400/16 text-violet-50'
+    ? 'border-transparent bg-violet-400/14 text-violet-50'
     : 'border-violet-200/80 bg-violet-500/12 text-violet-900';
   const lessonChatPeerClass = isDarkTheme
-    ? 'border-violet-300/28 bg-violet-500/12'
+    ? 'border-transparent bg-violet-500/10'
     : 'border-violet-200/80 bg-violet-500/10';
   const lessonChatMetaClass = isDarkTheme ? 'mt-1 text-[10px] text-slate-300/80' : 'mt-1 text-[10px] text-slate-500';
   const lessonChatEmptyClass = isDarkTheme
-    ? 'call-lesson-chat-empty flex min-h-[180px] flex-1 flex-col items-center justify-center gap-2 rounded-[22px] border border-dashed border-white/10 bg-slate-900/28 px-4 text-center'
+    ? 'call-lesson-chat-empty flex min-h-[180px] flex-1 flex-col items-center justify-center gap-2 rounded-[22px] border border-dashed border-transparent bg-slate-900/28 px-4 text-center'
     : 'call-lesson-chat-empty flex min-h-[180px] flex-1 flex-col items-center justify-center gap-2 rounded-[22px] border border-dashed border-slate-200 bg-slate-50/60 px-4 text-center';
   const lessonChatEmptyIconClass = isDarkTheme
-    ? 'inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/6 text-slate-200'
+    ? 'inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-transparent bg-white/6 text-slate-200'
     : 'inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500';
   const lessonChatEmptyTitleClass = isDarkTheme ? 'text-sm font-semibold text-slate-100' : 'text-sm font-semibold text-slate-700';
   const lessonChatInputWrapClass = isDarkTheme
-    ? 'call-lesson-chat-input call-chat-composer mt-3 rounded-[22px] border border-white/12 bg-slate-900/42 p-2.5'
+    ? 'call-lesson-chat-input call-chat-composer mt-3 rounded-[22px] border border-transparent bg-slate-900/42 p-2.5'
     : 'call-lesson-chat-input call-chat-composer mt-3 rounded-[22px] border border-slate-200/80 bg-white/84 p-2.5';
   const lessonChatComposerFooterClass = 'call-chat-composer-footer mt-2 flex items-center justify-between gap-2';
   const lessonChatTextareaClass = isDarkTheme
-    ? 'min-h-[92px] w-full resize-none rounded-[18px] border border-white/10 bg-slate-950/34 px-3 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-400/72 focus:border-violet-300/70'
+    ? 'min-h-[92px] w-full resize-none rounded-[18px] border border-transparent bg-slate-950/34 px-3 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-400/72 focus:border-transparent'
     : 'min-h-[92px] w-full resize-none rounded-[18px] border border-slate-200 bg-slate-50/70 px-3 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-400';
   const lessonChatAttachClass = isDarkTheme
-    ? 'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/14 bg-white/6 text-slate-200 transition hover:bg-white/10'
+    ? 'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-transparent bg-white/6 text-slate-200 transition hover:bg-white/10'
     : 'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100';
   const lessonChatSendClass = isDarkTheme
-    ? 'inline-flex h-10 min-w-[124px] items-center justify-center gap-2 rounded-2xl border border-violet-300/35 bg-violet-500/30 px-4 text-sm font-semibold text-violet-50 transition hover:bg-violet-400/42 disabled:opacity-55 disabled:cursor-not-allowed'
+    ? 'inline-flex h-10 min-w-[124px] items-center justify-center gap-2 rounded-2xl border border-transparent bg-violet-500/26 px-4 text-sm font-semibold text-violet-50 transition hover:bg-violet-400/34 disabled:opacity-55 disabled:cursor-not-allowed'
     : 'inline-flex h-10 min-w-[124px] items-center justify-center gap-2 rounded-2xl border border-violet-300 bg-violet-500/22 px-4 text-sm font-semibold text-violet-700 transition hover:bg-violet-500/32 disabled:opacity-55 disabled:cursor-not-allowed';
   const lessonChatPreviewCardClass = isDarkTheme
-    ? 'flex items-start gap-2 rounded-[18px] border border-white/12 bg-slate-950/45 px-2.5 py-2'
+    ? 'flex items-start gap-2 rounded-[18px] border border-transparent bg-slate-950/45 px-2.5 py-2'
     : 'flex items-start gap-2 rounded-[18px] border border-slate-200 bg-white px-2.5 py-2';
   const lessonChatPreviewNameClass = isDarkTheme ? 'truncate text-xs font-medium text-slate-200' : 'truncate text-xs font-medium text-slate-700';
   const lessonChatPreviewMetaClass = isDarkTheme ? 'text-[11px] text-slate-400' : 'text-[11px] text-slate-500';
   const lessonChatPreviewRemoveClass = isDarkTheme
-    ? 'inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/16 text-slate-200 transition hover:bg-white/10'
+    ? 'inline-flex h-7 w-7 items-center justify-center rounded-full border border-transparent text-slate-200 transition hover:bg-white/10'
     : 'inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:bg-slate-100';
   const lessonChatErrorClass = isDarkTheme ? 'mt-2 text-xs text-rose-300' : 'mt-2 text-xs text-rose-600';
 

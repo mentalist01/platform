@@ -4242,6 +4242,23 @@ html[data-theme='dark'] .board-canvas-outline {
 .call-prejoin-note {
   max-width: 42ch;
 }
+.call-student-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 2.75rem;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - 1.1rem) calc(50% - 0.12rem),
+    calc(100% - 0.8rem) calc(50% - 0.12rem);
+  background-size: 0.42rem 0.42rem;
+  background-repeat: no-repeat;
+}
+.call-student-select::-ms-expand {
+  display: none;
+}
 .call-prejoin-stage .call-waiting-card {
   align-self: stretch;
   justify-content: space-between;
@@ -8774,6 +8791,14 @@ html[data-theme='dark'] .call-lesson-chat-bubble {
   box-shadow: 0 12px 26px rgba(2, 6, 23, 0.36);
 }
 
+html[data-theme='dark'] .call-chat-header::after {
+  background: linear-gradient(90deg, rgba(148, 163, 184, 0.06), transparent 82%);
+}
+
+html[data-theme='dark'] .call-chat-composer {
+  box-shadow: 0 12px 26px rgba(2, 6, 23, 0.22);
+}
+
 html[data-theme='dark'] .call-lesson-chat:hover .call-lesson-chat-list,
 html[data-theme='dark'] .call-lesson-chat:focus-within .call-lesson-chat-list {
   scrollbar-color: color-mix(in srgb, rgba(168, 85, 247, 0.48) 58%, rgba(217, 70, 239, 0.4)) transparent;
@@ -8922,9 +8947,9 @@ html[data-theme='dark'] .call-prejoin-stage::after {
 
 html[data-theme='dark'] .call-hero-panel::before {
   background:
-    radial-gradient(circle at 82% 20%, rgba(168, 85, 247, 0.14) 0%, transparent 34%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 48%);
-  opacity: 0.62;
+    radial-gradient(circle at 82% 20%, rgba(168, 85, 247, 0.12) 0%, transparent 34%),
+    linear-gradient(135deg, rgba(167, 139, 250, 0.04), transparent 48%);
+  opacity: 0.54;
 }
 
 html[data-theme='dark'] .call-header-status-pill {
@@ -9000,15 +9025,16 @@ html[data-theme='dark'] .call-prejoin-glance-value {
 }
 
 html[data-theme='dark'] .call-prejoin-stage .call-waiting-card {
-  border-color: rgba(196, 181, 253, 0.12);
-  background: rgba(22, 16, 48, 0.54);
-  box-shadow:
-    0 16px 34px rgba(28, 14, 61, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  border-color: rgba(139, 92, 246, 0.1);
+  background: rgba(22, 16, 48, 0.5);
+  box-shadow: 0 16px 34px rgba(28, 14, 61, 0.22);
 }
 
 html[data-theme='dark'] .call-waiting-card::before {
-  opacity: 0.34;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(167, 139, 250, 0.08), transparent 38%),
+    linear-gradient(125deg, transparent 24%, rgba(167, 139, 250, 0.04) 48%, transparent 72%);
+  opacity: 0.26;
 }
 
 html[data-theme='dark'] .call-prejoin-stage .call-waiting-card::after {
@@ -9018,7 +9044,7 @@ html[data-theme='dark'] .call-prejoin-stage .call-waiting-card::after {
 }
 
 html[data-theme='dark'] .call-prejoin-stage .call-waiting-card[data-presence='live'] {
-  border-color: rgba(196, 181, 253, 0.2);
+  border-color: rgba(167, 139, 250, 0.14);
 }
 
 html[data-theme='dark'] .call-prejoin-stage[data-state='idle'] {
@@ -9035,14 +9061,14 @@ html[data-theme='dark'] .call-prejoin-stage[data-state='problem'] {
 
 html[data-theme='dark'] .call-primary-cta {
   background: linear-gradient(135deg, rgba(139, 92, 246, 0.98), rgba(217, 70, 239, 0.96)) !important;
-  border-color: rgba(216, 180, 254, 0.54) !important;
+  border-color: rgba(196, 181, 253, 0.22) !important;
   color: rgb(255 255 255) !important;
   box-shadow: 0 12px 24px rgba(126, 34, 206, 0.22);
 }
 
 html[data-theme='dark'] .call-primary-cta:hover:not(:disabled) {
   background: linear-gradient(135deg, rgba(167, 139, 250, 1), rgba(232, 121, 249, 0.98)) !important;
-  border-color: rgba(233, 213, 255, 0.82) !important;
+  border-color: rgba(216, 180, 254, 0.3) !important;
 }
 
 html[data-theme='dark'] .call-primary-cta[data-attention='true'] {
