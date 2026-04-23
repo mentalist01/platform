@@ -1,5 +1,6 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Package2, RefreshCcw, Sparkles } from 'lucide-react';
+import ivanCoin from '../assets/ivan-coin-badge.png';
 import { api } from '../services/api';
 import StudentArtifactAltar from './StudentArtifactAltar';
 import StudentLeaderboardProfileModal from './StudentLeaderboardProfileModal';
@@ -9,6 +10,20 @@ const BONUS_TONE_CLASSNAME = {
   coins: 'border-amber-200 bg-amber-50/90 text-amber-700',
   instant: 'border-emerald-200 bg-emerald-50/90 text-emerald-700',
 };
+const LEADERBOARD_ALIAS_COIN_REWARD = 100;
+
+const normalizeOptionalWholeNumber = (value) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Math.max(0, Math.floor(number));
+};
+
+const LeaderboardAliasRewardChip = () => (
+  <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md border border-amber-300 bg-amber-100 px-1.5 text-[11px] font-black leading-none text-amber-800 shadow-sm">
+    <span>{`+${LEADERBOARD_ALIAS_COIN_REWARD}`}</span>
+    <img className="h-3.5 w-3.5" src={ivanCoin} alt="" aria-hidden="true" draggable="false" />
+  </span>
+);
 
 const getLeagueIconClassName = (leagueId, size = 'default') => {
   if (leagueId === 'blank') {
@@ -274,6 +289,7 @@ const StudentLeaderboardSection = ({
     return fromProfile;
   })();
   const needsAliasPrompt = role === 'student' && currentStudentMeta && !currentStudentMeta.hasAlias;
+  const hasAliasRewardAvailable = needsAliasPrompt && !currentStudentMeta?.leaderboardAliasRewardClaimed;
   const selectedTeacherRow = role === 'teacher' && teacherSelectedStudentId
     ? (rows.find((row) => row.studentId === teacherSelectedStudentId) || null)
     : null;
@@ -331,9 +347,16 @@ const StudentLeaderboardSection = ({
     setAliasError('');
     setAliasSuccess('');
     try {
-      await api.setLeaderboardAlias(normalized);
+      const data = await api.setLeaderboardAlias(normalized);
       if (!mountedRef.current) return;
-      setAliasSuccess('Псевдоним сохранён.');
+      const coinsGained = normalizeOptionalWholeNumber(data?.coinsGained) || 0;
+      const nextCoinsTotal = normalizeOptionalWholeNumber(data?.coinsTotal);
+      if (typeof onStudentCoinsChange === 'function' && nextCoinsTotal !== null) {
+        onStudentCoinsChange(nextCoinsTotal);
+      }
+      setAliasSuccess(coinsGained > 0
+        ? `Псевдоним сохранён. +${coinsGained.toLocaleString('ru-RU')} монет!`
+        : 'Псевдоним сохранён.');
       await loadLeaderboard({ silent: true });
     } catch (err) {
       if (!mountedRef.current) return;
@@ -355,9 +378,16 @@ const StudentLeaderboardSection = ({
     setAliasError('');
     setAliasSuccess('');
     try {
-      await api.setLeaderboardAlias({ useMainName: true, alias: currentStudentMainName });
+      const data = await api.setLeaderboardAlias({ useMainName: true, alias: currentStudentMainName });
       if (!mountedRef.current) return;
-      setAliasSuccess('Основное имя добавлено в рейтинг.');
+      const coinsGained = normalizeOptionalWholeNumber(data?.coinsGained) || 0;
+      const nextCoinsTotal = normalizeOptionalWholeNumber(data?.coinsTotal);
+      if (typeof onStudentCoinsChange === 'function' && nextCoinsTotal !== null) {
+        onStudentCoinsChange(nextCoinsTotal);
+      }
+      setAliasSuccess(coinsGained > 0
+        ? `Основное имя добавлено в рейтинг. +${coinsGained.toLocaleString('ru-RU')} монет!`
+        : 'Основное имя добавлено в рейтинг.');
       await loadLeaderboard({ silent: true });
     } catch (err) {
       if (!mountedRef.current) return;
@@ -376,12 +406,8 @@ const StudentLeaderboardSection = ({
     try {
       const data = await api.spinArtifactAltar();
       if (!mountedRef.current) return;
-      const nextCoinsTotal = Number.isFinite(Number(data?.coinsTotal))
-        ? Math.max(0, Math.floor(Number(data.coinsTotal)))
-        : null;
-      const nextXpTotal = Number.isFinite(Number(data?.xpTotal))
-        ? Math.max(0, Math.floor(Number(data.xpTotal)))
-        : null;
+      const nextCoinsTotal = normalizeOptionalWholeNumber(data?.coinsTotal);
+      const nextXpTotal = normalizeOptionalWholeNumber(data?.xpTotal);
       if (typeof onStudentCoinsChange === 'function' && nextCoinsTotal !== null) {
         onStudentCoinsChange(nextCoinsTotal);
       }
@@ -934,9 +960,16 @@ const StudentLeaderboardSection = ({
               type="button"
               onClick={handleUseMainName}
               disabled={aliasSaving || !currentStudentMainName}
-              className="inline-flex items-center justify-center rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60"
             >
-              {aliasSaving ? 'Сохраняем...' : `Использовать имя: ${currentStudentMainName || 'моё имя'}`}
+              {aliasSaving
+                ? 'Сохраняем...'
+                : (
+                  <>
+                    <span>Использовать имя</span>
+                    {hasAliasRewardAvailable && <LeaderboardAliasRewardChip />}
+                  </>
+                )}
             </button>
             <button
               type="button"
@@ -947,9 +980,10 @@ const StudentLeaderboardSection = ({
                 setAliasSuccess('');
               }}
               disabled={aliasSaving}
-              className="inline-flex items-center justify-center rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60"
             >
-              Создать псевдоним
+              <span>Создать никнейм</span>
+              {hasAliasRewardAvailable && <LeaderboardAliasRewardChip />}
             </button>
           </div>
           {aliasMode === 'custom' && (

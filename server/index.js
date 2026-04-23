@@ -312,6 +312,7 @@ const TASK_XP_REWARDS = {
 };
 const XP_PER_LEVEL = 1000;
 const LEADERBOARD_WEEK_DAYS = 7;
+const LEADERBOARD_ALIAS_COIN_REWARD = 100;
 const LEADERBOARD_ALIAS_MIN_LENGTH = 2;
 const LEADERBOARD_ALIAS_MAX_LENGTH = 60;
 const LEADERBOARD_PSEUDONYM_MIN_LENGTH = 2;
@@ -6081,6 +6082,7 @@ const getStudentData = (studentId) => {
       artifactLastPull: null,
       artifactTotalPulls: 0,
       leaderboardAlias: '',
+      leaderboardAliasRewardClaimed: false,
     };
   }
   if (
@@ -6099,6 +6101,7 @@ const getStudentData = (studentId) => {
     || Object.prototype.hasOwnProperty.call(raw, 'artifactLastPull')
     || Object.prototype.hasOwnProperty.call(raw, 'artifactTotalPulls')
     || Object.prototype.hasOwnProperty.call(raw, 'leaderboardAlias')
+    || Object.prototype.hasOwnProperty.call(raw, 'leaderboardAliasRewardClaimed')
   ) {
     const progress = raw.progress && typeof raw.progress === 'object' && !Array.isArray(raw.progress) ? raw.progress : {};
     const solvedByTask = raw.solvedByTask && typeof raw.solvedByTask === 'object' ? raw.solvedByTask : {};
@@ -6108,6 +6111,7 @@ const getStudentData = (studentId) => {
     const hasStoredXp = Object.prototype.hasOwnProperty.call(raw, 'xpTotal');
     const hasStoredCoins = Object.prototype.hasOwnProperty.call(raw, 'coinsTotal');
     const hasStoredCoinsSpent = Object.prototype.hasOwnProperty.call(raw, 'coinsSpentTotal');
+    const leaderboardAlias = normalizeLeaderboardAlias(raw.leaderboardAlias);
     const derivedSolvedXp = deriveXpFromSolvedByTask(solvedByTask);
     const derivedEventsXp = deriveXpFromSolvedEvents(solvedEvents);
     const derivedLegacyProgressXp = deriveXpFromLegacyProgress(progress);
@@ -6148,7 +6152,8 @@ const getStudentData = (studentId) => {
       artifactInventory,
       artifactLastPull: normalizeArtifactLastPull(raw.artifactLastPull),
       artifactTotalPulls: normalizeArtifactTotalPulls(raw.artifactTotalPulls),
-      leaderboardAlias: normalizeLeaderboardAlias(raw.leaderboardAlias),
+      leaderboardAlias,
+      leaderboardAliasRewardClaimed: Boolean(raw.leaderboardAliasRewardClaimed) || Boolean(leaderboardAlias),
     };
   }
   const legacyProgress = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -6172,6 +6177,7 @@ const getStudentData = (studentId) => {
     artifactLastPull: null,
     artifactTotalPulls: 0,
     leaderboardAlias: '',
+    leaderboardAliasRewardClaimed: false,
   };
 };
 
@@ -6196,6 +6202,7 @@ const setStudentData = (studentId, data) => {
     artifactLastPull: normalizeArtifactLastPull(data.artifactLastPull),
     artifactTotalPulls: normalizeArtifactTotalPulls(data.artifactTotalPulls),
     leaderboardAlias: normalizeLeaderboardAlias(data.leaderboardAlias),
+    leaderboardAliasRewardClaimed: Boolean(data.leaderboardAliasRewardClaimed),
   };
   db[studentId] = payload;
   writeProgressDb(db);
@@ -9936,6 +9943,7 @@ app.get('/api/students/leaderboard', (req, res) => {
           hasAlias: currentStudent.hasAlias,
           mainName: normalizeStudentName(currentStudentEntry?.name || ''),
           coinsTotal: normalizeCoinsTotal(currentStudentData?.coinsTotal),
+          leaderboardAliasRewardClaimed: Boolean(currentStudentData?.leaderboardAliasRewardClaimed),
         }
       : null,
     selectedStudent: selectedStudentItem
@@ -10055,8 +10063,20 @@ app.patch('/api/students/leaderboard-alias', (req, res) => {
   }
 
   const data = getStudentData(student.id);
-  const updated = setStudentData(student.id, { ...data, leaderboardAlias: alias });
-  return res.json({ ok: true, alias: normalizeLeaderboardAlias(updated?.leaderboardAlias) });
+  const coinsGained = data?.leaderboardAliasRewardClaimed ? 0 : LEADERBOARD_ALIAS_COIN_REWARD;
+  const coinsTotal = normalizeCoinsTotal(data?.coinsTotal) + coinsGained;
+  const updated = setStudentData(student.id, {
+    ...data,
+    leaderboardAlias: alias,
+    leaderboardAliasRewardClaimed: true,
+    coinsTotal,
+  });
+  return res.json({
+    ok: true,
+    alias: normalizeLeaderboardAlias(updated?.leaderboardAlias),
+    coinsGained,
+    coinsTotal: normalizeCoinsTotal(updated?.coinsTotal),
+  });
 });
 
 app.post('/api/students/altar/spin', (req, res) => {
