@@ -47,6 +47,7 @@ const PYTHON_COIN_ARTIFACT_BONUSES = {
   python: 1,
   whileTrue: 0.2,
 };
+const PYTHON_ARTIFACT_MAX_LEVEL = 5;
 
 const PYTHON_TASK_SECTION_UI = {
   topics: {
@@ -121,22 +122,52 @@ const getPythonCoinReward = (taskNumber) => {
   );
 };
 
-const getArtifactInventoryCount = (inventory = {}, artifactId) => (
-  Math.max(0, Math.floor(Number(inventory?.[artifactId]) || 0))
+const normalizePythonArtifactInventory = (inventory = {}) => {
+  const next = {};
+  if (!inventory || typeof inventory !== 'object' || Array.isArray(inventory)) return next;
+  Object.entries(inventory).forEach(([rawId, rawCount]) => {
+    const id = String(rawId || '').trim();
+    if (!id) return;
+    const count = Math.max(0, Math.floor(Number(rawCount) || 0));
+    if (count > 0) next[id] = count;
+  });
+  return next;
+};
+
+const normalizePythonArtifactLevels = (levels = {}, inventory = {}) => {
+  const safeInventory = normalizePythonArtifactInventory(inventory);
+  const next = {};
+  if (levels && typeof levels === 'object' && !Array.isArray(levels)) {
+    Object.entries(levels).forEach(([rawId, rawLevel]) => {
+      const id = String(rawId || '').trim();
+      if (!id) return;
+      const level = Number(rawLevel);
+      if (!Number.isFinite(level) || level <= 0) return;
+      next[id] = Math.min(PYTHON_ARTIFACT_MAX_LEVEL, Math.max(1, Math.floor(level)));
+    });
+  }
+  Object.entries(safeInventory).forEach(([id, count]) => {
+    if (count > 0 && !next[id]) next[id] = 1;
+  });
+  return next;
+};
+
+const getPythonArtifactLevel = (levels = {}, artifactId) => (
+  Math.min(PYTHON_ARTIFACT_MAX_LEVEL, Math.max(0, Math.floor(Number(levels?.[artifactId]) || 0)))
 );
 
-const getPythonCoinRewardMultiplier = (inventory = {}) => (
+const getPythonCoinRewardMultiplier = (artifactLevels = {}) => (
   Object.entries(PYTHON_COIN_ARTIFACT_BONUSES).reduce((multiplier, [artifactId, perCopyBonus]) => {
-    const count = getArtifactInventoryCount(inventory, artifactId);
-    if (count <= 0) return multiplier;
-    return multiplier * (1 + (Number(perCopyBonus) * count));
+    const level = getPythonArtifactLevel(artifactLevels, artifactId);
+    if (level <= 0) return multiplier;
+    return multiplier * (1 + (Number(perCopyBonus) * level));
   }, 1)
 );
 
-const applyPythonCoinRewardMultiplier = (baseReward, inventory = {}) => {
+const applyPythonCoinRewardMultiplier = (baseReward, artifactLevels = {}) => {
   const reward = normalizeCoinAmount(baseReward);
   if (reward <= 0) return 0;
-  return normalizeCoinAmount(Math.round(reward * getPythonCoinRewardMultiplier(inventory)));
+  return normalizeCoinAmount(Math.round(reward * getPythonCoinRewardMultiplier(artifactLevels)));
 };
 
 const getQuestionIdForCoins = (question, index) => String(question?.id ?? index ?? '').trim();
@@ -153,7 +184,11 @@ const getPythonTaskCoinStats = ({ task, testsDb, studentData, levelId }) => {
     .filter(Boolean);
   const knownQuestionIdSet = new Set(questionIds);
   const baseReward = getPythonCoinReward(taskNumber);
-  const boostedReward = applyPythonCoinRewardMultiplier(baseReward, studentData?.artifactInventory);
+  const artifactLevels = normalizePythonArtifactLevels(
+    studentData?.artifactLevels,
+    studentData?.artifactInventory
+  );
+  const boostedReward = applyPythonCoinRewardMultiplier(baseReward, artifactLevels);
   const solvedRaw = studentData?.solvedByTask?.[taskKey]?.[levelKey]?.solved;
   const solvedIds = (Array.isArray(solvedRaw) ? solvedRaw : [])
     .map((id) => String(id ?? '').trim())
@@ -178,7 +213,7 @@ const getPythonTaskCoinStats = ({ task, testsDb, studentData, levelId }) => {
   const totalQuestions = questionIds.length;
   const remainingQuestions = Math.max(0, totalQuestions - solvedQuestionIdSet.size);
   const possibleCoins = earnedCoins + (remainingQuestions * boostedReward);
-  const multiplier = getPythonCoinRewardMultiplier(studentData?.artifactInventory);
+  const multiplier = getPythonCoinRewardMultiplier(artifactLevels);
   return {
     earnedCoins: normalizeCoinAmount(earnedCoins),
     possibleCoins: normalizeCoinAmount(possibleCoins),
@@ -188,11 +223,22 @@ const getPythonTaskCoinStats = ({ task, testsDb, studentData, levelId }) => {
   };
 };
 
-const normalizeLoadedStudentData = (data) => (
-  data && typeof data === 'object'
-    ? { ...data, progress: data?.progress || {} }
-    : { progress: {} }
-);
+const normalizeLoadedStudentData = (data) => {
+  const artifactInventory = normalizePythonArtifactInventory(data?.artifactInventory);
+  const artifactLevels = normalizePythonArtifactLevels(data?.artifactLevels, artifactInventory);
+  return data && typeof data === 'object'
+    ? {
+        ...data,
+        progress: data?.progress || {},
+        artifactInventory,
+        artifactLevels,
+      }
+    : {
+        progress: {},
+        artifactInventory,
+        artifactLevels,
+      };
+};
 
 const buildTheoryRecordingDraftStorageKey = (taskNumber, subsectionId) => {
   const safeTaskNumber = String(taskNumber || '').trim();

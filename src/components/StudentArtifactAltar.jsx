@@ -695,13 +695,18 @@ const StudentArtifactAltar = ({
     ? Math.min(100, Math.round((selectedCardsAvailable / selectedCardsRequired) * 100))
     : 100;
   const selectedUpgradeIsMax = Boolean(selectedUpgrade?.isMaxLevel) || selectedArtifactLevel >= Math.max(1, Math.floor(Number(selectedUpgrade?.maxLevel) || 5));
+  const selectedUpgradeCopiesReady = Boolean(
+    !selectedUpgradeIsMax
+    && selectedCardsRequired > 0
+    && selectedCardsAvailable >= selectedCardsRequired
+  );
   const selectedUpgradeCanAffordCoins = selectedCoinsRequired <= Math.max(0, Math.floor(Number(coinsTotal) || 0));
   const selectedUpgradeCanSubmit = Boolean(
     selectedArtifact
     && typeof onUpgrade === 'function'
     && !selectedUpgradeIsMax
     && selectedCardsRequired > 0
-    && selectedCardsAvailable >= selectedCardsRequired
+    && selectedUpgradeCopiesReady
     && selectedUpgradeCanAffordCoins
     && !upgradingArtifactId
   );
@@ -958,7 +963,9 @@ const StudentArtifactAltar = ({
                   <span>Копии</span>
                   <strong>{`${selectedCardsAvailable}/${selectedCardsRequired}`}</strong>
                 </div>
-                <div className="student-artifact-detail-modal__upgrade-track">
+                <div className={`student-artifact-detail-modal__upgrade-track ${
+                  selectedUpgradeCopiesReady ? 'student-artifact-detail-modal__upgrade-track--ready' : ''
+                }`}>
                   <div
                     className="student-artifact-detail-modal__upgrade-fill"
                     style={{ width: `${selectedUpgradeProgress}%` }}
@@ -1363,10 +1370,18 @@ const StudentArtifactAltar = ({
                       <div className="student-artifact-altar__artifact-grid grid">
                         {rankItems.map((artifact) => {
                           const artifactUpgrade = artifact.upgrade;
+                          const artifactCardsAvailable = Math.max(0, Math.floor(Number(artifactUpgrade?.cardsAvailable ?? artifact.cards) || 0));
+                          const artifactCardsRequired = Math.max(0, Math.floor(Number(artifactUpgrade?.cardsRequired) || 0));
+                          const artifactUpgradeCopiesReady = Boolean(
+                            artifactUpgrade
+                            && !artifactUpgrade.isMaxLevel
+                            && artifactCardsRequired > 0
+                            && artifactCardsAvailable >= artifactCardsRequired
+                          );
                           const artifactUpgradeProgress = artifactUpgrade?.isMaxLevel
                             ? 100
                             : artifactUpgrade
-                              ? Math.min(100, Math.round((artifact.cards / Math.max(1, artifactUpgrade.cardsRequired)) * 100))
+                              ? Math.min(100, Math.round((artifactCardsAvailable / Math.max(1, artifactCardsRequired)) * 100))
                               : 0;
 
                           return (
@@ -1400,7 +1415,7 @@ const StudentArtifactAltar = ({
                                   <div
                                     className={`student-artifact-altar__mini-upgrade student-artifact-altar__mini-upgrade--card ${
                                       artifactUpgrade.isMaxLevel ? 'student-artifact-altar__mini-upgrade--max' : ''
-                                    } ${artifactUpgrade.canUpgrade ? 'student-artifact-altar__mini-upgrade--ready' : ''}`}
+                                    } ${artifactUpgradeCopiesReady ? 'student-artifact-altar__mini-upgrade--ready' : ''}`}
                                   >
                                     <span className="student-artifact-altar__mini-upgrade-arrow" aria-hidden="true" />
                                     <div className="student-artifact-altar__mini-upgrade-meter">
@@ -1412,7 +1427,7 @@ const StudentArtifactAltar = ({
                                           }}
                                         />
                                         <span className="student-artifact-altar__mini-upgrade-value">
-                                          {artifactUpgrade.isMaxLevel ? 'MAX' : `${artifact.cards}/${artifactUpgrade.cardsRequired}`}
+                                          {artifactUpgrade.isMaxLevel ? 'MAX' : `${artifactCardsAvailable}/${artifactCardsRequired}`}
                                         </span>
                                       </div>
                                     </div>

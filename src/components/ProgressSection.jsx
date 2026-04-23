@@ -83,6 +83,7 @@ const PROGRESS_XP_TASK_ARTIFACT_BONUSES = {
     perCopyBonus: 1,
   },
 };
+const PROGRESS_ARTIFACT_MAX_LEVEL = 5;
 
 const normalizeProgressXpAmount = (value) => {
   const numeric = Number(value);
@@ -99,8 +100,38 @@ const formatProgressBonusPercent = (value) => {
   return `+${percent.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}%`;
 };
 
-const getProgressArtifactInventoryCount = (inventory = {}, artifactId) => (
-  Math.max(0, Math.floor(Number(inventory?.[artifactId]) || 0))
+const normalizeProgressArtifactInventory = (inventory = {}) => {
+  const next = {};
+  if (!inventory || typeof inventory !== 'object' || Array.isArray(inventory)) return next;
+  Object.entries(inventory).forEach(([rawId, rawCount]) => {
+    const id = String(rawId || '').trim();
+    if (!id) return;
+    const count = Math.max(0, Math.floor(Number(rawCount) || 0));
+    if (count > 0) next[id] = count;
+  });
+  return next;
+};
+
+const normalizeProgressArtifactLevels = (levels = {}, inventory = {}) => {
+  const safeInventory = normalizeProgressArtifactInventory(inventory);
+  const next = {};
+  if (levels && typeof levels === 'object' && !Array.isArray(levels)) {
+    Object.entries(levels).forEach(([rawId, rawLevel]) => {
+      const id = String(rawId || '').trim();
+      if (!id) return;
+      const level = Number(rawLevel);
+      if (!Number.isFinite(level) || level <= 0) return;
+      next[id] = Math.min(PROGRESS_ARTIFACT_MAX_LEVEL, Math.max(1, Math.floor(level)));
+    });
+  }
+  Object.entries(safeInventory).forEach(([id, count]) => {
+    if (count > 0 && !next[id]) next[id] = 1;
+  });
+  return next;
+};
+
+const getProgressArtifactLevel = (levels = {}, artifactId) => (
+  Math.min(PROGRESS_ARTIFACT_MAX_LEVEL, Math.max(0, Math.floor(Number(levels?.[artifactId]) || 0)))
 );
 
 const normalizeProgressTaskForXp = (value, gameTheoryTask) => {
@@ -111,40 +142,43 @@ const normalizeProgressTaskForXp = (value, gameTheoryTask) => {
   return normalized;
 };
 
-const getProgressTaskXpMultiplier = (inventory = {}, taskNumber, gameTheoryTask) => {
+const getProgressTaskXpMultiplier = (artifactLevels = {}, taskNumber, gameTheoryTask) => {
+  const safeLevels = normalizeProgressArtifactLevels(artifactLevels);
   const normalizedTask = normalizeProgressTaskForXp(taskNumber, gameTheoryTask);
   let multiplier = 1;
 
   Object.entries(PROGRESS_XP_GLOBAL_ARTIFACT_BONUSES).forEach(([artifactId, perCopyBonus]) => {
-    const count = getProgressArtifactInventoryCount(inventory, artifactId);
-    if (count <= 0) return;
-    multiplier *= (1 + (Number(perCopyBonus) * count));
+    const level = getProgressArtifactLevel(safeLevels, artifactId);
+    if (level <= 0) return;
+    multiplier *= (1 + (Number(perCopyBonus) * level));
   });
 
   if (Number.isFinite(normalizedTask)) {
     Object.entries(PROGRESS_XP_TASK_ARTIFACT_BONUSES).forEach(([artifactId, entry]) => {
       if (!Array.isArray(entry?.tasks) || !entry.tasks.includes(normalizedTask)) return;
-      const count = getProgressArtifactInventoryCount(inventory, artifactId);
-      if (count <= 0) return;
-      multiplier *= (1 + (Number(entry.perCopyBonus) * count));
+      const level = getProgressArtifactLevel(safeLevels, artifactId);
+      if (level <= 0) return;
+      multiplier *= (1 + (Number(entry.perCopyBonus) * level));
     });
   }
 
   return Math.max(1, multiplier);
 };
 
-const applyProgressTaskXpMultiplier = (baseReward, inventory = {}, taskNumber, gameTheoryTask) => {
+const applyProgressTaskXpMultiplier = (baseReward, artifactLevels = {}, taskNumber, gameTheoryTask) => {
   const reward = normalizeProgressXpAmount(baseReward);
   if (reward <= 0) return 0;
   return normalizeProgressXpAmount(
-    Math.round(reward * getProgressTaskXpMultiplier(inventory, taskNumber, gameTheoryTask))
+    Math.round(reward * getProgressTaskXpMultiplier(artifactLevels, taskNumber, gameTheoryTask))
   );
 };
 
 const getProgressQuestionId = (question, index) => String(question?.id ?? index ?? '').trim();
 
-const normalizeProgressSectionStudentData = (data) => (
-  data && typeof data === 'object'
+const normalizeProgressSectionStudentData = (data) => {
+  const artifactInventory = normalizeProgressArtifactInventory(data?.artifactInventory);
+  const artifactLevels = normalizeProgressArtifactLevels(data?.artifactLevels, artifactInventory);
+  return data && typeof data === 'object'
     ? {
         ...data,
         progress: data?.progress || {},
@@ -153,7 +187,8 @@ const normalizeProgressSectionStudentData = (data) => (
         mocks: Array.isArray(data?.mocks) ? data.mocks : [],
         solvedByTask: data?.solvedByTask && typeof data.solvedByTask === 'object' ? data.solvedByTask : {},
         solvedEvents: Array.isArray(data?.solvedEvents) ? data.solvedEvents : [],
-        artifactInventory: data?.artifactInventory && typeof data.artifactInventory === 'object' ? data.artifactInventory : {},
+        artifactInventory,
+        artifactLevels,
       }
     : {
         progress: {},
@@ -162,9 +197,10 @@ const normalizeProgressSectionStudentData = (data) => (
         mocks: [],
         solvedByTask: {},
         solvedEvents: [],
-        artifactInventory: {},
-      }
-);
+        artifactInventory,
+        artifactLevels,
+      };
+};
 
 const getProgressTaskXpStats = ({
   task,
@@ -192,8 +228,11 @@ const getProgressTaskXpStats = ({
   ].map((value) => String(value ?? '').trim()).filter(Boolean);
   const taskKeySet = new Set(taskKeys);
   const taskLevels = testsDb?.[String(taskNumber)] || testsDb?.[String(normalizedTask)] || testsDb?.[taskNumber] || {};
-  const inventory = studentData?.artifactInventory || {};
-  const multiplier = getProgressTaskXpMultiplier(inventory, taskNumber, gameTheoryTask);
+  const artifactLevels = normalizeProgressArtifactLevels(
+    studentData?.artifactLevels,
+    studentData?.artifactInventory
+  );
+  const multiplier = getProgressTaskXpMultiplier(artifactLevels, taskNumber, gameTheoryTask);
   let earnedXp = 0;
   let possibleXp = 0;
 
@@ -213,7 +252,7 @@ const getProgressTaskXpStats = ({
       ? normalizeProgressXpAmount(getTaskLevelXpReward(taskNumber, levelId))
       : 0;
     if (baseReward <= 0) return;
-    const boostedReward = applyProgressTaskXpMultiplier(baseReward, inventory, taskNumber, gameTheoryTask);
+    const boostedReward = applyProgressTaskXpMultiplier(baseReward, artifactLevels, taskNumber, gameTheoryTask);
 
     const solvedRaw = taskKeys.reduce((found, key) => {
       if (found) return found;
