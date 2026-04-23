@@ -456,9 +456,10 @@ const StudentLeaderboardProfileModal = ({
   const strongestTasks = Array.isArray(progressSummary.strongestTasks) ? progressSummary.strongestTasks.slice(0, 3) : [];
   const bestMock = mockSummary.best && typeof mockSummary.best === 'object' ? mockSummary.best : null;
   const featuredArtifact = topCollection.find((artifact) => artifact.id === selectedArtifactId) || topCollection[0] || null;
+  const bestStreak = Math.max(clampNumber(streakSummary.best), clampNumber(streakSummary.current));
   const quickStats = [
     { key: 'week-xp', icon: TrendingUp, label: 'XP 7д', value: formatNumber(resolvedWeeklyXp), tone: 'sky' },
-    { key: 'streak', icon: Flame, label: 'Серия', value: formatNumber(streakSummary.current), tone: 'amber' },
+    { key: 'streak', icon: Flame, label: 'Макс. серия', value: formatNumber(bestStreak), tone: 'amber' },
     { key: 'prep-days', icon: CalendarDays, label: 'Подготовка', value: formatDayCount(preparationSummary.days), tone: 'emerald' },
     { key: 'solved', icon: Target, label: 'Реш.', value: formatNumber(progressSummary.solvedQuestions), tone: 'emerald' },
     { key: 'coins', icon: Star, label: 'Монеты', value: formatNumber(coinSummary.balance), tone: 'violet' },
