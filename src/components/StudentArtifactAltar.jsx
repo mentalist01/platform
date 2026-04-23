@@ -256,6 +256,13 @@ const formatArtifactBonusPercent = (value) => {
   return `+${percent.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}%`;
 };
 
+const formatArtifactBonusDelta = (value) => {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return '+0%';
+  const percent = Math.round(number * 10000) / 100;
+  return `+${percent.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}%`;
+};
+
 const formatArtifactInstantAmount = (amount, unit) => {
   const normalizedAmount = Math.max(0, Math.round(Number(amount) || 0));
   return `+${normalizedAmount.toLocaleString('ru-RU')} ${unit}`;
@@ -273,6 +280,7 @@ const pluralizeArtifactCopies = (count) => {
 const getArtifactDetailEffects = (artifact) => {
   const id = String(artifact?.id || '').trim();
   const count = Math.max(1, Math.floor(Number(artifact?.count) || 1));
+  const level = Math.max(1, Math.floor(Number(artifact?.level) || 1));
   const effects = ARTIFACT_EFFECTS_BY_ID[id] || [];
 
   if (effects.length === 0) {
@@ -287,15 +295,14 @@ const getArtifactDetailEffects = (artifact) => {
   return effects.map((effect) => {
     if (effect.type === 'multiplier') {
       const perCopyBonus = Number(effect.perCopyBonus) || 0;
-      const singleMultiplier = 1 + perCopyBonus;
-      const currentMultiplier = 1 + (perCopyBonus * count);
+      const currentMultiplier = 1 + (perCopyBonus * level);
+      const nextLevel = Math.floor(Number(artifact?.upgrade?.nextLevel) || 0);
+      const nextMultiplier = nextLevel > level ? 1 + (perCopyBonus * nextLevel) : null;
       return {
         tone: effect.tone,
         label: effect.label,
-        value: formatArtifactBonusPercent(singleMultiplier),
-        detail: count > 1
-          ? `Сейчас с ${pluralizeArtifactCopies(count)}: ${formatArtifactBonusPercent(currentMultiplier)}`
-          : effect.hint,
+        value: formatArtifactBonusPercent(currentMultiplier),
+        detail: '',
       };
     }
 
@@ -306,7 +313,7 @@ const getArtifactDetailEffects = (artifact) => {
         label: effect.label,
         value: formatArtifactInstantAmount(amount, effect.unit),
         detail: count > 1
-          ? `Всего с ${pluralizeArtifactCopies(count)}: ${formatArtifactInstantAmount(amount * count, effect.unit)}`
+          ? `Всего выбито: ${pluralizeArtifactCopies(count)}. Уровень ${level}.`
           : effect.hint,
       };
     }
@@ -320,10 +327,42 @@ const getArtifactDetailEffects = (artifact) => {
   });
 };
 
+const buildArtifactUpgradeComparisons = (artifact, nextLevel) => {
+  const id = String(artifact?.id || '').trim();
+  const currentLevel = Math.max(1, Math.floor(Number(artifact?.level) || 1));
+  const targetLevel = Math.max(currentLevel + 1, Math.floor(Number(nextLevel) || currentLevel + 1));
+  const effects = ARTIFACT_EFFECTS_BY_ID[id] || [];
+  const multiplierComparisons = effects
+    .filter((effect) => effect?.type === 'multiplier')
+    .map((effect) => {
+      const perLevelBonus = Number(effect.perCopyBonus) || 0;
+      const beforeMultiplier = 1 + (perLevelBonus * currentLevel);
+      const afterMultiplier = 1 + (perLevelBonus * targetLevel);
+      return {
+        tone: effect.tone || 'default',
+        label: effect.label || 'Бонус',
+        before: formatArtifactBonusPercent(beforeMultiplier),
+        after: formatArtifactBonusPercent(afterMultiplier),
+        delta: formatArtifactBonusDelta(afterMultiplier - beforeMultiplier),
+      };
+    });
+
+  if (multiplierComparisons.length > 0) return multiplierComparisons;
+
+  return [{
+    tone: 'default',
+    label: 'Уровень артефакта',
+    before: `${currentLevel}`,
+    after: `${targetLevel}`,
+    delta: `+${targetLevel - currentLevel}`,
+  }];
+};
+
 const StudentArtifactAltar = ({
   altar = null,
   coinsTotal = 0,
   onSpin,
+  onUpgrade,
   spinning = false,
   spinError = '',
 }) => {
@@ -355,6 +394,10 @@ const StudentArtifactAltar = ({
   const [spinIntensity, setSpinIntensity] = useState('idle');
   const [displayPull, setDisplayPull] = useState(null);
   const [selectedArtifactId, setSelectedArtifactId] = useState('');
+  const [upgradingArtifactId, setUpgradingArtifactId] = useState('');
+  const [upgradeError, setUpgradeError] = useState('');
+  const [upgradeFlash, setUpgradeFlash] = useState(null);
+  const [upgradeShowcase, setUpgradeShowcase] = useState(null);
   const isSpinStageActive = altarPhase === 'spinning';
   const canSpin = typeof onSpin === 'function' && !spinning && !isSpinStageActive && coinsTotal >= spinCost;
   const spinButtonBusy = spinning || isSpinStageActive;
@@ -378,6 +421,9 @@ const StudentArtifactAltar = ({
           id,
           rank,
           count,
+          level: Math.max(1, Math.floor(Number(artifact?.level) || 1)),
+          cards: Math.max(0, Math.floor(Number(artifact?.cards) || 0)),
+          upgrade: artifact?.upgrade && typeof artifact.upgrade === 'object' ? artifact.upgrade : null,
           name: String(catalogArtifact?.name || artifact?.name || id).trim() || id,
           description,
           src: artifact?.src || catalogArtifact?.src || '',
@@ -426,6 +472,7 @@ const StudentArtifactAltar = ({
   const resetTimerRef = useRef(null);
   const spinRuptureTimerRef = useRef(null);
   const spinAudioRef = useRef(null);
+  const upgradeFlashTimerRef = useRef(null);
 
   const clearRevealTimers = () => {
     if (revealTimerRef.current) {
@@ -448,6 +495,10 @@ const StudentArtifactAltar = ({
   const clearAnimationTimers = () => {
     clearRevealTimers();
     clearSpinPhaseTimers();
+    if (upgradeFlashTimerRef.current) {
+      window.clearTimeout(upgradeFlashTimerRef.current);
+      upgradeFlashTimerRef.current = null;
+    }
   };
 
   const stopSpinAudio = () => {
@@ -485,6 +536,7 @@ const StudentArtifactAltar = ({
     spinStartedAtRef.current = Date.now();
     pendingAltarRef.current = null;
     hiddenPullRef.current = displayPull || hiddenPullRef.current || null;
+    setUpgradeShowcase(null);
     setDisplayPull(null);
     setSpinIntensity('building');
     setAltarPhase('spinning');
@@ -612,6 +664,9 @@ const StudentArtifactAltar = ({
         ...stageArtifact,
         rank: String(displayPull?.rank || stageArtifact.rank || 'C').toUpperCase(),
         count: Math.max(1, Math.floor(Number(displayPull?.count) || 1)),
+        level: Math.max(1, Math.floor(Number(displayPull?.level) || 1)),
+        cards: Math.max(0, Math.floor(Number(displayPull?.cards) || 0)),
+        upgrade: displayPull?.upgrade && typeof displayPull.upgrade === 'object' ? displayPull.upgrade : null,
       };
     }
     return null;
@@ -628,6 +683,41 @@ const StudentArtifactAltar = ({
     '--artifact-detail-accent-mid': hexToRgba(selectedArtifactRankMeta.accent, 0.32),
     '--artifact-detail-accent-strong': hexToRgba(selectedArtifactRankMeta.accent, 0.58),
   } : undefined;
+  const selectedArtifactLevel = Math.max(1, Math.floor(Number(selectedArtifact?.level) || 1));
+  const selectedUpgrade = selectedArtifact?.upgrade && typeof selectedArtifact.upgrade === 'object'
+    ? selectedArtifact.upgrade
+    : null;
+  const selectedCardsAvailable = Math.max(0, Math.floor(Number(selectedUpgrade?.cardsAvailable ?? selectedArtifact?.cards) || 0));
+  const selectedCardsRequired = Math.max(0, Math.floor(Number(selectedUpgrade?.cardsRequired) || 0));
+  const selectedCoinsRequired = Math.max(0, Math.floor(Number(selectedUpgrade?.coinsRequired) || 0));
+  const selectedNextLevel = Math.max(0, Math.floor(Number(selectedUpgrade?.nextLevel) || 0));
+  const selectedUpgradeProgress = selectedCardsRequired > 0
+    ? Math.min(100, Math.round((selectedCardsAvailable / selectedCardsRequired) * 100))
+    : 100;
+  const selectedUpgradeIsMax = Boolean(selectedUpgrade?.isMaxLevel) || selectedArtifactLevel >= Math.max(1, Math.floor(Number(selectedUpgrade?.maxLevel) || 5));
+  const selectedUpgradeCanAffordCoins = selectedCoinsRequired <= Math.max(0, Math.floor(Number(coinsTotal) || 0));
+  const selectedUpgradeCanSubmit = Boolean(
+    selectedArtifact
+    && typeof onUpgrade === 'function'
+    && !selectedUpgradeIsMax
+    && selectedCardsRequired > 0
+    && selectedCardsAvailable >= selectedCardsRequired
+    && selectedUpgradeCanAffordCoins
+    && !upgradingArtifactId
+  );
+  const selectedUpgradeButtonLabel = selectedUpgradeIsMax
+    ? 'Максимальный уровень'
+    : upgradingArtifactId === selectedArtifact?.id
+      ? 'Улучшаем...'
+      : 'Улучшить';
+  const selectedUpgradeComparisons = useMemo(
+    () => (
+      selectedArtifact && !selectedUpgradeIsMax
+        ? buildArtifactUpgradeComparisons(selectedArtifact, selectedNextLevel || selectedArtifactLevel + 1)
+        : []
+    ),
+    [selectedArtifact, selectedArtifactLevel, selectedNextLevel, selectedUpgradeIsMax],
+  );
 
   useEffect(() => {
     if (!selectedArtifactId || selectedArtifact) return;
@@ -664,6 +754,109 @@ const StudentArtifactAltar = ({
     }
   };
 
+  const handleUpgradeClick = async () => {
+    if (!selectedArtifact || !selectedUpgradeCanSubmit) return;
+    setUpgradeError('');
+    setUpgradingArtifactId(selectedArtifact.id);
+    const upgradeArtifactSnapshot = { ...selectedArtifact };
+    const upgradeFromLevel = selectedArtifactLevel;
+    const upgradeToLevel = selectedNextLevel || selectedArtifactLevel + 1;
+    try {
+      const result = await onUpgrade(selectedArtifact.id);
+      if (!mountedRef.current) return;
+      const nextDisplayAltar = normalizeAltarSnapshot(result?.altar);
+      if (nextDisplayAltar) {
+        pendingAltarRef.current = nextDisplayAltar;
+        setDisplayAltar(nextDisplayAltar);
+      }
+      const resolvedLevel = Math.max(upgradeFromLevel + 1, Math.floor(Number(result?.level) || upgradeToLevel));
+      setUpgradeShowcase({
+        id: `${upgradeArtifactSnapshot.id}-${resolvedLevel}-${Date.now()}`,
+        artifact: upgradeArtifactSnapshot,
+        fromLevel: upgradeFromLevel,
+        toLevel: resolvedLevel,
+        comparisons: buildArtifactUpgradeComparisons(upgradeArtifactSnapshot, resolvedLevel),
+      });
+      setUpgradeFlash({ artifactId: selectedArtifact.id, level: resolvedLevel });
+      if (upgradeFlashTimerRef.current) {
+        window.clearTimeout(upgradeFlashTimerRef.current);
+      }
+      upgradeFlashTimerRef.current = window.setTimeout(() => {
+        setUpgradeFlash(null);
+        upgradeFlashTimerRef.current = null;
+      }, 1500);
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setUpgradeError(err?.message || 'Не удалось улучшить артефакт.');
+    } finally {
+      if (mountedRef.current) {
+        setUpgradingArtifactId('');
+      }
+    }
+  };
+
+  const upgradeShowcaseRankMeta = RANK_META[upgradeShowcase?.artifact?.rank] || RANK_META.C;
+  const upgradeShowcaseStyle = upgradeShowcase ? {
+    '--artifact-upgrade-accent': upgradeShowcaseRankMeta.accent,
+    '--artifact-upgrade-accent-soft': hexToRgba(upgradeShowcaseRankMeta.accent, 0.2),
+    '--artifact-upgrade-accent-mid': hexToRgba(upgradeShowcaseRankMeta.accent, 0.38),
+    '--artifact-upgrade-accent-strong': hexToRgba(upgradeShowcaseRankMeta.accent, 0.62),
+  } : undefined;
+
+  const upgradeShowcaseOverlay = upgradeShowcase ? (
+    <div
+      key={upgradeShowcase.id}
+      className="student-artifact-upgrade-showcase"
+      style={upgradeShowcaseStyle}
+      role="button"
+      tabIndex={0}
+      aria-label="Улучшение артефакта завершено. Нажмите, чтобы закрыть."
+      onMouseDown={() => setUpgradeShowcase(null)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ' || event.key === 'Escape') {
+          event.preventDefault();
+          setUpgradeShowcase(null);
+        }
+      }}
+    >
+      <div className="student-artifact-upgrade-showcase__void" />
+      <div className="student-artifact-upgrade-showcase__burst student-artifact-upgrade-showcase__burst--one" />
+      <div className="student-artifact-upgrade-showcase__burst student-artifact-upgrade-showcase__burst--two" />
+      <div className="student-artifact-upgrade-showcase__artifact">
+        <div className="student-artifact-upgrade-showcase__level">
+          {`Уровень ${upgradeShowcase.fromLevel} -> ${upgradeShowcase.toLevel}`}
+        </div>
+        <img
+          src={upgradeShowcase.artifact.src}
+          alt={upgradeShowcase.artifact.name}
+          className="student-artifact-upgrade-showcase__image"
+          decoding="async"
+        />
+      </div>
+      <div className="student-artifact-upgrade-showcase__results">
+        <div className="student-artifact-upgrade-showcase__kicker">Артефакт улучшен</div>
+        <div className="student-artifact-upgrade-showcase__title">{upgradeShowcase.artifact.name}</div>
+        <div className="student-artifact-upgrade-showcase__rows">
+          {upgradeShowcase.comparisons.map((entry) => (
+            <div
+              key={`${upgradeShowcase.id}-${entry.label}`}
+              className="student-artifact-upgrade-showcase__row"
+              data-tone={String(entry.tone || 'default')}
+            >
+              <div className="student-artifact-upgrade-showcase__label">{entry.label}</div>
+              <div className="student-artifact-upgrade-showcase__numbers">
+                <span className="student-artifact-upgrade-showcase__before">{entry.before}</span>
+                <span className="student-artifact-upgrade-showcase__arrow">{'→'}</span>
+                <span className="student-artifact-upgrade-showcase__after">{entry.after}</span>
+                <strong className="student-artifact-upgrade-showcase__delta">{entry.delta}</strong>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   const artifactDetailModal = selectedArtifact ? (
     <div
       className="student-artifact-detail-modal"
@@ -675,7 +868,13 @@ const StudentArtifactAltar = ({
         if (event.target === event.currentTarget) setSelectedArtifactId('');
       }}
     >
-      <div className="student-artifact-detail-modal__card" data-rank={selectedArtifact.rank} style={artifactDetailStyle}>
+      <div
+        className={`student-artifact-detail-modal__card ${
+          upgradeFlash?.artifactId === selectedArtifact.id ? 'student-artifact-detail-modal__card--upgraded' : ''
+        }`}
+        data-rank={selectedArtifact.rank}
+        style={artifactDetailStyle}
+      >
         <div className="student-artifact-detail-modal__ambient student-artifact-detail-modal__ambient--one" />
         <div className="student-artifact-detail-modal__ambient student-artifact-detail-modal__ambient--two" />
         <button
@@ -700,6 +899,10 @@ const StudentArtifactAltar = ({
           <div className={`student-artifact-altar__rank-pill student-artifact-detail-modal__rank-pill inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-bold ${selectedArtifactRankMeta.pillClassName}`} data-rank={selectedArtifact.rank}>
             {`Ранг ${selectedArtifact.rank}`}
           </div>
+          <div className="student-artifact-detail-modal__level-badge">
+            <span>Ур.</span>
+            <strong>{selectedArtifactLevel}</strong>
+          </div>
         </div>
 
         <div className="student-artifact-detail-modal__content">
@@ -709,7 +912,9 @@ const StudentArtifactAltar = ({
           </h3>
           <div className="student-artifact-detail-modal__meta-row">
             <span>{selectedArtifactRankMeta.title}</span>
+            <span>{`Уровень ${selectedArtifactLevel}`}</span>
             <span>{pluralizeArtifactCopies(selectedArtifact.count)}</span>
+            {!selectedUpgradeIsMax && <span>{`${selectedCardsAvailable}/${selectedCardsRequired} копий`}</span>}
           </div>
 
           <div className="student-artifact-detail-modal__description">
@@ -731,6 +936,81 @@ const StudentArtifactAltar = ({
                 )}
               </div>
             ))}
+          </div>
+
+          <div className="student-artifact-detail-modal__upgrade-panel">
+            <div className="student-artifact-detail-modal__upgrade-head">
+              <div>
+                <div className="student-artifact-detail-modal__upgrade-kicker">Прокачка</div>
+                <div className="student-artifact-detail-modal__upgrade-title">
+                  {selectedUpgradeIsMax ? 'Максимальный уровень' : `Уровень ${selectedArtifactLevel} -> ${selectedNextLevel}`}
+                </div>
+              </div>
+            </div>
+
+            {selectedUpgradeIsMax ? (
+              <div className="student-artifact-detail-modal__upgrade-max">
+                Артефакт полностью улучшен.
+              </div>
+            ) : (
+              <>
+                <div className="student-artifact-detail-modal__upgrade-progress-row">
+                  <span>Копии</span>
+                  <strong>{`${selectedCardsAvailable}/${selectedCardsRequired}`}</strong>
+                </div>
+                <div className="student-artifact-detail-modal__upgrade-track">
+                  <div
+                    className="student-artifact-detail-modal__upgrade-fill"
+                    style={{ width: `${selectedUpgradeProgress}%` }}
+                  />
+                </div>
+                {selectedUpgradeComparisons.length > 0 && (
+                  <div className="student-artifact-detail-modal__upgrade-preview">
+                    {selectedUpgradeComparisons.map((entry) => (
+                      <div
+                        key={`${selectedArtifact.id}-upgrade-preview-${entry.label}`}
+                        className="student-artifact-detail-modal__upgrade-preview-item"
+                        data-tone={String(entry.tone || 'default')}
+                      >
+                        <span className="student-artifact-detail-modal__upgrade-preview-label">{entry.label}</span>
+                        <span className="student-artifact-detail-modal__upgrade-preview-values">
+                          <span>{entry.before}</span>
+                          <span className="student-artifact-detail-modal__upgrade-preview-arrow" aria-hidden="true">↑</span>
+                          <strong>{entry.after}</strong>
+                          <em>{entry.delta}</em>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="student-artifact-detail-modal__upgrade-button"
+                  disabled={!selectedUpgradeCanSubmit}
+                  onClick={handleUpgradeClick}
+                >
+                  <Sparkles size={16} />
+                  <span>{selectedUpgradeButtonLabel}</span>
+                  <span className="student-artifact-detail-modal__upgrade-button-price">
+                    <span>{selectedCoinsRequired.toLocaleString('ru-RU')}</span>
+                    <img src={ivanCoin} alt="" aria-hidden="true" draggable="false" />
+                  </span>
+                </button>
+                {!selectedUpgradeCanAffordCoins && (
+                  <div className="student-artifact-detail-modal__upgrade-warning">
+                    Не хватает монет.
+                  </div>
+                )}
+                {selectedCardsAvailable < selectedCardsRequired && (
+                  <div className="student-artifact-detail-modal__upgrade-warning">
+                    Нужно больше копий этого артефакта.
+                  </div>
+                )}
+              </>
+            )}
+            {upgradeError && (
+              <div className="student-artifact-detail-modal__upgrade-error">{upgradeError}</div>
+            )}
           </div>
 
           <div className="student-artifact-detail-modal__hint">
@@ -1080,46 +1360,68 @@ const StudentArtifactAltar = ({
                         </div>
                         <div className="text-[11px] font-semibold text-slate-500">{rankMeta.title}</div>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                        {rankItems.map((artifact) => (
-                          <button
-                            type="button"
-                            key={artifact.id}
-                            onClick={() => setSelectedArtifactId(artifact.id)}
-                            className="student-artifact-altar__artifact-card relative overflow-hidden rounded-2xl border p-2.5 text-left transition"
-                            data-rank={rank}
-                            style={getRankCardStyle(rank, true)}
-                            aria-label={`Открыть карточку артефакта ${artifact.name}`}
-                          >
-                            <div
-                              className="student-artifact-altar__artifact-card-media mx-auto flex h-28 w-full items-center justify-center rounded-[18px] border bg-white/82 p-1"
+                      <div className="student-artifact-altar__artifact-grid grid">
+                        {rankItems.map((artifact) => {
+                          const artifactUpgrade = artifact.upgrade;
+                          const artifactUpgradeProgress = artifactUpgrade?.isMaxLevel
+                            ? 100
+                            : artifactUpgrade
+                              ? Math.min(100, Math.round((artifact.cards / Math.max(1, artifactUpgrade.cardsRequired)) * 100))
+                              : 0;
+
+                          return (
+                            <button
+                              type="button"
+                              key={artifact.id}
+                              onClick={() => setSelectedArtifactId(artifact.id)}
+                              className="student-artifact-altar__artifact-card student-artifact-altar__artifact-card--compact relative overflow-hidden rounded-2xl border p-2 text-left transition"
                               data-rank={rank}
-                              style={{
-                                borderColor: `${rankMeta.accent}44`,
-                                boxShadow: rankMeta.glow,
-                              }}
+                              style={getRankCardStyle(rank, true)}
+                              aria-label={`Открыть карточку артефакта ${artifact.name}`}
                             >
-                              <img
-                                src={artifact.src}
-                                alt={artifact.name}
-                                loading="lazy"
-                                decoding="async"
-                                className="student-artifact-altar__artifact-card-art h-full w-full object-contain"
-                              />
-                            </div>
-                            <div className="mt-2 min-h-[2.5rem] text-center text-xs font-semibold text-slate-800">
-                              {artifact.name}
-                            </div>
-                            <div className="mt-1 min-h-[4.25rem] text-center text-[11px] leading-5 text-slate-500">
-                              {artifact.description || 'Описание можно добавить в каталоге артефактов.'}
-                            </div>
-                            <div className="mt-1 flex items-center justify-center">
-                              <span className={`student-artifact-altar__rank-pill inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${rankMeta.pillClassName}`} data-rank={rank}>
-                                {`x${artifact.count}`}
-                              </span>
-                            </div>
-                          </button>
-                        ))}
+                              <div className="student-artifact-altar__artifact-frame">
+                                <div
+                                  className="student-artifact-altar__artifact-card-media"
+                                  data-rank={rank}
+                                >
+                                  <img
+                                    src={artifact.src}
+                                    alt={artifact.name}
+                                    loading="lazy"
+                                    decoding="async"
+                                    className="student-artifact-altar__artifact-card-art"
+                                  />
+                                  <div className="student-artifact-altar__artifact-level-strip">
+                                    {`${artifact.level}-й уровень`}
+                                  </div>
+                                </div>
+
+                                {artifactUpgrade && (
+                                  <div
+                                    className={`student-artifact-altar__mini-upgrade student-artifact-altar__mini-upgrade--card ${
+                                      artifactUpgrade.isMaxLevel ? 'student-artifact-altar__mini-upgrade--max' : ''
+                                    } ${artifactUpgrade.canUpgrade ? 'student-artifact-altar__mini-upgrade--ready' : ''}`}
+                                  >
+                                    <span className="student-artifact-altar__mini-upgrade-arrow" aria-hidden="true" />
+                                    <div className="student-artifact-altar__mini-upgrade-meter">
+                                      <div className="student-artifact-altar__mini-upgrade-track">
+                                        <div
+                                          className="student-artifact-altar__mini-upgrade-fill"
+                                          style={{
+                                            width: `${artifactUpgradeProgress}%`,
+                                          }}
+                                        />
+                                        <span className="student-artifact-altar__mini-upgrade-value">
+                                          {artifactUpgrade.isMaxLevel ? 'MAX' : `${artifact.cards}/${artifactUpgrade.cardsRequired}`}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -1133,6 +1435,9 @@ const StudentArtifactAltar = ({
     {artifactDetailModal && (typeof document !== 'undefined'
       ? createPortal(artifactDetailModal, document.body)
       : artifactDetailModal)}
+    {upgradeShowcaseOverlay && (typeof document !== 'undefined'
+      ? createPortal(upgradeShowcaseOverlay, document.body)
+      : upgradeShowcaseOverlay)}
     </>
   );
 };

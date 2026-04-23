@@ -491,6 +491,15 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  upgradeArtifact: async (artifactId) => {
+    const res = await apiFetch('/api/students/altar/upgrade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ artifactId }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   createStudent: async (name, teacherId) => {
     const res = await apiFetch('/api/students', {
       method: 'POST',

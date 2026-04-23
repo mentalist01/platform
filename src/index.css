@@ -12086,6 +12086,376 @@ html[data-theme='dark'] .student-artifact-altar__artifact-card-media[data-rank='
   will-change: transform;
 }
 
+.student-artifact-altar__artifact-grid {
+  grid-template-columns: repeat(auto-fill, minmax(5.35rem, 6.15rem));
+  justify-content: start;
+  align-items: start;
+  gap: 0.42rem;
+}
+
+.student-artifact-altar__artifact-card--compact {
+  border-radius: 0.82rem;
+  padding: 0.18rem;
+}
+
+.student-artifact-altar__artifact-frame {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.04rem;
+}
+
+.student-artifact-altar__artifact-card--compact .student-artifact-altar__artifact-card-media {
+  position: relative;
+  display: flex;
+  width: 100%;
+  aspect-ratio: 1;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 0 !important;
+  border-radius: 0.48rem;
+  background: transparent !important;
+  padding: 0.08rem 0.08rem 0;
+  box-shadow: none !important;
+  isolation: isolate;
+}
+
+html[data-theme='dark'] .student-artifact-altar__artifact-card--compact .student-artifact-altar__artifact-card-media {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.student-artifact-altar__artifact-card--compact .student-artifact-altar__artifact-card-media::before {
+  content: none;
+}
+
+.student-artifact-altar__artifact-card--compact .student-artifact-altar__artifact-card-art {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform: scale(1.18);
+  filter:
+    drop-shadow(0 12px 14px rgba(15, 23, 42, 0.22))
+    drop-shadow(0 0 14px rgba(255, 255, 255, 0.34));
+  transition: transform 0.22s ease, filter 0.22s ease;
+}
+
+.student-artifact-altar__artifact-card--compact:hover .student-artifact-altar__artifact-card-art {
+  transform: scale(1.23) translateY(-1px);
+  filter:
+    drop-shadow(0 16px 18px rgba(15, 23, 42, 0.25))
+    drop-shadow(0 0 22px rgba(255, 255, 255, 0.56));
+}
+
+.student-artifact-altar__artifact-rank-badge,
+.student-artifact-altar__artifact-count-badge {
+  position: absolute;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(255, 255, 255, 0.86);
+  color: #fff;
+  font-weight: 1000;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(15, 23, 42, 0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    0 8px 14px rgba(15, 23, 42, 0.24);
+}
+
+.student-artifact-altar__artifact-rank-badge {
+  top: 0.34rem;
+  left: 0.34rem;
+  width: 1.88rem;
+  height: 1.88rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #e879f9, #a21caf);
+  font-size: 0.78rem;
+}
+
+.student-artifact-altar__artifact-rank-badge[data-rank='SS'] {
+  background: linear-gradient(180deg, #fb7185, #be123c);
+}
+
+.student-artifact-altar__artifact-rank-badge[data-rank='S'] {
+  background: linear-gradient(180deg, #f97316, #dc2626);
+}
+
+.student-artifact-altar__artifact-rank-badge[data-rank='A'] {
+  background: linear-gradient(180deg, #c084fc, #7e22ce);
+}
+
+.student-artifact-altar__artifact-rank-badge[data-rank='B'] {
+  background: linear-gradient(180deg, #38bdf8, #2563eb);
+}
+
+.student-artifact-altar__artifact-rank-badge[data-rank='C'] {
+  background: linear-gradient(180deg, #94a3b8, #475569);
+}
+
+.student-artifact-altar__artifact-count-badge {
+  top: 0.42rem;
+  right: 0.42rem;
+  min-width: 2rem;
+  height: 1.32rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(15, 23, 42, 0.68));
+  padding: 0 0.44rem;
+  font-size: 0.62rem;
+}
+
+.student-artifact-altar__artifact-level-strip {
+  position: absolute;
+  right: 0.12rem;
+  bottom: 0.52rem;
+  left: 0.12rem;
+  z-index: 3;
+  overflow: visible;
+  border-radius: 0;
+  background: none;
+  color: #ecfccb;
+  font-size: 0.6rem;
+  font-weight: 1000;
+  line-height: 1;
+  padding: 0;
+  text-align: center;
+  text-shadow:
+    -1px -1px 0 rgba(15, 23, 42, 0.8),
+    1px -1px 0 rgba(15, 23, 42, 0.8),
+    -1px 1px 0 rgba(15, 23, 42, 0.8),
+    1px 1px 0 rgba(15, 23, 42, 0.8),
+    0 0 8px rgba(190, 242, 100, 0.34);
+  white-space: nowrap;
+  transform: translateY(0);
+}
+
+.student-artifact-altar__copy-pill {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.student-artifact-altar__mini-upgrade {
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  border-radius: 0.8rem;
+  background: rgba(255, 255, 255, 0.68);
+  padding: 0.4rem 0.45rem;
+}
+
+.student-artifact-altar__mini-upgrade-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: rgba(146, 64, 14, 0.86);
+  font-size: 0.64rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.student-artifact-altar__mini-upgrade-track {
+  height: 0.34rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.16);
+  margin-top: 0.36rem;
+}
+
+.student-artifact-altar__mini-upgrade-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #f59e0b, #facc15);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.42);
+  transition: width 0.28s ease;
+}
+
+.student-artifact-altar__mini-upgrade--card {
+  position: relative;
+  min-height: 1.04rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0 0 0.02rem 0.56rem;
+  box-shadow: none;
+}
+
+.student-artifact-altar__mini-upgrade-arrow {
+  position: absolute;
+  left: -0.01rem;
+  top: 50%;
+  z-index: 4;
+  display: block;
+  width: 1.18rem;
+  height: 1.18rem;
+  transform: translateY(-50%);
+  filter:
+    drop-shadow(0 2px 0 rgba(88, 28, 135, 0.92))
+    drop-shadow(0 5px 7px rgba(15, 23, 42, 0.26));
+}
+
+.student-artifact-altar__mini-upgrade-arrow::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 0;
+  height: 0;
+  border-right: 0.58rem solid transparent;
+  border-bottom: 0.56rem solid #e879f9;
+  border-left: 0.58rem solid transparent;
+  transform: translateX(-50%);
+}
+
+.student-artifact-altar__mini-upgrade-arrow::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0.05rem;
+  width: 0.52rem;
+  height: 0.62rem;
+  border-radius: 0.1rem 0.1rem 0.22rem 0.22rem;
+  background: linear-gradient(180deg, #d8b4fe, #a855f7 68%, #6d28d9);
+  transform: translateX(-50%);
+  box-shadow:
+    inset 0 0.16rem 0 rgba(255, 255, 255, 0.28),
+    inset 0 -0.16rem 0 rgba(88, 28, 135, 0.42);
+}
+
+.student-artifact-altar__mini-upgrade-meter {
+  position: relative;
+  min-width: 0;
+  height: 0.84rem;
+}
+
+.student-artifact-altar__mini-upgrade--card .student-artifact-altar__mini-upgrade-track {
+  position: relative;
+  height: 100%;
+  margin-top: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0.18rem 0.28rem 0.28rem 0.18rem;
+  background: linear-gradient(180deg, rgba(30, 20, 55, 0.96), rgba(18, 14, 35, 0.94));
+  box-shadow:
+    inset 0 2px 4px rgba(2, 6, 23, 0.42),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+    0 4px 7px rgba(15, 23, 42, 0.13);
+}
+
+.student-artifact-altar__mini-upgrade--card .student-artifact-altar__mini-upgrade-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 0.18rem 0.26rem 0.26rem 0.18rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.46), rgba(255, 255, 255, 0.08) 28%, transparent 29%),
+    linear-gradient(180deg, #e879f9 0%, #a855f7 54%, #7e22ce 100%);
+  box-shadow:
+    inset 0 -0.16rem 0 rgba(88, 28, 135, 0.34),
+    0 0 12px rgba(168, 85, 247, 0.46);
+}
+
+.student-artifact-altar__mini-upgrade--max {
+  background: transparent;
+}
+
+.student-artifact-altar__mini-upgrade--ready .student-artifact-altar__mini-upgrade-track::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.44) 46%, transparent 72%);
+  transform: translateX(-110%);
+  animation: artifactUpgradeReadyShine 1.35s ease-in-out infinite;
+}
+
+.student-artifact-altar__mini-upgrade-value {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f8fafc;
+  font-size: 0.72rem;
+  font-weight: 1000;
+  line-height: 1;
+  letter-spacing: 0;
+  text-shadow:
+    -1px -1px 0 rgba(15, 23, 42, 0.72),
+    1px -1px 0 rgba(15, 23, 42, 0.72),
+    -1px 1px 0 rgba(15, 23, 42, 0.72),
+    1px 1px 0 rgba(15, 23, 42, 0.72),
+    0 2px 3px rgba(15, 23, 42, 0.45);
+  pointer-events: none;
+}
+
+.student-artifact-altar__mini-upgrade--ready .student-artifact-altar__mini-upgrade-arrow {
+  filter:
+    drop-shadow(0 3px 0 rgba(21, 128, 61, 0.95))
+    drop-shadow(0 0 12px rgba(34, 197, 94, 0.36))
+    drop-shadow(0 7px 10px rgba(15, 23, 42, 0.26));
+}
+
+.student-artifact-altar__mini-upgrade--ready .student-artifact-altar__mini-upgrade-arrow::before {
+  border-bottom-color: #bbf7d0;
+}
+
+.student-artifact-altar__mini-upgrade--ready .student-artifact-altar__mini-upgrade-arrow::after {
+  background: linear-gradient(180deg, #86efac, #22c55e 68%, #15803d);
+}
+
+.student-artifact-altar__mini-upgrade--ready .student-artifact-altar__mini-upgrade-fill {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.48), rgba(255, 255, 255, 0.08) 28%, transparent 29%),
+    linear-gradient(180deg, #bbf7d0 0%, #4ade80 48%, #22c55e 100%);
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.48);
+}
+
+.student-artifact-altar__mini-upgrade--max .student-artifact-altar__mini-upgrade-track {
+  background: linear-gradient(180deg, rgba(68, 45, 12, 0.96), rgba(31, 23, 8, 0.94));
+  box-shadow:
+    inset 0 2px 4px rgba(2, 6, 23, 0.38),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.08),
+    0 0 12px rgba(245, 158, 11, 0.22);
+}
+
+.student-artifact-altar__mini-upgrade--max .student-artifact-altar__mini-upgrade-arrow {
+  filter:
+    drop-shadow(0 2px 0 rgba(146, 64, 14, 0.95))
+    drop-shadow(0 0 12px rgba(251, 191, 36, 0.38))
+    drop-shadow(0 5px 7px rgba(15, 23, 42, 0.24));
+}
+
+.student-artifact-altar__mini-upgrade--max .student-artifact-altar__mini-upgrade-arrow::before {
+  border-bottom-color: #fde68a;
+}
+
+.student-artifact-altar__mini-upgrade--max .student-artifact-altar__mini-upgrade-arrow::after {
+  background: linear-gradient(180deg, #fde68a, #f59e0b 64%, #b45309);
+}
+
+.student-artifact-altar__mini-upgrade--max .student-artifact-altar__mini-upgrade-fill {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.1) 28%, transparent 29%),
+    linear-gradient(180deg, #fef3c7 0%, #facc15 48%, #f59e0b 100%);
+  box-shadow:
+    inset 0 -0.16rem 0 rgba(180, 83, 9, 0.28),
+    0 0 13px rgba(245, 158, 11, 0.52);
+}
+
+.student-artifact-altar__mini-upgrade--max .student-artifact-altar__mini-upgrade-value {
+  color: #fef3c7;
+  text-shadow:
+    -1px -1px 0 rgba(92, 48, 5, 0.82),
+    1px -1px 0 rgba(92, 48, 5, 0.82),
+    -1px 1px 0 rgba(92, 48, 5, 0.82),
+    1px 1px 0 rgba(92, 48, 5, 0.82),
+    0 0 9px rgba(251, 191, 36, 0.64);
+}
+
 .student-artifact-detail-modal {
   position: fixed;
   inset: 0;
@@ -12138,6 +12508,25 @@ html[data-theme='dark'] .student-artifact-altar__artifact-card-media[data-rank='
   mix-blend-mode: screen;
   transform: translateX(-120%);
   animation: artifactDetailSweep 1.05s ease-out 0.14s both;
+}
+
+.student-artifact-detail-modal__card--upgraded {
+  animation:
+    artifactDetailCardIn 0.48s cubic-bezier(0.16, 1, 0.3, 1) both,
+    artifactUpgradeImpact 1.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.student-artifact-detail-modal__card--upgraded::after {
+  content: '';
+  position: absolute;
+  inset: -12%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.96), transparent 18%),
+    conic-gradient(from 0deg, transparent, var(--artifact-detail-accent-mid), rgba(250, 204, 21, 0.72), transparent 32%);
+  mix-blend-mode: screen;
+  opacity: 0;
+  animation: artifactUpgradeBurst 1.05s ease-out both;
 }
 
 .student-artifact-detail-modal__ambient {
@@ -12258,6 +12647,40 @@ html[data-theme='dark'] .student-artifact-altar__artifact-card-media[data-rank='
   box-shadow: 0 14px 26px rgba(15, 23, 42, 0.14);
 }
 
+.student-artifact-detail-modal__level-badge {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  z-index: 4;
+  display: inline-grid;
+  min-width: 4.1rem;
+  place-items: center;
+  border: 1px solid rgba(251, 191, 36, 0.62);
+  border-radius: 1rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(254, 243, 199, 0.92)),
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.96), transparent 62%);
+  padding: 0.45rem 0.58rem;
+  color: rgba(120, 53, 15, 0.95);
+  box-shadow:
+    0 12px 26px rgba(245, 158, 11, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.student-artifact-detail-modal__level-badge span {
+  font-size: 0.62rem;
+  font-weight: 950;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.student-artifact-detail-modal__level-badge strong {
+  font-size: 1.45rem;
+  font-weight: 1000;
+  line-height: 1;
+}
+
 .student-artifact-detail-modal__content {
   position: relative;
   z-index: 1;
@@ -12322,6 +12745,243 @@ html[data-theme='dark'] .student-artifact-altar__artifact-card-media[data-rank='
   font-weight: 600;
   line-height: 1.65;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
+}
+
+.student-artifact-detail-modal__upgrade-panel {
+  position: relative;
+  overflow: hidden;
+  margin-top: 0.9rem;
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  border-radius: 1.35rem;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(250, 204, 21, 0.22), transparent 34%),
+    linear-gradient(135deg, rgba(255, 251, 235, 0.9), rgba(255, 255, 255, 0.72));
+  padding: 0.9rem;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    0 16px 32px rgba(245, 158, 11, 0.12);
+}
+
+.student-artifact-detail-modal__upgrade-panel::before {
+  content: '';
+  position: absolute;
+  inset: -80% -30%;
+  pointer-events: none;
+  background: conic-gradient(from 210deg, transparent, rgba(255, 255, 255, 0.64), transparent 28%);
+  opacity: 0.48;
+  animation: artifactUpgradePanelSweep 4.8s ease-in-out infinite;
+}
+
+.student-artifact-detail-modal__upgrade-head,
+.student-artifact-detail-modal__upgrade-progress-row,
+.student-artifact-detail-modal__upgrade-button,
+.student-artifact-detail-modal__upgrade-error,
+.student-artifact-detail-modal__upgrade-warning,
+.student-artifact-detail-modal__upgrade-max {
+  position: relative;
+  z-index: 1;
+}
+
+.student-artifact-detail-modal__upgrade-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.student-artifact-detail-modal__upgrade-kicker {
+  color: rgba(146, 64, 14, 0.72);
+  font-size: 0.66rem;
+  font-weight: 950;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.student-artifact-detail-modal__upgrade-title {
+  margin-top: 0.2rem;
+  color: rgba(120, 53, 15, 0.96);
+  font-size: 1.15rem;
+  font-weight: 1000;
+  line-height: 1;
+}
+
+.student-artifact-detail-modal__upgrade-price {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid rgba(245, 158, 11, 0.34);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 0.34rem 0.58rem;
+  color: rgba(120, 53, 15, 0.92);
+  font-size: 0.86rem;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.student-artifact-detail-modal__upgrade-price img {
+  width: 1rem;
+  height: 1rem;
+  object-fit: contain;
+}
+
+.student-artifact-detail-modal__upgrade-progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.75rem;
+  color: rgba(120, 53, 15, 0.78);
+  font-size: 0.74rem;
+  font-weight: 900;
+}
+
+.student-artifact-detail-modal__upgrade-track {
+  position: relative;
+  z-index: 1;
+  height: 0.78rem;
+  overflow: hidden;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.14);
+  margin-top: 0.4rem;
+  box-shadow: inset 0 1px 2px rgba(120, 53, 15, 0.12);
+}
+
+.student-artifact-detail-modal__upgrade-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #f59e0b, #facc15, #fef3c7);
+  box-shadow:
+    0 0 18px rgba(245, 158, 11, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.64);
+  transition: width 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.student-artifact-detail-modal__upgrade-preview {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.62rem;
+}
+
+.student-artifact-detail-modal__upgrade-preview-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid rgba(34, 197, 94, 0.22);
+  border-radius: 0.78rem;
+  background: rgba(240, 253, 244, 0.54);
+  padding: 0.46rem 0.58rem;
+}
+
+.student-artifact-detail-modal__upgrade-preview-label {
+  min-width: 0;
+  color: rgba(71, 85, 105, 0.8);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.student-artifact-detail-modal__upgrade-preview-values {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.34rem;
+  color: rgba(71, 85, 105, 0.7);
+  font-size: 0.82rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.student-artifact-detail-modal__upgrade-preview-arrow,
+.student-artifact-detail-modal__upgrade-preview-values strong,
+.student-artifact-detail-modal__upgrade-preview-values em {
+  color: rgba(22, 163, 74, 0.98);
+}
+
+.student-artifact-detail-modal__upgrade-preview-arrow {
+  font-size: 1rem;
+  line-height: 1;
+  text-shadow: 0 0 10px rgba(34, 197, 94, 0.35);
+}
+
+.student-artifact-detail-modal__upgrade-preview-values strong {
+  font-size: 1.02rem;
+}
+
+.student-artifact-detail-modal__upgrade-preview-values em {
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.12);
+  padding: 0.08rem 0.34rem;
+  font-style: normal;
+  font-weight: 1000;
+}
+
+.student-artifact-detail-modal__upgrade-button {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.65rem;
+  border: 1px solid rgba(217, 119, 6, 0.42);
+  border-radius: 1rem;
+  background: linear-gradient(180deg, #facc15, #f59e0b);
+  margin-top: 0.78rem;
+  color: rgba(120, 53, 15, 0.98);
+  font-size: 0.9rem;
+  font-weight: 1000;
+  box-shadow:
+    0 14px 26px rgba(245, 158, 11, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.58);
+  transition: transform 0.18s ease, filter 0.18s ease, opacity 0.18s ease;
+}
+
+.student-artifact-detail-modal__upgrade-button-price {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.34);
+  margin-left: 0.1rem;
+  padding: 0.18rem 0.42rem;
+  color: inherit;
+  font-size: 0.84rem;
+  font-weight: 1000;
+  line-height: 1;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38);
+}
+
+.student-artifact-detail-modal__upgrade-button-price img {
+  width: 0.92rem;
+  height: 0.92rem;
+  object-fit: contain;
+}
+
+.student-artifact-detail-modal__upgrade-button:not(:disabled):hover {
+  transform: translateY(-1px) scale(1.01);
+  filter: brightness(1.04);
+}
+
+.student-artifact-detail-modal__upgrade-button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.38);
+  opacity: 0.58;
+}
+
+.student-artifact-detail-modal__upgrade-error,
+.student-artifact-detail-modal__upgrade-warning,
+.student-artifact-detail-modal__upgrade-max {
+  margin-top: 0.55rem;
+  color: rgba(190, 18, 60, 0.88);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.student-artifact-detail-modal__upgrade-max {
+  color: rgba(21, 128, 61, 0.88);
 }
 
 .student-artifact-detail-modal__section-title {
@@ -12403,6 +13063,228 @@ html[data-theme='dark'] .student-artifact-altar__artifact-card-media[data-rank='
   color: rgba(100, 116, 139, 0.74);
   font-size: 0.75rem;
   font-weight: 700;
+}
+
+.student-artifact-upgrade-showcase {
+  --artifact-upgrade-accent: #a855f7;
+  --artifact-upgrade-accent-soft: rgba(168, 85, 247, 0.2);
+  --artifact-upgrade-accent-mid: rgba(168, 85, 247, 0.38);
+  --artifact-upgrade-accent-strong: rgba(168, 85, 247, 0.62);
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 44%, var(--artifact-upgrade-accent-soft), transparent 28%),
+    radial-gradient(circle at 50% 62%, rgba(34, 197, 94, 0.14), transparent 28%),
+    rgba(2, 6, 23, 0.98);
+  color: #f8fafc;
+  pointer-events: auto;
+  cursor: pointer;
+  animation: artifactUpgradeShowcaseScene 5.4s ease-out both;
+}
+
+.student-artifact-upgrade-showcase__void {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.22), rgba(2, 6, 23, 0.72)),
+    repeating-radial-gradient(circle at 50% 46%, rgba(255, 255, 255, 0.055) 0 1px, transparent 1px 3.6rem);
+  opacity: 0.72;
+}
+
+.student-artifact-upgrade-showcase__artifact {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  transform: translate(-50%, -50%);
+  animation: artifactUpgradeShowcaseArtifact 5.15s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.student-artifact-upgrade-showcase__artifact::before,
+.student-artifact-upgrade-showcase__artifact::after {
+  content: '';
+  position: absolute;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.student-artifact-upgrade-showcase__artifact::before {
+  width: min(42vw, 24rem);
+  border: 1px dashed var(--artifact-upgrade-accent-mid);
+  opacity: 0;
+  animation: artifactUpgradeShowcaseRing 3.1s ease-out 0.95s both;
+}
+
+.student-artifact-upgrade-showcase__artifact::after {
+  width: min(54vw, 31rem);
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.84), transparent 11%),
+    conic-gradient(from 0deg, transparent, var(--artifact-upgrade-accent-strong), rgba(34, 197, 94, 0.72), rgba(250, 204, 21, 0.58), transparent 38%);
+  mix-blend-mode: screen;
+  opacity: 0;
+  animation: artifactUpgradeShowcaseImpact 1.9s ease-out 1.15s both;
+}
+
+.student-artifact-upgrade-showcase__level {
+  position: absolute;
+  top: -2.25rem;
+  z-index: 4;
+  color: rgba(236, 253, 245, 0.96);
+  font-size: clamp(0.76rem, 2vw, 1rem);
+  font-weight: 1000;
+  letter-spacing: 0.04em;
+  text-shadow:
+    0 0 16px rgba(34, 197, 94, 0.52),
+    0 2px 8px rgba(2, 6, 23, 0.8);
+  white-space: nowrap;
+  opacity: 0;
+  animation: artifactUpgradeShowcaseLevel 3.25s ease-out 0.95s both;
+}
+
+.student-artifact-upgrade-showcase__image {
+  position: relative;
+  z-index: 2;
+  width: min(30vw, 18rem);
+  height: min(30vw, 18rem);
+  min-width: 9rem;
+  min-height: 9rem;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 24px 34px rgba(0, 0, 0, 0.56))
+    drop-shadow(0 0 34px var(--artifact-upgrade-accent-mid));
+}
+
+.student-artifact-upgrade-showcase__burst {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  z-index: 2;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+}
+
+.student-artifact-upgrade-showcase__burst--one {
+  width: min(58vw, 36rem);
+  border: 2px solid rgba(255, 255, 255, 0.48);
+  box-shadow:
+    0 0 34px var(--artifact-upgrade-accent-mid),
+    inset 0 0 46px rgba(34, 197, 94, 0.24);
+  animation: artifactUpgradeShowcaseShockwave 2.35s ease-out 1.18s both;
+}
+
+.student-artifact-upgrade-showcase__burst--two {
+  width: min(42vw, 26rem);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.58), var(--artifact-upgrade-accent-soft) 38%, transparent 70%);
+  filter: blur(12px);
+  animation: artifactUpgradeShowcaseGlow 2.85s ease-out 0.95s both;
+}
+
+.student-artifact-upgrade-showcase__results {
+  position: absolute;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  left: max(1rem, env(safe-area-inset-left));
+  z-index: 4;
+  max-width: 760px;
+  margin: 0 auto;
+  border: 1px solid rgba(74, 222, 128, 0.28);
+  border-radius: 1.35rem;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(34, 197, 94, 0.18), transparent 38%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(2, 6, 23, 0.9));
+  padding: clamp(0.85rem, 2.4vw, 1.15rem);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.46),
+    0 0 44px rgba(34, 197, 94, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px) saturate(1.16);
+  opacity: 0;
+  transform: translateY(1.4rem);
+  animation: artifactUpgradeShowcaseResults 3.15s cubic-bezier(0.16, 1, 0.3, 1) 1.55s both;
+}
+
+.student-artifact-upgrade-showcase__kicker {
+  color: rgba(74, 222, 128, 0.96);
+  font-size: 0.7rem;
+  font-weight: 950;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.student-artifact-upgrade-showcase__title {
+  margin-top: 0.22rem;
+  color: rgba(248, 250, 252, 0.98);
+  font-size: clamp(1.3rem, 3.2vw, 2rem);
+  font-weight: 1000;
+  line-height: 1;
+}
+
+.student-artifact-upgrade-showcase__rows {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+
+.student-artifact-upgrade-showcase__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.9rem;
+  background: rgba(15, 23, 42, 0.66);
+  padding: 0.65rem 0.75rem;
+}
+
+.student-artifact-upgrade-showcase__row[data-tone='xp'] {
+  border-color: rgba(167, 139, 250, 0.34);
+}
+
+.student-artifact-upgrade-showcase__row[data-tone='coins'] {
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+.student-artifact-upgrade-showcase__label {
+  min-width: 0;
+  color: rgba(203, 213, 225, 0.84);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.student-artifact-upgrade-showcase__numbers {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  color: rgba(226, 232, 240, 0.86);
+  font-size: clamp(0.9rem, 2.4vw, 1.2rem);
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.student-artifact-upgrade-showcase__before {
+  color: rgba(148, 163, 184, 0.82);
+}
+
+.student-artifact-upgrade-showcase__arrow {
+  color: rgba(148, 163, 184, 0.58);
+}
+
+.student-artifact-upgrade-showcase__after {
+  color: rgba(248, 250, 252, 0.98);
+}
+
+.student-artifact-upgrade-showcase__delta {
+  color: rgba(74, 222, 128, 0.98);
+  font-size: 1.12em;
+  text-shadow: 0 0 14px rgba(34, 197, 94, 0.42);
 }
 
 .student-artifact-altar__legendary-teaser {
@@ -12725,6 +13607,176 @@ html[data-theme='dark'] .student-artifact-altar__artifact-card-media[data-rank='
   }
 }
 
+@keyframes artifactUpgradeImpact {
+  0% {
+    transform: translateY(0) scale(1);
+    box-shadow:
+      0 28px 80px rgba(15, 23, 42, 0.36),
+      0 0 80px var(--artifact-detail-accent-soft),
+      inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  }
+  28% {
+    transform: translateY(-0.2rem) scale(1.025);
+    box-shadow:
+      0 34px 90px rgba(15, 23, 42, 0.38),
+      0 0 110px var(--artifact-detail-accent-mid),
+      0 0 72px rgba(250, 204, 21, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes artifactUpgradeBurst {
+  0% {
+    opacity: 0;
+    transform: rotate(0deg) scale(0.62);
+  }
+  18% {
+    opacity: 0.92;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(36deg) scale(1.22);
+  }
+}
+
+@keyframes artifactUpgradePanelSweep {
+  0%, 100% {
+    transform: rotate(-10deg) translateX(-18%);
+    opacity: 0.22;
+  }
+  50% {
+    transform: rotate(12deg) translateX(16%);
+    opacity: 0.54;
+  }
+}
+
+@keyframes artifactUpgradeReadyShine {
+  0% {
+    transform: translateX(-115%);
+    opacity: 0;
+  }
+  24% {
+    opacity: 0.8;
+  }
+  70% {
+    opacity: 0.62;
+  }
+  100% {
+    transform: translateX(115%);
+    opacity: 0;
+  }
+}
+
+@keyframes artifactUpgradeShowcaseScene {
+  0% {
+    opacity: 0;
+  }
+  10%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes artifactUpgradeShowcaseArtifact {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) translate3d(-22vw, 12vh, 0) scale(0.5) rotate(-4deg);
+  }
+  30% {
+    opacity: 1;
+    transform: translate(-50%, -50%) translate3d(0, 0, 0) scale(1.08) rotate(0deg);
+  }
+  52% {
+    transform: translate(-50%, -50%) scale(1.18) rotate(0.8deg);
+  }
+  76%,
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1) rotate(0deg);
+  }
+}
+
+@keyframes artifactUpgradeShowcaseImpact {
+  0% {
+    opacity: 0;
+    transform: scale(0.24) rotate(0deg);
+  }
+  24% {
+    opacity: 0.94;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.36) rotate(44deg);
+  }
+}
+
+@keyframes artifactUpgradeShowcaseShockwave {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.18);
+  }
+  18% {
+    opacity: 0.86;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.2);
+  }
+}
+
+@keyframes artifactUpgradeShowcaseGlow {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.4);
+  }
+  35% {
+    opacity: 0.86;
+  }
+  100% {
+    opacity: 0.18;
+    transform: translate(-50%, -50%) scale(1.1);
+  }
+}
+
+@keyframes artifactUpgradeShowcaseRing {
+  0% {
+    opacity: 0;
+    transform: scale(0.6) rotate(0deg);
+  }
+  24% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0.2;
+    transform: scale(1.2) rotate(120deg);
+  }
+}
+
+@keyframes artifactUpgradeShowcaseLevel {
+  0% {
+    opacity: 0;
+    transform: translateY(0.45rem) scale(0.92);
+  }
+  35%, 100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes artifactUpgradeShowcaseResults {
+  from {
+    opacity: 0;
+    transform: translateY(1.4rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (max-width: 720px) {
   .student-artifact-detail-modal {
     align-items: flex-end;
@@ -12753,6 +13805,30 @@ html[data-theme='dark'] .student-artifact-altar__artifact-card-media[data-rank='
     font-size: clamp(1.85rem, 10vw, 2.6rem);
     overflow-wrap: anywhere;
     hyphens: auto;
+  }
+
+  .student-artifact-upgrade-showcase__artifact {
+    top: 36%;
+  }
+
+  .student-artifact-upgrade-showcase__image {
+    width: min(54vw, 14rem);
+    height: min(54vw, 14rem);
+    min-width: 8rem;
+    min-height: 8rem;
+  }
+
+  .student-artifact-upgrade-showcase__burst {
+    top: 36%;
+  }
+
+  .student-artifact-upgrade-showcase__row {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
+  }
+
+  .student-artifact-upgrade-showcase__numbers {
+    justify-content: space-between;
   }
 }
 
@@ -12845,6 +13921,141 @@ html[data-theme='dark'] .student-artifact-detail-modal__effect-value {
   color: rgba(248, 250, 252, 0.98);
 }
 
+html[data-theme='dark'] .student-artifact-detail-modal__level-badge {
+  border-color: rgba(251, 191, 36, 0.42);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(251, 191, 36, 0.2), transparent 66%),
+    linear-gradient(180deg, rgba(69, 46, 16, 0.92), rgba(30, 41, 59, 0.86));
+  color: rgba(253, 230, 138, 0.98);
+  box-shadow:
+    0 14px 28px rgba(2, 6, 23, 0.34),
+    0 0 24px rgba(245, 158, 11, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-panel {
+  border-color: rgba(168, 85, 247, 0.34);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(245, 158, 11, 0.14), transparent 34%),
+    radial-gradient(circle at 0% 100%, var(--artifact-detail-accent-soft), transparent 40%),
+    linear-gradient(135deg, rgba(17, 24, 39, 0.94), rgba(15, 23, 42, 0.9));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 18px 34px rgba(2, 6, 23, 0.32),
+    0 0 34px var(--artifact-detail-accent-soft);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-panel::before {
+  background: conic-gradient(from 210deg, transparent, var(--artifact-detail-accent-mid), transparent 28%);
+  opacity: 0.24;
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-kicker {
+  color: rgba(216, 180, 254, 0.86);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-title {
+  color: rgba(248, 250, 252, 0.98);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-price {
+  border-color: rgba(251, 191, 36, 0.26);
+  background: rgba(245, 158, 11, 0.12);
+  color: rgba(253, 230, 138, 0.98);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-progress-row {
+  color: rgba(203, 213, 225, 0.82);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-track {
+  border-color: rgba(168, 85, 247, 0.22);
+  background: rgba(15, 23, 42, 0.76);
+  box-shadow:
+    inset 0 1px 3px rgba(2, 6, 23, 0.64),
+    0 0 16px var(--artifact-detail-accent-soft);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-fill {
+  background: linear-gradient(90deg, #a855f7, #f59e0b, #fde68a);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-preview-item {
+  border-color: rgba(74, 222, 128, 0.24);
+  background: rgba(21, 128, 61, 0.12);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-preview-label {
+  color: rgba(203, 213, 225, 0.78);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-preview-values {
+  color: rgba(148, 163, 184, 0.82);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-preview-arrow,
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-preview-values strong,
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-preview-values em {
+  color: rgba(74, 222, 128, 0.98);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-preview-values em {
+  background: rgba(34, 197, 94, 0.14);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-button {
+  border-color: rgba(251, 191, 36, 0.36);
+  background: linear-gradient(180deg, #fde68a, #f59e0b);
+  color: rgba(69, 26, 3, 0.98);
+  box-shadow:
+    0 16px 30px rgba(245, 158, 11, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-button:disabled {
+  border-color: rgba(71, 85, 105, 0.66);
+  background: rgba(30, 41, 59, 0.82);
+  color: rgba(148, 163, 184, 0.86);
+  filter: none;
+  opacity: 0.72;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-button-price {
+  background: rgba(15, 23, 42, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-warning,
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-error {
+  color: rgba(251, 113, 133, 0.96);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__upgrade-max {
+  color: rgba(253, 230, 138, 0.94);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__effect-card[data-tone='xp'] {
+  border-color: rgba(167, 139, 250, 0.38);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(167, 139, 250, 0.16), transparent 54%),
+    rgba(15, 23, 42, 0.72);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__effect-card[data-tone='coins'] {
+  border-color: rgba(251, 191, 36, 0.34);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(251, 191, 36, 0.14), transparent 54%),
+    rgba(15, 23, 42, 0.72);
+}
+
+html[data-theme='dark'] .student-artifact-detail-modal__effect-card[data-tone='instant'] {
+  border-color: rgba(52, 211, 153, 0.32);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(52, 211, 153, 0.12), transparent 54%),
+    rgba(15, 23, 42, 0.72);
+}
+
 html[data-theme='dark'] .student-artifact-altar__legendary-teaser {
   border-color: rgba(244, 63, 94, 0.24) !important;
   background:
@@ -12934,9 +14145,33 @@ html[data-theme='dark'] .student-artifact-altar__legendary-card[data-rank='SS'] 
   .student-artifact-altar__legendary-card::before,
   .student-artifact-altar__legendary-glow,
   .student-artifact-altar__legendary-orbit,
-  .student-artifact-altar__artifact-card::before {
+  .student-artifact-altar__artifact-card::before,
+  .student-artifact-altar__mini-upgrade--ready .student-artifact-altar__mini-upgrade-track::after,
+  .student-artifact-upgrade-showcase,
+  .student-artifact-upgrade-showcase__artifact,
+  .student-artifact-upgrade-showcase__artifact::before,
+  .student-artifact-upgrade-showcase__artifact::after,
+  .student-artifact-upgrade-showcase__burst,
+  .student-artifact-upgrade-showcase__level,
+  .student-artifact-upgrade-showcase__results {
     animation: none !important;
     transition: none !important;
+  }
+
+  .student-artifact-upgrade-showcase,
+  .student-artifact-upgrade-showcase__burst,
+  .student-artifact-upgrade-showcase__level,
+  .student-artifact-upgrade-showcase__results {
+    opacity: 1 !important;
+  }
+
+  .student-artifact-upgrade-showcase__artifact,
+  .student-artifact-upgrade-showcase__results {
+    transform: translate(-50%, -50%) !important;
+  }
+
+  .student-artifact-upgrade-showcase__results {
+    transform: none !important;
   }
 }
 

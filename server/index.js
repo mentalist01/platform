@@ -223,6 +223,13 @@ const PYTHON_COIN_TASK_ORDER = [
   205, 208, 214, 216, 217, 223, 224, 225, 226, 227,
 ];
 const ARTIFACT_SPIN_COST = 20;
+const ARTIFACT_MAX_LEVEL = 5;
+const ARTIFACT_UPGRADE_REQUIREMENTS = {
+  2: { cards: 2, coins: 25 },
+  3: { cards: 4, coins: 75 },
+  4: { cards: 8, coins: 200 },
+  5: { cards: 16, coins: 500 },
+};
 const ARTIFACT_RANK_ORDER = ['SS', 'S', 'A', 'B', 'C'];
 const ARTIFACT_RANK_CHANCES = [
   { rank: 'SS', chance: 0.01 },
@@ -4814,6 +4821,30 @@ const normalizeArtifactInventory = (value) => {
   return next;
 };
 
+const normalizeArtifactLevels = (value, inventory = {}) => {
+  const safeInventory = normalizeArtifactInventory(inventory);
+  const next = {};
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    Object.entries(value).forEach(([rawId, rawLevel]) => {
+      const id = normalizeArtifactId(rawId);
+      if (!id) return;
+      const level = Number(rawLevel);
+      if (!Number.isFinite(level) || level <= 0) return;
+      next[id] = Math.min(ARTIFACT_MAX_LEVEL, Math.max(1, Math.floor(level)));
+    });
+  }
+  Object.entries(safeInventory).forEach(([id, count]) => {
+    if (count > 0 && !next[id]) next[id] = 1;
+  });
+  return next;
+};
+
+const normalizeArtifactCards = (value, inventory = {}) => {
+  const fallbackCards = normalizeArtifactInventory(inventory);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return fallbackCards;
+  return normalizeArtifactInventory(value);
+};
+
 const normalizeArtifactLastPull = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const id = normalizeArtifactId(value.id || value.artifactId);
@@ -4837,6 +4868,47 @@ const normalizeArtifactTotalPulls = (value) => {
 const getArtifactInventoryCount = (inventory = {}, artifactId) => (
   Math.max(0, Math.floor(Number(inventory?.[artifactId]) || 0))
 );
+
+const getArtifactLevel = (levels = {}, artifactId) => (
+  Math.min(ARTIFACT_MAX_LEVEL, Math.max(0, Math.floor(Number(levels?.[artifactId]) || 0)))
+);
+
+const getArtifactUpgradeRequirement = (level) => (
+  ARTIFACT_UPGRADE_REQUIREMENTS[Math.max(1, Math.floor(Number(level) || 1)) + 1] || null
+);
+
+const buildArtifactUpgradeState = ({ artifactId, levels = {}, cards = {}, coinsTotal = 0 } = {}) => {
+  const id = normalizeArtifactId(artifactId);
+  const level = getArtifactLevel(levels, id);
+  const nextLevel = level + 1;
+  const requirement = ARTIFACT_UPGRADE_REQUIREMENTS[nextLevel] || null;
+  const cardsAvailable = getArtifactInventoryCount(cards, id);
+  const normalizedCoinsTotal = normalizeCoinsTotal(coinsTotal);
+
+  if (!id || level <= 0 || !requirement) {
+    return {
+      level,
+      maxLevel: ARTIFACT_MAX_LEVEL,
+      nextLevel: null,
+      cardsRequired: 0,
+      cardsAvailable,
+      coinsRequired: 0,
+      canUpgrade: false,
+      isMaxLevel: level >= ARTIFACT_MAX_LEVEL,
+    };
+  }
+
+  return {
+    level,
+    maxLevel: ARTIFACT_MAX_LEVEL,
+    nextLevel,
+    cardsRequired: requirement.cards,
+    cardsAvailable,
+    coinsRequired: requirement.coins,
+    canUpgrade: cardsAvailable >= requirement.cards && normalizedCoinsTotal >= requirement.coins,
+    isMaxLevel: false,
+  };
+};
 
 const formatArtifactBonusPercent = (value) => {
   const numeric = Number(value);
@@ -4867,77 +4939,78 @@ const getArtifactInstantRewardForPull = (artifactId) => {
   };
 };
 
-const getArtifactSolveXpMultiplier = (inventory = {}, taskNumber) => {
-  const safeInventory = normalizeArtifactInventory(inventory);
+const getArtifactSolveXpMultiplier = (artifactLevels = {}, taskNumber) => {
+  const safeLevels = normalizeArtifactLevels(artifactLevels);
   const normalizedTask = normalizeClassicTaskForXp(taskNumber);
   let multiplier = 1;
 
   Object.entries(ARTIFACT_XP_GLOBAL_MULTIPLIERS).forEach(([artifactId, perCopyBonus]) => {
-    const count = getArtifactInventoryCount(safeInventory, artifactId);
-    if (count <= 0) return;
-    multiplier *= (1 + (perCopyBonus * count));
+    const level = getArtifactLevel(safeLevels, artifactId);
+    if (level <= 0) return;
+    multiplier *= (1 + (perCopyBonus * level));
   });
 
   if (Number.isFinite(normalizedTask)) {
     Object.entries(ARTIFACT_XP_TASK_MULTIPLIERS).forEach(([artifactId, entry]) => {
       if (!Array.isArray(entry?.tasks) || !entry.tasks.includes(normalizedTask)) return;
-      const count = getArtifactInventoryCount(safeInventory, artifactId);
-      if (count <= 0) return;
-      multiplier *= (1 + (Number(entry.perCopyBonus) * count));
+      const level = getArtifactLevel(safeLevels, artifactId);
+      if (level <= 0) return;
+      multiplier *= (1 + (Number(entry.perCopyBonus) * level));
     });
   }
 
   return Math.max(1, multiplier);
 };
 
-const getArtifactSolveCoinMultiplier = (inventory = {}) => {
-  const safeInventory = normalizeArtifactInventory(inventory);
+const getArtifactSolveCoinMultiplier = (artifactLevels = {}) => {
+  const safeLevels = normalizeArtifactLevels(artifactLevels);
   let multiplier = 1;
 
   Object.entries(ARTIFACT_COIN_GLOBAL_MULTIPLIERS).forEach(([artifactId, perCopyBonus]) => {
-    const count = getArtifactInventoryCount(safeInventory, artifactId);
-    if (count <= 0) return;
-    multiplier *= (1 + (perCopyBonus * count));
+    const level = getArtifactLevel(safeLevels, artifactId);
+    if (level <= 0) return;
+    multiplier *= (1 + (perCopyBonus * level));
   });
 
   return Math.max(1, multiplier);
 };
 
-const applyArtifactXpBonus = (baseReward, inventory = {}, taskNumber) => {
+const applyArtifactXpBonus = (baseReward, artifactLevels = {}, taskNumber) => {
   const reward = Number(baseReward);
   if (!Number.isFinite(reward) || reward <= 0) return 0;
-  return normalizeXpTotal(Math.round(reward * getArtifactSolveXpMultiplier(inventory, taskNumber)));
+  return normalizeXpTotal(Math.round(reward * getArtifactSolveXpMultiplier(artifactLevels, taskNumber)));
 };
 
-const applyArtifactCoinBonus = (baseReward, inventory = {}) => {
+const applyArtifactCoinBonus = (baseReward, artifactLevels = {}) => {
   const reward = Number(baseReward);
   if (!Number.isFinite(reward) || reward <= 0) return 0;
-  return normalizeCoinsTotal(Math.round(reward * getArtifactSolveCoinMultiplier(inventory)));
+  return normalizeCoinsTotal(Math.round(reward * getArtifactSolveCoinMultiplier(artifactLevels)));
 };
 
-const buildArtifactBonusSummary = (inventory = {}) => {
+const buildArtifactBonusSummary = (inventory = {}, artifactLevels = {}) => {
   const safeInventory = normalizeArtifactInventory(inventory);
-  const hasFleshka = getArtifactInventoryCount(safeInventory, 'fleshka') > 0;
-  const hasListComprehension = getArtifactInventoryCount(safeInventory, 'list-comprehension') > 0;
-  const hasRocks = getArtifactInventoryCount(safeInventory, 'rocks') > 0;
-  const hasTurtle = getArtifactInventoryCount(safeInventory, 'turtle') > 0;
-  const commonXpMultiplier = getArtifactSolveXpMultiplier(safeInventory, 1);
-  const task6Multiplier = getArtifactSolveXpMultiplier(safeInventory, 6);
-  const task15to16Multiplier = getArtifactSolveXpMultiplier(safeInventory, 15);
-  const task17Multiplier = getArtifactSolveXpMultiplier(safeInventory, 17);
+  const safeLevels = normalizeArtifactLevels(artifactLevels, safeInventory);
+  const hasFleshka = getArtifactLevel(safeLevels, 'fleshka') > 0;
+  const hasListComprehension = getArtifactLevel(safeLevels, 'list-comprehension') > 0;
+  const hasRocks = getArtifactLevel(safeLevels, 'rocks') > 0;
+  const hasTurtle = getArtifactLevel(safeLevels, 'turtle') > 0;
+  const commonXpMultiplier = getArtifactSolveXpMultiplier(safeLevels, 1);
+  const task6Multiplier = getArtifactSolveXpMultiplier(safeLevels, 6);
+  const task15to16Multiplier = getArtifactSolveXpMultiplier(safeLevels, 15);
+  const task17Multiplier = getArtifactSolveXpMultiplier(safeLevels, 17);
   const fileTaskMultiplier = Math.max(
-    getArtifactSolveXpMultiplier(safeInventory, 17),
-    getArtifactSolveXpMultiplier(safeInventory, 24),
-    getArtifactSolveXpMultiplier(safeInventory, 26),
-    getArtifactSolveXpMultiplier(safeInventory, 27)
+    getArtifactSolveXpMultiplier(safeLevels, 17),
+    getArtifactSolveXpMultiplier(safeLevels, 24),
+    getArtifactSolveXpMultiplier(safeLevels, 26),
+    getArtifactSolveXpMultiplier(safeLevels, 27)
   );
   const gameTaskMultiplier = Math.max(
-    getArtifactSolveXpMultiplier(safeInventory, 19),
-    getArtifactSolveXpMultiplier(safeInventory, 20),
-    getArtifactSolveXpMultiplier(safeInventory, 21)
+    getArtifactSolveXpMultiplier(safeLevels, 19),
+    getArtifactSolveXpMultiplier(safeLevels, 20),
+    getArtifactSolveXpMultiplier(safeLevels, 21)
   );
-  const task24to27Multiplier = getArtifactSolveXpMultiplier(safeInventory, 25);
-  const solveCoinMultiplier = getArtifactSolveCoinMultiplier(safeInventory);
+  const task24to27Multiplier = getArtifactSolveXpMultiplier(safeLevels, 25);
+  const solveCoinMultiplier = getArtifactSolveCoinMultiplier(safeLevels);
   const instantRewards = getArtifactInstantRewardsFromInventory(safeInventory);
   const entries = [];
 
@@ -5043,43 +5116,69 @@ const buildArtifactBonusSummary = (inventory = {}) => {
   };
 };
 
-const buildArtifactRewardPayload = (artifactId, inventory = {}, pulledAt = null) => {
+const buildArtifactRewardPayload = (artifactId, inventory = {}, pulledAt = null, artifactLevels = {}, artifactCards = {}, coinsTotal = 0) => {
   const id = normalizeArtifactId(artifactId);
   if (!id) return null;
   const artifact = ARTIFACT_CATALOG_BY_ID.get(id);
   if (!artifact) return null;
+  const safeLevels = normalizeArtifactLevels(artifactLevels, inventory);
+  const safeCards = normalizeArtifactCards(artifactCards, inventory);
+  const level = getArtifactLevel(safeLevels, id);
+  const cards = getArtifactInventoryCount(safeCards, id);
   return {
     id,
     rank: artifact.rank,
     name: artifact.name,
     description: typeof artifact.description === 'string' ? artifact.description : '',
     count: Math.max(0, Math.floor(Number(inventory?.[id]) || 0)),
+    level,
+    cards,
+    upgrade: buildArtifactUpgradeState({ artifactId: id, levels: safeLevels, cards: safeCards, coinsTotal }),
     pulledAt: pulledAt && !Number.isNaN(Date.parse(pulledAt)) ? new Date(pulledAt).toISOString() : null,
   };
 };
 
 const buildStudentArtifactState = (data) => {
   const inventory = normalizeArtifactInventory(data?.artifactInventory);
+  const artifactLevels = normalizeArtifactLevels(data?.artifactLevels, inventory);
+  const artifactCards = normalizeArtifactCards(data?.artifactCards, inventory);
+  const coinsTotal = normalizeCoinsTotal(data?.coinsTotal);
   const totalPulls = normalizeArtifactTotalPulls(data?.artifactTotalPulls);
-  const bonuses = buildArtifactBonusSummary(inventory);
+  const bonuses = buildArtifactBonusSummary(inventory, artifactLevels);
   const collection = ARTIFACT_RANK_ORDER.flatMap((rank) => (
     ARTIFACT_CATALOG
       .filter((artifact) => artifact.rank === rank)
-      .map((artifact) => ({
-        id: artifact.id,
-        rank: artifact.rank,
-        name: artifact.name,
-        description: typeof artifact.description === 'string' ? artifact.description : '',
-        count: Math.max(0, Math.floor(Number(inventory[artifact.id]) || 0)),
-      }))
-      .filter((artifact) => artifact.count > 0)
+      .map((artifact) => {
+        const count = Math.max(0, Math.floor(Number(inventory[artifact.id]) || 0));
+        const level = getArtifactLevel(artifactLevels, artifact.id);
+        if (count <= 0 && level <= 0) return null;
+        return {
+          id: artifact.id,
+          rank: artifact.rank,
+          name: artifact.name,
+          description: typeof artifact.description === 'string' ? artifact.description : '',
+          count,
+          level,
+          cards: getArtifactInventoryCount(artifactCards, artifact.id),
+          upgrade: buildArtifactUpgradeState({
+            artifactId: artifact.id,
+            levels: artifactLevels,
+            cards: artifactCards,
+            coinsTotal,
+          }),
+        };
+      })
+      .filter(Boolean)
   ));
   const totalOwned = collection.reduce((sum, artifact) => sum + artifact.count, 0);
   const uniqueOwned = collection.length;
   const lastPull = buildArtifactRewardPayload(
     data?.artifactLastPull?.id,
     inventory,
-    data?.artifactLastPull?.pulledAt || null
+    data?.artifactLastPull?.pulledAt || null,
+    artifactLevels,
+    artifactCards,
+    coinsTotal
   );
   return {
     spinCost: ARTIFACT_SPIN_COST,
@@ -6079,6 +6178,8 @@ const getStudentData = (studentId) => {
       coinsTotal: 0,
       coinsSpentTotal: 0,
       artifactInventory: {},
+      artifactLevels: {},
+      artifactCards: {},
       artifactLastPull: null,
       artifactTotalPulls: 0,
       leaderboardAlias: '',
@@ -6098,6 +6199,8 @@ const getStudentData = (studentId) => {
     || Object.prototype.hasOwnProperty.call(raw, 'coinsTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'coinsSpentTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'artifactInventory')
+    || Object.prototype.hasOwnProperty.call(raw, 'artifactLevels')
+    || Object.prototype.hasOwnProperty.call(raw, 'artifactCards')
     || Object.prototype.hasOwnProperty.call(raw, 'artifactLastPull')
     || Object.prototype.hasOwnProperty.call(raw, 'artifactTotalPulls')
     || Object.prototype.hasOwnProperty.call(raw, 'leaderboardAlias')
@@ -6107,6 +6210,8 @@ const getStudentData = (studentId) => {
     const solvedByTask = raw.solvedByTask && typeof raw.solvedByTask === 'object' ? raw.solvedByTask : {};
     const solvedEvents = Array.isArray(raw.solvedEvents) ? raw.solvedEvents : [];
     const artifactInventory = normalizeArtifactInventory(raw.artifactInventory);
+    const artifactLevels = normalizeArtifactLevels(raw.artifactLevels, artifactInventory);
+    const artifactCards = normalizeArtifactCards(raw.artifactCards, artifactInventory);
     const instantArtifactRewards = getArtifactInstantRewardsFromInventory(artifactInventory);
     const hasStoredXp = Object.prototype.hasOwnProperty.call(raw, 'xpTotal');
     const hasStoredCoins = Object.prototype.hasOwnProperty.call(raw, 'coinsTotal');
@@ -6150,6 +6255,8 @@ const getStudentData = (studentId) => {
       coinsTotal,
       coinsSpentTotal,
       artifactInventory,
+      artifactLevels,
+      artifactCards,
       artifactLastPull: normalizeArtifactLastPull(raw.artifactLastPull),
       artifactTotalPulls: normalizeArtifactTotalPulls(raw.artifactTotalPulls),
       leaderboardAlias,
@@ -6174,6 +6281,8 @@ const getStudentData = (studentId) => {
     coinsTotal: 0,
     coinsSpentTotal: 0,
     artifactInventory: {},
+    artifactLevels: {},
+    artifactCards: {},
     artifactLastPull: null,
     artifactTotalPulls: 0,
     leaderboardAlias: '',
@@ -6199,6 +6308,8 @@ const setStudentData = (studentId, data) => {
     coinsTotal: normalizeCoinsTotal(data.coinsTotal),
     coinsSpentTotal: normalizeCoinsSpentTotal(data.coinsSpentTotal),
     artifactInventory: normalizeArtifactInventory(data.artifactInventory),
+    artifactLevels: normalizeArtifactLevels(data.artifactLevels, data.artifactInventory),
+    artifactCards: normalizeArtifactCards(data.artifactCards, data.artifactInventory),
     artifactLastPull: normalizeArtifactLastPull(data.artifactLastPull),
     artifactTotalPulls: normalizeArtifactTotalPulls(data.artifactTotalPulls),
     leaderboardAlias: normalizeLeaderboardAlias(data.leaderboardAlias),
@@ -10100,7 +10211,11 @@ app.post('/api/students/altar/spin', (req, res) => {
 
   const pulledAt = new Date().toISOString();
   const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
+  const artifactLevels = normalizeArtifactLevels(data?.artifactLevels, artifactInventory);
+  const artifactCards = normalizeArtifactCards(data?.artifactCards, artifactInventory);
   artifactInventory[artifact.id] = Math.max(0, Math.floor(Number(artifactInventory[artifact.id]) || 0)) + 1;
+  artifactCards[artifact.id] = Math.max(0, Math.floor(Number(artifactCards[artifact.id]) || 0)) + 1;
+  if (!artifactLevels[artifact.id]) artifactLevels[artifact.id] = 1;
   const instantReward = getArtifactInstantRewardForPull(artifact.id);
   const xpGained = normalizeXpTotal(instantReward.xp);
   const coinsGained = normalizeCoinsTotal(instantReward.coins);
@@ -10115,6 +10230,8 @@ app.post('/api/students/altar/spin', (req, res) => {
     coinsTotal,
     coinsSpentTotal,
     artifactInventory,
+    artifactLevels,
+    artifactCards,
     artifactLastPull: {
       id: artifact.id,
       pulledAt,
@@ -10129,7 +10246,77 @@ app.post('/api/students/altar/spin', (req, res) => {
     coinsTotal: updated.coinsTotal,
     coinsGained,
     altar: buildStudentArtifactState(updated),
-    drop: buildArtifactRewardPayload(artifact.id, updated.artifactInventory, pulledAt),
+    drop: buildArtifactRewardPayload(
+      artifact.id,
+      updated.artifactInventory,
+      pulledAt,
+      updated.artifactLevels,
+      updated.artifactCards,
+      updated.coinsTotal
+    ),
+  });
+});
+
+app.post('/api/students/altar/upgrade', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.auth.id);
+  if (!student) return;
+
+  const artifactId = normalizeArtifactId(req.body?.artifactId);
+  if (!artifactId) {
+    return res.status(400).json({ error: 'Артефакт не найден.' });
+  }
+
+  const data = getStudentData(student.id);
+  const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
+  const artifactLevels = normalizeArtifactLevels(data?.artifactLevels, artifactInventory);
+  const artifactCards = normalizeArtifactCards(data?.artifactCards, artifactInventory);
+  const currentLevel = getArtifactLevel(artifactLevels, artifactId);
+  if (currentLevel <= 0 || getArtifactInventoryCount(artifactInventory, artifactId) <= 0) {
+    return res.status(400).json({ error: 'Сначала нужно выбить этот артефакт.' });
+  }
+  if (currentLevel >= ARTIFACT_MAX_LEVEL) {
+    return res.status(400).json({ error: 'Артефакт уже на максимальном уровне.' });
+  }
+
+  const requirement = getArtifactUpgradeRequirement(currentLevel);
+  if (!requirement) {
+    return res.status(400).json({ error: 'Для этого уровня улучшение недоступно.' });
+  }
+
+  const cardsAvailable = getArtifactInventoryCount(artifactCards, artifactId);
+  if (cardsAvailable < requirement.cards) {
+    return res.status(400).json({
+      error: `Нужно ${requirement.cards} копии этого артефакта для улучшения.`,
+    });
+  }
+
+  const currentCoins = normalizeCoinsTotal(data?.coinsTotal);
+  if (currentCoins < requirement.coins) {
+    return res.status(400).json({
+      error: `Нужно ${requirement.coins} монет для улучшения.`,
+    });
+  }
+
+  artifactCards[artifactId] = cardsAvailable - requirement.cards;
+  artifactLevels[artifactId] = currentLevel + 1;
+
+  const updated = setStudentData(student.id, {
+    ...data,
+    coinsTotal: currentCoins - requirement.coins,
+    coinsSpentTotal: normalizeCoinsSpentTotal(data?.coinsSpentTotal) + requirement.coins,
+    artifactInventory,
+    artifactLevels,
+    artifactCards,
+  });
+
+  return res.json({
+    ok: true,
+    artifactId,
+    level: artifactLevels[artifactId],
+    coinsTotal: updated.coinsTotal,
+    coinsSpentTotal: updated.coinsSpentTotal,
+    altar: buildStudentArtifactState(updated),
   });
 });
 
@@ -10783,6 +10970,7 @@ app.post('/api/progress/solve', async (req, res) => {
   const solvedEvents = Array.isArray(data.solvedEvents) ? [...data.solvedEvents] : [];
   const streak = normalizeStreak(data.streak);
   const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
+  const artifactLevels = normalizeArtifactLevels(data?.artifactLevels, artifactInventory);
   let xpTotal = normalizeXpTotal(data.xpTotal);
   let coinsTotal = normalizeCoinsTotal(data.coinsTotal);
   const taskEntry = { ...(solvedByTask[taskKey] || {}) };
@@ -10799,8 +10987,8 @@ app.post('/api/progress/solve', async (req, res) => {
     solvedList.push(qKey);
     solvedAdded = true;
     const questionNumber = getQuestionNumberById(testsDb, taskNum, levelKey, qKey);
-    xpGained = applyArtifactXpBonus(getTaskLevelXpReward(taskNum, levelKey), artifactInventory, taskNum);
-    coinsGained = applyArtifactCoinBonus(getSolveCoinReward(taskNum, levelKey), artifactInventory);
+    xpGained = applyArtifactXpBonus(getTaskLevelXpReward(taskNum, levelKey), artifactLevels, taskNum);
+    coinsGained = applyArtifactCoinBonus(getSolveCoinReward(taskNum, levelKey), artifactLevels);
     solvedEvents.push({
       id: crypto.randomUUID(),
       studentId: student.id,

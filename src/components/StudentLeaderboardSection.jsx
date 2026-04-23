@@ -432,6 +432,22 @@ const StudentLeaderboardSection = ({
     }
   }, [loadLeaderboard, onStudentCoinsChange, onStudentXpChange, role, spinLoading]);
 
+  const handleUpgradeArtifact = useCallback(async (artifactId) => {
+    if (role !== 'student') return null;
+    const data = await api.upgradeArtifact(artifactId);
+    if (!mountedRef.current) return data;
+    const nextCoinsTotal = normalizeOptionalWholeNumber(data?.coinsTotal);
+    if (typeof onStudentCoinsChange === 'function' && nextCoinsTotal !== null) {
+      onStudentCoinsChange(nextCoinsTotal);
+    }
+    if (data?.altar && typeof data.altar === 'object') {
+      setAltar(data.altar);
+    } else {
+      void loadLeaderboard({ silent: true });
+    }
+    return data;
+  }, [loadLeaderboard, onStudentCoinsChange, role]);
+
   const handleTeacherStudentSelect = useCallback((studentId) => {
     if (role !== 'teacher') return;
     const normalized = String(studentId || '').trim();
@@ -1032,6 +1048,7 @@ const StudentLeaderboardSection = ({
           altar={altar}
           coinsTotal={studentCoinsTotal}
           onSpin={handleSpinArtifact}
+          onUpgrade={handleUpgradeArtifact}
           spinning={spinLoading}
           spinError={spinError}
         />
