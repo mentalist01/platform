@@ -156,22 +156,23 @@ const getArtifactRankSummary = (collection = []) => (
 const MetricTile = ({ icon: Icon, label, value, tone = 'violet' }) => {
   const theme = TILE_THEME[tone] || TILE_THEME.violet;
   return (
-    <div className={`relative overflow-hidden rounded-[1.4rem] px-4 py-4 ${theme.borderClassName}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">{label}</div>
-          <div className="mt-2 truncate text-[1.65rem] font-black tracking-tight text-white">{value}</div>
-        </div>
-        <div className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${theme.iconClassName}`}>
-          <Icon size={19} />
+    <div className={`relative min-w-0 overflow-hidden rounded-[1.4rem] px-4 py-4 ${theme.borderClassName}`}>
+      <div className="min-w-0 pr-16">
+        <div className="truncate text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">{label}</div>
+        <div className="mt-2 text-[clamp(1.2rem,2.4vw,1.65rem)] font-black leading-none tracking-tight text-white">
+          {value}
         </div>
       </div>
+      <div className={`absolute right-4 top-4 inline-flex h-11 w-11 items-center justify-center rounded-2xl ${theme.iconClassName}`}>
+        <Icon size={19} />
+      </div>
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/5 to-transparent" />
     </div>
   );
 };
 
 const GaugeCard = ({ label, value, percent, accent, meta = '' }) => (
-  <div className="rounded-[1.55rem] bg-white/[0.045] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+  <div className="min-w-0 rounded-[1.55rem] bg-white/[0.045] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
     <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">{label}</div>
     <div className="mt-4 flex items-center gap-4">
       <div className="relative h-24 w-24 shrink-0 rounded-full p-[7px]" style={buildRingStyle(percent, accent)}>
@@ -182,9 +183,9 @@ const GaugeCard = ({ label, value, percent, accent, meta = '' }) => (
           </div>
         </div>
       </div>
-      <div className="min-w-0">
-        <div className="text-lg font-bold text-white">{label}</div>
-        {meta && <div className="mt-1 text-sm text-slate-300">{meta}</div>}
+      <div className="min-w-0 flex-1">
+        <div className="break-words text-lg font-bold leading-tight text-white">{label}</div>
+        {meta && <div className="mt-1 break-words text-sm leading-snug text-slate-300">{meta}</div>}
       </div>
     </div>
   </div>
@@ -207,7 +208,7 @@ const ArtifactSlot = ({ artifact, active = false, onSelect }) => {
       title={artifact.name}
     >
       <div className="absolute left-1.5 top-1.5 z-[1]">
-        <span className={`rounded-full border px-1.5 py-0.5 text-[8px] font-black tracking-[0.14em] ${rankTheme.badgeClassName}`}>
+        <span className={`rounded-full px-1.5 py-0.5 text-[8px] font-black tracking-[0.14em] ${rankTheme.badgeClassName}`}>
           {artifact.rank}
         </span>
       </div>
@@ -264,7 +265,7 @@ const ArtifactPreview = ({ artifact }) => {
         </div>
         <div className="min-w-0 flex-1">
           <div className="inline-flex items-center gap-2">
-            <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black tracking-[0.16em] ${rankTheme.badgeClassName}`}>
+            <span className={`rounded-full px-2.5 py-1 text-[10px] font-black tracking-[0.16em] ${rankTheme.badgeClassName}`}>
               {artifact.rank}
             </span>
             <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">
@@ -447,21 +448,21 @@ const StudentLeaderboardProfileModal = ({
 
   const renderLoadingState = () => (
     <div className="space-y-4 animate-pulse">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]">
         {Array.from({ length: 4 }, (_, index) => (
           <div key={`loading-stat-${index}`} className="h-28 rounded-[1.35rem] bg-white/[0.05]" />
         ))}
       </div>
-      <div className="grid gap-4 lg:grid-cols-[1.05fr,0.95fr]">
-        <div className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-4 2xl:grid-cols-[1.05fr,0.95fr]">
+        <div className="min-w-0 space-y-4">
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
             {Array.from({ length: 3 }, (_, index) => (
               <div key={`loading-gauge-${index}`} className="h-40 rounded-[1.55rem] bg-white/[0.05]" />
             ))}
           </div>
           <div className="h-72 rounded-[1.6rem] bg-white/[0.05]" />
         </div>
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <div className="h-36 rounded-[1.6rem] bg-white/[0.05]" />
           <div className="h-52 rounded-[1.6rem] bg-white/[0.05]" />
           <div className="h-48 rounded-[1.6rem] bg-white/[0.05]" />
@@ -505,7 +506,7 @@ const StudentLeaderboardProfileModal = ({
     >
       <div className="modal-card relative mx-auto w-full max-w-6xl overflow-hidden rounded-[2rem] bg-slate-950 text-slate-100 shadow-[0_35px_120px_rgba(15,23,42,0.72)]">
         <div className="absolute inset-0">
-          <div className="absolute inset-x-0 top-0 h-64 bg-[radial-gradient(circle_at_top_left,rgba(168,85,247,0.34),transparent_48%),radial-gradient(circle_at_top_right,rgba(56,189,248,0.25),transparent_40%),linear-gradient(180deg,rgba(59,7,100,0.44),rgba(2,6,23,0))]" />
+          <div className="absolute inset-x-0 top-0 h-[24rem] sm:h-[26rem] lg:h-[28rem] bg-[radial-gradient(circle_at_top_left,rgba(168,85,247,0.34),transparent_48%),radial-gradient(circle_at_top_right,rgba(56,189,248,0.25),transparent_40%),linear-gradient(180deg,rgba(59,7,100,0.5)_0%,rgba(37,26,78,0.28)_58%,rgba(2,6,23,0)_100%)]" />
           <div className="absolute -left-20 top-12 h-44 w-44 rounded-full bg-violet-500/10 blur-3xl" />
           <div className="absolute -right-10 top-20 h-36 w-36 rounded-full bg-sky-400/10 blur-3xl" />
         </div>
@@ -599,9 +600,9 @@ const StudentLeaderboardProfileModal = ({
               : error && !profileData
                 ? renderErrorState()
                 : (
-                  <div className="grid gap-4 xl:grid-cols-[1.06fr,0.94fr]">
-                    <div className="space-y-4">
-                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid gap-4 2xl:grid-cols-[1.06fr,0.94fr]">
+                    <div className="min-w-0 space-y-4">
+                      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]">
                         {quickStats.map((item) => (
                           <MetricTile
                             key={item.key}
@@ -613,7 +614,7 @@ const StudentLeaderboardProfileModal = ({
                         ))}
                       </div>
 
-                      <div className="grid gap-3 md:grid-cols-3">
+                      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
                         <GaugeCard
                           label="Уровень"
                           value={String(resolvedLevel)}
@@ -646,7 +647,7 @@ const StudentLeaderboardProfileModal = ({
                               return (
                                 <span
                                   key={`artifact-rank-${item.rank}`}
-                                  className={`rounded-full border px-2.5 py-1 text-[11px] font-black tracking-[0.16em] ${theme.badgeClassName}`}
+                                  className={`rounded-full px-2.5 py-1 text-[11px] font-black tracking-[0.16em] ${theme.badgeClassName}`}
                                 >
                                   {`${item.rank} x${formatNumber(item.totalOwned)}`}
                                 </span>
@@ -695,7 +696,7 @@ const StudentLeaderboardProfileModal = ({
                       </div>
                     </div>
 
-                    <div className="space-y-4">
+                    <div className="min-w-0 space-y-4">
                       <div className="grid gap-3 sm:grid-cols-2">
                         {rankCards.map((item) => (
                           <div key={item.key} className="rounded-[1.45rem] bg-white/[0.045] p-4 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">

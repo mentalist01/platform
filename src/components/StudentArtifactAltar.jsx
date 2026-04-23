@@ -111,11 +111,13 @@ const ARTIFACT_CATALOG = Object.entries(artifactModules)
     const id = String(match[2] || '').trim();
     if (!id) return null;
     const metadata = ARTIFACT_CATALOG_METADATA_BY_ID.get(id) || null;
+    // Ignore legacy/stray art files that are not present in the canonical artifact catalog.
+    if (!metadata) return null;
     return {
       id,
-      rank: metadata?.rank || RANK_FOLDER_TO_ID[folder] || 'C',
-      name: metadata?.name || ARTIFACT_LABELS[id] || id,
-      description: typeof metadata?.description === 'string' ? metadata.description : '',
+      rank: metadata.rank || RANK_FOLDER_TO_ID[folder] || 'C',
+      name: metadata.name || ARTIFACT_LABELS[id] || id,
+      description: typeof metadata.description === 'string' ? metadata.description : '',
       src,
     };
   })
