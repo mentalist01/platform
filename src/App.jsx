@@ -14145,8 +14145,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         )}
       */}
       <div
-        className={`hidden md:block md:sticky md:top-0 z-40 app-h shrink-0 overflow-hidden transition-all duration-300 ease-out ${
-          desktopNavCollapsed ? 'w-0' : 'w-64 lg:w-72'
+        className={`sidebar-frame hidden md:block md:sticky md:top-0 z-40 app-h shrink-0 overflow-hidden transition-all duration-300 ease-out ${
+          desktopNavCollapsed ? 'w-0' : 'sidebar-frame--open w-64 lg:w-72'
         }`}
       >
         <aside
