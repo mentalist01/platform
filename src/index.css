@@ -19324,3 +19324,601 @@ html[data-theme='light'] .progress-section--mocks .mock-readiness-score {
     justify-content: flex-start;
   }
 }
+
+/* Mock exams page final polish. */
+.progress-section--mocks.progress-section--student .progress-overview-card {
+  min-height: 0 !important;
+  border-radius: 1.35rem !important;
+  padding: 0.85rem 1rem !important;
+}
+
+.progress-section--mocks.progress-section--student .progress-overview-meter {
+  min-height: 0 !important;
+}
+
+.progress-section--mocks .progress-overview-card h2 {
+  font-size: 1.06rem !important;
+  line-height: 1.15 !important;
+}
+
+.progress-section--mocks .progress-overview-meter--mocks {
+  border-radius: 1rem !important;
+  padding: 0.62rem 0.78rem !important;
+}
+
+.progress-section--mocks .mock-readiness-layout {
+  gap: 0.72rem !important;
+}
+
+.progress-section--mocks .mock-readiness-meta {
+  gap: 0.68rem !important;
+  padding: 0 !important;
+}
+
+.progress-section--mocks .mock-readiness-score {
+  min-width: 5.4rem !important;
+  border-radius: 0.82rem !important;
+  gap: 0.36rem !important;
+  padding: 0.42rem 0.66rem !important;
+}
+
+.progress-section--mocks .mock-overview-icon {
+  width: 2.05rem !important;
+  height: 2.05rem !important;
+  border-radius: 0.72rem !important;
+}
+
+.progress-section--mocks .mock-overview-label {
+  font-size: 0.72rem !important;
+}
+
+.progress-section--mocks .mock-overview-caption {
+  font-size: 0.76rem !important;
+}
+
+.progress-section--mocks .mock-overview-score-value {
+  font-size: clamp(1.45rem, 2vw, 1.95rem) !important;
+}
+
+.progress-section--mocks .mock-readiness-score-caption {
+  font-size: 0.58rem !important;
+}
+
+.progress-section--mocks .progress-overview-track {
+  height: 0.48rem !important;
+  margin-top: 0.58rem !important;
+}
+
+.progress-section--mocks .progress-section-tabs {
+  min-height: 3.05rem !important;
+}
+
+.progress-section--mocks .mock-page-shell::before {
+  display: none !important;
+  background: none !important;
+}
+
+.mock-command-center {
+  background: transparent !important;
+  border-color: transparent !important;
+  border-radius: 1.35rem !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+.mock-command-center::before,
+.mock-command-center::after {
+  display: none !important;
+}
+
+.mock-command-grid {
+  align-items: center !important;
+  gap: 0.9rem !important;
+}
+
+.mock-command-copy {
+  display: flex;
+  min-height: 5.25rem;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.7rem !important;
+}
+
+.mock-command-copy .mock-hero-title {
+  line-height: 1.02 !important;
+}
+
+.mock-command-stat,
+.mock-list-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.36rem;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  background: rgba(240, 249, 255, 0.76);
+  color: rgb(71, 85, 105);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.mock-command-stat strong,
+.mock-list-chip strong {
+  color: rgb(3, 105, 161);
+  font-weight: 900;
+}
+
+.mock-command-focus {
+  border-top: 1px solid rgba(148, 163, 184, 0.3);
+  padding-top: 0.75rem;
+}
+
+.mock-command-focus .mock-focus-icon {
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  border-radius: 0.88rem !important;
+}
+
+.mock-list-shell {
+  border-radius: 1.35rem !important;
+}
+
+.progress-section--mocks .mock-list-shell.surface-card {
+  padding: 1rem !important;
+}
+
+.mock-list-metrics {
+  justify-content: flex-end;
+}
+
+.mock-student-card--compact {
+  border-radius: 1.25rem !important;
+}
+
+.mock-student-card--compact .mock-ticket-mark {
+  width: 2.35rem !important;
+  height: 2.35rem !important;
+  border-radius: 0.82rem !important;
+}
+
+.mock-student-card--compact .mock-card-command {
+  min-height: 100%;
+}
+
+.mock-score-panel {
+  border-color: rgba(203, 213, 225, 0.72);
+  background:
+    linear-gradient(135deg, rgba(248, 250, 252, 0.94), rgba(240, 249, 255, 0.78));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.mock-score-label,
+.mock-score-primary,
+.mock-score-status {
+  color: rgb(100, 116, 139);
+}
+
+.mock-score-value {
+  color: rgb(12, 74, 110);
+}
+
+.mock-score-track {
+  background: rgba(203, 213, 225, 0.82);
+}
+
+.mock-score-track__fill {
+  background: linear-gradient(90deg, #2563eb, #0891b2, #14b8a6);
+}
+
+.mock-history-empty,
+.mock-history-item {
+  border: 1px solid rgba(203, 213, 225, 0.72);
+  background: rgba(248, 250, 252, 0.82);
+  color: rgb(100, 116, 139);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.mock-history-item .text-gray-800 {
+  color: rgb(30, 41, 59) !important;
+}
+
+.mock-history-item .text-gray-500,
+.mock-history-item .text-gray-600 {
+  color: rgb(100, 116, 139) !important;
+}
+
+html[data-theme='dark'] .mock-command-stat,
+html[data-theme='dark'] .mock-list-chip {
+  border-color: rgba(56, 189, 248, 0.24);
+  background: rgba(8, 47, 73, 0.34);
+  color: rgb(148, 163, 184);
+}
+
+html[data-theme='dark'] .mock-command-stat strong,
+html[data-theme='dark'] .mock-list-chip strong {
+  color: rgb(186, 230, 253);
+}
+
+html[data-theme='dark'] .mock-command-focus {
+  border-top-color: rgba(51, 65, 85, 0.78);
+}
+
+html[data-theme='dark'] .mock-command-focus .text-purple-700 {
+  color: rgb(125, 211, 252) !important;
+}
+
+html[data-theme='dark'] .mock-command-focus .text-gray-900 {
+  color: rgb(248, 250, 252) !important;
+}
+
+html[data-theme='dark'] .mock-command-focus .text-gray-500 {
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .mock-score-panel {
+  border-color: rgba(51, 65, 85, 0.76);
+  background:
+    linear-gradient(135deg, rgba(8, 15, 28, 0.72), rgba(8, 47, 73, 0.28));
+  box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.07);
+}
+
+html[data-theme='dark'] .mock-score-label,
+html[data-theme='dark'] .mock-score-primary,
+html[data-theme='dark'] .mock-score-status {
+  color: rgb(148, 163, 184);
+}
+
+html[data-theme='dark'] .mock-score-value {
+  color: rgb(248, 250, 252);
+}
+
+html[data-theme='dark'] .mock-score-track {
+  background: rgba(51, 65, 85, 0.82);
+}
+
+html[data-theme='dark'] .mock-history-empty,
+html[data-theme='dark'] .mock-history-item {
+  border-color: rgba(51, 65, 85, 0.72);
+  background: rgba(15, 23, 42, 0.66);
+  color: rgb(148, 163, 184);
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.06);
+}
+
+html[data-theme='dark'] .mock-history-item .text-gray-800 {
+  color: rgb(226, 232, 240) !important;
+}
+
+html[data-theme='dark'] .mock-history-item .text-gray-500,
+html[data-theme='dark'] .mock-history-item .text-gray-600 {
+  color: rgb(148, 163, 184) !important;
+}
+
+@media (min-width: 1024px) {
+  .mock-command-focus {
+    display: flex;
+    min-height: 5.25rem;
+    flex-direction: column;
+    justify-content: center;
+    border-top: 0;
+    border-left: 1px solid rgba(148, 163, 184, 0.3);
+    padding-top: 0;
+    padding-left: 1rem;
+  }
+
+  html[data-theme='dark'] .mock-command-focus {
+    border-left-color: rgba(51, 65, 85, 0.78);
+  }
+}
+
+@media (max-width: 640px) {
+  .progress-section--mocks.progress-section--student .progress-overview-card {
+    padding: 0.78rem !important;
+  }
+
+  .progress-section--mocks .mock-readiness-score {
+    justify-content: space-between !important;
+  }
+
+  .mock-command-center {
+    padding: 0.82rem !important;
+  }
+
+  .mock-command-copy {
+    min-height: 0;
+  }
+
+  .mock-list-metrics {
+    justify-content: flex-start;
+  }
+}
+
+/* Final hero cleanup: the mocks title should not be a large card. */
+.progress-section--mocks .mock-student-hero.mock-command-center,
+html[data-theme='light'] .progress-section--mocks .mock-student-hero.mock-command-center,
+html[data-theme='dark'] .progress-section--mocks .mock-student-hero.mock-command-center {
+  min-height: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0.15rem 0 0.25rem !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-hero.mock-command-center::before,
+.progress-section--mocks .mock-student-hero.mock-command-center::after {
+  display: none !important;
+}
+
+.progress-section--mocks .mock-command-grid {
+  display: block !important;
+}
+
+.progress-section--mocks .mock-command-copy {
+  min-height: 0 !important;
+  gap: 0.55rem !important;
+}
+
+/* Mock readiness mirrors the regular progress meter, with its own accent. */
+.progress-section--mocks .progress-overview-meter--mocks {
+  padding: 0.9rem 1rem !important;
+}
+
+.progress-section--mocks .progress-overview-meter--mocks .progress-overview-badge {
+  background: linear-gradient(135deg, #2563eb, #0891b2) !important;
+  box-shadow: 0 10px 18px rgba(8, 145, 178, 0.16);
+}
+
+.progress-section--mocks .progress-overview-meter--mocks .progress-overview-value {
+  color: rgb(125, 211, 252) !important;
+}
+
+.progress-section--mocks .progress-overview-meter--mocks .progress-overview-detail {
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='light'] .progress-section--mocks .progress-overview-meter--mocks .progress-overview-value {
+  color: rgb(3, 105, 161) !important;
+}
+
+html[data-theme='light'] .progress-section--mocks .progress-overview-meter--mocks .progress-overview-detail {
+  color: rgb(100, 116, 139) !important;
+}
+
+/* Mock tab entrance animations. */
+.progress-section--mocks .progress-overview-card {
+  animation: mockSectionEnter 0.52s cubic-bezier(0.2, 0.78, 0.26, 1) both;
+}
+
+.progress-section--mocks .progress-section-tabs {
+  animation: mockSectionEnter 0.46s cubic-bezier(0.2, 0.78, 0.26, 1) 70ms both;
+}
+
+.progress-section--mocks .mock-student-hero,
+.progress-section--mocks .mock-teacher-hero {
+  animation: mockPanelEnter 0.48s cubic-bezier(0.2, 0.78, 0.26, 1) 120ms both;
+}
+
+.progress-section--mocks .mock-list-shell {
+  animation: mockPanelEnter 0.5s cubic-bezier(0.2, 0.78, 0.26, 1) 170ms both;
+}
+
+.progress-section--mocks .mock-statistics-card,
+.progress-section--mocks .mock-history-list {
+  animation: mockPanelEnter 0.5s cubic-bezier(0.2, 0.78, 0.26, 1) 220ms both;
+}
+
+.progress-section--mocks .progress-overview-fill {
+  transform-origin: left center;
+  animation: mockProgressWake 0.72s cubic-bezier(0.2, 0.78, 0.26, 1) 170ms both;
+}
+
+.progress-section--mocks .mock-command-stat,
+.progress-section--mocks .mock-list-chip {
+  animation: mockChipPop 0.34s cubic-bezier(0.2, 0.78, 0.26, 1) both;
+}
+
+.progress-section--mocks .mock-command-stat:nth-child(2),
+.progress-section--mocks .mock-list-chip:nth-child(1) {
+  animation-delay: 170ms;
+}
+
+.progress-section--mocks .mock-command-stat:nth-child(3),
+.progress-section--mocks .mock-list-chip:nth-child(2) {
+  animation-delay: 210ms;
+}
+
+.progress-section--mocks .mock-command-stat:nth-child(4),
+.progress-section--mocks .mock-list-chip:nth-child(3) {
+  animation-delay: 250ms;
+}
+
+.progress-section--mocks .mock-ticket-list > *,
+.progress-section--mocks .mock-list-shell .space-y-6 > *,
+.progress-section--mocks .mock-list-shell .space-y-4 > * {
+  animation: mockCardEnter 0.44s cubic-bezier(0.2, 0.78, 0.26, 1) both;
+}
+
+.progress-section--mocks .mock-ticket-list > :nth-child(1),
+.progress-section--mocks .mock-list-shell .space-y-6 > :nth-child(1),
+.progress-section--mocks .mock-list-shell .space-y-4 > :nth-child(1) {
+  animation-delay: 230ms;
+}
+
+.progress-section--mocks .mock-ticket-list > :nth-child(2),
+.progress-section--mocks .mock-list-shell .space-y-6 > :nth-child(2),
+.progress-section--mocks .mock-list-shell .space-y-4 > :nth-child(2) {
+  animation-delay: 280ms;
+}
+
+.progress-section--mocks .mock-ticket-list > :nth-child(3),
+.progress-section--mocks .mock-list-shell .space-y-6 > :nth-child(3),
+.progress-section--mocks .mock-list-shell .space-y-4 > :nth-child(3) {
+  animation-delay: 330ms;
+}
+
+.progress-section--mocks .mock-ticket-list > :nth-child(n + 4),
+.progress-section--mocks .mock-list-shell .space-y-6 > :nth-child(n + 4),
+.progress-section--mocks .mock-list-shell .space-y-4 > :nth-child(n + 4) {
+  animation-delay: 380ms;
+}
+
+@keyframes mockSectionEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.992);
+    filter: blur(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes mockPanelEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(14px);
+    filter: blur(5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes mockCardEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes mockChipPop {
+  0% {
+    opacity: 0;
+    transform: translateY(5px) scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes mockProgressWake {
+  0% {
+    opacity: 0.66;
+    transform: scaleX(0.28);
+    filter: saturate(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: scaleX(1);
+    filter: saturate(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-section--mocks .progress-overview-card,
+  .progress-section--mocks .progress-section-tabs,
+  .progress-section--mocks .mock-student-hero,
+  .progress-section--mocks .mock-teacher-hero,
+  .progress-section--mocks .mock-list-shell,
+  .progress-section--mocks .mock-statistics-card,
+  .progress-section--mocks .mock-history-list,
+  .progress-section--mocks .progress-overview-fill,
+  .progress-section--mocks .mock-command-stat,
+  .progress-section--mocks .mock-list-chip,
+  .progress-section--mocks .mock-ticket-list > *,
+  .progress-section--mocks .mock-list-shell .space-y-6 > *,
+  .progress-section--mocks .mock-list-shell .space-y-4 > * {
+    animation: none !important;
+  }
+}
+
+/* Readiness parity: same geometry as the regular progress overview, own colors only. */
+.progress-section--mocks.progress-section--student .progress-overview-card {
+  min-height: 9.75rem !important;
+  border-radius: 1.5rem !important;
+  padding: 0.875rem !important;
+}
+
+.progress-section--mocks.progress-section--student .progress-overview-meter {
+  min-height: 5.35rem !important;
+}
+
+.progress-section--mocks .progress-overview-card h2 {
+  font-size: 1.125rem !important;
+  line-height: 1.4 !important;
+}
+
+.progress-section--mocks .progress-overview-meter--mocks {
+  border-radius: 1rem !important;
+  padding: 0.75rem 1rem !important;
+}
+
+.progress-section--mocks .progress-overview-track {
+  height: 1rem !important;
+  margin-top: 0.5rem !important;
+}
+
+.progress-section--mocks .progress-overview-meter--mocks .progress-overview-value {
+  font-size: 1.25rem !important;
+  line-height: 1.35 !important;
+}
+
+.progress-section--mocks .progress-overview-meter--mocks .progress-overview-badge {
+  border-radius: 999px !important;
+  padding: 0.25rem 0.625rem !important;
+  font-size: 0.75rem !important;
+  line-height: 1rem !important;
+  letter-spacing: 0.14em !important;
+}
+
+@media (min-width: 768px) {
+  .progress-section--mocks.progress-section--student .progress-overview-card {
+    padding: 1rem 1.125rem !important;
+  }
+
+  .progress-section--mocks .progress-overview-card h2 {
+    font-size: 1.25rem !important;
+  }
+
+  .progress-section--mocks .progress-overview-track {
+    height: 1.25rem !important;
+  }
+
+  .progress-section--mocks .progress-overview-meter--mocks .progress-overview-value {
+    font-size: 1.5rem !important;
+  }
+}
+
+/* Light sidebar polish: keep the active item calmer on the white surface. */
+html[data-theme='light'] .sidebar-nav .sidebar-nav-item.is-active {
+  border-color: rgba(167, 139, 250, 0.38) !important;
+  background:
+    linear-gradient(90deg, rgba(139, 92, 246, 0.2), rgba(124, 58, 237, 0.07)) !important;
+  color: rgb(76, 29, 149) !important;
+  box-shadow:
+    0 10px 22px rgba(88, 28, 135, 0.08),
+    inset 3px 0 0 rgba(139, 92, 246, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+}
+
+html[data-theme='light'] .sidebar-nav .sidebar-nav-icon.is-active {
+  border-color: rgba(167, 139, 250, 0.42) !important;
+  background: rgba(124, 58, 237, 0.14) !important;
+  color: rgb(109, 40, 217) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='light'] .sidebar-nav .sidebar-nav-item.is-active .sidebar-nav-arrow,
+html[data-theme='light'] .sidebar-nav .sidebar-nav-arrow.is-active {
+  border-color: rgba(167, 139, 250, 0.28) !important;
+  background: rgba(255, 255, 255, 0.55) !important;
+  color: rgb(124, 58, 237) !important;
+  opacity: 0.92 !important;
+  box-shadow: none !important;
+}

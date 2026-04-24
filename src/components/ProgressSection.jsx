@@ -2032,16 +2032,31 @@ const ProgressSection = ({
           </div>
 
           <div className="mock-card-command flex flex-col justify-between gap-3 border-t p-3 lg:border-l lg:border-t-0">
-            <div className="flex items-center justify-between gap-3 lg:block">
-              <div className={`mock-score-orb mx-0 flex h-16 w-16 shrink-0 items-center justify-center rounded-full lg:mx-auto lg:h-[72px] lg:w-[72px] ${hasExamTasks ? '' : 'mock-score-orb--empty'}`} style={{ '--score': `${scoreValue}%` }}>
-                <div className="mock-score-orb__inner flex h-[54px] w-[54px] flex-col items-center justify-center rounded-full lg:h-[60px] lg:w-[60px]">
-                  <div className="font-display text-xl font-bold leading-none text-gray-900 lg:text-2xl">{hasExamTasks ? examStats.secondary : '—'}</div>
-                  <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-400">{hasExamTasks ? 'баллов' : 'скоро'}</div>
+            <div className="mock-score-panel rounded-2xl border p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="mock-score-label text-[10px] font-bold uppercase tracking-[0.18em]">
+                    {hasExamTasks ? 'Баллы' : 'Статус'}
+                  </div>
+                  <div className="mock-score-value mt-1 font-display text-3xl font-bold leading-none">
+                    {hasExamTasks ? examStats.secondary : '-'}
+                  </div>
+                </div>
+                <div className="min-w-0 text-right">
+                  <div className="mock-score-primary text-xs font-semibold">
+                    {hasExamTasks ? `${examStats.primary} перв.` : 'Без заданий'}
+                  </div>
+                  <div className="mock-score-status mt-1 text-xs">
+                    {statusLabel}
+                  </div>
                 </div>
               </div>
-              <div className="min-w-0 text-right lg:mt-2 lg:text-center">
-                <div className="text-xs font-semibold text-gray-500">{hasExamTasks ? `${examStats.primary} перв.` : 'Без заданий'}</div>
-                <div className="mt-1 text-xs text-gray-400">{statusLabel}</div>
+
+              <div className="mock-score-track mt-3 h-1.5 overflow-hidden rounded-full">
+                <div
+                  className="mock-score-track__fill h-full rounded-full"
+                  style={{ width: `${scoreValue}%` }}
+                />
               </div>
             </div>
 
@@ -2197,6 +2212,23 @@ const ProgressSection = ({
         : 'Заданий пока нет'
     )
     : '';
+  const mockCommandStats = [
+    {
+      id: 'available',
+      label: 'Доступно',
+      value: String(studentMockOverview?.visibleExamsCount ?? studentVisibleMockExams.length),
+    },
+    {
+      id: 'started',
+      label: 'В работе',
+      value: String(studentMockOverview?.startedExamsCount ?? 0),
+    },
+    {
+      id: 'best',
+      label: 'Лучший',
+      value: studentMockOverview?.bestScore != null ? `${studentMockOverview.bestScore} б.` : '-',
+    },
+  ];
   return (
     <div className={`progress-section progress-section--${section} ${isStudentProgressSection ? 'progress-section--student' : ''} ${isStudentProgressSection ? 'space-y-3 md:space-y-4' : 'space-y-4 md:space-y-6'} animate-fadeIn`} data-tour="progress">
       <div className={`progress-overview-card relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 shadow-[0_16px_34px_rgba(99,102,241,0.14)] ${isStudentProgressSection ? 'progress-overview-card--compact' : 'p-4 md:p-6'}`}>
@@ -2217,49 +2249,23 @@ const ProgressSection = ({
           </div>
 
           <div className={`progress-overview-meter relative overflow-hidden rounded-2xl border border-purple-200/80 bg-white/80 shadow-[0_10px_24px_rgba(99,102,241,0.12)] ${isStudentProgressSection ? 'progress-overview-meter--compact' : 'p-3 md:p-4'} ${isStudentMocksSection ? 'progress-overview-meter--mocks' : ''}`}>
-            {isStudentMocksSection ? (
-              <div className="mock-readiness-layout">
-                <div className="mock-readiness-meta">
-                  <div className="mock-overview-icon">
-                    <BarChart2 size={18} />
-                  </div>
-                  <div>
-                    <div className="mock-overview-label">
-                      {overviewHeadline}
-                    </div>
-                    <div className="mock-overview-caption">
-                      {overviewDetail}
-                    </div>
-                  </div>
-                </div>
-                <div className="mock-readiness-score">
-                  <div className="mock-overview-score-value">
-                    {overviewValue}
-                  </div>
-                  <div className="mock-readiness-score-caption">
-                    готовность
-                  </div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="progress-overview-badge rounded-full bg-purple-600 px-2.5 py-1 text-[10px] md:text-xs font-bold uppercase tracking-[0.14em] md:tracking-widest text-white">
+                  {overviewHeadline}
                 </div>
               </div>
-            ) : (
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-full bg-purple-600 px-2.5 py-1 text-[10px] md:text-xs font-bold uppercase tracking-[0.14em] md:tracking-widest text-white">
-                    {overviewHeadline}
-                  </div>
+              <div className="flex flex-wrap items-end justify-end gap-x-3 gap-y-1">
+                <div className={`${isStudentProgressSection ? 'text-xl md:text-2xl' : 'text-2xl md:text-3xl'} progress-overview-value font-extrabold text-purple-700 drop-shadow-sm`}>
+                  {overviewValue}
                 </div>
-                <div className="flex flex-wrap items-end justify-end gap-x-3 gap-y-1">
-                  <div className={`${isStudentProgressSection ? 'text-xl md:text-2xl' : 'text-2xl md:text-3xl'} font-extrabold text-purple-700 drop-shadow-sm`}>
-                    {overviewValue}
-                  </div>
-                  {overviewDetail && (
-                  <div className="pb-0.5 text-xs font-semibold text-slate-400 md:text-sm">
-                    {overviewDetail}
-                  </div>
-                  )}
+                {overviewDetail && (
+                <div className="progress-overview-detail pb-0.5 text-xs font-semibold text-slate-400 md:text-sm">
+                  {overviewDetail}
                 </div>
+                )}
               </div>
-            )}
+            </div>
             <div className={`progress-overview-track relative ${isStudentProgressSection ? 'mt-2 h-4 md:h-5' : 'mt-2.5 md:mt-3 h-6 md:h-8'} w-full overflow-hidden rounded-full border border-purple-100 bg-white/90`}>
               <div
                 className="progress-overview-fill absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.45)] transition-[width] duration-700 ease-out"
@@ -2907,28 +2913,22 @@ const ProgressSection = ({
       {section === 'mocks' && (
         <div className={role === 'student' ? 'mock-page-shell mock-student-page space-y-4 md:space-y-5' : 'mock-page-shell mock-teacher-page space-y-4 md:space-y-6'}>
           {role === 'student' ? (
-            <div className="mock-student-hero relative overflow-hidden rounded-[28px] p-3.5 md:p-4">
-              <div className="mock-student-hero__grid relative z-[1] grid gap-3 md:gap-4">
-                <div className="space-y-3">
-                  <div className="mock-hero-kicker inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em]">
-                    <BookOpen size={14} />
-                    Пробники
-                  </div>
-                  <div>
-                    <h3 className="mock-hero-title max-w-3xl text-[1.55rem] font-display font-bold leading-[1.08] md:text-[2rem]">
-                      Тренировка перед экзаменом.
-                    </h3>
-                  </div>
-                  <div className="mock-coin-rules flex flex-wrap gap-1.5 md:gap-2">
-                    {MOCK_COIN_MILESTONES.map((milestone) => (
-                      <span key={`hero-coin-${milestone.score}`} className="mock-coin-chip inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold">
-                        <span>{`${milestone.score} б.`}</span>
-                        <span className="text-slate-400">→</span>
-                        <span>{milestone.coins}</span>
-                        <img src={ivanCoin} alt="" aria-hidden="true" className="h-3.5 w-3.5 object-contain" />
+            <div className="mock-student-hero mock-command-center relative overflow-hidden rounded-[24px] p-3.5 md:p-4">
+              <div className="mock-student-hero__grid mock-command-grid relative z-[1] grid gap-3">
+                <div className="mock-command-copy min-w-0 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="mock-hero-kicker inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em]">
+                      <BookOpen size={14} />
+                      Пробники
+                    </div>
+                    {mockCommandStats.map((item) => (
+                      <span key={item.id} className="mock-command-stat rounded-full px-2.5 py-1 text-[10px] font-bold">
+                        <span>{item.label}</span>
+                        <strong>{item.value}</strong>
                       </span>
                     ))}
                   </div>
+
                 </div>
               </div>
             </div>
@@ -2953,44 +2953,6 @@ const ProgressSection = ({
             <Card className="text-sm text-gray-500">Загрузка пробников...</Card>
           ) : (
             <>
-              {hasStudentMockPreview && studentMockOverview?.hasMockTasks && studentVisibleMockExams.length > 1 && (
-                <div className="mock-focus-card mock-focus-card--inline flex flex-col gap-4 rounded-[28px] p-4 md:flex-row md:items-center md:justify-between md:p-5">
-                  <div className="flex min-w-0 items-start gap-3">
-                    <div className="mock-focus-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl">
-                      <BookOpen size={18} />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-purple-700">
-                        Фокус
-                      </div>
-                      <div className="mt-1.5 text-xl font-display font-bold leading-tight text-gray-900 md:text-2xl">
-                        {studentMockOverview.focusTitle || 'Выбери пробник'}
-                      </div>
-                      <div className="mt-1 text-sm text-gray-500">
-                        {studentMockOverview.focusTitle
-                          ? studentMockOverview.focusDescription
-                          : 'Пока пусто.'}
-                      </div>
-                    </div>
-                  </div>
-
-                  {studentMockOverview.focusExamId && (
-                    <Button
-                      onClick={() => {
-                        const focusExam = studentVisibleMockExams.find(
-                          (exam) => exam.id === studentMockOverview.focusExamId
-                        );
-                        if (focusExam) handleOpenMockExam(focusExam);
-                      }}
-                      className="mock-start-button w-full md:w-auto md:min-w-[12rem]"
-                    >
-                      <PlayCircle size={16} />
-                      {studentMockOverview.focusActionLabel}
-                    </Button>
-                  )}
-                </div>
-              )}
-
               <Card className={role === 'student' ? 'mock-list-shell space-y-5' : 'mock-list-shell space-y-4'}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="space-y-1">
@@ -3003,6 +2965,19 @@ const ProgressSection = ({
                       </div>
                     )}
                   </div>
+                  {role === 'student' && (
+                    <div className="mock-list-metrics flex flex-wrap items-center gap-2">
+                      <span className="mock-list-chip rounded-full px-3 py-1 text-xs font-semibold">
+                        {`${studentVisibleMockExams.length} доступно`}
+                      </span>
+                      <span className="mock-list-chip rounded-full px-3 py-1 text-xs font-semibold">
+                        {`${studentMockOverview?.averageSecondaryScore ?? 0} ср. балл`}
+                      </span>
+                      <span className="mock-list-chip rounded-full px-3 py-1 text-xs font-semibold">
+                        {`${studentMockOverview?.completedExamsCount ?? 0} закрыто`}
+                      </span>
+                    </div>
+                  )}
                   {role === 'teacher' && (
                     <div className="flex w-full sm:w-auto flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2">
                       <input
@@ -3261,12 +3236,14 @@ const ProgressSection = ({
             </Card>
           )}
 
-          <div className="space-y-2">
+          <div className="mock-history-list space-y-2">
             {(studentData.mocks || []).length === 0 ? (
-              <div className="text-gray-500">Истории пробников пока нет.</div>
+              <div className="mock-history-empty rounded-2xl px-4 py-3 text-sm font-semibold">
+                Истории пробников пока нет.
+              </div>
             ) : (
               studentData.mocks.map((mock) => (
-                <div key={mock.id} className="bg-white rounded-xl border p-3 md:p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div key={mock.id} className="mock-history-item rounded-2xl border p-3 md:p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                   <div>
                     <p className="font-semibold text-gray-800">Пробник от {mock.date}</p>
                     <p className="text-sm text-gray-500">Баллы: <span className="font-bold text-purple-600">{mock.score}</span></p>
