@@ -417,7 +417,12 @@ const StudentLeaderboardSection = ({
       if (data?.altar && typeof data.altar === 'object') {
         setAltar(data.altar);
       }
-      if ((Number(data?.xpGained) || 0) > 0 || !data?.altar || typeof data.altar !== 'object') {
+      if (
+        (Number(data?.xpGained) || 0) > 0
+        || (Number(data?.coinsGained) || 0) > 0
+        || !data?.altar
+        || typeof data.altar !== 'object'
+      ) {
         void loadLeaderboard({ silent: true });
       }
       return data;

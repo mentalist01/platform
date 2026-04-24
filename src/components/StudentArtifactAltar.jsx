@@ -68,11 +68,14 @@ const ARTIFACT_LABELS = {
   krylov: 'Крылов',
   tears: 'Слезы',
   '1tbssd': '1 TB SSD',
+  'amulet-of-import': 'Амулет импорта',
   'list-comprehension': 'List Comprehension',
   python: 'Python',
+  'recursive scroll': 'Рекурсивный свиток',
   crutch: 'Костыль',
   duck: 'Уточка-дебаггер',
   fleshka: 'Флешка с файлами',
+  'ring-of-cache': 'Кольцо кэша',
   rocks: 'Камни для игры',
   turtle: 'Черепашка-исполнитель',
   whileTrue: 'while True',
@@ -88,6 +91,7 @@ const ARTIFACT_RANK_ORDER = ['SS', 'S', 'A', 'B', 'C'];
 const MIN_SPIN_DURATION_MS = 3000;
 const SPIN_RUPTURE_MS = 520;
 const REVEAL_VISIBLE_MS = 3200;
+const DUPLICATE_COIN_FLIGHT_DURATION_MS = 1160;
 const ALTAR_PARTICLES = [
   { angle: '-82deg', distance: '124px', delay: '0ms', size: '12px' },
   { angle: '-42deg', distance: '142px', delay: '120ms', size: '10px' },
@@ -178,19 +182,80 @@ const getPullKey = (pull, totalPulls) => {
     .join(':');
 };
 
+const createDuplicateCoinFlights = (sourceRect, targetRect, coinsAmount) => {
+  const viewportW = typeof window !== 'undefined' ? window.innerWidth : 1280;
+  const viewportH = typeof window !== 'undefined' ? window.innerHeight : 720;
+  const sourceCenterX = Number.isFinite(sourceRect?.left)
+    ? sourceRect.left + ((Number.isFinite(sourceRect?.width) ? sourceRect.width : 0) / 2)
+    : (viewportW * 0.5);
+  const sourceCenterY = Number.isFinite(sourceRect?.top)
+    ? sourceRect.top + ((Number.isFinite(sourceRect?.height) ? sourceRect.height : 0) * 0.44)
+    : (viewportH * 0.56);
+  const targetCenterX = Number.isFinite(targetRect?.left)
+    ? targetRect.left + ((Number.isFinite(targetRect?.width) ? targetRect.width : 0) / 2)
+    : (viewportW * 0.72);
+  const targetCenterY = Number.isFinite(targetRect?.top)
+    ? targetRect.top + ((Number.isFinite(targetRect?.height) ? targetRect.height : 0) / 2)
+    : (viewportH * 0.18);
+  const amount = Math.max(1, Math.floor(Number(coinsAmount) || 0));
+  const count = Math.max(7, Math.min(20, Math.round(6 + (amount / 5))));
+  const coins = [];
+  let maxLandingMs = 0;
+  for (let index = 0; index < count; index += 1) {
+    const progress = count > 1 ? index / (count - 1) : 0;
+    const startX = sourceCenterX + ((Math.random() - 0.5) * Math.max(34, (Number(sourceRect?.width) || 92) * 0.72));
+    const startY = sourceCenterY + ((Math.random() - 0.5) * Math.max(22, (Number(sourceRect?.height) || 70) * 0.62));
+    const endX = targetCenterX + ((Math.random() - 0.5) * Math.max(10, (Number(targetRect?.width) || 56) * 0.38));
+    const endY = targetCenterY + ((Math.random() - 0.5) * Math.max(8, (Number(targetRect?.height) || 28) * 0.44));
+    const horizontalCurve = (Math.random() - 0.5) * Math.max(54, Math.min(viewportW * 0.12, 132));
+    const verticalLift = 84 + (Math.random() * 92);
+    const midX = startX + ((endX - startX) * 0.4) + horizontalCurve;
+    const midY = Math.min(startY, endY) - verticalLift;
+    const delayMs = Math.round(progress * 360 + (Math.random() * 70));
+    const durationMs = Math.round(DUPLICATE_COIN_FLIGHT_DURATION_MS * (0.82 + (Math.random() * 0.24)));
+    const landingMs = delayMs + Math.round(durationMs * 0.9);
+    if (landingMs > maxLandingMs) maxLandingMs = landingMs;
+    coins.push({
+      id: `artifact-coin-flight-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+      sizePx: Math.round(17 + (Math.random() * 8)),
+      delayMs,
+      durationMs,
+      startX,
+      startY,
+      midX,
+      midY,
+      endX,
+      endY,
+      rotateDeg: Math.round((Math.random() * 100) - 50),
+    });
+  }
+  return { coins, maxLandingMs };
+};
+
 const getRankCardStyle = (rank, owned = true) => {
   const meta = RANK_META[rank] || RANK_META.C;
+  const accentSoft = hexToRgba(meta.accent, 0.16);
+  const accentMid = hexToRgba(meta.accent, 0.28);
+  const accentStrong = hexToRgba(meta.accent, 0.44);
+  const baseVars = {
+    '--artifact-card-accent': meta.accent,
+    '--artifact-card-accent-soft': accentSoft,
+    '--artifact-card-accent-mid': accentMid,
+    '--artifact-card-accent-strong': accentStrong,
+  };
   if (!owned) {
     return {
+      ...baseVars,
       borderColor: 'rgba(203, 213, 225, 0.92)',
       background: 'linear-gradient(135deg, rgba(255,255,255,0.9), rgba(248,250,252,0.92))',
       boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.85)',
     };
   }
   return {
-    borderColor: `${meta.accent}55`,
-    background: meta.surface,
-    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.88), ${meta.glow}`,
+    ...baseVars,
+    borderColor: hexToRgba(meta.accent, 0.38),
+    background: `radial-gradient(circle at 50% 10%, rgba(255,255,255,0.98) 0%, ${accentSoft} 42%, rgba(255,255,255,0) 72%), linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.97))`,
+    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.92), 0 10px 24px rgba(15,23,42,0.1), 0 0 0 1px ${hexToRgba(meta.accent, 0.08)}, ${meta.glow}`,
   };
 };
 
@@ -210,11 +275,17 @@ const ARTIFACT_EFFECTS_BY_ID = {
   '1tbssd': [
     { tone: 'xp', label: 'XP за 15-16', type: 'multiplier', perCopyBonus: 0.5, hint: 'Помогает на задачах 15 и 16.' },
   ],
+  'amulet-of-import': [
+    { tone: 'coins', label: 'Монеты за задания', type: 'multiplier', perCopyBonus: 0.5, hint: 'Усиливает монеты за Python-задачи.' },
+  ],
   'list-comprehension': [
     { tone: 'xp', label: 'XP за 17', type: 'multiplier', perCopyBonus: 0.5, hint: 'Усиливает награду за задачу 17.' },
   ],
   python: [
     { tone: 'coins', label: 'Монеты за задания', type: 'multiplier', perCopyBonus: 1, hint: 'Увеличивает монеты за Python-задачи.' },
+  ],
+  'recursive scroll': [
+    { tone: 'xp', label: 'XP за 16', type: 'multiplier', perCopyBonus: 0.5, hint: 'Помогает с рекурсивными алгоритмами.' },
   ],
   crutch: [
     { tone: 'xp', label: 'Любой опыт', type: 'multiplier', perCopyBonus: 0.1, hint: 'Небольшой, но стабильный бонус к опыту.' },
@@ -227,6 +298,9 @@ const ARTIFACT_EFFECTS_BY_ID = {
   ],
   rocks: [
     { tone: 'xp', label: 'XP за 19-21', type: 'multiplier', perCopyBonus: 0.5, hint: 'Усиливает награду за игровые задачи.' },
+  ],
+  'ring-of-cache': [
+    { tone: 'xp', label: 'XP за 16/19-21', type: 'multiplier', perCopyBonus: 0.5, hint: 'Помнит уже посчитанные состояния.' },
   ],
   turtle: [
     { tone: 'xp', label: 'XP за 6', type: 'multiplier', perCopyBonus: 1, hint: 'Работает на задаче про Черепаху.' },
@@ -398,6 +472,7 @@ const StudentArtifactAltar = ({
   const [upgradeError, setUpgradeError] = useState('');
   const [upgradeFlash, setUpgradeFlash] = useState(null);
   const [upgradeShowcase, setUpgradeShowcase] = useState(null);
+  const [duplicateCoinFlights, setDuplicateCoinFlights] = useState([]);
   const isSpinStageActive = altarPhase === 'spinning';
   const canSpin = typeof onSpin === 'function' && !spinning && !isSpinStageActive && coinsTotal >= spinCost;
   const spinButtonBusy = spinning || isSpinStageActive;
@@ -473,6 +548,17 @@ const StudentArtifactAltar = ({
   const spinRuptureTimerRef = useRef(null);
   const spinAudioRef = useRef(null);
   const upgradeFlashTimerRef = useRef(null);
+  const duplicateCoinFlightTimerRef = useRef(null);
+  const duplicateCoinFlightKeyRef = useRef('');
+  const stageArtifactShellRef = useRef(null);
+  const walletRef = useRef(null);
+
+  const clearDuplicateCoinFlightTimer = () => {
+    if (duplicateCoinFlightTimerRef.current) {
+      window.clearTimeout(duplicateCoinFlightTimerRef.current);
+      duplicateCoinFlightTimerRef.current = null;
+    }
+  };
 
   const clearRevealTimers = () => {
     if (revealTimerRef.current) {
@@ -495,6 +581,7 @@ const StudentArtifactAltar = ({
   const clearAnimationTimers = () => {
     clearRevealTimers();
     clearSpinPhaseTimers();
+    clearDuplicateCoinFlightTimer();
     if (upgradeFlashTimerRef.current) {
       window.clearTimeout(upgradeFlashTimerRef.current);
       upgradeFlashTimerRef.current = null;
@@ -537,6 +624,7 @@ const StudentArtifactAltar = ({
     pendingAltarRef.current = null;
     hiddenPullRef.current = displayPull || hiddenPullRef.current || null;
     setUpgradeShowcase(null);
+    setDuplicateCoinFlights([]);
     setDisplayPull(null);
     setSpinIntensity('building');
     setAltarPhase('spinning');
@@ -609,6 +697,10 @@ const StudentArtifactAltar = ({
   const displayPullMeta = displayPull
     ? ARTIFACT_CATALOG.find((artifact) => artifact.id === displayPull.id) || null
     : null;
+  const displayPullMaxLevelDuplicateCoins = Math.max(0, Math.floor(Number(displayPull?.maxLevelDuplicateCoins) || 0));
+  const displayPullMaxLevelDuplicateText = displayPullMaxLevelDuplicateCoins > 0
+    ? `Артефакт уже на максимальном уровне. Компенсация: +${displayPullMaxLevelDuplicateCoins.toLocaleString('ru-RU')} монет.`
+    : '';
   const displayPullRankMeta = RANK_META[displayPull?.rank] || RANK_META.C;
   const hasDisplayStageArtifact = Boolean(displayPull) && (altarPhase === 'revealed' || altarPhase === 'settled');
   const stageMeta = hasDisplayStageArtifact ? displayPullRankMeta : IDLE_ALTAR_META;
@@ -641,8 +733,10 @@ const StudentArtifactAltar = ({
           : `${displayPullRankMeta.title}. Последний выбитый артефакт остается в центре алтаря до следующей крутки.`
         : 'Нажми на кнопку ниже, чтобы разбудить алтарь и получить новый артефакт.';
 
-  const resolvedAltarStageSubtitle = stageArtifactDescription
-    ? stageArtifactDescription
+  const resolvedAltarStageSubtitle = displayPullMaxLevelDuplicateText
+    ? displayPullMaxLevelDuplicateText
+    : stageArtifactDescription
+      ? stageArtifactDescription
     : (altarPhase === 'settled' && stageArtifact
       ? `${displayPullRankMeta.title}.`
       : altarStageSubtitle);
@@ -654,6 +748,59 @@ const StudentArtifactAltar = ({
     : stageArtifact
       ? displayPullRankMeta.title
       : '\u0410\u043b\u0442\u0430\u0440\u044c \u0441\u043f\u043e\u043a\u043e\u0435\u043d';
+
+  useEffect(() => {
+    if (altarPhase !== 'revealed' || displayPullMaxLevelDuplicateCoins <= 0) return undefined;
+    const rewardKey = [
+      displayPull?.id,
+      displayPull?.rank,
+      displayPull?.count,
+      displayPull?.pulledAt,
+      displayPullMaxLevelDuplicateCoins,
+    ].map((value) => String(value ?? '').trim()).join(':');
+    if (!rewardKey || duplicateCoinFlightKeyRef.current === rewardKey) return undefined;
+    duplicateCoinFlightKeyRef.current = rewardKey;
+
+    const launchTimer = window.setTimeout(() => {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          if (!mountedRef.current) return;
+          const sourceRect = stageArtifactShellRef.current?.getBoundingClientRect?.();
+          const targetRect = walletRef.current?.getBoundingClientRect?.();
+          if (
+            !sourceRect
+            || !targetRect
+            || sourceRect.width < 8
+            || sourceRect.height < 8
+            || targetRect.width < 8
+            || targetRect.height < 8
+          ) {
+            return;
+          }
+          clearDuplicateCoinFlightTimer();
+          const { coins, maxLandingMs } = createDuplicateCoinFlights(
+            sourceRect,
+            targetRect,
+            displayPullMaxLevelDuplicateCoins
+          );
+          setDuplicateCoinFlights(coins);
+          duplicateCoinFlightTimerRef.current = window.setTimeout(() => {
+            duplicateCoinFlightTimerRef.current = null;
+            setDuplicateCoinFlights([]);
+          }, maxLandingMs + 460);
+        });
+      });
+    }, 340);
+
+    return () => window.clearTimeout(launchTimer);
+  }, [
+    altarPhase,
+    displayPull?.count,
+    displayPull?.id,
+    displayPull?.pulledAt,
+    displayPull?.rank,
+    displayPullMaxLevelDuplicateCoins,
+  ]);
 
   const selectedArtifact = useMemo(() => {
     if (!selectedArtifactId) return null;
@@ -1041,7 +1188,11 @@ const StudentArtifactAltar = ({
             Одна крутка стоит {spinCost} монет.
           </div>
         </div>
-        <div className="student-artifact-altar__wallet inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white/90 px-3 py-1.5 text-sm font-semibold text-amber-700 shadow-sm" data-tour="rating-coins">
+        <div
+          ref={walletRef}
+          className={`student-artifact-altar__wallet inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white/90 px-3 py-1.5 text-sm font-semibold text-amber-700 shadow-sm ${duplicateCoinFlights.length > 0 ? 'student-artifact-altar__wallet--receiving' : ''}`}
+          data-tour="rating-coins"
+        >
           <img src={ivanCoin} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
           <span>{`${Math.max(0, Math.floor(Number(coinsTotal) || 0)).toLocaleString('ru-RU')} монет`}</span>
         </div>
@@ -1195,6 +1346,7 @@ const StudentArtifactAltar = ({
                   <span className="artifact-altar-stage__focus-burst artifact-altar-stage__focus-burst--one" />
                   <span className="artifact-altar-stage__focus-burst artifact-altar-stage__focus-burst--two" />
                   <button
+                    ref={stageArtifactShellRef}
                     type="button"
                     onClick={() => setSelectedArtifactId(stageArtifact.id)}
                     aria-label={`Открыть карточку артефакта ${stageArtifact.name}`}
@@ -1249,6 +1401,12 @@ const StudentArtifactAltar = ({
                   <div className="artifact-altar-stage__title">{altarStageTitle}</div>
                 </div>
                 <div className="artifact-altar-stage__subtitle">{resolvedAltarStageSubtitle}</div>
+                {displayPullMaxLevelDuplicateCoins > 0 && (
+                  <div className="artifact-altar-stage__coin-reward" aria-label={`Компенсация ${displayPullMaxLevelDuplicateCoins.toLocaleString('ru-RU')} монет`}>
+                    <img src={ivanCoin} alt="" aria-hidden="true" />
+                    <span>{`+${displayPullMaxLevelDuplicateCoins.toLocaleString('ru-RU')} монет за максимум`}</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1358,14 +1516,21 @@ const StudentArtifactAltar = ({
                   const rankMeta = RANK_META[rank] || RANK_META.C;
                   const rankItems = collectedRankGroupMap.get(rank) || [];
                   if (rankItems.length === 0) return null;
+                  const rankTotal = ARTIFACT_CATALOG.filter((artifact) => artifact.rank === rank).length;
+                  const rankCollected = Math.min(rankTotal, rankItems.length);
+                  const rankRemaining = Math.max(0, rankTotal - rankCollected);
 
                   return (
                     <div key={`artifact-rank-${rank}`} className="student-artifact-altar__rank-shell rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3">
-                      <div className="mb-3 flex items-center justify-between gap-2">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                         <div className={`student-artifact-altar__rank-pill inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold ${rankMeta.pillClassName}`} data-rank={rank}>
                           {`Ранг ${rank}`}
                         </div>
-                        <div className="text-[11px] font-semibold text-slate-500">{rankMeta.title}</div>
+                        <div className="student-artifact-altar__rank-progress">
+                          <span>{rankMeta.title}</span>
+                          <span>{`Выбито ${rankCollected}/${rankTotal}`}</span>
+                          <span>{`Осталось ${rankRemaining}`}</span>
+                        </div>
                       </div>
                       <div className="student-artifact-altar__artifact-grid grid">
                         {rankItems.map((artifact) => {
@@ -1447,6 +1612,33 @@ const StudentArtifactAltar = ({
       </div>
       </div>
     </div>
+    {duplicateCoinFlights.length > 0 && (typeof document !== 'undefined'
+      ? createPortal(
+        <div className="xp-flight-overlay artifact-altar-coin-flight-overlay" aria-hidden="true">
+          {duplicateCoinFlights.map((coin) => (
+            <span
+              key={coin.id}
+              className="coin-flight-item artifact-altar-coin-flight"
+              style={{
+                '--coin-size': `${coin.sizePx}px`,
+                '--coin-delay': `${coin.delayMs}ms`,
+                '--coin-duration': `${coin.durationMs}ms`,
+                '--coin-start-x': `${coin.startX}px`,
+                '--coin-start-y': `${coin.startY}px`,
+                '--coin-mid-x': `${coin.midX}px`,
+                '--coin-mid-y': `${coin.midY}px`,
+                '--coin-end-x': `${coin.endX}px`,
+                '--coin-end-y': `${coin.endY}px`,
+                '--coin-rotate': `${coin.rotateDeg}deg`,
+              }}
+            >
+              <img src={ivanCoin} alt="" aria-hidden="true" draggable="false" />
+            </span>
+          ))}
+        </div>,
+        document.body
+      )
+      : null)}
     {artifactDetailModal && (typeof document !== 'undefined'
       ? createPortal(artifactDetailModal, document.body)
       : artifactDetailModal)}

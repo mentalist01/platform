@@ -1,5 +1,27 @@
 [
   {
+    "id": "student-edda5c78-bce0-4c6f-ae06-db4b50473839",
+    "studentId": "edda5c78-bce0-4c6f-ae06-db4b50473839",
+    "teacherId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+    "createdAt": "2026-04-22T13:19:07.313Z",
+    "updatedAt": "2026-04-23T05:13:57.321Z",
+    "lastMessageAt": "2026-04-23T05:13:57.321Z",
+    "lastMessagePreview": "оророр",
+    "lastMessageSenderRole": "teacher",
+    "lastReadByTeacherAt": "2026-04-23T05:13:57.321Z",
+    "lastReadByStudentAt": "2026-04-23T05:30:57.309Z",
+    "messages": [
+      {
+        "id": "cc9dd787-0774-473f-98b9-e53af02c79d1",
+        "senderRole": "teacher",
+        "senderId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+        "senderName": "Иван Полоцкий",
+        "text": "оророр",
+        "createdAt": "2026-04-23T05:13:57.321Z"
+      }
+    ]
+  },
+  {
     "id": "student-20a8fb15-c34e-447e-97f4-9904697fe0ff",
     "studentId": "20a8fb15-c34e-447e-97f4-9904697fe0ff",
     "teacherId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",

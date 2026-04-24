@@ -70,6 +70,14 @@ const PROGRESS_XP_TASK_ARTIFACT_BONUSES = {
     tasks: [17],
     perCopyBonus: 0.5,
   },
+  'recursive scroll': {
+    tasks: [16],
+    perCopyBonus: 0.5,
+  },
+  'ring-of-cache': {
+    tasks: [16, 19, 20, 21],
+    perCopyBonus: 0.5,
+  },
   rocks: {
     tasks: [19, 20, 21],
     perCopyBonus: 0.5,

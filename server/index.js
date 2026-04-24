@@ -230,6 +230,12 @@ const ARTIFACT_UPGRADE_REQUIREMENTS = {
   4: { cards: 8, coins: 200 },
   5: { cards: 16, coins: 500 },
 };
+const ARTIFACT_MAX_LEVEL_DUPLICATE_COIN_REWARDS = {
+  C: 10,
+  B: 20,
+  A: 40,
+  S: 80,
+};
 const ARTIFACT_RANK_ORDER = ['SS', 'S', 'A', 'B', 'C'];
 const ARTIFACT_RANK_CHANCES = [
   { rank: 'SS', chance: 0.01 },
@@ -267,6 +273,14 @@ const ARTIFACT_XP_TASK_MULTIPLIERS = {
     tasks: [17],
     perCopyBonus: 0.5,
   },
+  'recursive scroll': {
+    tasks: [16],
+    perCopyBonus: 0.5,
+  },
+  'ring-of-cache': {
+    tasks: [16, 19, 20, 21],
+    perCopyBonus: 0.5,
+  },
   rocks: {
     tasks: [19, 20, 21],
     perCopyBonus: 0.5,
@@ -281,6 +295,7 @@ const ARTIFACT_XP_TASK_MULTIPLIERS = {
   },
 };
 const ARTIFACT_COIN_GLOBAL_MULTIPLIERS = {
+  'amulet-of-import': 0.5,
   python: 1,
   whileTrue: 0.2,
 };
@@ -4853,9 +4868,11 @@ const normalizeArtifactLastPull = (value) => {
   const pulledAt = pulledAtRaw && !Number.isNaN(Date.parse(pulledAtRaw))
     ? new Date(pulledAtRaw).toISOString()
     : null;
+  const maxLevelDuplicateCoins = normalizeCoinsTotal(value.maxLevelDuplicateCoins);
   return {
     id,
     pulledAt,
+    ...(maxLevelDuplicateCoins > 0 ? { maxLevelDuplicateCoins } : {}),
   };
 };
 
@@ -4872,6 +4889,11 @@ const getArtifactInventoryCount = (inventory = {}, artifactId) => (
 const getArtifactLevel = (levels = {}, artifactId) => (
   Math.min(ARTIFACT_MAX_LEVEL, Math.max(0, Math.floor(Number(levels?.[artifactId]) || 0)))
 );
+
+const getArtifactMaxLevelDuplicateCoinReward = (artifact) => {
+  const rank = String(artifact?.rank || '').trim().toUpperCase();
+  return normalizeCoinsTotal(ARTIFACT_MAX_LEVEL_DUPLICATE_COIN_REWARDS[rank]);
+};
 
 const getArtifactUpgradeRequirement = (level) => (
   ARTIFACT_UPGRADE_REQUIREMENTS[Math.max(1, Math.floor(Number(level) || 1)) + 1] || null
@@ -4992,12 +5014,21 @@ const buildArtifactBonusSummary = (inventory = {}, artifactLevels = {}) => {
   const safeLevels = normalizeArtifactLevels(artifactLevels, safeInventory);
   const hasFleshka = getArtifactLevel(safeLevels, 'fleshka') > 0;
   const hasListComprehension = getArtifactLevel(safeLevels, 'list-comprehension') > 0;
+  const hasRecursiveScroll = getArtifactLevel(safeLevels, 'recursive scroll') > 0;
+  const hasRingOfCache = getArtifactLevel(safeLevels, 'ring-of-cache') > 0;
   const hasRocks = getArtifactLevel(safeLevels, 'rocks') > 0;
   const hasTurtle = getArtifactLevel(safeLevels, 'turtle') > 0;
   const commonXpMultiplier = getArtifactSolveXpMultiplier(safeLevels, 1);
   const task6Multiplier = getArtifactSolveXpMultiplier(safeLevels, 6);
   const task15to16Multiplier = getArtifactSolveXpMultiplier(safeLevels, 15);
+  const task16Multiplier = getArtifactSolveXpMultiplier(safeLevels, 16);
   const task17Multiplier = getArtifactSolveXpMultiplier(safeLevels, 17);
+  const cacheTaskMultiplier = Math.max(
+    getArtifactSolveXpMultiplier(safeLevels, 16),
+    getArtifactSolveXpMultiplier(safeLevels, 19),
+    getArtifactSolveXpMultiplier(safeLevels, 20),
+    getArtifactSolveXpMultiplier(safeLevels, 21)
+  );
   const fileTaskMultiplier = Math.max(
     getArtifactSolveXpMultiplier(safeLevels, 17),
     getArtifactSolveXpMultiplier(safeLevels, 24),
@@ -5038,12 +5069,28 @@ const buildArtifactBonusSummary = (inventory = {}, artifactLevels = {}) => {
       value: formatArtifactBonusPercent(task15to16Multiplier),
     });
   }
+  if (hasRecursiveScroll && task16Multiplier > 1.0001 && task16Multiplier !== commonXpMultiplier) {
+    entries.push({
+      id: 'xp-16',
+      tone: 'xp',
+      label: 'XP за 16',
+      value: formatArtifactBonusPercent(task16Multiplier),
+    });
+  }
   if (hasListComprehension && task17Multiplier > 1.0001 && task17Multiplier !== commonXpMultiplier) {
     entries.push({
       id: 'xp-17',
       tone: 'xp',
       label: 'XP за 17',
       value: formatArtifactBonusPercent(task17Multiplier),
+    });
+  }
+  if (hasRingOfCache && cacheTaskMultiplier > 1.0001 && cacheTaskMultiplier !== commonXpMultiplier) {
+    entries.push({
+      id: 'xp-16-19-21',
+      tone: 'xp',
+      label: 'XP за 16/19-21',
+      value: formatArtifactBonusPercent(cacheTaskMultiplier),
     });
   }
   if (hasFleshka && fileTaskMultiplier > 1.0001 && fileTaskMultiplier !== commonXpMultiplier) {
@@ -5100,7 +5147,9 @@ const buildArtifactBonusSummary = (inventory = {}, artifactLevels = {}) => {
       commonMultiplier: Math.round(commonXpMultiplier * 100) / 100,
       task6Multiplier: Math.round(task6Multiplier * 100) / 100,
       task15to16Multiplier: Math.round(task15to16Multiplier * 100) / 100,
+      task16Multiplier: Math.round(task16Multiplier * 100) / 100,
       task17Multiplier: Math.round(task17Multiplier * 100) / 100,
+      cacheTaskMultiplier: Math.round(cacheTaskMultiplier * 100) / 100,
       fileTaskMultiplier: Math.round(fileTaskMultiplier * 100) / 100,
       gameTaskMultiplier: Math.round(gameTaskMultiplier * 100) / 100,
       task24to27Multiplier: Math.round(task24to27Multiplier * 100) / 100,
@@ -5116,7 +5165,15 @@ const buildArtifactBonusSummary = (inventory = {}, artifactLevels = {}) => {
   };
 };
 
-const buildArtifactRewardPayload = (artifactId, inventory = {}, pulledAt = null, artifactLevels = {}, artifactCards = {}, coinsTotal = 0) => {
+const buildArtifactRewardPayload = (
+  artifactId,
+  inventory = {},
+  pulledAt = null,
+  artifactLevels = {},
+  artifactCards = {},
+  coinsTotal = 0,
+  options = {}
+) => {
   const id = normalizeArtifactId(artifactId);
   if (!id) return null;
   const artifact = ARTIFACT_CATALOG_BY_ID.get(id);
@@ -5125,6 +5182,7 @@ const buildArtifactRewardPayload = (artifactId, inventory = {}, pulledAt = null,
   const safeCards = normalizeArtifactCards(artifactCards, inventory);
   const level = getArtifactLevel(safeLevels, id);
   const cards = getArtifactInventoryCount(safeCards, id);
+  const maxLevelDuplicateCoins = normalizeCoinsTotal(options?.maxLevelDuplicateCoins);
   return {
     id,
     rank: artifact.rank,
@@ -5135,6 +5193,7 @@ const buildArtifactRewardPayload = (artifactId, inventory = {}, pulledAt = null,
     cards,
     upgrade: buildArtifactUpgradeState({ artifactId: id, levels: safeLevels, cards: safeCards, coinsTotal }),
     pulledAt: pulledAt && !Number.isNaN(Date.parse(pulledAt)) ? new Date(pulledAt).toISOString() : null,
+    ...(maxLevelDuplicateCoins > 0 ? { maxLevelDuplicateCoins } : {}),
   };
 };
 
@@ -5178,7 +5237,8 @@ const buildStudentArtifactState = (data) => {
     data?.artifactLastPull?.pulledAt || null,
     artifactLevels,
     artifactCards,
-    coinsTotal
+    coinsTotal,
+    { maxLevelDuplicateCoins: data?.artifactLastPull?.maxLevelDuplicateCoins }
   );
   return {
     spinCost: ARTIFACT_SPIN_COST,
@@ -10213,12 +10273,16 @@ app.post('/api/students/altar/spin', (req, res) => {
   const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
   const artifactLevels = normalizeArtifactLevels(data?.artifactLevels, artifactInventory);
   const artifactCards = normalizeArtifactCards(data?.artifactCards, artifactInventory);
+  const artifactLevelBeforePull = getArtifactLevel(artifactLevels, artifact.id);
+  const maxLevelDuplicateCoins = artifactLevelBeforePull >= ARTIFACT_MAX_LEVEL
+    ? getArtifactMaxLevelDuplicateCoinReward(artifact)
+    : 0;
   artifactInventory[artifact.id] = Math.max(0, Math.floor(Number(artifactInventory[artifact.id]) || 0)) + 1;
   artifactCards[artifact.id] = Math.max(0, Math.floor(Number(artifactCards[artifact.id]) || 0)) + 1;
   if (!artifactLevels[artifact.id]) artifactLevels[artifact.id] = 1;
   const instantReward = getArtifactInstantRewardForPull(artifact.id);
   const xpGained = normalizeXpTotal(instantReward.xp);
-  const coinsGained = normalizeCoinsTotal(instantReward.coins);
+  const coinsGained = normalizeCoinsTotal(instantReward.coins + maxLevelDuplicateCoins);
   const xpTotal = normalizeXpTotal(data?.xpTotal) + xpGained;
   const coinsTotal = Math.max(0, currentCoins - ARTIFACT_SPIN_COST + coinsGained);
   const coinsSpentTotal = normalizeCoinsSpentTotal(data?.coinsSpentTotal) + ARTIFACT_SPIN_COST;
@@ -10235,6 +10299,7 @@ app.post('/api/students/altar/spin', (req, res) => {
     artifactLastPull: {
       id: artifact.id,
       pulledAt,
+      ...(maxLevelDuplicateCoins > 0 ? { maxLevelDuplicateCoins } : {}),
     },
     artifactTotalPulls,
   });
@@ -10245,6 +10310,7 @@ app.post('/api/students/altar/spin', (req, res) => {
     xpGained,
     coinsTotal: updated.coinsTotal,
     coinsGained,
+    maxLevelDuplicateCoins,
     altar: buildStudentArtifactState(updated),
     drop: buildArtifactRewardPayload(
       artifact.id,
@@ -10252,7 +10318,8 @@ app.post('/api/students/altar/spin', (req, res) => {
       pulledAt,
       updated.artifactLevels,
       updated.artifactCards,
-      updated.coinsTotal
+      updated.coinsTotal,
+      { maxLevelDuplicateCoins }
     ),
   });
 });

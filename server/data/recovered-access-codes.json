@@ -1,0 +1,96 @@
+{
+  "generatedAt": "2026-03-04T21:46:29.705Z",
+  "teachers": [
+    {
+      "id": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+      "name": "Иван Полоцкий",
+      "code": "133970"
+    }
+  ],
+  "students": [
+    {
+      "id": "20a8fb15-c34e-447e-97f4-9904697fe0ff",
+      "name": "Ученик 12",
+      "teacherId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+      "code": "386030"
+    },
+    {
+      "id": "d29b5073-9846-4884-9845-7e362e27bea5",
+      "name": "Ученик 11",
+      "teacherId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+      "code": "260842"
+    },
+    {
+      "id": "eca3332c-d98c-4a3a-a002-614a529e22c5",
+      "name": "Ученик 10",
+      "teacherId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+      "code": "780642"
+    },
+    {
+      "id": "b3b1007d-8356-4b85-acfe-38218851b751",
+      "name": "Ученик 9",
+      "teacherId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+      "code": "830169"
+    },
+    {
+      "id": "ca4548df-87d7-4cd6-9ab3-c62a7a1d8e15",
+      "name": "Ученик 8",
+      "teacherId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+      "code": "736142"
+    },
+    {
+      "id": "2e9f4c5f-c118-462a-91e2-8bdb9726631d",
+      "name": "Ученик 7",
+      "teacherId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+      "code": "930485"
+    },
+    {
+      "id": "5e8c4ed5-e306-4d3a-805d-9a1c54393aeb",
+      "name": "Ученик 6",
+      "teacherId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+      "code": "451011"
+    },
+    {
+      "id": "e6eae2b4-ad1c-40aa-85bb-23fc72ded1dc",
+      "name": "Ученик 5",
+      "teacherId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+      "code": "590285"
+    },
+    {
+      "id": "db3981cf-d436-48bc-bff6-48b826983624",
+      "name": "Ученик 4",
+      "teacherId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+      "code": "348945"
+    },
+    {
+      "id": "8b11c5e7-22e3-4394-a24e-c71b4e4410c0",
+      "name": "Ученик 3",
+      "teacherId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+      "code": "192142"
+    },
+    {
+      "id": "1856b3df-0290-4230-82e9-3299d233577c",
+      "name": "Ученик 2",
+      "teacherId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+      "code": "606483"
+    },
+    {
+      "id": "f8abe80a-29a3-4f94-ae5b-4df854664685",
+      "name": "Ученик 1",
+      "teacherId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+      "code": "947503"
+    },
+    {
+      "id": "a205c19c-fa62-4dc4-b6f8-ecc5d46d0cc8",
+      "name": "asdsda",
+      "teacherId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+      "code": "744265"
+    },
+    {
+      "id": "edda5c78-bce0-4c6f-ae06-db4b50473839",
+      "name": "апвап",
+      "teacherId": "b074f2cc-4d84-4aa8-9dce-6c8bcb5eaafc",
+      "code": "781755"
+    }
+  ]
+}

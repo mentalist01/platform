@@ -44,6 +44,7 @@ const PYTHON_COIN_TASK_ORDER = [
   205, 208, 214, 216, 217, 223, 224, 225, 226, 227,
 ];
 const PYTHON_COIN_ARTIFACT_BONUSES = {
+  'amulet-of-import': 0.5,
   python: 1,
   whileTrue: 0.2,
 };
