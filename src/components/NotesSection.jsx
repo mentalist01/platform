@@ -111,6 +111,7 @@ const NotesSection = ({
   const [expandedPyIds, setExpandedPyIds] = useState({});
   const [expandedPdfIds, setExpandedPdfIds] = useState({});
   const [expandedImageIds, setExpandedImageIds] = useState({});
+  const [expandedTextIds, setExpandedTextIds] = useState({});
   const [pyContent, setPyContent] = useState({});
   const [pyError, setPyError] = useState({});
   const [pyLoadingId, setPyLoadingId] = useState(null);
@@ -250,6 +251,7 @@ const NotesSection = ({
     setExpandedPyIds({});
     setExpandedPdfIds({});
     setExpandedImageIds({});
+    setExpandedTextIds({});
     setDeletingFolderId(null);
     setEditingPyId(null);
     setPyEditDraft('');
@@ -633,6 +635,7 @@ const NotesSection = ({
     setExpandedPyIds({});
     setExpandedPdfIds({});
     setExpandedImageIds({});
+    setExpandedTextIds({});
     setEditingPyId(null);
     setPyEditDraft('');
     setPyEditSaving(false);
@@ -1121,6 +1124,7 @@ const NotesSection = ({
 
   const isPyFile = (name) => name?.toLowerCase().endsWith('.py');
   const isPdfFile = (name) => name?.toLowerCase().endsWith('.pdf');
+  const isTextFile = (name) => /\.(txt|md|csv|tsv|json|xml|html?|css|js|jsx|ts|tsx|log)$/i.test(String(name || ''));
   const isImageFile = (value) => {
     const name = typeof value === 'string' ? value : value?.name;
     const mime = typeof value === 'string' ? '' : value?.type;
@@ -1560,10 +1564,22 @@ const NotesSection = ({
     });
   };
 
+  const toggleTextPreview = (file) => {
+    const url = getFileUrl(file);
+    if (!url || !isTextFile(file?.name)) return;
+    setExpandedTextIds((prev) => {
+      const next = { ...prev };
+      if (next[file.id]) delete next[file.id];
+      else next[file.id] = true;
+      return next;
+    });
+  };
+
   const toggleFilePreview = (file) => {
     if (isPyFile(file.name)) return togglePyPreview(file);
     if (isPdfFile(file.name)) return togglePdfPreview(file);
     if (isImageFile(file)) return toggleImagePreview(file);
+    if (isTextFile(file.name)) return toggleTextPreview(file);
     return null;
   };
 
@@ -1595,6 +1611,12 @@ const NotesSection = ({
         return next;
       });
       setExpandedImageIds((prev) => {
+        if (!prev[file.id]) return prev;
+        const next = { ...prev };
+        delete next[file.id];
+        return next;
+      });
+      setExpandedTextIds((prev) => {
         if (!prev[file.id]) return prev;
         const next = { ...prev };
         delete next[file.id];
@@ -1673,6 +1695,14 @@ const NotesSection = ({
       }
       if (!isImageFile(updated)) {
         setExpandedImageIds((prev) => {
+          if (!prev[file.id]) return prev;
+          const next = { ...prev };
+          delete next[file.id];
+          return next;
+        });
+      }
+      if (!isTextFile(updated.name)) {
+        setExpandedTextIds((prev) => {
           if (!prev[file.id]) return prev;
           const next = { ...prev };
           delete next[file.id];
@@ -1808,6 +1838,7 @@ const NotesSection = ({
     if (isPyFile(file?.name)) return 'Python';
     if (isPdfFile(file?.name)) return 'PDF';
     if (isImageFile(file)) return 'Изображение';
+    if (isTextFile(file?.name)) return 'Текст';
     if (isExcelFile(file?.name)) return 'Таблица';
     return 'Файл';
   };
@@ -2089,15 +2120,6 @@ const NotesSection = ({
         <div className="notes-explorer-toolbar border-b border-slate-200 bg-gradient-to-b from-slate-50 to-white px-3 py-3 md:px-4 md:py-4">
           <div className="notes-explorer-toolbar-main flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="notes-explorer-toolbar-copy flex min-w-0 items-start gap-2.5 md:gap-3">
-              <Button
-                variant="secondary"
-                onClick={handleExplorerBack}
-                className="notes-explorer-back-btn shrink-0"
-                title="Назад"
-              >
-                <ArrowLeft size={16} />
-                Назад
-              </Button>
               <div className="notes-explorer-toolbar-heading min-w-0 space-y-1">
                 <h3 className="notes-explorer-title text-base font-semibold text-slate-900 md:text-lg">
                   {`Задание ${currentTaskLabel}`}
@@ -2169,6 +2191,15 @@ const NotesSection = ({
         <div className="notes-explorer-command-stack mb-3 md:mb-4">
           <div className="notes-explorer-files-toolbar flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="notes-explorer-search-row flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+              <Button
+                variant="secondary"
+                onClick={handleExplorerBack}
+                className="notes-explorer-back-btn notes-explorer-back-btn--files shrink-0"
+                title="Назад"
+              >
+                <ArrowLeft size={16} />
+                Назад
+              </Button>
               <label className="notes-explorer-search-input-wrap flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
                 <Search size={16} className="notes-explorer-search-icon shrink-0" />
                 <input
@@ -2337,12 +2368,15 @@ const NotesSection = ({
                             if (e.button !== 0 || renamingFolderId === folder.id) return;
                             startFolderPressFeedback(folder.id);
                           }}
-                          onClick={() => {
+                          onClick={(e) => {
                             if (renamingFolderId === folder.id) return;
-                            setSelectedFolderId(folder.id);
-                            setSelectedFileIds({});
+                            if (e.ctrlKey || e.metaKey) {
+                              setSelectedFolderId(folder.id);
+                              setSelectedFileIds({});
+                              return;
+                            }
+                            openFolderWithAnimation(folder.id);
                           }}
-                          onDoubleClick={() => openFolderWithAnimation(folder.id)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
@@ -2360,7 +2394,7 @@ const NotesSection = ({
                           onDrop={(e) => handleFolderDrop(e, folder.id)}
                           role="button"
                           tabIndex={renamingFolderId === folder.id ? -1 : 0}
-                          title="Один клик — выделить, двойной — открыть папку"
+                          title="Один клик — открыть папку"
                         >
                           <td className="notes-explorer-folder-name-cell px-3 py-2.5">
                             <div className="flex min-w-[220px] items-center gap-3">
@@ -2455,8 +2489,10 @@ const NotesSection = ({
                     }
                     const f = item.file;
                     const manageable = canManageFile(f);
-                    const isPreviewable = isPyFile(f.name) || isPdfFile(f.name) || isImageFile(f);
-                    const isExpanded = Boolean(expandedPyIds[f.id] || expandedPdfIds[f.id] || expandedImageIds[f.id]);
+                    const isPreviewable = isPyFile(f.name) || isPdfFile(f.name) || isImageFile(f) || isTextFile(f.name);
+                    const isExpanded = Boolean(
+                      expandedPyIds[f.id] || expandedPdfIds[f.id] || expandedImageIds[f.id] || expandedTextIds[f.id]
+                    );
                     const isSelected = Boolean(selectedFileIds[f.id]);
                     return (
                       <React.Fragment key={f.id}>
@@ -2488,8 +2524,6 @@ const NotesSection = ({
                               return;
                             }
                             setSelectedFileIds({ [f.id]: true });
-                          }}
-                          onDoubleClick={() => {
                             if (isPreviewable) toggleFilePreview(f);
                           }}
                           onKeyDown={(e) => {
@@ -2507,7 +2541,7 @@ const NotesSection = ({
                           }}
                           role="button"
                           tabIndex={renamingId === f.id ? -1 : 0}
-                          title={isPreviewable ? 'Один клик — выделить, двойной — открыть файл' : 'Выделить файл'}
+                          title={isPreviewable ? 'Один клик — открыть файл' : 'Выделить файл'}
                         >
                           <td className="px-3 py-2.5">
                             <div className="flex min-w-[220px] items-center gap-3">
@@ -2759,6 +2793,20 @@ const NotesSection = ({
                                 alt={f.name || 'Изображение'}
                                 maxHeight={imagePreviewMaxHeight}
                               />
+                            </td>
+                          </tr>
+                        )}
+                        {isTextFile(f.name) && (
+                          <tr className={`${expandedTextIds[f.id] ? '' : 'hidden'}`}>
+                            <td colSpan={3} className="notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3">
+                              <div className="notes-explorer-preview-panel overflow-hidden rounded-xl border border-slate-200 bg-white">
+                                <iframe
+                                  title={f.name}
+                                  src={getFileUrl(f)}
+                                  className="w-full bg-white"
+                                  style={{ height: pdfPreviewHeight }}
+                                />
+                              </div>
                             </td>
                           </tr>
                         )}
