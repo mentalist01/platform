@@ -2081,7 +2081,7 @@ const ProgressSection = ({
         : 'Скрыт от учеников';
 
     return (
-      <div key={exam.id} className="bg-white rounded-xl border p-3 md:p-4 flex flex-col gap-3">
+      <div key={exam.id} className="mock-teacher-card rounded-[26px] border p-3 md:p-4 flex flex-col gap-3">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0 flex-1">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
@@ -2112,7 +2112,7 @@ const ProgressSection = ({
           </div>
         </div>
         {mockAccessExamId === exam.id && (
-          <div className="rounded-2xl border border-purple-100 bg-purple-50/40 p-4 space-y-3">
+          <div className="mock-access-panel rounded-2xl p-4 space-y-3">
             <div className="text-xs font-semibold text-gray-500">Доступ к пробнику</div>
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input
@@ -2181,7 +2181,7 @@ const ProgressSection = ({
   }
 
   return (
-    <div className={`${isStudentSecondarySection ? 'space-y-3 md:space-y-4' : 'space-y-4 md:space-y-6'} animate-fadeIn`} data-tour="progress">
+    <div className={`progress-section progress-section--${section} ${isStudentSecondarySection ? 'space-y-3 md:space-y-4' : 'space-y-4 md:space-y-6'} animate-fadeIn`} data-tour="progress">
       <div className={`progress-overview-card relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 shadow-[0_16px_34px_rgba(99,102,241,0.14)] ${isStudentSecondarySection ? 'progress-overview-card--compact' : 'p-4 md:p-6'}`}>
         <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
         <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
@@ -2230,7 +2230,7 @@ const ProgressSection = ({
             <button
               key={item.id}
               onClick={() => setSection(item.id)}
-              className={`inline-flex min-w-0 items-center justify-center gap-1.5 md:gap-2 rounded-xl border px-2 py-2 md:px-4 md:py-2 text-[11px] sm:text-xs md:text-sm font-semibold transition-all ${
+              className={`progress-section-tab progress-section-tab--${item.id} ${active ? 'is-active' : ''} inline-flex min-w-0 items-center justify-center gap-1.5 md:gap-2 rounded-xl border px-2 py-2 md:px-4 md:py-2 text-[11px] sm:text-xs md:text-sm font-semibold transition-all ${
                 active
                   ? 'border-purple-600 bg-purple-600 text-white shadow-md shadow-purple-200'
                   : 'border-transparent bg-white text-slate-600 hover:border-purple-200 hover:text-purple-700'
@@ -2853,7 +2853,7 @@ const ProgressSection = ({
       )}
 
       {section === 'mocks' && (
-        <div className={role === 'student' ? 'mock-student-page space-y-4 md:space-y-5' : 'space-y-4 md:space-y-6'}>
+        <div className={role === 'student' ? 'mock-page-shell mock-student-page space-y-4 md:space-y-5' : 'mock-page-shell mock-teacher-page space-y-4 md:space-y-6'}>
           {role === 'student' ? (
             <div className="mock-student-hero relative overflow-hidden rounded-[28px] p-3.5 md:p-4">
               <div className="mock-student-hero__grid relative z-[1] grid gap-3 md:gap-4 lg:grid-cols-[minmax(0,1fr)_190px] lg:items-center">
@@ -2892,10 +2892,14 @@ const ProgressSection = ({
               </div>
             </div>
           ) : (
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="mock-teacher-hero flex flex-wrap items-center justify-between gap-3 rounded-[28px] p-4 md:p-5">
               <div>
-                <h3 className="text-lg font-bold text-gray-800">Пробники для решения</h3>
-                <p className="hidden md:block text-xs text-gray-500">Примерно такое будет на экзамене.</p>
+                <div className="mock-teacher-kicker inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em]">
+                  <BookOpen size={14} />
+                  Пробники
+                </div>
+                <h3 className="mock-teacher-title mt-3 text-lg font-bold md:text-[1.35rem]">Пробники для решения</h3>
+                <p className="mock-teacher-subtitle hidden md:block text-xs">Примерно такое будет на экзамене.</p>
               </div>
             </div>
           )}
@@ -2914,7 +2918,7 @@ const ProgressSection = ({
                     <div className="mock-readiness-panel rounded-[28px] p-4 md:p-5">
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div className="flex items-start gap-3">
-                          <div className="mock-readiness-icon flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-sky-300">
+                          <div className="mock-readiness-icon flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl">
                             <BarChart2 size={19} />
                           </div>
                           <div>
@@ -2982,7 +2986,7 @@ const ProgressSection = ({
                     <div className="mock-focus-card flex min-h-[260px] flex-col justify-between gap-4 rounded-[28px] p-4 md:p-5">
                       <div className="space-y-4">
                         <div className="flex items-center justify-between gap-3">
-                          <div className="mock-focus-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-purple-500">
+                          <div className="mock-focus-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl">
                             <BookOpen size={18} />
                           </div>
                           <span className="rounded-full border border-white/50 bg-white/70 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-purple-700">
@@ -3020,7 +3024,7 @@ const ProgressSection = ({
                 </Card>
               )}
 
-              <Card className={role === 'student' ? 'mock-list-shell space-y-5' : 'space-y-4'}>
+              <Card className={role === 'student' ? 'mock-list-shell space-y-5' : 'mock-list-shell space-y-4'}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="space-y-1">
                     <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-gray-400">
@@ -3039,7 +3043,7 @@ const ProgressSection = ({
                         value={newMockTitle}
                         onChange={(e) => setNewMockTitle(e.target.value)}
                         placeholder="Название пробника"
-                        className="w-full sm:w-auto px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+                        className="mock-create-input w-full sm:w-auto px-3 py-2 rounded-xl border outline-none text-sm"
                       />
                       <Button onClick={handleCreateMockExam} className="w-full sm:w-auto">
                         <Plus size={16}/> Создать
@@ -3084,12 +3088,12 @@ const ProgressSection = ({
                 <Card className="mock-statistics-card space-y-3 md:space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/70 bg-white/70 text-slate-600">
+                      <div className="mock-chart-icon flex h-9 w-9 items-center justify-center rounded-xl border">
                         <BarChart2 size={16} />
                       </div>
                       <span>Статистика по заданиям</span>
                     </div>
-                    <span className="rounded-full border border-purple-100 bg-purple-50/80 px-3 py-1 text-xs font-semibold text-purple-700">
+                    <span className="mock-chart-badge rounded-full px-3 py-1 text-xs font-semibold">
                       {`${studentMockOverview.accuracyPercent}% точность`}
                     </span>
                   </div>
@@ -3221,7 +3225,7 @@ const ProgressSection = ({
                           {studentMockOverview.strongestTasks.map((taskStat) => (
                             <span
                               key={`strong-${taskStat.taskKey}`}
-                              className="rounded-full border border-white/80 bg-white/85 px-3 py-1.5 text-xs font-semibold text-gray-700"
+                              className="mock-insight-pill rounded-full px-3 py-1.5 text-xs font-semibold"
                             >
                               {`№ ${taskStat.label} · ${taskStat.accuracyPercent}% · ${taskStat.solvedCount}/${taskStat.attemptedCount}`}
                             </span>
@@ -3238,7 +3242,7 @@ const ProgressSection = ({
                             {studentMockOverview.weakestTasks.map((taskStat) => (
                               <span
                                 key={`weak-${taskStat.taskKey}`}
-                                className="rounded-full border border-white/80 bg-white/85 px-3 py-1.5 text-xs font-semibold text-gray-700"
+                                className="mock-insight-pill rounded-full px-3 py-1.5 text-xs font-semibold"
                               >
                                 {`№ ${taskStat.label} · ${taskStat.accuracyPercent}% · ${taskStat.solvedCount}/${taskStat.attemptedCount}`}
                               </span>

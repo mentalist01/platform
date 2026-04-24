@@ -698,30 +698,10 @@ html[data-theme='dark'] .board-canvas-outline {
     overflow: hidden;
     isolation: isolate;
     border-color: rgba(167, 139, 250, 0.28);
-    background:
-      radial-gradient(circle at 12% -10%, rgba(168, 85, 247, 0.18), transparent 34%),
-      radial-gradient(circle at 88% -14%, rgba(56, 189, 248, 0.14), transparent 34%),
-      linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.9));
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.9), rgba(250, 245, 255, 0.72));
     box-shadow:
-      0 20px 44px rgba(15, 23, 42, 0.11),
+      0 10px 22px rgba(88, 28, 135, 0.09),
       inset 0 1px 0 rgba(255, 255, 255, 0.82);
-  }
-
-  .notes-landing-hero::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: repeating-linear-gradient(-32deg, rgba(148, 163, 184, 0.08) 0 1px, transparent 1px 34px);
-    opacity: 0.58;
-    pointer-events: none;
-  }
-
-  .notes-landing-hero::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 34%);
-    pointer-events: none;
   }
 
   .notes-landing-hero__body,
@@ -732,11 +712,11 @@ html[data-theme='dark'] .board-canvas-outline {
 
   .notes-landing-title {
     color: #0f172a;
-    letter-spacing: -0.03em;
+    letter-spacing: 0;
   }
 
   .notes-landing-subtitle {
-    margin-top: 0.35rem;
+    margin-top: 0.2rem;
     max-width: 34rem;
     color: #5b6b82;
   }
@@ -768,7 +748,6 @@ html[data-theme='dark'] .board-canvas-outline {
     min-width: 0.75rem;
     border-radius: inherit;
     background: linear-gradient(90deg, #8b5cf6 0%, #3b82f6 100%);
-    box-shadow: 0 0 18px rgba(99, 102, 241, 0.26);
   }
 
   .notes-landing-grid {
@@ -781,7 +760,7 @@ html[data-theme='dark'] .board-canvas-outline {
     border-radius: 999px;
     border: 1px solid rgba(203, 213, 225, 0.74);
     background: rgba(255, 255, 255, 0.74);
-    padding: 0.32rem 0.62rem;
+    padding: 0.28rem 0.56rem;
     color: rgb(71, 85, 105);
     line-height: 1;
     white-space: nowrap;
@@ -810,26 +789,24 @@ html[data-theme='dark'] .board-canvas-outline {
     overflow: hidden;
     transition: border-color 0.22s ease, box-shadow 0.22s ease, transform 0.22s ease, background 0.22s ease;
     box-shadow:
-      0 12px 28px rgba(15, 23, 42, 0.07),
+      0 8px 16px rgba(15, 23, 42, 0.07),
       inset 0 1px 0 rgba(255, 255, 255, 0.74);
   }
 
   .notes-card--filled {
     border-color: rgba(192, 132, 252, 0.34) !important;
-    background:
-      radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.12), transparent 30%),
-      linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(250, 245, 255, 0.92)) !important;
+    background: rgba(255, 255, 255, 0.82) !important;
   }
 
   .notes-card--empty {
     border-color: rgba(203, 213, 225, 0.72) !important;
-    background: linear-gradient(160deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.92)) !important;
+    background: rgba(255, 255, 255, 0.72) !important;
   }
 
   .notes-card::before {
     content: '';
     position: absolute;
-    inset-block: 16px;
+    inset-block: 12px;
     left: 0;
     width: 3px;
     border-radius: 0 999px 999px 0;
@@ -851,36 +828,26 @@ html[data-theme='dark'] .board-canvas-outline {
     border-color: rgba(196, 181, 253, 0.48);
     background: rgba(255, 255, 255, 0.82);
     color: rgb(109, 40, 217);
-    box-shadow:
-      0 10px 18px rgba(15, 23, 42, 0.08),
-      inset 0 1px 0 rgba(255, 255, 255, 0.78);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
   }
 
   .notes-task-badge--filled {
     border-color: rgba(52, 211, 153, 0.32);
     background: linear-gradient(145deg, rgba(16, 185, 129, 0.12), rgba(52, 211, 153, 0.14));
     color: rgb(4, 120, 87);
-    box-shadow:
-      0 10px 22px rgba(16, 185, 129, 0.18),
-      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
   }
 
   .notes-landing-card {
-    min-height: 9.2rem;
+    min-height: 6.35rem;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 0.65rem;
   }
 
   .notes-landing-card::after {
-    content: '';
-    position: absolute;
-    inset: auto 1rem 0.95rem 1rem;
-    height: 1px;
-    background: linear-gradient(90deg, rgba(148, 163, 184, 0), rgba(148, 163, 184, 0.28), rgba(148, 163, 184, 0));
-    opacity: 0.7;
-    pointer-events: none;
+    display: none;
   }
 
   .notes-landing-card__top,
@@ -890,18 +857,18 @@ html[data-theme='dark'] .board-canvas-outline {
   }
 
   .notes-landing-card__badge {
-    min-height: 2rem;
+    min-height: 1.75rem;
   }
 
   .notes-landing-card__status {
     justify-content: center;
-    padding-inline: 0.62rem;
+    padding-inline: 0.56rem;
   }
 
   .notes-landing-card__icon {
     flex: 0 0 auto;
-    width: 3rem;
-    height: 3rem;
+    width: 2.35rem;
+    height: 2.35rem;
     border-color: rgba(196, 181, 253, 0.44);
     background: rgba(255, 255, 255, 0.72);
     color: #7c3aed;
@@ -936,13 +903,13 @@ html[data-theme='dark'] .board-canvas-outline {
     }
 
     .notes-landing-card {
-      min-height: 8.45rem;
-      gap: 0.85rem;
+      min-height: 6.2rem;
+      gap: 0.6rem;
     }
 
     .notes-landing-card__icon {
-      width: 2.75rem;
-      height: 2.75rem;
+      width: 2.25rem;
+      height: 2.25rem;
     }
   }
 
@@ -2032,6 +1999,8 @@ html[data-theme='dark'] .board-canvas-outline {
   cursor: pointer;
   will-change: transform, box-shadow;
   transform-origin: center;
+  --python-overview-accent-rgb: 124, 58, 237;
+  --python-overview-accent-strong-rgb: 109, 40, 217;
   box-shadow:
     0 18px 34px rgba(88, 28, 135, 0.1),
     0 6px 14px rgba(192, 132, 252, 0.14),
@@ -2055,14 +2024,16 @@ html[data-theme='dark'] .board-canvas-outline {
 .python-learning-shell .python-learning-overview-card::after {
   content: "";
   position: absolute;
-  left: 1.05rem;
-  right: 1.05rem;
+  left: 0;
+  top: 0.9rem;
   bottom: 0.9rem;
-  height: 2px;
+  width: 6px;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.14));
-  opacity: 0.4;
+  background: linear-gradient(180deg, rgba(var(--python-overview-accent-rgb), 0.18), rgba(var(--python-overview-accent-rgb), 0.82), rgba(var(--python-overview-accent-rgb), 0.2));
+  opacity: 0.28;
   pointer-events: none;
+  transform: scaleY(0.52);
+  transform-origin: center;
   transition: opacity 0.24s ease, transform 0.24s ease;
 }
 
@@ -2081,8 +2052,8 @@ html[data-theme='dark'] .board-canvas-outline {
 }
 
 .python-learning-shell .python-learning-overview-card:hover::after {
-  opacity: 0.68;
-  transform: scaleX(1.02);
+  opacity: 0.72;
+  transform: scaleY(0.74);
 }
 
 .python-learning-shell .python-learning-overview-card__action {
@@ -2180,8 +2151,8 @@ html[data-theme='dark'] .board-canvas-outline {
 }
 
 .python-learning-shell .python-learning-overview-card[data-active='true']::after {
-  opacity: 0.92;
-  transform: scaleX(1.02);
+  opacity: 1;
+  transform: scaleY(0.9);
 }
 
 .python-learning-shell .python-learning-overview-card[data-active='true'] .python-learning-overview-card__icon {
@@ -2212,6 +2183,213 @@ html[data-theme='dark'] .board-canvas-outline {
     0 12px 24px rgba(15, 23, 42, 0.12),
     inset 0 1px 0 rgba(250, 245, 255, 0.9),
     inset 4px 0 0 rgba(217, 70, 239, 0.88);
+}
+
+.python-learning-shell .python-learning-section-picker {
+  backdrop-filter: blur(14px);
+}
+
+.python-learning-shell .python-learning-overview-card[data-section='topics'] {
+  --python-overview-accent-rgb: 124, 58, 237;
+  --python-overview-accent-strong-rgb: 109, 40, 217;
+}
+
+.python-learning-shell .python-learning-overview-card[data-section='exam-prep'] {
+  --python-overview-accent-rgb: 192, 38, 211;
+  --python-overview-accent-strong-rgb: 162, 28, 175;
+}
+
+.python-learning-shell .python-learning-overview-card[data-active='false'] {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.76), rgba(250, 245, 255, 0.6)) !important;
+  border-color: rgba(226, 232, 240, 0.86) !important;
+}
+
+.python-learning-shell .python-learning-overview-card[data-active='true'] {
+  background:
+    radial-gradient(circle at 92% 0%, rgba(var(--python-overview-accent-rgb), 0.18), transparent 36%),
+    linear-gradient(145deg, rgba(var(--python-overview-accent-rgb), 0.14), rgba(255, 255, 255, 0.88) 44%, rgba(250, 245, 255, 0.76)) !important;
+}
+
+.python-learning-shell .python-learning-overview-card__body {
+  position: relative;
+  z-index: 1;
+}
+
+.python-learning-shell .python-learning-overview-card__state {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 2.1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--python-overview-accent-rgb), 0.28);
+  background: rgba(255, 255, 255, 0.82);
+  padding: 0.45rem 0.72rem;
+  color: rgba(var(--python-overview-accent-strong-rgb), 0.94);
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0;
+  box-shadow:
+    0 10px 18px rgba(var(--python-overview-accent-rgb), 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  transition: transform 0.22s ease, background 0.24s ease, border-color 0.24s ease, box-shadow 0.24s ease, color 0.24s ease;
+}
+
+.python-learning-shell .python-learning-overview-card__state svg {
+  flex-shrink: 0;
+  stroke-width: 2.6;
+  transition: transform 0.22s ease;
+}
+
+.python-learning-shell .python-learning-overview-card[data-active='false']:hover .python-learning-overview-card__state {
+  transform: translateY(-1px);
+  border-color: rgba(var(--python-overview-accent-rgb), 0.46);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow:
+    0 14px 24px rgba(var(--python-overview-accent-rgb), 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.python-learning-shell .python-learning-overview-card[data-active='false']:hover .python-learning-overview-card__state svg {
+  transform: translate(2px, -2px);
+}
+
+.python-learning-shell .python-learning-overview-card[data-active='true'] .python-learning-overview-card__state {
+  border-color: rgba(var(--python-overview-accent-rgb), 0.08);
+  background: linear-gradient(135deg, rgba(var(--python-overview-accent-rgb), 0.98), rgba(var(--python-overview-accent-strong-rgb), 0.9));
+  color: white;
+  box-shadow:
+    0 16px 26px rgba(var(--python-overview-accent-rgb), 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+
+.python-learning-shell .python-learning-overview-card__description {
+  line-height: 1.35;
+}
+
+.python-learning-shell .python-learning-overview-card__selection-dot {
+  display: inline-flex;
+  width: 0.68rem;
+  height: 0.68rem;
+  border-radius: 999px;
+  border: 2px solid rgba(var(--python-overview-accent-rgb), 0.28);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.python-learning-shell .python-learning-overview-card[data-active='true'] .python-learning-overview-card__selection-dot {
+  border-color: rgba(var(--python-overview-accent-rgb), 0.2);
+  background: rgba(var(--python-overview-accent-rgb), 0.9);
+  box-shadow:
+    0 0 0 4px rgba(var(--python-overview-accent-rgb), 0.16),
+    0 8px 16px rgba(var(--python-overview-accent-rgb), 0.18);
+}
+
+.python-learning-shell .python-learning-overview-card__progress {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  transition: background 0.24s ease, border-color 0.24s ease, transform 0.22s ease;
+}
+
+.python-learning-shell .python-learning-overview-card[data-active='true'] .python-learning-overview-card__progress {
+  border-color: rgba(var(--python-overview-accent-rgb), 0.22);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.python-learning-shell {
+  --python-brand-rgb: 124, 58, 237;
+  --python-brand-strong-rgb: 109, 40, 217;
+  --python-brand-soft-rgb: 168, 85, 247;
+  --python-brand-fuchsia-rgb: 217, 70, 239;
+}
+
+.python-learning-shell .python-learning-eyebrow,
+.python-learning-shell .python-learning-card-label,
+.python-learning-shell .python-learning-section-badge,
+.python-learning-shell .python-learning-overview-card [class*="tracking-"],
+.python-learning-shell .python-learning-section-shell [class*="tracking-"] {
+  letter-spacing: 0;
+}
+
+.python-learning-shell .python-learning-eyebrow {
+  box-shadow:
+    0 10px 18px rgba(var(--python-brand-rgb), 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.python-learning-shell .python-learning-title {
+  letter-spacing: 0;
+}
+
+.python-learning-shell .python-learning-subtitle {
+  max-width: 42rem;
+}
+
+.python-learning-shell .python-learning-section-title {
+  letter-spacing: 0;
+}
+
+.python-learning-shell .python-learning-task-grid {
+  align-items: stretch;
+}
+
+.python-learning-shell .python-learning-task-card__accent {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, rgba(var(--python-brand-rgb), 0.22), rgba(var(--python-brand-soft-rgb), 0.78), rgba(var(--python-brand-fuchsia-rgb), 0.2));
+  opacity: 0.62;
+  transition: opacity 0.24s ease, width 0.24s ease;
+}
+
+.python-learning-shell .python-learning-task-card:hover .python-learning-task-card__accent,
+.python-learning-shell .python-learning-task-card[data-selected='true'] .python-learning-task-card__accent {
+  width: 4px;
+  opacity: 1;
+}
+
+.python-learning-shell .python-learning-task-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--python-brand-rgb), 0.18);
+  background: rgba(255, 255, 255, 0.7);
+  color: rgba(var(--python-brand-strong-rgb), 0.9);
+  font-size: 0.68rem;
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: 0;
+  padding: 0.36rem 0.56rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.python-learning-shell .python-learning-task-status--mastered {
+  border-color: rgba(var(--python-brand-rgb), 0.28);
+  background: rgba(243, 232, 255, 0.76);
+}
+
+.python-learning-shell .python-learning-task-status--steady {
+  border-color: rgba(167, 139, 250, 0.28);
+  background: rgba(245, 243, 255, 0.76);
+}
+
+.python-learning-shell .python-learning-task-status--warming,
+.python-learning-shell .python-learning-task-status--start {
+  border-color: rgba(var(--python-brand-fuchsia-rgb), 0.24);
+  background: rgba(253, 244, 255, 0.72);
+}
+
+.python-learning-shell .python-learning-task-card__progress {
+  background: rgba(255, 255, 255, 0.78) !important;
+  box-shadow:
+    inset 0 1px 2px rgba(88, 28, 135, 0.08),
+    0 8px 16px rgba(var(--python-brand-rgb), 0.08) !important;
+}
+
+.python-learning-shell .python-learning-task-card__percent {
+  color: rgba(var(--python-brand-strong-rgb), 0.92) !important;
 }
 
 .python-learning-shell .python-learning-focus-card .text-cyan-700\/80,
@@ -7317,21 +7495,10 @@ html[data-theme='dark'] .notes-student-picker__select {
 
 html[data-theme='dark'] .notes-landing-hero {
   border-color: rgba(86, 106, 139, 0.58);
-  background:
-    radial-gradient(circle at 12% -10%, rgba(168, 85, 247, 0.22), transparent 34%),
-    radial-gradient(circle at 88% -14%, rgba(56, 189, 248, 0.18), transparent 34%),
-    linear-gradient(145deg, rgba(10, 18, 32, 0.96), rgba(13, 24, 42, 0.88));
+  background: rgba(15, 23, 42, 0.9);
   box-shadow:
-    0 22px 46px rgba(2, 6, 23, 0.4),
+    0 8px 18px rgba(2, 6, 23, 0.34),
     inset 0 1px 0 rgba(148, 163, 184, 0.08);
-}
-
-html[data-theme='dark'] .notes-landing-hero::before {
-  opacity: 0.34;
-}
-
-html[data-theme='dark'] .notes-landing-hero::after {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 34%);
 }
 
 html[data-theme='dark'] .notes-landing-title {
@@ -7379,21 +7546,18 @@ html[data-theme='dark'] .notes-landing-progress {
 
 html[data-theme='dark'] .notes-card {
   box-shadow:
-    0 16px 34px rgba(2, 6, 23, 0.26),
+    0 8px 18px rgba(2, 6, 23, 0.34),
     inset 0 1px 0 rgba(148, 163, 184, 0.08);
 }
 
 html[data-theme='dark'] .notes-card--filled {
   border-color: rgba(52, 211, 153, 0.34) !important;
-  background:
-    radial-gradient(circle at 0% 0%, rgba(16, 185, 129, 0.12), transparent 34%),
-    linear-gradient(155deg, rgba(15, 23, 42, 0.86), rgba(15, 23, 42, 0.74)) !important;
+  background: rgba(15, 23, 42, 0.88) !important;
 }
 
 html[data-theme='dark'] .notes-card--empty {
   border-color: rgba(71, 85, 105, 0.5) !important;
-  background:
-    linear-gradient(155deg, rgba(15, 23, 42, 0.84), rgba(30, 41, 59, 0.62)) !important;
+  background: rgba(15, 23, 42, 0.78) !important;
 }
 
 html[data-theme='dark'] .notes-task-badge {
@@ -7405,10 +7569,6 @@ html[data-theme='dark'] .notes-task-badge {
 html[data-theme='dark'] .notes-task-badge--filled {
   background: linear-gradient(145deg, rgba(16, 185, 129, 0.9), rgba(5, 150, 105, 0.8));
   color: white;
-}
-
-html[data-theme='dark'] .notes-landing-card::after {
-  background: linear-gradient(90deg, rgba(86, 106, 139, 0), rgba(86, 106, 139, 0.42), rgba(86, 106, 139, 0));
 }
 
 html[data-theme='dark'] .notes-landing-card__icon {
@@ -9651,16 +9811,6 @@ html[data-theme='dark'] .python-learning-shell .python-learning-hero {
     inset 0 1px 0 rgba(196, 181, 253, 0.08);
 }
 
-html[data-theme='dark'] .python-learning-shell .python-learning-hero > :nth-child(1) {
-  background: rgba(99, 102, 241, 0.16) !important;
-  opacity: 0.4;
-}
-
-html[data-theme='dark'] .python-learning-shell .python-learning-hero > :nth-child(2) {
-  background: rgba(79, 70, 229, 0.12) !important;
-  opacity: 0.32;
-}
-
 html[data-theme='dark'] .python-learning-shell .python-learning-progress-card,
 html[data-theme='dark'] .python-learning-shell .python-learning-focus-card,
 html[data-theme='dark'] .python-learning-shell .python-learning-overview-card,
@@ -9705,8 +9855,8 @@ html[data-theme='dark'] .python-learning-shell .python-learning-overview-card::b
 }
 
 html[data-theme='dark'] .python-learning-shell .python-learning-overview-card::after {
-  background: linear-gradient(90deg, rgba(129, 140, 248, 0.08), rgba(167, 139, 250, 0.24), rgba(129, 140, 248, 0.08));
-  opacity: 0.2;
+  background: linear-gradient(180deg, rgba(var(--python-overview-accent-rgb), 0.18), rgba(var(--python-overview-accent-rgb), 0.88), rgba(var(--python-overview-accent-rgb), 0.2));
+  opacity: 0.34;
 }
 
 html[data-theme='dark'] .python-learning-shell .python-learning-overview-card:hover::before {
@@ -9792,6 +9942,74 @@ html[data-theme='dark'] .python-learning-shell .python-learning-overview-card[da
     inset 4px 0 0 rgba(168, 85, 247, 0.78) !important;
 }
 
+html[data-theme='dark'] .python-learning-shell .python-learning-section-picker {
+  border-color: rgba(129, 140, 248, 0.18) !important;
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.64), rgba(30, 41, 59, 0.36)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(196, 181, 253, 0.08),
+    inset 0 -1px 0 rgba(2, 6, 23, 0.22) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card[data-active='false'] {
+  background:
+    linear-gradient(154deg, rgba(15, 23, 42, 0.72), rgba(30, 41, 59, 0.54)) !important;
+  border-color: rgba(129, 140, 248, 0.18) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card[data-active='true'] {
+  background:
+    radial-gradient(circle at 92% 0%, rgba(var(--python-overview-accent-rgb), 0.22), transparent 38%),
+    linear-gradient(154deg, rgba(var(--python-overview-accent-rgb), 0.2), rgba(30, 41, 59, 0.72) 46%, rgba(15, 23, 42, 0.88)) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card__state {
+  border-color: rgba(var(--python-overview-accent-rgb), 0.34);
+  background: rgba(15, 23, 42, 0.62);
+  color: rgba(237, 233, 254, 0.94);
+  box-shadow:
+    0 12px 22px rgba(2, 6, 23, 0.24),
+    inset 0 1px 0 rgba(196, 181, 253, 0.08);
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card[data-active='false']:hover .python-learning-overview-card__state {
+  border-color: rgba(var(--python-overview-accent-rgb), 0.58);
+  background: rgba(30, 41, 59, 0.86);
+  color: rgba(250, 245, 255, 0.98);
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card[data-active='true'] .python-learning-overview-card__state {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: linear-gradient(135deg, rgba(var(--python-overview-accent-rgb), 0.94), rgba(var(--python-overview-accent-strong-rgb), 0.82));
+  color: white;
+  box-shadow:
+    0 18px 30px rgba(var(--python-overview-accent-rgb), 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card__selection-dot {
+  border-color: rgba(var(--python-overview-accent-rgb), 0.34);
+  background: rgba(15, 23, 42, 0.72);
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card[data-active='true'] .python-learning-overview-card__selection-dot {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(var(--python-overview-accent-rgb), 0.94);
+  box-shadow:
+    0 0 0 4px rgba(var(--python-overview-accent-rgb), 0.18),
+    0 10px 18px rgba(2, 6, 23, 0.24);
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card__progress {
+  border-color: rgba(129, 140, 248, 0.18) !important;
+  background: rgba(15, 23, 42, 0.54) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card[data-active='true'] .python-learning-overview-card__progress {
+  border-color: rgba(var(--python-overview-accent-rgb), 0.28) !important;
+  background: rgba(15, 23, 42, 0.66) !important;
+}
+
 html[data-theme='dark'] .python-learning-shell .python-learning-section-shell {
   background:
     radial-gradient(circle at 94% -24%, rgba(99, 102, 241, 0.14), transparent 38%),
@@ -9799,16 +10017,15 @@ html[data-theme='dark'] .python-learning-shell .python-learning-section-shell {
     linear-gradient(160deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.92), rgba(15, 23, 42, 0.91)) !important;
 }
 
-html[data-theme='dark'] .python-learning-shell .python-learning-section-shell > :first-child {
-  opacity: 0.2 !important;
+html[data-theme='dark'] .python-learning-shell .python-learning-section-shell__wash {
+  opacity: 0 !important;
   background:
     linear-gradient(90deg, rgba(99, 102, 241, 0.12), rgba(99, 102, 241, 0.02) 46%, rgba(139, 92, 246, 0.08)) !important;
 }
 
 html[data-theme='dark'] .python-learning-shell .python-learning-task-card__glow {
-  background:
-    radial-gradient(circle at center, rgba(129, 140, 248, 0.2), rgba(99, 102, 241, 0.06) 42%, transparent 72%) !important;
-  opacity: 0.42;
+  background: linear-gradient(180deg, rgba(129, 140, 248, 0.16), rgba(99, 102, 241, 0.08), transparent) !important;
+  opacity: 0.66;
 }
 
 html[data-theme='dark'] .python-learning-shell .python-learning-task-card__toolbar-btn {
@@ -9831,12 +10048,48 @@ html[data-theme='dark'] .python-learning-shell .python-learning-task-card__toolb
   background: rgba(49, 46, 129, 0.7) !important;
 }
 
-html[data-theme='dark'] .python-learning-shell .python-learning-hero > :nth-child(1) {
-  opacity: 0.24;
+html[data-theme='dark'] .python-learning-shell .python-learning-eyebrow,
+html[data-theme='dark'] .python-learning-shell .python-learning-metric-chip {
+  border-color: rgba(167, 139, 250, 0.24) !important;
+  background: rgba(30, 41, 59, 0.58) !important;
+  box-shadow:
+    0 12px 22px rgba(2, 6, 23, 0.24),
+    inset 0 1px 0 rgba(196, 181, 253, 0.08) !important;
 }
 
-html[data-theme='dark'] .python-learning-shell .python-learning-hero > :nth-child(2) {
-  opacity: 0.18;
+html[data-theme='dark'] .python-learning-shell .python-learning-section-header {
+  border-bottom-color: rgba(129, 140, 248, 0.18);
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-task-status {
+  border-color: rgba(129, 140, 248, 0.22);
+  background: rgba(15, 23, 42, 0.52);
+  color: rgba(237, 233, 254, 0.92);
+  box-shadow: inset 0 1px 0 rgba(196, 181, 253, 0.06);
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-task-status--mastered,
+html[data-theme='dark'] .python-learning-shell .python-learning-task-status--steady {
+  border-color: rgba(167, 139, 250, 0.3);
+  background: rgba(76, 29, 149, 0.28);
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-task-status--warming,
+html[data-theme='dark'] .python-learning-shell .python-learning-task-status--start {
+  border-color: rgba(217, 70, 239, 0.24);
+  background: rgba(112, 26, 117, 0.22);
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card__progress {
+  border-color: rgba(129, 140, 248, 0.18) !important;
+  background: rgba(15, 23, 42, 0.56) !important;
+  box-shadow:
+    inset 0 1px 2px rgba(2, 6, 23, 0.46),
+    0 8px 16px rgba(2, 6, 23, 0.2) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card__percent {
+  color: rgb(233, 213, 255) !important;
 }
 
 html[data-theme='dark'] .python-learning-shell .bg-cyan-50,
@@ -17039,4 +17292,1220 @@ html[data-theme='dark'] .notes-file-icon--python .notes-file-icon__tile {
   border-color: rgba(96, 165, 250, 0.32);
   background: rgba(30, 64, 175, 0.18);
   color: rgba(191, 219, 254, 0.98);
+}
+
+/* Compact Python section pass: calmer surfaces, smaller tiles, no decorative glow. */
+.python-learning-shell .python-learning-hero__mesh,
+.python-learning-shell .python-learning-hero__ribbon,
+.python-learning-shell .python-learning-task-card__glow,
+.python-learning-shell .python-learning-progress-rail .animate-sheen {
+  display: none !important;
+}
+
+.python-learning-shell .python-learning-hero,
+.python-learning-shell .python-learning-toolbar {
+  border-radius: 1.35rem !important;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.9), rgba(250, 245, 255, 0.72)) !important;
+  box-shadow:
+    0 12px 24px rgba(88, 28, 135, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78) !important;
+}
+
+.python-learning-shell .python-learning-progress-card,
+.python-learning-shell .python-learning-focus-card,
+.python-learning-shell .python-learning-progress-strip,
+.python-learning-shell .python-learning-section-shell {
+  min-height: 0 !important;
+  background: rgba(255, 255, 255, 0.78) !important;
+  box-shadow:
+    0 10px 20px rgba(88, 28, 135, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76) !important;
+}
+
+.python-learning-shell .python-learning-progress-card::before,
+.python-learning-shell .python-learning-focus-card::before,
+.python-learning-shell .python-learning-overview-card::before,
+.python-learning-shell .python-learning-task-card::before {
+  opacity: 0 !important;
+}
+
+.python-learning-shell .python-learning-section-picker {
+  border-radius: 1.1rem !important;
+  box-shadow:
+    0 8px 16px rgba(88, 28, 135, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72) !important;
+}
+
+.python-learning-shell .python-learning-overview-card {
+  min-height: 4.25rem !important;
+  border-radius: 1rem !important;
+  box-shadow:
+    0 8px 16px rgba(88, 28, 135, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72) !important;
+}
+
+.python-learning-shell .python-learning-overview-card:hover {
+  transform: translateY(-1px) !important;
+  box-shadow:
+    0 10px 18px rgba(88, 28, 135, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76) !important;
+}
+
+.python-learning-shell .python-learning-overview-card[data-active='true'] {
+  box-shadow:
+    0 10px 20px rgba(88, 28, 135, 0.12),
+    inset 4px 0 0 rgba(var(--python-overview-accent-rgb), 0.62),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78) !important;
+}
+
+.python-learning-shell .python-learning-overview-card__state {
+  min-height: 1.7rem;
+  padding: 0.3rem 0.5rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68) !important;
+}
+
+.python-learning-shell .python-learning-overview-card[data-active='true'] .python-learning-overview-card__state {
+  box-shadow: none !important;
+}
+
+.python-learning-shell .python-learning-overview-card__selection-dot {
+  width: 0.56rem;
+  height: 0.56rem;
+}
+
+.python-learning-shell .python-learning-overview-card__progress {
+  border-radius: 0.75rem !important;
+}
+
+.python-learning-shell .python-learning-section-header {
+  padding-bottom: 0.75rem;
+}
+
+.python-learning-shell .python-learning-task-card {
+  min-height: 8.25rem !important;
+  border-radius: 1rem !important;
+  background: rgba(255, 255, 255, 0.76) !important;
+  box-shadow:
+    0 8px 16px rgba(88, 28, 135, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72) !important;
+}
+
+.python-learning-shell .python-learning-task-card:hover {
+  transform: translateY(-1px) !important;
+  box-shadow:
+    0 10px 18px rgba(88, 28, 135, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76) !important;
+}
+
+.python-learning-shell .python-learning-task-card[data-selected='true'] {
+  border-color: rgba(var(--python-brand-rgb), 0.54) !important;
+  box-shadow:
+    0 10px 18px rgba(88, 28, 135, 0.12),
+    inset 3px 0 0 rgba(var(--python-brand-rgb), 0.58),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78) !important;
+}
+
+.python-learning-shell .python-learning-task-card__accent {
+  width: 3px !important;
+  opacity: 0.48 !important;
+}
+
+.python-learning-shell .python-learning-task-card:hover .python-learning-task-card__accent,
+.python-learning-shell .python-learning-task-card[data-selected='true'] .python-learning-task-card__accent {
+  width: 4px !important;
+  opacity: 0.88 !important;
+}
+
+.python-learning-shell .python-learning-task-card__title {
+  min-height: 0 !important;
+}
+
+.python-learning-shell .python-learning-task-status {
+  padding: 0.3rem 0.48rem !important;
+}
+
+.python-learning-shell .python-learning-progress-rail > div:first-child,
+.python-learning-shell .python-learning-task-card__progress > div {
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-hero,
+html[data-theme='dark'] .python-learning-shell .python-learning-toolbar,
+html[data-theme='dark'] .python-learning-shell .python-learning-progress-card,
+html[data-theme='dark'] .python-learning-shell .python-learning-focus-card,
+html[data-theme='dark'] .python-learning-shell .python-learning-progress-strip,
+html[data-theme='dark'] .python-learning-shell .python-learning-section-shell,
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card,
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card {
+  border-color: rgba(129, 140, 248, 0.2) !important;
+  background: rgba(15, 23, 42, 0.9) !important;
+  box-shadow:
+    0 8px 18px rgba(2, 6, 23, 0.34),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card:hover,
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card:hover {
+  box-shadow:
+    0 10px 20px rgba(2, 6, 23, 0.38),
+    inset 0 1px 0 rgba(148, 163, 184, 0.1) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card[data-active='true'],
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card[data-selected='true'] {
+  border-color: rgba(167, 139, 250, 0.42) !important;
+  background: rgba(24, 32, 54, 0.94) !important;
+  box-shadow:
+    0 10px 20px rgba(2, 6, 23, 0.42),
+    inset 3px 0 0 rgba(167, 139, 250, 0.58),
+    inset 0 1px 0 rgba(196, 181, 253, 0.08) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card[data-active='true'] {
+  box-shadow:
+    0 10px 20px rgba(2, 6, 23, 0.42),
+    inset 4px 0 0 rgba(167, 139, 250, 0.62),
+    inset 0 1px 0 rgba(196, 181, 253, 0.08) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-progress-card::before,
+html[data-theme='dark'] .python-learning-shell .python-learning-focus-card::before,
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card::before,
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card::after,
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card::before {
+  opacity: 0 !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-section-picker {
+  border-color: rgba(129, 140, 248, 0.16) !important;
+  background: rgba(8, 15, 28, 0.52) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.06) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-progress-rail,
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card__progress,
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card__progress,
+html[data-theme='dark'] .python-learning-shell .python-learning-focus-stat {
+  border-color: rgba(129, 140, 248, 0.16) !important;
+  background: rgba(8, 15, 28, 0.44) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.06) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card__state,
+html[data-theme='dark'] .python-learning-shell .python-learning-task-status {
+  box-shadow: inset 0 1px 0 rgba(196, 181, 253, 0.06) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-overview-card[data-active='true'] .python-learning-overview-card__state {
+  box-shadow: none !important;
+}
+
+/* Compact desktop sidebar pass. */
+.sidebar-shell {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-right-color: rgba(167, 139, 250, 0.22) !important;
+  box-shadow:
+    0 12px 28px rgba(15, 23, 42, 0.1),
+    inset -1px 0 0 rgba(255, 255, 255, 0.62) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.sidebar-shell::before,
+.sidebar-shell::after,
+.sidebar-aurora,
+.sidebar-grid {
+  display: none !important;
+}
+
+.sidebar-top {
+  padding: 0.75rem 1rem !important;
+  border-bottom-color: rgba(203, 213, 225, 0.66) !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: none !important;
+}
+
+.sidebar-top .pr-12 {
+  padding-right: 2.35rem !important;
+}
+
+.sidebar-footer {
+  padding: 0.65rem 0.7rem !important;
+  border-top-color: rgba(203, 213, 225, 0.66) !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: none !important;
+}
+
+.sidebar-brand-mark {
+  width: 2.25rem !important;
+  height: 2.25rem !important;
+  border-radius: 0.75rem !important;
+  font-size: 0.78rem !important;
+  box-shadow:
+    0 8px 16px rgba(124, 58, 237, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28) !important;
+}
+
+.sidebar-brand-dot {
+  width: 0.45rem !important;
+  height: 0.45rem !important;
+  animation: none !important;
+}
+
+.sidebar-brand-title {
+  font-size: 1rem !important;
+  line-height: 1.05 !important;
+  letter-spacing: 0 !important;
+  text-shadow: none !important;
+  white-space: nowrap;
+}
+
+.sidebar-brand-subtitle {
+  margin-top: 0.18rem !important;
+  font-size: 0.6rem !important;
+  letter-spacing: 0.08em !important;
+}
+
+.sidebar-collapse-btn {
+  width: 1.8rem !important;
+  height: 1.8rem !important;
+  border-radius: 0.65rem !important;
+  box-shadow: none !important;
+}
+
+.sidebar-collapse-btn:hover {
+  box-shadow: 0 8px 16px rgba(124, 58, 237, 0.12) !important;
+}
+
+.sidebar-nav {
+  padding: 0.85rem 0.55rem 0.9rem 0.85rem !important;
+  scrollbar-color: rgba(124, 58, 237, 0.38) transparent !important;
+}
+
+.sidebar-nav::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: rgba(124, 58, 237, 0.36) !important;
+  border-color: transparent !important;
+}
+
+.sidebar-nav-title {
+  margin-bottom: 0.55rem !important;
+  padding-inline: 0.35rem !important;
+  font-size: 0.6rem !important;
+  letter-spacing: 0.13em !important;
+}
+
+.sidebar-nav-stack > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 0.45rem !important;
+}
+
+.sidebar-nav-item {
+  min-height: 3rem;
+  border-radius: 0.9rem !important;
+  padding: 0.5rem 0.55rem 0.5rem 0.65rem !important;
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  animation: none !important;
+}
+
+.sidebar-nav-item.is-active {
+  border-color: rgba(167, 139, 250, 0.34) !important;
+  background: rgba(124, 58, 237, 0.1) !important;
+  box-shadow:
+    inset 3px 0 0 rgba(124, 58, 237, 0.62),
+    inset 0 1px 0 rgba(255, 255, 255, 0.62) !important;
+}
+
+.sidebar-nav-item:not(.is-active):hover {
+  transform: none !important;
+  border-color: rgba(167, 139, 250, 0.22) !important;
+  background: rgba(255, 255, 255, 0.62) !important;
+  box-shadow: none !important;
+}
+
+.sidebar-nav-icon {
+  width: 2.1rem !important;
+  height: 2.1rem !important;
+  border-radius: 0.75rem !important;
+  box-shadow: none !important;
+}
+
+.sidebar-nav-icon.is-active {
+  border-color: rgba(167, 139, 250, 0.48) !important;
+  background: rgba(124, 58, 237, 0.14) !important;
+  color: rgb(109, 40, 217) !important;
+  box-shadow: none !important;
+}
+
+.sidebar-nav-label {
+  letter-spacing: 0 !important;
+}
+
+.sidebar-nav-arrow {
+  width: 1.75rem !important;
+  height: 1.75rem !important;
+  border-radius: 0.65rem !important;
+  box-shadow: none !important;
+}
+
+.sidebar-nav-arrow.is-active {
+  border-color: rgba(167, 139, 250, 0.36) !important;
+  background: rgba(124, 58, 237, 0.12) !important;
+  color: rgb(109, 40, 217) !important;
+  box-shadow: none !important;
+}
+
+.sidebar-nav button[aria-expanded] {
+  border-radius: 0.85rem !important;
+  padding: 0.55rem 0.7rem !important;
+  letter-spacing: 0.06em !important;
+  box-shadow: none !important;
+}
+
+.sidebar-profile-card {
+  border-radius: 0.9rem !important;
+  padding: 0.65rem !important;
+  border-color: rgba(167, 139, 250, 0.24) !important;
+  background: rgba(255, 255, 255, 0.66) !important;
+  box-shadow: none !important;
+}
+
+.sidebar-profile-card::after {
+  display: none !important;
+}
+
+.sidebar-profile-card .h-9.w-9 {
+  width: 2rem !important;
+  height: 2rem !important;
+  border-radius: 0.7rem !important;
+  box-shadow: none !important;
+}
+
+.sidebar-footer > .mt-2 {
+  margin-top: 0.5rem !important;
+}
+
+.sidebar-footer > .mt-2 > div {
+  border-radius: 0.8rem !important;
+  border-color: rgba(167, 139, 250, 0.24) !important;
+  background: rgba(255, 255, 255, 0.58) !important;
+  padding: 0.5rem !important;
+}
+
+.sidebar-footer > .mt-2 button {
+  border-radius: 0.55rem !important;
+}
+
+.sidebar-logout {
+  margin-top: 0.5rem !important;
+  border-radius: 0.8rem !important;
+  padding-block: 0.55rem !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .sidebar-shell {
+  border-right-color: rgba(71, 85, 105, 0.58) !important;
+  background: rgba(8, 15, 28, 0.96) !important;
+  box-shadow:
+    0 12px 28px rgba(2, 6, 23, 0.36),
+    inset -1px 0 0 rgba(148, 163, 184, 0.06) !important;
+}
+
+html[data-theme='dark'] .sidebar-top,
+html[data-theme='dark'] .sidebar-footer {
+  border-color: rgba(71, 85, 105, 0.58) !important;
+  background: rgba(8, 15, 28, 0.86) !important;
+}
+
+html[data-theme='dark'] .sidebar-brand-title {
+  color: rgb(241, 245, 249) !important;
+  text-shadow: none !important;
+}
+
+html[data-theme='dark'] .sidebar-brand-subtitle,
+html[data-theme='dark'] .sidebar-nav-title {
+  color: rgba(196, 181, 253, 0.86) !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-item {
+  color: rgba(203, 213, 225, 0.9) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.is-active {
+  border-color: rgba(167, 139, 250, 0.42) !important;
+  background: rgba(88, 28, 135, 0.28) !important;
+  color: rgb(248, 250, 252) !important;
+  box-shadow:
+    inset 3px 0 0 rgba(167, 139, 250, 0.72),
+    inset 0 1px 0 rgba(196, 181, 253, 0.08) !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-item:not(.is-active):hover {
+  border-color: rgba(129, 140, 248, 0.28) !important;
+  background: rgba(30, 41, 59, 0.52) !important;
+  color: rgb(241, 245, 249) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-icon {
+  border-color: rgba(129, 140, 248, 0.28) !important;
+  background: rgba(15, 23, 42, 0.72) !important;
+  color: rgb(196, 181, 253) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-icon.is-active {
+  border-color: rgba(167, 139, 250, 0.5) !important;
+  background: rgba(124, 58, 237, 0.28) !important;
+  color: rgb(237, 233, 254) !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-arrow {
+  border-color: rgba(129, 140, 248, 0.28) !important;
+  background: rgba(15, 23, 42, 0.55) !important;
+  color: rgb(165, 180, 252) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-arrow.is-active {
+  border-color: rgba(167, 139, 250, 0.5) !important;
+  background: rgba(124, 58, 237, 0.24) !important;
+  color: rgb(237, 233, 254) !important;
+}
+
+html[data-theme='dark'] .sidebar-nav button[aria-expanded] {
+  border-color: rgba(129, 140, 248, 0.3) !important;
+  background: rgba(15, 23, 42, 0.58) !important;
+  color: rgba(203, 213, 225, 0.9) !important;
+}
+
+html[data-theme='dark'] .sidebar-profile-card,
+html[data-theme='dark'] .sidebar-footer > .mt-2 > div {
+  border-color: rgba(71, 85, 105, 0.62) !important;
+  background: rgba(15, 23, 42, 0.68) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .sidebar-collapse-btn {
+  border-color: rgba(129, 140, 248, 0.34) !important;
+  background: rgba(15, 23, 42, 0.72) !important;
+  color: rgb(196, 181, 253) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .sidebar-logout,
+html[data-theme='dark'] .sidebar-logout:hover {
+  box-shadow: none !important;
+}
+
+/* Sidebar redesign v3: a single calm navigation surface. */
+.sidebar-shell {
+  --sidebar-bg: rgba(248, 250, 252, 0.96);
+  --sidebar-line: rgba(203, 213, 225, 0.62);
+  --sidebar-row: transparent;
+  --sidebar-row-hover: rgba(255, 255, 255, 0.66);
+  --sidebar-row-active: rgba(124, 58, 237, 0.13);
+  --sidebar-row-active-strong: rgba(124, 58, 237, 0.2);
+  --sidebar-icon: rgba(255, 255, 255, 0.78);
+  --sidebar-icon-border: rgba(167, 139, 250, 0.24);
+  --sidebar-text: rgb(30, 41, 59);
+  --sidebar-muted: rgb(100, 116, 139);
+  background: var(--sidebar-bg) !important;
+  padding: 0 !important;
+  box-shadow: inset -1px 0 0 var(--sidebar-line) !important;
+}
+
+.sidebar-shell > .relative.flex.h-full.flex-col {
+  gap: 0;
+}
+
+.sidebar-top,
+.sidebar-footer,
+.sidebar-nav {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.sidebar-top {
+  padding: 0.9rem 0.85rem 0.95rem !important;
+  border-bottom: 1px solid var(--sidebar-line) !important;
+}
+
+.sidebar-top .pr-12 {
+  padding-right: 2.7rem !important;
+}
+
+.sidebar-brand-mark {
+  width: 2.35rem !important;
+  height: 2.35rem !important;
+  border-radius: 0.8rem !important;
+}
+
+.sidebar-brand-title {
+  font-size: 1.05rem !important;
+  line-height: 1.05 !important;
+  letter-spacing: 0 !important;
+}
+
+.sidebar-brand-subtitle {
+  margin-top: 0.15rem !important;
+  font-size: 0.63rem !important;
+  letter-spacing: 0.08em !important;
+}
+
+.sidebar-collapse-btn {
+  right: 0.8rem !important;
+  width: 1.9rem !important;
+  height: 1.9rem !important;
+  border-radius: 0.7rem !important;
+}
+
+.sidebar-nav {
+  flex: 1 1 auto !important;
+  min-height: 0;
+  padding: 0.9rem 0.65rem 1rem !important;
+  scrollbar-color: rgba(124, 58, 237, 0.36) transparent !important;
+}
+
+.sidebar-nav-title {
+  margin: 0 0 0.55rem !important;
+  padding-inline: 0.45rem !important;
+  color: var(--sidebar-muted) !important;
+  letter-spacing: 0.12em !important;
+}
+
+.sidebar-nav-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.24rem;
+}
+
+.sidebar-nav-stack > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 0 !important;
+}
+
+.sidebar-nav-item {
+  min-height: 2.85rem;
+  border: 1px solid transparent !important;
+  border-radius: 0.88rem !important;
+  background: var(--sidebar-row) !important;
+  padding: 0.42rem 0.5rem 0.42rem 0.58rem !important;
+  color: var(--sidebar-text) !important;
+  box-shadow: none !important;
+}
+
+.sidebar-nav-item::before {
+  left: 0.22rem !important;
+  top: 0.58rem !important;
+  bottom: 0.58rem !important;
+  width: 3px !important;
+  background: rgb(139, 92, 246) !important;
+}
+
+.sidebar-nav-item:not(.is-active):hover {
+  transform: none !important;
+  border-color: var(--sidebar-line) !important;
+  background: var(--sidebar-row-hover) !important;
+  box-shadow: none !important;
+}
+
+.sidebar-nav-item.is-active {
+  border-color: rgba(167, 139, 250, 0.34) !important;
+  background:
+    linear-gradient(90deg, var(--sidebar-row-active-strong), var(--sidebar-row-active)) !important;
+  color: rgb(76, 29, 149) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.54) !important;
+}
+
+.sidebar-nav-icon {
+  width: 2rem !important;
+  height: 2rem !important;
+  border-radius: 0.72rem !important;
+  border-color: var(--sidebar-icon-border) !important;
+  background: var(--sidebar-icon) !important;
+  box-shadow: none !important;
+}
+
+.sidebar-nav-icon.is-active {
+  border-color: rgba(167, 139, 250, 0.46) !important;
+  background: rgba(124, 58, 237, 0.16) !important;
+  color: rgb(109, 40, 217) !important;
+}
+
+.sidebar-nav-label {
+  letter-spacing: 0 !important;
+}
+
+.sidebar-nav-arrow {
+  width: 1.45rem !important;
+  height: 1.45rem !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  color: rgb(124, 58, 237) !important;
+  opacity: 0.42 !important;
+  box-shadow: none !important;
+}
+
+.sidebar-nav-item:hover .sidebar-nav-arrow,
+.sidebar-nav-arrow.is-active {
+  opacity: 1 !important;
+}
+
+.sidebar-nav button[aria-expanded] {
+  min-height: 2.25rem;
+  margin-top: 0.3rem;
+  border: 0 !important;
+  border-top: 1px solid var(--sidebar-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 0.62rem 0.45rem 0.35rem !important;
+  color: var(--sidebar-muted) !important;
+  box-shadow: none !important;
+}
+
+.sidebar-footer {
+  padding: 0.7rem 0.75rem 0.75rem !important;
+  border-top: 1px solid var(--sidebar-line) !important;
+}
+
+.sidebar-profile-card {
+  border-radius: 0.95rem !important;
+  border-color: var(--sidebar-line) !important;
+  background: rgba(255, 255, 255, 0.5) !important;
+  padding: 0.62rem !important;
+  box-shadow: none !important;
+}
+
+.sidebar-profile-card::after {
+  display: none !important;
+}
+
+.sidebar-profile-card .h-9.w-9 {
+  width: 2rem !important;
+  height: 2rem !important;
+  border-radius: 0.68rem !important;
+  box-shadow: none !important;
+}
+
+.sidebar-footer > .mt-2 {
+  margin-top: 0.45rem !important;
+}
+
+.sidebar-footer > .mt-2 > div {
+  border-radius: 0.9rem !important;
+  border-color: var(--sidebar-line) !important;
+  background: transparent !important;
+  padding: 0.48rem !important;
+  box-shadow: none !important;
+}
+
+.sidebar-footer > .mt-2 button {
+  min-height: 1.5rem;
+  white-space: nowrap;
+}
+
+.sidebar-logout {
+  margin-top: 0.5rem !important;
+  border-radius: 0.85rem !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .sidebar-shell {
+  --sidebar-bg: rgb(7, 13, 24);
+  --sidebar-line: rgba(51, 65, 85, 0.72);
+  --sidebar-row-hover: rgba(30, 41, 59, 0.5);
+  --sidebar-row-active: rgba(88, 28, 135, 0.28);
+  --sidebar-row-active-strong: rgba(124, 58, 237, 0.42);
+  --sidebar-icon: rgba(15, 23, 42, 0.72);
+  --sidebar-icon-border: rgba(129, 140, 248, 0.28);
+  --sidebar-text: rgba(226, 232, 240, 0.92);
+  --sidebar-muted: rgba(148, 163, 184, 0.86);
+  background: var(--sidebar-bg) !important;
+}
+
+html[data-theme='dark'] .sidebar-top,
+html[data-theme='dark'] .sidebar-footer,
+html[data-theme='dark'] .sidebar-nav {
+  border-color: var(--sidebar-line) !important;
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .sidebar-nav-title,
+html[data-theme='dark'] .sidebar-nav button[aria-expanded] {
+  color: var(--sidebar-muted) !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-item {
+  border-color: transparent !important;
+  background: transparent !important;
+  color: var(--sidebar-text) !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-item:not(.is-active):hover {
+  border-color: var(--sidebar-line) !important;
+  background: var(--sidebar-row-hover) !important;
+  color: rgb(248, 250, 252) !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.is-active {
+  border-color: rgba(167, 139, 250, 0.36) !important;
+  background:
+    linear-gradient(90deg, var(--sidebar-row-active-strong), var(--sidebar-row-active)) !important;
+  color: rgb(248, 250, 252) !important;
+  box-shadow: inset 0 1px 0 rgba(196, 181, 253, 0.06) !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-icon {
+  border-color: var(--sidebar-icon-border) !important;
+  background: var(--sidebar-icon) !important;
+  color: rgb(196, 181, 253) !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-icon.is-active {
+  border-color: rgba(167, 139, 250, 0.5) !important;
+  background: rgba(124, 58, 237, 0.32) !important;
+  color: rgb(237, 233, 254) !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-arrow {
+  color: rgb(196, 181, 253) !important;
+}
+
+html[data-theme='dark'] .sidebar-profile-card {
+  border-color: var(--sidebar-line) !important;
+  background: rgba(15, 23, 42, 0.42) !important;
+}
+
+html[data-theme='dark'] .sidebar-footer > .mt-2 > div {
+  border-color: var(--sidebar-line) !important;
+  background: transparent !important;
+}
+
+/* Sidebar v4: make the secondary section feel intentional, not like a tiny utility button. */
+.sidebar-nav {
+  padding: 1rem 0.72rem 1rem !important;
+}
+
+.sidebar-nav-title {
+  margin-bottom: 0.62rem !important;
+}
+
+.sidebar-nav-stack {
+  gap: 0.32rem;
+}
+
+.sidebar-nav-item {
+  min-height: 3.18rem;
+  border-radius: 1rem !important;
+  padding: 0.5rem 0.58rem 0.5rem 0.68rem !important;
+}
+
+.sidebar-nav-icon {
+  width: 2.18rem !important;
+  height: 2.18rem !important;
+  border-radius: 0.78rem !important;
+}
+
+.sidebar-nav-label {
+  font-size: 0.92rem !important;
+  line-height: 1.15 !important;
+}
+
+.sidebar-nav-arrow {
+  width: 1.72rem !important;
+  height: 1.72rem !important;
+}
+
+.sidebar-more-toggle {
+  min-height: 3rem !important;
+  margin: 0.68rem 0.05rem 0.2rem !important;
+  border: 1px solid rgba(167, 139, 250, 0.26) !important;
+  border-radius: 1rem !important;
+  background: rgba(124, 58, 237, 0.055) !important;
+  padding: 0.48rem 0.58rem 0.48rem 0.68rem !important;
+  color: var(--sidebar-text) !important;
+  font-size: 0.88rem !important;
+  font-weight: 760 !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+
+.sidebar-more-toggle:hover,
+.sidebar-more-toggle[aria-expanded='true'] {
+  border-color: rgba(167, 139, 250, 0.38) !important;
+  background: rgba(124, 58, 237, 0.095) !important;
+  color: rgb(91, 33, 182) !important;
+}
+
+.sidebar-more-toggle > span:first-child {
+  gap: 0.62rem !important;
+}
+
+.sidebar-more-toggle > span:first-child svg {
+  width: 1.15rem !important;
+  height: 1.15rem !important;
+  color: rgb(124, 58, 237);
+}
+
+.sidebar-more-toggle > svg {
+  width: 1.08rem !important;
+  height: 1.08rem !important;
+}
+
+.sidebar-extra-nav {
+  margin-top: 0.35rem !important;
+  padding-left: 0.18rem;
+}
+
+.sidebar-extra-nav > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 0.32rem !important;
+}
+
+.sidebar-extra-nav .sidebar-nav-item {
+  min-height: 3.05rem;
+}
+
+.sidebar-footer {
+  padding-inline: 0.85rem !important;
+}
+
+.sidebar-profile-card {
+  padding: 0.68rem !important;
+}
+
+html[data-theme='dark'] .sidebar-more-toggle {
+  border-color: rgba(129, 140, 248, 0.28) !important;
+  background: rgba(124, 58, 237, 0.12) !important;
+  color: rgba(226, 232, 240, 0.94) !important;
+}
+
+html[data-theme='dark'] .sidebar-more-toggle:hover,
+html[data-theme='dark'] .sidebar-more-toggle[aria-expanded='true'] {
+  border-color: rgba(167, 139, 250, 0.42) !important;
+  background: rgba(124, 58, 237, 0.22) !important;
+  color: rgb(248, 250, 252) !important;
+}
+
+html[data-theme='dark'] .sidebar-more-toggle > span:first-child svg {
+  color: rgb(196, 181, 253);
+}
+
+/* Mock exams page: keep purple as an accent, not the whole atmosphere. */
+.progress-section--mocks .progress-overview-card {
+  border-color: rgba(125, 211, 252, 0.32) !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 249, 255, 0.9) 54%, rgba(236, 253, 245, 0.76)) !important;
+  box-shadow:
+    0 14px 30px rgba(14, 116, 144, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82) !important;
+}
+
+.progress-section--mocks .progress-overview-card > [aria-hidden] {
+  opacity: 0.18 !important;
+}
+
+.progress-section--mocks .progress-overview-meter {
+  border-color: rgba(125, 211, 252, 0.42) !important;
+  background: rgba(255, 255, 255, 0.78) !important;
+  box-shadow:
+    0 10px 20px rgba(14, 116, 144, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76) !important;
+}
+
+.progress-section--mocks .progress-overview-meter .bg-purple-600 {
+  background: rgb(14, 165, 233) !important;
+}
+
+.progress-section--mocks .progress-overview-meter .text-purple-700 {
+  color: rgb(14, 116, 144) !important;
+}
+
+.progress-section--mocks .progress-section-tab.is-active {
+  border-color: rgba(14, 165, 233, 0.72) !important;
+  background: linear-gradient(135deg, #2563eb, #0891b2) !important;
+  color: white !important;
+  box-shadow: 0 10px 18px rgba(14, 116, 144, 0.18) !important;
+}
+
+.mock-page-shell::before {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(14, 165, 233, 0.09), transparent 34%),
+    radial-gradient(circle at 92% 8%, rgba(20, 184, 166, 0.08), transparent 30%) !important;
+}
+
+.mock-student-hero {
+  border-color: rgba(125, 211, 252, 0.34) !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(240, 249, 255, 0.92) 56%, rgba(236, 253, 245, 0.82)) !important;
+  box-shadow:
+    0 16px 34px rgba(14, 116, 144, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84) !important;
+}
+
+.mock-student-hero::before {
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, 0.42), transparent 34%),
+    repeating-linear-gradient(-28deg, rgba(14, 165, 233, 0.055) 0 1px, transparent 1px 20px) !important;
+  opacity: 0.7 !important;
+}
+
+.mock-student-hero::after {
+  background: radial-gradient(circle, rgba(20, 184, 166, 0.12), transparent 68%) !important;
+}
+
+.mock-hero-kicker {
+  border-color: rgba(14, 165, 233, 0.26) !important;
+  background: rgba(14, 165, 233, 0.08) !important;
+  color: rgb(12, 74, 110) !important;
+}
+
+.mock-coin-chip {
+  border-color: rgba(245, 158, 11, 0.26) !important;
+  background: rgba(255, 251, 235, 0.82) !important;
+  color: rgb(120, 53, 15) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72) !important;
+}
+
+.mock-hero-meter,
+.mock-command-center,
+.mock-list-shell,
+.mock-statistics-card,
+.mock-readiness-panel,
+.mock-student-card,
+.mock-card-command,
+.mock-focus-card {
+  border-color: rgba(148, 163, 184, 0.3) !important;
+  background: rgba(255, 255, 255, 0.82) !important;
+  box-shadow:
+    0 12px 26px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78) !important;
+}
+
+.mock-readiness-panel::after,
+.mock-student-card__shine {
+  opacity: 0.08 !important;
+}
+
+.mock-readiness-icon,
+.mock-ticket-mark,
+.mock-focus-icon {
+  border-color: rgba(125, 211, 252, 0.44) !important;
+  background: rgba(240, 249, 255, 0.84) !important;
+  color: rgb(2, 132, 199) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74) !important;
+}
+
+.mock-student-card::before {
+  background: linear-gradient(180deg, #0ea5e9, #14b8a6, #22c55e) !important;
+}
+
+.mock-student-card:hover {
+  border-color: rgba(14, 165, 233, 0.42) !important;
+  box-shadow:
+    0 16px 32px rgba(14, 116, 144, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82) !important;
+}
+
+.mock-state-chip,
+.mock-meta-pill,
+.mock-summary-track,
+.mock-summary-stat,
+.mock-status-pill,
+.mock-insight-card,
+.mock-progress-shell,
+.mock-score-box {
+  border-color: rgba(203, 213, 225, 0.78) !important;
+  background: rgba(248, 250, 252, 0.82) !important;
+}
+
+.mock-state-chip,
+.mock-meta-pill--score {
+  color: rgb(12, 74, 110) !important;
+}
+
+.mock-state-chip--focus {
+  border-color: rgba(14, 165, 233, 0.34) !important;
+  background: rgba(224, 242, 254, 0.88) !important;
+  color: rgb(3, 105, 161) !important;
+}
+
+.mock-start-button {
+  background: linear-gradient(135deg, #2563eb, #0891b2 54%, #0f766e) !important;
+  box-shadow: 0 14px 28px rgba(14, 116, 144, 0.22) !important;
+}
+
+.mock-score-orb {
+  background:
+    conic-gradient(from 210deg, #0ea5e9 0 var(--score), rgba(203, 213, 225, 0.86) var(--score) 100%) !important;
+  box-shadow:
+    0 14px 28px rgba(14, 116, 144, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .progress-overview-card {
+  border-color: rgba(56, 189, 248, 0.22) !important;
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(12, 31, 48, 0.9) 56%, rgba(8, 47, 73, 0.72)) !important;
+  box-shadow:
+    0 12px 28px rgba(2, 6, 23, 0.34),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .progress-overview-card > [aria-hidden] {
+  opacity: 0 !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .progress-overview-meter {
+  border-color: rgba(56, 189, 248, 0.18) !important;
+  background: rgba(8, 15, 28, 0.52) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.06) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .progress-overview-meter .bg-purple-600 {
+  background: rgba(14, 165, 233, 0.72) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .progress-overview-meter .text-purple-700 {
+  color: rgb(125, 211, 252) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .progress-section-tab.is-active {
+  border-color: rgba(56, 189, 248, 0.42) !important;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.86), rgba(8, 145, 178, 0.8)) !important;
+  box-shadow: 0 10px 20px rgba(8, 145, 178, 0.16) !important;
+}
+
+html[data-theme='dark'] .mock-page-shell::before {
+  background:
+    radial-gradient(circle at 14% 0%, rgba(14, 165, 233, 0.1), transparent 36%),
+    radial-gradient(circle at 92% 10%, rgba(20, 184, 166, 0.08), transparent 32%) !important;
+}
+
+html[data-theme='dark'] .mock-student-hero {
+  border-color: rgba(56, 189, 248, 0.22) !important;
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(12, 31, 48, 0.9) 56%, rgba(8, 47, 73, 0.74)) !important;
+  box-shadow:
+    0 16px 36px rgba(2, 6, 23, 0.36),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+html[data-theme='dark'] .mock-student-hero::before {
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, 0.045), transparent 34%),
+    repeating-linear-gradient(-28deg, rgba(125, 211, 252, 0.055) 0 1px, transparent 1px 20px) !important;
+  opacity: 0.66 !important;
+}
+
+html[data-theme='dark'] .mock-student-hero::after {
+  opacity: 0 !important;
+}
+
+html[data-theme='dark'] .mock-hero-kicker {
+  border-color: rgba(56, 189, 248, 0.28) !important;
+  background: rgba(14, 165, 233, 0.12) !important;
+  color: rgb(186, 230, 253) !important;
+}
+
+html[data-theme='dark'] .mock-coin-chip {
+  border-color: rgba(245, 158, 11, 0.3) !important;
+  background: rgba(120, 53, 15, 0.22) !important;
+  color: rgb(253, 230, 138) !important;
+  box-shadow: inset 0 1px 0 rgba(251, 191, 36, 0.06) !important;
+}
+
+html[data-theme='dark'] .mock-hero-meter,
+html[data-theme='dark'] .mock-command-center,
+html[data-theme='dark'] .mock-list-shell,
+html[data-theme='dark'] .mock-statistics-card,
+html[data-theme='dark'] .mock-readiness-panel,
+html[data-theme='dark'] .mock-student-card,
+html[data-theme='dark'] .mock-card-command,
+html[data-theme='dark'] .mock-focus-card {
+  border-color: rgba(71, 85, 105, 0.58) !important;
+  background: rgba(15, 23, 42, 0.84) !important;
+  box-shadow:
+    0 14px 32px rgba(2, 6, 23, 0.34),
+    inset 0 1px 0 rgba(148, 163, 184, 0.07) !important;
+}
+
+html[data-theme='dark'] .mock-readiness-panel::after,
+html[data-theme='dark'] .mock-student-card__shine {
+  opacity: 0 !important;
+}
+
+html[data-theme='dark'] .mock-readiness-icon,
+html[data-theme='dark'] .mock-ticket-mark,
+html[data-theme='dark'] .mock-focus-icon {
+  border-color: rgba(56, 189, 248, 0.24) !important;
+  background: rgba(8, 47, 73, 0.42) !important;
+  color: rgb(125, 211, 252) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.07) !important;
+}
+
+html[data-theme='dark'] .mock-student-card::before {
+  background: linear-gradient(180deg, #38bdf8, #14b8a6, #22c55e) !important;
+}
+
+html[data-theme='dark'] .mock-student-card:hover {
+  border-color: rgba(56, 189, 248, 0.34) !important;
+  box-shadow:
+    0 16px 36px rgba(2, 6, 23, 0.42),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+html[data-theme='dark'] .mock-state-chip,
+html[data-theme='dark'] .mock-meta-pill,
+html[data-theme='dark'] .mock-summary-track,
+html[data-theme='dark'] .mock-summary-stat,
+html[data-theme='dark'] .mock-status-pill,
+html[data-theme='dark'] .mock-insight-card,
+html[data-theme='dark'] .mock-progress-shell,
+html[data-theme='dark'] .mock-score-box {
+  border-color: rgba(51, 65, 85, 0.72) !important;
+  background: rgba(8, 15, 28, 0.42) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.05) !important;
+}
+
+html[data-theme='dark'] .mock-state-chip,
+html[data-theme='dark'] .mock-meta-pill--score {
+  color: rgb(186, 230, 253) !important;
+}
+
+html[data-theme='dark'] .mock-state-chip--focus {
+  border-color: rgba(56, 189, 248, 0.32) !important;
+  background: rgba(14, 116, 144, 0.2) !important;
+  color: rgb(186, 230, 253) !important;
+}
+
+html[data-theme='dark'] .mock-card-command {
+  border-color: rgba(51, 65, 85, 0.72) !important;
+}
+
+html[data-theme='dark'] .mock-start-button {
+  background: linear-gradient(135deg, #2563eb, #0891b2 54%, #0f766e) !important;
+  box-shadow: 0 12px 24px rgba(8, 145, 178, 0.2) !important;
+}
+
+html[data-theme='dark'] .mock-score-orb {
+  background:
+    conic-gradient(from 210deg, #38bdf8 0 var(--score), rgba(51, 65, 85, 0.82) var(--score) 100%) !important;
+  box-shadow:
+    0 14px 28px rgba(8, 145, 178, 0.12),
+    inset 0 1px 0 rgba(148, 163, 184, 0.1) !important;
+}
+
+html[data-theme='dark'] .mock-score-orb__inner {
+  border-color: rgba(51, 65, 85, 0.78) !important;
+  background: rgba(15, 23, 42, 0.96) !important;
 }

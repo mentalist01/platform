@@ -11245,12 +11245,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : teacherDesktopPrimaryNav;
   const desktopExtraActive = user.role === 'student'
     && studentExtraNav.some((item) => item.id === view);
-  const desktopFabNav = user.role === 'student'
-    ? [
-      ...desktopPrimaryNav,
-      ...(studentExtraNav.length > 0 ? [{ id: 'more', label: '\u0415\u0449\u0435', icon: MoreHorizontal }] : [])
-    ]
-    : desktopPrimaryNav;
+  const desktopFabNav = desktopPrimaryNav;
   const mobileNavLabels = {
     schedule: 'График',
     'teacher-calendar': 'Календ.',
@@ -14239,7 +14234,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     <button
                       type="button"
                       onClick={() => setDesktopStudentMoreOpen((prev) => !prev)}
-                      className={`group flex w-full items-center justify-between gap-2 rounded-2xl border px-3.5 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.06em] transition-colors ${
+                      className={`sidebar-more-toggle group flex w-full items-center justify-between gap-2 rounded-2xl border px-3.5 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.06em] transition-colors ${
                         desktopExtraActive
                           ? 'border-purple-200/90 bg-purple-50 text-purple-700'
                           : 'border-purple-100/80 bg-white/80 text-slate-600 hover:border-purple-200 hover:bg-purple-50/80 hover:text-purple-700'
@@ -14248,7 +14243,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     >
                       <span className="flex items-center gap-2">
                         <MoreHorizontal size={14} />
-                        <span>{'\u0415\u0449\u0435 \u0440\u0430\u0437\u0434\u0435\u043b\u044b'}</span>
+                        <span>Дополнительно</span>
                       </span>
                       <ChevronRight
                         size={14}
@@ -14256,7 +14251,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       />
                     </button>
                     {desktopStudentMoreOpen && (
-                      <div className="mt-2 space-y-2">
+                      <div className="sidebar-extra-nav mt-2 space-y-2">
                         {studentExtraNav.map((n, idx) => {
                           const isActive = view === n.id;
                           return (

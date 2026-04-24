@@ -421,7 +421,6 @@ const PythonSection = ({
   theme = '',
   role,
   studentId,
-  teacherId,
   students,
   activeStudentId,
   onSelectStudent,
@@ -1715,6 +1714,9 @@ const PythonSection = ({
   const renderTaskCard = (task, idx, section) => {
     const val = Math.max(0, Math.min(100, Number(progressMap[task.id] || 0)));
     const clickable = role === 'student' || role === 'teacher';
+    const isSelected = String(activeTask?.id || '') === String(task.id || '');
+    const progressState = val >= 85 ? 'mastered' : (val >= 55 ? 'steady' : (val > 0 ? 'warming' : 'start'));
+    const progressLabel = val >= 85 ? 'Уверенно' : (val >= 55 ? 'В темпе' : (val > 0 ? 'Закрепить' : 'Старт'));
     const coinStats = getPythonTaskCoinStats({
       task,
       testsDb,
@@ -1732,7 +1734,10 @@ const PythonSection = ({
       <Card
         key={task.id}
         style={{ '--i': idx, '--python-card-i': `${idx}` }}
-        className={`python-learning-task-card group relative overflow-hidden border p-0 transition-all duration-300 ${sectionUi.cardClass} ${sectionUi.hoverClass}`}
+        data-section={section?.id || 'topics'}
+        data-state={progressState}
+        data-selected={isSelected ? 'true' : 'false'}
+        className={`python-learning-task-card group relative min-h-[132px] overflow-hidden border p-0 transition-all duration-300 ${sectionUi.cardClass} ${sectionUi.hoverClass}`}
         onClick={clickable ? () => {
           if (role === 'teacher') setReviewTask(task);
           else {
@@ -1768,13 +1773,16 @@ const PythonSection = ({
             </button>
           </div>
         )}
-        <div className="python-learning-task-card__glow absolute -right-10 -top-12 h-32 w-32 rounded-full bg-white/45 blur-2xl" />
-        <div className="relative z-10 p-4 md:p-5">
-          <div className={`mb-2.5 flex items-center justify-between gap-2 ${role === 'teacher' ? 'pr-20' : ''}`}>
+        <div className="python-learning-task-card__accent" aria-hidden="true" />
+        <div className="relative z-10 p-3.5 md:p-4">
+          <div className={`mb-2.5 flex items-start justify-between gap-2 ${role === 'teacher' ? 'pr-20' : ''}`}>
             <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-[11px] md:text-xs font-extrabold ${sectionUi.numberClass}`}>
               №{getTaskDisplayNumber(task)}
             </span>
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+              <span className={`python-learning-task-status python-learning-task-status--${progressState}`}>
+                {progressLabel}
+              </span>
               <span
                 className="python-task-coin-badge inline-flex items-center gap-1 rounded-full border border-amber-200/80 bg-amber-50/90 px-2 py-1 text-[10px] font-black text-amber-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.74)]"
                 title={`Монеты за тему: получено ${formatCoinAmount(coinStats.earnedCoins)} из ${formatCoinAmount(coinStats.possibleCoins)}${hasCoinBonus ? `, бонус ${formatCoinBonusPercent(coinStats.multiplier)}` : ''}`}
@@ -1789,18 +1797,17 @@ const PythonSection = ({
               </span>
             </div>
           </div>
-          <h3 className="font-bold text-[15px] md:text-base leading-snug text-slate-900">{task.title}</h3>
-          <div className="mt-3 flex items-center justify-between text-[11px] md:text-xs text-slate-500">
+          <h3 className="python-learning-task-card__title font-bold text-sm md:text-[15px] leading-snug text-slate-900">{task.title}</h3>
+          <div className="mt-2.5 flex items-center justify-between text-[11px] md:text-xs text-slate-500">
             <span>{section?.id === 'exam-prep' ? 'Прогресс подготовки' : 'Прогресс темы'}</span>
-            <span className="text-sm md:text-base font-extrabold text-slate-800">{val}%</span>
+            <span className="python-learning-task-card__percent text-sm md:text-base font-extrabold text-slate-800">{val}%</span>
           </div>
-          <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full border border-purple-100/80 bg-white/75 shadow-[inset_0_1px_1px_rgba(255,255,255,0.72)]">
+          <div className="python-learning-task-card__progress mt-1.5 h-2 w-full overflow-hidden rounded-full border border-purple-100/80 bg-white/75 shadow-[inset_0_1px_1px_rgba(255,255,255,0.72)]">
             <div
               className="h-full rounded-full bg-gradient-to-r from-purple-500 via-violet-500 to-fuchsia-500 transition-[width] duration-700 ease-out shadow-[0_0_18px_rgba(168,85,247,0.26)]"
               style={{ width: `${val}%` }}
             />
           </div>
-
         </div>
       </Card>
     );
@@ -1858,33 +1865,31 @@ const PythonSection = ({
   }
 
   return (
-    <div className="python-learning-shell space-y-4 md:space-y-6 animate-fadeIn">
-      <div className="python-learning-hero relative overflow-hidden rounded-[2rem] border border-purple-200/80 bg-gradient-to-br from-purple-50/70 via-white to-fuchsia-50/45 p-4 md:p-6 shadow-[0_24px_48px_rgba(88,28,135,0.16)]">
-        <div aria-hidden className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-purple-200/40 blur-3xl" />
-        <div aria-hidden className="pointer-events-none absolute -left-20 bottom-0 h-56 w-56 rounded-full bg-purple-100/40 blur-3xl" />
-        <div className="relative z-10 space-y-4 md:space-y-5">
-          <div className="flex flex-col gap-3 md:gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div className="space-y-2.5">
-              <div className="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50/80 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.13em] text-purple-700">
+    <div className="python-learning-shell space-y-4 md:space-y-5 animate-fadeIn">
+      <div className="python-learning-toolbar rounded-2xl border border-purple-200/80 bg-white/80 p-3 shadow-[0_10px_22px_rgba(88,28,135,0.09)] md:p-4">
+        <div className="space-y-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="min-w-0 space-y-2">
+              <div className="python-learning-eyebrow inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50/80 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.13em] text-purple-700">
                 <Sparkles size={13} />
                 Персональный трек Python
               </div>
               <div>
-                <h2 className="text-2xl md:text-[2.1rem] font-black tracking-tight text-slate-900">Изучение Python</h2>
-                <p className="text-sm md:text-[15px] text-slate-600">
+                <h2 className="python-learning-title text-xl md:text-2xl font-black tracking-tight text-slate-900">Изучение Python</h2>
+                <p className="python-learning-subtitle text-xs md:text-sm text-slate-600">
                   Два отдельных раздела: фундаментальные темы и подготовка к заданиям.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2 text-[11px] md:text-xs font-semibold">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-purple-50/80 px-2.5 py-1 text-purple-700">
+              <div className="python-learning-metrics flex flex-wrap gap-2 text-[11px] md:text-xs font-semibold">
+                <span className="python-learning-metric-chip inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-purple-50/80 px-2.5 py-1 text-purple-700">
                   <BarChart2 size={13} />
                   {`Общий прогресс: ${totalMasteryLabel}%`}
                 </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50/70 px-2.5 py-1 text-violet-700">
+                <span className="python-learning-metric-chip inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50/70 px-2.5 py-1 text-violet-700">
                   <CheckCircle size={13} />
                   {`Уверенно: ${masteredTopicsCount}/${taskList.length}`}
                 </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-purple-50/80 px-2.5 py-1 text-fuchsia-700">
+                <span className="python-learning-metric-chip inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-purple-50/80 px-2.5 py-1 text-fuchsia-700">
                   <RefreshCcw size={12} />
                   {`Подтянуть: ${needsPracticeTopicsCount}`}
                 </span>
@@ -1895,47 +1900,24 @@ const PythonSection = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="python-learning-progress-card relative overflow-hidden rounded-2xl border border-purple-200/80 bg-gradient-to-br from-white via-white to-purple-50/60 p-4 shadow-[0_14px_28px_rgba(88,28,135,0.08)]">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <div className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Общий прогресс курса</div>
-                <div className="text-2xl md:text-3xl font-black text-slate-900">{totalMasteryLabel}%</div>
-              </div>
-              <div className="relative h-8 w-full overflow-hidden rounded-full border border-purple-100/80 bg-purple-50/60">
-                <div
-                  className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-500 via-violet-500 to-fuchsia-500 shadow-[0_0_18px_rgba(168,85,247,0.35)] transition-[width] duration-700 ease-out"
-                  style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
-                />
-                <div
-                  key={`sheen-python-${totalMasteryRounded}`}
-                  className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.52),transparent)] animate-sheen"
-                />
-              </div>
-              <div className="mt-2 text-[11px] md:text-xs text-slate-500">
-                0% — старт • 100% — уверенное владение материалом.
-              </div>
+          <div className="python-learning-progress-strip rounded-xl border border-purple-200/70 bg-white/70 px-3 py-2.5">
+            <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
+              <span className="font-bold uppercase text-slate-500">Общий прогресс</span>
+              <span className="font-black text-slate-900">{totalMasteryLabel}%</span>
             </div>
-            <div className="python-learning-focus-card rounded-2xl border border-violet-200/70 bg-gradient-to-br from-white via-white to-fuchsia-50/40 p-4 shadow-[0_14px_28px_rgba(88,28,135,0.08)]">
-              <div className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Фокус недели</div>
-              <div className="mt-2 text-sm font-semibold text-slate-700">
-                {needsPracticeTopicsCount > 0
-                  ? `Сфокусируйтесь на ${needsPracticeTopicsCount} темах с низким прогрессом.`
-                  : 'Отличный темп. Можно переходить к сложным заданиям.'}
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded-xl border border-purple-200 bg-purple-50/70 px-3 py-2">
-                  <div className="text-cyan-700/80">Всего карточек</div>
-                  <div className="mt-1 text-base font-black text-purple-800">{taskList.length}</div>
-                </div>
-                <div className="rounded-xl border border-violet-200 bg-violet-50/70 px-3 py-2">
-                  <div className="text-emerald-700/80">Закрыто уверенно</div>
-                  <div className="mt-1 text-base font-black text-purple-800">{masteredTopicsCount}</div>
-                </div>
-              </div>
+            <div className="python-learning-progress-rail h-2.5 w-full overflow-hidden rounded-full border border-purple-100/80 bg-purple-50/80">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-purple-500 via-violet-500 to-fuchsia-500 transition-[width] duration-700 ease-out"
+                style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
+              />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div
+            className="python-learning-section-picker grid grid-cols-1 gap-2 rounded-2xl border border-white/75 bg-white/55 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.82),inset_0_-1px_0_rgba(88,28,135,0.06)] md:grid-cols-2"
+            role="tablist"
+            aria-label="Разделы Python"
+          >
             {taskSections
               .filter((section) => section.id === 'topics' || section.id === 'exam-prep')
               .map((section, sectionIdx) => {
@@ -1949,51 +1931,38 @@ const PythonSection = ({
                 return (
                   <button
                     key={`overview-${section.id}`}
+                    id={`python-section-tab-${section.id}`}
                     type="button"
+                    role="tab"
                     onClick={() => setActiveTaskSectionId(section.id)}
-                    aria-pressed={isActive}
+                    aria-selected={isActive}
+                    aria-controls={`python-section-panel-${section.id}`}
                     data-active={isActive ? 'true' : 'false'}
                     data-section={section.id}
                     style={{ '--python-overview-i': `${sectionIdx}` }}
-                    className={`python-learning-overview-card w-full rounded-2xl border p-3.5 text-left shadow-[0_12px_26px_rgba(15,23,42,0.08)] transition-all duration-300 md:p-4 ${sectionUi.shellClass} ${
+                    className={`python-learning-overview-card min-h-0 w-full rounded-xl border p-2.5 text-left shadow-[0_12px_26px_rgba(15,23,42,0.08)] transition-all duration-300 md:p-3 ${sectionUi.shellClass} ${
                       isActive
                         ? 'python-learning-overview-card--active ring-2 ring-violet-300/55 shadow-[0_16px_34px_rgba(15,23,42,0.14)]'
                         : 'hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(15,23,42,0.12)]'
                     }`}
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-start gap-2.5">
-                          <span className={`python-learning-overview-card__icon inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${sectionUi.chipClass}`}>
-                            <SectionIcon size={17} />
-                          </span>
-                          <div>
-                            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{sectionUi.badge}</div>
-                            <div className="text-base font-black text-slate-900">{section.title}</div>
-                           </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {isActive && (
-                            <span className="python-learning-overview-card__status rounded-full border border-purple-200 bg-purple-50/80 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-purple-700">
-                              Активно
+                      <div className="python-learning-overview-card__body flex items-center justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-2.5">
+                            <span className={`python-learning-overview-card__icon inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border ${sectionUi.chipClass}`}>
+                              <SectionIcon size={16} />
                             </span>
-                          )}
-                          <div className="python-learning-overview-card__count rounded-full border border-white/80 bg-white/80 px-2.5 py-1 text-xs font-bold text-slate-700">
-                            {`${tasksInSection.length} карточек`}
+                            <div className="min-w-0">
+                              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{sectionUi.badge}</div>
+                              <div className="truncate text-sm md:text-[15px] font-black text-slate-900">{section.title}</div>
+                              <div className="truncate text-[11px] font-semibold text-slate-500">
+                                {`${tasksInSection.length} карточек • ${sectionAvg}%`}
+                              </div>
+                            </div>
                           </div>
-                          <span
-                            className={`python-learning-overview-card__action ${
-                              isActive ? 'python-learning-overview-card__action--active' : ''
-                            }`}
-                            aria-hidden="true"
-                          >
-                            <ArrowUpRight size={13} />
+                          <span className="python-learning-overview-card__state">
+                            {isActive ? <CheckCircle size={14} /> : <ArrowUpRight size={14} />}
+                            <span>{isActive ? 'Выбрано' : 'Выбрать'}</span>
                           </span>
-                        </div>
-                      </div>
-                      <div className="mt-2 text-sm text-slate-600">{section.description}</div>
-                      <div className="mt-3 flex items-center justify-between rounded-xl border border-white/80 bg-white/80 px-3 py-2 text-xs">
-                        <span className="font-semibold text-slate-600">Средний прогресс раздела</span>
-                        <span className="text-base font-black text-slate-900">{`${sectionAvg}%`}</span>
                       </div>
                   </button>
                 );
@@ -2175,21 +2144,26 @@ const PythonSection = ({
               ? Math.round(sectionTasks.reduce((sum, task) => sum + Number(progressMap[task.id] || 0), 0) / sectionTasks.length)
               : 0;
             return (
-              <section key={section.id}>
+              <section
+                key={section.id}
+                id={`python-section-panel-${section.id}`}
+                role="tabpanel"
+                aria-labelledby={`python-section-tab-${section.id}`}
+              >
                 <div
                   style={{ '--python-section-i': `${sectionIdx}` }}
                   className={`python-learning-section-shell relative overflow-hidden rounded-3xl border p-4 md:p-5 shadow-[0_18px_36px_rgba(15,23,42,0.12)] ${sectionUi.shellClass}`}
                 >
-                  <div className={`pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-r opacity-70 ${sectionUi.headerClass || 'from-slate-200/30 via-white/20 to-slate-200/30'}`} />
+                  <div className={`python-learning-section-shell__wash pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-r opacity-30 ${sectionUi.headerClass || 'from-slate-200/30 via-white/20 to-slate-200/30'}`} />
                   <div className="relative z-10">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="flex items-start gap-3">
-                        <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${sectionUi.chipClass}`}>
+                    <div className="python-learning-section-header flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <span className={`python-learning-section-icon inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${sectionUi.chipClass}`}>
                           <SectionIcon size={18} />
                         </span>
-                        <div className="space-y-1">
-                          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{sectionUi.badge || 'Раздел'}</div>
-                          <h3 className="text-lg md:text-xl font-black text-slate-900">{section.title}</h3>
+                        <div className="min-w-0 space-y-1">
+                          <div className="python-learning-section-badge text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{sectionUi.badge || 'Раздел'}</div>
+                          <h3 className="python-learning-section-title text-lg md:text-xl font-black text-slate-900">{section.title}</h3>
                           {section.description && (
                             <p className="text-xs md:text-sm text-slate-600">{section.description}</p>
                           )}
@@ -2200,23 +2174,23 @@ const PythonSection = ({
                           <button
                             type="button"
                             onClick={() => startCreateTaskCard(section.id)}
-                            className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white/90 px-2.5 py-1 text-[11px] font-bold text-purple-700 transition hover:border-purple-300 hover:bg-purple-50"
+                            className="python-learning-add-card-btn inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white/90 px-2.5 py-1 text-[11px] font-bold text-purple-700 transition hover:border-purple-300 hover:bg-purple-50"
                           >
                             <Plus size={13} />
                             Добавить карточку
                           </button>
                         )}
-                        <span className="inline-flex items-center rounded-full border border-white/85 bg-white/80 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+                        <span className="python-learning-section-counter inline-flex items-center rounded-full border border-white/85 bg-white/80 px-2.5 py-1 text-[11px] font-bold text-slate-700">
                           {`${sectionTasks.length} карточек`}
                         </span>
-                        <span className="inline-flex items-center rounded-full border border-white/85 bg-white/80 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+                        <span className="python-learning-section-counter inline-flex items-center rounded-full border border-white/85 bg-white/80 px-2.5 py-1 text-[11px] font-bold text-slate-700">
                           {`Средний: ${sectionAvg}%`}
                         </span>
                       </div>
                     </div>
                     <div className="mt-4">
                       {sectionTasks.length > 0 ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 stagger-children">
+                        <div className="python-learning-task-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 stagger-children">
                           {sectionTasks.map((task, idx) => renderTaskCard(task, idx, section))}
                         </div>
                       ) : (

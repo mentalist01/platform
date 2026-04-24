@@ -128,7 +128,7 @@ const NotesSection = ({
   const [pyDraftError, setPyDraftError] = useState('');
   const [pyDraftSaving, setPyDraftSaving] = useState(false);
   const [fileSearch, setFileSearch] = useState('');
-  const [showMobileFolderTools, setShowMobileFolderTools] = useState(false);
+  const [_showMobileFolderTools, setShowMobileFolderTools] = useState(false);
   const restoringRef = useRef(false);
   const skipNullSaveRef = useRef(true);
   const pendingFolderIdRef = useRef(null);
@@ -386,7 +386,7 @@ const NotesSection = ({
     return childrenByParent;
   }, [normalizedFolders]);
 
-  const folderTreeEntries = useMemo(() => {
+  const _folderTreeEntries = useMemo(() => {
     const result = [];
     const walk = (parentId, depth, chain) => {
       const key = parentId || '__root__';
@@ -1814,16 +1814,16 @@ const NotesSection = ({
 
   const renderNotesIntro = (message) => (
     <div className="animate-fadeIn space-y-4">
-      <div className="notes-empty-state notes-landing-hero rounded-[2rem] border p-5 md:p-7">
-        <div className="notes-landing-hero__body space-y-4">
-          <div className="notes-landing-hero__header flex flex-wrap items-start justify-between gap-4">
+      <div className="notes-empty-state notes-landing-hero rounded-2xl border p-4 md:p-5">
+        <div className="notes-landing-hero__body space-y-3">
+          <div className="notes-landing-hero__header flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h2 className="notes-landing-title text-2xl font-bold md:text-3xl">Конспекты</h2>
+              <h2 className="notes-landing-title text-xl font-bold md:text-2xl">Конспекты</h2>
               <p className="notes-landing-subtitle hidden text-sm md:block">Материалы по заданиям, папкам и категориям</p>
             </div>
             {renderStudentPicker()}
           </div>
-          <div className="notes-landing-message rounded-2xl border border-dashed px-3 py-3 text-[13px] md:px-4 md:py-3.5 md:text-sm">
+          <div className="notes-landing-message rounded-xl border border-dashed px-3 py-2.5 text-[13px] md:text-sm">
             {message}
           </div>
         </div>
@@ -1842,19 +1842,19 @@ const NotesSection = ({
   }
 
   if (!currentTask) return (
-    <div className="animate-fadeIn space-y-5 md:space-y-6" data-tour="notes">
-      <div className="notes-landing-hero rounded-[2rem] border p-5 md:p-7">
-        <div className="notes-landing-hero__body flex flex-col gap-4 md:gap-5">
-          <div className="notes-landing-hero__header flex flex-wrap items-start justify-between gap-4">
+    <div className="animate-fadeIn space-y-4 md:space-y-5" data-tour="notes">
+      <div className="notes-landing-hero rounded-2xl border p-4 md:p-5">
+        <div className="notes-landing-hero__body flex flex-col gap-3">
+          <div className="notes-landing-hero__header flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h2 className="notes-landing-title text-2xl font-bold md:text-3xl">Конспекты</h2>
-              <p className="notes-landing-subtitle hidden text-sm md:block">Выберите задание, чтобы открыть файловый проводник</p>
+              <h2 className="notes-landing-title text-xl font-bold md:text-2xl">Конспекты</h2>
+              <p className="notes-landing-subtitle text-xs md:text-sm">Выберите задание, чтобы открыть материалы</p>
             </div>
             {renderStudentPicker()}
           </div>
           <div className="notes-landing-stats flex flex-wrap gap-2 text-[11px] font-semibold md:text-xs">
             <span className="notes-summary-pill notes-summary-pill--total">
-              {`Файлов: ${totalFilesLabel}`}
+              {`Всего: ${totalFilesLabel}`}
             </span>
             <span className="notes-summary-pill notes-summary-pill--filled">
               <span className="sm:hidden">{`Заполнено: ${tasksWithFilesCount}/${taskOptions.length}`}</span>
@@ -1873,7 +1873,7 @@ const NotesSection = ({
         </div>
       </div>
 
-      <div className="notes-landing-grid grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
+      <div className="notes-landing-grid grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
         {taskOptions.map((task) => {
           const taskFilesCount = taskCounts.get(task.number) || 0;
           const hasFiles = taskFilesCount > 0;
@@ -1887,7 +1887,16 @@ const NotesSection = ({
             <Card
               key={task.number}
               onClick={() => openTaskExplorer(task.number)}
-              className={`notes-card notes-landing-card group p-3.5 sm:p-5 ${
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                openTaskExplorer(task.number);
+              }}
+              role="button"
+              tabIndex={0}
+              aria-label={`Открыть конспекты задания №${getTaskDisplayNumber(task)}`}
+              data-filled={hasFiles ? 'true' : 'false'}
+              className={`notes-card notes-landing-card group p-3 sm:p-3.5 ${
                 hasFiles
                   ? 'notes-card--filled notes-landing-card--filled'
                   : 'notes-card--empty notes-landing-card--empty'
@@ -1913,10 +1922,10 @@ const NotesSection = ({
                 <span className={`notes-landing-card__icon inline-flex items-center justify-center rounded-2xl border ${
                   hasFiles ? 'is-filled' : ''
                 }`}>
-                  <Folder size={18} />
+                  <Folder size={16} />
                 </span>
                 <p className="notes-landing-card__text text-[11px] sm:text-xs">
-                  {hasFiles ? 'Открыть материалы' : 'Добавьте материалы'}
+                  {hasFiles ? 'Открыть' : 'Добавить'}
                 </p>
               </div>
             </Card>
@@ -1953,7 +1962,7 @@ const NotesSection = ({
     const segments = getFolderPathSegments(folder?.id);
     return segments.length ? segments.join(' / ') : ROOT_FOLDER_LABEL;
   };
-  const formatExplorerDate = (value) => {
+  const _formatExplorerDate = (value) => {
     const raw = String(value || '').trim();
     if (!raw) return '—';
     const parsed = new Date(raw);
