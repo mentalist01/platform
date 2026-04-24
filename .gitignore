@@ -23,10 +23,17 @@ server/data/tests.json
 server/data/usage.json
 server/data/task-titles.json
 server/data/mock-exams.json
+server/data/_codex_upload_test.txt
+server/data/broadcast-notifications.json
+server/data/recovered-access-codes.json
+server/data/signup-chats.json
+server/data/student-chats.json
+server/data/teacher-finances.json
 server/data/push.json
 server/data/collab/
 
 # Local artifacts
+.codex/
 .git2/
 repo.tar
 tmp-test-upload.txt
