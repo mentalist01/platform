@@ -20390,3 +20390,293 @@ html[data-theme='light'] .sidebar-nav .sidebar-nav-arrow.is-active {
   opacity: 0.92 !important;
   box-shadow: none !important;
 }
+
+/* Mock page calm mode: keep the page functional and scannable. */
+.progress-section--mocks .mock-student-hero,
+.progress-section--mocks .mock-teacher-hero,
+.progress-section--mocks .mock-list-shell,
+.progress-section--mocks .mock-student-card,
+.progress-section--mocks .mock-teacher-card,
+.progress-section--mocks .mock-statistics-card {
+  box-shadow:
+    0 10px 26px rgba(15, 23, 42, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72) !important;
+}
+
+html[data-theme='light'] .progress-section--mocks .mock-list-shell,
+html[data-theme='light'] .progress-section--mocks .mock-student-card,
+html[data-theme='light'] .progress-section--mocks .mock-teacher-card,
+html[data-theme='light'] .progress-section--mocks .mock-command-focus,
+html[data-theme='light'] .progress-section--mocks .mock-filter-group {
+  border-color: rgba(203, 213, 225, 0.82) !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+}
+
+html[data-theme='light'] .progress-section--mocks .mock-student-card::before {
+  background: linear-gradient(180deg, #0ea5e9, #14b8a6) !important;
+  opacity: 0.62 !important;
+}
+
+html[data-theme='light'] .progress-section--mocks .mock-student-card__shine {
+  opacity: 0.18 !important;
+}
+
+.progress-section--mocks .mock-command-focus {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.progress-section--mocks .mock-filter-group button {
+  line-height: 1;
+}
+
+.progress-section--mocks .mock-insight-card--weak button.mock-insight-pill {
+  cursor: pointer;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-command-focus,
+html[data-theme='dark'] .progress-section--mocks .mock-filter-group {
+  border-color: rgba(51, 65, 85, 0.78) !important;
+  background: rgba(15, 23, 42, 0.62) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-filter-group button {
+  color: rgb(148, 163, 184);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-filter-group button:hover,
+html[data-theme='dark'] .progress-section--mocks .mock-filter-group button[class*='bg-white'] {
+  background: rgba(8, 47, 73, 0.5) !important;
+  color: rgb(186, 230, 253) !important;
+}
+
+/* Mock page visual pass: stronger hierarchy, calmer surfaces. */
+.progress-section--mocks .mock-command-copy {
+  gap: 0.65rem !important;
+}
+
+.progress-section--mocks .mock-command-topline {
+  min-height: 1.7rem;
+}
+
+.progress-section--mocks .mock-hero-kicker {
+  min-height: 1.55rem;
+  border: 1px solid rgba(14, 165, 233, 0.26);
+  background: rgba(240, 249, 255, 0.78);
+  color: rgb(12, 74, 110);
+  letter-spacing: 0.17em !important;
+}
+
+.progress-section--mocks .mock-command-stat {
+  min-height: 1.45rem;
+  border-color: rgba(14, 165, 233, 0.2) !important;
+  background: rgba(240, 249, 255, 0.68) !important;
+  padding-inline: 0.6rem !important;
+  color: rgb(71, 85, 105) !important;
+}
+
+.progress-section--mocks .mock-command-focus {
+  min-height: 5.9rem;
+  border-radius: 1.35rem !important;
+  padding: 1rem !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 249, 255, 0.86)) !important;
+  border-color: rgba(125, 211, 252, 0.34) !important;
+  box-shadow:
+    0 14px 34px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84) !important;
+}
+
+.progress-section--mocks .mock-focus-icon {
+  height: 3rem !important;
+  width: 3rem !important;
+  border-radius: 1rem !important;
+  border-color: rgba(14, 165, 233, 0.34) !important;
+  background: linear-gradient(135deg, rgba(224, 242, 254, 0.95), rgba(204, 251, 241, 0.82)) !important;
+  color: rgb(2, 132, 199) !important;
+}
+
+.progress-section--mocks .mock-focus-eyebrow {
+  color: rgb(100, 116, 139) !important;
+  letter-spacing: 0.16em !important;
+}
+
+.progress-section--mocks .mock-focus-title {
+  max-width: 42rem;
+  font-size: 1.05rem !important;
+  line-height: 1.25 !important;
+}
+
+.progress-section--mocks .mock-focus-detail {
+  color: rgb(100, 116, 139) !important;
+}
+
+.progress-section--mocks .mock-focus-button {
+  min-height: 2.45rem;
+  min-width: 7.75rem;
+  border-radius: 0.95rem !important;
+  background: linear-gradient(135deg, #0ea5e9, #2563eb) !important;
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.24) !important;
+}
+
+.progress-section--mocks .mock-list-shell.surface-card {
+  padding: 1.05rem !important;
+  border-radius: 1.25rem !important;
+}
+
+.progress-section--mocks .mock-list-shell > .flex:first-child {
+  align-items: flex-start;
+  border-bottom: 1px solid rgba(203, 213, 225, 0.72);
+  padding-bottom: 0.95rem;
+}
+
+.progress-section--mocks .mock-list-title {
+  color: rgb(71, 85, 105) !important;
+  letter-spacing: 0.16em !important;
+}
+
+.progress-section--mocks .mock-list-subtitle {
+  color: rgb(100, 116, 139) !important;
+}
+
+.progress-section--mocks .mock-list-toolbar {
+  gap: 0.55rem !important;
+}
+
+.progress-section--mocks .mock-list-metrics {
+  gap: 0.4rem !important;
+}
+
+.progress-section--mocks .mock-list-chip {
+  min-height: 1.6rem;
+  padding-inline: 0.72rem !important;
+}
+
+.progress-section--mocks .mock-filter-group {
+  border-radius: 1rem !important;
+  background: rgba(248, 250, 252, 0.9) !important;
+  padding: 0.28rem !important;
+}
+
+.progress-section--mocks .mock-filter-group button {
+  min-height: 1.7rem;
+  border-radius: 0.78rem !important;
+}
+
+.progress-section--mocks .mock-student-card--compact {
+  border-radius: 1.15rem !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-hero-kicker {
+  border-color: rgba(56, 189, 248, 0.24) !important;
+  background: rgba(14, 116, 144, 0.16) !important;
+  color: rgb(186, 230, 253) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-command-stat {
+  border-color: rgba(56, 189, 248, 0.2) !important;
+  background: rgba(8, 47, 73, 0.28) !important;
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-command-stat strong {
+  color: rgb(224, 242, 254) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-command-focus {
+  border-color: rgba(56, 189, 248, 0.22) !important;
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(8, 47, 73, 0.42)) !important;
+  box-shadow:
+    0 18px 42px rgba(2, 6, 23, 0.22),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-focus-icon {
+  border-color: rgba(56, 189, 248, 0.26) !important;
+  background: linear-gradient(135deg, rgba(8, 47, 73, 0.88), rgba(20, 83, 45, 0.34)) !important;
+  color: rgb(125, 211, 252) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-focus-eyebrow {
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-focus-title {
+  color: rgb(248, 250, 252) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-focus-detail,
+html[data-theme='dark'] .progress-section--mocks .mock-list-subtitle {
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-focus-button {
+  background: linear-gradient(135deg, #0284c7, #2563eb) !important;
+  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.28) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-list-shell.surface-card {
+  border-color: rgba(51, 65, 85, 0.84) !important;
+  background: rgba(15, 23, 42, 0.58) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-list-shell > .flex:first-child {
+  border-bottom-color: rgba(51, 65, 85, 0.82);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-list-title {
+  color: rgb(203, 213, 225) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-filter-group {
+  border-color: rgba(51, 65, 85, 0.88) !important;
+  background: rgba(2, 6, 23, 0.28) !important;
+}
+
+@media (min-width: 768px) {
+  .progress-section--mocks .mock-command-focus {
+    padding: 1.05rem 1.2rem !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .progress-section--mocks .mock-command-focus {
+    min-height: 0;
+  }
+
+  .progress-section--mocks .mock-list-shell > .flex:first-child {
+    gap: 0.75rem;
+  }
+}
+
+/* Keep mock filters in the user's reading path. */
+.progress-section--mocks .mock-filter-row {
+  margin-top: -0.15rem;
+  border-radius: 1rem !important;
+  background:
+    linear-gradient(135deg, rgba(248, 250, 252, 0.94), rgba(240, 249, 255, 0.72)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+html[data-theme='light'] .progress-section--mocks .mock-filter-row {
+  border-color: rgba(203, 213, 225, 0.82) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-filter-row {
+  border-color: rgba(51, 65, 85, 0.82) !important;
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.72), rgba(8, 47, 73, 0.26)) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.06);
+}
+
+@media (max-width: 640px) {
+  .progress-section--mocks .mock-filter-group {
+    overflow-x: auto;
+    flex-wrap: nowrap !important;
+    justify-content: flex-start;
+  }
+
+  .progress-section--mocks .mock-filter-group button {
+    white-space: nowrap;
+  }
+}

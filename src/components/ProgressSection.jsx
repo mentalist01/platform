@@ -1,5 +1,20 @@
 ﻿import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { BarChart2, BookOpen, FileText, Pencil, PlayCircle, Plus, Save, Trash2 } from 'lucide-react';
+import {
+  BarChart2,
+  BookOpen,
+  Copy,
+  Eye,
+  FileText,
+  ListChecks,
+  ListFilter,
+  Pencil,
+  PlayCircle,
+  Plus,
+  Save,
+  Target,
+  Trash2,
+  Users,
+} from 'lucide-react';
 import { api } from '../services/api';
 import MockExamBadges, { MockExamBadgeSticker } from './MockExamBadges';
 import MockExamEditorModal from './MockExamEditorModal';
@@ -52,6 +67,12 @@ const MOCK_COIN_MILESTONES = [
   { score: 50, coins: 50 },
   { score: 80, coins: 80 },
   { score: 100, coins: 100 },
+];
+const MOCK_EXAM_FILTERS = [
+  { id: 'all', label: 'Все' },
+  { id: 'active', label: 'В работе' },
+  { id: 'new', label: 'Новые' },
+  { id: 'done', label: 'Готовые' },
 ];
 const PROGRESS_XP_GLOBAL_ARTIFACT_BONUSES = {
   krylov: 1,
@@ -416,6 +437,9 @@ const ProgressSection = ({
   const [mockEditorExam, setMockEditorExam] = useState(null);
   const [activeMockExam, setActiveMockExam] = useState(null);
   const [activeMockAttempt, setActiveMockAttempt] = useState(null);
+  const [activeMockInitialTask, setActiveMockInitialTask] = useState(null);
+  const [mockExamFilter, setMockExamFilter] = useState('all');
+  const [duplicatingMockExamId, setDuplicatingMockExamId] = useState(null);
   const [newMockTitle, setNewMockTitle] = useState('');
   const [mockAccessExamId, setMockAccessExamId] = useState(null);
   const [mockAccessAll, setMockAccessAll] = useState(false);
@@ -475,11 +499,12 @@ const ProgressSection = ({
       const taskStats = getMockExamTaskKeys(exam).map((taskKey) => {
         const answerCount = getMockAnswerCountForTask(taskKey);
         const attempted = hasMockAnswerValue(answersMap[taskKey], answerCount);
+        const solved = Boolean(solvedMap[String(taskKey)]);
         return {
           taskKey,
           label: formatMockTaskLabel(taskKey, GAME_THEORY_TASK),
           attempted,
-          solved: Boolean(solvedMap[String(taskKey)]),
+          solved,
         };
       });
 
@@ -542,6 +567,14 @@ const ProgressSection = ({
     const focusMode = focusExam
       ? (focusExam.isCompleted ? 'repeat' : focusExam.hasStarted ? 'continue' : 'start')
       : '';
+    const focusNextTask = focusExam
+      ? (
+        focusExam.taskStats.find((taskStat) => !taskStat.solved && taskStat.attempted)
+        || focusExam.taskStats.find((taskStat) => !taskStat.solved)
+        || focusExam.taskStats[0]
+        || null
+      )
+      : null;
 
     const totalTaskCount = playableExamStats.reduce((sum, examStat) => sum + examStat.totalCount, 0);
     const totalAttemptedCount = playableExamStats.reduce((sum, examStat) => sum + examStat.attemptedCount, 0);
@@ -571,11 +604,19 @@ const ProgressSection = ({
           attemptedCount: 0,
           solvedCount: 0,
           totalCount: 0,
+          openTargets: [],
         };
         current.totalCount += 1;
         if (taskStat.attempted) {
           current.attemptedCount += 1;
           if (taskStat.solved) current.solvedCount += 1;
+        }
+        if (!taskStat.solved) {
+          current.openTargets.push({
+            examId: examStat.examId,
+            examTitle: examStat.examTitle,
+            attempted: taskStat.attempted,
+          });
         }
         acc[taskStat.taskKey] = current;
       });
@@ -584,13 +625,20 @@ const ProgressSection = ({
 
     const taskInsights = Object.values(taskPerformance)
       .filter((taskStat) => taskStat.attemptedCount > 0)
-      .map((taskStat) => ({
-        ...taskStat,
-        accuracyPercent: Math.max(
-          0,
-          Math.min(100, Math.round((taskStat.solvedCount / taskStat.attemptedCount) * 100))
-        ),
-      }));
+      .map((taskStat) => {
+        const sortedTargets = [...(taskStat.openTargets || [])].sort((left, right) => {
+          if (left.attempted !== right.attempted) return left.attempted ? -1 : 1;
+          return compareMockTaskKeys(left.examTitle, right.examTitle);
+        });
+        return {
+          ...taskStat,
+          openExamId: sortedTargets[0]?.examId || '',
+          accuracyPercent: Math.max(
+            0,
+            Math.min(100, Math.round((taskStat.solvedCount / taskStat.attemptedCount) * 100))
+          ),
+        };
+      });
 
     const strongestTasks = [...taskInsights]
       .sort((left, right) => {
@@ -651,6 +699,8 @@ const ProgressSection = ({
       focusMode,
       focusActionLabel: focusExam?.actionLabel || '',
       focusTitle: focusExam?.examTitle || '',
+      focusTaskKey: focusNextTask?.taskKey || '',
+      focusTaskLabel: focusNextTask?.label || '',
       focusDescription: focusExam
         ? (
           focusMode === 'continue'
@@ -1708,6 +1758,28 @@ const ProgressSection = ({
     return saved;
   };
 
+  const handleDuplicateMockExam = async (exam) => {
+    if (role !== 'teacher' || !exam?.id || duplicatingMockExamId) return;
+    setDuplicatingMockExamId(exam.id);
+    try {
+      const sourceTitle = String(exam.title || 'Пробник').trim() || 'Пробник';
+      const created = await api.createMockExam(`Копия: ${sourceTitle}`);
+      const access = normalizeMockExamAccess(exam.access, LEGACY_MOCK_EXAM_ACCESS);
+      const saved = await api.updateMockExam(created.id, {
+        title: created.title || `Копия: ${sourceTitle}`,
+        tasks: exam.tasks || {},
+        badges: exam.badges || [],
+        access,
+      });
+      setMockExams((prev) => [saved, ...(prev || [])]);
+      setMockEditorExam(saved);
+    } catch (err) {
+      alert(err?.message || err);
+    } finally {
+      setDuplicatingMockExamId(null);
+    }
+  };
+
   const openMockAccessEditor = (exam) => {
     if (!exam) return;
     if (mockAccessExamId === exam.id) {
@@ -1767,6 +1839,7 @@ const ProgressSection = ({
         mockAttemptRequestIdRef.current += 1;
         setActiveMockExam(null);
         setActiveMockAttempt(null);
+        setActiveMockInitialTask(null);
       }
       if (mockAccessExamId === examId) closeMockAccessEditor();
     } catch (err) {
@@ -1774,11 +1847,12 @@ const ProgressSection = ({
     }
   };
 
-  const handleOpenMockExam = async (exam) => {
+  const handleOpenMockExam = async (exam, options = {}) => {
     if (!exam) return;
     const requestId = mockAttemptRequestIdRef.current + 1;
     mockAttemptRequestIdRef.current = requestId;
     setActiveMockExam(exam);
+    setActiveMockInitialTask(options?.initialTaskNumber || null);
     const cachedAttempt = mockAttemptsByExam?.[exam.id];
     setActiveMockAttempt(cachedAttempt && typeof cachedAttempt === 'object' ? cachedAttempt : null);
     if (!effectiveStudentId) return;
@@ -1843,7 +1917,58 @@ const ProgressSection = ({
       areaPath: buildMockChartAreaPath(points, baselineY),
       gradientId: `mock-task-chart-gradient-${role === 'teacher' ? 'teacher' : 'student'}`,
     };
-  }, [GAME_THEORY_TASK, role, studentMockOverview]);
+  }, [role, studentMockOverview]);
+
+  const getStudentMockStats = (exam) => (
+    exam?.id ? studentMockOverview?.examStatsById?.[exam.id] || null : null
+  );
+
+  const mockFilterCounts = useMemo(() => {
+    const counts = { all: studentVisibleMockExams.length, active: 0, new: 0, done: 0 };
+    studentVisibleMockExams.forEach((exam) => {
+      const stats = studentMockOverview?.examStatsById?.[exam.id];
+      if (!stats || stats.totalCount <= 0) return;
+      if (stats.isCompleted) {
+        counts.done += 1;
+      } else if (stats.hasStarted) {
+        counts.active += 1;
+      } else {
+        counts.new += 1;
+      }
+    });
+    return counts;
+  }, [studentMockOverview, studentVisibleMockExams]);
+
+  const filteredStudentMockExams = useMemo(() => {
+    if (mockExamFilter === 'all') return studentVisibleMockExams;
+    return studentVisibleMockExams.filter((exam) => {
+      const stats = studentMockOverview?.examStatsById?.[exam.id];
+      if (!stats || stats.totalCount <= 0) return false;
+      if (mockExamFilter === 'active') return stats.hasStarted && !stats.isCompleted;
+      if (mockExamFilter === 'new') return !stats.hasStarted;
+      if (mockExamFilter === 'done') return stats.isCompleted;
+      return true;
+    });
+  }, [mockExamFilter, studentMockOverview, studentVisibleMockExams]);
+
+  const focusMockExam = useMemo(() => (
+    studentVisibleMockExams.find((exam) => String(exam?.id) === String(studentMockOverview?.focusExamId || '')) || null
+  ), [studentMockOverview?.focusExamId, studentVisibleMockExams]);
+
+  const openFocusMockExam = () => {
+    if (!focusMockExam) return;
+    handleOpenMockExam(focusMockExam, { initialTaskNumber: studentMockOverview?.focusTaskKey || null });
+  };
+
+  const openMockTaskFromInsight = (taskStat) => {
+    if (!taskStat) return;
+    const targetExam = studentVisibleMockExams.find((exam) => String(exam?.id) === String(taskStat.openExamId || ''))
+      || focusMockExam
+      || studentVisibleMockExams[0]
+      || null;
+    if (!targetExam) return;
+    handleOpenMockExam(targetExam, { initialTaskNumber: taskStat.taskKey });
+  };
 
   const renderStudentMockCard = (exam) => {
     if (!exam) return null;
@@ -1855,7 +1980,7 @@ const ProgressSection = ({
     const primary = getPrimaryScoreFromSolved(attempt?.solved);
     const secondary = getSecondaryScoreFromPrimary(primary);
     const awardedCoinMilestones = normalizeMockCoinMilestones(attempt?.coinsAwardedMilestones);
-    const examStats = studentMockOverview?.examStatsById?.[exam.id] || {
+    const examStats = getStudentMockStats(exam) || {
       primary,
       secondary,
       totalCount: 0,
@@ -2094,6 +2219,9 @@ const ProgressSection = ({
       : access.students.length > 0
         ? `Доступ: ${access.students.length} ученикам`
         : 'Скрыт от учеников';
+    const filledTaskCount = getMockExamTaskKeys(exam).length;
+    const totalMockTasks = Array.isArray(MOCK_TASK_NUMBERS) ? MOCK_TASK_NUMBERS.length : 0;
+    const isDuplicating = String(duplicatingMockExamId || '') === String(exam.id);
 
     return (
       <div key={exam.id} className="mock-teacher-card rounded-[26px] border p-3 md:p-4 flex flex-col gap-3">
@@ -2102,7 +2230,13 @@ const ProgressSection = ({
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
               <div className="min-w-0">
                 <p className="font-semibold text-gray-800">{exam.title}</p>
-                <p className="text-xs text-gray-500">{accessLabel}</p>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                  <span>{accessLabel}</span>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white/75 px-2 py-0.5">
+                    <ListChecks size={12} />
+                    {`${filledTaskCount}/${totalMockTasks || '27'} заданий`}
+                  </span>
+                </div>
                 {secondaryBadges.length > 0 && <MockExamBadges badges={secondaryBadges} className="mt-2" />}
               </div>
               {primaryBadge && (
@@ -2115,20 +2249,64 @@ const ProgressSection = ({
           <div className="flex w-full xl:w-auto flex-wrap items-center gap-2">
             <Button variant="secondary" onClick={() => setMockEditorExam(exam)} className="w-full sm:w-auto">Редактировать</Button>
             <Button variant="secondary" onClick={() => openMockAccessEditor(exam)} className="w-full sm:w-auto">Доступ</Button>
+            <Button
+              variant="secondary"
+              onClick={() => handleDuplicateMockExam(exam)}
+              disabled={isDuplicating}
+              className="w-full sm:w-auto"
+            >
+              <Copy size={16} />
+              {isDuplicating ? 'Копируем...' : 'Дублировать'}
+            </Button>
             <button
+              type="button"
               onClick={() => handleDeleteMockExamDefinition(exam.id)}
               className="p-2 rounded-lg text-red-500 hover:bg-red-50"
+              aria-label="Удалить пробник"
             >
               <Trash2 size={16} />
             </button>
             <Button onClick={() => handleOpenMockExam(exam)} className="w-full sm:w-auto">
-              Открыть
+              <Eye size={16} />
+              Предпросмотр
             </Button>
           </div>
         </div>
         {mockAccessExamId === exam.id && (
           <div className="mock-access-panel rounded-2xl p-4 space-y-3">
-            <div className="text-xs font-semibold text-gray-500">Доступ к пробнику</div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="inline-flex items-center gap-2 text-xs font-semibold text-gray-500">
+                <Users size={14} />
+                Доступ к пробнику
+              </div>
+              {!mockAccessAll && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setMockAccessStudents(studentsList.map((student) => String(student.id)))}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:border-sky-200 hover:text-sky-700"
+                  >
+                    Все
+                  </button>
+                  {effectiveStudentId && (
+                    <button
+                      type="button"
+                      onClick={() => setMockAccessStudents([String(effectiveStudentId)])}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:border-sky-200 hover:text-sky-700"
+                    >
+                      Только выбранный
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setMockAccessStudents([])}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:border-rose-200 hover:text-rose-600"
+                  >
+                    Снять
+                  </button>
+                </div>
+              )}
+            </div>
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input
                 type="checkbox"
@@ -2916,7 +3094,7 @@ const ProgressSection = ({
             <div className="mock-student-hero mock-command-center relative overflow-hidden rounded-[24px] p-3.5 md:p-4">
               <div className="mock-student-hero__grid mock-command-grid relative z-[1] grid gap-3">
                 <div className="mock-command-copy min-w-0 space-y-3">
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="mock-command-topline flex flex-wrap items-center gap-2">
                     <div className="mock-hero-kicker inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em]">
                       <BookOpen size={14} />
                       Пробники
@@ -2929,6 +3107,38 @@ const ProgressSection = ({
                     ))}
                   </div>
 
+                  <div className="mock-command-focus flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white/78 p-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="mock-focus-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 text-sky-700">
+                        <Target size={17} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="mock-focus-eyebrow text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                          Сейчас лучше открыть
+                        </div>
+                        <div className="mock-focus-title mt-1 text-sm font-semibold text-gray-900 md:text-base">
+                          {focusMockExam ? studentMockOverview.focusTitle : 'Пробников пока нет'}
+                        </div>
+                        <div className="mock-focus-detail mt-1 text-xs text-gray-500">
+                          {focusMockExam
+                            ? (
+                              studentMockOverview.focusTaskLabel
+                                ? `${studentMockOverview.focusDescription} · следующее задание ${studentMockOverview.focusTaskLabel}`
+                                : studentMockOverview.focusDescription
+                            )
+                            : 'Когда учитель добавит пробник, он появится здесь.'}
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={openFocusMockExam}
+                      disabled={!focusMockExam}
+                      className="mock-focus-button w-full shrink-0 md:w-auto"
+                    >
+                      <PlayCircle size={16} />
+                      {studentMockOverview?.focusActionLabel || 'Открыть'}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2955,10 +3165,18 @@ const ProgressSection = ({
             <>
               <Card className={role === 'student' ? 'mock-list-shell space-y-5' : 'mock-list-shell space-y-4'}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-gray-400">
+                  <div className="mock-list-heading space-y-1">
+                    <div className="mock-list-title inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-gray-400">
+                      <BookOpen size={14} />
                       {role === 'teacher' ? 'Пробники и управление' : 'Пробники'}
                     </div>
+                    {role === 'student' && (
+                      <div className="mock-list-subtitle text-xs text-gray-500">
+                        {studentMockOverview?.hasMockTasks
+                          ? `${studentMockOverview.totalSolvedCount}/${studentMockOverview.totalTaskCount} закрыто`
+                          : 'Заданий пока нет'}
+                      </div>
+                    )}
                     {role === 'teacher' && visibleMockExams.length > 0 && (
                       <div className="text-xs text-gray-500">
                         {`${studentVisibleMockExams.length}/${visibleMockExams.length} доступны ученику`}
@@ -2966,16 +3184,18 @@ const ProgressSection = ({
                     )}
                   </div>
                   {role === 'student' && (
-                    <div className="mock-list-metrics flex flex-wrap items-center gap-2">
-                      <span className="mock-list-chip rounded-full px-3 py-1 text-xs font-semibold">
-                        {`${studentVisibleMockExams.length} доступно`}
-                      </span>
-                      <span className="mock-list-chip rounded-full px-3 py-1 text-xs font-semibold">
-                        {`${studentMockOverview?.averageSecondaryScore ?? 0} ср. балл`}
-                      </span>
-                      <span className="mock-list-chip rounded-full px-3 py-1 text-xs font-semibold">
-                        {`${studentMockOverview?.completedExamsCount ?? 0} закрыто`}
-                      </span>
+                    <div className="mock-list-toolbar flex w-full flex-col gap-3 lg:w-auto lg:items-end">
+                      <div className="mock-list-metrics flex flex-wrap items-center gap-2">
+                        <span className="mock-list-chip rounded-full px-3 py-1 text-xs font-semibold">
+                          {`${studentVisibleMockExams.length} доступно`}
+                        </span>
+                        <span className="mock-list-chip rounded-full px-3 py-1 text-xs font-semibold">
+                          {`${studentMockOverview?.averageSecondaryScore ?? 0} ср. балл`}
+                        </span>
+                        <span className="mock-list-chip rounded-full px-3 py-1 text-xs font-semibold">
+                          {`${studentMockOverview?.completedExamsCount ?? 0} закрыто`}
+                        </span>
+                      </div>
                     </div>
                   )}
                   {role === 'teacher' && (
@@ -2993,6 +3213,35 @@ const ProgressSection = ({
                     </div>
                   )}
                 </div>
+
+                {role === 'student' && studentVisibleMockExams.length > 0 && (
+                  <div className="mock-filter-row flex flex-col gap-2 rounded-2xl border border-slate-200 bg-slate-50/80 p-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="inline-flex items-center gap-2 px-1 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                      <ListFilter size={14} />
+                      Показать
+                    </div>
+                    <div className="mock-filter-group flex min-w-0 flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200 bg-white/70 p-1">
+                      {MOCK_EXAM_FILTERS.map((item) => {
+                        const active = mockExamFilter === item.id;
+                        const count = mockFilterCounts[item.id] ?? 0;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setMockExamFilter(item.id)}
+                            className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+                              active
+                                ? 'bg-white text-sky-700 shadow-sm ring-1 ring-sky-100'
+                                : 'text-slate-500 hover:bg-white/80 hover:text-sky-700'
+                            }`}
+                          >
+                            {`${item.label} ${count}`}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {role === 'teacher' ? (
                   <>
@@ -3019,9 +3268,13 @@ const ProgressSection = ({
                   </>
                 ) : studentVisibleMockExams.length === 0 ? (
                   <div className="text-gray-500">Пробников пока нет.</div>
+                ) : filteredStudentMockExams.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-5 text-sm text-gray-500">
+                    В этом фильтре пока пусто.
+                  </div>
                 ) : (
                   <div className="mock-ticket-list space-y-4">
-                    {studentVisibleMockExams.map((exam) => renderStudentMockCard(exam))}
+                    {filteredStudentMockExams.map((exam) => renderStudentMockCard(exam))}
                   </div>
                 )}
               </Card>
@@ -3182,12 +3435,14 @@ const ProgressSection = ({
                         {studentMockOverview.weakestTasks.length > 0 ? (
                           <div className="mt-3 flex flex-wrap gap-2">
                             {studentMockOverview.weakestTasks.map((taskStat) => (
-                              <span
+                              <button
                                 key={`weak-${taskStat.taskKey}`}
-                                className="mock-insight-pill rounded-full px-3 py-1.5 text-xs font-semibold"
+                                type="button"
+                                onClick={() => openMockTaskFromInsight(taskStat)}
+                                className="mock-insight-pill rounded-full px-3 py-1.5 text-xs font-semibold transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
                               >
                                 {`№ ${taskStat.label} · ${taskStat.accuracyPercent}% · ${taskStat.solvedCount}/${taskStat.attemptedCount}`}
-                              </span>
+                              </button>
                             ))}
                           </div>
                         ) : (
@@ -3279,6 +3534,7 @@ const ProgressSection = ({
               exam={activeMockExam}
               studentId={effectiveStudentId}
               initialAttempt={activeMockAttempt}
+              initialTaskNumber={activeMockInitialTask}
               theme={theme}
               MOCK_TASK_NUMBERS={MOCK_TASK_NUMBERS}
               getMockAnswerCountForTask={getMockAnswerCountForTask}
@@ -3295,6 +3551,7 @@ const ProgressSection = ({
                 mockAttemptRequestIdRef.current += 1;
                 setActiveMockExam(null);
                 setActiveMockAttempt(null);
+                setActiveMockInitialTask(null);
               }}
             />
           )}

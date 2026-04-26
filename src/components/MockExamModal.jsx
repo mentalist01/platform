@@ -18,6 +18,7 @@ const MockExamModal = ({
   exam,
   studentId,
   initialAttempt,
+  initialTaskNumber = null,
   onClose,
   onAttemptSaved,
   MOCK_TASK_NUMBERS,
@@ -34,9 +35,13 @@ const MockExamModal = ({
   const [solved, setSolved] = useState({});
   const [results, setResults] = useState({});
   const [saveError, setSaveError] = useState('');
+  const [saveStatus, setSaveStatus] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [autoAdvance, setAutoAdvance] = useState(false);
   const [expandedImage, setExpandedImage] = useState(null);
   const hasLocalAttemptChangesRef = useRef(false);
   const latestInitialAttemptRef = useRef(initialAttempt);
+  const autoAdvanceTimerRef = useRef(null);
   const firstTaskNumber = MOCK_TASK_NUMBERS[0];
 
   const readAttemptAnswers = (attempt) => (
@@ -45,6 +50,17 @@ const MockExamModal = ({
   const readAttemptSolved = (attempt) => (
     attempt?.solved && typeof attempt.solved === 'object' ? attempt.solved : {}
   );
+
+  const getNextUnsolvedTask = (solvedMap = solved, fromTask = selectedTask) => {
+    const currentIndex = Math.max(0, MOCK_TASK_NUMBERS.indexOf(fromTask));
+    const orderedTasks = [
+      ...MOCK_TASK_NUMBERS.slice(currentIndex + 1),
+      ...MOCK_TASK_NUMBERS.slice(0, currentIndex),
+    ];
+    return orderedTasks.find((taskNumber) => (
+      exam?.tasks?.[String(taskNumber)] && !solvedMap?.[String(taskNumber)]
+    )) || null;
+  };
 
   useEffect(() => {
     latestInitialAttemptRef.current = initialAttempt;
@@ -56,22 +72,35 @@ const MockExamModal = ({
     setSolved(readAttemptSolved(latestInitialAttemptRef.current));
     setResults({});
     setSaveError('');
-    setSelectedTask(firstTaskNumber);
-  }, [exam?.id, studentId, firstTaskNumber]);
+    setSaveStatus('');
+    setChecking(false);
+    const requestedTask = String(initialTaskNumber ?? '').trim();
+    const initialTask = requestedTask
+      ? MOCK_TASK_NUMBERS.find((taskNumber) => String(taskNumber) === requestedTask)
+      : null;
+    setSelectedTask(initialTask || firstTaskNumber);
+  }, [exam?.id, studentId, firstTaskNumber, initialTaskNumber, MOCK_TASK_NUMBERS]);
 
   useEffect(() => {
     if (hasLocalAttemptChangesRef.current) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAnswers(readAttemptAnswers(initialAttempt));
     setSolved(readAttemptSolved(initialAttempt));
     setResults({});
     setSaveError('');
+    setSaveStatus('');
   }, [initialAttempt]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSaveError('');
+    setSaveStatus('');
   }, [selectedTask]);
+
+  useEffect(() => () => {
+    if (autoAdvanceTimerRef.current) {
+      clearTimeout(autoAdvanceTimerRef.current);
+      autoAdvanceTimerRef.current = null;
+    }
+  }, []);
 
   const taskKey = String(selectedTask);
   const currentQuestion = exam?.tasks?.[taskKey];
@@ -120,7 +149,8 @@ const MockExamModal = ({
         : currentAnswers.every((value) => String(value ?? '').trim())
     )
     : Boolean(String(singleAnswer ?? '').trim());
-  const canCheck = Boolean(currentQuestion && studentId && isAnswerReady);
+  const nextUnsolvedTask = getNextUnsolvedTask(solved, selectedTask);
+  const canCheck = Boolean(currentQuestion && studentId && isAnswerReady && !checking);
 
   const handlePrevTask = () => {
     if (isFirstTask) return;
@@ -132,8 +162,13 @@ const MockExamModal = ({
     setSelectedTask(MOCK_TASK_NUMBERS[selectedTaskIndex + 1]);
   };
 
+  const handleNextUnsolvedTask = () => {
+    if (!nextUnsolvedTask) return;
+    setSelectedTask(nextUnsolvedTask);
+  };
+
   const handleCheck = async (event) => {
-    if (!currentQuestion || !studentId || !isAnswerReady) return;
+    if (!currentQuestion || !studentId || !isAnswerReady || checking) return;
     const buttonRect = event?.currentTarget?.getBoundingClientRect?.();
     const sourceRect = (
       buttonRect
@@ -151,6 +186,8 @@ const MockExamModal = ({
       : null;
     hasLocalAttemptChangesRef.current = true;
     setSaveError('');
+    setSaveStatus('');
+    setChecking(true);
     try {
       const saved = await api.saveMockAttempt(studentId, exam.id, {
         answers,
@@ -161,12 +198,29 @@ const MockExamModal = ({
         const isCorrect = Boolean(savedSolved[taskKey]);
         setSolved(savedSolved);
         setResults((prev) => ({ ...prev, [taskKey]: isCorrect }));
+        setSaveStatus(isCorrect ? 'Ответ верный и сохранён.' : 'Ответ сохранён, но пока неверный.');
         onAttemptSaved?.(exam.id, saved, { sourceRect });
+        const nextTaskAfterSave = getNextUnsolvedTask(savedSolved, selectedTask);
+        if (autoAdvance && isCorrect && nextTaskAfterSave) {
+          if (autoAdvanceTimerRef.current) clearTimeout(autoAdvanceTimerRef.current);
+          autoAdvanceTimerRef.current = setTimeout(() => {
+            setSelectedTask(nextTaskAfterSave);
+            autoAdvanceTimerRef.current = null;
+          }, 520);
+        }
       }
     } catch (err) {
       const message = typeof err?.message === 'string' ? err.message : '';
       setSaveError(message || 'Не удалось сохранить ответ. Попробуйте снова.');
+    } finally {
+      setChecking(false);
     }
+  };
+
+  const handleAnswerKeyDown = (event) => {
+    if (event.key !== 'Enter' || event.nativeEvent?.isComposing) return;
+    event.preventDefault();
+    handleCheck(event);
   };
 
   const shellClassName = isDarkTheme
@@ -442,6 +496,15 @@ const MockExamModal = ({
                   </span>
                   <button
                     type="button"
+                    onClick={handleNextUnsolvedTask}
+                    disabled={!nextUnsolvedTask}
+                    className={`hidden items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-semibold transition sm:inline-flex ${navButtonClassName}`}
+                  >
+                    <ArrowRight size={14} />
+                    К следующему
+                  </button>
+                  <button
+                    type="button"
                     onClick={handlePrevTask}
                     disabled={isFirstTask}
                     className={`inline-flex h-10 w-10 items-center justify-center rounded-full border transition ${navButtonClassName}`}
@@ -547,6 +610,15 @@ const MockExamModal = ({
                     </div>
 
                     <div className={hasLargeAnswerGrid ? 'min-h-0 flex-1 overflow-y-auto pr-1' : ''}>
+                      <div className={`mb-2 text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {answerCount > 1
+                          ? (
+                            allowPartialForTask
+                              ? 'Можно заполнить часть ответов. Enter проверяет.'
+                              : `Нужно заполнить ${answerCount} ответов. Enter проверяет.`
+                          )
+                          : 'Введите ответ без лишних пробелов. Enter проверяет.'}
+                      </div>
                       {answerCount > 1 ? (
                         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                           {Array.from({ length: answerCount }).map((_, idx) => (
@@ -554,10 +626,12 @@ const MockExamModal = ({
                               key={idx}
                               type="text"
                               value={currentAnswers[idx] ?? ''}
+                              onKeyDown={handleAnswerKeyDown}
                               onChange={(e) => {
                                 const value = e.target.value;
                                 hasLocalAttemptChangesRef.current = true;
                                 setSaveError('');
+                                setSaveStatus('');
                                 setAnswers((prev) => {
                                   const next = { ...prev };
                                   const prevEntry = next[taskKey];
@@ -581,9 +655,11 @@ const MockExamModal = ({
                         <input
                           type="text"
                           value={singleAnswer}
+                          onKeyDown={handleAnswerKeyDown}
                           onChange={(e) => {
                             hasLocalAttemptChangesRef.current = true;
                             setSaveError('');
+                            setSaveStatus('');
                             setAnswers((prev) => ({ ...prev, [taskKey]: e.target.value }));
                           }}
                           placeholder="Введите ответ..."
@@ -595,9 +671,36 @@ const MockExamModal = ({
                     {saveError && (
                       <div className="text-sm text-rose-500">{saveError}</div>
                     )}
+                    {saveStatus && !saveError && (
+                      <div className={`text-sm ${results[taskKey] ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        {saveStatus}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex w-full shrink-0 flex-col gap-2 sm:flex-row xl:w-auto xl:flex-col xl:self-end">
+                    <label className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold sm:w-auto xl:min-w-[9rem] ${
+                      isDarkTheme
+                        ? 'border-white/10 bg-white/[0.04] text-slate-300'
+                        : 'border-slate-200 bg-white/80 text-slate-600'
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={autoAdvance}
+                        onChange={(event) => setAutoAdvance(event.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                      />
+                      Автодалее
+                    </label>
+                    <Button
+                      variant="secondary"
+                      onClick={handleNextUnsolvedTask}
+                      disabled={!nextUnsolvedTask}
+                      className={`w-full sm:w-auto xl:min-w-[9rem] sm:hidden ${isDarkTheme ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]' : ''}`}
+                    >
+                      <ArrowRight size={16} />
+                      Следующее
+                    </Button>
                     <Button
                       variant="secondary"
                       onClick={onClose}
@@ -610,7 +713,7 @@ const MockExamModal = ({
                       disabled={!canCheck}
                       className="w-full sm:w-auto xl:min-w-[9rem]"
                     >
-                      Проверить
+                      {checking ? 'Проверяем...' : 'Проверить'}
                     </Button>
                   </div>
                 </div>
