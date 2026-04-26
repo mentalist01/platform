@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 const normalizeSearchText = (value) => String(value || '').trim().toLowerCase();
 
@@ -72,9 +73,11 @@ const StudentSearchSelect = ({
 }) => {
   const rootRef = useRef(null);
   const inputRef = useRef(null);
+  const menuRef = useRef(null);
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [menuStyle, setMenuStyle] = useState(null);
 
   const options = useMemo(() => normalizeStudents(students), [students]);
   const selectedId = String(value || '').trim();
@@ -117,11 +120,49 @@ const StudentSearchSelect = ({
   useEffect(() => {
     if (!isOpen) return undefined;
     const handlePointerDown = (event) => {
-      if (!rootRef.current?.contains(event.target)) setIsOpen(false);
+      const target = event.target;
+      if (
+        !rootRef.current?.contains(target)
+        && !menuRef.current?.contains(target)
+      ) {
+        setIsOpen(false);
+      }
     };
     document.addEventListener('mousedown', handlePointerDown);
     return () => document.removeEventListener('mousedown', handlePointerDown);
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || disabled || typeof window === 'undefined') return undefined;
+
+    const updateMenuPosition = () => {
+      const rect = inputRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+      const margin = 8;
+      const gap = 4;
+      const left = Math.max(margin, Math.min(rect.left, viewportWidth - rect.width - margin));
+      const availableBelow = Math.max(96, viewportHeight - rect.bottom - margin - gap);
+
+      setMenuStyle({
+        left: `${left}px`,
+        top: `${rect.bottom + gap}px`,
+        width: `${rect.width}px`,
+        maxHeight: `${Math.min(256, availableBelow)}px`,
+      });
+    };
+
+    updateMenuPosition();
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
+
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition);
+      window.removeEventListener('scroll', updateMenuPosition, true);
+    };
+  }, [disabled, isOpen]);
 
   const commitOption = (option) => {
     if (!option || disabled) return;
@@ -160,6 +201,48 @@ const StudentSearchSelect = ({
     }
   };
 
+  const openMenu = () => {
+    if (disabled) return;
+    setQuery('');
+    setIsOpen(true);
+    setActiveIndex(0);
+  };
+
+  const menuNode = isOpen && !disabled ? (
+    <div
+      ref={menuRef}
+      className={`fixed z-[10000] overflow-y-auto rounded-xl border py-1 text-sm shadow-xl ${menuToneClassName} ${menuClassName}`}
+      style={menuStyle || { visibility: 'hidden' }}
+      role="listbox"
+    >
+      {filteredOptions.length > 0 ? (
+        filteredOptions.map((student, index) => {
+          const active = index === activeIndex;
+          return (
+            <button
+              key={student.id}
+              type="button"
+              role="option"
+              aria-selected={student.id === selectedId}
+              className={`block w-full px-3 py-2 text-left transition ${
+                active || student.id === selectedId
+                  ? activeOptionClassName
+                  : idleOptionClassName
+              }`}
+              onMouseEnter={() => setActiveIndex(index)}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => commitOption(student)}
+            >
+              <span className="block truncate">{student.label}</span>
+            </button>
+          );
+        })
+      ) : (
+        <div className={`px-3 py-2 ${emptyClassName}`}>{emptyText}</div>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div ref={rootRef} className="relative min-w-0 w-full">
       <input
@@ -176,8 +259,11 @@ const StudentSearchSelect = ({
         disabled={disabled}
         className={className}
         onFocus={(event) => {
-          setIsOpen(true);
+          openMenu();
           event.currentTarget.select();
+        }}
+        onMouseDown={() => {
+          if (!isOpen && document.activeElement === inputRef.current) openMenu();
         }}
         onChange={(event) => {
           setQuery(event.target.value);
@@ -186,38 +272,7 @@ const StudentSearchSelect = ({
         onKeyDown={handleKeyDown}
       />
 
-      {isOpen && !disabled && (
-        <div
-          className={`absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-y-auto rounded-xl border py-1 text-sm shadow-xl ${menuToneClassName} ${menuClassName}`}
-          role="listbox"
-        >
-          {filteredOptions.length > 0 ? (
-            filteredOptions.map((student, index) => {
-              const active = index === activeIndex;
-              return (
-                <button
-                  key={student.id}
-                  type="button"
-                  role="option"
-                  aria-selected={student.id === selectedId}
-                  className={`block w-full px-3 py-2 text-left transition ${
-                    active || student.id === selectedId
-                      ? activeOptionClassName
-                      : idleOptionClassName
-                  }`}
-                  onMouseEnter={() => setActiveIndex(index)}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => commitOption(student)}
-                >
-                  <span className="block truncate">{student.label}</span>
-                </button>
-              );
-            })
-          ) : (
-            <div className={`px-3 py-2 ${emptyClassName}`}>{emptyText}</div>
-          )}
-        </div>
-      )}
+      {menuNode && typeof document !== 'undefined' ? createPortal(menuNode, document.body) : menuNode}
     </div>
   );
 };
