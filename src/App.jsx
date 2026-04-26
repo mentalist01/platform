@@ -6752,6 +6752,7 @@ const CollabSection = ({
                     activeStudentId={activeStudentId}
                     onSelectStudent={onSelectStudent}
                     studentsLoading={studentsLoading}
+                    theme={theme}
                   />
                 </div>
                 {notesTopPaneResizeHandle}
@@ -7372,8 +7373,10 @@ const BoardSection = ({
   embedded = false,
   hideStudentPicker = false,
   showEmbeddedSummonButton = false,
+  theme = THEME_LIGHT,
 }) => {
   const isTeacher = role === 'teacher';
+  const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
   const roomId = effectiveStudentId && teacherId ? `board-${teacherId}-${effectiveStudentId}` : null;
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
@@ -14953,6 +14956,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
               studentsLoading={studentsLoading}
+              theme={theme}
             />
           )}
           {view === 'notes' && (
