@@ -222,6 +222,13 @@ const MockExamModal = ({
   const inputClassName = isDarkTheme
     ? 'w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:border-violet-400 outline-none'
     : 'w-full rounded-2xl border border-slate-200 bg-slate-50/90 px-4 py-3 text-slate-800 placeholder:text-slate-400 focus:border-purple-500 outline-none';
+  const compactInputClassName = isDarkTheme
+    ? 'w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-violet-400 outline-none'
+    : 'w-full rounded-xl border border-slate-200 bg-slate-50/90 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-purple-500 outline-none';
+  const answerInputClassName = hasLargeAnswerGrid ? compactInputClassName : inputClassName;
+  const answerPanelStyle = hasLargeAnswerGrid
+    ? { height: 'min(35vh, 21rem)' }
+    : undefined;
   const attachmentLinkClassName = isDarkTheme
     ? 'flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-200 transition hover:border-violet-400/40 hover:bg-violet-500/10'
     : 'flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 transition hover:border-purple-300 hover:bg-purple-50';
@@ -515,8 +522,11 @@ const MockExamModal = ({
             </div>
 
             {currentQuestion ? (
-              <div className={`rounded-[1.75rem] border p-3.5 ${panelClassName} ${hasLargeAnswerGrid ? 'lg:max-h-[35vh]' : ''}`}>
-                <div className="flex min-h-0 flex-col gap-4 xl:flex-row xl:justify-between">
+              <div
+                className={`rounded-[1.75rem] border p-3.5 ${panelClassName} ${hasLargeAnswerGrid ? 'flex min-h-0 shrink-0 flex-col overflow-hidden' : ''}`}
+                style={answerPanelStyle}
+              >
+                <div className={`flex min-h-0 flex-col gap-4 xl:flex-row xl:justify-between ${hasLargeAnswerGrid ? 'h-full' : ''}`}>
                   <div className="min-w-0 flex flex-1 flex-col gap-3 min-h-0">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className={labelClassName}>Ответ</div>
@@ -563,7 +573,7 @@ const MockExamModal = ({
                                 });
                               }}
                               placeholder={`Ответ ${idx + 1}`}
-                              className={inputClassName}
+                              className={answerInputClassName}
                             />
                           ))}
                         </div>
@@ -577,7 +587,7 @@ const MockExamModal = ({
                             setAnswers((prev) => ({ ...prev, [taskKey]: e.target.value }));
                           }}
                           placeholder="Введите ответ..."
-                          className={inputClassName}
+                          className={answerInputClassName}
                         />
                       )}
                     </div>
