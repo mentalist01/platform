@@ -94,6 +94,8 @@ const formatNumber = (value) => clampNumber(value).toLocaleString('ru-RU');
 
 const formatPercent = (value) => `${clampPercent(value)}%`;
 
+const formatMockScore = (value) => `${clampPercent(value)} б`;
+
 const formatDayCount = (value) => {
   const count = clampNumber(value);
   const mod10 = count % 10;
@@ -182,7 +184,7 @@ const MetricTile = ({ icon: Icon, label, value, tone = 'violet' }) => {
   );
 };
 
-const GaugeCard = ({ label, value, percent, accent, meta = '' }) => (
+const GaugeCard = ({ label, value, percent, accent, meta = '', progressLabel = '' }) => (
   <div className="min-w-0 rounded-[1.55rem] bg-white/[0.045] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
     <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">{label}</div>
     <div className="mt-4 flex items-center gap-4">
@@ -190,7 +192,7 @@ const GaugeCard = ({ label, value, percent, accent, meta = '' }) => (
         <div className="flex h-full w-full flex-col items-center justify-center rounded-full bg-slate-950">
           <div className="text-2xl font-black tracking-tight text-white">{value}</div>
           <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">
-            {formatPercent(percent)}
+            {progressLabel || formatPercent(percent)}
           </div>
         </div>
       </div>
@@ -654,9 +656,10 @@ const StudentLeaderboardProfileModal = ({
                         />
                         <GaugeCard
                           label="Пробник"
-                          value={formatPercent(bestMock?.score ?? mockSummary.bestScore)}
+                          value={formatMockScore(bestMock?.score ?? mockSummary.bestScore)}
                           percent={mockSummary.bestScore}
                           accent="#f59e0b"
+                          progressLabel="баллы"
                           meta={bestMock?.title || `${formatNumber(mockSummary.solvedCount)} решено`}
                         />
                       </div>
@@ -767,7 +770,7 @@ const StudentLeaderboardProfileModal = ({
                           {bestMock ? (
                             <div className="grid gap-4 sm:grid-cols-[auto,1fr] sm:items-center">
                               <div className="inline-flex h-24 w-24 items-center justify-center rounded-[1.55rem] bg-amber-500/12 text-[1.9rem] font-black tracking-tight text-amber-50 shadow-[0_0_36px_rgba(245,158,11,0.16)]">
-                                {formatPercent(bestMock.score)}
+                                {formatMockScore(bestMock.score)}
                               </div>
                               <div className="min-w-0">
                                 <div className="text-lg font-bold leading-snug text-white">
@@ -778,7 +781,7 @@ const StudentLeaderboardProfileModal = ({
                                     {`${formatNumber(bestMock.solvedTasks)} / ${formatNumber(bestMock.totalTasks)} задач`}
                                   </span>
                                   <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-100">
-                                    {`Средний: ${formatPercent(mockSummary.averageScore)}`}
+                                    {`Средний: ${formatMockScore(mockSummary.averageScore)}`}
                                   </span>
                                   <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-100">
                                     {`Всего решено: ${formatNumber(mockSummary.solvedCount)}`}
