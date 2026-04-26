@@ -40,6 +40,7 @@ import ProgressSection from './components/ProgressSection';
 import PythonSection from './components/PythonSection';
 import ScheduleSection from './components/ScheduleSection';
 import StudentLeaderboardSection from './components/StudentLeaderboardSection';
+import StudentSearchSelect from './components/StudentSearchSelect';
 import StudentChatSection from './components/StudentChatSection';
 import StudentTour from './components/StudentTour';
 import StudentNotificationsCenter from './components/StudentNotificationsCenter';
@@ -5792,12 +5793,10 @@ const CollabSection = ({
         } ${
           isCollabFullscreen || isDesktopCollabCompact ? 'text-[10px]' : 'text-[11px]'
         }`}>Ученик</span>
-        <select
+        <StudentSearchSelect
+          students={students}
           value={activeStudentId || ''}
-          onChange={(e) => {
-            const value = e.target.value;
-            onSelectStudent?.(value || null);
-          }}
+          onChange={(value) => onSelectStudent?.(value || null)}
           disabled={studentsLoading || (students || []).length === 0}
           className={`w-full min-w-0 rounded-xl border outline-none disabled:opacity-70 ${
             isCollabFullscreen
@@ -5810,14 +5809,9 @@ const CollabSection = ({
               ? 'h-7 sm:min-w-[170px] px-2.5 py-0 text-[13px]'
               : 'sm:min-w-[180px] px-3 py-1.5 text-sm'
           }`}
-        >
-          <option value="" disabled>Выберите ученика</option>
-          {(students || []).map((student) => (
-            <option key={student.id} value={student.id}>
-              {getStudentLabel(student)}
-            </option>
-          ))}
-        </select>
+          dark={isFullscreenDark}
+          menuClassName={isFullscreenDark ? 'border-slate-700' : ''}
+        />
       </div>
     );
   };
@@ -10292,22 +10286,14 @@ const BoardSection = ({
     return (
       <div className="board-toolbar__student-picker">
         <span className="board-toolbar__student-picker-label">Ученик</span>
-        <select
+        <StudentSearchSelect
+          students={students}
           value={activeStudentId || ''}
-          onChange={(e) => {
-            const value = e.target.value;
-            onSelectStudent?.(value || null);
-          }}
+          onChange={(value) => onSelectStudent?.(value || null)}
           disabled={studentsLoading || (students || []).length === 0}
           className="board-toolbar__student-select"
-        >
-          <option value="" disabled>Выберите ученика</option>
-          {(students || []).map((student) => (
-            <option key={student.id} value={student.id}>
-              {getStudentLabel(student)}
-            </option>
-          ))}
-        </select>
+          dark={isDarkTheme}
+        />
       </div>
     );
   };

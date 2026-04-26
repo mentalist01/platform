@@ -4,6 +4,7 @@ import ivanCoin from '../assets/ivan-coin-badge.png';
 import { api } from '../services/api';
 import StudentArtifactAltar from './StudentArtifactAltar';
 import StudentLeaderboardProfileModal from './StudentLeaderboardProfileModal';
+import StudentSearchSelect from './StudentSearchSelect';
 
 const BONUS_TONE_CLASSNAME = {
   xp: 'border-violet-200 bg-violet-50/90 text-violet-700',
@@ -63,7 +64,6 @@ const StudentLeaderboardSection = ({
   activeStudentId = '',
   onSelectStudent,
   studentsLoading = false,
-  getStudentLabel,
 }) => {
   const [leaderboard, setLeaderboard] = useState({
     items: [],
@@ -200,19 +200,18 @@ const StudentLeaderboardSection = ({
       ? sourceStudents.map((student) => {
           const id = String(student?.id || '').trim();
           if (!id) return null;
-          const providedLabel = typeof getStudentLabel === 'function'
-            ? String(getStudentLabel(student) || '').trim()
-            : '';
           const name = typeof student?.name === 'string' ? student.name.trim() : '';
           const nickname = typeof student?.nickname === 'string' ? student.nickname.trim() : '';
           return {
             id,
-            label: providedLabel || [name, nickname].filter(Boolean).join(' • ') || 'Ученик',
+            name,
+            nickname,
           };
         })
       : rows.map((row) => ({
           id: row.studentId,
-          label: row.mainName || row.nickname || row.displayName || 'Ученик',
+          name: row.mainName,
+          nickname: row.nickname || row.displayName,
         }));
     const seen = new Set();
     return source.filter((option) => {
@@ -220,7 +219,7 @@ const StudentLeaderboardSection = ({
       seen.add(option.id);
       return true;
     });
-  }, [getStudentLabel, role, rows, students]);
+  }, [role, rows, students]);
 
   const byLevel = useMemo(() => {
     return [...rows].sort((a, b) => {
@@ -532,19 +531,13 @@ const StudentLeaderboardSection = ({
     return (
       <div className="inline-flex w-full items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-purple-100/40 sm:w-auto">
         <span className="text-[11px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
-        <select
+        <StudentSearchSelect
+          students={teacherStudentOptions}
           value={teacherSelectedStudentId}
-          onChange={(e) => handleTeacherStudentSelect(e.target.value)}
+          onChange={handleTeacherStudentSelect}
           disabled={studentsLoading || teacherStudentOptions.length === 0}
           className="w-full min-w-0 rounded-xl border border-purple-100 bg-white px-3 py-1.5 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70 sm:min-w-[180px]"
-        >
-          <option value="" disabled>Выберите ученика</option>
-          {teacherStudentOptions.map((student) => (
-            <option key={student.id} value={student.id}>
-              {student.label}
-            </option>
-          ))}
-        </select>
+        />
       </div>
     );
   };

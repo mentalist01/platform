@@ -5,6 +5,7 @@ import MockExamBadges, { MockExamBadgeSticker } from './MockExamBadges';
 import MockExamEditorModal from './MockExamEditorModal';
 import MockExamModal from './MockExamModal';
 import ProgressReviewModal from './ProgressReviewModal';
+import StudentSearchSelect from './StudentSearchSelect';
 import StudentTestModal from './StudentTestModal';
 import { Button, Card, ProgressBar } from './ui';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
@@ -366,7 +367,6 @@ const ProgressSection = ({
   GAME_THEORY_TASK,
   PYODIDE_RUN_TIMEOUT_MS,
   ALLOW_MAIN_THREAD_PYTHON_FALLBACK,
-  getStudentLabel,
   getTaskLevelXpReward,
   getAnswerCountForTask,
   getExpectedAnswers,
@@ -1572,22 +1572,14 @@ const ProgressSection = ({
     return (
       <div className="inline-flex w-full sm:w-auto items-center gap-2 rounded-2xl border border-purple-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-purple-100/40">
         <span className="text-[11px] font-semibold uppercase tracking-widest text-purple-500">Ученик</span>
-        <select
+        <StudentSearchSelect
+          students={studentsList}
           value={activeStudentId || ''}
-          onChange={(e) => {
-            const value = e.target.value;
-            onSelectStudent?.(value || null);
-          }}
+          onChange={(value) => onSelectStudent?.(value || null)}
           disabled={studentsLoading || studentsList.length === 0}
           className="w-full min-w-0 sm:min-w-[180px] rounded-xl border border-purple-100 bg-white px-3 py-1.5 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
-        >
-          <option value="" disabled>Выберите ученика</option>
-          {studentsList.map((student) => (
-            <option key={student.id} value={student.id}>
-              {getStudentLabel(student)}
-            </option>
-          ))}
-        </select>
+          dark={String(theme || '').trim().toLowerCase() === 'dark'}
+        />
       </div>
     );
   };

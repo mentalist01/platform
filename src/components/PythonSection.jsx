@@ -5,6 +5,7 @@ import ivanCoin from '../assets/ivan-coin-badge.png';
 import ProgressReviewModal from './ProgressReviewModal';
 import PythonReviewModal from './PythonReviewModal';
 import PythonTestModal from './PythonTestModal';
+import StudentSearchSelect from './StudentSearchSelect';
 import StudentTestModal from './StudentTestModal';
 import TheoryRecordingEditor from './TheoryRecordingEditor';
 import { Button, Card } from './ui';
@@ -433,7 +434,6 @@ const PythonSection = ({
   onXpGain,
   PYTHON_TASKS,
   PYTHON_LEVEL_ID,
-  getStudentLabel,
   parseTestsFileContent,
   buildGoogleDocEmbedUrl,
   buildGoogleDocFullUrl,
@@ -1819,22 +1819,14 @@ const PythonSection = ({
     return (
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm text-gray-500">Ученик:</span>
-        <select
+        <StudentSearchSelect
+          students={studentsList}
           value={activeStudentId || ''}
-          onChange={(e) => {
-            const value = e.target.value;
-            onSelectStudent?.(value || null);
-          }}
+          onChange={(value) => onSelectStudent?.(value || null)}
           disabled={studentsLoading || studentsList.length === 0}
           className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
-        >
-          <option value="" disabled>Выберите ученика</option>
-          {studentsList.map((student) => (
-            <option key={student.id} value={student.id}>
-              {getStudentLabel(student)}
-            </option>
-          ))}
-        </select>
+          dark={String(theme || '').trim().toLowerCase() === 'dark'}
+        />
       </div>
     );
   };

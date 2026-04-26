@@ -2,6 +2,7 @@
 import { Bell, BellOff, BookOpen, Calendar, CheckCircle, ChevronRight, Clock3, Pencil, RefreshCcw, Save, Trash2 } from 'lucide-react';
 import { api, resolveAuthenticatedApiUrl } from '../services/api';
 import ScheduleProgressTree from './ScheduleProgressTree';
+import StudentSearchSelect from './StudentSearchSelect';
 import { Button, Card } from './ui';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
@@ -636,22 +637,13 @@ const ScheduleSection = ({
     return (
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm text-gray-500">Ученик:</span>
-        <select
+        <StudentSearchSelect
+          students={studentsList}
           value={activeStudentId || ''}
-          onChange={(e) => {
-            const value = e.target.value;
-            onSelectStudent?.(value || null);
-          }}
+          onChange={(value) => onSelectStudent?.(value || null)}
           disabled={studentsLoading || studentsList.length === 0}
           className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
-        >
-          <option value="" disabled>Выберите ученика</option>
-          {studentsList.map((student) => (
-            <option key={student.id} value={student.id}>
-              {getStudentLabel(student)}
-            </option>
-          ))}
-        </select>
+        />
       </div>
     );
   };

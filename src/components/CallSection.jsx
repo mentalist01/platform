@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { AlertCircle, Camera, CameraOff, ImagePlus, Loader2, Maximize2, MessageSquare, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Move, Phone, PhoneOff, SendHorizontal, Settings, Signal, Users, X } from 'lucide-react';
 import { api } from '../services/api';
 import LinkifiedText from './LinkifiedText';
+import StudentSearchSelect from './StudentSearchSelect';
 import { getRtcWsUrl, resolveApiUrl } from '../utils/runtimeUrls';
 
 const DEFAULT_ICE_SERVERS = [
@@ -4468,7 +4469,7 @@ const CallSection = ({
     : (isConnecting ? 'connecting' : 'idle');
   const roomHint = roomId || 'Комната не выбрана';
   const resolvedError = error || (status === 'idle' ? presenceError : '');
-  const selectedStudentName = selectedStudent?.name || 'Ученик не выбран';
+  const selectedStudentName = selectedStudent?.nickname || selectedStudent?.name || 'Ученик не выбран';
   const canStart = !isConnecting && !isConnected;
   const canStop = isConnecting || isConnected;
   const canToggleMic = isConnected && !micBusy;
@@ -5027,20 +5028,17 @@ const CallSection = ({
                 <label className={teacherLabelClass} htmlFor="call-student-select">
                   Ученик
                 </label>
-                <select
+                <StudentSearchSelect
                   id="call-student-select"
+                  students={students}
                   className={teacherSelectClass}
                   value={activeStudentId || ''}
-                  onChange={(event) => onSelectStudent?.(event.target.value || null)}
+                  onChange={(nextStudentId) => onSelectStudent?.(nextStudentId || null)}
                   disabled={studentsLoading}
-                >
-                  <option value="">Выбери ученика</option>
-                  {(students || []).map((student) => (
-                    <option key={student.id} value={student.id}>
-                      {student.name}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Выбери ученика"
+                  dark={isDarkTheme}
+                  menuClassName={isDarkTheme ? 'border-violet-500/20' : ''}
+                />
                 <p className={`${mutedTextClass} min-w-0 truncate`}>Текущий: {selectedStudentName}</p>
               </div>
             </div>

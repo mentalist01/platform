@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import ImageViewer from './ImageViewer';
+import StudentSearchSelect from './StudentSearchSelect';
 import { api, authenticatedUploadsFetch } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
@@ -70,7 +71,6 @@ const NotesSection = ({
   ensurePyodideReady,
   PYODIDE_RUN_TIMEOUT_MS,
   ALLOW_MAIN_THREAD_PYTHON_FALLBACK,
-  getStudentLabel,
   getTaskDisplayNumber,
   formatTaskNumber,
   buildIdleConsoleText,
@@ -1781,22 +1781,14 @@ const NotesSection = ({
     return (
       <div className="notes-explorer-student-picker notes-student-picker inline-flex w-full sm:w-auto items-center gap-2">
         <span className="notes-student-picker__label">Ученик</span>
-        <select
+        <StudentSearchSelect
+          students={studentsList}
           value={activeStudentId || ''}
-          onChange={(e) => {
-            const value = e.target.value;
-            onSelectStudent?.(value || null);
-          }}
+          onChange={(value) => onSelectStudent?.(value || null)}
           disabled={studentsLoading || studentsList.length === 0}
           className="notes-explorer-student-picker-select notes-student-picker__select w-full min-w-0 sm:min-w-[180px] outline-none disabled:opacity-70"
-        >
-          <option value="" disabled>Выберите ученика</option>
-          {studentsList.map((student) => (
-            <option key={student.id} value={student.id}>
-              {getStudentLabel(student)}
-            </option>
-          ))}
-        </select>
+          dark={String(theme || '').trim().toLowerCase() === 'dark'}
+        />
       </div>
     );
   };
