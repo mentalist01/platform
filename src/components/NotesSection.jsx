@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   ChevronRight,
   Download,
-  FileCode2,
   FileSpreadsheet,
   FileText,
   Folder,
@@ -22,6 +21,7 @@ import StudentSearchSelect from './StudentSearchSelect';
 import { api, authenticatedUploadsFetch } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
+import { PythonLogoIcon } from './Identity';
 import { Button, Card } from './ui';
 
 const mergeFolderLists = (lists) => {
@@ -1251,13 +1251,14 @@ const NotesSection = ({
         : isExcelFile(name)
           ? { Icon: FileSpreadsheet, label: 'XLS', className: 'notes-file-icon--excel' }
           : isPyFile(name)
-            ? { Icon: FileCode2, label: 'PY', className: 'notes-file-icon--python' }
+            ? { Icon: PythonLogoIcon, iconProps: { colored: true }, label: 'PYTHON', className: 'notes-file-icon--python' }
             : { Icon: FileText, label: 'FILE', className: 'notes-file-icon--default' };
     const iconSize = compact ? 16 : 18;
+    const renderedIconSize = isPyFile(name) ? (compact ? 22 : 24) : iconSize;
     return (
       <span className={`notes-file-icon ${compact ? 'is-compact' : ''} ${config.className}`}>
         <span className="notes-file-icon__tile">
-          <config.Icon size={iconSize} strokeWidth={1.9} />
+          <config.Icon size={renderedIconSize} strokeWidth={1.9} {...(config.iconProps || {})} />
         </span>
         {!compact && <span className="notes-file-icon__label">{config.label}</span>}
       </span>

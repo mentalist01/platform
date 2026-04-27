@@ -17363,9 +17363,17 @@ html[data-theme='dark'] .collab-aux-panel textarea {
 }
 
 .notes-file-icon--python .notes-file-icon__tile {
-  border-color: rgba(125, 211, 252, 0.46);
-  background: rgba(239, 246, 255, 0.92);
-  color: #2563eb;
+  border-color: rgba(55, 118, 171, 0.32);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(239, 246, 255, 0.88));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 6px 16px rgba(55, 118, 171, 0.12);
+  color: #3776ab;
+}
+
+.notes-file-icon--python .notes-file-icon__label {
+  background: rgba(255, 212, 59, 0.28);
+  color: #2f5f8f;
 }
 
 .notes-file-icon--default .notes-file-icon__tile {
@@ -17577,9 +17585,14 @@ html[data-theme='dark'] .notes-file-icon--excel .notes-file-icon__tile {
 }
 
 html[data-theme='dark'] .notes-file-icon--python .notes-file-icon__tile {
-  border-color: rgba(96, 165, 250, 0.32);
-  background: rgba(30, 64, 175, 0.18);
+  border-color: rgba(96, 165, 250, 0.36);
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(30, 64, 175, 0.28));
   color: rgba(191, 219, 254, 0.98);
+}
+
+html[data-theme='dark'] .notes-file-icon--python .notes-file-icon__label {
+  background: rgba(255, 212, 59, 0.16);
+  color: rgba(254, 240, 138, 0.96);
 }
 
 /* Notes explorer dark theme final pass. */
