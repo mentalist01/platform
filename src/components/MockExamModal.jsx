@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   CircleAlert,
   FileDown,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { api } from '../services/api';
@@ -13,6 +14,55 @@ import { buildDownloadUrl } from '../utils/downloadUrl';
 import MockExamBadges, { MockExamBadgeSticker } from './MockExamBadges';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
 import { Button } from './ui';
+
+const artifactImageModules = import.meta.glob('../assets/artefacts/**/*.png', { eager: true, import: 'default' });
+
+const ARTIFACT_IMAGE_BY_ID = new Map(
+  Object.entries(artifactImageModules)
+    .map(([path, src]) => {
+      const match = path.match(/\/artefacts\/[^/]+\/([^/]+)\.png$/);
+      if (!match) return null;
+      return [String(match[1] || '').trim(), src];
+    })
+    .filter(Boolean)
+);
+
+const MOCK_ARTIFACT_DROP_RANK_ORDER = ['S', 'A', 'B', 'C'];
+const MOCK_ARTIFACT_SHARD_COUNT = 28;
+
+const getMockArtifactDropRankWeight = (rank) => {
+  const index = MOCK_ARTIFACT_DROP_RANK_ORDER.indexOf(String(rank || '').trim().toUpperCase());
+  return index >= 0 ? index : MOCK_ARTIFACT_DROP_RANK_ORDER.length;
+};
+
+const getFeaturedMockArtifactDrop = (saved) => {
+  if (!saved || typeof saved !== 'object') return null;
+  const drops = [
+    ...(Array.isArray(saved.mockArtifactDrops) ? saved.mockArtifactDrops : []),
+    saved.mockArtifactDrop,
+  ].filter((drop) => drop && typeof drop === 'object' && String(drop.id || '').trim());
+  if (drops.length <= 0) return null;
+  return drops
+    .slice()
+    .sort((a, b) => getMockArtifactDropRankWeight(a.rank) - getMockArtifactDropRankWeight(b.rank))[0];
+};
+
+const getMockArtifactRankClassName = (rank) => (
+  String(rank || 'C').trim().toLowerCase().replace(/[^a-z0-9-]/g, '') || 'c'
+);
+
+const getMockArtifactShardStyle = (index) => {
+  const angle = Math.round((index * 137.5) % 360);
+  const distance = 30 + ((index % 8) * 4) + (Math.floor(index / 8) * 5);
+  const delay = (index % 10) * 42;
+  const size = (0.36 + ((index % 6) * 0.07)).toFixed(2);
+  return {
+    '--angle': `${angle}deg`,
+    '--distance': `${distance}vmin`,
+    '--delay': `${delay}ms`,
+    '--size': `${size}rem`,
+  };
+};
 
 const MockExamModal = ({
   exam,
@@ -39,9 +89,13 @@ const MockExamModal = ({
   const [checking, setChecking] = useState(false);
   const [autoAdvance, setAutoAdvance] = useState(false);
   const [expandedImage, setExpandedImage] = useState(null);
+  const [successBurst, setSuccessBurst] = useState(null);
+  const [artifactDropBurst, setArtifactDropBurst] = useState(null);
   const hasLocalAttemptChangesRef = useRef(false);
   const latestInitialAttemptRef = useRef(initialAttempt);
   const autoAdvanceTimerRef = useRef(null);
+  const successBurstTimerRef = useRef(null);
+  const artifactDropTimerRef = useRef(null);
   const firstTaskNumber = MOCK_TASK_NUMBERS[0];
 
   const readAttemptAnswers = (attempt) => (
@@ -74,6 +128,7 @@ const MockExamModal = ({
     setSaveError('');
     setSaveStatus('');
     setChecking(false);
+    setArtifactDropBurst(null);
     const requestedTask = String(initialTaskNumber ?? '').trim();
     const initialTask = requestedTask
       ? MOCK_TASK_NUMBERS.find((taskNumber) => String(taskNumber) === requestedTask)
@@ -100,7 +155,42 @@ const MockExamModal = ({
       clearTimeout(autoAdvanceTimerRef.current);
       autoAdvanceTimerRef.current = null;
     }
+    if (successBurstTimerRef.current) {
+      clearTimeout(successBurstTimerRef.current);
+      successBurstTimerRef.current = null;
+    }
+    if (artifactDropTimerRef.current) {
+      clearTimeout(artifactDropTimerRef.current);
+      artifactDropTimerRef.current = null;
+    }
   }, []);
+
+  const triggerSuccessBurst = (burstTaskKey) => {
+    const burstId = `${burstTaskKey}-${Date.now()}`;
+    if (successBurstTimerRef.current) clearTimeout(successBurstTimerRef.current);
+    setSuccessBurst({ id: burstId, taskKey: burstTaskKey });
+    successBurstTimerRef.current = setTimeout(() => {
+      setSuccessBurst((current) => (current?.id === burstId ? null : current));
+      successBurstTimerRef.current = null;
+    }, 1650);
+  };
+
+  const triggerArtifactDropBurst = (drop) => {
+    const artifactId = String(drop?.id || '').trim();
+    if (!artifactId) return;
+    const burstId = `${artifactId}-${Date.now()}`;
+    if (successBurstTimerRef.current) {
+      clearTimeout(successBurstTimerRef.current);
+      successBurstTimerRef.current = null;
+    }
+    if (artifactDropTimerRef.current) clearTimeout(artifactDropTimerRef.current);
+    setSuccessBurst(null);
+    setArtifactDropBurst({ id: burstId, artifact: drop });
+    artifactDropTimerRef.current = setTimeout(() => {
+      setArtifactDropBurst((current) => (current?.id === burstId ? null : current));
+      artifactDropTimerRef.current = null;
+    }, 3900);
+  };
 
   const taskKey = String(selectedTask);
   const currentQuestion = exam?.tasks?.[taskKey];
@@ -198,6 +288,12 @@ const MockExamModal = ({
         const isCorrect = Boolean(savedSolved[taskKey]);
         setSolved(savedSolved);
         setResults((prev) => ({ ...prev, [taskKey]: isCorrect }));
+        const mockArtifactDrop = getFeaturedMockArtifactDrop(saved);
+        if (mockArtifactDrop) {
+          triggerArtifactDropBurst(mockArtifactDrop);
+        } else if (isCorrect) {
+          triggerSuccessBurst(taskKey);
+        }
         setSaveStatus(isCorrect ? 'Ответ верный и сохранён.' : 'Ответ сохранён, но пока неверный.');
         onAttemptSaved?.(exam.id, saved, { sourceRect });
         const nextTaskAfterSave = getNextUnsolvedTask(savedSolved, selectedTask);
@@ -206,7 +302,7 @@ const MockExamModal = ({
           autoAdvanceTimerRef.current = setTimeout(() => {
             setSelectedTask(nextTaskAfterSave);
             autoAdvanceTimerRef.current = null;
-          }, 520);
+          }, 1250);
         }
       }
     } catch (err) {
@@ -318,6 +414,12 @@ const MockExamModal = ({
 
   if (!exam) return null;
 
+  const artifactDropArtifact = artifactDropBurst?.artifact || null;
+  const artifactDropRank = String(artifactDropArtifact?.rank || 'C').trim().toUpperCase() || 'C';
+  const artifactDropImage = artifactDropArtifact
+    ? ARTIFACT_IMAGE_BY_ID.get(String(artifactDropArtifact.id || '').trim()) || ''
+    : '';
+
   const renderTaskPicker = (compact = false) => (
     <div className={compact ? 'flex gap-2 overflow-x-auto pb-1' : 'grid grid-cols-4 gap-2'}>
       {MOCK_TASK_NUMBERS.map((taskNumber) => (
@@ -350,6 +452,11 @@ const MockExamModal = ({
               <span className={`${isDarkTheme ? 'border-white/10 bg-white/[0.05] text-slate-300' : 'border-purple-100 bg-white/80 text-gray-500'} inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest`}>
                 ЕГЭ
               </span>
+            </div>
+
+            <div className="mock-exam-artifact-hint">
+              <Sparkles size={15} />
+              <span>За решённые задачи пробника есть шанс выбить новый артефакт.</span>
             </div>
 
             <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
@@ -586,7 +693,7 @@ const MockExamModal = ({
 
             {currentQuestion ? (
               <div
-                className={`rounded-[1.75rem] border p-3.5 ${panelClassName} ${hasLargeAnswerGrid ? 'flex min-h-0 shrink-0 flex-col overflow-hidden' : ''}`}
+                className={`relative overflow-hidden rounded-[1.75rem] border p-3.5 ${panelClassName} ${hasLargeAnswerGrid ? 'flex min-h-0 shrink-0 flex-col' : ''}`}
                 style={answerPanelStyle}
               >
                 <div className={`flex min-h-0 flex-col gap-4 xl:flex-row xl:justify-between ${hasLargeAnswerGrid ? 'h-full' : ''}`}>
@@ -734,6 +841,57 @@ const MockExamModal = ({
           </section>
         </div>
       </div>
+
+      {successBurst && (
+        <div key={successBurst.id} className="mock-answer-burst mock-answer-burst--fullscreen" aria-hidden="true">
+          <div className="mock-answer-burst__ring" />
+          <div className="mock-answer-burst__badge">
+            <Sparkles size={20} />
+            <span>{'\u0412\u0435\u0440\u043d\u043e!'}</span>
+          </div>
+          {Array.from({ length: 18 }).map((_, idx) => (
+            <span
+              key={idx}
+              className={`mock-answer-burst__particle mock-answer-burst__particle--${idx + 1}`}
+            />
+          ))}
+        </div>
+      )}
+
+      {artifactDropBurst && artifactDropArtifact && (
+        <div
+          key={artifactDropBurst.id}
+          className={`mock-artifact-drop mock-artifact-drop--rank-${getMockArtifactRankClassName(artifactDropRank)}`}
+          aria-hidden="true"
+        >
+          <div className="mock-artifact-drop__orbit mock-artifact-drop__orbit--outer" />
+          <div className="mock-artifact-drop__orbit mock-artifact-drop__orbit--inner" />
+          <div className="mock-artifact-drop__card">
+            <div className="mock-artifact-drop__kicker">Новый артефакт</div>
+            <div className="mock-artifact-drop__image-shell">
+              {artifactDropImage ? (
+                <img
+                  src={artifactDropImage}
+                  alt=""
+                  className="mock-artifact-drop__image"
+                  decoding="async"
+                />
+              ) : (
+                <Sparkles size={72} />
+              )}
+            </div>
+            <div className="mock-artifact-drop__rank">{`Ранг ${artifactDropRank}`}</div>
+            <div className="mock-artifact-drop__name">{artifactDropArtifact.name || 'Артефакт'}</div>
+          </div>
+          {Array.from({ length: MOCK_ARTIFACT_SHARD_COUNT }).map((_, idx) => (
+            <span
+              key={idx}
+              className="mock-artifact-drop__shard"
+              style={getMockArtifactShardStyle(idx)}
+            />
+          ))}
+        </div>
+      )}
 
       {expandedImage && (
         <div

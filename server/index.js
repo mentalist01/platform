@@ -244,6 +244,12 @@ const ARTIFACT_RANK_CHANCES = [
   { rank: 'B', chance: 0.30 },
   { rank: 'C', chance: 0.54 },
 ];
+const MOCK_EXAM_ARTIFACT_DROP_CHANCES = [
+  { rank: 'S', chance: 0.005 },
+  { rank: 'A', chance: 0.02 },
+  { rank: 'B', chance: 0.05 },
+  { rank: 'C', chance: 0.10 },
+];
 const ARTIFACT_EARLY_PULL_PROTECTION_COUNT = 20;
 const ARTIFACT_EARLY_PULL_PROTECTED_IDS = new Set(['transfer-agreement']);
 const ARTIFACT_DISABLED_DROP_IDS = new Set(['transfer-agreement']);
@@ -5296,6 +5302,37 @@ const rollArtifactReward = ({ totalPullsBefore = 0 } = {}) => {
   return ARTIFACT_CATALOG_BY_ID.get(artifactId) || null;
 };
 
+const rollMockExamArtifactRank = (randomValue = Math.random()) => {
+  const target = Number(randomValue);
+  if (!Number.isFinite(target) || target < 0) return null;
+  let cursor = 0;
+  for (const entry of MOCK_EXAM_ARTIFACT_DROP_CHANCES) {
+    cursor += Number(entry.chance) || 0;
+    if (target < cursor) return entry.rank;
+  }
+  return null;
+};
+
+const getUnownedMockExamArtifactIdsForRank = (rank, inventory = {}, levels = {}, cards = {}) => {
+  const normalizedRank = String(rank || '').trim().toUpperCase();
+  if (!MOCK_EXAM_ARTIFACT_DROP_CHANCES.some((entry) => entry.rank === normalizedRank)) return [];
+  return (ARTIFACT_IDS_BY_RANK.get(normalizedRank) || []).filter((artifactId) => (
+    !ARTIFACT_DISABLED_DROP_IDS.has(artifactId)
+    && getArtifactInventoryCount(inventory, artifactId) <= 0
+    && getArtifactLevel(levels, artifactId) <= 0
+    && getArtifactInventoryCount(cards, artifactId) <= 0
+  ));
+};
+
+const rollMockExamArtifactReward = (inventory = {}, levels = {}, cards = {}) => {
+  const rank = rollMockExamArtifactRank(Math.random());
+  if (!rank) return null;
+  const candidateIds = getUnownedMockExamArtifactIdsForRank(rank, inventory, levels, cards);
+  if (candidateIds.length <= 0) return null;
+  const artifactId = candidateIds[Math.floor(Math.random() * candidateIds.length)];
+  return ARTIFACT_CATALOG_BY_ID.get(artifactId) || null;
+};
+
 const normalizeLeaderboardAlias = (value) => {
   if (typeof value !== 'string') return '';
   const normalized = value.trim().replace(/\s+/g, ' ');
@@ -6165,13 +6202,25 @@ const recomputeMockSolvedMap = (exam, answersMap) => {
 
 const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => {
   const answers = normalizeMockAttemptAnswers(exam, rawAnswers);
+  const solved = recomputeMockSolvedMap(exam, answers);
+  const previousSolvedEver = meta?.solvedEver && typeof meta.solvedEver === 'object' && !Array.isArray(meta.solvedEver)
+    ? meta.solvedEver
+    : (meta?.solved && typeof meta.solved === 'object' && !Array.isArray(meta.solved) ? meta.solved : {});
+  const solvedEver = { ...solved };
+  Object.entries(previousSolvedEver).forEach(([taskKey, wasSolved]) => {
+    if (wasSolved && Object.prototype.hasOwnProperty.call(solvedEver, taskKey)) solvedEver[taskKey] = true;
+  });
+  Object.entries(solved).forEach(([taskKey, isSolved]) => {
+    if (isSolved) solvedEver[taskKey] = true;
+  });
   const coinsAwardedMilestones = getPreviouslyAwardedMockCoinMilestones(meta);
   const coinsAwardedAt = typeof meta?.coinsAwardedAt === 'string' && meta.coinsAwardedAt.trim()
     ? meta.coinsAwardedAt.trim()
     : '';
   return {
     answers,
-    solved: recomputeMockSolvedMap(exam, answers),
+    solved,
+    solvedEver,
     updatedAt: typeof updatedAt === 'string' && updatedAt.trim()
       ? updatedAt
       : new Date().toISOString(),
@@ -10823,7 +10872,7 @@ app.get('/api/mock-exams/attempt', (req, res) => {
 });
 
 app.put('/api/mock-exams/attempt', (req, res) => {
-  const { studentId, examId, answers } = req.body || {};
+  const { studentId, examId, answers, localDay } = req.body || {};
   const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
   if (isStudentRole(req.auth) && requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
   const effectiveStudentId = isStudentRole(req.auth) ? req.auth.id : requestedStudentId;
@@ -10841,8 +10890,26 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const previousAttempt = attempts[String(examId)] && typeof attempts[String(examId)] === 'object'
     ? attempts[String(examId)]
     : {};
+  const previousAttemptNormalized = normalizeMockAttemptPayload(exam, previousAttempt.answers, previousAttempt.updatedAt, previousAttempt);
+  const previousSolved = previousAttemptNormalized.solved && typeof previousAttemptNormalized.solved === 'object'
+    ? previousAttemptNormalized.solved
+    : {};
+  const previousSolvedEver = previousAttemptNormalized.solvedEver && typeof previousAttemptNormalized.solvedEver === 'object'
+    ? previousAttemptNormalized.solvedEver
+    : previousSolved;
   const previousAwardedMilestones = getPreviouslyAwardedMockCoinMilestones(previousAttempt);
   const savedAt = new Date().toISOString();
+  const serverDayKey = savedAt.slice(0, 10);
+  const clientDayKey = normalizeDayKey(localDay);
+  const resolvedDayKey = (() => {
+    if (!clientDayKey) return serverDayKey;
+    const serverNum = dayKeyToNumber(serverDayKey);
+    const clientNum = dayKeyToNumber(clientDayKey);
+    if (!Number.isFinite(serverNum) || !Number.isFinite(clientNum)) return serverDayKey;
+    const diff = clientNum - serverNum;
+    if (diff < -1 || diff > 1) return serverDayKey;
+    return clientDayKey;
+  })();
   const normalizedAttemptBase = normalizeMockAttemptPayload(exam, answers, savedAt, previousAttempt);
   const secondaryScore = getMockSecondaryScoreFromSolved(normalizedAttemptBase.solved);
   const reachedMilestones = getMockCoinMilestoneScoresForScore(secondaryScore);
@@ -10862,12 +10929,120 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       : (normalizedAttemptBase.coinsAwardedAt ? { coinsAwardedAt: normalizedAttemptBase.coinsAwardedAt } : {})),
   };
   attempts[String(examId)] = normalizedAttempt;
-  const coinsTotal = normalizeCoinsTotal(data.coinsTotal) + coinsGained;
-  const updated = setStudentData(student.id, { ...data, mockAttempts: attempts, coinsTotal });
+  const newlySolvedTaskKeys = Object.entries(normalizedAttempt.solved || {})
+    .filter(([, solvedNow]) => Boolean(solvedNow))
+    .map(([entryTaskKey]) => entryTaskKey)
+    .filter((entryTaskKey) => !previousSolvedEver?.[entryTaskKey]);
+  let xpTotal = normalizeXpTotal(data.xpTotal);
+  let coinsTotal = normalizeCoinsTotal(data.coinsTotal) + coinsGained;
+  const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
+  const artifactLevels = normalizeArtifactLevels(data?.artifactLevels, artifactInventory);
+  const artifactCards = normalizeArtifactCards(data?.artifactCards, artifactInventory);
+  let artifactTotalPulls = normalizeArtifactTotalPulls(data?.artifactTotalPulls);
+  const artifactDropRecords = [];
+  let artifactXpGained = 0;
+  let artifactCoinsGained = 0;
+  newlySolvedTaskKeys.forEach((solvedTaskKey) => {
+    const artifact = rollMockExamArtifactReward(artifactInventory, artifactLevels, artifactCards);
+    if (!artifact) return;
+    artifactInventory[artifact.id] = getArtifactInventoryCount(artifactInventory, artifact.id) + 1;
+    artifactCards[artifact.id] = getArtifactInventoryCount(artifactCards, artifact.id) + 1;
+    if (!artifactLevels[artifact.id]) artifactLevels[artifact.id] = 1;
+    artifactTotalPulls += 1;
+    const instantReward = getArtifactInstantRewardForPull(artifact.id);
+    const dropXpGained = normalizeXpTotal(instantReward.xp);
+    const dropCoinsGained = normalizeCoinsTotal(instantReward.coins);
+    artifactXpGained += dropXpGained;
+    artifactCoinsGained += dropCoinsGained;
+    xpTotal += dropXpGained;
+    coinsTotal += dropCoinsGained;
+    artifactDropRecords.push({
+      artifactId: artifact.id,
+      pulledAt: savedAt,
+      taskKey: solvedTaskKey,
+    });
+  });
+  const solvedEvents = Array.isArray(data.solvedEvents) ? [...data.solvedEvents] : [];
+  const examTitle = typeof exam?.title === 'string' && exam.title.trim()
+    ? exam.title.trim()
+    : 'Пробник';
+  newlySolvedTaskKeys.forEach((taskKey) => {
+    const taskNum = Number(taskKey);
+    solvedEvents.push({
+      id: crypto.randomUUID(),
+      source: 'mock-exam',
+      studentId: student.id,
+      mockExamId: String(examId),
+      mockExamTitle: examTitle,
+      mockTaskNumber: Number.isFinite(taskNum) ? taskNum : taskKey,
+      taskNumber: Number.isFinite(taskNum) ? taskNum : taskKey,
+      levelId: 'mock-exam',
+      questionId: taskKey,
+      questionNumber: null,
+      solvedAt: savedAt,
+      localDay: resolvedDayKey,
+      xpGained: 0,
+      coinsGained: 0,
+    });
+  });
+  if (solvedEvents.length > STUDENT_SOLVED_EVENTS_LIMIT) {
+    solvedEvents.splice(0, solvedEvents.length - STUDENT_SOLVED_EVENTS_LIMIT);
+  }
+  const lastArtifactDropRecord = artifactDropRecords[artifactDropRecords.length - 1] || null;
+  const updated = setStudentData(student.id, {
+    ...data,
+    mockAttempts: attempts,
+    xpTotal,
+    coinsTotal,
+    solvedEvents,
+    artifactInventory,
+    artifactLevels,
+    artifactCards,
+    artifactTotalPulls,
+    ...(lastArtifactDropRecord
+      ? {
+        artifactLastPull: {
+          id: lastArtifactDropRecord.artifactId,
+          pulledAt: lastArtifactDropRecord.pulledAt,
+        },
+      }
+      : {}),
+  });
+  const mockArtifactDrops = artifactDropRecords
+    .map((record) => {
+      const drop = buildArtifactRewardPayload(
+        record.artifactId,
+        updated.artifactInventory,
+        record.pulledAt,
+        updated.artifactLevels,
+        updated.artifactCards,
+        updated.coinsTotal
+      );
+      if (!drop) return null;
+      const taskNum = Number(record.taskKey);
+      return {
+        ...drop,
+        source: 'mock-exam',
+        mockExamId: String(examId),
+        mockExamTitle: examTitle,
+        mockTaskNumber: Number.isFinite(taskNum) ? taskNum : record.taskKey,
+      };
+    })
+    .filter(Boolean);
   res.json({
     ...(updated.mockAttempts?.[String(examId)] || normalizedAttempt),
     coinsGained,
     coinsTotal: updated.coinsTotal,
+    ...(mockArtifactDrops.length > 0
+      ? {
+        xpTotal: updated.xpTotal,
+        artifactXpGained,
+        artifactCoinsGained,
+        altar: buildStudentArtifactState(updated),
+        mockArtifactDrop: mockArtifactDrops[0],
+        mockArtifactDrops,
+      }
+      : {}),
   });
 });
 
@@ -11185,14 +11360,20 @@ app.get('/api/teacher-solved-events', (req, res) => {
       const ts = Date.parse(ev?.solvedAt || '');
       if (!Number.isFinite(ts) || ts <= sinceTime) return;
       if (readBeforeMs > 0 && ts <= readBeforeMs) return;
-      const questionNumber = Number.isFinite(ev?.questionNumber)
+      const sourceRaw = String(ev?.source || ev?.eventKind || '').trim().toLowerCase();
+      const isMockExamEvent = sourceRaw === 'mock-exam' || sourceRaw === 'mock-exam-task';
+      const questionNumber = !isMockExamEvent && Number.isFinite(ev?.questionNumber)
         ? ev.questionNumber
-        : getQuestionNumberById(testsDb, ev?.taskNumber, ev?.levelId, ev?.questionId);
+        : (isMockExamEvent ? null : getQuestionNumberById(testsDb, ev?.taskNumber, ev?.levelId, ev?.questionId));
       events.push({
         id: eventId,
         studentId: student.id,
         studentName: student.name,
         studentNickname: normalizeStudentNickname(student.nickname),
+        source: isMockExamEvent ? 'mock-exam' : 'testing',
+        mockExamId: isMockExamEvent ? String(ev?.mockExamId || '').trim() : '',
+        mockExamTitle: isMockExamEvent ? String(ev?.mockExamTitle || '').trim() : '',
+        mockTaskNumber: isMockExamEvent ? (ev?.mockTaskNumber ?? ev?.taskNumber) : null,
         taskNumber: ev.taskNumber,
         levelId: ev.levelId,
         questionId: ev.questionId,

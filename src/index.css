@@ -2625,6 +2625,591 @@ html[data-theme='dark'] .board-canvas-outline {
   height: 0;
 }
 
+.mock-exam-artifact-hint {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid rgba(250, 204, 21, 0.28);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 0% 50%, rgba(250, 204, 21, 0.18), transparent 38%),
+    linear-gradient(135deg, rgba(15, 23, 42, 0.38), rgba(30, 41, 59, 0.2));
+  padding: 0.48rem 0.76rem;
+  color: rgba(255, 251, 235, 0.94);
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0;
+  line-height: 1.2;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 12px 28px rgba(15, 23, 42, 0.2);
+}
+
+.mock-exam-artifact-hint svg {
+  flex: 0 0 auto;
+  color: #fde047;
+  filter: drop-shadow(0 0 8px rgba(250, 204, 21, 0.45));
+}
+
+html:not([data-theme='dark']) .mock-exam-artifact-hint {
+  border-color: rgba(217, 119, 6, 0.22);
+  background:
+    radial-gradient(circle at 0% 50%, rgba(250, 204, 21, 0.24), transparent 42%),
+    linear-gradient(135deg, rgba(255, 251, 235, 0.98), rgba(240, 253, 250, 0.92));
+  color: #78350f;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 12px 24px rgba(217, 119, 6, 0.11);
+}
+
+.mock-answer-burst {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.mock-answer-burst--fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  border-radius: 0;
+  background:
+    radial-gradient(circle at 50% 48%, rgba(16, 185, 129, 0.24), transparent 23%),
+    radial-gradient(circle at 22% 18%, rgba(34, 211, 238, 0.18), transparent 26%),
+    radial-gradient(circle at 78% 24%, rgba(168, 85, 247, 0.16), transparent 24%),
+    rgba(2, 6, 23, 0.1);
+  animation: mockAnswerBurstStage 1.55s ease both;
+}
+
+.mock-answer-burst::before {
+  content: '';
+  position: absolute;
+  inset: -38%;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(16, 185, 129, 0.36), transparent 18%),
+    conic-gradient(
+      from 18deg,
+      transparent 0deg,
+      rgba(34, 211, 238, 0.28) 42deg,
+      transparent 78deg,
+      rgba(168, 85, 247, 0.28) 124deg,
+      transparent 168deg,
+      rgba(250, 204, 21, 0.26) 218deg,
+      transparent 268deg,
+      rgba(16, 185, 129, 0.28) 316deg,
+      transparent 360deg
+    );
+  opacity: 0;
+  transform: scale(0.76) rotate(0deg);
+  animation: mockAnswerBurstWash 1.08s ease-out both;
+}
+
+.mock-answer-burst--fullscreen::before {
+  inset: -32vmax;
+  background:
+    radial-gradient(circle at 50% 48%, rgba(52, 211, 153, 0.42), transparent 12%),
+    radial-gradient(circle at 50% 48%, rgba(34, 211, 238, 0.24), transparent 22%),
+    conic-gradient(
+      from 22deg,
+      transparent 0deg,
+      rgba(34, 211, 238, 0.38) 36deg,
+      transparent 72deg,
+      rgba(168, 85, 247, 0.35) 118deg,
+      transparent 158deg,
+      rgba(250, 204, 21, 0.34) 210deg,
+      transparent 260deg,
+      rgba(16, 185, 129, 0.38) 318deg,
+      transparent 360deg
+    );
+  animation-duration: 1.45s;
+}
+
+.mock-answer-burst__ring {
+  position: absolute;
+  width: clamp(5.5rem, 26%, 12rem);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  border: 2px solid rgba(52, 211, 153, 0.72);
+  box-shadow:
+    0 0 0 8px rgba(34, 211, 238, 0.12),
+    0 0 32px rgba(16, 185, 129, 0.35);
+  animation: mockAnswerBurstRing 0.9s cubic-bezier(0.2, 0.9, 0.22, 1) both;
+}
+
+.mock-answer-burst--fullscreen .mock-answer-burst__ring {
+  width: clamp(13rem, 44vmin, 32rem);
+  border-width: 3px;
+  box-shadow:
+    0 0 0 clamp(12px, 2.5vmin, 28px) rgba(34, 211, 238, 0.12),
+    0 0 70px rgba(16, 185, 129, 0.42),
+    inset 0 0 34px rgba(255, 255, 255, 0.12);
+  animation-duration: 1.25s;
+}
+
+.mock-answer-burst__badge {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #10b981, #22c55e 46%, #06b6d4);
+  padding: 0.55rem 0.78rem;
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  box-shadow:
+    0 18px 36px rgba(16, 185, 129, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.34);
+  text-shadow: 0 1px 6px rgba(6, 78, 59, 0.35);
+  animation: mockAnswerBurstBadge 1.18s cubic-bezier(0.16, 0.92, 0.24, 1) both;
+}
+
+.mock-answer-burst--fullscreen .mock-answer-burst__badge {
+  gap: 0.72rem;
+  padding: clamp(0.74rem, 1.7vw, 1rem) clamp(1rem, 2.35vw, 1.5rem);
+  font-size: clamp(1rem, 2.1vw, 1.45rem);
+  box-shadow:
+    0 24px 70px rgba(16, 185, 129, 0.42),
+    0 0 42px rgba(34, 211, 238, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.36);
+  animation-duration: 1.45s;
+}
+
+.mock-answer-burst__badge strong {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.24);
+  padding: 0.16rem 0.38rem;
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
+.mock-answer-burst--fullscreen .mock-answer-burst__badge strong {
+  padding: 0.22rem 0.52rem;
+  font-size: clamp(0.72rem, 1.35vw, 0.95rem);
+}
+
+.mock-answer-burst__particle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  width: var(--size, 0.48rem);
+  height: var(--size, 0.48rem);
+  border-radius: 0.18rem;
+  background: var(--color, #34d399);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.5),
+    0 0 18px color-mix(in srgb, var(--color, #34d399), transparent 34%);
+  animation: mockAnswerBurstParticle 0.92s cubic-bezier(0.12, 0.68, 0.2, 1) both;
+  animation-delay: var(--delay, 0ms);
+}
+
+.mock-answer-burst--fullscreen .mock-answer-burst__particle {
+  width: var(--size, 0.72rem);
+  height: var(--size, 0.72rem);
+  border-radius: 0.22rem;
+  animation-duration: 1.22s;
+}
+
+.mock-answer-burst__particle--1 { --tx: -5.9rem; --ty: -2.3rem; --rot: -92deg; --size: 0.42rem; --color: #34d399; --delay: 15ms; }
+.mock-answer-burst__particle--2 { --tx: -4.7rem; --ty: 2.6rem; --rot: 74deg; --size: 0.36rem; --color: #22d3ee; --delay: 50ms; }
+.mock-answer-burst__particle--3 { --tx: -2.2rem; --ty: -4.1rem; --rot: 146deg; --size: 0.5rem; --color: #facc15; --delay: 20ms; }
+.mock-answer-burst__particle--4 { --tx: 2.4rem; --ty: -4.4rem; --rot: -132deg; --size: 0.38rem; --color: #a78bfa; --delay: 60ms; }
+.mock-answer-burst__particle--5 { --tx: 5.8rem; --ty: -1.6rem; --rot: 118deg; --size: 0.46rem; --color: #2dd4bf; --delay: 30ms; }
+.mock-answer-burst__particle--6 { --tx: 5.2rem; --ty: 2.9rem; --rot: -54deg; --size: 0.34rem; --color: #f59e0b; --delay: 75ms; }
+.mock-answer-burst__particle--7 { --tx: 1.7rem; --ty: 4.6rem; --rot: 96deg; --size: 0.44rem; --color: #4ade80; --delay: 45ms; }
+.mock-answer-burst__particle--8 { --tx: -1.5rem; --ty: 4.4rem; --rot: -118deg; --size: 0.32rem; --color: #38bdf8; --delay: 80ms; }
+.mock-answer-burst__particle--9 { --tx: -6.7rem; --ty: 0.1rem; --rot: 42deg; --size: 0.3rem; --color: #c084fc; --delay: 35ms; }
+.mock-answer-burst__particle--10 { --tx: 6.8rem; --ty: 0.4rem; --rot: -34deg; --size: 0.32rem; --color: #86efac; --delay: 55ms; }
+.mock-answer-burst__particle--11 { --tx: -3.1rem; --ty: -5.5rem; --rot: 138deg; --size: 0.4rem; --color: #67e8f9; --delay: 95ms; }
+.mock-answer-burst__particle--12 { --tx: 3.5rem; --ty: -5.2rem; --rot: -108deg; --size: 0.38rem; --color: #f0abfc; --delay: 90ms; }
+.mock-answer-burst__particle--13 { --tx: -3.9rem; --ty: 5.7rem; --rot: -68deg; --size: 0.34rem; --color: #bef264; --delay: 105ms; }
+.mock-answer-burst__particle--14 { --tx: 3.7rem; --ty: 5.5rem; --rot: 84deg; --size: 0.36rem; --color: #fde047; --delay: 110ms; }
+.mock-answer-burst__particle--15 { --tx: -7.5rem; --ty: -3.7rem; --rot: -156deg; --size: 0.31rem; --color: #5eead4; --delay: 115ms; }
+.mock-answer-burst__particle--16 { --tx: 7.5rem; --ty: -3.5rem; --rot: 152deg; --size: 0.31rem; --color: #60a5fa; --delay: 120ms; }
+.mock-answer-burst__particle--17 { --tx: -7.3rem; --ty: 3.7rem; --rot: 112deg; --size: 0.33rem; --color: #fb7185; --delay: 125ms; }
+.mock-answer-burst__particle--18 { --tx: 7.4rem; --ty: 3.8rem; --rot: -124deg; --size: 0.33rem; --color: #86efac; --delay: 130ms; }
+
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--1 { --tx: -38vw; --ty: -26vh; --rot: -180deg; --size: clamp(0.42rem, 1.1vw, 0.82rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--2 { --tx: -32vw; --ty: 31vh; --rot: 156deg; --size: clamp(0.36rem, 0.92vw, 0.68rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--3 { --tx: -15vw; --ty: -38vh; --rot: 220deg; --size: clamp(0.48rem, 1.2vw, 0.9rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--4 { --tx: 16vw; --ty: -39vh; --rot: -208deg; --size: clamp(0.4rem, 1vw, 0.78rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--5 { --tx: 36vw; --ty: -22vh; --rot: 196deg; --size: clamp(0.48rem, 1.2vw, 0.92rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--6 { --tx: 33vw; --ty: 32vh; --rot: -148deg; --size: clamp(0.36rem, 0.94vw, 0.7rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--7 { --tx: 12vw; --ty: 41vh; --rot: 186deg; --size: clamp(0.42rem, 1.1vw, 0.84rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--8 { --tx: -12vw; --ty: 40vh; --rot: -188deg; --size: clamp(0.34rem, 0.9vw, 0.68rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--9 { --tx: -44vw; --ty: 2vh; --rot: 132deg; --size: clamp(0.32rem, 0.82vw, 0.62rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--10 { --tx: 44vw; --ty: 4vh; --rot: -128deg; --size: clamp(0.32rem, 0.84vw, 0.64rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--11 { --tx: -24vw; --ty: -43vh; --rot: 236deg; --size: clamp(0.38rem, 1vw, 0.78rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--12 { --tx: 26vw; --ty: -42vh; --rot: -232deg; --size: clamp(0.38rem, 1vw, 0.76rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--13 { --tx: -24vw; --ty: 44vh; --rot: -154deg; --size: clamp(0.34rem, 0.9vw, 0.7rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--14 { --tx: 25vw; --ty: 43vh; --rot: 164deg; --size: clamp(0.34rem, 0.92vw, 0.72rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--15 { --tx: -43vw; --ty: -34vh; --rot: -230deg; --size: clamp(0.3rem, 0.78vw, 0.58rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--16 { --tx: 43vw; --ty: -33vh; --rot: 226deg; --size: clamp(0.3rem, 0.78vw, 0.58rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--17 { --tx: -42vw; --ty: 35vh; --rot: 210deg; --size: clamp(0.32rem, 0.82vw, 0.62rem); }
+.mock-answer-burst--fullscreen .mock-answer-burst__particle--18 { --tx: 42vw; --ty: 36vh; --rot: -214deg; --size: clamp(0.32rem, 0.82vw, 0.62rem); }
+
+html[data-theme='dark'] .mock-answer-burst__badge {
+  border-color: rgba(187, 247, 208, 0.42);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.96), rgba(37, 99, 235, 0.92));
+  box-shadow:
+    0 18px 38px rgba(14, 165, 233, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+@keyframes mockAnswerBurstStage {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  76% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes mockAnswerBurstWash {
+  0% { opacity: 0; transform: scale(0.76) rotate(0deg); }
+  18% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.18) rotate(54deg); }
+}
+
+@keyframes mockAnswerBurstRing {
+  0% { opacity: 0; transform: scale(0.28); }
+  18% { opacity: 0.95; }
+  100% { opacity: 0; transform: scale(1.75); }
+}
+
+@keyframes mockAnswerBurstBadge {
+  0% { opacity: 0; transform: translateY(18px) scale(0.72) rotate(-5deg); }
+  22% { opacity: 1; transform: translateY(0) scale(1.12) rotate(2deg); }
+  48% { transform: translateY(-2px) scale(0.98) rotate(0deg); }
+  78% { opacity: 1; transform: translateY(-6px) scale(1); }
+  100% { opacity: 0; transform: translateY(-26px) scale(0.9); }
+}
+
+@keyframes mockAnswerBurstParticle {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.35) rotate(0deg);
+  }
+  14% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0.18) rotate(var(--rot));
+  }
+}
+
+.mock-artifact-drop {
+  --artifact-main: #facc15;
+  --artifact-hot: #22d3ee;
+  --artifact-deep: #7c3aed;
+  --artifact-ink: #ffffff;
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  pointer-events: none;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 50% 48%, color-mix(in srgb, var(--artifact-main), transparent 72%), transparent 28%),
+    linear-gradient(135deg, rgba(2, 6, 23, 0.84), rgba(15, 23, 42, 0.62));
+  animation: mockArtifactDropStage 3.8s ease both;
+}
+
+.mock-artifact-drop--rank-s {
+  --artifact-main: #fb7185;
+  --artifact-hot: #f97316;
+  --artifact-deep: #be123c;
+}
+
+.mock-artifact-drop--rank-a {
+  --artifact-main: #c084fc;
+  --artifact-hot: #22d3ee;
+  --artifact-deep: #7c3aed;
+}
+
+.mock-artifact-drop--rank-b {
+  --artifact-main: #38bdf8;
+  --artifact-hot: #2dd4bf;
+  --artifact-deep: #2563eb;
+}
+
+.mock-artifact-drop--rank-c {
+  --artifact-main: #a3e635;
+  --artifact-hot: #38bdf8;
+  --artifact-deep: #475569;
+}
+
+.mock-artifact-drop::before {
+  content: '';
+  position: absolute;
+  inset: -34vmax;
+  z-index: -2;
+  background:
+    conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      color-mix(in srgb, var(--artifact-hot), transparent 60%) 28deg,
+      transparent 58deg,
+      color-mix(in srgb, var(--artifact-main), transparent 54%) 112deg,
+      transparent 148deg,
+      color-mix(in srgb, var(--artifact-deep), transparent 58%) 214deg,
+      transparent 258deg,
+      color-mix(in srgb, var(--artifact-hot), transparent 62%) 322deg,
+      transparent 360deg
+    );
+  opacity: 0;
+  animation: mockArtifactDropWash 3.4s cubic-bezier(0.16, 0.92, 0.24, 1) both;
+}
+
+.mock-artifact-drop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(115deg, transparent 0 31%, color-mix(in srgb, var(--artifact-hot), transparent 78%) 32% 33%, transparent 34% 100%),
+    linear-gradient(67deg, transparent 0 56%, color-mix(in srgb, var(--artifact-main), transparent 80%) 57% 58%, transparent 59% 100%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.06) 0 1px, transparent 1px 16px);
+  mix-blend-mode: screen;
+  opacity: 0;
+  animation: mockArtifactDropBeams 3.2s ease both;
+}
+
+.mock-artifact-drop__orbit {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border: 2px solid color-mix(in srgb, var(--artifact-main), transparent 26%);
+  border-radius: 999px;
+  box-shadow:
+    0 0 34px color-mix(in srgb, var(--artifact-main), transparent 32%),
+    inset 0 0 30px color-mix(in srgb, var(--artifact-hot), transparent 72%);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.3);
+}
+
+.mock-artifact-drop__orbit--outer {
+  width: min(74vmin, 42rem);
+  aspect-ratio: 1;
+  animation: mockArtifactDropOrbit 2.7s cubic-bezier(0.18, 0.9, 0.2, 1) 0.08s both;
+}
+
+.mock-artifact-drop__orbit--inner {
+  width: min(48vmin, 28rem);
+  aspect-ratio: 1;
+  border-color: color-mix(in srgb, var(--artifact-hot), transparent 34%);
+  animation: mockArtifactDropOrbit 2.45s cubic-bezier(0.18, 0.9, 0.2, 1) 0.18s both reverse;
+}
+
+.mock-artifact-drop__card {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  width: min(88vw, 26rem);
+  justify-items: center;
+  gap: 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 1.4rem;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06)),
+    linear-gradient(155deg, color-mix(in srgb, var(--artifact-deep), transparent 42%), rgba(2, 6, 23, 0.88));
+  padding: clamp(1.25rem, 4vmin, 2rem);
+  color: #ffffff;
+  text-align: center;
+  box-shadow:
+    0 32px 90px rgba(0, 0, 0, 0.46),
+    0 0 72px color-mix(in srgb, var(--artifact-main), transparent 46%),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  transform-origin: center;
+  animation: mockArtifactDropCard 3.15s cubic-bezier(0.16, 0.92, 0.24, 1) both;
+}
+
+.mock-artifact-drop__card::before {
+  content: '';
+  position: absolute;
+  inset: 0.6rem;
+  z-index: -1;
+  border: 1px solid color-mix(in srgb, var(--artifact-main), transparent 52%);
+  border-radius: 1rem;
+  opacity: 0.72;
+}
+
+.mock-artifact-drop__kicker,
+.mock-artifact-drop__rank {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--artifact-main), transparent 78%);
+  padding: 0.28rem 0.68rem;
+  color: color-mix(in srgb, var(--artifact-main), #ffffff 54%);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.mock-artifact-drop__image-shell {
+  display: grid;
+  width: clamp(8.5rem, 26vmin, 13rem);
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--artifact-hot), transparent 42%);
+  border-radius: 1.35rem;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.28), transparent 32%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06));
+  color: color-mix(in srgb, var(--artifact-main), #ffffff 20%);
+  box-shadow:
+    0 0 42px color-mix(in srgb, var(--artifact-main), transparent 38%),
+    inset 0 0 28px rgba(255, 255, 255, 0.08);
+  animation: mockArtifactDropRelic 2.6s cubic-bezier(0.18, 0.92, 0.18, 1) 0.18s both;
+}
+
+.mock-artifact-drop__image {
+  display: block;
+  width: 82%;
+  height: 82%;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 18px 22px rgba(0, 0, 0, 0.34))
+    drop-shadow(0 0 20px color-mix(in srgb, var(--artifact-main), transparent 28%));
+}
+
+.mock-artifact-drop__name {
+  max-width: 100%;
+  color: #ffffff;
+  font-size: clamp(1.55rem, 5vmin, 2.85rem);
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1.02;
+  overflow-wrap: anywhere;
+  text-shadow:
+    0 0 18px color-mix(in srgb, var(--artifact-main), transparent 28%),
+    0 3px 18px rgba(0, 0, 0, 0.36);
+}
+
+.mock-artifact-drop__shard {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 2;
+  width: var(--size, 0.48rem);
+  height: calc(var(--size, 0.48rem) * 1.8);
+  border-radius: 0.18rem;
+  background: linear-gradient(180deg, #ffffff, var(--artifact-hot) 45%, var(--artifact-main));
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.34),
+    0 0 20px color-mix(in srgb, var(--artifact-main), transparent 24%);
+  transform: translate(-50%, -50%) scale(0.2) rotate(var(--angle));
+  animation: mockArtifactDropShard 1.8s cubic-bezier(0.12, 0.72, 0.18, 1) both;
+  animation-delay: var(--delay, 0ms);
+}
+
+@keyframes mockArtifactDropStage {
+  0% { opacity: 0; }
+  8% { opacity: 1; }
+  86% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes mockArtifactDropWash {
+  0% { opacity: 0; transform: scale(0.45) rotate(0deg); filter: blur(10px); }
+  16% { opacity: 1; filter: blur(0); }
+  72% { opacity: 0.82; }
+  100% { opacity: 0; transform: scale(1.08) rotate(130deg); filter: blur(8px); }
+}
+
+@keyframes mockArtifactDropBeams {
+  0% { opacity: 0; transform: scale(1.05); }
+  18% { opacity: 0.72; }
+  78% { opacity: 0.45; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.02); }
+}
+
+@keyframes mockArtifactDropOrbit {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.18) rotate(0deg); }
+  18% { opacity: 0.96; }
+  78% { opacity: 0.34; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.18) rotate(120deg); }
+}
+
+@keyframes mockArtifactDropCard {
+  0% { opacity: 0; transform: translateY(36px) scale(0.52) rotateX(24deg) rotateZ(-6deg); filter: blur(12px); }
+  14% { opacity: 1; filter: blur(0); }
+  25% { transform: translateY(-8px) scale(1.08) rotateX(0deg) rotateZ(2deg); }
+  45% { transform: translateY(0) scale(1) rotateZ(0deg); }
+  82% { opacity: 1; transform: translateY(-6px) scale(1); }
+  100% { opacity: 0; transform: translateY(-34px) scale(0.92); }
+}
+
+@keyframes mockArtifactDropRelic {
+  0% { opacity: 0; transform: scale(0.42) rotate(-18deg); filter: brightness(2.4) blur(10px); }
+  24% { opacity: 1; transform: scale(1.18) rotate(8deg); filter: brightness(1.6) blur(0); }
+  48% { transform: scale(0.98) rotate(0deg); filter: brightness(1.1); }
+  100% { opacity: 1; transform: scale(1) rotate(0deg); filter: brightness(1); }
+}
+
+@keyframes mockArtifactDropShard {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.15) rotate(var(--angle));
+  }
+  16% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform:
+      translate(-50%, -50%)
+      rotate(var(--angle))
+      translateX(var(--distance, 34vmin))
+      rotate(160deg)
+      scale(0.2);
+  }
+}
+
+@media (max-width: 640px) {
+  .mock-exam-artifact-hint {
+    border-radius: 1rem;
+    padding: 0.5rem 0.64rem;
+    font-size: 0.72rem;
+  }
+
+  .mock-artifact-drop__card {
+    width: min(92vw, 22rem);
+    border-radius: 1.15rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mock-answer-burst::before,
+  .mock-answer-burst__ring,
+  .mock-answer-burst__particle,
+  .mock-artifact-drop::before,
+  .mock-artifact-drop::after,
+  .mock-artifact-drop__orbit,
+  .mock-artifact-drop__shard {
+    display: none;
+  }
+
+  .mock-answer-burst__badge {
+    animation: fadeSoft 0.65s ease both;
+  }
+
+  .mock-artifact-drop,
+  .mock-artifact-drop__card,
+  .mock-artifact-drop__image-shell {
+    animation-duration: 0.65s;
+  }
+}
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(12px) scale(0.98); filter: blur(2px); }
   to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }

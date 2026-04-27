@@ -875,6 +875,7 @@ const isTestingSolvedEvent = (event) => {
   if (!event || typeof event !== 'object') return false;
   const taskNum = Number(event.taskNumber);
   if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) return false;
+  if (isMockExamTeacherSolvedNotif(event)) return false;
   const levelId = String(event.levelId || '').trim();
   return levelId !== PYTHON_LEVEL_ID;
 };
@@ -1071,6 +1072,33 @@ const getTeacherNotifStudentLabel = (note) => {
   return String(note?.studentName || '').trim() || 'Ученик';
 };
 
+const normalizeTeacherSolvedSource = (note) => {
+  const raw = String(note?.source || note?.eventKind || '').trim().toLowerCase();
+  if (raw === 'mock-exam' || raw === 'mock-exam-task') return 'mock-exam';
+  return 'testing';
+};
+
+const isMockExamTeacherSolvedNotif = (note) => normalizeTeacherSolvedSource(note) === 'mock-exam';
+
+const getTeacherSolvedNotifKicker = (note, archived = false) => {
+  if (isMockExamTeacherSolvedNotif(note)) return archived ? 'Пробник' : 'Ответ в пробнике';
+  return archived ? 'Отметка' : 'Новая отметка';
+};
+
+const getTeacherSolvedNotifSummary = (note) => {
+  if (isMockExamTeacherSolvedNotif(note)) {
+    const examTitle = String(note?.mockExamTitle || '').trim() || 'Пробник';
+    const taskValue = note?.mockTaskNumber ?? note?.taskNumber;
+    const taskLabel = formatTaskNumber(taskValue) || String(taskValue || '').trim();
+    return `Решено в пробнике: ${examTitle}${taskLabel ? ` · задание ${taskLabel}` : ''}`;
+  }
+  const levelLabel = note?.levelId === PYTHON_LEVEL_ID
+    ? 'Python'
+    : (LEVELS[note?.levelId?.toUpperCase()]?.label || note?.levelId || '');
+  const questionPart = note?.questionNumber ? ` · вопрос ${note.questionNumber}` : '';
+  return `Решено: задание ${formatTaskNumber(note?.taskNumber) || note?.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`;
+};
+
 const STUDENT_TOUR_KEY = 'ege_student_onboarding_v1';
 const STUDENT_RATING_TOUR_KEY = 'ege_student_rating_onboarding_v1';
 
@@ -1249,6 +1277,10 @@ const normalizeTeacherNotifHistoryEntry = (entry) => {
     archivedAtMs,
     studentName: String(entry?.studentName || '').trim(),
     studentNickname: String(entry?.studentNickname || '').trim(),
+    source: normalizeTeacherSolvedSource(entry),
+    mockExamId: String(entry?.mockExamId || '').trim(),
+    mockExamTitle: String(entry?.mockExamTitle || '').trim(),
+    mockTaskNumber: entry?.mockTaskNumber ?? null,
     taskNumber: entry?.taskNumber,
     levelId: String(entry?.levelId || '').trim(),
     questionNumber,
@@ -11092,6 +11124,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           archivedAtMs: Date.now(),
           studentName: note?.studentName,
           studentNickname: note?.studentNickname,
+          source: normalizeTeacherSolvedSource(note),
+          mockExamId: note?.mockExamId,
+          mockExamTitle: note?.mockExamTitle,
+          mockTaskNumber: note?.mockTaskNumber,
           taskNumber: note?.taskNumber,
           levelId: note?.levelId,
           questionNumber: note?.questionNumber,
@@ -12876,6 +12912,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             ...event,
             id: eventId,
             type: 'solved',
+            source: normalizeTeacherSolvedSource(event),
             timestampMs: Number.isFinite(solvedAtMs) ? solvedAtMs : 0,
           });
         });
@@ -13679,14 +13716,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </div>
             <div className="mt-3 max-h-[40vh] space-y-2 overflow-y-auto pr-1">
               {teacherNotifs.map((note) => {
-                const levelLabel = note.levelId === PYTHON_LEVEL_ID
-                  ? 'Python'
-                  : (LEVELS[note.levelId?.toUpperCase()]?.label || note.levelId || '');
-                const questionPart = note.questionNumber ? ` · вопрос ${note.questionNumber}` : '';
                 const signupUnreadLabel = note.unreadCount > 1
                   ? `Новых сообщений: ${note.unreadCount}`
                   : 'Новое сообщение';
                 const timestampLabel = formatTeacherNotifTimestamp(note.timestampMs);
+                const solvedKicker = getTeacherSolvedNotifKicker(note);
+                const solvedSummary = getTeacherSolvedNotifSummary(note);
                 return (
                   <div key={note.id} className="toast-enter relative rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
                     <button
@@ -13712,12 +13747,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       </>
                     ) : (
                       <>
-                        <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Новая отметка</div>
+                        <div className="text-xs font-bold uppercase tracking-widest text-purple-500">{solvedKicker}</div>
                         <div className="mt-1 font-semibold text-gray-900 truncate">
                           {getTeacherNotifStudentLabel(note)}
                         </div>
                         <div className="text-xs text-gray-500">
-                          {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
+                          {solvedSummary}
                         </div>
                         {timestampLabel && (
                           <div className="mt-1 text-[11px] text-gray-400">{timestampLabel}</div>
@@ -15183,14 +15218,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     <div className="mt-3 max-h-[48vh] space-y-2 overflow-y-auto pr-1">
                       {teacherNotifs.length > 0 ? (
                         teacherNotifs.map((note) => {
-                          const levelLabel = note.levelId === PYTHON_LEVEL_ID
-                            ? 'Python'
-                            : (LEVELS[note.levelId?.toUpperCase()]?.label || note.levelId || '');
-                          const questionPart = note.questionNumber ? ` · вопрос ${note.questionNumber}` : '';
                           const signupUnreadLabel = note.unreadCount > 1
                             ? `Новых сообщений: ${note.unreadCount}`
                             : 'Новое сообщение';
                           const timestampLabel = formatTeacherNotifTimestamp(note.timestampMs);
+                          const solvedKicker = getTeacherSolvedNotifKicker(note);
+                          const solvedSummary = getTeacherSolvedNotifSummary(note);
                           return (
                             <div key={`notif-view-live-${note.id}`} className="relative rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
                               <button
@@ -15214,12 +15247,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                 </>
                               ) : (
                                 <>
-                                  <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Новая отметка</div>
+                                  <div className="text-xs font-bold uppercase tracking-widest text-purple-500">{solvedKicker}</div>
                                   <div className="mt-1 font-semibold text-gray-900 truncate">
                                     {getTeacherNotifStudentLabel(note)}
                                   </div>
                                   <div className="text-xs text-gray-500">
-                                    {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
+                                    {solvedSummary}
                                   </div>
                                   {timestampLabel && <div className="mt-1 text-[11px] text-gray-400">{timestampLabel}</div>}
                                 </>
@@ -15240,14 +15273,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     <div className="mt-3 max-h-[55vh] space-y-2 overflow-y-auto pr-1">
                       {teacherNotifHistory.length > 0 ? (
                         teacherNotifHistory.map((note) => {
-                          const levelLabel = note.levelId === PYTHON_LEVEL_ID
-                            ? 'Python'
-                            : (LEVELS[note.levelId?.toUpperCase()]?.label || note.levelId || '');
-                          const questionPart = note.questionNumber ? ` · вопрос ${note.questionNumber}` : '';
                           const signupUnreadLabel = note.unreadCount > 1
                             ? `Новых сообщений: ${note.unreadCount}`
                             : 'Новое сообщение';
                           const timestampLabel = formatTeacherNotifTimestamp(note.timestampMs);
+                          const solvedKicker = getTeacherSolvedNotifKicker(note, true);
+                          const solvedSummary = getTeacherSolvedNotifSummary(note);
                           return (
                             <div key={note.archiveId} className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
                               {note.type === 'signup' ? (
@@ -15263,12 +15294,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                 </>
                               ) : (
                                 <>
-                                  <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Отметка</div>
+                                  <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{solvedKicker}</div>
                                   <div className="mt-1 font-semibold text-slate-800 truncate">
                                     {getTeacherNotifStudentLabel(note)}
                                   </div>
                                   <div className="text-xs text-slate-500">
-                                    {`Решено: задание ${formatTaskNumber(note.taskNumber) || note.taskNumber}${levelLabel ? ` · ${levelLabel}` : ''}${questionPart}`}
+                                    {solvedSummary}
                                   </div>
                                   {timestampLabel && <div className="mt-1 text-[11px] text-slate-400">{timestampLabel}</div>}
                                 </>
