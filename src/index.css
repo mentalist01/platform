@@ -2921,8 +2921,10 @@ html[data-theme='dark'] .mock-answer-burst__badge {
   pointer-events: none;
   isolation: isolate;
   background:
-    radial-gradient(circle at 50% 48%, color-mix(in srgb, var(--artifact-main), transparent 72%), transparent 28%),
-    linear-gradient(135deg, rgba(2, 6, 23, 0.84), rgba(15, 23, 42, 0.62));
+    radial-gradient(circle at 50% 47%, color-mix(in srgb, var(--artifact-main), transparent 78%), transparent 25%),
+    radial-gradient(circle at 50% 47%, rgba(255, 255, 255, 0.12), transparent 11%),
+    radial-gradient(circle at 18% 78%, color-mix(in srgb, var(--artifact-deep), transparent 76%), transparent 30%),
+    linear-gradient(135deg, rgba(2, 6, 23, 0.84), rgba(15, 23, 42, 0.64));
   animation: mockArtifactDropStage 3.8s ease both;
 }
 
@@ -2953,21 +2955,28 @@ html[data-theme='dark'] .mock-answer-burst__badge {
 .mock-artifact-drop::before {
   content: '';
   position: absolute;
-  inset: -34vmax;
+  left: 50%;
+  top: 47%;
+  width: 154vmax;
+  height: 154vmax;
   z-index: -2;
+  border-radius: 999px;
   background:
+    radial-gradient(circle, transparent 0 18%, color-mix(in srgb, var(--artifact-main), transparent 72%) 19% 21%, transparent 23% 35%, color-mix(in srgb, var(--artifact-hot), transparent 78%) 36% 37%, transparent 39%),
     conic-gradient(
       from 0deg,
       transparent 0deg,
-      color-mix(in srgb, var(--artifact-hot), transparent 60%) 28deg,
-      transparent 58deg,
-      color-mix(in srgb, var(--artifact-main), transparent 54%) 112deg,
-      transparent 148deg,
-      color-mix(in srgb, var(--artifact-deep), transparent 58%) 214deg,
-      transparent 258deg,
-      color-mix(in srgb, var(--artifact-hot), transparent 62%) 322deg,
+      color-mix(in srgb, var(--artifact-hot), transparent 74%) 22deg,
+      transparent 52deg,
+      color-mix(in srgb, var(--artifact-main), transparent 68%) 108deg,
+      transparent 138deg,
+      color-mix(in srgb, var(--artifact-deep), transparent 72%) 212deg,
+      transparent 250deg,
+      color-mix(in srgb, var(--artifact-hot), transparent 76%) 318deg,
       transparent 360deg
     );
+  filter: blur(1px);
+  mix-blend-mode: screen;
   opacity: 0;
   animation: mockArtifactDropWash 3.4s cubic-bezier(0.16, 0.92, 0.24, 1) both;
 }
@@ -2978,9 +2987,10 @@ html[data-theme='dark'] .mock-answer-burst__badge {
   inset: 0;
   z-index: -1;
   background:
-    linear-gradient(115deg, transparent 0 31%, color-mix(in srgb, var(--artifact-hot), transparent 78%) 32% 33%, transparent 34% 100%),
-    linear-gradient(67deg, transparent 0 56%, color-mix(in srgb, var(--artifact-main), transparent 80%) 57% 58%, transparent 59% 100%),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.06) 0 1px, transparent 1px 16px);
+    radial-gradient(circle at 50% 47%, transparent 0 14%, rgba(255, 255, 255, 0.18) 14.4% 14.8%, transparent 15.4% 28%, color-mix(in srgb, var(--artifact-main), transparent 82%) 28.4% 29%, transparent 30%),
+    radial-gradient(circle at 50% 47%, color-mix(in srgb, var(--artifact-hot), transparent 86%), transparent 39%),
+    radial-gradient(circle at 64% 28%, rgba(255, 255, 255, 0.12), transparent 8%),
+    radial-gradient(circle at 28% 66%, color-mix(in srgb, var(--artifact-main), transparent 84%), transparent 10%);
   mix-blend-mode: screen;
   opacity: 0;
   animation: mockArtifactDropBeams 3.2s ease both;
@@ -2989,12 +2999,12 @@ html[data-theme='dark'] .mock-answer-burst__badge {
 .mock-artifact-drop__orbit {
   position: absolute;
   left: 50%;
-  top: 50%;
-  border: 2px solid color-mix(in srgb, var(--artifact-main), transparent 26%);
+  top: 47%;
+  border: 1px solid color-mix(in srgb, var(--artifact-main), transparent 34%);
   border-radius: 999px;
   box-shadow:
-    0 0 34px color-mix(in srgb, var(--artifact-main), transparent 32%),
-    inset 0 0 30px color-mix(in srgb, var(--artifact-hot), transparent 72%);
+    0 0 34px color-mix(in srgb, var(--artifact-main), transparent 38%),
+    inset 0 0 42px color-mix(in srgb, var(--artifact-hot), transparent 76%);
   opacity: 0;
   transform: translate(-50%, -50%) scale(0.3);
 }
@@ -3016,21 +3026,16 @@ html[data-theme='dark'] .mock-answer-burst__badge {
   position: relative;
   z-index: 3;
   display: grid;
-  width: min(88vw, 26rem);
+  width: min(88vw, 28rem);
   justify-items: center;
-  gap: 0.8rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 1.4rem;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06)),
-    linear-gradient(155deg, color-mix(in srgb, var(--artifact-deep), transparent 42%), rgba(2, 6, 23, 0.88));
-  padding: clamp(1.25rem, 4vmin, 2rem);
+  gap: 0.74rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: clamp(0.65rem, 2vmin, 1rem);
   color: #ffffff;
   text-align: center;
-  box-shadow:
-    0 32px 90px rgba(0, 0, 0, 0.46),
-    0 0 72px color-mix(in srgb, var(--artifact-main), transparent 46%),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  box-shadow: none;
   transform-origin: center;
   animation: mockArtifactDropCard 3.15s cubic-bezier(0.16, 0.92, 0.24, 1) both;
 }
@@ -3038,11 +3043,23 @@ html[data-theme='dark'] .mock-answer-burst__badge {
 .mock-artifact-drop__card::before {
   content: '';
   position: absolute;
-  inset: 0.6rem;
+  left: 50%;
+  top: 46%;
+  width: min(66vmin, 31rem);
+  aspect-ratio: 1;
   z-index: -1;
-  border: 1px solid color-mix(in srgb, var(--artifact-main), transparent 52%);
-  border-radius: 1rem;
-  opacity: 0.72;
+  border: 1px solid color-mix(in srgb, var(--artifact-main), transparent 58%);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.2), transparent 18%),
+    radial-gradient(circle, color-mix(in srgb, var(--artifact-main), transparent 70%), transparent 54%),
+    radial-gradient(circle, color-mix(in srgb, var(--artifact-deep), transparent 78%), transparent 70%);
+  box-shadow:
+    0 0 80px color-mix(in srgb, var(--artifact-main), transparent 50%),
+    inset 0 0 54px rgba(255, 255, 255, 0.1);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.72);
+  animation: mockArtifactDropHalo 2.9s cubic-bezier(0.16, 0.92, 0.24, 1) 0.04s both;
 }
 
 .mock-artifact-drop__kicker,
@@ -3059,29 +3076,31 @@ html[data-theme='dark'] .mock-answer-burst__badge {
 
 .mock-artifact-drop__image-shell {
   display: grid;
-  width: clamp(8.5rem, 26vmin, 13rem);
+  width: clamp(9.5rem, 28vmin, 14.5rem);
   aspect-ratio: 1;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--artifact-hot), transparent 42%);
-  border-radius: 1.35rem;
+  border: 1px solid color-mix(in srgb, var(--artifact-hot), transparent 34%);
+  border-radius: 999px;
   background:
-    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.28), transparent 32%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06));
+    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.38), transparent 29%),
+    radial-gradient(circle, color-mix(in srgb, var(--artifact-main), transparent 66%), transparent 63%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
   color: color-mix(in srgb, var(--artifact-main), #ffffff 20%);
   box-shadow:
-    0 0 42px color-mix(in srgb, var(--artifact-main), transparent 38%),
-    inset 0 0 28px rgba(255, 255, 255, 0.08);
+    0 0 54px color-mix(in srgb, var(--artifact-main), transparent 34%),
+    0 0 110px color-mix(in srgb, var(--artifact-hot), transparent 68%),
+    inset 0 0 34px rgba(255, 255, 255, 0.1);
   animation: mockArtifactDropRelic 2.6s cubic-bezier(0.18, 0.92, 0.18, 1) 0.18s both;
 }
 
 .mock-artifact-drop__image {
   display: block;
-  width: 82%;
-  height: 82%;
+  width: 86%;
+  height: 86%;
   object-fit: contain;
   filter:
-    drop-shadow(0 18px 22px rgba(0, 0, 0, 0.34))
-    drop-shadow(0 0 20px color-mix(in srgb, var(--artifact-main), transparent 28%));
+    drop-shadow(0 22px 28px rgba(0, 0, 0, 0.34))
+    drop-shadow(0 0 24px color-mix(in srgb, var(--artifact-main), transparent 20%));
 }
 
 .mock-artifact-drop__name {
@@ -3100,15 +3119,17 @@ html[data-theme='dark'] .mock-answer-burst__badge {
 .mock-artifact-drop__shard {
   position: absolute;
   left: 50%;
-  top: 50%;
+  top: 47%;
   z-index: 2;
   width: var(--size, 0.48rem);
-  height: calc(var(--size, 0.48rem) * 1.8);
-  border-radius: 0.18rem;
-  background: linear-gradient(180deg, #ffffff, var(--artifact-hot) 45%, var(--artifact-main));
+  height: calc(var(--size, 0.48rem) * 1.25);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 28%, #ffffff, transparent 32%),
+    linear-gradient(180deg, var(--artifact-hot), var(--artifact-main));
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.34),
-    0 0 20px color-mix(in srgb, var(--artifact-main), transparent 24%);
+    0 0 22px color-mix(in srgb, var(--artifact-main), transparent 22%);
   transform: translate(-50%, -50%) scale(0.2) rotate(var(--angle));
   animation: mockArtifactDropShard 1.8s cubic-bezier(0.12, 0.72, 0.18, 1) both;
   animation-delay: var(--delay, 0ms);
@@ -3122,17 +3143,17 @@ html[data-theme='dark'] .mock-answer-burst__badge {
 }
 
 @keyframes mockArtifactDropWash {
-  0% { opacity: 0; transform: scale(0.45) rotate(0deg); filter: blur(10px); }
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.45) rotate(0deg); filter: blur(12px); }
   16% { opacity: 1; filter: blur(0); }
-  72% { opacity: 0.82; }
-  100% { opacity: 0; transform: scale(1.08) rotate(130deg); filter: blur(8px); }
+  58% { opacity: 0.74; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.82) rotate(76deg); filter: blur(10px); }
 }
 
 @keyframes mockArtifactDropBeams {
-  0% { opacity: 0; transform: scale(1.05); }
-  18% { opacity: 0.72; }
-  78% { opacity: 0.45; transform: scale(1); }
-  100% { opacity: 0; transform: scale(1.02); }
+  0% { opacity: 0; transform: scale(1.05); filter: blur(8px); }
+  18% { opacity: 0.8; filter: blur(0); }
+  78% { opacity: 0.42; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.02); filter: blur(8px); }
 }
 
 @keyframes mockArtifactDropOrbit {
@@ -3143,19 +3164,27 @@ html[data-theme='dark'] .mock-answer-burst__badge {
 }
 
 @keyframes mockArtifactDropCard {
-  0% { opacity: 0; transform: translateY(36px) scale(0.52) rotateX(24deg) rotateZ(-6deg); filter: blur(12px); }
+  0% { opacity: 0; transform: translateY(34px) scale(0.54); filter: blur(14px) brightness(2.2); }
   14% { opacity: 1; filter: blur(0); }
-  25% { transform: translateY(-8px) scale(1.08) rotateX(0deg) rotateZ(2deg); }
-  45% { transform: translateY(0) scale(1) rotateZ(0deg); }
+  25% { transform: translateY(-10px) scale(1.08); }
+  45% { transform: translateY(0) scale(1); }
   82% { opacity: 1; transform: translateY(-6px) scale(1); }
   100% { opacity: 0; transform: translateY(-34px) scale(0.92); }
 }
 
+@keyframes mockArtifactDropHalo {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.36); filter: blur(18px); }
+  18% { opacity: 0.86; filter: blur(0); }
+  46% { opacity: 0.72; transform: translate(-50%, -50%) scale(1.03); }
+  88% { opacity: 0.42; transform: translate(-50%, -50%) scale(1.12); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.22); filter: blur(12px); }
+}
+
 @keyframes mockArtifactDropRelic {
-  0% { opacity: 0; transform: scale(0.42) rotate(-18deg); filter: brightness(2.4) blur(10px); }
-  24% { opacity: 1; transform: scale(1.18) rotate(8deg); filter: brightness(1.6) blur(0); }
-  48% { transform: scale(0.98) rotate(0deg); filter: brightness(1.1); }
-  100% { opacity: 1; transform: scale(1) rotate(0deg); filter: brightness(1); }
+  0% { opacity: 0; transform: scale(0.34); filter: brightness(3) blur(12px); }
+  22% { opacity: 1; transform: scale(1.16); filter: brightness(1.75) blur(0); }
+  48% { transform: scale(0.98); filter: brightness(1.12); }
+  100% { opacity: 1; transform: scale(1); filter: brightness(1); }
 }
 
 @keyframes mockArtifactDropShard {
