@@ -1925,6 +1925,22 @@ const NotesSection = ({
                   : 'notes-card--empty notes-landing-card--empty'
               }`}
             >
+              <svg
+                className="notes-folder-shape"
+                viewBox="0 0 320 128"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              >
+                <path
+                  className="notes-folder-shape__fill"
+                  d="M1 16C1 9 7 3 16 3H73C80.2 3 84.8 5.1 88.5 9.8L93.2 15.5C94.8 17.4 96.9 18.2 99.6 18.2H301C310.9 18.2 319 26.3 319 36.2V108C319 118.5 310.5 127 300 127H20C9.5 127 1 118.5 1 108V16Z"
+                />
+                <path
+                  className="notes-folder-shape__stroke"
+                  d="M1 16C1 9 7 3 16 3H73C80.2 3 84.8 5.1 88.5 9.8L93.2 15.5C94.8 17.4 96.9 18.2 99.6 18.2H301C310.9 18.2 319 26.3 319 36.2V108C319 118.5 310.5 127 300 127H20C9.5 127 1 118.5 1 108V16Z"
+                  vectorEffect="non-scaling-stroke"
+                />
+              </svg>
               <div className="notes-landing-card__top flex items-center justify-between gap-2">
                 <span className={`notes-task-badge notes-landing-card__badge inline-flex items-center rounded-xl border px-2.5 py-1 text-[11px] font-bold md:text-xs ${
                   hasFiles ? 'notes-task-badge--filled' : ''
@@ -1945,7 +1961,7 @@ const NotesSection = ({
                 <span className={`notes-landing-card__icon inline-flex items-center justify-center rounded-2xl border ${
                   hasFiles ? 'is-filled' : ''
                 }`}>
-                  <Folder size={16} />
+                  {hasFiles ? <FolderOpen size={16} /> : <Folder size={16} />}
                 </span>
                 <p className="notes-landing-card__text text-[11px] sm:text-xs">
                   {hasFiles ? 'Открыть' : 'Добавить'}
@@ -2113,7 +2129,7 @@ const NotesSection = ({
           <div className="notes-explorer-toolbar-main flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="notes-explorer-toolbar-copy flex min-w-0 items-start gap-2.5 md:gap-3">
               <div className="notes-explorer-toolbar-heading min-w-0 space-y-1">
-                <h3 className="notes-explorer-title text-base font-semibold text-slate-900 md:text-lg">
+                <h3 className="notes-explorer-title text-xl font-bold text-slate-900 md:text-2xl">
                   {`Задание ${currentTaskLabel}`}
                 </h3>
                 <p className="notes-explorer-toolbar-subtitle text-sm text-slate-600">
