@@ -456,7 +456,7 @@ const MockExamModal = ({
 
             <div className="mock-exam-artifact-hint">
               <Sparkles size={15} />
-              <span>За решённые задачи пробника есть шанс выбить новый артефакт.</span>
+              <span>За решённые задачи пробника есть шанс выбить артефакт.</span>
             </div>
 
             <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
@@ -867,7 +867,7 @@ const MockExamModal = ({
           <div className="mock-artifact-drop__orbit mock-artifact-drop__orbit--outer" />
           <div className="mock-artifact-drop__orbit mock-artifact-drop__orbit--inner" />
           <div className="mock-artifact-drop__card">
-            <div className="mock-artifact-drop__kicker">Новый артефакт</div>
+            <div className="mock-artifact-drop__kicker">Артефакт выбит</div>
             <div className="mock-artifact-drop__image-shell">
               {artifactDropImage ? (
                 <img

@@ -48,7 +48,8 @@ const StudentLeaderboardSection = ({
   userName,
   normalizeXpTotal,
   getLeagueByXp,
-  XP_PER_LEVEL,
+  getLevelFromXp,
+  getLevelProgressFromXp,
   formatStreakDate,
   BLANK_LEAGUE,
   LEAGUE_TIERS,
@@ -162,7 +163,7 @@ const StudentLeaderboardSection = ({
       const resolvedLevelRaw = Number(entry?.level);
       const level = Number.isFinite(resolvedLevelRaw) && resolvedLevelRaw > 0
         ? Math.floor(resolvedLevelRaw)
-        : (Math.floor(xpTotal / XP_PER_LEVEL) + 1);
+        : (typeof getLevelFromXp === 'function' ? getLevelFromXp(xpTotal) : 1);
       const displayNameRaw = typeof entry?.publicName === 'string' ? entry.publicName.trim() : '';
       const displayName = displayNameRaw || `Аноним ${index + 1}`;
       const hasAlias = Boolean(entry?.hasAlias);
@@ -1071,7 +1072,8 @@ const StudentLeaderboardSection = ({
         getLeagueAuraStyle={getLeagueAuraStyle}
         isAbsoluteOrAboveLeague={isAbsoluteOrAboveLeague}
         ABSOLUTE_AURA_CROWN_STYLE={ABSOLUTE_AURA_CROWN_STYLE}
-        XP_PER_LEVEL={XP_PER_LEVEL}
+        getLevelFromXp={getLevelFromXp}
+        getLevelProgressFromXp={getLevelProgressFromXp}
         formatStreakDate={formatStreakDate}
         getLeagueIconClassName={getLeagueIconClassName}
       />

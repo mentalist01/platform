@@ -29,7 +29,7 @@ const TeacherPanel = ({
   getExpectedAnswers,
   allowsPartialAnswers,
   normalizeXpTotal,
-  XP_PER_LEVEL,
+  getLevelFromXp,
   GAME_THEORY_TASK,
   withUploadsAuthToken,
   teacherSignupNotifySupported = false,
@@ -1319,7 +1319,7 @@ const TeacherPanel = ({
               const rawStudentLevel = Number(student?.level);
               const studentLevel = Number.isFinite(rawStudentLevel) && rawStudentLevel > 0
                 ? Math.floor(rawStudentLevel)
-                : (Math.floor(studentXpTotal / XP_PER_LEVEL) + 1);
+                : (typeof getLevelFromXp === 'function' ? getLevelFromXp(studentXpTotal) : 1);
               const studentXpLabel = studentXpTotal.toLocaleString('ru-RU');
               const studentCoinsLabel = studentCoinsTotal.toLocaleString('ru-RU');
               return (

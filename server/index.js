@@ -11,6 +11,7 @@ import webpush from 'web-push';
 import { WebSocketServer } from 'ws';
 import yWsUtils from 'y-websocket/bin/utils';
 import { ARTIFACT_CATALOG_METADATA } from '../src/data/artifactCatalog.js';
+import { getLevelFromXp } from '../src/utils/leveling.js';
 
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
@@ -338,7 +339,7 @@ const TASK_XP_REWARDS = {
   26: 800,
   27: 500,
 };
-const XP_PER_LEVEL = 1000;
+const MOCK_EXAM_SOLVE_XP_LEVEL_ID = 'basic';
 const LEADERBOARD_WEEK_DAYS = 7;
 const LEADERBOARD_ALIAS_COIN_REWARD = 100;
 const LEADERBOARD_ALIAS_MIN_LENGTH = 2;
@@ -5313,21 +5314,18 @@ const rollMockExamArtifactRank = (randomValue = Math.random()) => {
   return null;
 };
 
-const getUnownedMockExamArtifactIdsForRank = (rank, inventory = {}, levels = {}, cards = {}) => {
+const getMockExamArtifactIdsForRank = (rank) => {
   const normalizedRank = String(rank || '').trim().toUpperCase();
   if (!MOCK_EXAM_ARTIFACT_DROP_CHANCES.some((entry) => entry.rank === normalizedRank)) return [];
   return (ARTIFACT_IDS_BY_RANK.get(normalizedRank) || []).filter((artifactId) => (
     !ARTIFACT_DISABLED_DROP_IDS.has(artifactId)
-    && getArtifactInventoryCount(inventory, artifactId) <= 0
-    && getArtifactLevel(levels, artifactId) <= 0
-    && getArtifactInventoryCount(cards, artifactId) <= 0
   ));
 };
 
-const rollMockExamArtifactReward = (inventory = {}, levels = {}, cards = {}) => {
+const rollMockExamArtifactReward = () => {
   const rank = rollMockExamArtifactRank(Math.random());
   if (!rank) return null;
-  const candidateIds = getUnownedMockExamArtifactIdsForRank(rank, inventory, levels, cards);
+  const candidateIds = getMockExamArtifactIdsForRank(rank);
   if (candidateIds.length <= 0) return null;
   const artifactId = candidateIds[Math.floor(Math.random() * candidateIds.length)];
   return ARTIFACT_CATALOG_BY_ID.get(artifactId) || null;
@@ -10063,7 +10061,7 @@ app.get('/api/students', (req, res) => {
     const data = getStudentData(rest.id);
     const xpTotal = normalizeXpTotal(data?.xpTotal);
     const coinsTotal = normalizeCoinsTotal(data?.coinsTotal);
-    const level = Math.floor(xpTotal / XP_PER_LEVEL) + 1;
+    const level = getLevelFromXp(xpTotal);
     return {
       ...rest,
       leaderboardAlias: normalizeLeaderboardAlias(data?.leaderboardAlias),
@@ -10113,7 +10111,7 @@ app.get('/api/students/leaderboard', (req, res) => {
     const data = getStudentData(student.id);
     const xpTotal = normalizeXpTotal(data?.xpTotal);
     const weeklyXp = getRecentXpFromSolvedEvents(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS);
-    const level = Math.floor(xpTotal / XP_PER_LEVEL) + 1;
+    const level = getLevelFromXp(xpTotal);
     const alias = normalizeLeaderboardAlias(data?.leaderboardAlias);
     const mainName = includeTeacherIdentity ? normalizeStudentName(student.name) : '';
     const nickname = includeTeacherIdentity ? normalizeStudentNickname(student.nickname) : '';
@@ -10234,7 +10232,7 @@ app.get('/api/students/leaderboard-profile', (req, res) => {
     publicName: alias || anonNameById.get(targetStudent.id) || 'Аноним',
     hasAlias: Boolean(alias),
     isCurrent: isStudentRole(req.auth) && String(req.auth.id || '') === targetStudent.id,
-    level: Math.floor(xpTotal / XP_PER_LEVEL) + 1,
+    level: getLevelFromXp(xpTotal),
     xpTotal,
     weeklyXp: getRecentXpFromSolvedEvents(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS),
     streak: normalizeStreak(data?.streak),
@@ -10480,7 +10478,7 @@ app.post('/api/students', (req, res) => {
     leaderboardAlias: '',
     xpTotal: createdXpTotal,
     coinsTotal: createdCoinsTotal,
-    level: Math.floor(createdXpTotal / XP_PER_LEVEL) + 1,
+    level: getLevelFromXp(createdXpTotal),
     teacherId: entry.teacherId,
     code: plainCode,
     codeHint: entry.codeHint,
@@ -10544,7 +10542,7 @@ app.post('/api/students/:id/restore', (req, res) => {
     leaderboardAlias: normalizeLeaderboardAlias(restoredData?.leaderboardAlias),
     xpTotal: restoredXpTotal,
     coinsTotal: restoredCoinsTotal,
-    level: Math.floor(restoredXpTotal / XP_PER_LEVEL) + 1,
+    level: getLevelFromXp(restoredXpTotal),
     teacherId: restored.teacherId,
     codeHint: restored.codeHint,
     createdAt: restored.createdAt,
@@ -10762,7 +10760,7 @@ app.patch('/api/students/:id', (req, res) => {
     leaderboardAlias: storedAlias,
     xpTotal: updatedXpTotal,
     coinsTotal: updatedCoinsTotal,
-    level: Math.floor(updatedXpTotal / XP_PER_LEVEL) + 1,
+    level: getLevelFromXp(updatedXpTotal),
     codeHint: updated.codeHint,
     teacherId: updated.teacherId,
     createdAt: updated.createdAt
@@ -10933,25 +10931,41 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     .filter(([, solvedNow]) => Boolean(solvedNow))
     .map(([entryTaskKey]) => entryTaskKey)
     .filter((entryTaskKey) => !previousSolvedEver?.[entryTaskKey]);
-  let xpTotal = normalizeXpTotal(data.xpTotal);
   let coinsTotal = normalizeCoinsTotal(data.coinsTotal) + coinsGained;
   const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
   const artifactLevels = normalizeArtifactLevels(data?.artifactLevels, artifactInventory);
   const artifactCards = normalizeArtifactCards(data?.artifactCards, artifactInventory);
+  const mockSolveXpByTaskKey = new Map();
+  let mockSolveXpGained = 0;
+  newlySolvedTaskKeys.forEach((solvedTaskKey) => {
+    const solveXpGained = applyArtifactXpBonus(
+      getTaskLevelXpReward(solvedTaskKey, MOCK_EXAM_SOLVE_XP_LEVEL_ID),
+      artifactLevels,
+      solvedTaskKey
+    );
+    if (solveXpGained <= 0) return;
+    mockSolveXpByTaskKey.set(String(solvedTaskKey), solveXpGained);
+    mockSolveXpGained += solveXpGained;
+  });
+  let xpTotal = normalizeXpTotal(data.xpTotal) + mockSolveXpGained;
   let artifactTotalPulls = normalizeArtifactTotalPulls(data?.artifactTotalPulls);
   const artifactDropRecords = [];
   let artifactXpGained = 0;
   let artifactCoinsGained = 0;
   newlySolvedTaskKeys.forEach((solvedTaskKey) => {
-    const artifact = rollMockExamArtifactReward(artifactInventory, artifactLevels, artifactCards);
+    const artifact = rollMockExamArtifactReward();
     if (!artifact) return;
+    const artifactLevelBeforePull = getArtifactLevel(artifactLevels, artifact.id);
+    const maxLevelDuplicateCoins = artifactLevelBeforePull >= ARTIFACT_MAX_LEVEL
+      ? getArtifactMaxLevelDuplicateCoinReward(artifact)
+      : 0;
     artifactInventory[artifact.id] = getArtifactInventoryCount(artifactInventory, artifact.id) + 1;
     artifactCards[artifact.id] = getArtifactInventoryCount(artifactCards, artifact.id) + 1;
     if (!artifactLevels[artifact.id]) artifactLevels[artifact.id] = 1;
     artifactTotalPulls += 1;
     const instantReward = getArtifactInstantRewardForPull(artifact.id);
     const dropXpGained = normalizeXpTotal(instantReward.xp);
-    const dropCoinsGained = normalizeCoinsTotal(instantReward.coins);
+    const dropCoinsGained = normalizeCoinsTotal(instantReward.coins + maxLevelDuplicateCoins);
     artifactXpGained += dropXpGained;
     artifactCoinsGained += dropCoinsGained;
     xpTotal += dropXpGained;
@@ -10960,6 +10974,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       artifactId: artifact.id,
       pulledAt: savedAt,
       taskKey: solvedTaskKey,
+      maxLevelDuplicateCoins,
     });
   });
   const solvedEvents = Array.isArray(data.solvedEvents) ? [...data.solvedEvents] : [];
@@ -10968,6 +10983,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     : 'Пробник';
   newlySolvedTaskKeys.forEach((taskKey) => {
     const taskNum = Number(taskKey);
+    const solveXpGained = normalizeXpTotal(mockSolveXpByTaskKey.get(String(taskKey)));
     solvedEvents.push({
       id: crypto.randomUUID(),
       source: 'mock-exam',
@@ -10981,7 +10997,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       questionNumber: null,
       solvedAt: savedAt,
       localDay: resolvedDayKey,
-      xpGained: 0,
+      xpGained: solveXpGained,
       coinsGained: 0,
     });
   });
@@ -11004,6 +11020,9 @@ app.put('/api/mock-exams/attempt', (req, res) => {
         artifactLastPull: {
           id: lastArtifactDropRecord.artifactId,
           pulledAt: lastArtifactDropRecord.pulledAt,
+          ...(lastArtifactDropRecord.maxLevelDuplicateCoins > 0
+            ? { maxLevelDuplicateCoins: lastArtifactDropRecord.maxLevelDuplicateCoins }
+            : {}),
         },
       }
       : {}),
@@ -11016,7 +11035,8 @@ app.put('/api/mock-exams/attempt', (req, res) => {
         record.pulledAt,
         updated.artifactLevels,
         updated.artifactCards,
-        updated.coinsTotal
+        updated.coinsTotal,
+        { maxLevelDuplicateCoins: record.maxLevelDuplicateCoins }
       );
       if (!drop) return null;
       const taskNum = Number(record.taskKey);
@@ -11029,13 +11049,16 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       };
     })
     .filter(Boolean);
+  const xpGained = normalizeXpTotal(mockSolveXpGained + artifactXpGained);
   res.json({
     ...(updated.mockAttempts?.[String(examId)] || normalizedAttempt),
+    xpGained,
+    mockSolveXpGained,
+    xpTotal: updated.xpTotal,
     coinsGained,
     coinsTotal: updated.coinsTotal,
     ...(mockArtifactDrops.length > 0
       ? {
-        xpTotal: updated.xpTotal,
         artifactXpGained,
         artifactCoinsGained,
         altar: buildStudentArtifactState(updated),

@@ -76,6 +76,7 @@ import {
   normalizePushErrorMessage,
 } from './utils/push';
 import { getCollabWsUrl, isNativeAppRuntime, resolveApiUrl } from './utils/runtimeUrls';
+import { getLevelFromXp, getLevelProgressFromXp } from './utils/leveling';
 import {
   api,
   authenticatedUploadsFetch,
@@ -135,7 +136,6 @@ const PYTHON_COIN_TASK_ORDER = [
 ];
 const GOAL_TYPE_TASK = 'task';
 const GOAL_TYPE_MOCK = 'mock';
-const XP_PER_LEVEL = 1000;
 const LEAGUE_TIERS = [
   { id: 'celestial', label: 'Целестиал', minXp: 80000, icon: leagueCelestial },
   { id: 'absolute', label: 'Абсолют', minXp: 40000, icon: leagueAbsolute },
@@ -12404,11 +12404,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const freezeAvailable = !freezeUsedThisWeek;
   const totalXp = normalizeXpTotal(xpDisplayTotal);
   const totalCoins = normalizeCoinsTotal(studentCoinsTotal);
-  const currentLevel = Math.floor(totalXp / XP_PER_LEVEL) + 1;
-  const xpIntoLevel = totalXp % XP_PER_LEVEL;
-  const levelProgressPercent = Math.max(0, Math.min(100, Math.round((xpIntoLevel / XP_PER_LEVEL) * 100)));
+  const levelProgress = getLevelProgressFromXp(totalXp);
+  const currentLevel = levelProgress.level;
+  const xpIntoLevel = levelProgress.xpIntoLevel;
+  const xpPerLevel = levelProgress.xpForNextLevel;
+  const levelProgressPercent = levelProgress.progressPercent;
   const xpIntoLevelLabel = xpIntoLevel.toLocaleString('ru-RU');
-  const xpPerLevelLabel = XP_PER_LEVEL.toLocaleString('ru-RU');
+  const xpPerLevelLabel = xpPerLevel.toLocaleString('ru-RU');
   const totalXpLabel = totalXp.toLocaleString('ru-RU');
   const totalCoinsLabel = totalCoins.toLocaleString('ru-RU');
   const displayStreakCurrent = (() => {
@@ -14831,12 +14833,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onMockAttemptSaved={(_examId, attempt, meta = {}) => {
                 if (user.role === 'student') {
                   setGoalRefreshTick((prev) => prev + 1);
+                  const xpGained = normalizeXpTotal(attempt?.xpGained);
+                  const hasXpTotal = Number.isFinite(Number(attempt?.xpTotal));
                   const coinsGained = normalizeCoinsTotal(attempt?.coinsGained);
                   const hasCoinsTotal = Number.isFinite(Number(attempt?.coinsTotal));
-                  if (coinsGained > 0 || hasCoinsTotal) {
+                  if (xpGained > 0 || coinsGained > 0 || hasXpTotal || hasCoinsTotal) {
                     handleXpGain({
-                      xpTotal: _STUDENT_XP_TOTAL,
-                      xpGained: 0,
+                      xpTotal: hasXpTotal ? attempt.xpTotal : _STUDENT_XP_TOTAL,
+                      xpGained,
                       coinsGained,
                       coinsTotal: hasCoinsTotal ? attempt.coinsTotal : undefined,
                       sourceRect: meta?.sourceRect,
@@ -14883,7 +14887,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               userName={user.name}
               normalizeXpTotal={normalizeXpTotal}
               getLeagueByXp={getLeagueByXp}
-              XP_PER_LEVEL={XP_PER_LEVEL}
+              getLevelFromXp={getLevelFromXp}
+              getLevelProgressFromXp={getLevelProgressFromXp}
               formatStreakDate={formatStreakDate}
               BLANK_LEAGUE={BLANK_LEAGUE}
               LEAGUE_TIERS={LEAGUE_TIERS}
@@ -15066,7 +15071,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               getExpectedAnswers={getExpectedAnswers}
               allowsPartialAnswers={allowsPartialAnswers}
               normalizeXpTotal={normalizeXpTotal}
-              XP_PER_LEVEL={XP_PER_LEVEL}
+              getLevelFromXp={getLevelFromXp}
               GAME_THEORY_TASK={GAME_THEORY_TASK}
               withUploadsAuthToken={withUploadsAuthToken}
               teacherSignupNotifySupported={teacherSignupNotifySupported}
@@ -15181,7 +15186,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   getExpectedAnswers={getExpectedAnswers}
                   allowsPartialAnswers={allowsPartialAnswers}
                   normalizeXpTotal={normalizeXpTotal}
-                  XP_PER_LEVEL={XP_PER_LEVEL}
+                  getLevelFromXp={getLevelFromXp}
                   GAME_THEORY_TASK={GAME_THEORY_TASK}
                   withUploadsAuthToken={withUploadsAuthToken}
                   teacherSignupNotifySupported={teacherSignupNotifySupported}

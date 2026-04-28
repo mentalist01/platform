@@ -338,7 +338,8 @@ const StudentLeaderboardProfileModal = ({
   getLeagueAuraStyle,
   isAbsoluteOrAboveLeague,
   ABSOLUTE_AURA_CROWN_STYLE,
-  XP_PER_LEVEL,
+  getLevelFromXp,
+  getLevelProgressFromXp,
   formatStreakDate,
   getLeagueIconClassName,
 }) => {
@@ -370,14 +371,17 @@ const StudentLeaderboardProfileModal = ({
     const resolvedLevelRaw = Number(profileData?.level ?? row?.level);
     const resolvedLevel = Number.isFinite(resolvedLevelRaw) && resolvedLevelRaw > 0
       ? Math.floor(resolvedLevelRaw)
-      : (Number.isFinite(XP_PER_LEVEL) && XP_PER_LEVEL > 0 ? Math.floor(resolvedXpTotal / XP_PER_LEVEL) + 1 : 1);
+      : (typeof getLevelFromXp === 'function' ? getLevelFromXp(resolvedXpTotal) : 1);
     const displayName = String(profileData?.publicName || row?.displayName || 'Профиль ученика').trim() || 'Профиль ученика';
     const league = typeof getLeagueByXp === 'function'
       ? getLeagueByXp(resolvedXpTotal)
       : { id: 'blank', label: 'Без лиги', icon: '' };
-    const levelSize = Number.isFinite(XP_PER_LEVEL) && XP_PER_LEVEL > 0 ? XP_PER_LEVEL : 1;
-    const xpIntoCurrentLevel = resolvedXpTotal % levelSize;
-    const levelProgressPercent = clampPercent((xpIntoCurrentLevel / levelSize) * 100);
+    const levelProgress = typeof getLevelProgressFromXp === 'function'
+      ? getLevelProgressFromXp(resolvedXpTotal)
+      : { xpIntoLevel: 0, xpForNextLevel: 1, progressPercent: 0 };
+    const xpIntoCurrentLevel = levelProgress.xpIntoLevel;
+    const xpForNextLevel = levelProgress.xpForNextLevel;
+    const levelProgressPercent = clampPercent(levelProgress.progressPercent);
     const progressSummary = profileData?.progress && typeof profileData.progress === 'object' ? profileData.progress : {};
     const activitySummary = profileData?.activity && typeof profileData.activity === 'object' ? profileData.activity : {};
     const streakSummary = profileData?.streak && typeof profileData.streak === 'object' ? profileData.streak : {};
@@ -405,6 +409,7 @@ const StudentLeaderboardProfileModal = ({
       resolvedXpTotal,
       resolvedWeeklyXp,
       xpIntoCurrentLevel,
+      xpForNextLevel,
       levelProgressPercent,
       progressSummary,
       activitySummary,
@@ -417,7 +422,7 @@ const StudentLeaderboardProfileModal = ({
       collection,
       bonusEntries,
     };
-  }, [XP_PER_LEVEL, getLeagueByXp, profileData, row]);
+  }, [getLeagueByXp, getLevelFromXp, getLevelProgressFromXp, profileData, row]);
 
   const [selectedArtifactId, setSelectedArtifactId] = useState('');
 
@@ -438,6 +443,7 @@ const StudentLeaderboardProfileModal = ({
     resolvedXpTotal,
     resolvedWeeklyXp,
     xpIntoCurrentLevel,
+    xpForNextLevel,
     levelProgressPercent,
     progressSummary,
     activitySummary,
@@ -453,7 +459,7 @@ const StudentLeaderboardProfileModal = ({
 
   const leagueAuraStyle = typeof getLeagueAuraStyle === 'function' ? getLeagueAuraStyle(league?.id) : undefined;
   const isAbsoluteLeague = typeof isAbsoluteOrAboveLeague === 'function' ? isAbsoluteOrAboveLeague(league?.id) : false;
-  const remainingXp = Math.max((Number(XP_PER_LEVEL) || 0) - xpIntoCurrentLevel, 0);
+  const remainingXp = Math.max((Number(xpForNextLevel) || 0) - xpIntoCurrentLevel, 0);
   const rankSummary = getArtifactRankSummary(collection);
   const strongestTasks = Array.isArray(progressSummary.strongestTasks) ? progressSummary.strongestTasks.slice(0, 3) : [];
   const bestMock = mockSummary.best && typeof mockSummary.best === 'object' ? mockSummary.best : null;
