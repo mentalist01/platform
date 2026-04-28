@@ -199,7 +199,7 @@ const STUDENT_TRAFFIC_LIMIT_BYTES = (() => {
     if (gbRaw <= 0) return null;
     return Math.round(gbRaw * 1024 * 1024 * 1024);
   }
-  return 2 * 1024 * 1024 * 1024;
+  return null;
 })();
 const STUDENT_TRAFFIC_WARN_RATIO = (() => {
   const ratio = Number(process.env.STUDENT_TRAFFIC_WARN_RATIO);
