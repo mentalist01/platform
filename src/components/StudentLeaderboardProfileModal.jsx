@@ -585,15 +585,28 @@ const StudentLeaderboardProfileModal = ({
                 </div>
 
                 <div className="min-w-0">
-                  <div className="truncate text-[clamp(1.7rem,4.2vw,2.7rem)] font-black tracking-tight text-white">
-                    {displayName}
+                  <div className="flex min-w-0 flex-wrap items-center gap-3">
+                    <div className="min-w-0 max-w-full truncate text-[clamp(1.7rem,4.2vw,2.7rem)] font-black tracking-tight text-white">
+                      {displayName}
+                    </div>
+                    <span
+                      className="relative inline-grid h-[3.7rem] w-[3.7rem] shrink-0 place-items-center text-white [filter:drop-shadow(0_14px_22px_rgba(37,99,235,0.24))_drop-shadow(0_8px_18px_rgba(88,28,135,0.32))]"
+                      title={`Уровень ${resolvedLevel}`}
+                      aria-label={`Уровень ${resolvedLevel}`}
+                    >
+                      <span className="absolute -inset-1 rounded-full bg-[radial-gradient(circle,rgba(34,211,238,0.2),transparent_68%)] blur-[1px]" />
+                      <span className="absolute inset-0 [clip-path:polygon(50%_0%,88%_15%,98%_54%,73%_94%,27%_94%,2%_54%,12%_15%)] bg-[conic-gradient(from_205deg,#5b21b6,#2563eb,#22d3ee,#7c3aed,#5b21b6)]" />
+                      <span className="absolute inset-[2px] [clip-path:polygon(50%_0%,88%_15%,98%_54%,73%_94%,27%_94%,2%_54%,12%_15%)] bg-[linear-gradient(150deg,#7c3aed_0%,#2563eb_48%,#0891b2_100%)] shadow-[inset_0_-14px_20px_rgba(15,23,42,0.3)]" />
+                      <span className="absolute inset-[7px] [clip-path:polygon(50%_0%,86%_16%,94%_54%,71%_92%,29%_92%,6%_54%,14%_16%)] bg-[radial-gradient(circle_at_50%_32%,rgba(255,255,255,0.15),rgba(15,23,42,0.04)_44%,rgba(15,23,42,0.2)_100%)]" />
+                      <span className="absolute bottom-[0.42rem] h-[2px] w-7 rounded-full bg-cyan-200/50 shadow-[0_0_10px_rgba(34,211,238,0.4)]" />
+                      <span className="absolute left-1/2 top-[47%] z-[1] -translate-x-1/2 -translate-y-1/2 text-center text-[1.88rem] font-black leading-none tracking-tight text-white drop-shadow-[0_3px_8px_rgba(15,23,42,0.56)]">
+                        {resolvedLevel}
+                      </span>
+                    </span>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-100">
                       {league?.label || 'Без лиги'}
-                    </span>
-                    <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-100">
-                      {`Ур. ${resolvedLevel}`}
                     </span>
                     <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-100">
                       {`${formatNumber(resolvedXpTotal)} XP`}
