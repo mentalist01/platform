@@ -1161,6 +1161,66 @@ const markStudentSeenRatingTour = (studentId) => markStudentSeenStoredTour(STUDE
 const LAST_LOCATION_KEY = 'ege_last_location_v1';
 const DESKTOP_NAV_COLLAPSED_KEY = 'ege_desktop_nav_collapsed_v1';
 const TEACHER_NOTIF_HISTORY_KEY_PREFIX = 'ege_teacher_notif_history_v1';
+const NOTES_SAVE_DRAFT_STORAGE_KEY_PREFIX = 'ege_notes_save_draft_v1';
+const NOTES_SAVE_DRAFT_CATEGORIES = new Set(['class', 'home']);
+
+const getNotesSaveTaskNumbers = (taskOptions) => (
+  (Array.isArray(taskOptions) ? taskOptions : [])
+    .map((task) => String(task?.number || '').trim())
+    .filter(Boolean)
+);
+
+const buildNotesSaveDraftStorageKey = (scope, ownerId, studentId) => {
+  const normalizedScope = String(scope || 'notes').trim() || 'notes';
+  const normalizedOwnerId = String(ownerId || '').trim();
+  const normalizedStudentId = String(studentId || '').trim();
+  if (!normalizedOwnerId || !normalizedStudentId) return '';
+  return `${NOTES_SAVE_DRAFT_STORAGE_KEY_PREFIX}:${normalizedScope}:${normalizedOwnerId}:${normalizedStudentId}`;
+};
+
+const normalizeNotesSaveDraft = (value, taskNumbers = []) => {
+  const normalizedTaskNumbers = Array.isArray(taskNumbers)
+    ? taskNumbers.map((taskNumber) => String(taskNumber || '').trim()).filter(Boolean)
+    : [];
+  const defaultTaskNumber = normalizedTaskNumbers[0] || '';
+  const allowedTaskNumbers = new Set(normalizedTaskNumbers);
+  const rawTaskNumber = String(value?.taskNumber ?? '').trim();
+  const taskNumber = rawTaskNumber && (!allowedTaskNumbers.size || allowedTaskNumbers.has(rawTaskNumber))
+    ? rawTaskNumber
+    : defaultTaskNumber;
+  const rawCategory = String(value?.category || '').trim();
+  const category = NOTES_SAVE_DRAFT_CATEGORIES.has(rawCategory) ? rawCategory : 'class';
+  return {
+    taskNumber,
+    category,
+    folderId: String(value?.folderId ?? '').trim(),
+    fileName: String(value?.fileName ?? '').replace(/\./g, ''),
+  };
+};
+
+const loadNotesSaveDraft = (storageKey, taskNumbers) => {
+  if (!storageKey || typeof localStorage === 'undefined') {
+    return normalizeNotesSaveDraft(null, taskNumbers);
+  }
+  try {
+    const raw = localStorage.getItem(storageKey);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return normalizeNotesSaveDraft(parsed, taskNumbers);
+  } catch {
+    return normalizeNotesSaveDraft(null, taskNumbers);
+  }
+};
+
+const saveNotesSaveDraft = (storageKey, value, taskNumbers) => {
+  if (!storageKey || typeof localStorage === 'undefined') return;
+  try {
+    const normalized = normalizeNotesSaveDraft(value, taskNumbers);
+    localStorage.setItem(storageKey, JSON.stringify({
+      ...normalized,
+      updatedAt: Date.now(),
+    }));
+  } catch { /* no-op */ }
+};
 
 const buildUserLocationKey = (user) => {
   if (!user) return '';
@@ -2514,7 +2574,9 @@ const CollabSection = ({
   const editorRef = useRef(null);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
-  const [saveTaskNumber, setSaveTaskNumber] = useState(() => String(taskOptions[0]?.number || ''));
+  const saveTaskNumbers = useMemo(() => getNotesSaveTaskNumbers(taskOptions), [taskOptions]);
+  const defaultSaveTaskNumber = saveTaskNumbers[0] || '';
+  const [saveTaskNumber, setSaveTaskNumber] = useState(() => defaultSaveTaskNumber);
   const [saveCategory, setSaveCategory] = useState('class');
   const [saveFolderId, setSaveFolderId] = useState('');
   const [saveFileName, setSaveFileName] = useState('');
@@ -2527,6 +2589,7 @@ const CollabSection = ({
   const [saveError, setSaveError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState('');
   const [saveNameError, setSaveNameError] = useState(false);
+  const saveDraftSkipPersistRef = useRef(true);
   const [runInput, setRunInput] = useState('');
   const [stdinPanelOpen, setStdinPanelOpen] = useState(false);
   const [collabAuxPanelMode, setCollabAuxPanelMode] = useState(COLLAB_AUX_PANEL_MODE_INPUT);
@@ -2572,6 +2635,10 @@ const CollabSection = ({
     : false;
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
   const roomId = effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null;
+  const notesSaveDraftStorageKey = useMemo(() => {
+    const ownerId = isTeacher ? (teacherId || userId) : userId;
+    return buildNotesSaveDraftStorageKey('code', ownerId, effectiveStudentId);
+  }, [effectiveStudentId, isTeacher, teacherId, userId]);
   const wsUrl = useMemo(() => getCollabWsUrl(), []);
   const localName = userName || (isTeacher ? 'Учитель' : 'Ученик');
   const localColor = useMemo(
@@ -4102,6 +4169,39 @@ const CollabSection = ({
   };
 
   useEffect(() => {
+    saveDraftSkipPersistRef.current = true;
+    const draft = loadNotesSaveDraft(notesSaveDraftStorageKey, saveTaskNumbers);
+    setSaveTaskNumber(draft.taskNumber);
+    setSaveCategory(draft.category);
+    setSaveFolderId(draft.folderId);
+    setSaveFileName(draft.fileName);
+    setSaveError('');
+    setSaveSuccess('');
+    setSaveNameError(false);
+  }, [notesSaveDraftStorageKey, saveTaskNumbers]);
+
+  useEffect(() => {
+    if (!notesSaveDraftStorageKey) return;
+    if (saveDraftSkipPersistRef.current) {
+      saveDraftSkipPersistRef.current = false;
+      return;
+    }
+    saveNotesSaveDraft(notesSaveDraftStorageKey, {
+      taskNumber: saveTaskNumber,
+      category: saveCategory,
+      folderId: saveFolderId,
+      fileName: saveFileName,
+    }, saveTaskNumbers);
+  }, [
+    notesSaveDraftStorageKey,
+    saveTaskNumber,
+    saveCategory,
+    saveFolderId,
+    saveFileName,
+    saveTaskNumbers,
+  ]);
+
+  useEffect(() => {
     if (!effectiveStudentId || !saveTaskNumber || !saveCategory) {
       setFolders([]);
       setFoldersError('');
@@ -4128,11 +4228,26 @@ const CollabSection = ({
   }, [effectiveStudentId, saveTaskNumber, saveCategory]);
 
   useEffect(() => {
-    setSaveFolderId('');
     setSaveError('');
     setSaveSuccess('');
     setSaveNameError(false);
   }, [saveTaskNumber, saveCategory, effectiveStudentId]);
+
+  useEffect(() => {
+    if (!saveFolderId || foldersLoading || foldersError) return;
+    const folderExists = folders.some((folder) => String(folder?.id || '') === String(saveFolderId));
+    if (!folderExists) setSaveFolderId('');
+  }, [folders, foldersError, foldersLoading, saveFolderId]);
+
+  const handleSaveTaskNumberChange = (value) => {
+    setSaveTaskNumber(value);
+    setSaveFolderId('');
+  };
+
+  const handleSaveCategoryChange = (value) => {
+    setSaveCategory(value);
+    setSaveFolderId('');
+  };
 
   const normalizeFileName = (value) => {
     const trimmed = String(value || '').replace(/\./g, '').trim();
@@ -4489,6 +4604,12 @@ const CollabSection = ({
     setSaveBusy(true);
     try {
       await api.uploadFile(file, Number(saveTaskNumber), saveCategory, saveFolderId || null, effectiveStudentId);
+      saveNotesSaveDraft(notesSaveDraftStorageKey, {
+        taskNumber: saveTaskNumber,
+        category: saveCategory,
+        folderId: saveFolderId,
+        fileName: saveFileName,
+      }, saveTaskNumbers);
       setSaveSuccess('Сохранено в конспекты.');
     } catch (err) {
       setSaveError(err?.message || err);
@@ -5869,7 +5990,7 @@ const CollabSection = ({
             <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Задание</label>
             <select
               value={saveTaskNumber}
-              onChange={(e) => setSaveTaskNumber(e.target.value)}
+              onChange={(e) => handleSaveTaskNumberChange(e.target.value)}
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
             >
               {taskOptions.map((task) => (
@@ -5884,7 +6005,7 @@ const CollabSection = ({
             <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Категория</label>
             <select
               value={saveCategory}
-              onChange={(e) => setSaveCategory(e.target.value)}
+              onChange={(e) => handleSaveCategoryChange(e.target.value)}
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
             >
               <option value="class">На уроке</option>
@@ -10761,7 +10882,6 @@ const BoardSection = ({
         className={`board-canvas-surface board-canvas-outline ${isFullscreen ? 'mt-0 flex-1 min-h-0 h-auto' : (embedded ? 'mt-1 flex-1 min-h-0 h-full' : 'mt-0 h-[74vh] min-h-[360px] sm:min-h-[400px] md:h-auto md:min-h-[61vh] md:flex-1')} relative w-full ${embedded ? 'rounded-[0.7rem]' : 'rounded-[1.15rem]'} bg-white outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60 overflow-hidden ${
           summonNotice ? 'ring-2 ring-amber-400/70 ring-offset-2 ring-offset-white' : ''
         }`}
-        title={!isFullscreen ? 'Вставка картинки: Ctrl+V. Лимит 10 МБ. Панорамирование: удерживайте Space и тяните.' : undefined}
       >
         {!roomId && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
