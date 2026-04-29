@@ -350,6 +350,26 @@ const buildMockChartAreaPath = (points, baselineY) => {
   return `${linePath} L ${lastPoint.x} ${baselineY} L ${firstPoint.x} ${baselineY} Z`;
 };
 
+const getMockTaskChartTooltipStyle = (point, chart) => {
+  const chartWidth = Math.max(1, Number(chart?.width) || 1);
+  const chartHeight = Math.max(1, Number(chart?.height) || 1);
+  const xRatio = Math.max(0, Math.min(1, (Number(point?.x) || 0) / chartWidth));
+  const yRatio = Math.max(0, Math.min(1, (Number(point?.y) || 0) / chartHeight));
+  let transform = 'translate(-50%, calc(-100% - 14px))';
+
+  if (xRatio > 0.82) {
+    transform = 'translate(calc(-100% + 18px), calc(-100% - 14px))';
+  } else if (xRatio < 0.18) {
+    transform = 'translate(-18px, calc(-100% - 14px))';
+  }
+
+  return {
+    left: `${xRatio * 100}%`,
+    top: `${yRatio * 100}%`,
+    transform,
+  };
+};
+
 const ProgressSection = ({
   progress,
   onUpdateProgress,
@@ -3303,17 +3323,14 @@ const ProgressSection = ({
                       </div>
 
                       <div
-                        className="relative mt-3"
+                        className="relative mt-3 w-full"
+                        style={{ maxWidth: `${studentMockTaskChart.width}px` }}
                         onMouseLeave={() => setHoveredMockTaskPoint(null)}
                       >
                         {hoveredMockTaskPoint && (
                           <div
                             className="mock-task-chart-tooltip pointer-events-none absolute z-10 w-max max-w-[220px] rounded-2xl px-3 py-2 text-xs shadow-lg"
-                            style={{
-                              left: `${(hoveredMockTaskPoint.x / studentMockTaskChart.width) * 100}%`,
-                              top: `${(hoveredMockTaskPoint.y / studentMockTaskChart.height) * 100}%`,
-                              transform: 'translate(-50%, calc(-100% - 14px))',
-                            }}
+                            style={getMockTaskChartTooltipStyle(hoveredMockTaskPoint, studentMockTaskChart)}
                           >
                             <div className="font-semibold text-gray-900">
                               {`Задание ${hoveredMockTaskPoint.label}`}
