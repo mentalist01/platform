@@ -786,6 +786,7 @@ const TeacherCalendarSection = ({
   const browserAlarmObjectUrlRef = useRef('');
   const quickCreateClickSuppressedUntilRef = useRef(0);
   const timelineViewportRef = useRef(null);
+  const timelineDefaultScrollAppliedRef = useRef(false);
   const calendarSyncAutoRefreshBusyRef = useRef(false);
 
   const weekStartDate = useMemo(() => getWeekStart(focusDate), [focusDate]);
@@ -963,6 +964,30 @@ const TeacherCalendarSection = ({
       if (observer) observer.disconnect();
     };
   }, []);
+
+  useEffect(() => {
+    if (timelineDefaultScrollAppliedRef.current || loading) return undefined;
+    if (typeof window === 'undefined') return undefined;
+    const element = timelineViewportRef.current;
+    if (!element) return undefined;
+
+    let firstRafId = 0;
+    let secondRafId = 0;
+
+    firstRafId = window.requestAnimationFrame(() => {
+      secondRafId = window.requestAnimationFrame(() => {
+        const maxScrollTop = Math.max(0, Math.floor((element.scrollHeight || 0) - (element.clientHeight || 0)));
+        if (maxScrollTop <= 0) return;
+        element.scrollTop = maxScrollTop;
+        timelineDefaultScrollAppliedRef.current = true;
+      });
+    });
+
+    return () => {
+      if (firstRafId) window.cancelAnimationFrame(firstRafId);
+      if (secondRafId) window.cancelAnimationFrame(secondRafId);
+    };
+  }, [calendarHeight, loading, timelineViewportHeight]);
 
   const studentNameById = useMemo(() => {
     const list = Array.isArray(students) ? students : [];
