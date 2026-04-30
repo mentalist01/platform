@@ -70,6 +70,12 @@ const CURRENT_TIME_LINE_TICK_MS = 30 * 1000;
 const LESSON_PANEL_LOOKAHEAD_DAYS = 14;
 const LESSON_PANEL_MARKS_STORAGE_KEY = 'teacher_calendar_lesson_panel_marks_v1';
 const LESSON_PANEL_NOTES_CATEGORY = 'class';
+const LESSON_PANEL_LEVEL_LABELS = {
+  basic: 'обязательный',
+  advanced: 'продвинутый',
+  expert: 'чтоб наверняка',
+  python: 'Python',
+};
 
 const SCHEDULE_WEEKDAY_BY_KEY = SCHEDULE_WEEKDAYS.reduce((acc, weekday) => {
   acc[weekday.key] = weekday;
@@ -230,19 +236,20 @@ const normalizeLessonPanelUrl = (value) => {
 const parseLessonInfoDateMs = (value) => {
   const raw = String(value || '').trim();
   if (!raw) return NaN;
-  const parsed = Date.parse(raw);
-  if (Number.isFinite(parsed)) return parsed;
   const russianMatch = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
-  if (!russianMatch) return NaN;
-  const [, dayRaw, monthRaw, yearRaw, hourRaw = '0', minuteRaw = '0'] = russianMatch;
-  const date = new Date(
-    Number(yearRaw),
-    Number(monthRaw) - 1,
-    Number(dayRaw),
-    Number(hourRaw),
-    Number(minuteRaw)
-  );
-  return Number.isNaN(date.getTime()) ? NaN : date.getTime();
+  if (russianMatch) {
+    const [, dayRaw, monthRaw, yearRaw, hourRaw = '0', minuteRaw = '0'] = russianMatch;
+    const date = new Date(
+      Number(yearRaw),
+      Number(monthRaw) - 1,
+      Number(dayRaw),
+      Number(hourRaw),
+      Number(minuteRaw)
+    );
+    return Number.isNaN(date.getTime()) ? NaN : date.getTime();
+  }
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : NaN;
 };
 
 const getLessonInfoFileTimestamp = (file) => {
@@ -304,6 +311,55 @@ const getLessonInfoFileMeta = (file) => {
   const folderLabel = String(file?.folderPath || file?.folderName || '').trim();
   const dateLabel = formatLessonInfoFileDate(file);
   return [taskLabel, folderLabel, dateLabel].filter(Boolean).join(' • ');
+};
+
+const normalizeLessonPanelGoalType = (goal) => {
+  const type = String(goal?.type || '').trim().toLowerCase();
+  if (type === 'mock' || (!type && String(goal?.mockExamId || '').trim())) return 'mock';
+  return 'task';
+};
+
+const formatLessonPanelTaskNumber = (value) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '';
+  return number === 19 ? '19-21' : String(number);
+};
+
+const formatLessonPanelGoalTargets = (goal) => {
+  if (goal?.includeAll) return 'все вопросы';
+  const targets = Array.from(new Set(
+    (Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [])
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value > 0)
+      .map((value) => Math.trunc(value))
+  )).sort((left, right) => left - right);
+  if (targets.length === 0) return '';
+  return `вопросы ${targets.join(', ')}`;
+};
+
+const formatLessonPanelGoalLabel = (goal) => {
+  if (!goal || typeof goal !== 'object') return '';
+  if (normalizeLessonPanelGoalType(goal) === 'mock') {
+    const title = String(goal.mockTitle || goal.title || '').trim();
+    return title ? `Пробник: ${title}` : 'Пробник';
+  }
+  const taskLabel = formatLessonPanelTaskNumber(goal.taskNumber);
+  if (!taskLabel) return '';
+  const levelKey = String(goal.levelId || '').trim().toLowerCase();
+  const levelLabel = LESSON_PANEL_LEVEL_LABELS[levelKey] || levelKey;
+  const targetLabel = formatLessonPanelGoalTargets(goal);
+  return [
+    `Задание ${taskLabel}`,
+    levelLabel,
+    targetLabel,
+  ].filter(Boolean).join(' • ');
+};
+
+const getLessonPanelHomeworkGoalLabels = (homework) => {
+  const goals = Array.isArray(homework?.goals) ? homework.goals : [];
+  return goals
+    .map((goal) => formatLessonPanelGoalLabel(goal))
+    .filter(Boolean);
 };
 
 const buildLessonPanelMarkKey = (teacherId, lessonInfo, action) => {
@@ -1902,6 +1958,11 @@ const TeacherCalendarSection = ({
   const lessonPanelHomeworkGoalCount = Array.isArray(lessonPanelHomework?.goals)
     ? lessonPanelHomework.goals.length
     : 0;
+  const lessonPanelHomeworkGoalLabels = useMemo(
+    () => getLessonPanelHomeworkGoalLabels(lessonPanelHomework),
+    [lessonPanelHomework]
+  );
+  const lessonPanelHomeworkGoalsPreview = lessonPanelHomeworkGoalLabels.slice(0, 2).join('; ');
 
   const studentCount = studentCalendars.length;
 
@@ -3606,7 +3667,9 @@ const TeacherCalendarSection = ({
                       ) : lessonPanelHomework ? (
                         <>
                           <span>{lessonPanelHomeworkPreview || 'Домашка без текста'}</span>
-                          {lessonPanelHomeworkGoalCount > 0 && (
+                          {lessonPanelHomeworkGoalsPreview ? (
+                            <span>{lessonPanelHomeworkGoalsPreview}</span>
+                          ) : lessonPanelHomeworkGoalCount > 0 && (
                             <span className="rounded-full bg-purple-100 px-2 py-0.5 font-semibold text-purple-700">
                               целей: {lessonPanelHomeworkGoalCount}
                             </span>
@@ -4264,8 +4327,21 @@ const TeacherCalendarSection = ({
                       {lessonPanelHomeworkText || 'Домашка без текста'}
                     </div>
                     {lessonPanelHomeworkGoalCount > 0 && (
-                      <div className="mt-2 inline-flex rounded-full bg-purple-100 px-2.5 py-1 text-[11px] font-semibold text-purple-700">
-                        целей: {lessonPanelHomeworkGoalCount}
+                      <div className="mt-3 rounded-xl border border-purple-200 bg-purple-50/80 px-3 py-2">
+                        <div className="text-[11px] font-bold uppercase tracking-wide text-purple-700">
+                          Цели
+                        </div>
+                        {lessonPanelHomeworkGoalLabels.length > 0 ? (
+                          <div className="mt-1 space-y-1 text-sm text-slate-800">
+                            {lessonPanelHomeworkGoalLabels.map((label, index) => (
+                              <div key={`lesson-info-goal-${index}`}>{label}</div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="mt-1 text-sm text-slate-500">
+                            {lessonPanelHomeworkGoalCount} цели
+                          </div>
+                        )}
                       </div>
                     )}
                   </>
