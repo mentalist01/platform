@@ -127,6 +127,13 @@ const toDayKeyFromIsoDate = (value) => {
   return toDayKey(date);
 };
 
+const normalizeScheduleDateKey = (value) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return '';
+  const isoDateMatch = normalized.match(/^(\d{4}-\d{2}-\d{2})/);
+  return toDayKeyFromIsoDate(isoDateMatch ? isoDateMatch[1] : normalized);
+};
+
 const capitalize = (value) => {
   if (!value) return '';
   return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
@@ -1648,20 +1655,29 @@ const TeacherCalendarSection = ({
     const now = currentTimeLineNow instanceof Date && !Number.isNaN(currentTimeLineNow.getTime())
       ? currentTimeLineNow
       : new Date();
+    const nowMs = now.getTime();
     const today = cloneAsDateOnly(now);
     const todayKey = toDayKey(today);
     const currentMinuteOfDay = (now.getHours() * 60) + now.getMinutes();
     const startDate = addDays(today, -(PAYMENT_REMINDER_LOOKBACK_DAYS - 1));
-    const startDayKey = toDayKey(startDate);
     const startMs = startDate.getTime();
+    const reminderDays = Array.from({ length: PAYMENT_REMINDER_LOOKBACK_DAYS }, (_, offset) => {
+      const date = addDays(startDate, offset);
+      const dayKey = toDayKey(date);
+      return {
+        date,
+        dayKey,
+        weekdayOrder: date.getDay() === 0 ? 7 : date.getDay(),
+      };
+    }).filter((day) => day.dayKey <= todayKey);
+    const reminderDayByKey = new Map(reminderDays.map((day) => [day.dayKey, day]));
     const groups = new Map();
 
-    const pushLesson = (entry, dayKey) => {
-      const normalizedDayKey = String(dayKey || '').trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDayKey)) return;
-      if (normalizedDayKey < startDayKey || normalizedDayKey > todayKey) return;
-      const dayDate = parseDayKeyToDate(normalizedDayKey);
-      if (!dayDate) return;
+    const pushLesson = (entry, dayInfo) => {
+      const normalizedDayKey = String(dayInfo?.dayKey || '').trim();
+      if (!reminderDayByKey.has(normalizedDayKey)) return;
+      const dayDate = dayInfo.date || parseDayKeyToDate(normalizedDayKey);
+      if (!dayDate || normalizedDayKey > todayKey) return;
       const startMinutes = parseScheduleTimeToMinutes(entry?.time);
       if (!Number.isFinite(startMinutes)) return;
       const duration = Number.isFinite(Number(entry?.durationMinutes))
@@ -1673,7 +1689,7 @@ const TeacherCalendarSection = ({
       if (!lessonFinished) return;
       const lessonStartMs = dayDate.getTime() + (startMinutes * 60 * 1000);
       const lessonEndMs = dayDate.getTime() + (endMinutes * 60 * 1000);
-      if (!Number.isFinite(lessonEndMs) || lessonEndMs < startMs) return;
+      if (!Number.isFinite(lessonEndMs) || lessonEndMs < startMs || lessonEndMs > nowMs) return;
 
       const studentId = String(entry?.studentId || '').trim();
       const studentName = studentId
@@ -1724,21 +1740,19 @@ const TeacherCalendarSection = ({
 
     sourceEntries.forEach((entry) => {
       const excludedDates = new Set(normalizeExcludedDayKeys(entry?.excludedDates));
-      const explicitDate = String(entry?.date || '').trim();
-      if (explicitDate) {
-        if (!excludedDates.has(explicitDate)) pushLesson(entry, explicitDate);
+      const explicitDateKey = normalizeScheduleDateKey(entry?.date);
+      if (explicitDateKey) {
+        const dayInfo = reminderDayByKey.get(explicitDateKey);
+        if (dayInfo && !excludedDates.has(explicitDateKey)) pushLesson(entry, dayInfo);
         return;
       }
 
       const weekdayMeta = resolveScheduleWeekdayMeta(entry);
       if (!weekdayMeta?.order) return;
-      for (let offset = 0; offset < PAYMENT_REMINDER_LOOKBACK_DAYS; offset += 1) {
-        const date = addDays(startDate, offset);
-        const dayKey = toDayKey(date);
-        const weekdayOrder = date.getDay() === 0 ? 7 : date.getDay();
-        if (weekdayOrder !== weekdayMeta.order || excludedDates.has(dayKey)) continue;
-        pushLesson(entry, dayKey);
-      }
+      reminderDays.forEach((dayInfo) => {
+        if (dayInfo.weekdayOrder !== weekdayMeta.order || excludedDates.has(dayInfo.dayKey)) return;
+        pushLesson(entry, dayInfo);
+      });
     });
 
     return Array.from(groups.values())
