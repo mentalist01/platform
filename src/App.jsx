@@ -2558,6 +2558,7 @@ const CollabSection = ({
   activeStudentId,
   onSelectStudent,
   studentsLoading,
+  openSaveToNotesToken = 0,
 }) => {
   const isTeacher = role === 'teacher';
   const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
@@ -2590,6 +2591,7 @@ const CollabSection = ({
   const [saveSuccess, setSaveSuccess] = useState('');
   const [saveNameError, setSaveNameError] = useState(false);
   const saveDraftSkipPersistRef = useRef(true);
+  const openSaveToNotesTokenRef = useRef(0);
   const [runInput, setRunInput] = useState('');
   const [stdinPanelOpen, setStdinPanelOpen] = useState(false);
   const [collabAuxPanelMode, setCollabAuxPanelMode] = useState(COLLAB_AUX_PANEL_MODE_INPUT);
@@ -2639,6 +2641,15 @@ const CollabSection = ({
     const ownerId = isTeacher ? (teacherId || userId) : userId;
     return buildNotesSaveDraftStorageKey('code', ownerId, effectiveStudentId);
   }, [effectiveStudentId, isTeacher, teacherId, userId]);
+  useEffect(() => {
+    const token = Number(openSaveToNotesToken) || 0;
+    if (!token || openSaveToNotesTokenRef.current === token) return;
+    openSaveToNotesTokenRef.current = token;
+    if (!isTeacher || !effectiveStudentId) return;
+    setSaveModalOpen(true);
+    setSaveError('');
+    setSaveSuccess('');
+  }, [effectiveStudentId, isTeacher, openSaveToNotesToken]);
   const wsUrl = useMemo(() => getCollabWsUrl(), []);
   const localName = userName || (isTeacher ? 'Учитель' : 'Ученик');
   const localColor = useMemo(
@@ -11085,6 +11096,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     }
   });
   const [progressSectionJumpToken, setProgressSectionJumpToken] = useState(0);
+  const [collabSaveToNotesToken, setCollabSaveToNotesToken] = useState(0);
   const [pendingOpenTask, setPendingOpenTask] = useState(() => (user.role === 'student' ? restoredOpenTask : null));
   const [pendingOpenMockExamId, setPendingOpenMockExamId] = useState(
     () => (user.role === 'student' ? initialMockExamId : null)
@@ -13234,6 +13246,23 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     updateUserLocation(user, { mockExamId: null });
   };
 
+  const handleOpenTeacherLessonWorkspace = useCallback((targetView, studentId) => {
+    if (user.role !== 'teacher') return;
+    const normalizedStudentId = String(studentId || '').trim();
+    if (normalizedStudentId) {
+      setActiveStudentId(normalizedStudentId);
+    }
+    const normalizedView = String(targetView || '').trim();
+    if (!normalizedView) return;
+    if (normalizedView === 'collab-save') {
+      setCollabSaveToNotesToken(Date.now());
+      navigateToView('collab');
+    } else {
+      navigateToView(normalizedView);
+    }
+    setMenuOpen(false);
+  }, [navigateToView, user.role]);
+
   const handleExpandGoalBlock = useCallback(() => {
     setGoalCollapsed(false);
     const mainNode = mainScrollRef.current;
@@ -14906,6 +14935,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             <TeacherCalendarSection
               teacherId={user.id}
               students={studentsWithNicknames}
+              activeStudentId={activeStudentId}
+              onSelectStudent={setActiveStudentId}
+              onOpenStudentWorkspace={handleOpenTeacherLessonWorkspace}
               getStudentLabel={getStudentLabel}
               pushSupported={teacherSignupNotifySupported}
               pushPermission={teacherSignupNotifyPermission}
@@ -15087,6 +15119,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
               studentsLoading={studentsLoading}
+              openSaveToNotesToken={collabSaveToNotesToken}
             />
           )}
           {isCallViewAvailable && (

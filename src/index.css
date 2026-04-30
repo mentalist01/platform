@@ -9228,6 +9228,33 @@ html[data-theme='dark'] .teacher-student-card__meta-value {
   color: rgb(226, 232, 240) !important;
 }
 
+.teacher-calendar-shell__timeline-scroll {
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(124, 58, 237, 0.24) transparent;
+}
+
+.teacher-calendar-shell__timeline-scroll::-webkit-scrollbar {
+  width: 7px;
+}
+
+.teacher-calendar-shell__timeline-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.teacher-calendar-shell__timeline-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.24);
+  background-clip: content-box;
+}
+
+.teacher-calendar-shell__timeline-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(124, 58, 237, 0.42);
+  background-clip: content-box;
+}
+
 html[data-theme='dark'] .teacher-calendar-shell {
   border-color: rgba(129, 140, 248, 0.4) !important;
   background:
@@ -9284,6 +9311,20 @@ html[data-theme='dark'] .teacher-calendar-shell__day-col:hover {
 
 html[data-theme='dark'] .teacher-calendar-shell__grid-line {
   border-color: rgba(99, 102, 241, 0.24) !important;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell__timeline-scroll {
+  scrollbar-color: rgba(167, 139, 250, 0.26) transparent;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell__timeline-scroll::-webkit-scrollbar-thumb {
+  background: rgba(167, 139, 250, 0.26);
+  background-clip: content-box;
+}
+
+html[data-theme='dark'] .teacher-calendar-shell__timeline-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(167, 139, 250, 0.42);
+  background-clip: content-box;
 }
 
 html[data-theme='dark'] .teacher-calendar-shell__modal-backdrop {

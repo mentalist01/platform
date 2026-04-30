@@ -924,6 +924,36 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getTeacherCalendarSync: async (teacherId) => {
+    const params = new URLSearchParams();
+    if (teacherId) params.append('teacherId', String(teacherId));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/teacher-calendar-sync?${qs}` : '/api/teacher-calendar-sync');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updateTeacherCalendarSync: async (payload = {}, teacherId) => {
+    const body = payload && typeof payload === 'object' ? { ...payload } : {};
+    if (teacherId) body.teacherId = String(teacherId);
+    const res = await apiFetch('/api/teacher-calendar-sync', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  refreshTeacherCalendarSync: async (teacherId) => {
+    const body = {};
+    if (teacherId) body.teacherId = String(teacherId);
+    const res = await apiFetch('/api/teacher-calendar-sync/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   addTeacherScheduleEntry: async (payload, teacherId) => {
     const body = payload && typeof payload === 'object' ? { ...payload } : {};
     if (teacherId) body.teacherId = String(teacherId);

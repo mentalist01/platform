@@ -2,16 +2,26 @@
 import {
   Bell,
   BellOff,
+  BookOpen,
+  Brush,
   CalendarDays,
+  CheckCircle,
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Code2,
+  ExternalLink,
+  FileText,
+  Info,
+  Link2,
   Menu,
   Plus,
   RefreshCcw,
   Search,
+  Unlink,
+  Wallet,
 } from 'lucide-react';
-import { api } from '../services/api';
+import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
 import { resolveApiUrl } from '../utils/runtimeUrls';
 
@@ -31,8 +41,8 @@ const HOLIDAY_DEFINITIONS = [
 ];
 const EVENT_COLORS = ['#7c3aed', '#8b5cf6', '#2563eb', '#0891b2', '#db2777', '#0d9488'];
 
-const CALENDAR_START_HOUR = 7;
-const CALENDAR_END_HOUR = 22;
+const CALENDAR_START_HOUR = 0;
+const CALENDAR_END_HOUR = 24;
 const MIN_CALENDAR_HOUR_HEIGHT = 24;
 const MAX_CALENDAR_HOUR_HEIGHT = 56;
 const CALENDAR_VIEWPORT_RESERVED_PX = 220;
@@ -54,6 +64,12 @@ const BROWSER_ALARM_LEAD_MS = BROWSER_ALARM_LEAD_MINUTES * 60 * 1000;
 const BROWSER_ALARM_TRIGGER_WINDOW_MS = 3 * 60 * 1000;
 const BROWSER_ALARM_CHECK_INTERVAL_MS = 20 * 1000;
 const BROWSER_ALARM_DEFAULT_MELODY_URL = '/sounds/user_join.mp3';
+const GOOGLE_CALENDAR_AUTO_REFRESH_INTERVAL_MS = 60 * 1000;
+const GOOGLE_CALENDAR_AUTO_REFRESH_LABEL = 'каждую минуту';
+const CURRENT_TIME_LINE_TICK_MS = 30 * 1000;
+const LESSON_PANEL_LOOKAHEAD_DAYS = 14;
+const LESSON_PANEL_MARKS_STORAGE_KEY = 'teacher_calendar_lesson_panel_marks_v1';
+const LESSON_PANEL_NOTES_CATEGORY = 'class';
 
 const SCHEDULE_WEEKDAY_BY_KEY = SCHEDULE_WEEKDAYS.reduce((acc, weekday) => {
   acc[weekday.key] = weekday;
@@ -119,8 +135,9 @@ const formatHourLabel = (hour, use24HourFormat = true) => {
   if (use24HourFormat) {
     return `${String(hour).padStart(2, '0')}:00`;
   }
-  const amPm = hour >= 12 ? 'PM' : 'AM';
-  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  const normalizedHour = Number(hour) % 24;
+  const amPm = normalizedHour >= 12 ? 'PM' : 'AM';
+  const hour12 = normalizedHour % 12 === 0 ? 12 : normalizedHour % 12;
   return `${hour12} ${amPm}`;
 };
 
@@ -147,7 +164,7 @@ const formatMinutesAsTime = (minutes) => {
   const normalized = Number(minutes);
   if (!Number.isFinite(normalized)) return '--:--';
   const total = Math.max(0, Math.floor(normalized));
-  const hours = Math.floor(total / 60) % 24;
+  const hours = Math.floor(total / 60);
   const mins = total % 60;
   return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
 };
@@ -156,19 +173,192 @@ const formatMinutesAsDisplayTime = (minutes, use24HourFormat = true) => {
   const normalized = Number(minutes);
   if (!Number.isFinite(normalized)) return '--:--';
   const total = Math.max(0, Math.floor(normalized));
-  const hours = Math.floor(total / 60) % 24;
+  const absoluteHours = Math.floor(total / 60);
+  const hours = absoluteHours === 24 && total % 60 === 0 ? 24 : absoluteHours % 24;
   const mins = total % 60;
   if (use24HourFormat) return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
-  const amPm = hours >= 12 ? 'PM' : 'AM';
-  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+  const normalizedHour = hours % 24;
+  const amPm = normalizedHour >= 12 ? 'PM' : 'AM';
+  const hour12 = normalizedHour % 12 === 0 ? 12 : normalizedHour % 12;
   return `${hour12}:${String(mins).padStart(2, '0')} ${amPm}`;
 };
 
 const isTrialEntry = (entry) => !String(entry?.studentId || '').trim();
+const isExternalCalendarEntry = (entry) => Boolean(
+  entry?.isExternalCalendarEvent || String(entry?.source || '').trim() === 'google-ical'
+);
 const resolveStudentLessonSubjectFallback = (studentName) => {
   const normalized = String(studentName || '').trim();
   return normalized || 'Занятие';
 };
+
+const formatCalendarSyncTimestamp = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const normalizeFinanceAmount = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < 0) return 0;
+  return Math.round(num * 100) / 100;
+};
+
+const getFinanceMonthFromDayKey = (dayKey) => {
+  const normalized = String(dayKey || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalized)
+    ? normalized.slice(0, 7)
+    : new Date().toISOString().slice(0, 7);
+};
+
+const normalizeLessonPanelUrl = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : '';
+  } catch {
+    return '';
+  }
+};
+
+const parseLessonInfoDateMs = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return NaN;
+  const parsed = Date.parse(raw);
+  if (Number.isFinite(parsed)) return parsed;
+  const russianMatch = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (!russianMatch) return NaN;
+  const [, dayRaw, monthRaw, yearRaw, hourRaw = '0', minuteRaw = '0'] = russianMatch;
+  const date = new Date(
+    Number(yearRaw),
+    Number(monthRaw) - 1,
+    Number(dayRaw),
+    Number(hourRaw),
+    Number(minuteRaw)
+  );
+  return Number.isNaN(date.getTime()) ? NaN : date.getTime();
+};
+
+const getLessonInfoFileTimestamp = (file) => {
+  const fields = ['createdAt', 'updatedAt', 'savedAt', 'timestamp', 'dateIso', 'date'];
+  for (const field of fields) {
+    const timestamp = parseLessonInfoDateMs(file?.[field]);
+    if (Number.isFinite(timestamp)) return timestamp;
+  }
+  return NaN;
+};
+
+const selectRecentLessonNoteFiles = (files) => (
+  (Array.isArray(files) ? files : [])
+    .map((file, index) => ({ file, index, timestamp: getLessonInfoFileTimestamp(file) }))
+    .filter(({ file }) => {
+      if (!file || typeof file !== 'object') return false;
+      if (file.isLessonShared || file.sharedScope) return false;
+      return String(file.category || '').trim() === LESSON_PANEL_NOTES_CATEGORY;
+    })
+    .sort((left, right) => {
+      const leftHasTime = Number.isFinite(left.timestamp);
+      const rightHasTime = Number.isFinite(right.timestamp);
+      if (leftHasTime && rightHasTime && right.timestamp !== left.timestamp) {
+        return right.timestamp - left.timestamp;
+      }
+      if (leftHasTime && !rightHasTime) return -1;
+      if (!leftHasTime && rightHasTime) return 1;
+      return left.index - right.index;
+    })
+    .slice(0, 3)
+    .map(({ file }) => file)
+);
+
+const formatLessonInfoFileDate = (file) => {
+  const direct = String(file?.date || '').trim();
+  if (direct) return direct;
+  const timestamp = getLessonInfoFileTimestamp(file);
+  if (!Number.isFinite(timestamp)) return '';
+  return new Date(timestamp).toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const getLessonInfoFileHref = (file) => {
+  const raw = String(file?.url || '').trim();
+  if (!raw) return '';
+  return String(resolveAuthenticatedUploadsUrl(raw) || '');
+};
+
+const getLessonInfoFileMeta = (file) => {
+  const rawTaskNumber = String(file?.taskNumber ?? '').trim();
+  const taskNumber = Number(rawTaskNumber);
+  const taskLabel = rawTaskNumber && Number.isFinite(taskNumber)
+    ? `Задание ${rawTaskNumber}`
+    : '';
+  const folderLabel = String(file?.folderPath || file?.folderName || '').trim();
+  const dateLabel = formatLessonInfoFileDate(file);
+  return [taskLabel, folderLabel, dateLabel].filter(Boolean).join(' • ');
+};
+
+const buildLessonPanelMarkKey = (teacherId, lessonInfo, action) => {
+  const event = lessonInfo?.event || {};
+  const base = [
+    String(teacherId || '').trim(),
+    String(event.id || event.externalEventId || '').trim(),
+    String(lessonInfo?.dayKey || event.date || '').trim(),
+    String(event.studentId || '').trim(),
+    String(event.time || event.startMinutes || '').trim(),
+  ].join(':');
+  return `${base}:${String(action || '').trim()}`;
+};
+
+const readLessonPanelMarks = (teacherId) => {
+  if (typeof window === 'undefined') return {};
+  const normalizedTeacherId = String(teacherId || '').trim();
+  if (!normalizedTeacherId) return {};
+  try {
+    const raw = window.localStorage.getItem(`${LESSON_PANEL_MARKS_STORAGE_KEY}:${normalizedTeacherId}`);
+    const data = JSON.parse(raw || '{}');
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeLessonPanelMarks = (teacherId, data) => {
+  if (typeof window === 'undefined') return;
+  const normalizedTeacherId = String(teacherId || '').trim();
+  if (!normalizedTeacherId) return;
+  try {
+    window.localStorage.setItem(
+      `${LESSON_PANEL_MARKS_STORAGE_KEY}:${normalizedTeacherId}`,
+      JSON.stringify(data && typeof data === 'object' ? data : {})
+    );
+  } catch {}
+};
+
+const buildTeacherFinanceLessonPayload = (record = {}, profile = {}, overrides = {}) => ({
+  month: overrides.month,
+  pricingMode: String(record.pricingMode || profile.pricingMode || 'perLesson') === 'monthly' ? 'monthly' : 'perLesson',
+  lessonPrice: normalizeFinanceAmount(record.lessonPrice ?? profile.lessonPrice),
+  monthlyRate: normalizeFinanceAmount(record.monthlyRate ?? profile.monthlyRate),
+  plannedLessons: normalizeFinanceAmount(record.plannedLessons ?? profile.plannedLessons),
+  completedLessons: normalizeFinanceAmount(overrides.completedLessons ?? record.completedLessons),
+  cancelledLessons: normalizeFinanceAmount(record.cancelledLessons),
+  paidAmount: normalizeFinanceAmount(overrides.paidAmount ?? record.paidAmount),
+  extraCharge: normalizeFinanceAmount(record.extraCharge),
+  discount: normalizeFinanceAmount(record.discount),
+  expenses: normalizeFinanceAmount(record.expenses),
+  paymentDay: record.paymentDay ?? profile.paymentDay ?? null,
+  note: typeof record.note === 'string' ? record.note : '',
+});
+
 const buildScheduleSlotAlarmKey = (entry) => {
   const explicitId = String(entry?.id || '').trim();
   if (explicitId) return explicitId;
@@ -401,12 +591,22 @@ const TeacherCalendarSection = ({
   pushReady = false,
   pushError = '',
   onTogglePush = null,
+  activeStudentId = '',
+  onSelectStudent = null,
+  onOpenStudentWorkspace = null,
 }) => {
   const useNativeAndroidPush = isNativeAndroidPushEnvironment();
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [calendarSyncSettings, setCalendarSyncSettings] = useState(null);
+  const [calendarSyncUrl, setCalendarSyncUrl] = useState('');
+  const [calendarSyncLoading, setCalendarSyncLoading] = useState(false);
+  const [calendarSyncSaving, setCalendarSyncSaving] = useState(false);
+  const [calendarSyncRefreshing, setCalendarSyncRefreshing] = useState(false);
+  const [calendarSyncError, setCalendarSyncError] = useState('');
+  const [calendarSyncSuccess, setCalendarSyncSuccess] = useState('');
   const [focusDate, setFocusDate] = useState(() => cloneAsDateOnly(new Date()));
   const [miniMonthCursor, setMiniMonthCursor] = useState(() => {
     const now = new Date();
@@ -453,12 +653,24 @@ const TeacherCalendarSection = ({
   const [draggingEvent, setDraggingEvent] = useState(null);
   const [dragPreview, setDragPreview] = useState(null);
   const [dragRecurringChoiceModal, setDragRecurringChoiceModal] = useState(null);
+  const [currentTimeLineNow, setCurrentTimeLineNow] = useState(() => new Date());
+  const [lessonPanelMarks, setLessonPanelMarks] = useState({});
+  const [lessonPanelFinanceBusy, setLessonPanelFinanceBusy] = useState('');
+  const [lessonPanelError, setLessonPanelError] = useState('');
+  const [lessonPanelSuccess, setLessonPanelSuccess] = useState('');
+  const [lessonPanelHomework, setLessonPanelHomework] = useState(null);
+  const [lessonPanelHomeworkLoading, setLessonPanelHomeworkLoading] = useState(false);
+  const [lessonInfoModalOpen, setLessonInfoModalOpen] = useState(false);
+  const [lessonInfoFiles, setLessonInfoFiles] = useState([]);
+  const [lessonInfoLoading, setLessonInfoLoading] = useState(false);
+  const [lessonInfoError, setLessonInfoError] = useState('');
   const browserAlarmFileInputRef = useRef(null);
   const browserAlarmAudioRef = useRef(null);
   const browserAlarmFiredRef = useRef(new Map());
   const browserAlarmObjectUrlRef = useRef('');
   const quickCreateClickSuppressedUntilRef = useRef(0);
   const timelineViewportRef = useRef(null);
+  const calendarSyncAutoRefreshBusyRef = useRef(false);
 
   const weekStartDate = useMemo(() => getWeekStart(focusDate), [focusDate]);
   const weekDays = useMemo(
@@ -475,13 +687,17 @@ const TeacherCalendarSection = ({
       : (typeof window !== 'undefined' ? (window.innerHeight - CALENDAR_VIEWPORT_RESERVED_PX) : 520);
     const available = Math.max(120, safeViewportHeight);
     const raw = Math.floor(available / Math.max(1, hoursCount));
-    const minHourHeight = compactMode ? 8 : 10;
+    const minHourHeight = compactMode ? MIN_CALENDAR_HOUR_HEIGHT : 48;
     const maxHourHeight = compactMode ? 38 : MAX_CALENDAR_HOUR_HEIGHT;
     return Math.max(minHourHeight, Math.min(maxHourHeight, raw));
   }, [compactMode, hoursCount, timelineViewportHeight]);
   const calendarHeight = hoursCount * hourHeight;
   const timezoneLabel = getTimezoneLabel();
-  const todayKey = toDayKey(new Date());
+  const todayKey = toDayKey(currentTimeLineNow);
+  const currentTimeLineMinutes = (currentTimeLineNow.getHours() * 60) + currentTimeLineNow.getMinutes();
+  const currentTimeLineTop = currentTimeLineMinutes >= dayStartMinutes && currentTimeLineMinutes <= dayEndMinutes
+    ? ((currentTimeLineMinutes - dayStartMinutes) / 60) * hourHeight
+    : null;
 
   const hourTicks = useMemo(
     () => Array.from(
@@ -494,6 +710,18 @@ const TeacherCalendarSection = ({
   useEffect(() => {
     setMiniMonthCursor(new Date(focusDate.getFullYear(), focusDate.getMonth(), 1));
   }, [focusDate]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const tick = () => setCurrentTimeLineNow(new Date());
+    tick();
+    const timerId = window.setInterval(tick, CURRENT_TIME_LINE_TICK_MS);
+    return () => window.clearInterval(timerId);
+  }, []);
+
+  useEffect(() => {
+    setLessonPanelMarks(readLessonPanelMarks(teacherId));
+  }, [teacherId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -681,6 +909,157 @@ const TeacherCalendarSection = ({
     loadTeacherCalendar();
   }, [loadTeacherCalendar]);
 
+  const loadCalendarSyncSettings = useCallback(async ({ silent = false } = {}) => {
+    if (!teacherId) {
+      setCalendarSyncSettings(null);
+      setCalendarSyncLoading(false);
+      setCalendarSyncError('');
+      setCalendarSyncUrl('');
+      return;
+    }
+    if (!silent) setCalendarSyncLoading(true);
+    try {
+      const data = await api.getTeacherCalendarSync(teacherId);
+      setCalendarSyncSettings(data || null);
+      setCalendarSyncError('');
+    } catch (err) {
+      setCalendarSyncSettings(null);
+      setCalendarSyncError(err?.message || 'Не удалось загрузить настройки Google Calendar.');
+    } finally {
+      setCalendarSyncLoading(false);
+    }
+  }, [teacherId]);
+
+  useEffect(() => {
+    loadCalendarSyncSettings();
+  }, [loadCalendarSyncSettings]);
+
+  const handleSaveCalendarSync = useCallback(async (event) => {
+    event.preventDefault();
+    if (!teacherId || calendarSyncSaving) return;
+    const nextUrl = String(calendarSyncUrl || '').trim();
+    if (!nextUrl) {
+      setCalendarSyncError('Вставьте iCal-ссылку.');
+      setCalendarSyncSuccess('');
+      return;
+    }
+    setCalendarSyncSaving(true);
+    setCalendarSyncError('');
+    setCalendarSyncSuccess('');
+    try {
+      const settings = await api.updateTeacherCalendarSync({ icalUrl: nextUrl, enabled: true }, teacherId);
+      setCalendarSyncSettings(settings || null);
+      setCalendarSyncUrl('');
+      try {
+        await api.refreshTeacherCalendarSync(teacherId);
+        setCalendarSyncSuccess('Google Calendar подключен.');
+      } catch (refreshError) {
+        setCalendarSyncError(refreshError?.message || 'Ссылка сохранена, но календарь пока не загрузился.');
+      }
+      await loadTeacherCalendar({ silent: true });
+      await loadCalendarSyncSettings({ silent: true });
+    } catch (err) {
+      setCalendarSyncError(err?.message || 'Не удалось подключить Google Calendar.');
+    } finally {
+      setCalendarSyncSaving(false);
+    }
+  }, [calendarSyncSaving, calendarSyncUrl, loadCalendarSyncSettings, loadTeacherCalendar, teacherId]);
+
+  const handleRefreshCalendarSync = useCallback(async () => {
+    if (!teacherId || calendarSyncRefreshing || !calendarSyncSettings?.configured) return;
+    setCalendarSyncRefreshing(true);
+    setCalendarSyncError('');
+    setCalendarSyncSuccess('');
+    try {
+      const result = await api.refreshTeacherCalendarSync(teacherId);
+      setCalendarSyncSettings(result?.settings || null);
+      setCalendarSyncSuccess(`Импортировано: ${Number(result?.importedCount) || 0}`);
+      await loadTeacherCalendar({ silent: true });
+      await loadCalendarSyncSettings({ silent: true });
+    } catch (err) {
+      setCalendarSyncError(err?.message || 'Не удалось обновить Google Calendar.');
+      await loadCalendarSyncSettings({ silent: true });
+    } finally {
+      setCalendarSyncRefreshing(false);
+    }
+  }, [
+    calendarSyncRefreshing,
+    calendarSyncSettings?.configured,
+    loadCalendarSyncSettings,
+    loadTeacherCalendar,
+    teacherId,
+  ]);
+
+  useEffect(() => {
+    if (!teacherId || !calendarSyncSettings?.configured || typeof window === 'undefined') {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const syncInBackground = async () => {
+      if (cancelled || calendarSyncAutoRefreshBusyRef.current) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      calendarSyncAutoRefreshBusyRef.current = true;
+      try {
+        const result = await api.refreshTeacherCalendarSync(teacherId);
+        if (cancelled) return;
+        if (result?.settings) setCalendarSyncSettings(result.settings);
+        setCalendarSyncError('');
+        await loadTeacherCalendar({ silent: true });
+        await loadCalendarSyncSettings({ silent: true });
+      } catch {
+        if (!cancelled) {
+          await loadCalendarSyncSettings({ silent: true });
+        }
+      } finally {
+        calendarSyncAutoRefreshBusyRef.current = false;
+      }
+    };
+
+    syncInBackground();
+    const timerId = window.setInterval(syncInBackground, GOOGLE_CALENDAR_AUTO_REFRESH_INTERVAL_MS);
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        syncInBackground();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timerId);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
+  }, [
+    calendarSyncSettings?.configured,
+    loadCalendarSyncSettings,
+    loadTeacherCalendar,
+    teacherId,
+  ]);
+
+  const handleDisableCalendarSync = useCallback(async () => {
+    if (!teacherId || calendarSyncSaving || !calendarSyncSettings?.configured) return;
+    setCalendarSyncSaving(true);
+    setCalendarSyncError('');
+    setCalendarSyncSuccess('');
+    try {
+      const settings = await api.updateTeacherCalendarSync({ icalUrl: '', enabled: false }, teacherId);
+      setCalendarSyncSettings(settings || null);
+      setCalendarSyncUrl('');
+      setCalendarSyncSuccess('Google Calendar отключен.');
+      await loadTeacherCalendar({ silent: true });
+    } catch (err) {
+      setCalendarSyncError(err?.message || 'Не удалось отключить Google Calendar.');
+    } finally {
+      setCalendarSyncSaving(false);
+    }
+  }, [calendarSyncSaving, calendarSyncSettings?.configured, loadTeacherCalendar, teacherId]);
+
   useEffect(() => {
     if (!teacherId || typeof window === 'undefined' || typeof window.EventSource !== 'function') {
       return undefined;
@@ -696,13 +1075,16 @@ const TeacherCalendarSection = ({
       const payloadTeacherId = String(payload?.teacherId || '').trim();
       if (payloadTeacherId && payloadTeacherId !== String(teacherId || '').trim()) return;
       loadTeacherCalendar({ silent: true });
+      if (String(payload?.action || '').includes('calendar-sync')) {
+        loadCalendarSyncSettings({ silent: true });
+      }
     };
     source.addEventListener('schedule-sync', handleScheduleSync);
     return () => {
       source.removeEventListener('schedule-sync', handleScheduleSync);
       source.close();
     };
-  }, [loadTeacherCalendar, teacherId]);
+  }, [loadCalendarSyncSettings, loadTeacherCalendar, teacherId]);
 
   const loadTeacherReminderSetting = useCallback(async () => {
     if (!teacherId) {
@@ -1181,6 +1563,11 @@ const TeacherCalendarSection = ({
     [weekEventsFlat]
   );
 
+  const googleEventsThisWeek = useMemo(
+    () => weekEventsFlat.filter((event) => isExternalCalendarEntry(event)),
+    [weekEventsFlat]
+  );
+
   const studentEventsThisWeek = useMemo(
     () => weekEventsFlat.filter((event) => !isTrialEntry(event)),
     [weekEventsFlat]
@@ -1201,6 +1588,21 @@ const TeacherCalendarSection = ({
     return (upcoming.length > 0 ? upcoming : candidates).slice(0, 6);
   }, [trialEventsThisWeek]);
 
+  const upcomingGoogleEvents = useMemo(() => {
+    const nowTime = Date.now();
+    const candidates = googleEventsThisWeek
+      .map((event) => {
+        const startLabel = formatMinutesAsTime(event.startMinutes);
+        const startDate = new Date(`${event.dayKey}T${startLabel}:00`);
+        if (Number.isNaN(startDate.getTime())) return null;
+        return { ...event, startDate };
+      })
+      .filter(Boolean)
+      .sort((left, right) => left.startDate.getTime() - right.startDate.getTime());
+    const upcoming = candidates.filter((item) => item.startDate.getTime() >= nowTime);
+    return (upcoming.length > 0 ? upcoming : candidates).slice(0, 5);
+  }, [googleEventsThisWeek]);
+
   const nextLessonInfo = useMemo(() => {
     const nowTime = Date.now();
     const candidates = [];
@@ -1219,6 +1621,287 @@ const TeacherCalendarSection = ({
     candidates.sort((left, right) => left.startDate.getTime() - right.startDate.getTime());
     return candidates.find((item) => item.startDate.getTime() >= nowTime) || candidates[0] || null;
   }, [eventsByDayIndex, visibleDayIndexes, weekDays]);
+
+  const lessonPanelInfo = useMemo(() => {
+    const now = currentTimeLineNow instanceof Date ? currentTimeLineNow : new Date();
+    const nowMs = now.getTime();
+    const startDate = cloneAsDateOnly(now);
+    const candidates = [];
+
+    (Array.isArray(entries) ? entries : []).forEach((entry) => {
+      const startMinutes = parseScheduleTimeToMinutes(entry?.time);
+      if (!Number.isFinite(startMinutes)) return;
+      const duration = Number.isFinite(Number(entry?.durationMinutes))
+        ? Math.max(15, Number(entry.durationMinutes))
+        : DEFAULT_EVENT_DURATION_MINUTES;
+      const explicitDate = String(entry?.date || '').trim();
+      const excludedDates = new Set(normalizeExcludedDayKeys(entry?.excludedDates));
+      const pushCandidate = (dayKey) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey) || excludedDates.has(dayKey)) return;
+        const candidateDate = parseDayKeyToDate(dayKey);
+        if (!candidateDate) return;
+        const candidateMs = candidateDate.getTime();
+        const minMs = addDays(startDate, -1).getTime();
+        const maxMs = addDays(startDate, LESSON_PANEL_LOOKAHEAD_DAYS).getTime();
+        if (candidateMs < minMs || candidateMs > maxMs) return;
+        const startLabel = formatMinutesAsTime(startMinutes);
+        const lessonStart = new Date(`${dayKey}T${startLabel}:00`);
+        if (Number.isNaN(lessonStart.getTime())) return;
+        const lessonEnd = new Date(lessonStart.getTime() + (duration * 60 * 1000));
+        const studentId = String(entry?.studentId || '').trim();
+        const studentName = studentId
+          ? (studentNameById[studentId] || entry?.studentName || 'Ученик')
+          : String(entry?.studentName || entry?.subject || DEFAULT_ONE_TIME_LESSON_SUBJECT).trim();
+        candidates.push({
+          event: {
+            ...entry,
+            startMinutes,
+            endMinutes: startMinutes + duration,
+            studentName,
+          },
+          dayKey,
+          startDate: lessonStart,
+          endDate: lessonEnd,
+        });
+      };
+
+      if (explicitDate) {
+        pushCandidate(explicitDate);
+        return;
+      }
+
+      const weekdayMeta = resolveScheduleWeekdayMeta(entry);
+      if (!weekdayMeta?.order) return;
+      for (let offset = 0; offset <= LESSON_PANEL_LOOKAHEAD_DAYS; offset += 1) {
+        const date = addDays(startDate, offset);
+        const weekdayOrder = date.getDay() === 0 ? 7 : date.getDay();
+        if (weekdayOrder !== weekdayMeta.order) continue;
+        pushCandidate(toDayKey(date));
+      }
+    });
+
+    candidates.sort((left, right) => left.startDate.getTime() - right.startDate.getTime());
+    const current = candidates.find((item) => item.startDate.getTime() <= nowMs && item.endDate.getTime() > nowMs);
+    if (current) return { ...current, status: 'current' };
+    const next = candidates.find((item) => item.startDate.getTime() >= nowMs);
+    if (next) return { ...next, status: 'next' };
+    const last = [...candidates].reverse().find((item) => item.endDate.getTime() <= nowMs);
+    return last ? { ...last, status: 'past' } : null;
+  }, [currentTimeLineNow, entries, studentNameById]);
+
+  const lessonPanelStudentId = String(lessonPanelInfo?.event?.studentId || '').trim();
+  const lessonPanelHasStudent = Boolean(lessonPanelStudentId);
+  const lessonPanelStudentSelected = lessonPanelHasStudent
+    && String(activeStudentId || '').trim() === lessonPanelStudentId;
+  const lessonPanelStudentName = String(
+    lessonPanelInfo?.event?.studentName
+    || lessonPanelInfo?.event?.subject
+    || DEFAULT_ONE_TIME_LESSON_SUBJECT
+  ).trim();
+  const lessonPanelSubject = String(lessonPanelInfo?.event?.subject || '').trim();
+  const lessonPanelDateLabel = lessonPanelInfo?.dayKey
+    ? formatDayMonth(new Date(`${lessonPanelInfo.dayKey}T00:00:00`))
+    : '';
+  const lessonPanelTimeLabel = lessonPanelInfo
+    ? `${formatMinutesAsDisplayTime(lessonPanelInfo.event.startMinutes, use24HourFormat)}-${formatMinutesAsDisplayTime(lessonPanelInfo.event.endMinutes, use24HourFormat)}`
+    : '';
+  const lessonPanelStatusLabel = lessonPanelInfo?.status === 'current'
+    ? 'Идёт сейчас'
+    : (lessonPanelInfo?.status === 'past' ? 'Последний урок' : 'Ближайший урок');
+  const lessonPanelLink = normalizeLessonPanelUrl(lessonPanelInfo?.event?.lessonLink)
+    || normalizeLessonPanelUrl(lessonPanelInfo?.event?.boardLink);
+  const lessonPanelCompletedMarkKey = lessonPanelInfo
+    ? buildLessonPanelMarkKey(teacherId, lessonPanelInfo, 'completed')
+    : '';
+  const lessonPanelPaidMarkKey = lessonPanelInfo
+    ? buildLessonPanelMarkKey(teacherId, lessonPanelInfo, 'paid')
+    : '';
+  const lessonPanelCompletedMarked = Boolean(lessonPanelMarks[lessonPanelCompletedMarkKey]);
+  const lessonPanelPaidMarked = Boolean(lessonPanelMarks[lessonPanelPaidMarkKey]);
+
+  const saveLessonPanelMark = useCallback((markKey) => {
+    if (!markKey) return;
+    setLessonPanelMarks((prev) => {
+      const next = {
+        ...(prev || {}),
+        [markKey]: new Date().toISOString(),
+      };
+      writeLessonPanelMarks(teacherId, next);
+      return next;
+    });
+  }, [teacherId]);
+
+  const removeLessonPanelMark = useCallback((markKey) => {
+    if (!markKey) return;
+    setLessonPanelMarks((prev) => {
+      const next = { ...(prev || {}) };
+      delete next[markKey];
+      writeLessonPanelMarks(teacherId, next);
+      return next;
+    });
+  }, [teacherId]);
+
+  const openLessonPanelWorkspace = useCallback((viewId) => {
+    const normalizedView = String(viewId || '').trim();
+    if (!normalizedView) return;
+    if (lessonPanelStudentId && typeof onSelectStudent === 'function') {
+      onSelectStudent(lessonPanelStudentId);
+    }
+    if (typeof onOpenStudentWorkspace === 'function') {
+      onOpenStudentWorkspace(normalizedView, lessonPanelStudentId);
+    }
+  }, [lessonPanelStudentId, onOpenStudentWorkspace, onSelectStudent]);
+
+  const openLessonPanelLink = useCallback(() => {
+    if (!lessonPanelLink || typeof window === 'undefined') return;
+    window.open(lessonPanelLink, '_blank', 'noopener,noreferrer');
+  }, [lessonPanelLink]);
+
+  const openLessonInfoModal = useCallback(() => {
+    if (!lessonPanelHasStudent) return;
+    setLessonInfoError('');
+    setLessonInfoModalOpen(true);
+  }, [lessonPanelHasStudent]);
+
+  const closeLessonInfoModal = useCallback(() => {
+    setLessonInfoModalOpen(false);
+    setLessonInfoError('');
+  }, []);
+
+  const handleLessonPanelFinanceAction = useCallback(async (action) => {
+    const normalizedAction = String(action || '').trim();
+    if (!teacherId || !lessonPanelStudentId || !lessonPanelInfo || lessonPanelFinanceBusy) return;
+    const markKey = normalizedAction === 'paid' ? lessonPanelPaidMarkKey : lessonPanelCompletedMarkKey;
+    const undo = Boolean(markKey && lessonPanelMarks[markKey]);
+
+    setLessonPanelFinanceBusy(undo ? `${normalizedAction}-undo` : normalizedAction);
+    setLessonPanelError('');
+    setLessonPanelSuccess('');
+    try {
+      const month = getFinanceMonthFromDayKey(lessonPanelInfo.dayKey);
+      const snapshot = await api.getTeacherFinance(month, teacherId);
+      const financeStudent = (Array.isArray(snapshot?.students) ? snapshot.students : [])
+        .find((student) => String(student?.id || '').trim() === lessonPanelStudentId);
+      const record = financeStudent?.record || {};
+      const profile = financeStudent?.profile || {};
+      const currentCompleted = normalizeFinanceAmount(record.completedLessons);
+      const currentPaid = normalizeFinanceAmount(record.paidAmount);
+      const lessonPrice = normalizeFinanceAmount(record.lessonPrice ?? profile.lessonPrice);
+      const overrides = { month };
+
+      if (normalizedAction === 'completed') {
+        overrides.completedLessons = undo
+          ? Math.max(0, currentCompleted - 1)
+          : currentCompleted + 1;
+      } else if (normalizedAction === 'paid') {
+        if (lessonPrice <= 0) {
+          setLessonPanelError('В финансах не указана стоимость урока.');
+          openLessonPanelWorkspace('finance');
+          return;
+        }
+        overrides.paidAmount = undo
+          ? Math.max(0, currentPaid - lessonPrice)
+          : currentPaid + lessonPrice;
+      } else {
+        return;
+      }
+
+      await api.updateTeacherFinanceStudent(
+        lessonPanelStudentId,
+        buildTeacherFinanceLessonPayload(record, profile, overrides),
+        teacherId
+      );
+      if (undo) {
+        removeLessonPanelMark(markKey);
+      } else {
+        saveLessonPanelMark(markKey);
+      }
+      setLessonPanelSuccess(normalizedAction === 'completed'
+        ? (undo ? 'Отметка проведения отменена.' : 'Проведение отмечено.')
+        : (undo ? `Оплата вычтена: ${lessonPrice.toLocaleString('ru-RU')} ₽.` : `Оплата добавлена: ${lessonPrice.toLocaleString('ru-RU')} ₽.`));
+    } catch (err) {
+      setLessonPanelError(err?.message || 'Не удалось обновить финансы.');
+    } finally {
+      setLessonPanelFinanceBusy('');
+    }
+  }, [
+    lessonPanelCompletedMarkKey,
+    lessonPanelFinanceBusy,
+    lessonPanelInfo,
+    lessonPanelMarks,
+    lessonPanelPaidMarkKey,
+    lessonPanelStudentId,
+    openLessonPanelWorkspace,
+    removeLessonPanelMark,
+    saveLessonPanelMark,
+    teacherId,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLessonPanelError('');
+    setLessonPanelSuccess('');
+    if (!lessonPanelStudentId) {
+      setLessonPanelHomework(null);
+      setLessonPanelHomeworkLoading(false);
+      return undefined;
+    }
+    setLessonPanelHomeworkLoading(true);
+    api.getStudentNextLesson(lessonPanelStudentId)
+      .then((data) => {
+        if (cancelled) return;
+        const latest = data?.latest && typeof data.latest === 'object'
+          ? data.latest
+          : (Array.isArray(data?.homeworks) ? data.homeworks[0] : null);
+        setLessonPanelHomework(latest || null);
+      })
+      .catch(() => {
+        if (!cancelled) setLessonPanelHomework(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLessonPanelHomeworkLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lessonPanelStudentId]);
+
+  useEffect(() => {
+    if (!lessonInfoModalOpen) return undefined;
+    let cancelled = false;
+    if (!lessonPanelStudentId) {
+      setLessonInfoFiles([]);
+      setLessonInfoLoading(false);
+      setLessonInfoError('Ученик для урока не выбран.');
+      return undefined;
+    }
+    setLessonInfoLoading(true);
+    setLessonInfoError('');
+    api.getFiles(lessonPanelStudentId)
+      .then((data) => {
+        if (cancelled) return;
+        setLessonInfoFiles(selectRecentLessonNoteFiles(data));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setLessonInfoFiles([]);
+        setLessonInfoError(err?.message || 'Не удалось загрузить последние конспекты.');
+      })
+      .finally(() => {
+        if (!cancelled) setLessonInfoLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lessonInfoModalOpen, lessonPanelStudentId]);
+
+  const lessonPanelHomeworkText = String(lessonPanelHomework?.homeWork || '').trim();
+  const lessonPanelHomeworkPreview = lessonPanelHomeworkText
+    ? lessonPanelHomeworkText.split(/\r?\n/).map((line) => line.trim()).find(Boolean)
+    : '';
+  const lessonPanelHomeworkGoalCount = Array.isArray(lessonPanelHomework?.goals)
+    ? lessonPanelHomework.goals.length
+    : 0;
 
   const studentCount = studentCalendars.length;
 
@@ -1289,6 +1972,8 @@ const TeacherCalendarSection = ({
     const endLabel = formatMinutesAsDisplayTime(startParsed + duration, use24HourFormat);
     return `с ${startLabel} до ${endLabel}`;
   }, [eventDetails, use24HourFormat]);
+
+  const eventDetailsIsExternal = isExternalCalendarEntry(eventDetails);
 
   const focusDateInputValue = useMemo(() => toDayKey(focusDate), [focusDate]);
 
@@ -1504,6 +2189,10 @@ const TeacherCalendarSection = ({
   }, [dayEndMinutes, dayStartMinutes]);
 
   const handleEventDragStart = useCallback((dragEvent, calendarEvent, dayIndex, dayKey) => {
+    if (isExternalCalendarEntry(calendarEvent)) {
+      dragEvent.preventDefault();
+      return;
+    }
     if (dragDropBusy || eventDeleteBusy || eventEditSaving || eventQuickActionBusy) {
       dragEvent.preventDefault();
       return;
@@ -1954,6 +2643,7 @@ const TeacherCalendarSection = ({
 
   const handleQuickShiftEvent = useCallback(async ({ dayShift = 0, minuteShift = 0 } = {}) => {
     if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy) return;
+    if (isExternalCalendarEntry(eventDetails)) return;
     const baseDateKey = resolveEventDateKey(eventDetails);
     const baseDate = parseDayKeyToDate(baseDateKey);
     if (!baseDate) {
@@ -2016,6 +2706,7 @@ const TeacherCalendarSection = ({
 
   const handleMoveEventToNearestFreeSlot = useCallback(async () => {
     if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy) return;
+    if (isExternalCalendarEntry(eventDetails)) return;
     const baseDateKey = resolveEventDateKey(eventDetails);
     if (!baseDateKey) {
       setEventQuickActionError('Не удалось определить дату занятия.');
@@ -2071,6 +2762,7 @@ const TeacherCalendarSection = ({
 
   const handleDuplicateEventNextWeek = useCallback(async () => {
     if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy) return;
+    if (isExternalCalendarEntry(eventDetails)) return;
     const baseDateKey = resolveEventDateKey(eventDetails);
     const baseDate = parseDayKeyToDate(baseDateKey);
     if (!baseDate) {
@@ -2133,6 +2825,7 @@ const TeacherCalendarSection = ({
 
   const startEventEdit = useCallback(() => {
     if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy) return;
+    if (isExternalCalendarEntry(eventDetails)) return;
     const hasStudent = Boolean(String(eventDetails.studentId || '').trim());
     const fallbackTitle = hasStudent
       ? resolveStudentLessonSubjectFallback(eventDetails.studentName)
@@ -2169,6 +2862,7 @@ const TeacherCalendarSection = ({
 
   const handleSaveEventEdit = useCallback(async () => {
     if (!eventDetails || !eventEditDraft || eventEditSaving || eventDeleteBusy || eventQuickActionBusy || dragDropBusy) return;
+    if (isExternalCalendarEntry(eventDetails)) return;
     const eventId = String(eventDetails.id || '').trim();
     if (!eventId) {
       setEventEditError('Не удалось определить занятие для редактирования.');
@@ -2249,6 +2943,7 @@ const TeacherCalendarSection = ({
 
   const handleDeleteEvent = useCallback(async () => {
     if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy) return;
+    if (isExternalCalendarEntry(eventDetails)) return;
     const studentId = String(eventDetails.studentId || '').trim();
     const eventId = String(eventDetails.id || '').trim();
     if (!eventId) {
@@ -2321,6 +3016,16 @@ const TeacherCalendarSection = ({
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
   }, [dragDropBusy, eventDeleteBusy, eventDetails, eventEditDraft, eventEditSaving, eventQuickActionBusy]);
+
+  useEffect(() => {
+    if (!lessonInfoModalOpen) return undefined;
+    const handleEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      closeLessonInfoModal();
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [closeLessonInfoModal, lessonInfoModalOpen]);
 
   return (
     <section className="teacher-calendar-shell relative h-[calc(var(--app-vh,1vh)*100-8.25rem)] overflow-hidden rounded-[28px] border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/60 to-fuchsia-50/45 shadow-[0_18px_38px_rgba(99,102,241,0.16)] md:h-[calc(var(--app-vh,1vh)*100-7rem)]">
@@ -2505,6 +3210,113 @@ const TeacherCalendarSection = ({
                       <div className="text-xs text-slate-500">Пробных слотов на этой неделе нет.</div>
                     )}
                   </div>
+                </div>
+
+                <div className="surface-panel mt-3 rounded-2xl border border-purple-200/70 bg-white/88 p-3 shadow-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Google Calendar</div>
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                      calendarSyncSettings?.configured
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-slate-200 bg-slate-50 text-slate-500'
+                    }`}>
+                      {calendarSyncSettings?.configured ? googleEventsThisWeek.length : 'off'}
+                    </span>
+                  </div>
+                  <form onSubmit={handleSaveCalendarSync} className="mt-2 space-y-2">
+                    <input
+                      type="url"
+                      value={calendarSyncUrl}
+                      onChange={(event) => {
+                        setCalendarSyncUrl(event.target.value);
+                        setCalendarSyncError('');
+                        setCalendarSyncSuccess('');
+                      }}
+                      placeholder={calendarSyncSettings?.configured ? 'Новая iCal-ссылка' : 'Secret iCal URL'}
+                      disabled={calendarSyncSaving || calendarSyncRefreshing}
+                      className="w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-xs text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
+                    />
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="submit"
+                        disabled={calendarSyncSaving || calendarSyncRefreshing || !calendarSyncUrl.trim()}
+                        className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-violet-500/70 bg-violet-600 px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <Link2 size={12} />
+                        {calendarSyncSettings?.configured ? 'Заменить' : 'Подключить'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRefreshCalendarSync}
+                        disabled={calendarSyncRefreshing || calendarSyncSaving || !calendarSyncSettings?.configured}
+                        className="grid h-8 w-8 place-items-center rounded-xl border border-purple-200 bg-white text-purple-600 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label="Обновить Google Calendar"
+                        title="Обновить Google Calendar"
+                      >
+                        <RefreshCcw size={13} className={calendarSyncRefreshing ? 'animate-spin' : ''} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDisableCalendarSync}
+                        disabled={calendarSyncSaving || calendarSyncRefreshing || !calendarSyncSettings?.configured}
+                        className="grid h-8 w-8 place-items-center rounded-xl border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label="Отключить Google Calendar"
+                        title="Отключить Google Calendar"
+                      >
+                        <Unlink size={13} />
+                      </button>
+                    </div>
+                  </form>
+                  {calendarSyncLoading && (
+                    <div className="mt-2 text-[11px] text-slate-500">Загрузка...</div>
+                  )}
+                  {calendarSyncSettings?.configured && (
+                    <div className="mt-2 space-y-1 text-[11px] text-slate-500">
+                      <div className="truncate">{calendarSyncSettings.calendarName || calendarSyncSettings.maskedUrl}</div>
+                      <div>{`Автообновление: ${GOOGLE_CALENDAR_AUTO_REFRESH_LABEL}`}</div>
+                      {calendarSyncSettings.lastFetchedAt && (
+                        <div>{`Синхр.: ${formatCalendarSyncTimestamp(calendarSyncSettings.lastFetchedAt)}`}</div>
+                      )}
+                    </div>
+                  )}
+                  {calendarSyncError && (
+                    <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] font-medium text-rose-600">
+                      {calendarSyncError}
+                    </div>
+                  )}
+                  {!calendarSyncError && calendarSyncSettings?.lastError && (
+                    <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-medium text-amber-700">
+                      {calendarSyncSettings.lastError}
+                    </div>
+                  )}
+                  {calendarSyncSuccess && (
+                    <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[11px] font-medium text-emerald-700">
+                      {calendarSyncSuccess}
+                    </div>
+                  )}
+                  {upcomingGoogleEvents.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {upcomingGoogleEvents.map((event) => (
+                        <button
+                          key={`google-shortcut-${event.id || `${event.dayKey}-${event.time}`}`}
+                          type="button"
+                          onClick={() => {
+                            const date = parseDayKeyToDate(event.dayKey);
+                            if (date) setFocusDate(cloneAsDateOnly(date));
+                            openEventDetailsModal(event, event.dayKey);
+                          }}
+                          className="w-full rounded-lg border border-sky-100 bg-sky-50/80 px-2 py-1.5 text-left hover:border-sky-200 hover:bg-sky-100/70"
+                        >
+                          <div className="truncate text-[11px] font-semibold text-slate-800">
+                            {String(event.studentName || event.subject || 'Google Calendar').trim()}
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            {formatDayMonth(new Date(`${event.dayKey}T00:00:00`))}, {formatMinutesAsDisplayTime(event.startMinutes, use24HourFormat)}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -2752,6 +3564,179 @@ const TeacherCalendarSection = ({
               )}
             </div>
 
+            <div className="border-b border-purple-200/70 bg-white/82 px-3 py-2 backdrop-blur-md">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-purple-200/80 bg-gradient-to-r from-white via-violet-50/80 to-sky-50/70 px-3 py-2 shadow-sm">
+                <div className="min-w-[220px] flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] ${
+                      lessonPanelInfo?.status === 'current'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-purple-200 bg-purple-50 text-purple-700'
+                    }`}>
+                      {lessonPanelInfo ? lessonPanelStatusLabel : 'Пульт урока'}
+                    </span>
+                    {lessonPanelInfo && (
+                      <span className="text-xs font-semibold text-slate-500">
+                        {lessonPanelDateLabel}, {lessonPanelTimeLabel}
+                      </span>
+                    )}
+                    {lessonPanelInfo && isExternalCalendarEntry(lessonPanelInfo.event) && (
+                      <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                        Google
+                      </span>
+                    )}
+                    {lessonPanelStudentSelected && (
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        выбран
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-baseline gap-2">
+                    <div className="truncate text-lg font-black text-slate-900">
+                      {lessonPanelInfo ? lessonPanelStudentName : 'Нет ближайшего урока'}
+                    </div>
+                    {lessonPanelSubject && lessonPanelSubject !== lessonPanelStudentName && (
+                      <div className="truncate text-xs font-semibold text-slate-500">{lessonPanelSubject}</div>
+                    )}
+                  </div>
+                  {lessonPanelHasStudent ? (
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                      {lessonPanelHomeworkLoading ? (
+                        <span>Домашка загружается...</span>
+                      ) : lessonPanelHomework ? (
+                        <>
+                          <span>{lessonPanelHomeworkPreview || 'Домашка без текста'}</span>
+                          {lessonPanelHomeworkGoalCount > 0 && (
+                            <span className="rounded-full bg-purple-100 px-2 py-0.5 font-semibold text-purple-700">
+                              целей: {lessonPanelHomeworkGoalCount}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span>Домашка пока не задана</span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      {lessonPanelInfo ? 'Ученик не сопоставлен.' : 'В ближайшие 14 дней занятий не найдено.'}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  <button
+                    type="button"
+                    onClick={openLessonInfoModal}
+                    disabled={!lessonPanelHasStudent}
+                    title="Вспомнить прошлый урок"
+                    aria-label="Вспомнить прошлый урок"
+                    className="inline-grid h-8 w-8 place-items-center rounded-xl border border-purple-200 bg-white text-purple-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Info size={14} />
+                  </button>
+                  {lessonPanelLink && (
+                    <button
+                      type="button"
+                      onClick={openLessonPanelLink}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-100"
+                    >
+                      <ExternalLink size={12} />
+                      Ссылка
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => openLessonPanelWorkspace('call')}
+                    disabled={!lessonPanelHasStudent}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Clock3 size={12} />
+                    Созвон
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openLessonPanelWorkspace('board')}
+                    disabled={!lessonPanelHasStudent}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-violet-700 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Brush size={12} />
+                    Доска
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openLessonPanelWorkspace('collab-save')}
+                    disabled={!lessonPanelHasStudent}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Code2 size={12} />
+                    Код в конспект
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openLessonPanelWorkspace('notes')}
+                    disabled={!lessonPanelHasStudent}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <BookOpen size={12} />
+                    Конспекты
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openLessonPanelWorkspace('schedule')}
+                    disabled={!lessonPanelHasStudent}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <FileText size={12} />
+                    Домашка
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openLessonPanelWorkspace('progress')}
+                    disabled={!lessonPanelHasStudent}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <CheckCircle size={12} />
+                    Задания
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleLessonPanelFinanceAction('completed')}
+                    disabled={!lessonPanelHasStudent || Boolean(lessonPanelFinanceBusy)}
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
+                      lessonPanelCompletedMarked
+                        ? 'border-teal-300 bg-teal-100 text-teal-800 hover:bg-teal-50'
+                        : 'border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100'
+                    }`}
+                  >
+                    <CheckCircle size={12} />
+                    {lessonPanelFinanceBusy === 'completed' || lessonPanelFinanceBusy === 'completed-undo'
+                      ? '...'
+                      : (lessonPanelCompletedMarked ? 'Отменить урок' : '+ урок')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleLessonPanelFinanceAction('paid')}
+                    disabled={!lessonPanelHasStudent || Boolean(lessonPanelFinanceBusy)}
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
+                      lessonPanelPaidMarked
+                        ? 'border-rose-300 bg-rose-100 text-rose-800 hover:bg-rose-50'
+                        : 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                    }`}
+                  >
+                    <Wallet size={12} />
+                    {lessonPanelFinanceBusy === 'paid' || lessonPanelFinanceBusy === 'paid-undo'
+                      ? '...'
+                      : (lessonPanelPaidMarked ? 'Отменить оплату' : '+ оплата')}
+                  </button>
+                </div>
+              </div>
+              {(lessonPanelError || lessonPanelSuccess) && (
+                <div className={`mt-1 text-xs ${lessonPanelError ? 'text-rose-600' : 'text-emerald-700'}`}>
+                  {lessonPanelError || lessonPanelSuccess}
+                </div>
+              )}
+            </div>
+
             <div className="min-h-0 flex-1 overflow-hidden">
               <div className="flex h-full min-h-0 flex-col">
                 <div
@@ -2784,7 +3769,7 @@ const TeacherCalendarSection = ({
                   })}
                 </div>
 
-                <div ref={timelineViewportRef} className="min-h-0 flex-1 overflow-hidden">
+                <div ref={timelineViewportRef} className="teacher-calendar-shell__timeline-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
                   {loading && entries.length === 0 ? (
                     <div className="flex h-full min-h-[180px] items-center justify-center gap-2 text-sm font-medium text-slate-600">
                       <RefreshCcw size={15} className="animate-spin" />
@@ -2840,6 +3825,16 @@ const TeacherCalendarSection = ({
                                   style={{ top: `${index * hourHeight}px` }}
                                 />
                               ))}
+                              {isToday && currentTimeLineTop !== null && (
+                                <div
+                                  className="pointer-events-none absolute left-0 right-0 z-30"
+                                  style={{ top: `${currentTimeLineTop}px` }}
+                                  aria-hidden="true"
+                                >
+                                  <div className="absolute left-0 right-0 top-0 border-t-2 border-red-500" />
+                                  <div className="absolute -left-[5px] -top-[5px] h-[11px] w-[11px] rounded-full bg-red-500 shadow-[0_0_0_2px_rgba(255,255,255,0.9)]" />
+                                </div>
+                              )}
                               {dragPreview?.dayKey === dayKey && (
                                 <div
                                   className="pointer-events-none absolute left-[3px] right-[3px] z-20 overflow-hidden rounded-md border-2 border-dashed border-violet-500 bg-violet-200/45"
@@ -2875,16 +3870,19 @@ const TeacherCalendarSection = ({
                                 const showSubjectInCard = Boolean(subjectLabel && subjectLabel !== primaryLabel);
                                 const startLabel = formatMinutesAsDisplayTime(event.startMinutes, use24HourFormat);
                                 const endLabel = formatMinutesAsDisplayTime(event.endMinutes, use24HourFormat);
-                                const color = getEventColor(event.studentId || studentName || `${dayIndex}-${index}`);
+                                const externalEvent = isExternalCalendarEntry(event);
+                                const color = externalEvent
+                                  ? '#2563eb'
+                                  : getEventColor(event.studentId || studentName || `${dayIndex}-${index}`);
                                 const laneWidth = 100 / Math.max(1, event.laneCount || 1);
                                 const left = (event.lane || 0) * laneWidth;
                                 const hasConflict = Number(event.laneCount || 1) > 1;
                                 return (
                                   <div
                                     key={event.id || `${dayKey}-${event.time}-${event.studentId}-${index}`}
-                                    title={`${primaryLabel}${showSubjectInCard ? ` • ${subjectLabel}` : ''} • с ${startLabel} до ${endLabel}`}
-                                    className={`teacher-calendar-shell__event-card absolute z-10 overflow-hidden rounded-md border px-2 py-1 text-white shadow-sm ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
-                                    draggable={!dragDropBusy && !eventDeleteBusy && !eventEditSaving && !eventQuickActionBusy}
+                                    title={`${externalEvent ? 'Google Calendar • ' : ''}${primaryLabel}${showSubjectInCard ? ` • ${subjectLabel}` : ''} • с ${startLabel} до ${endLabel}`}
+                                    className={`teacher-calendar-shell__event-card absolute z-10 overflow-hidden rounded-md border px-2 py-1 text-white shadow-sm ${externalEvent ? 'ring-1 ring-sky-200/80 ring-offset-1 ring-offset-white' : ''} ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
+                                    draggable={!externalEvent && !dragDropBusy && !eventDeleteBusy && !eventEditSaving && !eventQuickActionBusy}
                                     style={{
                                       top: `${top}px`,
                                       height: `${height}px`,
@@ -2892,7 +3890,7 @@ const TeacherCalendarSection = ({
                                       width: `calc(${laneWidth}% - 6px)`,
                                       backgroundColor: color,
                                       borderColor: color,
-                                      cursor: dragDropBusy ? 'progress' : 'grab',
+                                      cursor: dragDropBusy ? 'progress' : (externalEvent ? 'pointer' : 'grab'),
                                       opacity: draggingEvent?.eventId === String(event.id || '').trim() ? 0.65 : 1,
                                     }}
                                     onDragStart={(eventDrag) => handleEventDragStart(eventDrag, event, dayIndex, dayKey)}
@@ -2912,6 +3910,7 @@ const TeacherCalendarSection = ({
                                     <div className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-white/90">
                                       <Clock3 size={10} />
                                       {`${startLabel}-${endLabel}`}
+                                      {externalEvent && <span className="ml-1 rounded bg-white/20 px-1">Google</span>}
                                     </div>
                                   </div>
                                 );
@@ -3220,6 +4219,141 @@ const TeacherCalendarSection = ({
           </form>
         </div>
       )}
+      {lessonInfoModalOpen && (
+        <div
+          className="teacher-calendar-shell__modal-backdrop absolute inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]"
+          onClick={closeLessonInfoModal}
+        >
+          <div
+            className="teacher-calendar-shell__modal surface-panel modal-card w-full max-w-xl rounded-2xl border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/70 to-sky-50/55 p-4 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-purple-500">
+                  Перед уроком
+                </div>
+                <div className="truncate text-lg font-black text-slate-900">
+                  {lessonPanelStudentName || 'Ученик'}
+                </div>
+                {lessonPanelInfo && (
+                  <div className="text-xs text-slate-500">
+                    {lessonPanelDateLabel}, {lessonPanelTimeLabel}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={closeLessonInfoModal}
+                className="rounded-md px-2 py-1 text-sm font-semibold text-slate-500 hover:bg-purple-50"
+              >
+                Закрыть
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              <section className="rounded-xl border border-emerald-200 bg-white/85 p-3">
+                <div className="text-xs font-bold uppercase tracking-wide text-emerald-700">
+                  Домашка
+                </div>
+                {lessonPanelHomeworkLoading ? (
+                  <div className="mt-2 text-sm text-slate-500">Загружаем домашку...</div>
+                ) : lessonPanelHomework ? (
+                  <>
+                    <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
+                      {lessonPanelHomeworkText || 'Домашка без текста'}
+                    </div>
+                    {lessonPanelHomeworkGoalCount > 0 && (
+                      <div className="mt-2 inline-flex rounded-full bg-purple-100 px-2.5 py-1 text-[11px] font-semibold text-purple-700">
+                        целей: {lessonPanelHomeworkGoalCount}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="mt-2 text-sm text-slate-500">Домашка пока не задана.</div>
+                )}
+              </section>
+
+              <section className="rounded-xl border border-sky-200 bg-white/85 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-bold uppercase tracking-wide text-sky-700">
+                    Последние конспекты
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-400">3 последних</span>
+                </div>
+                {lessonInfoLoading ? (
+                  <div className="mt-2 text-sm text-slate-500">Загружаем конспекты...</div>
+                ) : lessonInfoError ? (
+                  <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-600">
+                    {lessonInfoError}
+                  </div>
+                ) : lessonInfoFiles.length > 0 ? (
+                  <div className="mt-2 space-y-2">
+                    {lessonInfoFiles.map((file) => {
+                      const href = getLessonInfoFileHref(file);
+                      const meta = getLessonInfoFileMeta(file);
+                      const content = (
+                        <>
+                          <div className="truncate text-sm font-semibold text-slate-900">
+                            {file?.name || 'Файл из конспекта'}
+                          </div>
+                          {meta && (
+                            <div className="mt-0.5 truncate text-[11px] font-medium text-slate-500">
+                              {meta}
+                            </div>
+                          )}
+                        </>
+                      );
+                      return href ? (
+                        <a
+                          key={file?.id || file?.url || file?.name}
+                          href={href}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block rounded-xl border border-slate-200 bg-white px-3 py-2 hover:border-sky-200 hover:bg-sky-50/70"
+                        >
+                          {content}
+                        </a>
+                      ) : (
+                        <div
+                          key={file?.id || file?.name}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2"
+                        >
+                          {content}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="mt-2 text-sm text-slate-500">Сохранений в конспекты пока нет.</div>
+                )}
+              </section>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  closeLessonInfoModal();
+                  openLessonPanelWorkspace('notes');
+                }}
+                disabled={!lessonPanelHasStudent}
+                className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <BookOpen size={14} />
+                Конспекты
+              </button>
+              <button
+                type="button"
+                onClick={closeLessonInfoModal}
+                className="rounded-full border border-purple-200/80 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-purple-50"
+              >
+                Готово
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {eventDetails && (
         <div
           className="teacher-calendar-shell__modal-backdrop absolute inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]"
@@ -3373,11 +4507,32 @@ const TeacherCalendarSection = ({
                   <div>
                     <span className="text-slate-500">Повтор: </span>
                     <span className="font-semibold text-slate-900">
-                      {String(eventDetails.date || '').trim() ? 'Единоразово' : 'Еженедельно'}
+                      {eventDetailsIsExternal
+                        ? 'Google Calendar'
+                        : (String(eventDetails.date || '').trim() ? 'Единоразово' : 'Еженедельно')}
                     </span>
                   </div>
+                  {eventDetailsIsExternal && (
+                    <div>
+                      <span className="text-slate-500">Источник: </span>
+                      <span className="font-semibold text-slate-900">
+                        {eventDetails.externalCalendarProvider || 'Google Calendar'}
+                      </span>
+                    </div>
+                  )}
+                  {eventDetailsIsExternal && eventDetails.lessonLink && (
+                    <a
+                      href={eventDetails.lessonLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100"
+                    >
+                      Открыть ссылку
+                    </a>
+                  )}
                 </div>
 
+                {!eventDetailsIsExternal && (
                 <div className="mt-3 rounded-xl border border-purple-200/80 bg-white/80 p-2">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                     Быстрые действия
@@ -3436,6 +4591,7 @@ const TeacherCalendarSection = ({
                     <div className="mt-2 text-xs text-slate-500">Применяем быстрые изменения...</div>
                   )}
                 </div>
+                )}
               </>
             )}
 
@@ -3485,22 +4641,26 @@ const TeacherCalendarSection = ({
                   >
                     Отмена
                   </button>
-                  <button
-                    type="button"
-                    onClick={startEventEdit}
-                    disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
-                    className="rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Редактировать
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDeleteEvent}
-                    disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
-                    className="rounded-full border border-rose-600 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {eventDeleteBusy ? 'Удаляем...' : 'Удалить'}
-                  </button>
+                  {!eventDetailsIsExternal && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={startEventEdit}
+                        disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
+                        className="rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Редактировать
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDeleteEvent}
+                        disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
+                        className="rounded-full border border-rose-600 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {eventDeleteBusy ? 'Удаляем...' : 'Удалить'}
+                      </button>
+                    </>
+                  )}
                 </>
               )}
             </div>

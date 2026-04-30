@@ -16,6 +16,7 @@ import { getLevelFromXp } from '../src/utils/leveling.js';
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
 const Y = require('yjs');
+const nodeIcal = require('node-ical');
 let LeveldbPersistence = null;
 try {
   ({ LeveldbPersistence } = require('y-leveldb'));
@@ -131,6 +132,7 @@ const signupChatsFile = path.join(dataDir, 'signup-chats.json');
 const studentChatsFile = path.join(dataDir, 'student-chats.json');
 const broadcastNotificationsFile = path.join(dataDir, 'broadcast-notifications.json');
 const scheduleRequestsFile = path.join(dataDir, 'schedule-requests.json');
+const teacherCalendarSyncFile = path.join(dataDir, 'teacher-calendar-sync.json');
 const teacherFinanceFile = path.join(dataDir, 'teacher-finances.json');
 const authFile = path.join(dataDir, 'auth.json');
 const authSessionsFile = path.join(dataDir, 'auth-sessions.json');
@@ -1147,6 +1149,16 @@ const readBroadcastNotificationsDb = () => {
   }
 };
 
+const readTeacherCalendarSyncDb = () => {
+  try {
+    const raw = fs.readFileSync(teacherCalendarSyncFile, 'utf8');
+    const data = JSON.parse(raw);
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  } catch {
+    return {};
+  }
+};
+
 const writeFilesDb = (data) => {
   fs.writeFileSync(dataFile, JSON.stringify(data, null, 2), 'utf8');
 };
@@ -1173,6 +1185,10 @@ const writeProgressDb = (data) => {
 
 const writeBroadcastNotificationsDb = (data) => {
   fs.writeFileSync(broadcastNotificationsFile, JSON.stringify(data, null, 2), 'utf8');
+};
+
+const writeTeacherCalendarSyncDb = (data) => {
+  fs.writeFileSync(teacherCalendarSyncFile, JSON.stringify(data || {}, null, 2), 'utf8');
 };
 
 const TEACHER_FINANCE_PRICING_MODES = new Set(['perLesson', 'monthly']);
@@ -4284,6 +4300,327 @@ const buildTeacherScheduleEntry = (payload = {}, options = {}) => {
       updatedAt: nowIso,
     }
   };
+};
+
+const GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS = 60 * 1000;
+const GOOGLE_CALENDAR_SYNC_FETCH_TIMEOUT_MS = 12000;
+const GOOGLE_CALENDAR_SYNC_LOOKBACK_DAYS = 14;
+const GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS = 120;
+const GOOGLE_CALENDAR_SYNC_TIME_ZONE = String(
+  process.env.PLATFORM_CALENDAR_TIME_ZONE || process.env.TZ || 'Europe/Moscow'
+).trim() || 'Europe/Moscow';
+const teacherCalendarSyncCache = new Map();
+
+const normalizeTeacherCalendarSyncUrl = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const withProtocol = raw.toLowerCase().startsWith('webcal://')
+    ? `https://${raw.slice('webcal://'.length)}`
+    : raw;
+  try {
+    const url = new URL(withProtocol);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return '';
+    return url.toString();
+  } catch {
+    return '';
+  }
+};
+
+const normalizeTeacherCalendarSyncSettings = (value) => {
+  const icalUrl = normalizeTeacherCalendarSyncUrl(value?.icalUrl);
+  return {
+    enabled: Boolean(value?.enabled) && Boolean(icalUrl),
+    icalUrl,
+    updatedAt: typeof value?.updatedAt === 'string' ? value.updatedAt : '',
+    lastFetchedAt: typeof value?.lastFetchedAt === 'string' ? value.lastFetchedAt : '',
+    lastError: typeof value?.lastError === 'string' ? value.lastError : '',
+    calendarName: typeof value?.calendarName === 'string' ? value.calendarName.trim() : '',
+  };
+};
+
+const getTeacherCalendarSyncSettings = (teacherId) => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  if (!normalizedTeacherId) return normalizeTeacherCalendarSyncSettings(null);
+  const db = readTeacherCalendarSyncDb();
+  return normalizeTeacherCalendarSyncSettings(db[normalizedTeacherId]);
+};
+
+const maskCalendarSyncUrl = (value) => {
+  const normalized = normalizeTeacherCalendarSyncUrl(value);
+  if (!normalized) return '';
+  try {
+    const url = new URL(normalized);
+    return `${url.protocol}//${url.hostname}${url.pathname ? '/...' : ''}`;
+  } catch {
+    return 'подключена';
+  }
+};
+
+const buildTeacherCalendarSyncSettingsResponse = (settings) => ({
+  enabled: Boolean(settings?.enabled && settings?.icalUrl),
+  configured: Boolean(settings?.icalUrl),
+  maskedUrl: maskCalendarSyncUrl(settings?.icalUrl),
+  updatedAt: settings?.updatedAt || '',
+  lastFetchedAt: settings?.lastFetchedAt || '',
+  lastError: settings?.lastError || '',
+  calendarName: settings?.calendarName || '',
+});
+
+const setTeacherCalendarSyncSettings = (teacherId, patch = {}) => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  if (!normalizedTeacherId) return normalizeTeacherCalendarSyncSettings(null);
+  const db = readTeacherCalendarSyncDb();
+  const current = normalizeTeacherCalendarSyncSettings(db[normalizedTeacherId]);
+  const hasUrlPatch = Object.prototype.hasOwnProperty.call(patch, 'icalUrl');
+  const nextUrl = hasUrlPatch
+    ? normalizeTeacherCalendarSyncUrl(patch.icalUrl)
+    : current.icalUrl;
+  const next = normalizeTeacherCalendarSyncSettings({
+    ...current,
+    ...patch,
+    icalUrl: nextUrl,
+    enabled: Object.prototype.hasOwnProperty.call(patch, 'enabled')
+      ? patch.enabled
+      : current.enabled,
+    updatedAt: new Date().toISOString(),
+  });
+  if (!next.icalUrl) {
+    delete db[normalizedTeacherId];
+  } else {
+    db[normalizedTeacherId] = next;
+  }
+  writeTeacherCalendarSyncDb(db);
+  teacherCalendarSyncCache.delete(normalizedTeacherId);
+  return next;
+};
+
+const updateTeacherCalendarSyncStatus = (teacherId, patch = {}) => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  if (!normalizedTeacherId) return normalizeTeacherCalendarSyncSettings(null);
+  const db = readTeacherCalendarSyncDb();
+  const current = normalizeTeacherCalendarSyncSettings(db[normalizedTeacherId]);
+  if (!current.icalUrl) return current;
+  const next = normalizeTeacherCalendarSyncSettings({
+    ...current,
+    ...patch,
+  });
+  db[normalizedTeacherId] = next;
+  writeTeacherCalendarSyncDb(db);
+  return next;
+};
+
+const getDatePartsInCalendarTimeZone = (date) => {
+  const value = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(value.getTime())) return null;
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  const parts = formatter.formatToParts(value).reduce((acc, part) => {
+    if (part?.type && part.type !== 'literal') acc[part.type] = part.value;
+    return acc;
+  }, {});
+  if (!parts.year || !parts.month || !parts.day || !parts.hour || !parts.minute) return null;
+  return {
+    dayKey: `${parts.year}-${parts.month}-${parts.day}`,
+    time: `${parts.hour}:${parts.minute}`,
+  };
+};
+
+const extractFirstHttpUrl = (...values) => {
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (!text) continue;
+    const match = text.match(/https?:\/\/[^\s<>"')]+/i);
+    if (match?.[0]) return match[0].replace(/[.,;]+$/, '');
+  }
+  return '';
+};
+
+const normalizeCalendarEventText = (value) => String(value || '')
+  .toLowerCase()
+  .replace(/ё/g, 'е')
+  .replace(/[^0-9a-zа-я]+/gi, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const calendarEventTextIncludesName = (haystack, name) => {
+  const normalizedHaystack = normalizeCalendarEventText(haystack);
+  const normalizedName = normalizeCalendarEventText(name);
+  if (!normalizedHaystack || normalizedName.length < 2) return false;
+  if (normalizedHaystack === normalizedName) return true;
+  return ` ${normalizedHaystack} `.includes(` ${normalizedName} `);
+};
+
+const getGoogleCalendarStudentMatchNames = (student) => {
+  const values = [
+    student?.nickname,
+    student?.studentNickname,
+    student?.name,
+    student?.mainName,
+    student?.studentName,
+    student?.displayName,
+    student?.publicName,
+  ];
+  return Array.from(new Set(
+    values
+      .map((value) => normalizeCalendarEventText(value))
+      .filter((value) => value.length >= 2)
+  ));
+};
+
+const resolveGoogleCalendarStudentMatch = (event, students = []) => {
+  const summary = normalizeCalendarEventText(event?.summary);
+  const description = normalizeCalendarEventText(event?.description);
+  const location = normalizeCalendarEventText(event?.location);
+  const haystack = `${summary} ${description} ${location}`;
+  if (!haystack.trim()) return null;
+  const candidates = (Array.isArray(students) ? students : [])
+    .filter((student) => student && !student.deletedAt)
+    .flatMap((student) => (
+      getGoogleCalendarStudentMatchNames(student).map((name) => ({ student, name }))
+    ))
+    .sort((left, right) => right.name.length - left.name.length);
+  return candidates.find((item) => calendarEventTextIncludesName(haystack, item.name))?.student || null;
+};
+
+const buildGoogleCalendarScheduleEntry = (event, teacherId, students = []) => {
+  if (!event || event.type !== 'VEVENT') return null;
+  if (String(event.status || '').trim().toUpperCase() === 'CANCELLED') return null;
+  if (!event.start || !event.end) return null;
+  if (event.isFullDay || event.start?.dateOnly) return null;
+  const start = event.start instanceof Date ? event.start : new Date(event.start);
+  const end = event.end instanceof Date ? event.end : new Date(event.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const durationMinutes = Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000) || DEFAULT_SCHEDULE_DURATION_MINUTES);
+  const startParts = getDatePartsInCalendarTimeZone(start);
+  if (!startParts?.dayKey || !startParts?.time) return null;
+  const weekdayMeta = getScheduleWeekdayMetaFromDate(startParts.dayKey);
+  if (!weekdayMeta) return null;
+  const summary = String(event.summary || '').trim() || 'Google Calendar';
+  const matchedStudent = resolveGoogleCalendarStudentMatch(event, students);
+  const studentId = matchedStudent?.id ? String(matchedStudent.id) : '';
+  const studentName = matchedStudent?.name || summary;
+  const externalId = String(event.uid || event.id || `${summary}-${start.toISOString()}`).trim();
+  const instanceId = crypto
+    .createHash('sha1')
+    .update(`${teacherId}:${externalId}:${start.toISOString()}`)
+    .digest('hex')
+    .slice(0, 18);
+  const lessonLink = extractFirstHttpUrl(event.location, event.description, event.url);
+  return {
+    id: `google-ical-${instanceId}`,
+    date: startParts.dayKey,
+    day: weekdayMeta.label,
+    weekdayKey: weekdayMeta.key,
+    weekdayOrder: weekdayMeta.order,
+    excludedDates: [],
+    time: startParts.time,
+    durationMinutes,
+    subject: summary,
+    note: String(event.description || '').trim(),
+    boardLink: '',
+    lessonLink,
+    studentId,
+    studentName,
+    isTeacherSlot: !studentId,
+    isExternalCalendarEvent: true,
+    source: 'google-ical',
+    externalCalendarProvider: 'Google Calendar',
+    externalEventId: externalId,
+    externalCalendarName: String(event.calendarName || '').trim(),
+    createdAt: start.toISOString(),
+    updatedAt: start.toISOString(),
+  };
+};
+
+const extractGoogleCalendarName = (parsed) => {
+  const calendar = Object.values(parsed || {}).find((entry) => entry?.type === 'VCALENDAR');
+  return String(calendar?.['WR-CALNAME'] || calendar?.calendarName || '').trim();
+};
+
+const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  if (!normalizedTeacherId) return [];
+  const settings = getTeacherCalendarSyncSettings(normalizedTeacherId);
+  if (!settings.enabled || !settings.icalUrl) return [];
+  const force = Boolean(options.force);
+  const now = Date.now();
+  const cache = teacherCalendarSyncCache.get(normalizedTeacherId);
+  if (!force && cache && cache.url === settings.icalUrl && now - cache.loadedAtMs < GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS) {
+    return cache.entries;
+  }
+
+  const from = new Date(now - (GOOGLE_CALENDAR_SYNC_LOOKBACK_DAYS * 24 * 60 * 60 * 1000));
+  const to = new Date(now + (GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000));
+  const students = readStudentsDb().filter((student) => String(student?.teacherId || '').trim() === normalizedTeacherId);
+  const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  let timeoutId = null;
+  if (abortController) {
+    timeoutId = setTimeout(() => abortController.abort(), GOOGLE_CALENDAR_SYNC_FETCH_TIMEOUT_MS);
+    if (typeof timeoutId.unref === 'function') timeoutId.unref();
+  }
+
+  try {
+    const parsed = await nodeIcal.async.fromURL(settings.icalUrl, {
+      headers: { 'User-Agent': 'Ivan-EGE-Calendar-Sync/1.0' },
+      ...(abortController ? { signal: abortController.signal } : {}),
+    });
+    const calendarName = extractGoogleCalendarName(parsed);
+    const entries = [];
+    Object.values(parsed || {}).forEach((event) => {
+      if (!event || event.type !== 'VEVENT') return;
+      const instances = event.rrule
+        ? nodeIcal.expandRecurringEvent(event, { from, to, expandOngoing: true })
+        : [event];
+      instances.forEach((instance) => {
+        const scheduleEntry = buildGoogleCalendarScheduleEntry(
+          { ...event, ...instance, calendarName },
+          normalizedTeacherId,
+          students
+        );
+        if (!scheduleEntry) return;
+        const startMs = Date.parse(`${scheduleEntry.date}T${scheduleEntry.time}:00`);
+        if (Number.isFinite(startMs) && (startMs < from.getTime() || startMs > to.getTime())) return;
+        entries.push(scheduleEntry);
+      });
+    });
+    const uniqueEntries = Array.from(
+      new Map(entries.map((entry) => [entry.id, entry])).values()
+    ).sort((left, right) => {
+      const leftTime = Date.parse(`${left.date}T${left.time}:00`);
+      const rightTime = Date.parse(`${right.date}T${right.time}:00`);
+      return (Number.isFinite(leftTime) ? leftTime : 0) - (Number.isFinite(rightTime) ? rightTime : 0);
+    });
+    teacherCalendarSyncCache.set(normalizedTeacherId, {
+      url: settings.icalUrl,
+      loadedAtMs: now,
+      entries: uniqueEntries,
+    });
+    updateTeacherCalendarSyncStatus(normalizedTeacherId, {
+      lastFetchedAt: new Date().toISOString(),
+      lastError: '',
+      calendarName,
+    });
+    return uniqueEntries;
+  } catch (error) {
+    const message = error?.name === 'AbortError'
+      ? 'Google Calendar не ответил вовремя.'
+      : (error?.message || 'Не удалось загрузить Google Calendar.');
+    updateTeacherCalendarSyncStatus(normalizedTeacherId, {
+      lastFetchedAt: new Date().toISOString(),
+      lastError: message,
+    });
+    if (options.throwOnError) throw new Error(message);
+    return cache?.entries || [];
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 };
 
 const getTeacherOwnedScheduleEntries = (teacherId) => {
@@ -12001,13 +12338,74 @@ app.get('/api/student-schedule', (req, res) => {
   res.json(data.schedule || []);
 });
 
-app.get('/api/teacher-schedule', (req, res) => {
+app.get('/api/teacher-schedule', async (req, res) => {
   const { teacherId } = req.query || {};
   if (isStudentRole(req.auth)) return forbid(res);
   const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
   const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
   if (!teacher) return;
-  return res.json(getTeacherScheduleEntries(teacher.id));
+  const localEntries = getTeacherScheduleEntries(teacher.id);
+  const googleEntries = await fetchTeacherGoogleCalendarEntries(teacher.id);
+  return res.json([...localEntries, ...googleEntries]);
+});
+
+app.get('/api/teacher-calendar-sync', (req, res) => {
+  const { teacherId } = req.query || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  const settings = getTeacherCalendarSyncSettings(teacher.id);
+  return res.json(buildTeacherCalendarSyncSettingsResponse(settings));
+});
+
+app.patch('/api/teacher-calendar-sync', (req, res) => {
+  const { teacherId, icalUrl, enabled } = req.body || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  const rawUrl = String(icalUrl || '').trim();
+  if (rawUrl && !normalizeTeacherCalendarSyncUrl(rawUrl)) {
+    return res.status(400).json({ error: 'Укажите корректную iCal-ссылку Google Calendar.' });
+  }
+  const settings = setTeacherCalendarSyncSettings(teacher.id, {
+    icalUrl: rawUrl,
+    enabled: rawUrl ? enabled !== false : false,
+    lastError: '',
+  });
+  notifyScheduleSyncUpdate({
+    scope: 'teacher-schedule',
+    action: 'calendar-sync-updated',
+    teacherId: teacher.id,
+  });
+  return res.json(buildTeacherCalendarSyncSettingsResponse(settings));
+});
+
+app.post('/api/teacher-calendar-sync/refresh', async (req, res) => {
+  const { teacherId } = req.body || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  try {
+    const events = await fetchTeacherGoogleCalendarEntries(teacher.id, { force: true, throwOnError: true });
+    notifyScheduleSyncUpdate({
+      scope: 'teacher-schedule',
+      action: 'calendar-sync-refreshed',
+      teacherId: teacher.id,
+    });
+    return res.json({
+      ok: true,
+      importedCount: events.length,
+      settings: buildTeacherCalendarSyncSettingsResponse(getTeacherCalendarSyncSettings(teacher.id)),
+    });
+  } catch (error) {
+    return res.status(502).json({
+      error: error?.message || 'Не удалось загрузить Google Calendar.',
+      settings: buildTeacherCalendarSyncSettingsResponse(getTeacherCalendarSyncSettings(teacher.id)),
+    });
+  }
 });
 
 app.post('/api/teacher-schedule', (req, res) => {
