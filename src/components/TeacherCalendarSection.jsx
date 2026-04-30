@@ -72,7 +72,6 @@ const GOOGLE_CALENDAR_AUTO_REFRESH_INTERVAL_MS = 60 * 1000;
 const GOOGLE_CALENDAR_AUTO_REFRESH_LABEL = 'каждую минуту';
 const CURRENT_TIME_LINE_TICK_MS = 30 * 1000;
 const LESSON_PANEL_LOOKAHEAD_DAYS = 14;
-const PAYMENT_REMINDER_LOOKBACK_DAYS = 14;
 const LESSON_PANEL_MARKS_STORAGE_KEY = 'teacher_calendar_lesson_panel_marks_v1';
 const LESSON_PANEL_NOTES_CATEGORY = 'class';
 const LESSON_PANEL_LEVEL_LABELS = {
@@ -401,6 +400,31 @@ const buildLessonPanelMarkKey = (teacherId, lessonInfo, action) => {
     String(event.time || event.startMinutes || '').trim(),
   ].join(':');
   return `${base}:${String(action || '').trim()}`;
+};
+
+const isCalendarLessonFinished = (dayKey, endMinutes, now = new Date()) => {
+  const normalizedDayKey = normalizeScheduleDateKey(dayKey);
+  const safeNow = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date();
+  const todayKey = toDayKey(safeNow);
+  const normalizedEndMinutes = Number(endMinutes);
+  if (!normalizedDayKey || !Number.isFinite(normalizedEndMinutes)) return false;
+  if (normalizedDayKey < todayKey) return true;
+  if (normalizedDayKey > todayKey) return false;
+  const currentMinuteOfDay = (safeNow.getHours() * 60) + safeNow.getMinutes();
+  return normalizedEndMinutes <= currentMinuteOfDay;
+};
+
+const getCalendarLessonPaymentState = (teacherId, lessonInfo, marks, now = new Date()) => {
+  const paidMarkKey = buildLessonPanelMarkKey(teacherId, lessonInfo, 'paid');
+  const paidMarked = Boolean(paidMarkKey && marks?.[paidMarkKey]);
+  const event = lessonInfo?.event || {};
+  const finished = isCalendarLessonFinished(lessonInfo?.dayKey || event.date, event.endMinutes, now);
+  return {
+    paidMarkKey,
+    paidMarked,
+    finished,
+    shouldRemindPayment: finished && !paidMarked,
+  };
 };
 
 const readLessonPanelMarks = (teacherId) => {
@@ -1651,70 +1675,73 @@ const TeacherCalendarSection = ({
   }, [eventsByDayIndex, visibleDayIndexes, weekDays]);
 
   const paymentReminderItems = useMemo(() => {
-    const sourceEntries = Array.isArray(entries) ? entries : [];
     const now = currentTimeLineNow instanceof Date && !Number.isNaN(currentTimeLineNow.getTime())
       ? currentTimeLineNow
       : new Date();
-    const nowMs = now.getTime();
-    const today = cloneAsDateOnly(now);
-    const todayKey = toDayKey(today);
-    const currentMinuteOfDay = (now.getHours() * 60) + now.getMinutes();
-    const startDate = addDays(today, -(PAYMENT_REMINDER_LOOKBACK_DAYS - 1));
-    const startMs = startDate.getTime();
-    const reminderDays = Array.from({ length: PAYMENT_REMINDER_LOOKBACK_DAYS }, (_, offset) => {
-      const date = addDays(startDate, offset);
-      const dayKey = toDayKey(date);
-      return {
-        date,
-        dayKey,
-        weekdayOrder: date.getDay() === 0 ? 7 : date.getDay(),
-      };
-    }).filter((day) => day.dayKey <= todayKey);
+    const reminderDays = [
+      ...visibleDayIndexes.map((dayIndex) => addDays(weekStartDate, dayIndex - 7)),
+      ...visibleDayIndexes.map((dayIndex) => weekDays[dayIndex]).filter(Boolean),
+    ].map((date) => ({
+      date,
+      dayKey: toDayKey(date),
+      weekdayOrder: date.getDay() === 0 ? 7 : date.getDay(),
+    }));
     const reminderDayByKey = new Map(reminderDays.map((day) => [day.dayKey, day]));
     const groups = new Map();
 
-    const pushLesson = (entry, dayInfo) => {
+    const pushLesson = (entry, dayInfo, index) => {
       const normalizedDayKey = String(dayInfo?.dayKey || '').trim();
-      if (!reminderDayByKey.has(normalizedDayKey)) return;
-      const dayDate = dayInfo.date || parseDayKeyToDate(normalizedDayKey);
-      if (!dayDate || normalizedDayKey > todayKey) return;
-      const startMinutes = parseScheduleTimeToMinutes(entry?.time);
-      if (!Number.isFinite(startMinutes)) return;
+      const dayDate = dayInfo?.date || parseDayKeyToDate(normalizedDayKey);
+      if (!normalizedDayKey || !dayDate) return;
+      const startMinutesRaw = parseScheduleTimeToMinutes(entry?.time);
+      if (!Number.isFinite(startMinutesRaw)) return;
       const duration = Number.isFinite(Number(entry?.durationMinutes))
         ? Math.max(15, Number(entry.durationMinutes))
         : DEFAULT_EVENT_DURATION_MINUTES;
-      const endMinutes = startMinutes + duration;
-      const lessonFinished = normalizedDayKey < todayKey
-        || (normalizedDayKey === todayKey && endMinutes <= currentMinuteOfDay);
-      if (!lessonFinished) return;
-      const lessonStartMs = dayDate.getTime() + (startMinutes * 60 * 1000);
-      const lessonEndMs = dayDate.getTime() + (endMinutes * 60 * 1000);
-      if (!Number.isFinite(lessonEndMs) || lessonEndMs < startMs || lessonEndMs > nowMs) return;
-
-      const studentId = String(entry?.studentId || '').trim();
-      const studentName = studentId
-        ? (studentNameById[studentId] || entry?.studentName || 'Ученик')
-        : String(entry?.studentName || entry?.subject || DEFAULT_ONE_TIME_LESSON_SUBJECT).trim();
-      const label = String(studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT).trim();
+      const startMinutes = Math.max(dayStartMinutes, Math.min(dayEndMinutes - 15, startMinutesRaw));
+      const endMinutesRaw = startMinutesRaw + duration;
+      const endMinutes = Math.max(
+        startMinutes + 20,
+        Math.min(dayEndMinutes, endMinutesRaw)
+      );
       const event = {
         ...entry,
+        date: normalizedDayKey,
+        dayKey: normalizedDayKey,
         startMinutes,
         endMinutes,
-        studentName: label,
       };
-      const paidMarkKey = buildLessonPanelMarkKey(teacherId, { event, dayKey: normalizedDayKey }, 'paid');
-      if (paidMarkKey && lessonPanelMarks[paidMarkKey]) return;
+      const paymentState = getCalendarLessonPaymentState(
+        teacherId,
+        { event, dayKey: normalizedDayKey },
+        lessonPanelMarks,
+        now
+      );
+      if (!paymentState.shouldRemindPayment) return;
 
+      const lessonStartMs = dayDate.getTime() + (startMinutes * 60 * 1000);
+      const lessonEndMs = dayDate.getTime() + (endMinutes * 60 * 1000);
+      if (!Number.isFinite(lessonEndMs)) return;
+
+      const studentId = String(event?.studentId || '').trim();
+      const studentName = studentId
+        ? (studentNameById[studentId] || event?.studentName || 'Ученик')
+        : String(event?.studentName || event?.subject || DEFAULT_ONE_TIME_LESSON_SUBJECT).trim();
+      const label = String(studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT).trim();
       const groupKey = studentId
         ? `student:${studentId}`
         : `lesson:${label.toLocaleLowerCase('ru-RU')}`;
       const lesson = {
+        key: `${groupKey}:${normalizedDayKey}:${startMinutes}:${event?.id || index}`,
+        studentId,
+        label,
         dayKey: normalizedDayKey,
         dateLabel: formatDayMonth(dayDate),
         timeLabel: `${formatMinutesAsDisplayTime(startMinutes, use24HourFormat)}-${formatMinutesAsDisplayTime(endMinutes, use24HourFormat)}`,
+        endMinutes,
         startMs: lessonStartMs,
         endMs: lessonEndMs,
-        isExternal: isExternalCalendarEntry(entry),
+        isExternal: isExternalCalendarEntry(event),
       };
       const current = groups.get(groupKey) || {
         key: groupKey,
@@ -1738,12 +1765,13 @@ const TeacherCalendarSection = ({
       groups.set(groupKey, current);
     };
 
-    sourceEntries.forEach((entry) => {
+    filteredEntries.forEach((entry, index) => {
       const excludedDates = new Set(normalizeExcludedDayKeys(entry?.excludedDates));
       const explicitDateKey = normalizeScheduleDateKey(entry?.date);
       if (explicitDateKey) {
+        if (excludedDates.has(explicitDateKey)) return;
         const dayInfo = reminderDayByKey.get(explicitDateKey);
-        if (dayInfo && !excludedDates.has(explicitDateKey)) pushLesson(entry, dayInfo);
+        if (dayInfo) pushLesson(entry, dayInfo, index);
         return;
       }
 
@@ -1751,20 +1779,55 @@ const TeacherCalendarSection = ({
       if (!weekdayMeta?.order) return;
       reminderDays.forEach((dayInfo) => {
         if (dayInfo.weekdayOrder !== weekdayMeta.order || excludedDates.has(dayInfo.dayKey)) return;
-        pushLesson(entry, dayInfo);
+        pushLesson(entry, dayInfo, index);
       });
     });
 
     return Array.from(groups.values())
-      .map((item) => ({
-        ...item,
-        lessons: [...item.lessons].sort((left, right) => right.endMs - left.endMs),
-      }))
+      .map((item) => {
+        const lessons = [...item.lessons]
+          .filter((lesson) => isCalendarLessonFinished(lesson.dayKey, lesson.endMinutes, now))
+          .sort((left, right) => right.endMs - left.endMs);
+        if (lessons.length === 0) return null;
+        const latestLesson = lessons[0];
+        return {
+          ...item,
+          count: lessons.length,
+          lessons,
+          latestAtMs: latestLesson.endMs,
+          latestDateLabel: latestLesson.dateLabel,
+          latestTimeLabel: latestLesson.timeLabel,
+        };
+      })
+      .filter(Boolean)
       .sort((left, right) => right.latestAtMs - left.latestAtMs);
-  }, [currentTimeLineNow, entries, lessonPanelMarks, studentNameById, teacherId, use24HourFormat]);
+  }, [
+    currentTimeLineNow,
+    dayEndMinutes,
+    dayStartMinutes,
+    filteredEntries,
+    lessonPanelMarks,
+    studentNameById,
+    teacherId,
+    use24HourFormat,
+    visibleDayIndexes,
+    weekDays,
+    weekStartDate,
+  ]);
 
   const paymentReminderLessonCount = paymentReminderItems.reduce((sum, item) => sum + item.count, 0);
   const paymentReminderStudentCount = paymentReminderItems.length;
+  const paymentReminderLessons = useMemo(
+    () => paymentReminderItems
+      .flatMap((item) => item.lessons.map((lesson) => ({
+        ...lesson,
+        studentId: item.studentId,
+        label: item.label,
+        hasExternal: item.hasExternal,
+      })))
+      .sort((left, right) => right.endMs - left.endMs),
+    [paymentReminderItems]
+  );
 
   const trialEventsThisWeek = useMemo(
     () => weekEventsFlat.filter((event) => isTrialEntry(event)),
@@ -4394,14 +4457,14 @@ const TeacherCalendarSection = ({
                                 const defaultColor = externalEvent
                                   ? '#2563eb'
                                   : getEventColor(event.studentId || studentName || `${dayIndex}-${index}`);
-                                const eventDate = parseDayKeyToDate(dayKey);
-                                const eventEndMs = eventDate && Number.isFinite(Number(event.endMinutes))
-                                  ? eventDate.getTime() + (Number(event.endMinutes) * 60 * 1000)
-                                  : NaN;
-                                const eventFinished = Number.isFinite(eventEndMs)
-                                  && eventEndMs <= currentTimeLineNow.getTime();
-                                const paidMarkKey = buildLessonPanelMarkKey(teacherId, { event, dayKey }, 'paid');
-                                const paidMarked = Boolean(paidMarkKey && lessonPanelMarks[paidMarkKey]);
+                                const paymentState = getCalendarLessonPaymentState(
+                                  teacherId,
+                                  { event, dayKey },
+                                  lessonPanelMarks,
+                                  currentTimeLineNow
+                                );
+                                const eventFinished = paymentState.finished;
+                                const paidMarked = paymentState.paidMarked;
                                 const color = paidMarked
                                   ? CALENDAR_PAID_EVENT_COLOR
                                   : (eventFinished ? CALENDAR_UNPAID_PAST_EVENT_COLOR : defaultColor);
@@ -4472,7 +4535,7 @@ const TeacherCalendarSection = ({
                   Напомнить об оплате
                 </div>
                 <div className="mt-0.5 text-[11px] font-semibold text-slate-500">
-                  Последние {PAYMENT_REMINDER_LOOKBACK_DAYS} дней
+                  Эта и прошлая неделя
                 </div>
               </div>
               <button
@@ -4497,47 +4560,30 @@ const TeacherCalendarSection = ({
                     </span>
                   </div>
                   <div className="teacher-calendar-shell__payment-reminder-list space-y-2 overflow-y-auto pr-1">
-                    {paymentReminderItems.map((item) => (
+                    {paymentReminderLessons.map((lesson) => (
                       <div
-                        key={item.key}
+                        key={lesson.key}
                         className="teacher-calendar-shell__payment-reminder-row rounded-xl border border-slate-200/80 bg-slate-50/85 p-3"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="truncate text-sm font-black text-slate-900">{item.label}</div>
+                            <div className="truncate text-sm font-black text-slate-900">{lesson.label}</div>
                             <div className="mt-0.5 text-[11px] font-semibold text-slate-500">
-                              последний: {item.latestDateLabel}, {item.latestTimeLabel}
+                              {lesson.dateLabel}, {lesson.timeLabel}
                             </div>
                           </div>
                           <span className="shrink-0 rounded-full border border-rose-200 bg-white px-2 py-0.5 text-[11px] font-bold text-rose-700">
-                            {formatPaymentReminderLessonCount(item.count)}
+                            не оплачено
                           </span>
                         </div>
-                        {item.lessons.length > 1 && (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {item.lessons.slice(0, 3).map((lesson) => (
-                              <span
-                                key={`${item.key}-${lesson.dayKey}-${lesson.startMs}`}
-                                className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500"
-                              >
-                                {lesson.dateLabel}, {lesson.timeLabel}
-                              </span>
-                            ))}
-                            {item.lessons.length > 3 && (
-                              <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                                +{item.lessons.length - 3}
-                              </span>
-                            )}
-                          </div>
-                        )}
                         <div className="mt-2 flex items-center justify-between gap-2">
                           <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-                            {item.hasExternal ? 'Google Calendar' : 'Расписание'}
+                            {lesson.hasExternal ? 'Google Calendar' : 'Расписание'}
                           </span>
-                          {item.studentId ? (
+                          {lesson.studentId ? (
                             <button
                               type="button"
-                              onClick={() => openStudentWorkspace('finance', item.studentId)}
+                              onClick={() => openStudentWorkspace('finance', lesson.studentId)}
                               className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 transition hover:bg-emerald-100"
                             >
                               <Wallet size={12} />
@@ -4555,7 +4601,7 @@ const TeacherCalendarSection = ({
                 </>
               ) : (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm font-semibold text-emerald-700">
-                  За последние 2 недели всё отмечено.
+                  За эту и прошлую неделю всё отмечено.
                 </div>
               )}
             </div>
