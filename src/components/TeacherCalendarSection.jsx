@@ -1648,15 +1648,19 @@ const TeacherCalendarSection = ({
     const now = currentTimeLineNow instanceof Date && !Number.isNaN(currentTimeLineNow.getTime())
       ? currentTimeLineNow
       : new Date();
-    const nowMs = now.getTime();
     const today = cloneAsDateOnly(now);
+    const todayKey = toDayKey(today);
+    const currentMinuteOfDay = (now.getHours() * 60) + now.getMinutes();
     const startDate = addDays(today, -(PAYMENT_REMINDER_LOOKBACK_DAYS - 1));
+    const startDayKey = toDayKey(startDate);
     const startMs = startDate.getTime();
     const groups = new Map();
 
     const pushLesson = (entry, dayKey) => {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dayKey || ''))) return;
-      const dayDate = parseDayKeyToDate(dayKey);
+      const normalizedDayKey = String(dayKey || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDayKey)) return;
+      if (normalizedDayKey < startDayKey || normalizedDayKey > todayKey) return;
+      const dayDate = parseDayKeyToDate(normalizedDayKey);
       if (!dayDate) return;
       const startMinutes = parseScheduleTimeToMinutes(entry?.time);
       if (!Number.isFinite(startMinutes)) return;
@@ -1664,9 +1668,12 @@ const TeacherCalendarSection = ({
         ? Math.max(15, Number(entry.durationMinutes))
         : DEFAULT_EVENT_DURATION_MINUTES;
       const endMinutes = startMinutes + duration;
+      const lessonFinished = normalizedDayKey < todayKey
+        || (normalizedDayKey === todayKey && endMinutes <= currentMinuteOfDay);
+      if (!lessonFinished) return;
       const lessonStartMs = dayDate.getTime() + (startMinutes * 60 * 1000);
       const lessonEndMs = dayDate.getTime() + (endMinutes * 60 * 1000);
-      if (!Number.isFinite(lessonEndMs) || lessonEndMs < startMs || lessonEndMs > nowMs) return;
+      if (!Number.isFinite(lessonEndMs) || lessonEndMs < startMs) return;
 
       const studentId = String(entry?.studentId || '').trim();
       const studentName = studentId
@@ -1679,14 +1686,14 @@ const TeacherCalendarSection = ({
         endMinutes,
         studentName: label,
       };
-      const paidMarkKey = buildLessonPanelMarkKey(teacherId, { event, dayKey }, 'paid');
+      const paidMarkKey = buildLessonPanelMarkKey(teacherId, { event, dayKey: normalizedDayKey }, 'paid');
       if (paidMarkKey && lessonPanelMarks[paidMarkKey]) return;
 
       const groupKey = studentId
         ? `student:${studentId}`
         : `lesson:${label.toLocaleLowerCase('ru-RU')}`;
       const lesson = {
-        dayKey,
+        dayKey: normalizedDayKey,
         dateLabel: formatDayMonth(dayDate),
         timeLabel: `${formatMinutesAsDisplayTime(startMinutes, use24HourFormat)}-${formatMinutesAsDisplayTime(endMinutes, use24HourFormat)}`,
         startMs: lessonStartMs,
