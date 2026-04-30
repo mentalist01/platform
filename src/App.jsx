@@ -47,6 +47,7 @@ import StudentNotificationsCenter from './components/StudentNotificationsCenter'
 import SignupGuestChat from './components/SignupGuestChat';
 import TeacherCalendarSection from './components/TeacherCalendarSection';
 import TeacherFinanceSection from './components/TeacherFinanceSection';
+import TeacherLessonStartPrompt from './components/TeacherLessonStartPrompt';
 import TeacherPanel from './components/TeacherPanel';
 import TeacherStudentChatsSection from './components/TeacherStudentChatsSection';
 import ThemeToggleButton from './components/ThemeToggleButton';
@@ -15148,6 +15149,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onStatusChange={setCallSessionStatus}
               onRequestExpand={() => setCallPanelExpanded(true)}
               onRequestCollapse={() => setCallPanelExpanded(false)}
+            />
+          )}
+          {user.role === 'teacher' && (
+            <TeacherLessonStartPrompt
+              teacherId={user.id}
+              students={studentsWithNicknames}
+              getStudentLabel={getStudentLabel}
+              onOpenStudentWorkspace={handleOpenTeacherLessonWorkspace}
             />
           )}
           {view === 'board' && (
