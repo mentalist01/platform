@@ -18,6 +18,7 @@ import {
   Plus,
   RefreshCcw,
   Search,
+  SlidersHorizontal,
   Unlink,
   Wallet,
 } from 'lucide-react';
@@ -40,6 +41,8 @@ const HOLIDAY_DEFINITIONS = [
   { month: 3, day: 8, title: 'Международный женский день' },
 ];
 const EVENT_COLORS = ['#7c3aed', '#8b5cf6', '#2563eb', '#0891b2', '#db2777', '#0d9488'];
+const CALENDAR_PAID_EVENT_COLOR = '#16a34a';
+const CALENDAR_UNPAID_PAST_EVENT_COLOR = '#dc2626';
 
 const CALENDAR_START_HOUR = 0;
 const CALENDAR_END_HOUR = 24;
@@ -701,6 +704,7 @@ const TeacherCalendarSection = ({
   const [compactMode, setCompactMode] = useState(false);
   const [showConflictsOnly, setShowConflictsOnly] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [calendarSettingsOpen, setCalendarSettingsOpen] = useState(false);
   const [quickCreateFindingSlot, setQuickCreateFindingSlot] = useState(false);
   const [eventQuickActionBusy, setEventQuickActionBusy] = useState(false);
   const [eventQuickActionError, setEventQuickActionError] = useState('');
@@ -716,7 +720,12 @@ const TeacherCalendarSection = ({
   const [lessonPanelSuccess, setLessonPanelSuccess] = useState('');
   const [lessonPanelHomework, setLessonPanelHomework] = useState(null);
   const [lessonPanelHomeworkLoading, setLessonPanelHomeworkLoading] = useState(false);
+  const [eventDetailsHomework, setEventDetailsHomework] = useState(null);
+  const [eventDetailsHomeworkLoading, setEventDetailsHomeworkLoading] = useState(false);
   const [lessonInfoModalOpen, setLessonInfoModalOpen] = useState(false);
+  const [lessonInfoTarget, setLessonInfoTarget] = useState(null);
+  const [lessonInfoHomework, setLessonInfoHomework] = useState(null);
+  const [lessonInfoHomeworkLoading, setLessonInfoHomeworkLoading] = useState(false);
   const [lessonInfoFiles, setLessonInfoFiles] = useState([]);
   const [lessonInfoLoading, setLessonInfoLoading] = useState(false);
   const [lessonInfoError, setLessonInfoError] = useState('');
@@ -1797,16 +1806,21 @@ const TeacherCalendarSection = ({
     });
   }, [teacherId]);
 
-  const openLessonPanelWorkspace = useCallback((viewId) => {
+  const openStudentWorkspace = useCallback((viewId, studentId) => {
     const normalizedView = String(viewId || '').trim();
     if (!normalizedView) return;
-    if (lessonPanelStudentId && typeof onSelectStudent === 'function') {
-      onSelectStudent(lessonPanelStudentId);
+    const normalizedStudentId = String(studentId || '').trim();
+    if (normalizedStudentId && typeof onSelectStudent === 'function') {
+      onSelectStudent(normalizedStudentId);
     }
     if (typeof onOpenStudentWorkspace === 'function') {
-      onOpenStudentWorkspace(normalizedView, lessonPanelStudentId);
+      onOpenStudentWorkspace(normalizedView, normalizedStudentId);
     }
-  }, [lessonPanelStudentId, onOpenStudentWorkspace, onSelectStudent]);
+  }, [onOpenStudentWorkspace, onSelectStudent]);
+
+  const openLessonPanelWorkspace = useCallback((viewId) => {
+    openStudentWorkspace(viewId, lessonPanelStudentId);
+  }, [lessonPanelStudentId, openStudentWorkspace]);
 
   const openLessonPanelLink = useCallback(() => {
     if (!lessonPanelLink || typeof window === 'undefined') return;
@@ -1815,18 +1829,25 @@ const TeacherCalendarSection = ({
 
   const openLessonInfoModal = useCallback(() => {
     if (!lessonPanelHasStudent) return;
+    setLessonInfoTarget({
+      studentId: lessonPanelStudentId,
+      studentName: lessonPanelStudentName,
+      dateLabel: lessonPanelDateLabel,
+      timeLabel: lessonPanelTimeLabel,
+    });
     setLessonInfoError('');
     setLessonInfoModalOpen(true);
-  }, [lessonPanelHasStudent]);
+  }, [lessonPanelDateLabel, lessonPanelHasStudent, lessonPanelStudentId, lessonPanelStudentName, lessonPanelTimeLabel]);
 
   const closeLessonInfoModal = useCallback(() => {
     setLessonInfoModalOpen(false);
     setLessonInfoError('');
+    setLessonInfoTarget(null);
   }, []);
 
   const handleLessonPanelFinanceAction = useCallback(async (action) => {
     const normalizedAction = String(action || '').trim();
-    if (!teacherId || !lessonPanelStudentId || !lessonPanelInfo || lessonPanelFinanceBusy) return;
+    if (!teacherId || !lessonPanelInfo || lessonPanelFinanceBusy) return;
     const markKey = normalizedAction === 'paid' ? lessonPanelPaidMarkKey : lessonPanelCompletedMarkKey;
     const undo = Boolean(markKey && lessonPanelMarks[markKey]);
 
@@ -1834,6 +1855,18 @@ const TeacherCalendarSection = ({
     setLessonPanelError('');
     setLessonPanelSuccess('');
     try {
+      if (!lessonPanelStudentId) {
+        if (normalizedAction !== 'paid') return;
+        if (undo) {
+          removeLessonPanelMark(markKey);
+        } else {
+          saveLessonPanelMark(markKey);
+        }
+        setLessonPanelSuccess(undo
+          ? 'Отметка оплаты отменена.'
+          : 'Оплата отмечена в календаре. Ученик не сопоставлен, сумму в финансы не добавлял.');
+        return;
+      }
       const month = getFinanceMonthFromDayKey(lessonPanelInfo.dayKey);
       const snapshot = await api.getTeacherFinance(month, teacherId);
       const financeStudent = (Array.isArray(snapshot?.students) ? snapshot.students : [])
@@ -1851,8 +1884,14 @@ const TeacherCalendarSection = ({
           : currentCompleted + 1;
       } else if (normalizedAction === 'paid') {
         if (lessonPrice <= 0) {
-          setLessonPanelError('В финансах не указана стоимость урока.');
-          openLessonPanelWorkspace('finance');
+          if (undo) {
+            removeLessonPanelMark(markKey);
+          } else {
+            saveLessonPanelMark(markKey);
+          }
+          setLessonPanelSuccess(undo
+            ? 'Отметка оплаты отменена.'
+            : 'Оплата отмечена в календаре. Стоимость урока в финансах не указана, сумму не добавлял.');
           return;
         }
         overrides.paidAmount = undo
@@ -1887,7 +1926,191 @@ const TeacherCalendarSection = ({
     lessonPanelMarks,
     lessonPanelPaidMarkKey,
     lessonPanelStudentId,
-    openLessonPanelWorkspace,
+    removeLessonPanelMark,
+    saveLessonPanelMark,
+    teacherId,
+  ]);
+
+  const eventDetailsStudentId = String(eventDetails?.studentId || '').trim();
+  const eventDetailsHasStudent = Boolean(eventDetailsStudentId);
+  const eventDetailsStudentSelected = eventDetailsHasStudent
+    && String(activeStudentId || '').trim() === eventDetailsStudentId;
+  const eventDetailsStudentName = String(
+    eventDetails?.studentName
+    || eventDetails?.subjectLabel
+    || eventDetails?.subject
+    || DEFAULT_ONE_TIME_LESSON_SUBJECT
+  ).trim();
+  const eventDetailsSubject = String(eventDetails?.subject || '').trim();
+  const eventDetailsDayKey = String(eventDetails?.dayKey || eventDetails?.date || '').trim();
+  const eventDetailsDateLabel = useMemo(() => {
+    const dateKey = String(eventDetails?.dayKey || eventDetails?.date || '').trim();
+    if (!dateKey) return '';
+    const date = new Date(`${dateKey}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return dateKey;
+    return capitalize(date.toLocaleDateString('ru-RU', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).replace(' г.', ''));
+  }, [eventDetails]);
+  const eventDetailsTimeRangeLabel = eventDetails
+    ? `${formatMinutesAsDisplayTime(eventDetails.startMinutes, use24HourFormat)}-${formatMinutesAsDisplayTime(eventDetails.endMinutes, use24HourFormat)}`
+    : '';
+  const eventDetailsLink = normalizeLessonPanelUrl(eventDetails?.lessonLink)
+    || normalizeLessonPanelUrl(eventDetails?.boardLink);
+  const eventDetailsLessonInfo = eventDetails
+    ? { event: eventDetails, dayKey: eventDetailsDayKey }
+    : null;
+  const eventDetailsCompletedMarkKey = eventDetailsLessonInfo
+    ? buildLessonPanelMarkKey(teacherId, eventDetailsLessonInfo, 'completed')
+    : '';
+  const eventDetailsPaidMarkKey = eventDetailsLessonInfo
+    ? buildLessonPanelMarkKey(teacherId, eventDetailsLessonInfo, 'paid')
+    : '';
+  const eventDetailsCompletedMarked = Boolean(lessonPanelMarks[eventDetailsCompletedMarkKey]);
+  const eventDetailsPaidMarked = Boolean(lessonPanelMarks[eventDetailsPaidMarkKey]);
+  const eventDetailsStatusLabel = useMemo(() => {
+    if (!eventDetails) return 'Урок';
+    if (isTrialEntry(eventDetails)) return 'Пробное';
+    const start = Number(eventDetails.startMinutes);
+    const end = Number(eventDetails.endMinutes);
+    if (!eventDetailsDayKey || !Number.isFinite(start) || !Number.isFinite(end)) return 'Урок';
+    const startDate = new Date(`${eventDetailsDayKey}T${formatMinutesAsTime(start)}:00`);
+    if (Number.isNaN(startDate.getTime())) return 'Урок';
+    const nowMs = (currentTimeLineNow instanceof Date ? currentTimeLineNow : new Date()).getTime();
+    const endDate = new Date(startDate.getTime() + Math.max(1, end - start) * 60 * 1000);
+    if (startDate.getTime() <= nowMs && endDate.getTime() > nowMs) return 'Идёт сейчас';
+    if (startDate.getTime() < nowMs) return 'Прошедший урок';
+    return 'Урок';
+  }, [currentTimeLineNow, eventDetails, eventDetailsDayKey]);
+  const eventDetailsHomeworkText = String(eventDetailsHomework?.homeWork || '').trim();
+  const eventDetailsHomeworkPreview = eventDetailsHomeworkText
+    ? eventDetailsHomeworkText.split(/\r?\n/).map((line) => line.trim()).find(Boolean)
+    : '';
+  const eventDetailsHomeworkGoalCount = Array.isArray(eventDetailsHomework?.goals)
+    ? eventDetailsHomework.goals.length
+    : 0;
+  const eventDetailsHomeworkGoalLabels = useMemo(
+    () => getLessonPanelHomeworkGoalLabels(eventDetailsHomework),
+    [eventDetailsHomework]
+  );
+  const eventDetailsHomeworkGoalsPreview = eventDetailsHomeworkGoalLabels.slice(0, 2).join('; ');
+  const lessonInfoTargetStudentId = String(lessonInfoTarget?.studentId || '').trim();
+  const lessonInfoTargetStudentName = String(lessonInfoTarget?.studentName || lessonPanelStudentName || 'Ученик').trim();
+  const lessonInfoTargetDateLabel = String(lessonInfoTarget?.dateLabel || lessonPanelDateLabel || '').trim();
+  const lessonInfoTargetTimeLabel = String(lessonInfoTarget?.timeLabel || lessonPanelTimeLabel || '').trim();
+
+  const openEventDetailsWorkspace = useCallback((viewId) => {
+    openStudentWorkspace(viewId, eventDetailsStudentId);
+  }, [eventDetailsStudentId, openStudentWorkspace]);
+
+  const openEventDetailsLink = useCallback(() => {
+    if (!eventDetailsLink || typeof window === 'undefined') return;
+    window.open(eventDetailsLink, '_blank', 'noopener,noreferrer');
+  }, [eventDetailsLink]);
+
+  const openEventDetailsInfoModal = useCallback(() => {
+    if (!eventDetailsHasStudent) return;
+    setLessonInfoTarget({
+      studentId: eventDetailsStudentId,
+      studentName: eventDetailsStudentName,
+      dateLabel: eventDetailsDateLabel,
+      timeLabel: eventDetailsTimeRangeLabel,
+    });
+    setLessonInfoError('');
+    setLessonInfoModalOpen(true);
+  }, [
+    eventDetailsDateLabel,
+    eventDetailsHasStudent,
+    eventDetailsStudentId,
+    eventDetailsStudentName,
+    eventDetailsTimeRangeLabel,
+  ]);
+
+  const handleEventDetailsFinanceAction = useCallback(async (action) => {
+    const normalizedAction = String(action || '').trim();
+    if (!teacherId || !eventDetailsLessonInfo || lessonPanelFinanceBusy) return;
+    const markKey = normalizedAction === 'paid' ? eventDetailsPaidMarkKey : eventDetailsCompletedMarkKey;
+    const undo = Boolean(markKey && lessonPanelMarks[markKey]);
+
+    setLessonPanelFinanceBusy(undo ? `${normalizedAction}-undo` : normalizedAction);
+    setLessonPanelError('');
+    setLessonPanelSuccess('');
+    try {
+      if (!eventDetailsStudentId) {
+        if (normalizedAction !== 'paid') return;
+        if (undo) {
+          removeLessonPanelMark(markKey);
+        } else {
+          saveLessonPanelMark(markKey);
+        }
+        setLessonPanelSuccess(undo
+          ? 'Отметка оплаты отменена.'
+          : 'Оплата отмечена в календаре. Ученик не сопоставлен, сумму в финансы не добавлял.');
+        return;
+      }
+      const month = getFinanceMonthFromDayKey(eventDetailsDayKey);
+      const snapshot = await api.getTeacherFinance(month, teacherId);
+      const financeStudent = (Array.isArray(snapshot?.students) ? snapshot.students : [])
+        .find((student) => String(student?.id || '').trim() === eventDetailsStudentId);
+      const record = financeStudent?.record || {};
+      const profile = financeStudent?.profile || {};
+      const currentCompleted = normalizeFinanceAmount(record.completedLessons);
+      const currentPaid = normalizeFinanceAmount(record.paidAmount);
+      const lessonPrice = normalizeFinanceAmount(record.lessonPrice ?? profile.lessonPrice);
+      const overrides = { month };
+
+      if (normalizedAction === 'completed') {
+        overrides.completedLessons = undo
+          ? Math.max(0, currentCompleted - 1)
+          : currentCompleted + 1;
+      } else if (normalizedAction === 'paid') {
+        if (lessonPrice <= 0) {
+          if (undo) {
+            removeLessonPanelMark(markKey);
+          } else {
+            saveLessonPanelMark(markKey);
+          }
+          setLessonPanelSuccess(undo
+            ? 'Отметка оплаты отменена.'
+            : 'Оплата отмечена в календаре. Стоимость урока в финансах не указана, сумму не добавлял.');
+          return;
+        }
+        overrides.paidAmount = undo
+          ? Math.max(0, currentPaid - lessonPrice)
+          : currentPaid + lessonPrice;
+      } else {
+        return;
+      }
+
+      await api.updateTeacherFinanceStudent(
+        eventDetailsStudentId,
+        buildTeacherFinanceLessonPayload(record, profile, overrides),
+        teacherId
+      );
+      if (undo) {
+        removeLessonPanelMark(markKey);
+      } else {
+        saveLessonPanelMark(markKey);
+      }
+      setLessonPanelSuccess(normalizedAction === 'completed'
+        ? (undo ? 'Отметка проведения отменена.' : 'Проведение отмечено.')
+        : (undo ? `Оплата вычтена: ${lessonPrice.toLocaleString('ru-RU')} ₽.` : `Оплата добавлена: ${lessonPrice.toLocaleString('ru-RU')} ₽.`));
+    } catch (err) {
+      setLessonPanelError(err?.message || 'Не удалось обновить финансы.');
+    } finally {
+      setLessonPanelFinanceBusy('');
+    }
+  }, [
+    eventDetailsCompletedMarkKey,
+    eventDetailsDayKey,
+    eventDetailsLessonInfo,
+    eventDetailsPaidMarkKey,
+    eventDetailsStudentId,
+    lessonPanelFinanceBusy,
+    lessonPanelMarks,
     removeLessonPanelMark,
     saveLessonPanelMark,
     teacherId,
@@ -1923,9 +2146,36 @@ const TeacherCalendarSection = ({
   }, [lessonPanelStudentId]);
 
   useEffect(() => {
+    let cancelled = false;
+    if (!eventDetailsStudentId) {
+      setEventDetailsHomework(null);
+      setEventDetailsHomeworkLoading(false);
+      return undefined;
+    }
+    setEventDetailsHomeworkLoading(true);
+    api.getStudentNextLesson(eventDetailsStudentId)
+      .then((data) => {
+        if (cancelled) return;
+        const latest = data?.latest && typeof data.latest === 'object'
+          ? data.latest
+          : (Array.isArray(data?.homeworks) ? data.homeworks[0] : null);
+        setEventDetailsHomework(latest || null);
+      })
+      .catch(() => {
+        if (!cancelled) setEventDetailsHomework(null);
+      })
+      .finally(() => {
+        if (!cancelled) setEventDetailsHomeworkLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [eventDetailsStudentId]);
+
+  useEffect(() => {
     if (!lessonInfoModalOpen) return undefined;
     let cancelled = false;
-    if (!lessonPanelStudentId) {
+    if (!lessonInfoTargetStudentId) {
       setLessonInfoFiles([]);
       setLessonInfoLoading(false);
       setLessonInfoError('Ученик для урока не выбран.');
@@ -1933,7 +2183,7 @@ const TeacherCalendarSection = ({
     }
     setLessonInfoLoading(true);
     setLessonInfoError('');
-    api.getFiles(lessonPanelStudentId)
+    api.getFiles(lessonInfoTargetStudentId)
       .then((data) => {
         if (cancelled) return;
         setLessonInfoFiles(selectRecentLessonNoteFiles(data));
@@ -1949,7 +2199,35 @@ const TeacherCalendarSection = ({
     return () => {
       cancelled = true;
     };
-  }, [lessonInfoModalOpen, lessonPanelStudentId]);
+  }, [lessonInfoModalOpen, lessonInfoTargetStudentId]);
+
+  useEffect(() => {
+    if (!lessonInfoModalOpen) return undefined;
+    let cancelled = false;
+    if (!lessonInfoTargetStudentId) {
+      setLessonInfoHomework(null);
+      setLessonInfoHomeworkLoading(false);
+      return undefined;
+    }
+    setLessonInfoHomeworkLoading(true);
+    api.getStudentNextLesson(lessonInfoTargetStudentId)
+      .then((data) => {
+        if (cancelled) return;
+        const latest = data?.latest && typeof data.latest === 'object'
+          ? data.latest
+          : (Array.isArray(data?.homeworks) ? data.homeworks[0] : null);
+        setLessonInfoHomework(latest || null);
+      })
+      .catch(() => {
+        if (!cancelled) setLessonInfoHomework(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLessonInfoHomeworkLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lessonInfoModalOpen, lessonInfoTargetStudentId]);
 
   const lessonPanelHomeworkText = String(lessonPanelHomework?.homeWork || '').trim();
   const lessonPanelHomeworkPreview = lessonPanelHomeworkText
@@ -1963,6 +2241,14 @@ const TeacherCalendarSection = ({
     [lessonPanelHomework]
   );
   const lessonPanelHomeworkGoalsPreview = lessonPanelHomeworkGoalLabels.slice(0, 2).join('; ');
+  const lessonInfoHomeworkText = String(lessonInfoHomework?.homeWork || '').trim();
+  const lessonInfoHomeworkGoalCount = Array.isArray(lessonInfoHomework?.goals)
+    ? lessonInfoHomework.goals.length
+    : 0;
+  const lessonInfoHomeworkGoalLabels = useMemo(
+    () => getLessonPanelHomeworkGoalLabels(lessonInfoHomework),
+    [lessonInfoHomework]
+  );
 
   const studentCount = studentCalendars.length;
 
@@ -1999,19 +2285,6 @@ const TeacherCalendarSection = ({
     () => String(quickCreateDraft?.studentId || '').trim() === TRIAL_WITHOUT_STUDENT_VALUE,
     [quickCreateDraft]
   );
-
-  const eventDetailsDateLabel = useMemo(() => {
-    const dateKey = String(eventDetails?.dayKey || eventDetails?.date || '').trim();
-    if (!dateKey) return '';
-    const date = new Date(`${dateKey}T00:00:00`);
-    if (Number.isNaN(date.getTime())) return dateKey;
-    return capitalize(date.toLocaleDateString('ru-RU', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    }).replace(' г.', ''));
-  }, [eventDetails]);
 
   const eventDetailsTimeLabel = useMemo(() => {
     if (!eventDetails) return '--:--';
@@ -3089,10 +3362,10 @@ const TeacherCalendarSection = ({
   }, [closeLessonInfoModal, lessonInfoModalOpen]);
 
   return (
-    <section className="teacher-calendar-shell relative h-[calc(var(--app-vh,1vh)*100-8.25rem)] overflow-hidden rounded-[28px] border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/60 to-fuchsia-50/45 shadow-[0_18px_38px_rgba(99,102,241,0.16)] md:h-[calc(var(--app-vh,1vh)*100-7rem)]">
+    <section className="teacher-calendar-shell relative h-full min-h-0 overflow-hidden rounded-none border-0 bg-gradient-to-br from-white via-violet-50/60 to-sky-50/50 shadow-none">
       <div className="teacher-calendar-shell__glow pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_6%_0%,rgba(59,130,246,0.16),transparent_38%),radial-gradient(circle_at_96%_2%,rgba(217,70,239,0.15),transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.28),rgba(255,255,255,0))]" />
-      <div className="relative z-10 flex h-full min-h-0 flex-col overflow-hidden rounded-[28px]">
-        <div className="teacher-calendar-shell__topbar flex h-12 items-center justify-between border-b border-purple-200/70 bg-white/75 px-3 backdrop-blur-xl">
+      <div className="relative z-10 flex h-full min-h-0 flex-col overflow-hidden rounded-none">
+        <div className="teacher-calendar-shell__topbar flex h-11 items-center justify-between border-b border-purple-200/70 bg-white/78 px-4 backdrop-blur-xl">
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -3131,13 +3404,13 @@ const TeacherCalendarSection = ({
 
         <div
           className="min-h-0 flex-1 grid"
-          style={{ gridTemplateColumns: `${sidebarCollapsed ? 76 : 240}px minmax(0, 1fr)` }}
+          style={{ gridTemplateColumns: `${sidebarCollapsed ? 68 : 268}px minmax(0, 1fr)` }}
         >
-          <aside className={`teacher-calendar-shell__sidebar ${sidebarCollapsed ? 'w-[76px]' : 'w-60'} overflow-hidden border-r border-purple-200/65 bg-gradient-to-b from-white/80 via-violet-50/45 to-fuchsia-50/35 p-3 backdrop-blur-md`}>
+          <aside className={`teacher-calendar-shell__sidebar teacher-calendar-shell__sidebar-scroll ${sidebarCollapsed ? 'w-[68px]' : 'w-[268px]'} min-h-0 overflow-y-auto overflow-x-hidden border-r border-purple-200/65 bg-gradient-to-b from-white/82 via-violet-50/45 to-sky-50/35 p-3 backdrop-blur-md`}>
             <button
               type="button"
               onClick={openQuickCreateForFocusDate}
-              className={`inline-flex items-center ${sidebarCollapsed ? 'justify-center' : ''} gap-2 rounded-2xl border border-violet-500/70 bg-gradient-to-r from-violet-600 to-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_20px_rgba(124,58,237,0.24)] hover:from-violet-700 hover:to-purple-700`}
+              className={`inline-flex w-full items-center ${sidebarCollapsed ? 'justify-center px-0' : 'justify-center'} gap-2 rounded-2xl border border-violet-500/70 bg-gradient-to-r from-violet-600 to-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_20px_rgba(124,58,237,0.24)] hover:from-violet-700 hover:to-purple-700`}
               title="Создать занятие в выбранный день"
             >
               <Plus size={16} />
@@ -3220,7 +3493,7 @@ const TeacherCalendarSection = ({
                     />
                     Все ученики
                   </label>
-                  <div className="mt-2 max-h-40 space-y-1 overflow-hidden pr-1">
+                  <div className="teacher-calendar-shell__sidebar-scroll mt-2 max-h-48 space-y-1 overflow-y-auto overflow-x-hidden pr-1">
                     {studentCalendars.map((student) => (
                       <label key={`calendar-student-${student.id}`} className="flex items-center gap-2 rounded-lg px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">
                         <input
@@ -3383,8 +3656,8 @@ const TeacherCalendarSection = ({
             )}
           </aside>
 
-          <div className="teacher-calendar-shell__main flex min-h-0 min-w-0 flex-1 flex-col bg-white/72 backdrop-blur-[2px]">
-            <div className="teacher-calendar-shell__toolbar border-b border-purple-200/70 bg-white/75 px-3 py-2 backdrop-blur-md">
+          <div className="teacher-calendar-shell__main flex min-h-0 min-w-0 flex-1 flex-col bg-white/80 backdrop-blur-[2px]">
+            <div className="teacher-calendar-shell__toolbar border-b border-purple-200/70 bg-white/78 px-4 py-2 backdrop-blur-md">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                   <button
@@ -3494,6 +3767,45 @@ const TeacherCalendarSection = ({
                 </button>
                 <button
                   type="button"
+                  onClick={() => setCompactMode((prev) => !prev)}
+                  className={`rounded-full border px-2.5 py-1.5 text-xs font-semibold ${
+                    compactMode
+                      ? 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
+                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  Плотно
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCalendarSettingsOpen((prev) => !prev)}
+                  aria-expanded={calendarSettingsOpen}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-semibold transition ${
+                    calendarSettingsOpen
+                      ? 'border-purple-300 bg-purple-100 text-purple-800'
+                      : 'border-purple-200 bg-white text-slate-700 hover:bg-purple-50'
+                  }`}
+                >
+                  <SlidersHorizontal size={12} />
+                  Настройки
+                </button>
+              </div>
+              {calendarSettingsOpen && (
+                <div className="mt-2 rounded-2xl border border-purple-200/70 bg-white/82 p-2 shadow-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowConflictsOnly((prev) => !prev)}
+                      className={`rounded-full border px-2.5 py-1.5 text-xs font-semibold ${
+                        showConflictsOnly
+                          ? 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      {showConflictsOnly ? 'Показать все' : 'Только конфликты'}
+                    </button>
+                    <button
+                  type="button"
                   onClick={handleToggleTeacherReminder}
                   disabled={teacherReminderLoading || teacherReminderSaving || pushSyncing || pushBusy || !pushReady}
                   className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-semibold transition ${
@@ -3560,7 +3872,27 @@ const TeacherCalendarSection = ({
                   onChange={handleBrowserAlarmFileSelect}
                   className="hidden"
                 />
-              </div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <input
+                      type="url"
+                      value={browserAlarmCustomMelodyUrl}
+                      onChange={(event) => setBrowserAlarmCustomMelodyUrl(event.target.value)}
+                      placeholder="Ссылка на кастомную мелодию (mp3/ogg/wav)"
+                      className="min-w-[240px] flex-1 rounded-full border border-amber-200 bg-white px-3 py-1.5 text-xs text-slate-800 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                    />
+                    {browserAlarmUploadedMelodyName && (
+                      <button
+                        type="button"
+                        onClick={clearBrowserAlarmUploadedMelody}
+                        className="rounded-full border border-amber-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-50"
+                      >
+                        Убрать файл: {browserAlarmUploadedMelodyName}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
               {(teacherReminderError || teacherTestPushError || (pushError && pushError !== teacherReminderStatusText)) && (
                 <div className="mt-1 text-xs text-rose-600">
                   {teacherReminderError || teacherTestPushError || pushError}
@@ -3571,24 +3903,6 @@ const TeacherCalendarSection = ({
                   {teacherTestPushSuccess}
                 </div>
               )}
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <input
-                  type="url"
-                  value={browserAlarmCustomMelodyUrl}
-                  onChange={(event) => setBrowserAlarmCustomMelodyUrl(event.target.value)}
-                  placeholder="Ссылка на кастомную мелодию (mp3/ogg/wav)"
-                  className="min-w-[240px] flex-1 rounded-full border border-amber-200 bg-white px-3 py-1.5 text-xs text-slate-800 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
-                />
-                {browserAlarmUploadedMelodyName && (
-                  <button
-                    type="button"
-                    onClick={clearBrowserAlarmUploadedMelody}
-                    className="rounded-full border border-amber-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-50"
-                  >
-                    Убрать файл: {browserAlarmUploadedMelodyName}
-                  </button>
-                )}
-              </div>
               {(browserAlarmError || browserAlarmSuccess) && (
                 <div className={`mt-1 text-xs ${browserAlarmError ? 'text-rose-600' : 'text-emerald-700'}`}>
                   {browserAlarmError || browserAlarmSuccess}
@@ -3625,8 +3939,8 @@ const TeacherCalendarSection = ({
               )}
             </div>
 
-            <div className="border-b border-purple-200/70 bg-white/82 px-3 py-2 backdrop-blur-md">
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-purple-200/80 bg-gradient-to-r from-white via-violet-50/80 to-sky-50/70 px-3 py-2 shadow-sm">
+            <div className="border-b border-purple-200/70 bg-white/82 px-4 py-2 backdrop-blur-md">
+              <div className="teacher-calendar-shell__lesson-panel flex flex-wrap items-center justify-between gap-3 border-y border-purple-200/70 bg-gradient-to-r from-white/92 via-violet-50/74 to-sky-50/72 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
                 <div className="min-w-[220px] flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] ${
@@ -3779,7 +4093,7 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={() => handleLessonPanelFinanceAction('paid')}
-                    disabled={!lessonPanelHasStudent || Boolean(lessonPanelFinanceBusy)}
+                    disabled={!lessonPanelInfo || Boolean(lessonPanelFinanceBusy)}
                     className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
                       lessonPanelPaidMarked
                         ? 'border-rose-300 bg-rose-100 text-rose-800 hover:bg-rose-50'
@@ -3803,10 +4117,10 @@ const TeacherCalendarSection = ({
             <div className="min-h-0 flex-1 overflow-hidden">
               <div className="flex h-full min-h-0 flex-col">
                 <div
-                  className="teacher-calendar-shell__grid-header grid border-b border-purple-200/75 bg-gradient-to-r from-violet-50/70 via-white/95 to-fuchsia-50/60"
+                  className="teacher-calendar-shell__grid-header grid border-b border-purple-200/75 bg-gradient-to-r from-violet-50/70 via-white/95 to-sky-50/60"
                   style={{ gridTemplateColumns: `72px repeat(${visibleDayIndexes.length}, minmax(0, 1fr))` }}
                 >
-                  <div className="px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                     {timezoneLabel}
                   </div>
                   {visibleDayIndexes.map((dayIndex) => {
@@ -3816,12 +4130,12 @@ const TeacherCalendarSection = ({
                     const isToday = dayKey === todayKey;
                     const isFocused = dayKey === toDayKey(focusDate);
                     return (
-                      <div key={`calendar-day-header-${dayKey}`} className="border-l border-slate-200 px-2 py-2 text-center">
+                      <div key={`calendar-day-header-${dayKey}`} className="border-l border-slate-200 px-2 py-1.5 text-center">
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                           {SCHEDULE_WEEKDAYS[dayIndex]?.shortLabel || ''}
                         </div>
                         <div
-                          className={`mt-1 inline-flex h-9 min-w-9 items-center justify-center rounded-full px-2 text-[30px] leading-none ${
+                          className={`mt-0.5 inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-2xl leading-none ${
                             isFocused || isToday ? 'bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-[0_8px_18px_rgba(124,58,237,0.25)]' : 'text-slate-800'
                           }`}
                         >
@@ -3879,7 +4193,7 @@ const TeacherCalendarSection = ({
                               onClick={(event) => openQuickCreate(dayIndex, event)}
                               onDragOver={(event) => handleCalendarColumnDragOver(event, dayIndex)}
                               onDrop={(event) => handleCalendarColumnDrop(event, dayIndex)}
-                              title="Кликните, чтобы добавить разовое занятие"
+                              aria-label="Добавить разовое занятие"
                             >
                               {hourTicks.map((hour, index) => (
                                 <div
@@ -3934,17 +4248,32 @@ const TeacherCalendarSection = ({
                                 const startLabel = formatMinutesAsDisplayTime(event.startMinutes, use24HourFormat);
                                 const endLabel = formatMinutesAsDisplayTime(event.endMinutes, use24HourFormat);
                                 const externalEvent = isExternalCalendarEntry(event);
-                                const color = externalEvent
+                                const defaultColor = externalEvent
                                   ? '#2563eb'
                                   : getEventColor(event.studentId || studentName || `${dayIndex}-${index}`);
+                                const eventDate = parseDayKeyToDate(dayKey);
+                                const eventEndMs = eventDate && Number.isFinite(Number(event.endMinutes))
+                                  ? eventDate.getTime() + (Number(event.endMinutes) * 60 * 1000)
+                                  : NaN;
+                                const eventFinished = Number.isFinite(eventEndMs)
+                                  && eventEndMs <= currentTimeLineNow.getTime();
+                                const paidMarkKey = buildLessonPanelMarkKey(teacherId, { event, dayKey }, 'paid');
+                                const paidMarked = Boolean(paidMarkKey && lessonPanelMarks[paidMarkKey]);
+                                const color = paidMarked
+                                  ? CALENDAR_PAID_EVENT_COLOR
+                                  : (eventFinished ? CALENDAR_UNPAID_PAST_EVENT_COLOR : defaultColor);
+                                const paymentStateLabel = paidMarked
+                                  ? ' • оплата отмечена'
+                                  : (eventFinished ? ' • оплата не отмечена' : '');
+                                const paymentColorApplied = paidMarked || eventFinished;
                                 const laneWidth = 100 / Math.max(1, event.laneCount || 1);
                                 const left = (event.lane || 0) * laneWidth;
                                 const hasConflict = Number(event.laneCount || 1) > 1;
                                 return (
                                   <div
                                     key={event.id || `${dayKey}-${event.time}-${event.studentId}-${index}`}
-                                    title={`${externalEvent ? 'Google Calendar • ' : ''}${primaryLabel}${showSubjectInCard ? ` • ${subjectLabel}` : ''} • с ${startLabel} до ${endLabel}`}
-                                    className={`teacher-calendar-shell__event-card absolute z-10 overflow-hidden rounded-md border px-2 py-1 text-white shadow-sm ${externalEvent ? 'ring-1 ring-sky-200/80 ring-offset-1 ring-offset-white' : ''} ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
+                                    aria-label={`${externalEvent ? 'Google Calendar • ' : ''}${primaryLabel}${showSubjectInCard ? ` • ${subjectLabel}` : ''} • с ${startLabel} до ${endLabel}${paymentStateLabel}`}
+                                    className={`teacher-calendar-shell__event-card absolute z-10 overflow-hidden rounded-lg border px-2 py-1 text-white shadow-[0_8px_18px_rgba(15,23,42,0.16)] ${externalEvent && !paymentColorApplied ? 'ring-1 ring-sky-200/80 ring-offset-1 ring-offset-white' : ''} ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
                                     draggable={!externalEvent && !dragDropBusy && !eventDeleteBusy && !eventEditSaving && !eventQuickActionBusy}
                                     style={{
                                       top: `${top}px`,
@@ -3996,7 +4325,7 @@ const TeacherCalendarSection = ({
           onClick={closeDragRecurringChoiceModal}
         >
           <div
-            className="teacher-calendar-shell__modal surface-panel modal-card w-full max-w-md rounded-2xl border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/65 to-fuchsia-50/55 p-4 shadow-2xl"
+            className="teacher-calendar-shell__modal surface-panel modal-card w-full max-w-3xl rounded-2xl border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/65 to-fuchsia-50/55 p-4 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="text-lg font-semibold text-slate-900">Перенос повторяющегося занятия</div>
@@ -4284,7 +4613,7 @@ const TeacherCalendarSection = ({
       )}
       {lessonInfoModalOpen && (
         <div
-          className="teacher-calendar-shell__modal-backdrop absolute inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]"
+          className="teacher-calendar-shell__modal-backdrop absolute inset-0 z-[60] flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]"
           onClick={closeLessonInfoModal}
         >
           <div
@@ -4297,11 +4626,11 @@ const TeacherCalendarSection = ({
                   Перед уроком
                 </div>
                 <div className="truncate text-lg font-black text-slate-900">
-                  {lessonPanelStudentName || 'Ученик'}
+                  {lessonInfoTargetStudentName || 'Ученик'}
                 </div>
-                {lessonPanelInfo && (
+                {(lessonInfoTargetDateLabel || lessonInfoTargetTimeLabel) && (
                   <div className="text-xs text-slate-500">
-                    {lessonPanelDateLabel}, {lessonPanelTimeLabel}
+                    {[lessonInfoTargetDateLabel, lessonInfoTargetTimeLabel].filter(Boolean).join(', ')}
                   </div>
                 )}
               </div>
@@ -4319,27 +4648,27 @@ const TeacherCalendarSection = ({
                 <div className="text-xs font-bold uppercase tracking-wide text-emerald-700">
                   Домашка
                 </div>
-                {lessonPanelHomeworkLoading ? (
+                {lessonInfoHomeworkLoading ? (
                   <div className="mt-2 text-sm text-slate-500">Загружаем домашку...</div>
-                ) : lessonPanelHomework ? (
+                ) : lessonInfoHomework ? (
                   <>
                     <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
-                      {lessonPanelHomeworkText || 'Домашка без текста'}
+                      {lessonInfoHomeworkText || 'Домашка без текста'}
                     </div>
-                    {lessonPanelHomeworkGoalCount > 0 && (
+                    {lessonInfoHomeworkGoalCount > 0 && (
                       <div className="mt-3 rounded-xl border border-purple-200 bg-purple-50/80 px-3 py-2">
                         <div className="text-[11px] font-bold uppercase tracking-wide text-purple-700">
                           Цели
                         </div>
-                        {lessonPanelHomeworkGoalLabels.length > 0 ? (
+                        {lessonInfoHomeworkGoalLabels.length > 0 ? (
                           <div className="mt-1 space-y-1 text-sm text-slate-800">
-                            {lessonPanelHomeworkGoalLabels.map((label, index) => (
+                            {lessonInfoHomeworkGoalLabels.map((label, index) => (
                               <div key={`lesson-info-goal-${index}`}>{label}</div>
                             ))}
                           </div>
                         ) : (
                           <div className="mt-1 text-sm text-slate-500">
-                            {lessonPanelHomeworkGoalCount} цели
+                            {lessonInfoHomeworkGoalCount} цели
                           </div>
                         )}
                       </div>
@@ -4411,9 +4740,9 @@ const TeacherCalendarSection = ({
                 type="button"
                 onClick={() => {
                   closeLessonInfoModal();
-                  openLessonPanelWorkspace('notes');
+                  openStudentWorkspace('notes', lessonInfoTargetStudentId);
                 }}
-                disabled={!lessonPanelHasStudent}
+                disabled={!lessonInfoTargetStudentId}
                 className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <BookOpen size={14} />
@@ -4554,121 +4883,174 @@ const TeacherCalendarSection = ({
                 />
               </div>
             ) : (
-              <>
-                <div className="mt-4 space-y-2 text-sm text-slate-700">
-                  <div>
-                    <span className="text-slate-500">
-                      {String(eventDetails.studentId || '').trim() ? 'Ученик: ' : 'Название: '}
-                    </span>
-                    <span className="font-semibold text-slate-900">
-                      {String(eventDetails.studentId || '').trim()
-                        ? (eventDetails.studentName || 'Ученик')
-                        : (eventDetails.subjectLabel || eventDetails.subject || eventDetails.studentName || 'Занятие')}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">Время: </span>
-                    <span className="font-semibold text-slate-900">
-                      {eventDetailsTimeLabel}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">Длительность: </span>
-                    <span className="font-semibold text-slate-900">
-                      {Number.isFinite(Number(eventDetails.durationMinutes))
-                        ? `${Math.round(Number(eventDetails.durationMinutes))} мин`
-                        : `${DEFAULT_EVENT_DURATION_MINUTES} мин`}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">Повтор: </span>
-                    <span className="font-semibold text-slate-900">
-                      {eventDetailsIsExternal
-                        ? 'Google Calendar'
-                        : (String(eventDetails.date || '').trim() ? 'Единоразово' : 'Еженедельно')}
-                    </span>
-                  </div>
+              <div className="mt-4 rounded-2xl border border-purple-200/80 bg-gradient-to-r from-white via-violet-50/80 to-sky-50/70 p-3 shadow-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] ${
+                    eventDetailsStatusLabel === 'Идёт сейчас'
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      : 'border-purple-200 bg-purple-50 text-purple-700'
+                  }`}>
+                    {eventDetailsStatusLabel}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-500">
+                    {eventDetailsDateLabel}, {eventDetailsTimeRangeLabel}
+                  </span>
                   {eventDetailsIsExternal && (
-                    <div>
-                      <span className="text-slate-500">Источник: </span>
-                      <span className="font-semibold text-slate-900">
-                        {eventDetails.externalCalendarProvider || 'Google Calendar'}
-                      </span>
-                    </div>
+                    <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                      Google
+                    </span>
                   )}
-                  {eventDetailsIsExternal && eventDetails.lessonLink && (
-                    <a
-                      href={eventDetails.lessonLink}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100"
-                    >
-                      Открыть ссылку
-                    </a>
+                  {eventDetailsStudentSelected && (
+                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                      выбран
+                    </span>
                   )}
                 </div>
-
-                {!eventDetailsIsExternal && (
-                <div className="mt-3 rounded-xl border border-purple-200/80 bg-white/80 p-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Быстрые действия
+                <div className="mt-2 flex flex-wrap items-baseline gap-2">
+                  <div className="truncate text-lg font-black text-slate-900">
+                    {eventDetailsStudentName || 'Занятие'}
                   </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => handleQuickShiftEvent({ minuteShift: -30 })}
-                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving || dragDropBusy}
-                      className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      -30 мин
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleQuickShiftEvent({ minuteShift: 30 })}
-                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving || dragDropBusy}
-                      className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      +30 мин
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleQuickShiftEvent({ dayShift: 1 })}
-                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving || dragDropBusy}
-                      className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      +1 день
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleQuickShiftEvent({ dayShift: 7 })}
-                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving || dragDropBusy}
-                      className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      +1 неделя
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleMoveEventToNearestFreeSlot}
-                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving || dragDropBusy}
-                      className="rounded-full border border-purple-200 bg-purple-50 px-2.5 py-1 text-[11px] font-semibold text-purple-700 hover:bg-purple-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Ближайший свободный
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleDuplicateEventNextWeek}
-                      disabled={eventQuickActionBusy || eventDeleteBusy || eventEditSaving || dragDropBusy}
-                      className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Копия через 7 дней
-                    </button>
-                  </div>
-                  {eventQuickActionBusy && (
-                    <div className="mt-2 text-xs text-slate-500">Применяем быстрые изменения...</div>
+                  {eventDetailsSubject && eventDetailsSubject !== eventDetailsStudentName && (
+                    <div className="truncate text-xs font-semibold text-slate-500">{eventDetailsSubject}</div>
                   )}
                 </div>
+                {eventDetailsHasStudent ? (
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                    {eventDetailsHomeworkLoading ? (
+                      <span>Домашка загружается...</span>
+                    ) : eventDetailsHomework ? (
+                      <>
+                        <span>{eventDetailsHomeworkPreview || 'Домашка без текста'}</span>
+                        {eventDetailsHomeworkGoalsPreview ? (
+                          <span>{eventDetailsHomeworkGoalsPreview}</span>
+                        ) : eventDetailsHomeworkGoalCount > 0 && (
+                          <span className="rounded-full bg-purple-100 px-2 py-0.5 font-semibold text-purple-700">
+                            целей: {eventDetailsHomeworkGoalCount}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span>Домашка пока не задана</span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    Ученик не сопоставлен.
+                  </div>
                 )}
-              </>
+
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={openEventDetailsInfoModal}
+                    disabled={!eventDetailsHasStudent}
+                    title="Вспомнить прошлый урок"
+                    aria-label="Вспомнить прошлый урок"
+                    className="inline-grid h-8 w-8 place-items-center rounded-xl border border-purple-200 bg-white text-purple-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Info size={14} />
+                  </button>
+                  {eventDetailsLink && (
+                    <button
+                      type="button"
+                      onClick={openEventDetailsLink}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-100"
+                    >
+                      <ExternalLink size={12} />
+                      Ссылка
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => openEventDetailsWorkspace('call')}
+                    disabled={!eventDetailsHasStudent}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Clock3 size={12} />
+                    Созвон
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openEventDetailsWorkspace('board')}
+                    disabled={!eventDetailsHasStudent}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-violet-700 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Brush size={12} />
+                    Доска
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openEventDetailsWorkspace('collab-save')}
+                    disabled={!eventDetailsHasStudent}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Code2 size={12} />
+                    Код в конспект
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openEventDetailsWorkspace('notes')}
+                    disabled={!eventDetailsHasStudent}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <BookOpen size={12} />
+                    Конспекты
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openEventDetailsWorkspace('schedule')}
+                    disabled={!eventDetailsHasStudent}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <FileText size={12} />
+                    Домашка
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openEventDetailsWorkspace('progress')}
+                    disabled={!eventDetailsHasStudent}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <CheckCircle size={12} />
+                    Задания
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleEventDetailsFinanceAction('completed')}
+                    disabled={!eventDetailsHasStudent || Boolean(lessonPanelFinanceBusy)}
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
+                      eventDetailsCompletedMarked
+                        ? 'border-teal-300 bg-teal-100 text-teal-800 hover:bg-teal-50'
+                        : 'border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100'
+                    }`}
+                  >
+                    <CheckCircle size={12} />
+                    {lessonPanelFinanceBusy === 'completed' || lessonPanelFinanceBusy === 'completed-undo'
+                      ? '...'
+                      : (eventDetailsCompletedMarked ? 'Отменить урок' : '+ урок')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleEventDetailsFinanceAction('paid')}
+                    disabled={!eventDetails || Boolean(lessonPanelFinanceBusy)}
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
+                      eventDetailsPaidMarked
+                        ? 'border-rose-300 bg-rose-100 text-rose-800 hover:bg-rose-50'
+                        : 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                    }`}
+                  >
+                    <Wallet size={12} />
+                    {lessonPanelFinanceBusy === 'paid' || lessonPanelFinanceBusy === 'paid-undo'
+                      ? '...'
+                      : (eventDetailsPaidMarked ? 'Отменить оплату' : '+ оплата')}
+                  </button>
+                </div>
+                {(lessonPanelError || lessonPanelSuccess) && (
+                  <div className={`mt-2 text-xs ${lessonPanelError ? 'text-rose-600' : 'text-emerald-700'}`}>
+                    {lessonPanelError || lessonPanelSuccess}
+                  </div>
+                )}
+              </div>
             )}
 
             {eventDeleteError && (
@@ -4715,7 +5097,7 @@ const TeacherCalendarSection = ({
                     disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
                     className="rounded-full border border-purple-200/80 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Отмена
+                    Закрыть
                   </button>
                   {!eventDetailsIsExternal && (
                     <>

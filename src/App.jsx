@@ -11196,6 +11196,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const isBoardView = view === 'board';
   const isCallView = view === 'call';
   const isCollabView = view === 'collab';
+  const isTeacherCalendarView = view === 'teacher-calendar' && user?.role === 'teacher';
   const callUiMode = !isCallViewAvailable
     ? 'hidden'
     : isCallView
@@ -11203,14 +11204,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       : isCallSessionActive
         ? (callPanelExpanded ? 'floating' : 'collapsed')
         : 'hidden';
-  const mainLayoutClass = isBoardView
+  const mainLayoutClass = isTeacherCalendarView
+    ? 'flex-1 overflow-hidden p-0 md:p-0'
+    : isBoardView
     ? 'flex-1 overflow-hidden px-0 pt-1 pb-[calc(env(safe-area-inset-bottom)+5.1rem)] sm:px-0.5 sm:pt-1.5 sm:pb-2.5 md:px-1 md:pt-2 md:pb-3 lg:px-1.5 lg:pb-3.5'
     : ((isCallView || isCollabView)
       ? 'flex-1 overflow-hidden px-3 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-3.5 sm:pt-3 sm:pb-4 md:px-5 md:pt-4 md:pb-4 lg:px-6 lg:pb-5'
       : 'flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8');
   const mainContentShellClass = `main-content-shell animate-soft${
-    (isBoardView || isCallView || isCollabView) ? ' h-full min-h-0 flex flex-col overflow-hidden' : ''
-  }`;
+    (isBoardView || isCallView || isCollabView || isTeacherCalendarView) ? ' h-full min-h-0 flex flex-col overflow-hidden' : ''
+  }${isTeacherCalendarView ? ' main-content-shell--calendar' : ''}`;
   const studentsWithNicknames = useMemo(
     () => students,
     [students]
