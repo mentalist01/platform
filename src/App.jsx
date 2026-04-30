@@ -11084,6 +11084,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [teacherStudentChatId, setTeacherStudentChatId] = useState(initialTeacherStudentChatId);
   const [teacherSignupChatId, setTeacherSignupChatId] = useState(initialTeacherSignupChatId);
   const [callSessionStatus, setCallSessionStatus] = useState('idle');
+  const [callAutoStartToken, setCallAutoStartToken] = useState(0);
   const [callPanelExpanded, setCallPanelExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [desktopStudentMoreOpen, setDesktopStudentMoreOpen] = useState(false);
@@ -13257,6 +13258,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     }
     const normalizedView = String(targetView || '').trim();
     if (!normalizedView) return;
+    if (normalizedView === 'call-connect') {
+      setCallPanelExpanded(true);
+      setCallAutoStartToken((current) => current + 1);
+      navigateToView('call');
+      setMenuOpen(false);
+      return;
+    }
     if (normalizedView === 'collab-save') {
       setCollabSaveToNotesToken(Date.now());
       navigateToView('collab');
@@ -15136,6 +15144,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               studentsLoading={studentsLoading}
               uiMode={callUiMode}
               theme={theme}
+              autoStartToken={callAutoStartToken}
               onStatusChange={setCallSessionStatus}
               onRequestExpand={() => setCallPanelExpanded(true)}
               onRequestCollapse={() => setCallPanelExpanded(false)}

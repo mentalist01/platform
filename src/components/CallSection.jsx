@@ -1097,6 +1097,7 @@ const CallSection = ({
   onRequestCollapse,
   onStatusChange,
   theme = 'light',
+  autoStartToken = 0,
 }) => {
   const isTeacher = role === 'teacher';
   const effectiveStudentId = isTeacher ? String(activeStudentId || '').trim() : String(userId || '').trim();
@@ -1225,6 +1226,7 @@ const CallSection = ({
   const wsReconnectTimerRef = useRef(null);
   const wsReconnectAttemptRef = useRef(0);
   const startCallRef = useRef(null);
+  const handledAutoStartTokenRef = useRef(0);
   const presencePingTimerRef = useRef(null);
   const presenceReconnectTimerRef = useRef(null);
   const presenceReconnectAttemptRef = useRef(0);
@@ -3748,6 +3750,24 @@ const CallSection = ({
   useEffect(() => {
     startCallRef.current = startCall;
   }, [startCall]);
+
+  useEffect(() => {
+    const token = Number(autoStartToken) || 0;
+    if (!token || handledAutoStartTokenRef.current === token) return;
+    if (!roomId || !effectiveStudentId || isHiddenUi) return;
+
+    const currentStatus = statusRef.current;
+    if (currentStatus === 'connected' && activeRoomRef.current === roomId) {
+      handledAutoStartTokenRef.current = token;
+      return;
+    }
+    if (currentStatus !== 'idle') return;
+
+    const callStarter = startCallRef.current;
+    if (typeof callStarter !== 'function') return;
+    handledAutoStartTokenRef.current = token;
+    callStarter();
+  }, [autoStartToken, effectiveStudentId, isHiddenUi, roomId, status]);
 
   useEffect(() => {
     const hasOnlyPendingPeerConnections = status === 'connected'

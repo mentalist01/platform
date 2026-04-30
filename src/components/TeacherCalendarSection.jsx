@@ -2028,6 +2028,24 @@ const TeacherCalendarSection = ({
     openStudentWorkspace(viewId, lessonPanelStudentId);
   }, [lessonPanelStudentId, openStudentWorkspace]);
 
+  const openLessonPanelCall = useCallback(() => {
+    openLessonPanelWorkspace('call-connect');
+  }, [openLessonPanelWorkspace]);
+
+  const handleLessonPanelClick = useCallback((event) => {
+    if (!lessonPanelHasStudent) return;
+    const interactiveTarget = event.target?.closest?.('button, a, input, textarea, select, label');
+    if (interactiveTarget && event.currentTarget.contains(interactiveTarget)) return;
+    openLessonPanelCall();
+  }, [lessonPanelHasStudent, openLessonPanelCall]);
+
+  const handleLessonPanelKeyDown = useCallback((event) => {
+    if (!lessonPanelHasStudent) return;
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    openLessonPanelCall();
+  }, [lessonPanelHasStudent, openLessonPanelCall]);
+
   const openLessonPanelLink = useCallback(() => {
     if (!lessonPanelLink || typeof window === 'undefined') return;
     window.open(lessonPanelLink, '_blank', 'noopener,noreferrer');
@@ -4146,7 +4164,15 @@ const TeacherCalendarSection = ({
             </div>
 
             <div className="border-b border-purple-200/70 bg-white/82 px-4 py-2 backdrop-blur-md">
-              <div className="teacher-calendar-shell__lesson-panel flex flex-wrap items-center justify-between gap-3 border-y border-purple-200/70 bg-gradient-to-r from-white/92 via-violet-50/74 to-sky-50/72 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+              <div
+                className={`teacher-calendar-shell__lesson-panel flex flex-wrap items-center justify-between gap-3 border-y border-purple-200/70 bg-gradient-to-r from-white/92 via-violet-50/74 to-sky-50/72 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] transition ${
+                  lessonPanelHasStudent ? 'cursor-pointer hover:border-indigo-300/80 hover:from-indigo-50/84 hover:via-violet-50/78 hover:to-sky-50/78 focus:outline-none focus:ring-2 focus:ring-indigo-300/60' : ''
+                }`}
+                onClick={handleLessonPanelClick}
+                onKeyDown={handleLessonPanelKeyDown}
+                tabIndex={lessonPanelHasStudent ? 0 : undefined}
+                aria-label={lessonPanelHasStudent ? `Открыть созвон: ${lessonPanelStudentName}` : undefined}
+              >
                 <div className="min-w-[220px] flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] ${
@@ -4229,7 +4255,7 @@ const TeacherCalendarSection = ({
                   )}
                   <button
                     type="button"
-                    onClick={() => openLessonPanelWorkspace('call')}
+                    onClick={openLessonPanelCall}
                     disabled={!lessonPanelHasStudent}
                     className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
