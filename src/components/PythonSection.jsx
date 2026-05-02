@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, BarChart2, BookOpen, CheckCircle, Pencil, Plus, RefreshCcw, Sparkles, Target, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
-import ivanCoin from '../assets/ivan-coin-badge.png';
+import CoinGuideIcon from './CoinGuideTooltip';
 import ProgressReviewModal from './ProgressReviewModal';
 import PythonReviewModal from './PythonReviewModal';
 import PythonTestModal from './PythonTestModal';
@@ -1788,7 +1788,7 @@ const PythonSection = ({
                 className="python-task-coin-badge inline-flex items-center gap-1 rounded-full border border-amber-200/80 bg-amber-50/90 px-2 py-1 text-[10px] font-black text-amber-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.74)]"
                 title={`Монеты за тему: получено ${formatCoinAmount(coinStats.earnedCoins)} из ${formatCoinAmount(coinStats.possibleCoins)}${hasCoinBonus ? `, бонус ${formatCoinBonusPercent(coinStats.multiplier)}` : ''}`}
               >
-                <img src={ivanCoin} alt="" aria-hidden="true" className="h-3.5 w-3.5 object-contain" />
+                <CoinGuideIcon className="h-3.5 w-3.5 object-contain" />
                 <span>{`${formatCoinAmount(coinStats.earnedCoins)} / ${formatCoinAmount(coinStats.possibleCoins)}`}</span>
                 {hasCoinBonus && (
                   <span className="rounded-full border border-amber-300/70 bg-white/75 px-1 py-0 text-[9px] leading-4 text-amber-700">

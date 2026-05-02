@@ -1,6 +1,6 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Package2, RefreshCcw, Sparkles } from 'lucide-react';
-import ivanCoin from '../assets/ivan-coin-badge.png';
+import CoinGuideIcon from './CoinGuideTooltip';
 import { api } from '../services/api';
 import StudentArtifactAltar from './StudentArtifactAltar';
 import StudentLeaderboardProfileModal from './StudentLeaderboardProfileModal';
@@ -22,7 +22,7 @@ const normalizeOptionalWholeNumber = (value) => {
 const LeaderboardAliasRewardChip = () => (
   <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md border border-amber-300 bg-amber-100 px-1.5 text-[11px] font-black leading-none text-amber-800 shadow-sm">
     <span>{`+${LEADERBOARD_ALIAS_COIN_REWARD}`}</span>
-    <img className="h-3.5 w-3.5" src={ivanCoin} alt="" aria-hidden="true" draggable="false" />
+    <CoinGuideIcon className="h-3.5 w-3.5" />
   </span>
 );
 

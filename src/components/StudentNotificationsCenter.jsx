@@ -6,7 +6,7 @@ import { getNotificationsWsUrl } from '../utils/runtimeUrls';
 import LinkifiedText from './LinkifiedText';
 import MockExamBadges from './MockExamBadges';
 import { Button } from './ui';
-import ivanCoin from '../assets/ivan-coin-badge.png';
+import CoinGuideIcon from './CoinGuideTooltip';
 
 const SYNC_INTERVAL_MS = 60 * 1000;
 const LIVE_RECONNECT_DELAY_MS = 4 * 1000;
@@ -90,7 +90,7 @@ const NotificationGiftBanner = ({
                 ? 'border border-amber-200/25 bg-slate-950/40 text-amber-100'
                 : 'border border-amber-200 bg-white text-amber-700'
             }`}>
-              <img src={ivanCoin} alt="" aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+              <CoinGuideIcon className="h-3.5 w-3.5 shrink-0" />
               {`+${gift.coins} монет`}
             </span>
           </div>

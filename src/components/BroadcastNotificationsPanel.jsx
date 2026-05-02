@@ -5,7 +5,7 @@ import { buildDownloadUrl } from '../utils/downloadUrl';
 import LinkifiedText from './LinkifiedText';
 import MockExamBadges from './MockExamBadges';
 import { Button, Card } from './ui';
-import ivanCoin from '../assets/ivan-coin-badge.png';
+import CoinGuideIcon from './CoinGuideTooltip';
 
 const formatNotificationDate = (value) => {
   const timestamp = Date.parse(String(value || ''));
@@ -634,7 +634,7 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
               </div>
               {giftCoins > 0 && (
                 <div className="teacher-broadcast-gift__amount inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white px-3 py-1.5 text-xs font-bold text-amber-700">
-                  <img src={ivanCoin} alt="" aria-hidden="true" className="h-4 w-4 shrink-0" />
+                  <CoinGuideIcon className="h-4 w-4 shrink-0" />
                   {`+${giftCoins} монет`}
                 </div>
               )}
@@ -801,7 +801,7 @@ const BroadcastNotificationsPanel = ({ role = 'teacher' }) => {
                       <Gift size={16} />
                       Подарок в уведомлении
                       <span className="teacher-broadcast-history__gift-amount inline-flex items-center gap-1 rounded-full border border-amber-200 bg-white px-2.5 py-1 text-xs font-bold text-amber-700">
-                        <img src={ivanCoin} alt="" aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                        <CoinGuideIcon className="h-3.5 w-3.5 shrink-0" />
                         {`+${item.gift.coins} монет`}
                       </span>
                     </div>

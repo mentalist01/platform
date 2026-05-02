@@ -24,7 +24,7 @@ import StudentSearchSelect from './StudentSearchSelect';
 import StudentTestModal from './StudentTestModal';
 import { Button, Card, ProgressBar } from './ui';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
-import ivanCoin from '../assets/ivan-coin-badge.png';
+import CoinGuideIcon from './CoinGuideTooltip';
 
 const compareMockTaskKeys = (left, right) => {
   const leftNumber = Number(left);
@@ -2158,7 +2158,7 @@ const ProgressSection = ({
                           >
                             <div className="mock-reward-milestone__label">
                               <span>{milestone.coins}</span>
-                              <img src={ivanCoin} alt="" aria-hidden="true" className="h-3 w-3 object-contain" />
+                              <CoinGuideIcon className="h-3 w-3 object-contain" />
                               {awarded && <span className="mock-reward-milestone__check">✓</span>}
                             </div>
                             <div className="mock-reward-milestone__tick" />

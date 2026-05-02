@@ -51,6 +51,7 @@ import TeacherLessonStartPrompt from './components/TeacherLessonStartPrompt';
 import TeacherPanel from './components/TeacherPanel';
 import TeacherStudentChatsSection from './components/TeacherStudentChatsSection';
 import ThemeToggleButton from './components/ThemeToggleButton';
+import CoinGuideIcon from './components/CoinGuideTooltip';
 import { Button, Card, ProgressBar } from './components/ui';
 import {
   USER_SESSION_KEY,
@@ -2478,8 +2479,8 @@ const STUDENT_RATING_TOUR_STEPS = [
     title: 'Монеты',
     text: 'Монеты дают за Python-задачи, пробники, подарки от учителя и некоторые артефакты.',
     emotion: 'approval',
-    target: '[data-tour="rating-coin-guide"]',
-    fallback: '[data-tour="rating-coins"]',
+    target: '[data-tour="rating-coins"]',
+    fallback: '[data-tour="rating-altar"]',
     view: 'rating',
     menu: 'close'
   },
@@ -13960,7 +13961,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     className="xp-flight-dock-coin"
                     title={`Монеты Python: ${totalCoinsLabel}`}
                   >
-                    <img src={ivanCoin} alt="" aria-hidden="true" draggable="false" />
+                    <CoinGuideIcon />
                     <span>{totalCoinsLabel}</span>
                   </span>
                 </div>
@@ -14606,7 +14607,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                             className="level-progress-coin"
                             title={`Монеты Python: ${totalCoinsLabel}`}
                           >
-                            <img src={ivanCoin} alt="" aria-hidden="true" draggable="false" />
+                            <CoinGuideIcon />
                             <span>{totalCoinsLabel}</span>
                           </span>
                         </div>

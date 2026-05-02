@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Package2, Sparkles, X } from 'lucide-react';
+import CoinGuideIcon from './CoinGuideTooltip';
 import ivanCoin from '../assets/ivan-coin-badge.png';
 import artifactSpinMusic from '../assets/artefacts/music/spin.mp3';
 import { ARTIFACT_CATALOG_METADATA_BY_ID } from '../data/artifactCatalog';
@@ -1147,7 +1148,7 @@ const StudentArtifactAltar = ({
                   <span>{selectedUpgradeButtonLabel}</span>
                   <span className="student-artifact-detail-modal__upgrade-button-price">
                     <span>{selectedCoinsRequired.toLocaleString('ru-RU')}</span>
-                    <img src={ivanCoin} alt="" aria-hidden="true" draggable="false" />
+                    <CoinGuideIcon />
                   </span>
                 </button>
                 {!selectedUpgradeCanAffordCoins && (
@@ -1193,41 +1194,8 @@ const StudentArtifactAltar = ({
           className={`student-artifact-altar__wallet inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white/90 px-3 py-1.5 text-sm font-semibold text-amber-700 shadow-sm ${duplicateCoinFlights.length > 0 ? 'student-artifact-altar__wallet--receiving' : ''}`}
           data-tour="rating-coins"
         >
-          <img src={ivanCoin} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
+          <CoinGuideIcon className="h-4 w-4 object-contain" />
           <span>{`${Math.max(0, Math.floor(Number(coinsTotal) || 0)).toLocaleString('ru-RU')} монет`}</span>
-        </div>
-      </div>
-
-      <div className="student-artifact-altar__coin-guide mt-4 rounded-[24px] border border-amber-200/80 bg-[linear-gradient(180deg,rgba(255,250,235,0.96),rgba(255,255,255,0.92))] p-4 shadow-[0_18px_34px_rgba(245,158,11,0.08)]" data-tour="rating-coin-guide">
-        <div className="flex items-center gap-2">
-          <img src={ivanCoin} alt="" aria-hidden="true" className="h-5 w-5 object-contain" />
-          <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Где взять монеты</div>
-        </div>
-        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
-          <div className="student-artifact-altar__coin-guide-card rounded-2xl border border-white/80 bg-white/80 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.82)]">
-            <div className="text-sm font-semibold text-slate-900">Решай Python-задачи</div>
-            <div className="mt-1 text-xs leading-5 text-slate-600">
-              За новые решённые задачи из раздела Python начисляются монеты. Чем сложнее тема, тем выше награда.
-            </div>
-          </div>
-          <div className="student-artifact-altar__coin-guide-card rounded-2xl border border-white/80 bg-white/80 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.82)]">
-            <div className="text-sm font-semibold text-slate-900">Решай пробники</div>
-            <div className="mt-1 text-xs leading-5 text-slate-600">
-              В пробниках есть рубежи наград: 30 баллов = 30 монет, 50 = 50, 80 = 80, 100 = 100. Улучшай результат и забирай новые рубежи.
-            </div>
-          </div>
-          <div className="student-artifact-altar__coin-guide-card rounded-2xl border border-white/80 bg-white/80 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.82)]">
-            <div className="text-sm font-semibold text-slate-900">Получай от учителя</div>
-            <div className="mt-1 text-xs leading-5 text-slate-600">
-              Учитель может выдать монеты вручную, если захочет наградить тебя отдельно.
-            </div>
-          </div>
-          <div className="student-artifact-altar__coin-guide-card rounded-2xl border border-white/80 bg-white/80 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.82)]">
-            <div className="text-sm font-semibold text-slate-900">Используй артефакты</div>
-            <div className="mt-1 text-xs leading-5 text-slate-600">
-              Некоторые артефакты сразу дают монеты или усиливают монетную награду за Python-задачи.
-            </div>
-          </div>
         </div>
       </div>
 
@@ -1403,7 +1371,7 @@ const StudentArtifactAltar = ({
                 <div className="artifact-altar-stage__subtitle">{resolvedAltarStageSubtitle}</div>
                 {displayPullMaxLevelDuplicateCoins > 0 && (
                   <div className="artifact-altar-stage__coin-reward" aria-label={`Компенсация ${displayPullMaxLevelDuplicateCoins.toLocaleString('ru-RU')} монет`}>
-                    <img src={ivanCoin} alt="" aria-hidden="true" />
+                    <CoinGuideIcon />
                     <span>{`+${displayPullMaxLevelDuplicateCoins.toLocaleString('ru-RU')} монет за максимум`}</span>
                   </div>
                 )}
@@ -1427,7 +1395,7 @@ const StudentArtifactAltar = ({
               >
                 <Sparkles size={16} />
                 <span>{spinning ? 'Алтарь отвечает...' : `Крутить за ${spinCost}`}</span>
-                <img src={ivanCoin} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
+                <CoinGuideIcon className="h-4 w-4 object-contain" />
               </button>
             </div>
 
