@@ -133,6 +133,7 @@ const studentChatsFile = path.join(dataDir, 'student-chats.json');
 const broadcastNotificationsFile = path.join(dataDir, 'broadcast-notifications.json');
 const scheduleRequestsFile = path.join(dataDir, 'schedule-requests.json');
 const teacherCalendarSyncFile = path.join(dataDir, 'teacher-calendar-sync.json');
+const teacherCalendarMarksFile = path.join(dataDir, 'teacher-calendar-marks.json');
 const teacherFinanceFile = path.join(dataDir, 'teacher-finances.json');
 const authFile = path.join(dataDir, 'auth.json');
 const authSessionsFile = path.join(dataDir, 'auth-sessions.json');
@@ -1159,6 +1160,53 @@ const readTeacherCalendarSyncDb = () => {
   }
 };
 
+const normalizeTeacherCalendarMarkKey = (value) => {
+  const normalized = String(value || '').trim();
+  if (!normalized || normalized.length > 500) return '';
+  if (normalized === '__proto__' || normalized === 'constructor' || normalized === 'prototype') return '';
+  return normalized;
+};
+
+const normalizeTeacherCalendarMarkValue = (value) => {
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    if (normalized) return normalized;
+  }
+  return new Date().toISOString();
+};
+
+const normalizeTeacherCalendarMarks = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const normalized = {};
+  Object.entries(source).forEach(([key, markValue]) => {
+    const normalizedKey = normalizeTeacherCalendarMarkKey(key);
+    if (!normalizedKey) return;
+    normalized[normalizedKey] = normalizeTeacherCalendarMarkValue(markValue);
+  });
+  return normalized;
+};
+
+const normalizeTeacherCalendarMarksDb = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const normalized = {};
+  Object.entries(source).forEach(([teacherId, marks]) => {
+    const normalizedTeacherId = String(teacherId || '').trim();
+    if (!normalizedTeacherId) return;
+    normalized[normalizedTeacherId] = normalizeTeacherCalendarMarks(marks);
+  });
+  return normalized;
+};
+
+const readTeacherCalendarMarksDb = () => {
+  try {
+    const raw = fs.readFileSync(teacherCalendarMarksFile, 'utf8');
+    const data = JSON.parse(raw);
+    return normalizeTeacherCalendarMarksDb(data);
+  } catch {
+    return {};
+  }
+};
+
 const writeFilesDb = (data) => {
   fs.writeFileSync(dataFile, JSON.stringify(data, null, 2), 'utf8');
 };
@@ -1189,6 +1237,10 @@ const writeBroadcastNotificationsDb = (data) => {
 
 const writeTeacherCalendarSyncDb = (data) => {
   fs.writeFileSync(teacherCalendarSyncFile, JSON.stringify(data || {}, null, 2), 'utf8');
+};
+
+const writeTeacherCalendarMarksDb = (data) => {
+  fs.writeFileSync(teacherCalendarMarksFile, JSON.stringify(normalizeTeacherCalendarMarksDb(data), null, 2), 'utf8');
 };
 
 const TEACHER_FINANCE_PRICING_MODES = new Set(['perLesson', 'monthly']);
@@ -12347,6 +12399,56 @@ app.get('/api/teacher-schedule', async (req, res) => {
   const localEntries = getTeacherScheduleEntries(teacher.id);
   const googleEntries = await fetchTeacherGoogleCalendarEntries(teacher.id);
   return res.json([...localEntries, ...googleEntries]);
+});
+
+app.get('/api/teacher-calendar-marks', (req, res) => {
+  const { teacherId } = req.query || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  const db = readTeacherCalendarMarksDb();
+  return res.json({ marks: normalizeTeacherCalendarMarks(db[teacher.id]) });
+});
+
+app.patch('/api/teacher-calendar-marks', (req, res) => {
+  const { teacherId, marks, set, unset } = req.body || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+
+  const db = readTeacherCalendarMarksDb();
+  const currentMarks = normalizeTeacherCalendarMarks(db[teacher.id]);
+  let nextMarks = currentMarks;
+
+  if (marks && typeof marks === 'object' && !Array.isArray(marks)) {
+    nextMarks = normalizeTeacherCalendarMarks(marks);
+  } else {
+    nextMarks = { ...currentMarks };
+    const setEntries = set && typeof set === 'object' && !Array.isArray(set) ? set : {};
+    Object.entries(setEntries).forEach(([key, value]) => {
+      const normalizedKey = normalizeTeacherCalendarMarkKey(key);
+      if (!normalizedKey) return;
+      nextMarks[normalizedKey] = normalizeTeacherCalendarMarkValue(value);
+    });
+
+    const unsetList = Array.isArray(unset) ? unset : [];
+    unsetList.forEach((key) => {
+      const normalizedKey = normalizeTeacherCalendarMarkKey(key);
+      if (!normalizedKey) return;
+      delete nextMarks[normalizedKey];
+    });
+  }
+
+  db[teacher.id] = normalizeTeacherCalendarMarks(nextMarks);
+  writeTeacherCalendarMarksDb(db);
+  notifyScheduleSyncUpdate({
+    scope: 'teacher-calendar-marks',
+    action: 'calendar-marks-updated',
+    teacherId: teacher.id,
+  });
+  return res.json({ marks: db[teacher.id] });
 });
 
 app.get('/api/teacher-calendar-sync', (req, res) => {

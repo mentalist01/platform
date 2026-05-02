@@ -427,6 +427,20 @@ const getCalendarLessonPaymentState = (teacherId, lessonInfo, marks, now = new D
   };
 };
 
+const normalizeLessonPanelMarks = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const normalized = {};
+  Object.entries(source).forEach(([key, markValue]) => {
+    const normalizedKey = String(key || '').trim();
+    if (!normalizedKey) return;
+    const normalizedValue = typeof markValue === 'string' && markValue.trim()
+      ? markValue.trim()
+      : new Date().toISOString();
+    normalized[normalizedKey] = normalizedValue;
+  });
+  return normalized;
+};
+
 const readLessonPanelMarks = (teacherId) => {
   if (typeof window === 'undefined') return {};
   const normalizedTeacherId = String(teacherId || '').trim();
@@ -434,7 +448,7 @@ const readLessonPanelMarks = (teacherId) => {
   try {
     const raw = window.localStorage.getItem(`${LESSON_PANEL_MARKS_STORAGE_KEY}:${normalizedTeacherId}`);
     const data = JSON.parse(raw || '{}');
-    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+    return normalizeLessonPanelMarks(data);
   } catch {
     return {};
   }
@@ -447,8 +461,28 @@ const writeLessonPanelMarks = (teacherId, data) => {
   try {
     window.localStorage.setItem(
       `${LESSON_PANEL_MARKS_STORAGE_KEY}:${normalizedTeacherId}`,
-      JSON.stringify(data && typeof data === 'object' ? data : {})
+      JSON.stringify(normalizeLessonPanelMarks(data))
     );
+  } catch {}
+};
+
+const hasMigratedLessonPanelMarks = (teacherId) => {
+  if (typeof window === 'undefined') return true;
+  const normalizedTeacherId = String(teacherId || '').trim();
+  if (!normalizedTeacherId) return true;
+  try {
+    return window.localStorage.getItem(`${LESSON_PANEL_MARKS_STORAGE_KEY}:migrated:${normalizedTeacherId}`) === '1';
+  } catch {
+    return true;
+  }
+};
+
+const markLessonPanelMarksMigrated = (teacherId) => {
+  if (typeof window === 'undefined') return;
+  const normalizedTeacherId = String(teacherId || '').trim();
+  if (!normalizedTeacherId) return;
+  try {
+    window.localStorage.setItem(`${LESSON_PANEL_MARKS_STORAGE_KEY}:migrated:${normalizedTeacherId}`, '1');
   } catch {}
 };
 
@@ -837,10 +871,6 @@ const TeacherCalendarSection = ({
   }, []);
 
   useEffect(() => {
-    setLessonPanelMarks(readLessonPanelMarks(teacherId));
-  }, [teacherId]);
-
-  useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
       const raw = window.localStorage.getItem(CALENDAR_UI_PREFS_STORAGE_KEY);
@@ -1046,9 +1076,53 @@ const TeacherCalendarSection = ({
     }
   }, [teacherId]);
 
+  const loadLessonPanelMarks = useCallback(async ({ silent = false } = {}) => {
+    if (!teacherId) {
+      setLessonPanelMarks({});
+      return {};
+    }
+
+    const localMarks = readLessonPanelMarks(teacherId);
+    const shouldMigrateLocalMarks = !hasMigratedLessonPanelMarks(teacherId)
+      && Object.keys(localMarks).length > 0;
+
+    if (!silent && shouldMigrateLocalMarks) {
+      setLessonPanelMarks(localMarks);
+    }
+
+    try {
+      const response = await api.getTeacherCalendarMarks(teacherId);
+      const serverMarks = normalizeLessonPanelMarks(response?.marks);
+      const nextMarks = shouldMigrateLocalMarks
+        ? normalizeLessonPanelMarks({ ...serverMarks, ...localMarks })
+        : serverMarks;
+
+      if (shouldMigrateLocalMarks) {
+        const saved = await api.updateTeacherCalendarMarks({ marks: nextMarks }, teacherId);
+        const savedMarks = normalizeLessonPanelMarks(saved?.marks);
+        setLessonPanelMarks(savedMarks);
+        writeLessonPanelMarks(teacherId, savedMarks);
+        markLessonPanelMarksMigrated(teacherId);
+        return savedMarks;
+      }
+
+      setLessonPanelMarks(nextMarks);
+      writeLessonPanelMarks(teacherId, nextMarks);
+      markLessonPanelMarksMigrated(teacherId);
+      return nextMarks;
+    } catch {
+      setLessonPanelMarks(localMarks);
+      return localMarks;
+    }
+  }, [teacherId]);
+
   useEffect(() => {
     loadTeacherCalendar();
   }, [loadTeacherCalendar]);
+
+  useEffect(() => {
+    loadLessonPanelMarks();
+  }, [loadLessonPanelMarks]);
 
   const loadCalendarSyncSettings = useCallback(async ({ silent = false } = {}) => {
     if (!teacherId) {
@@ -1215,8 +1289,13 @@ const TeacherCalendarSection = ({
       }
       const payloadTeacherId = String(payload?.teacherId || '').trim();
       if (payloadTeacherId && payloadTeacherId !== String(teacherId || '').trim()) return;
+      const action = String(payload?.action || '');
+      if (action.includes('calendar-marks')) {
+        loadLessonPanelMarks({ silent: true });
+        return;
+      }
       loadTeacherCalendar({ silent: true });
-      if (String(payload?.action || '').includes('calendar-sync')) {
+      if (action.includes('calendar-sync')) {
         loadCalendarSyncSettings({ silent: true });
       }
     };
@@ -1225,7 +1304,7 @@ const TeacherCalendarSection = ({
       source.removeEventListener('schedule-sync', handleScheduleSync);
       source.close();
     };
-  }, [loadCalendarSyncSettings, loadTeacherCalendar, teacherId]);
+  }, [loadCalendarSyncSettings, loadLessonPanelMarks, loadTeacherCalendar, teacherId]);
 
   const loadTeacherReminderSetting = useCallback(async () => {
     if (!teacherId) {
@@ -2015,27 +2094,48 @@ const TeacherCalendarSection = ({
   const lessonPanelCompletedMarked = Boolean(lessonPanelMarks[lessonPanelCompletedMarkKey]);
   const lessonPanelPaidMarked = Boolean(lessonPanelMarks[lessonPanelPaidMarkKey]);
 
-  const saveLessonPanelMark = useCallback((markKey) => {
-    if (!markKey) return;
-    setLessonPanelMarks((prev) => {
-      const next = {
-        ...(prev || {}),
-        [markKey]: new Date().toISOString(),
-      };
-      writeLessonPanelMarks(teacherId, next);
-      return next;
+  const saveLessonPanelMark = useCallback(async (markKey) => {
+    if (!markKey || !teacherId) return;
+    const markedAt = new Date().toISOString();
+    const previousMarks = normalizeLessonPanelMarks(lessonPanelMarks);
+    const optimisticMarks = normalizeLessonPanelMarks({
+      ...previousMarks,
+      [markKey]: markedAt,
     });
-  }, [teacherId]);
+    setLessonPanelMarks(optimisticMarks);
+    writeLessonPanelMarks(teacherId, optimisticMarks);
+    try {
+      const response = await api.updateTeacherCalendarMarks({ set: { [markKey]: markedAt } }, teacherId);
+      const nextMarks = normalizeLessonPanelMarks(response?.marks);
+      setLessonPanelMarks(nextMarks);
+      writeLessonPanelMarks(teacherId, nextMarks);
+      markLessonPanelMarksMigrated(teacherId);
+    } catch (error) {
+      setLessonPanelMarks(previousMarks);
+      writeLessonPanelMarks(teacherId, previousMarks);
+      throw error;
+    }
+  }, [lessonPanelMarks, teacherId]);
 
-  const removeLessonPanelMark = useCallback((markKey) => {
-    if (!markKey) return;
-    setLessonPanelMarks((prev) => {
-      const next = { ...(prev || {}) };
-      delete next[markKey];
-      writeLessonPanelMarks(teacherId, next);
-      return next;
-    });
-  }, [teacherId]);
+  const removeLessonPanelMark = useCallback(async (markKey) => {
+    if (!markKey || !teacherId) return;
+    const previousMarks = normalizeLessonPanelMarks(lessonPanelMarks);
+    const optimisticMarks = normalizeLessonPanelMarks(previousMarks);
+    delete optimisticMarks[markKey];
+    setLessonPanelMarks(optimisticMarks);
+    writeLessonPanelMarks(teacherId, optimisticMarks);
+    try {
+      const response = await api.updateTeacherCalendarMarks({ unset: [markKey] }, teacherId);
+      const nextMarks = normalizeLessonPanelMarks(response?.marks);
+      setLessonPanelMarks(nextMarks);
+      writeLessonPanelMarks(teacherId, nextMarks);
+      markLessonPanelMarksMigrated(teacherId);
+    } catch (error) {
+      setLessonPanelMarks(previousMarks);
+      writeLessonPanelMarks(teacherId, previousMarks);
+      throw error;
+    }
+  }, [lessonPanelMarks, teacherId]);
 
   const openStudentWorkspace = useCallback((viewId, studentId) => {
     const normalizedView = String(viewId || '').trim();
@@ -2107,9 +2207,9 @@ const TeacherCalendarSection = ({
       if (!lessonPanelStudentId) {
         if (normalizedAction !== 'paid') return;
         if (undo) {
-          removeLessonPanelMark(markKey);
+          await removeLessonPanelMark(markKey);
         } else {
-          saveLessonPanelMark(markKey);
+          await saveLessonPanelMark(markKey);
         }
         setLessonPanelSuccess(undo
           ? 'Отметка оплаты отменена.'
@@ -2134,9 +2234,9 @@ const TeacherCalendarSection = ({
       } else if (normalizedAction === 'paid') {
         if (lessonPrice <= 0) {
           if (undo) {
-            removeLessonPanelMark(markKey);
+            await removeLessonPanelMark(markKey);
           } else {
-            saveLessonPanelMark(markKey);
+            await saveLessonPanelMark(markKey);
           }
           setLessonPanelSuccess(undo
             ? 'Отметка оплаты отменена.'
@@ -2156,9 +2256,9 @@ const TeacherCalendarSection = ({
         teacherId
       );
       if (undo) {
-        removeLessonPanelMark(markKey);
+        await removeLessonPanelMark(markKey);
       } else {
-        saveLessonPanelMark(markKey);
+        await saveLessonPanelMark(markKey);
       }
       setLessonPanelSuccess(normalizedAction === 'completed'
         ? (undo ? 'Отметка проведения отменена.' : 'Проведение отмечено.')
@@ -2291,9 +2391,9 @@ const TeacherCalendarSection = ({
       if (!eventDetailsStudentId) {
         if (normalizedAction !== 'paid') return;
         if (undo) {
-          removeLessonPanelMark(markKey);
+          await removeLessonPanelMark(markKey);
         } else {
-          saveLessonPanelMark(markKey);
+          await saveLessonPanelMark(markKey);
         }
         setLessonPanelSuccess(undo
           ? 'Отметка оплаты отменена.'
@@ -2318,9 +2418,9 @@ const TeacherCalendarSection = ({
       } else if (normalizedAction === 'paid') {
         if (lessonPrice <= 0) {
           if (undo) {
-            removeLessonPanelMark(markKey);
+            await removeLessonPanelMark(markKey);
           } else {
-            saveLessonPanelMark(markKey);
+            await saveLessonPanelMark(markKey);
           }
           setLessonPanelSuccess(undo
             ? 'Отметка оплаты отменена.'
@@ -2340,9 +2440,9 @@ const TeacherCalendarSection = ({
         teacherId
       );
       if (undo) {
-        removeLessonPanelMark(markKey);
+        await removeLessonPanelMark(markKey);
       } else {
-        saveLessonPanelMark(markKey);
+        await saveLessonPanelMark(markKey);
       }
       setLessonPanelSuccess(normalizedAction === 'completed'
         ? (undo ? 'Отметка проведения отменена.' : 'Проведение отмечено.')
