@@ -477,20 +477,13 @@ const TeacherLessonStartPrompt = ({
   }, [dismissVersion, now, scheduleEntries, scheduleReady, studentsById]);
 
   useEffect(() => {
-    if (duePrompt) {
-      setActivePrompt((current) => (
-        current?.occurrenceKey === duePrompt.occurrenceKey
-          ? { ...current, ...duePrompt }
-          : duePrompt
-      ));
-      return;
-    }
-    setActivePrompt((current) => {
-      if (!current) return null;
-      const nowMs = now instanceof Date && !Number.isNaN(now.getTime()) ? now.getTime() : Date.now();
-      return nowMs > Number(current.startMs || 0) + LESSON_PROMPT_AFTER_START_MS ? null : current;
-    });
-  }, [duePrompt, now]);
+    if (!duePrompt) return;
+    setActivePrompt((current) => (
+      current?.occurrenceKey === duePrompt.occurrenceKey
+        ? { ...current, ...duePrompt }
+        : duePrompt
+    ));
+  }, [duePrompt]);
 
   useEffect(() => {
     const studentId = String(activePrompt?.studentId || '').trim();
