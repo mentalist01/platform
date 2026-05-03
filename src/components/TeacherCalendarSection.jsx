@@ -41,15 +41,15 @@ const MINI_MONTH_WEEKDAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб
 const HOLIDAY_DEFINITIONS = [
   { month: 3, day: 8, title: 'Международный женский день' },
 ];
-const EVENT_COLORS = ['#7c3aed', '#8b5cf6', '#2563eb', '#0891b2', '#db2777', '#0d9488'];
-const CALENDAR_PAID_EVENT_COLOR = '#16a34a';
-const CALENDAR_UNPAID_PAST_EVENT_COLOR = '#dc2626';
+const EVENT_COLORS = ['#0ea5e9', '#14b8a6', '#6366f1', '#f59e0b', '#ec4899', '#22c55e', '#8b5cf6', '#f97316'];
+const CALENDAR_PAID_EVENT_COLOR = '#10b981';
+const CALENDAR_UNPAID_PAST_EVENT_COLOR = '#f43f5e';
 
 const CALENDAR_START_HOUR = 0;
 const CALENDAR_END_HOUR = 24;
 const MIN_CALENDAR_HOUR_HEIGHT = 24;
 const MAX_CALENDAR_HOUR_HEIGHT = 56;
-const CALENDAR_VIEWPORT_RESERVED_PX = 220;
+const CALENDAR_VIEWPORT_RESERVED_PX = 276;
 const DEFAULT_EVENT_DURATION_MINUTES = 60;
 const QUICK_CREATE_TIME_STEP_MINUTES = 30;
 const DEFAULT_ONE_TIME_LESSON_SUBJECT = 'Пробное занятие';
@@ -79,6 +79,49 @@ const LESSON_PANEL_LEVEL_LABELS = {
   advanced: 'продвинутый',
   expert: 'чтоб наверняка',
   python: 'Python',
+};
+
+const normalizeHexColor = (value, fallback = '#2563eb') => {
+  const normalized = String(value || '').trim();
+  if (/^#[0-9a-f]{6}$/i.test(normalized)) return normalized.toLowerCase();
+  if (/^#[0-9a-f]{3}$/i.test(normalized)) {
+    return `#${normalized.slice(1).split('').map((char) => `${char}${char}`).join('')}`.toLowerCase();
+  }
+  return fallback;
+};
+
+const hexToRgb = (value) => {
+  const normalized = normalizeHexColor(value).slice(1);
+  return {
+    r: parseInt(normalized.slice(0, 2), 16),
+    g: parseInt(normalized.slice(2, 4), 16),
+    b: parseInt(normalized.slice(4, 6), 16),
+  };
+};
+
+const rgbToHex = ({ r, g, b }) => {
+  const channelToHex = (channel) => Math.max(0, Math.min(255, Math.round(channel))).toString(16).padStart(2, '0');
+  return `#${channelToHex(r)}${channelToHex(g)}${channelToHex(b)}`;
+};
+
+const mixHexColor = (value, mixValue, weight = 0.18) => {
+  const source = hexToRgb(value);
+  const target = hexToRgb(mixValue);
+  return rgbToHex({
+    r: source.r + ((target.r - source.r) * weight),
+    g: source.g + ((target.g - source.g) * weight),
+    b: source.b + ((target.b - source.b) * weight),
+  });
+};
+
+const hexToRgba = (value, alpha = 0.22) => {
+  const { r, g, b } = hexToRgb(value);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const buildEventCardBackground = (value) => {
+  const base = normalizeHexColor(value);
+  return `linear-gradient(135deg, ${mixHexColor(base, '#ffffff', 0.14)} 0%, ${base} 52%, ${mixHexColor(base, '#020617', 0.18)} 100%)`;
 };
 
 const SCHEDULE_WEEKDAY_BY_KEY = SCHEDULE_WEEKDAYS.reduce((acc, weekday) => {
@@ -3711,21 +3754,21 @@ const TeacherCalendarSection = ({
   }, [closeLessonInfoModal, lessonInfoModalOpen]);
 
   return (
-    <section className="teacher-calendar-shell relative h-full min-h-0 overflow-hidden rounded-none border-0 bg-gradient-to-br from-white via-violet-50/60 to-sky-50/50 shadow-none">
-      <div className="teacher-calendar-shell__glow pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_6%_0%,rgba(59,130,246,0.16),transparent_38%),radial-gradient(circle_at_96%_2%,rgba(217,70,239,0.15),transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.28),rgba(255,255,255,0))]" />
+    <section className="teacher-calendar-shell relative h-full min-h-0 overflow-hidden rounded-none border-0 bg-slate-50 shadow-none">
+      <div className="teacher-calendar-shell__glow pointer-events-none absolute inset-0" />
       <div className="relative z-10 flex h-full min-h-0 flex-col overflow-hidden rounded-none">
-        <div className="teacher-calendar-shell__topbar flex h-11 items-center justify-between border-b border-purple-200/70 bg-white/78 px-4 backdrop-blur-xl">
+        <div className="teacher-calendar-shell__topbar flex h-14 items-center justify-between border-b border-slate-200/80 bg-white/88 px-5 backdrop-blur-xl">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setSidebarCollapsed((prev) => !prev)}
-              className="grid h-8 w-8 place-items-center rounded-full border border-purple-200/75 bg-white/85 text-purple-600 shadow-sm hover:bg-purple-50"
+              className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200/85 bg-white/90 text-slate-600 shadow-sm hover:bg-slate-50"
               aria-label={sidebarCollapsed ? 'Развернуть боковую панель' : 'Свернуть боковую панель'}
               title={sidebarCollapsed ? 'Развернуть боковую панель' : 'Свернуть боковую панель'}
             >
               <Menu size={16} />
             </button>
-            <span className="grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-violet-500 via-purple-500 to-fuchsia-500 text-white shadow-[0_10px_20px_rgba(124,58,237,0.32)]">
+            <span className="teacher-calendar-shell__brand-mark grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-sky-500 via-indigo-500 to-teal-500 text-white shadow-[0_10px_20px_rgba(14,165,233,0.24)]">
               <CalendarDays size={14} />
             </span>
             <span className="font-display text-xl font-semibold leading-none text-slate-900">Календарь</span>
@@ -3734,7 +3777,7 @@ const TeacherCalendarSection = ({
             <button
               type="button"
               onClick={openQuickCreateForFocusDate}
-              className="inline-flex items-center gap-1.5 rounded-full border border-violet-500/70 bg-gradient-to-r from-violet-600 to-purple-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_16px_rgba(124,58,237,0.22)] hover:from-violet-700 hover:to-purple-700"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/70 bg-gradient-to-r from-sky-600 to-teal-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_16px_rgba(14,165,233,0.22)] hover:from-sky-700 hover:to-teal-700"
             >
               <Plus size={14} />
               Создать
@@ -3743,7 +3786,7 @@ const TeacherCalendarSection = ({
               type="button"
               onClick={() => loadTeacherCalendar({ silent: true })}
               disabled={loading || refreshing}
-              className="inline-flex items-center gap-1.5 rounded-full border border-purple-200/80 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200/85 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <RefreshCcw size={13} className={refreshing ? 'animate-spin' : ''} />
               {refreshing ? '...' : 'Обновить'}
@@ -3753,13 +3796,13 @@ const TeacherCalendarSection = ({
 
         <div
           className="min-h-0 flex-1 grid"
-          style={{ gridTemplateColumns: `${sidebarCollapsed ? 68 : 268}px minmax(0, 1fr)` }}
+          style={{ gridTemplateColumns: `${sidebarCollapsed ? 72 : 296}px minmax(0, 1fr)` }}
         >
-          <aside className={`teacher-calendar-shell__sidebar teacher-calendar-shell__sidebar-scroll ${sidebarCollapsed ? 'w-[68px]' : 'w-[268px]'} min-h-0 overflow-y-auto overflow-x-hidden border-r border-purple-200/65 bg-gradient-to-b from-white/82 via-violet-50/45 to-sky-50/35 p-3 backdrop-blur-md`}>
+          <aside className={`teacher-calendar-shell__sidebar teacher-calendar-shell__sidebar-scroll ${sidebarCollapsed ? 'w-[72px]' : 'w-[296px]'} min-h-0 overflow-y-auto overflow-x-hidden border-r border-slate-200/75 bg-white/72 p-4 backdrop-blur-md`}>
             <button
               type="button"
               onClick={openQuickCreateForFocusDate}
-              className={`inline-flex w-full items-center ${sidebarCollapsed ? 'justify-center px-0' : 'justify-center'} gap-2 rounded-2xl border border-violet-500/70 bg-gradient-to-r from-violet-600 to-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_20px_rgba(124,58,237,0.24)] hover:from-violet-700 hover:to-purple-700`}
+              className={`inline-flex w-full items-center ${sidebarCollapsed ? 'justify-center px-0' : 'justify-center'} gap-2 rounded-lg border border-sky-500/70 bg-gradient-to-r from-sky-600 to-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_10px_20px_rgba(14,165,233,0.2)] hover:from-sky-700 hover:to-teal-700`}
               title="Создать занятие в выбранный день"
             >
               <Plus size={16} />
@@ -3768,11 +3811,11 @@ const TeacherCalendarSection = ({
 
             {!sidebarCollapsed && (
               <>
-                <div className="surface-panel mt-3 rounded-2xl border border-purple-200/70 bg-white/88 p-3 shadow-sm">
+                <div className="surface-panel mt-4 rounded-lg border border-slate-200/80 bg-white/88 p-3 shadow-sm">
                   <div className="mb-2 flex items-center justify-between">
                     <button
                       type="button"
-                      className="grid h-7 w-7 place-items-center rounded-md border border-purple-200/70 bg-white/90 text-purple-600 hover:bg-purple-50"
+                      className="grid h-7 w-7 place-items-center rounded-md border border-slate-200/80 bg-white/90 text-slate-600 hover:bg-slate-50"
                       onClick={() => setMiniMonthCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
                       aria-label="Предыдущий месяц"
                     >
@@ -3781,7 +3824,7 @@ const TeacherCalendarSection = ({
                     <div className="text-sm font-semibold text-slate-800">{miniMonthLabel}</div>
                     <button
                       type="button"
-                      className="grid h-7 w-7 place-items-center rounded-md border border-purple-200/70 bg-white/90 text-purple-600 hover:bg-purple-50"
+                      className="grid h-7 w-7 place-items-center rounded-md border border-slate-200/80 bg-white/90 text-slate-600 hover:bg-slate-50"
                       onClick={() => setMiniMonthCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
                       aria-label="Следующий месяц"
                     >
@@ -3804,11 +3847,11 @@ const TeacherCalendarSection = ({
                           onClick={() => setFocusDate(cloneAsDateOnly(day.date))}
                           className={`h-7 rounded-md text-[11px] font-semibold ${
                             isInWeek
-                              ? 'bg-gradient-to-r from-violet-600 to-purple-600 text-white'
+                              ? 'bg-gradient-to-r from-sky-600 to-teal-600 text-white'
                               : day.inCurrentMonth
-                                ? 'text-slate-700 hover:bg-purple-50'
-                                : 'text-slate-400 hover:bg-purple-50'
-                          } ${isToday && !isInWeek ? 'ring-1 ring-violet-400' : ''}`}
+                                ? 'text-slate-700 hover:bg-slate-100'
+                                : 'text-slate-400 hover:bg-slate-100'
+                          } ${isToday && !isInWeek ? 'ring-1 ring-sky-400' : ''}`}
                         >
                           {day.date.getDate()}
                         </button>
@@ -3817,10 +3860,10 @@ const TeacherCalendarSection = ({
                   </div>
                 </div>
 
-                <div className="surface-panel mt-3 rounded-2xl border border-purple-200/70 bg-white/88 p-3 shadow-sm">
+                <div className="surface-panel mt-3 rounded-lg border border-slate-200/80 bg-white/88 p-3 shadow-sm">
                   <div className="flex items-center justify-between">
                     <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Календари учеников</div>
-                    <span className="rounded-full border border-purple-200/70 bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700">
+                    <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
                       {studentCount}
                     </span>
                   </div>
@@ -3862,7 +3905,7 @@ const TeacherCalendarSection = ({
                   </div>
                 </div>
 
-                <div className="surface-panel mt-3 rounded-2xl border border-purple-200/70 bg-white/88 p-3 shadow-sm">
+                <div className="surface-panel mt-3 rounded-lg border border-slate-200/80 bg-white/88 p-3 shadow-sm">
                   <div className="flex items-center justify-between">
                     <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Пробные на неделе</div>
                     <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
@@ -3895,7 +3938,7 @@ const TeacherCalendarSection = ({
                   </div>
                 </div>
 
-                <div className="surface-panel mt-3 rounded-2xl border border-purple-200/70 bg-white/88 p-3 shadow-sm">
+                <div className="surface-panel mt-3 rounded-lg border border-slate-200/80 bg-white/88 p-3 shadow-sm">
                   <div className="flex items-center justify-between gap-2">
                     <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Google Calendar</div>
                     <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
@@ -4006,20 +4049,20 @@ const TeacherCalendarSection = ({
           </aside>
 
           <div className="teacher-calendar-shell__main flex min-h-0 min-w-0 flex-1 flex-col bg-white/80 backdrop-blur-[2px]">
-            <div className="teacher-calendar-shell__toolbar border-b border-purple-200/70 bg-white/78 px-4 py-2 backdrop-blur-md">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
+            <div className="teacher-calendar-shell__toolbar border-b border-slate-200/80 bg-white/84 px-5 py-3 backdrop-blur-md">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setFocusDate(cloneAsDateOnly(new Date()))}
-                    className="rounded-full border border-purple-200/85 bg-white/95 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:border-purple-300 hover:bg-purple-50"
+                    className="rounded-lg border border-slate-200/85 bg-white/95 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-sky-300 hover:bg-sky-50"
                   >
                     Сегодня
                   </button>
                   <button
                     type="button"
                     onClick={() => setFocusDate((prev) => addDays(prev, -7))}
-                    className="grid h-7 w-7 place-items-center rounded-full border border-purple-200/75 bg-white/90 text-purple-600 shadow-sm hover:bg-purple-50"
+                    className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200/85 bg-white/90 text-slate-600 shadow-sm hover:bg-slate-50"
                     aria-label="Предыдущая неделя"
                   >
                     <ChevronLeft size={14} />
@@ -4027,34 +4070,34 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={() => setFocusDate((prev) => addDays(prev, 7))}
-                    className="grid h-7 w-7 place-items-center rounded-full border border-purple-200/75 bg-white/90 text-purple-600 shadow-sm hover:bg-purple-50"
+                    className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200/85 bg-white/90 text-slate-600 shadow-sm hover:bg-slate-50"
                     aria-label="Следующая неделя"
                   >
                     <ChevronRight size={14} />
                   </button>
-                  <div className="ml-1 font-display text-[26px] leading-none text-slate-800">{weekTitle}</div>
+                  <div className="ml-2 font-display text-[30px] leading-none text-slate-900">{weekTitle}</div>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  <span className="rounded-full border border-purple-200/80 bg-white/90 px-2 py-1 text-[10px] font-semibold text-purple-700">
+                  <span className="teacher-calendar-shell__metric-chip rounded-full border border-slate-200/80 bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
                     {weekRangeLabel}
                   </span>
-                  <span className="rounded-full border border-purple-200/80 bg-white/90 px-2 py-1 text-[10px] font-semibold text-purple-700">
+                  <span className="teacher-calendar-shell__metric-chip rounded-full border border-slate-200/80 bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
                     {timezoneLabel}
                   </span>
-                  <span className="rounded-full border border-purple-200/80 bg-white/90 px-2 py-1 text-[10px] font-semibold text-purple-700">
+                  <span className="teacher-calendar-shell__metric-chip rounded-full border border-slate-200/80 bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
                     Слотов: {visibleLessonsCount}
                   </span>
                 </div>
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <label className="relative min-w-[220px] flex-1 md:max-w-sm">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <label className="relative min-w-[260px] flex-1 md:max-w-md">
                   <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
                     placeholder="Поиск..."
-                    className="w-full rounded-full border border-purple-200/85 bg-white/95 py-1.5 pl-8 pr-3 text-xs text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
+                    className="w-full rounded-lg border border-slate-200/85 bg-white/95 py-2 pl-8 pr-3 text-xs text-slate-800 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
                   />
                 </label>
                 <input
@@ -4067,27 +4110,27 @@ const TeacherCalendarSection = ({
                     if (Number.isNaN(nextDate.getTime())) return;
                     setFocusDate(cloneAsDateOnly(nextDate));
                   }}
-                  className="rounded-full border border-purple-200/85 bg-white/95 px-3 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
+                  className="rounded-lg border border-slate-200/85 bg-white/95 px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
                 />
-                <div className="inline-flex items-center overflow-hidden rounded-full border border-purple-200/85 bg-white/95 text-xs font-semibold">
+                <div className="teacher-calendar-shell__segmented inline-flex items-center overflow-hidden rounded-lg border border-slate-200/85 bg-white/95 text-xs font-semibold">
                   <button
                     type="button"
                     onClick={() => setLessonTypeFilter(LESSON_FILTER_ALL)}
-                    className={`px-2.5 py-1.5 ${lessonTypeFilter === LESSON_FILTER_ALL ? 'bg-purple-100 text-purple-700' : 'text-slate-700 hover:bg-slate-50'}`}
+                    className={`px-3 py-2 ${lessonTypeFilter === LESSON_FILTER_ALL ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-50'}`}
                   >
                     Все
                   </button>
                   <button
                     type="button"
                     onClick={() => setLessonTypeFilter(LESSON_FILTER_TRIAL)}
-                    className={`border-l border-purple-100 px-2.5 py-1.5 ${lessonTypeFilter === LESSON_FILTER_TRIAL ? 'bg-sky-100 text-sky-700' : 'text-slate-700 hover:bg-slate-50'}`}
+                    className={`border-l border-slate-100 px-3 py-2 ${lessonTypeFilter === LESSON_FILTER_TRIAL ? 'bg-sky-100 text-sky-700' : 'text-slate-700 hover:bg-slate-50'}`}
                   >
                     Пробные
                   </button>
                   <button
                     type="button"
                     onClick={() => setLessonTypeFilter(LESSON_FILTER_STUDENT)}
-                    className={`border-l border-purple-100 px-2.5 py-1.5 ${lessonTypeFilter === LESSON_FILTER_STUDENT ? 'bg-emerald-100 text-emerald-700' : 'text-slate-700 hover:bg-slate-50'}`}
+                    className={`border-l border-slate-100 px-3 py-2 ${lessonTypeFilter === LESSON_FILTER_STUDENT ? 'bg-emerald-100 text-emerald-700' : 'text-slate-700 hover:bg-slate-50'}`}
                   >
                     С учениками
                   </button>
@@ -4095,9 +4138,9 @@ const TeacherCalendarSection = ({
                 <button
                   type="button"
                   onClick={() => setShowWeekends((prev) => !prev)}
-                  className={`rounded-full border px-2.5 py-1.5 text-xs font-semibold ${
+                  className={`rounded-lg border px-3 py-2 text-xs font-semibold ${
                     showWeekends
-                      ? 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
+                      ? 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100'
                       : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                   }`}
                 >
@@ -4106,9 +4149,9 @@ const TeacherCalendarSection = ({
                 <button
                   type="button"
                   onClick={() => setUse24HourFormat((prev) => !prev)}
-                  className={`rounded-full border px-2.5 py-1.5 text-xs font-semibold ${
+                  className={`rounded-lg border px-3 py-2 text-xs font-semibold ${
                     use24HourFormat
-                      ? 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
+                      ? 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
                       : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                   }`}
                 >
@@ -4117,9 +4160,9 @@ const TeacherCalendarSection = ({
                 <button
                   type="button"
                   onClick={() => setCompactMode((prev) => !prev)}
-                  className={`rounded-full border px-2.5 py-1.5 text-xs font-semibold ${
+                  className={`rounded-lg border px-3 py-2 text-xs font-semibold ${
                     compactMode
-                      ? 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
+                      ? 'border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100'
                       : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                   }`}
                 >
@@ -4129,10 +4172,10 @@ const TeacherCalendarSection = ({
                   type="button"
                   onClick={() => setCalendarSettingsOpen((prev) => !prev)}
                   aria-expanded={calendarSettingsOpen}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-semibold transition ${
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition ${
                     calendarSettingsOpen
-                      ? 'border-purple-300 bg-purple-100 text-purple-800'
-                      : 'border-purple-200 bg-white text-slate-700 hover:bg-purple-50'
+                      ? 'border-indigo-300 bg-indigo-100 text-indigo-800'
+                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                   }`}
                 >
                   <SlidersHorizontal size={12} />
@@ -4140,7 +4183,7 @@ const TeacherCalendarSection = ({
                 </button>
               </div>
               {calendarSettingsOpen && (
-                <div className="mt-2 rounded-2xl border border-purple-200/70 bg-white/82 p-2 shadow-sm">
+                <div className="mt-3 rounded-lg border border-slate-200/80 bg-white/86 p-3 shadow-sm">
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
@@ -4288,22 +4331,22 @@ const TeacherCalendarSection = ({
               )}
             </div>
 
-            <div className="border-b border-purple-200/70 bg-white/82 px-4 py-2 backdrop-blur-md">
+            <div className="teacher-calendar-shell__lesson-strip border-b border-slate-200/80 bg-white/82 px-5 py-3 backdrop-blur-md">
               <div
-                className={`teacher-calendar-shell__lesson-panel flex flex-wrap items-center justify-between gap-3 border-y border-purple-200/70 bg-gradient-to-r from-white/92 via-violet-50/74 to-sky-50/72 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] transition ${
-                  lessonPanelHasStudent ? 'cursor-pointer hover:border-indigo-300/80 hover:from-indigo-50/84 hover:via-violet-50/78 hover:to-sky-50/78 focus:outline-none focus:ring-2 focus:ring-indigo-300/60' : ''
+                className={`teacher-calendar-shell__lesson-panel flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200/80 bg-white/86 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] transition ${
+                  lessonPanelHasStudent ? 'cursor-pointer hover:border-sky-300/80 hover:bg-sky-50/70 focus:outline-none focus:ring-2 focus:ring-sky-300/60' : ''
                 }`}
                 onClick={handleLessonPanelClick}
                 onKeyDown={handleLessonPanelKeyDown}
                 tabIndex={lessonPanelHasStudent ? 0 : undefined}
                 aria-label={lessonPanelHasStudent ? `Открыть созвон: ${lessonPanelStudentName}` : undefined}
               >
-                <div className="min-w-[220px] flex-1">
+                <div className="min-w-[260px] flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] ${
                       lessonPanelInfo?.status === 'current'
                         ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                        : 'border-purple-200 bg-purple-50 text-purple-700'
+                        : 'border-indigo-200 bg-indigo-50 text-indigo-700'
                     }`}>
                       {lessonPanelInfo ? lessonPanelStatusLabel : 'Пульт урока'}
                     </span>
@@ -4364,7 +4407,7 @@ const TeacherCalendarSection = ({
                     disabled={!lessonPanelHasStudent}
                     title="Вспомнить прошлый урок"
                     aria-label="Вспомнить прошлый урок"
-                    className="inline-grid h-8 w-8 place-items-center rounded-xl border border-purple-200 bg-white text-purple-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Info size={14} />
                   </button>
@@ -4471,13 +4514,13 @@ const TeacherCalendarSection = ({
               )}
             </div>
 
-            <div className="min-h-0 flex-1 overflow-hidden">
+            <div className="teacher-calendar-shell__grid-wrap min-h-0 flex-1 overflow-hidden">
               <div className="flex h-full min-h-0 flex-col">
                 <div
-                  className="teacher-calendar-shell__grid-header grid border-b border-purple-200/75 bg-gradient-to-r from-violet-50/70 via-white/95 to-sky-50/60"
-                  style={{ gridTemplateColumns: `72px repeat(${visibleDayIndexes.length}, minmax(0, 1fr))` }}
+                  className="teacher-calendar-shell__grid-header grid border-b border-slate-200/80 bg-white/88"
+                  style={{ gridTemplateColumns: `78px repeat(${visibleDayIndexes.length}, minmax(0, 1fr))` }}
                 >
-                  <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                     {timezoneLabel}
                   </div>
                   {visibleDayIndexes.map((dayIndex) => {
@@ -4487,13 +4530,13 @@ const TeacherCalendarSection = ({
                     const isToday = dayKey === todayKey;
                     const isFocused = dayKey === toDayKey(focusDate);
                     return (
-                      <div key={`calendar-day-header-${dayKey}`} className="border-l border-slate-200 px-2 py-1.5 text-center">
+                      <div key={`calendar-day-header-${dayKey}`} className="teacher-calendar-shell__day-header-cell border-l border-slate-200 px-3 py-2 text-center">
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                           {SCHEDULE_WEEKDAYS[dayIndex]?.shortLabel || ''}
                         </div>
                         <div
-                          className={`mt-0.5 inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-2xl leading-none ${
-                            isFocused || isToday ? 'bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-[0_8px_18px_rgba(124,58,237,0.25)]' : 'text-slate-800'
+                          className={`teacher-calendar-shell__day-number mt-1 inline-flex h-9 min-w-9 items-center justify-center rounded-lg px-2 text-2xl leading-none ${
+                            isFocused || isToday ? 'bg-gradient-to-r from-sky-600 to-teal-600 text-white shadow-[0_8px_18px_rgba(14,165,233,0.22)]' : 'text-slate-800'
                           }`}
                         >
                           {date.getDate()}
@@ -4520,13 +4563,13 @@ const TeacherCalendarSection = ({
                       )}
                       <div
                         className="grid"
-                        style={{ gridTemplateColumns: `72px repeat(${visibleDayIndexes.length}, minmax(0, 1fr))` }}
+                        style={{ gridTemplateColumns: `78px repeat(${visibleDayIndexes.length}, minmax(0, 1fr))` }}
                       >
-                        <div className="teacher-calendar-shell__time-col relative border-r border-purple-200/70 bg-white/85" style={{ height: `${calendarHeight}px` }}>
+                        <div className="teacher-calendar-shell__time-col relative border-r border-slate-200/80 bg-white/85" style={{ height: `${calendarHeight}px` }}>
                           {hourTicks.map((hour, index) => (
                             <div
                               key={`time-label-${hour}`}
-                              className="absolute left-0 right-0 -translate-y-1/2 px-2 text-right text-[11px] text-slate-500"
+                              className="absolute left-0 right-0 -translate-y-1/2 px-3 text-right text-[11px] text-slate-500"
                               style={{ top: `${index * hourHeight}px` }}
                             >
                               {formatHourLabel(hour, use24HourFormat)}
@@ -4543,9 +4586,9 @@ const TeacherCalendarSection = ({
                           return (
                             <div
                               key={`day-column-${dayKey}`}
-                              className={`teacher-calendar-shell__day-col relative cursor-pointer border-r border-purple-200/70 transition-colors ${dayColumnIndex === visibleDayIndexes.length - 1 ? 'border-r-0' : ''} ${
-                                isToday ? 'bg-violet-100/45' : 'bg-white/75 hover:bg-violet-50/55'
-                              } ${dragPreview?.dayKey === dayKey ? 'bg-violet-100/65' : ''}`}
+                              className={`teacher-calendar-shell__day-col relative cursor-pointer border-r border-slate-200/80 transition-colors ${dayColumnIndex === visibleDayIndexes.length - 1 ? 'border-r-0' : ''} ${
+                                isToday ? 'teacher-calendar-shell__day-col--today bg-sky-50/70' : 'bg-white/75 hover:bg-slate-50/70'
+                              } ${dragPreview?.dayKey === dayKey ? 'teacher-calendar-shell__day-col--drag bg-sky-100/70' : ''}`}
                               style={{ height: `${calendarHeight}px` }}
                               onClick={(event) => openQuickCreate(dayIndex, event)}
                               onDragOver={(event) => handleCalendarColumnDragOver(event, dayIndex)}
@@ -4555,7 +4598,7 @@ const TeacherCalendarSection = ({
                               {hourTicks.map((hour, index) => (
                                 <div
                                   key={`grid-line-${dayKey}-${hour}`}
-                                  className="teacher-calendar-shell__grid-line absolute left-0 right-0 border-t border-purple-200/65"
+                                  className="teacher-calendar-shell__grid-line absolute left-0 right-0 border-t border-slate-200/75"
                                   style={{ top: `${index * hourHeight}px` }}
                                 />
                               ))}
@@ -4571,7 +4614,7 @@ const TeacherCalendarSection = ({
                               )}
                               {dragPreview?.dayKey === dayKey && (
                                 <div
-                                  className="pointer-events-none absolute left-[3px] right-[3px] z-20 overflow-hidden rounded-md border-2 border-dashed border-violet-500 bg-violet-200/45"
+                                  className="pointer-events-none absolute left-[4px] right-[4px] z-20 overflow-hidden rounded-md border-2 border-dashed border-sky-500 bg-sky-200/45"
                                   style={{
                                     top: `${((dragPreview.startMinutes - dayStartMinutes) / 60) * hourHeight + 1}px`,
                                     height: `${Math.max(
@@ -4580,7 +4623,7 @@ const TeacherCalendarSection = ({
                                     )}px`,
                                   }}
                                 >
-                                  <div className="px-2 py-1 text-[10px] font-semibold text-violet-900">
+                                  <div className="px-2 py-1 text-[10px] font-semibold text-sky-900">
                                     {`${formatMinutesAsDisplayTime(dragPreview.startMinutes, use24HourFormat)}-${formatMinutesAsDisplayTime(dragPreview.endMinutes, use24HourFormat)}`}
                                   </div>
                                 </div>
@@ -4630,15 +4673,17 @@ const TeacherCalendarSection = ({
                                   <div
                                     key={event.id || `${dayKey}-${event.time}-${event.studentId}-${index}`}
                                     aria-label={`${externalEvent ? 'Google Calendar • ' : ''}${primaryLabel}${showSubjectInCard ? ` • ${subjectLabel}` : ''} • с ${startLabel} до ${endLabel}${paymentStateLabel}`}
-                                    className={`teacher-calendar-shell__event-card absolute z-10 overflow-hidden rounded-lg border px-2 py-1 text-white shadow-[0_8px_18px_rgba(15,23,42,0.16)] ${externalEvent && !paymentColorApplied ? 'ring-1 ring-sky-200/80 ring-offset-1 ring-offset-white' : ''} ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
+                                    className={`teacher-calendar-shell__event-card absolute z-10 overflow-hidden rounded-md border px-2 py-1 text-white shadow-[0_8px_18px_rgba(15,23,42,0.16)] ${externalEvent && !paymentColorApplied ? 'ring-1 ring-sky-200/80 ring-offset-1 ring-offset-white' : ''} ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
                                     draggable={!externalEvent && !dragDropBusy && !eventDeleteBusy && !eventEditSaving && !eventQuickActionBusy}
                                     style={{
                                       top: `${top}px`,
                                       height: `${height}px`,
                                       left: `calc(${left}% + 3px)`,
                                       width: `calc(${laneWidth}% - 6px)`,
-                                      backgroundColor: color,
-                                      borderColor: color,
+                                      '--calendar-event-color': color,
+                                      background: buildEventCardBackground(color),
+                                      borderColor: mixHexColor(color, '#020617', 0.14),
+                                      boxShadow: `0 10px 22px ${hexToRgba(color, 0.22)}, inset 0 1px 0 rgba(255, 255, 255, 0.2)`,
                                       cursor: dragDropBusy ? 'progress' : (externalEvent ? 'pointer' : 'grab'),
                                       opacity: draggingEvent?.eventId === String(event.id || '').trim() ? 0.65 : 1,
                                     }}
@@ -4676,7 +4721,7 @@ const TeacherCalendarSection = ({
           </div>
         </div>
       </div>
-      <div className="teacher-calendar-shell__payment-reminder pointer-events-none absolute right-3 top-64 z-30 flex justify-end">
+      <div className="teacher-calendar-shell__payment-reminder pointer-events-none absolute right-5 top-[18rem] z-30 flex justify-end">
         {paymentReminderOpen ? (
           <div className="teacher-calendar-shell__payment-reminder-panel pointer-events-auto w-[min(360px,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-rose-200/80 bg-white/95 shadow-[0_22px_60px_rgba(15,23,42,0.22)] backdrop-blur-xl">
             <div className="flex items-start justify-between gap-3 border-b border-rose-100 px-4 py-3">
