@@ -6410,6 +6410,37 @@ const MOCK_COIN_MILESTONES = [
   { score: 80, coins: 80 },
   { score: 100, coins: 100 },
 ];
+const MOCK_ATTEMPT_MODE_CLASSIC = 'classic';
+const MOCK_ATTEMPT_MODE_TIMER = 'timer';
+const MOCK_EXAM_TIMER_DURATION_MS = 235 * 60 * 1000;
+const MOCK_TIMER_CHEST_MILESTONES = [
+  { score: 30, chests: 1 },
+  { score: 50, chests: 1 },
+  { score: 80, chests: 1 },
+  { score: 100, chests: 1 },
+];
+
+const normalizeMockAttemptMode = (value, fallback = MOCK_ATTEMPT_MODE_CLASSIC) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === MOCK_ATTEMPT_MODE_TIMER) return MOCK_ATTEMPT_MODE_TIMER;
+  if (normalized === MOCK_ATTEMPT_MODE_CLASSIC) return MOCK_ATTEMPT_MODE_CLASSIC;
+  return fallback;
+};
+
+const normalizeMockTimerTimestamp = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString();
+};
+
+const getMockTimerExpiresAt = (startedAt, durationMs = MOCK_EXAM_TIMER_DURATION_MS) => {
+  const start = Date.parse(String(startedAt || ''));
+  const duration = Math.max(60 * 1000, Math.floor(Number(durationMs) || MOCK_EXAM_TIMER_DURATION_MS));
+  if (!Number.isFinite(start)) return '';
+  return new Date(start + duration).toISOString();
+};
 
 const normalizeMockScore = (value) => {
   const num = Number(value);
@@ -6454,12 +6485,25 @@ const getMockCoinsForMilestones = (milestoneScores) => {
   ), 0));
 };
 
+const getMockChestsForMilestones = (milestoneScores) => {
+  const scores = new Set(normalizeMockCoinMilestones(milestoneScores));
+  return normalizeCoinsTotal(MOCK_TIMER_CHEST_MILESTONES.reduce((sum, milestone) => (
+    scores.has(milestone.score) ? sum + milestone.chests : sum
+  ), 0));
+};
+
 const getPreviouslyAwardedMockCoinMilestones = (attempt) => {
   if (!attempt || typeof attempt !== 'object') return [];
+  if (normalizeMockAttemptMode(attempt.mode) === MOCK_ATTEMPT_MODE_TIMER) return [];
   const explicit = normalizeMockCoinMilestones(attempt.coinsAwardedMilestones);
   if (explicit.length > 0) return explicit;
   const legacyScore = normalizeMockScore(attempt.coinsAwardedScore ?? attempt.coinsAwarded);
   return getMockCoinMilestoneScoresForScore(legacyScore);
+};
+
+const getPreviouslyAwardedMockTimerChestMilestones = (attempt) => {
+  if (!attempt || typeof attempt !== 'object') return [];
+  return normalizeMockCoinMilestones(attempt.timerChestAwardedMilestones);
 };
 
 const deriveCoinsFromMockAttempts = (mockAttempts) => {
@@ -6543,6 +6587,12 @@ const parseMockAttemptAnswers = (rawValue, count) => {
   return Array.from({ length: count }, () => '');
 };
 
+const hasMockAttemptAnswerValue = (value, count = 1) => {
+  if (count <= 1) return Boolean(String(value ?? '').trim());
+  const values = Array.isArray(value) ? value : parseMockAttemptAnswers(value, count);
+  return values.some((item) => Boolean(String(item ?? '').trim()));
+};
+
 const normalizeMockAttemptAnswers = (exam, rawAnswers) => {
   const tasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
   const source = rawAnswers && typeof rawAnswers === 'object' ? rawAnswers : {};
@@ -6553,6 +6603,14 @@ const normalizeMockAttemptAnswers = (exam, rawAnswers) => {
     normalized[taskKey] = answerCount <= 1 ? provided[0] : provided;
   });
   return normalized;
+};
+
+const hasMockAttemptStarted = (exam, answers = {}) => {
+  const tasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
+  return Object.keys(tasks).some((taskKey) => {
+    const answerCount = getMockAnswerCountForTask(taskKey);
+    return hasMockAttemptAnswerValue(answers?.[taskKey], answerCount);
+  });
 };
 
 const recomputeMockSolvedMap = (exam, answersMap) => {
@@ -6590,6 +6648,19 @@ const recomputeMockSolvedMap = (exam, answersMap) => {
 const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => {
   const answers = normalizeMockAttemptAnswers(exam, rawAnswers);
   const solved = recomputeMockSolvedMap(exam, answers);
+  const mode = normalizeMockAttemptMode(meta?.mode || meta?.attemptMode);
+  const modeLockedAt = typeof meta?.modeLockedAt === 'string' && meta.modeLockedAt.trim()
+    ? meta.modeLockedAt.trim()
+    : '';
+  const timerStartedAt = mode === MOCK_ATTEMPT_MODE_TIMER
+    ? normalizeMockTimerTimestamp(meta?.timerStartedAt)
+    : '';
+  const timerDurationMs = mode === MOCK_ATTEMPT_MODE_TIMER
+    ? Math.max(60 * 1000, Math.floor(Number(meta?.timerDurationMs) || MOCK_EXAM_TIMER_DURATION_MS))
+    : 0;
+  const timerExpiresAt = mode === MOCK_ATTEMPT_MODE_TIMER
+    ? normalizeMockTimerTimestamp(meta?.timerExpiresAt) || getMockTimerExpiresAt(timerStartedAt, timerDurationMs)
+    : '';
   const previousSolvedEver = meta?.solvedEver && typeof meta.solvedEver === 'object' && !Array.isArray(meta.solvedEver)
     ? meta.solvedEver
     : (meta?.solved && typeof meta.solved === 'object' && !Array.isArray(meta.solved) ? meta.solved : {});
@@ -6604,16 +6675,28 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
   const coinsAwardedAt = typeof meta?.coinsAwardedAt === 'string' && meta.coinsAwardedAt.trim()
     ? meta.coinsAwardedAt.trim()
     : '';
+  const timerChestAwardedMilestones = getPreviouslyAwardedMockTimerChestMilestones(meta);
+  const timerChestAwardedAt = typeof meta?.timerChestAwardedAt === 'string' && meta.timerChestAwardedAt.trim()
+    ? meta.timerChestAwardedAt.trim()
+    : '';
   return {
     answers,
     solved,
     solvedEver,
+    mode,
+    ...(modeLockedAt ? { modeLockedAt } : {}),
+    ...(timerStartedAt ? { timerStartedAt } : {}),
+    ...(timerDurationMs > 0 ? { timerDurationMs } : {}),
+    ...(timerExpiresAt ? { timerExpiresAt } : {}),
     updatedAt: typeof updatedAt === 'string' && updatedAt.trim()
       ? updatedAt
       : new Date().toISOString(),
     coinsAwardedMilestones,
     coinsAwardedTotal: getMockCoinsForMilestones(coinsAwardedMilestones),
     ...(coinsAwardedAt ? { coinsAwardedAt } : {}),
+    ...(timerChestAwardedMilestones.length > 0 ? { timerChestAwardedMilestones } : {}),
+    ...(timerChestAwardedMilestones.length > 0 ? { timerChestAwardedTotal: getMockChestsForMilestones(timerChestAwardedMilestones) } : {}),
+    ...(timerChestAwardedAt ? { timerChestAwardedAt } : {}),
   };
 };
 
@@ -6672,6 +6755,7 @@ const getStudentData = (studentId) => {
       mockAttempts: {},
       xpTotal: 0,
       coinsTotal: 0,
+      mockTimerChestsTotal: 0,
       coinsSpentTotal: 0,
       artifactInventory: {},
       artifactLevels: {},
@@ -6693,6 +6777,7 @@ const getStudentData = (studentId) => {
     || raw.mockAttempts
     || Object.prototype.hasOwnProperty.call(raw, 'xpTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'coinsTotal')
+    || Object.prototype.hasOwnProperty.call(raw, 'mockTimerChestsTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'coinsSpentTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'artifactInventory')
     || Object.prototype.hasOwnProperty.call(raw, 'artifactLevels')
@@ -6749,6 +6834,7 @@ const getStudentData = (studentId) => {
       mockAttempts: raw.mockAttempts && typeof raw.mockAttempts === 'object' ? raw.mockAttempts : {},
       xpTotal,
       coinsTotal,
+      mockTimerChestsTotal: normalizeCoinsTotal(raw.mockTimerChestsTotal),
       coinsSpentTotal,
       artifactInventory,
       artifactLevels,
@@ -6775,6 +6861,7 @@ const getStudentData = (studentId) => {
     mockAttempts: {},
     xpTotal: legacyXp,
     coinsTotal: 0,
+    mockTimerChestsTotal: 0,
     coinsSpentTotal: 0,
     artifactInventory: {},
     artifactLevels: {},
@@ -11259,7 +11346,7 @@ app.get('/api/mock-exams/attempt', (req, res) => {
 });
 
 app.put('/api/mock-exams/attempt', (req, res) => {
-  const { studentId, examId, answers, localDay } = req.body || {};
+  const { studentId, examId, answers, localDay, mode, startOnly } = req.body || {};
   const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
   if (isStudentRole(req.auth) && requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
   const effectiveStudentId = isStudentRole(req.auth) ? req.auth.id : requestedStudentId;
@@ -11284,8 +11371,42 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const previousSolvedEver = previousAttemptNormalized.solvedEver && typeof previousAttemptNormalized.solvedEver === 'object'
     ? previousAttemptNormalized.solvedEver
     : previousSolved;
-  const previousAwardedMilestones = getPreviouslyAwardedMockCoinMilestones(previousAttempt);
+  const previousAttemptStarted = hasMockAttemptStarted(exam, previousAttemptNormalized.answers);
+  const previousTimerStartedAt = normalizeMockTimerTimestamp(previousAttempt?.timerStartedAt);
+  const previousMode = normalizeMockAttemptMode(previousAttempt?.mode);
+  const previousModeLocked = Boolean(previousAttempt?.modeLockedAt || previousAttemptStarted || previousTimerStartedAt);
+  const requestedMode = normalizeMockAttemptMode(mode, previousMode);
+  if (previousModeLocked && requestedMode !== previousMode) {
+    return res.status(409).json({ error: 'Режим пробника уже выбран для этой попытки.' });
+  }
+  const attemptMode = previousModeLocked ? previousMode : requestedMode;
   const savedAt = new Date().toISOString();
+  const modeLockedAt = typeof previousAttempt?.modeLockedAt === 'string' && previousAttempt.modeLockedAt.trim()
+    ? previousAttempt.modeLockedAt.trim()
+    : savedAt;
+  const timerStartedAt = attemptMode === MOCK_ATTEMPT_MODE_TIMER
+    ? previousTimerStartedAt || savedAt
+    : '';
+  const timerDurationMs = attemptMode === MOCK_ATTEMPT_MODE_TIMER
+    ? Math.max(60 * 1000, Math.floor(Number(previousAttempt?.timerDurationMs) || MOCK_EXAM_TIMER_DURATION_MS))
+    : 0;
+  const timerExpiresAt = attemptMode === MOCK_ATTEMPT_MODE_TIMER
+    ? getMockTimerExpiresAt(timerStartedAt, timerDurationMs)
+    : '';
+  if (
+    attemptMode === MOCK_ATTEMPT_MODE_TIMER
+    && !startOnly
+    && timerExpiresAt
+    && Date.now() > Date.parse(timerExpiresAt)
+  ) {
+    return res.status(409).json({ error: 'Время таймерного режима истекло.' });
+  }
+  const previousAwardedMilestones = attemptMode === MOCK_ATTEMPT_MODE_CLASSIC
+    ? getPreviouslyAwardedMockCoinMilestones(previousAttempt)
+    : [];
+  const previousTimerChestMilestones = attemptMode === MOCK_ATTEMPT_MODE_TIMER
+    ? getPreviouslyAwardedMockTimerChestMilestones(previousAttempt)
+    : [];
   const serverDayKey = savedAt.slice(0, 10);
   const clientDayKey = normalizeDayKey(localDay);
   const resolvedDayKey = (() => {
@@ -11297,23 +11418,49 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     if (diff < -1 || diff > 1) return serverDayKey;
     return clientDayKey;
   })();
-  const normalizedAttemptBase = normalizeMockAttemptPayload(exam, answers, savedAt, previousAttempt);
+  const rawAnswersForSave = startOnly ? previousAttemptNormalized.answers : answers;
+  const normalizedAttemptBase = normalizeMockAttemptPayload(exam, rawAnswersForSave, savedAt, {
+    ...previousAttempt,
+    mode: attemptMode,
+    modeLockedAt,
+    ...(timerStartedAt ? { timerStartedAt, timerDurationMs, timerExpiresAt } : {}),
+  });
   const secondaryScore = getMockSecondaryScoreFromSolved(normalizedAttemptBase.solved);
   const reachedMilestones = getMockCoinMilestoneScoresForScore(secondaryScore);
   const previousMilestoneSet = new Set(previousAwardedMilestones);
   const newlyReachedMilestones = reachedMilestones.filter((score) => !previousMilestoneSet.has(score));
   const coinsAwardedMilestones = normalizeMockCoinMilestones([
     ...previousAwardedMilestones,
-    ...reachedMilestones,
+    ...(attemptMode === MOCK_ATTEMPT_MODE_CLASSIC ? reachedMilestones : []),
   ]);
-  const coinsGained = getMockCoinsForMilestones(newlyReachedMilestones);
+  const previousTimerChestMilestoneSet = new Set(previousTimerChestMilestones);
+  const newlyReachedTimerChestMilestones = attemptMode === MOCK_ATTEMPT_MODE_TIMER
+    ? reachedMilestones.filter((score) => !previousTimerChestMilestoneSet.has(score))
+    : [];
+  const timerChestAwardedMilestones = normalizeMockCoinMilestones([
+    ...previousTimerChestMilestones,
+    ...newlyReachedTimerChestMilestones,
+  ]);
+  const coinsGained = attemptMode === MOCK_ATTEMPT_MODE_CLASSIC
+    ? getMockCoinsForMilestones(newlyReachedMilestones)
+    : 0;
+  const timerChestsGained = attemptMode === MOCK_ATTEMPT_MODE_TIMER
+    ? getMockChestsForMilestones(newlyReachedTimerChestMilestones)
+    : 0;
   const normalizedAttempt = {
     ...normalizedAttemptBase,
+    mode: attemptMode,
+    modeLockedAt,
     coinsAwardedMilestones,
     coinsAwardedTotal: getMockCoinsForMilestones(coinsAwardedMilestones),
     ...(coinsGained > 0
       ? { coinsAwardedAt: savedAt }
       : (normalizedAttemptBase.coinsAwardedAt ? { coinsAwardedAt: normalizedAttemptBase.coinsAwardedAt } : {})),
+    timerChestAwardedMilestones,
+    timerChestAwardedTotal: getMockChestsForMilestones(timerChestAwardedMilestones),
+    ...(timerChestsGained > 0
+      ? { timerChestAwardedAt: savedAt }
+      : (normalizedAttemptBase.timerChestAwardedAt ? { timerChestAwardedAt: normalizedAttemptBase.timerChestAwardedAt } : {})),
   };
   attempts[String(examId)] = normalizedAttempt;
   const newlySolvedTaskKeys = Object.entries(normalizedAttempt.solved || {})
@@ -11399,6 +11546,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     mockAttempts: attempts,
     xpTotal,
     coinsTotal,
+    mockTimerChestsTotal: normalizeCoinsTotal(data?.mockTimerChestsTotal) + timerChestsGained,
     solvedEvents,
     artifactInventory,
     artifactLevels,
@@ -11446,6 +11594,8 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     xpTotal: updated.xpTotal,
     coinsGained,
     coinsTotal: updated.coinsTotal,
+    timerChestsGained,
+    timerChestsTotal: normalizeCoinsTotal(updated.mockTimerChestsTotal),
     ...(mockArtifactDrops.length > 0
       ? {
         artifactXpGained,

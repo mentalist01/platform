@@ -5,7 +5,9 @@ import {
   ArrowRight,
   CheckCircle2,
   CircleAlert,
+  Clock3,
   FileDown,
+  Flame,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -29,6 +31,27 @@ const ARTIFACT_IMAGE_BY_ID = new Map(
 
 const MOCK_ARTIFACT_DROP_RANK_ORDER = ['S', 'A', 'B', 'C'];
 const MOCK_ARTIFACT_SHARD_COUNT = 28;
+const MOCK_ATTEMPT_MODE_CLASSIC = 'classic';
+const MOCK_ATTEMPT_MODE_TIMER = 'timer';
+const MOCK_EXAM_TIMER_DURATION_MS = 235 * 60 * 1000;
+
+const normalizeMockAttemptMode = (value, fallback = MOCK_ATTEMPT_MODE_CLASSIC) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === MOCK_ATTEMPT_MODE_TIMER) return MOCK_ATTEMPT_MODE_TIMER;
+  if (normalized === MOCK_ATTEMPT_MODE_CLASSIC) return MOCK_ATTEMPT_MODE_CLASSIC;
+  return fallback;
+};
+
+const formatMockTimerDuration = (value) => {
+  const totalSeconds = Math.max(0, Math.ceil(Number(value) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+};
 
 const getMockArtifactDropRankWeight = (rank) => {
   const index = MOCK_ARTIFACT_DROP_RANK_ORDER.indexOf(String(rank || '').trim().toUpperCase());
@@ -68,6 +91,7 @@ const MockExamModal = ({
   exam,
   studentId,
   initialAttempt,
+  attemptMode = MOCK_ATTEMPT_MODE_CLASSIC,
   initialTaskNumber = null,
   onClose,
   onAttemptSaved,
@@ -91,12 +115,22 @@ const MockExamModal = ({
   const [expandedImage, setExpandedImage] = useState(null);
   const [successBurst, setSuccessBurst] = useState(null);
   const [artifactDropBurst, setArtifactDropBurst] = useState(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const hasLocalAttemptChangesRef = useRef(false);
   const latestInitialAttemptRef = useRef(initialAttempt);
   const autoAdvanceTimerRef = useRef(null);
   const successBurstTimerRef = useRef(null);
   const artifactDropTimerRef = useRef(null);
   const firstTaskNumber = MOCK_TASK_NUMBERS[0];
+  const effectiveAttemptMode = normalizeMockAttemptMode(initialAttempt?.mode, normalizeMockAttemptMode(attemptMode));
+  const isTimerMode = effectiveAttemptMode === MOCK_ATTEMPT_MODE_TIMER;
+  const timerExpiresAtMs = isTimerMode ? Date.parse(String(initialAttempt?.timerExpiresAt || '')) : Number.NaN;
+  const timerDurationMs = Math.max(60 * 1000, Math.floor(Number(initialAttempt?.timerDurationMs) || MOCK_EXAM_TIMER_DURATION_MS));
+  const timerRemainingMs = isTimerMode && Number.isFinite(timerExpiresAtMs)
+    ? Math.max(0, timerExpiresAtMs - nowMs)
+    : timerDurationMs;
+  const timerExpired = isTimerMode && Number.isFinite(timerExpiresAtMs) && timerRemainingMs <= 0;
+  const timerLabel = formatMockTimerDuration(timerRemainingMs);
 
   const readAttemptAnswers = (attempt) => (
     attempt?.answers && typeof attempt.answers === 'object' ? attempt.answers : {}
@@ -144,6 +178,13 @@ const MockExamModal = ({
     setSaveError('');
     setSaveStatus('');
   }, [initialAttempt]);
+
+  useEffect(() => {
+    if (!isTimerMode) return undefined;
+    setNowMs(Date.now());
+    const timerId = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timerId);
+  }, [isTimerMode, initialAttempt?.timerExpiresAt]);
 
   useEffect(() => {
     setSaveError('');
@@ -240,7 +281,7 @@ const MockExamModal = ({
     )
     : Boolean(String(singleAnswer ?? '').trim());
   const nextUnsolvedTask = getNextUnsolvedTask(solved, selectedTask);
-  const canCheck = Boolean(currentQuestion && studentId && isAnswerReady && !checking);
+  const canCheck = Boolean(currentQuestion && studentId && isAnswerReady && !checking && !timerExpired);
 
   const handlePrevTask = () => {
     if (isFirstTask) return;
@@ -258,7 +299,7 @@ const MockExamModal = ({
   };
 
   const handleCheck = async (event) => {
-    if (!currentQuestion || !studentId || !isAnswerReady || checking) return;
+    if (!currentQuestion || !studentId || !isAnswerReady || checking || timerExpired) return;
     const buttonRect = event?.currentTarget?.getBoundingClientRect?.();
     const sourceRect = (
       buttonRect
@@ -281,6 +322,7 @@ const MockExamModal = ({
     try {
       const saved = await api.saveMockAttempt(studentId, exam.id, {
         answers,
+        mode: effectiveAttemptMode,
         localDay: typeof getLocalDayKey === 'function' ? getLocalDayKey() : undefined,
       });
       if (saved && typeof saved === 'object') {
@@ -294,7 +336,12 @@ const MockExamModal = ({
         } else if (isCorrect) {
           triggerSuccessBurst(taskKey);
         }
-        setSaveStatus(isCorrect ? 'Ответ верный и сохранён.' : 'Ответ сохранён, но пока неверный.');
+        const timerChestsGained = Math.max(0, Math.floor(Number(saved?.timerChestsGained) || 0));
+        setSaveStatus(
+          timerChestsGained > 0
+            ? `Верно! Открыто сундуков: ${timerChestsGained}.`
+            : (isCorrect ? 'Ответ верный и сохранён.' : 'Ответ сохранён, но пока неверный.')
+        );
         onAttemptSaved?.(exam.id, saved, { sourceRect });
         const nextTaskAfterSave = getNextUnsolvedTask(savedSolved, selectedTask);
         if (autoAdvance && isCorrect && nextTaskAfterSave) {
@@ -452,6 +499,12 @@ const MockExamModal = ({
               <span className={`${isDarkTheme ? 'border-white/10 bg-white/[0.05] text-slate-300' : 'border-purple-100 bg-white/80 text-gray-500'} inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest`}>
                 ЕГЭ
               </span>
+              {isTimerMode && (
+                <span className={`mock-exam-timer-chip ${timerExpired ? 'mock-exam-timer-chip--expired' : ''}`}>
+                  <Flame size={13} />
+                  <span>{timerExpired ? 'Время вышло' : timerLabel}</span>
+                </span>
+              )}
             </div>
 
             <div className="mock-exam-artifact-hint">
@@ -472,6 +525,12 @@ const MockExamModal = ({
                   <span className={metaPillClassName}>
                     Решено <span className="ml-1 font-semibold">{solvedCount}/{totalTaskCount}</span>
                   </span>
+                  {isTimerMode && (
+                    <span className={`mock-exam-timer-mobile ${timerExpired ? 'mock-exam-timer-mobile--expired' : ''}`}>
+                      <Clock3 size={13} />
+                      {timerExpired ? 'Время вышло' : timerLabel}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -506,6 +565,16 @@ const MockExamModal = ({
               <div className={`mt-1 text-sm ${isDarkTheme ? 'text-slate-300' : 'text-slate-500'}`}>
                 {primaryScore} первичных
               </div>
+
+              {isTimerMode && (
+                <div className={`mock-exam-timer-panel mt-4 ${timerExpired ? 'mock-exam-timer-panel--expired' : ''}`}>
+                  <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                    <Clock3 size={13} />
+                    Режим таймера
+                  </div>
+                  <div className="mt-1 font-display text-2xl font-bold">{timerLabel}</div>
+                </div>
+              )}
 
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <div className={`${isDarkTheme ? 'border-white/10 bg-black/10 text-slate-200' : 'border-white/50 bg-white/50 text-slate-700'} rounded-2xl border px-3 py-2`}>
@@ -775,6 +844,11 @@ const MockExamModal = ({
                       )}
                     </div>
 
+                    {timerExpired && (
+                      <div className={`rounded-2xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm font-semibold ${isDarkTheme ? 'text-rose-200' : 'text-rose-700'}`}>
+                        Время таймерного режима истекло. Проверка ответов закрыта.
+                      </div>
+                    )}
                     {saveError && (
                       <div className="text-sm text-rose-500">{saveError}</div>
                     )}
@@ -820,7 +894,7 @@ const MockExamModal = ({
                       disabled={!canCheck}
                       className="w-full sm:w-auto xl:min-w-[9rem]"
                     >
-                      {checking ? 'Проверяем...' : 'Проверить'}
+                      {timerExpired ? 'Время вышло' : (checking ? 'Проверяем...' : 'Проверить')}
                     </Button>
                   </div>
                 </div>

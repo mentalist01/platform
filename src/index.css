@@ -21246,6 +21246,202 @@ html[data-theme='dark'] .mock-student-card--compact .mock-reward-milestone__labe
   color: rgb(186, 230, 253) !important;
 }
 
+.mock-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+  border: 1px solid rgba(203, 213, 225, 0.82);
+  border-radius: 1rem;
+  background: rgba(248, 250, 252, 0.88);
+  padding: 0.25rem;
+}
+
+.mock-mode-switch__option {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border-radius: 0.78rem;
+  padding: 0.5rem 0.45rem;
+  color: rgb(100, 116, 139);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.1;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.mock-mode-switch__option svg {
+  flex: 0 0 auto;
+}
+
+.mock-mode-switch__option--active {
+  background: rgb(255, 255, 255);
+  color: rgb(51, 65, 85);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+}
+
+.mock-mode-switch__option--timer.mock-mode-switch__option--active {
+  background: linear-gradient(135deg, #450a0a, #991b1b 54%, #f97316);
+  color: rgb(255, 247, 237);
+  box-shadow: 0 8px 22px rgba(153, 27, 27, 0.24);
+}
+
+.mock-mode-switch__option:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.mock-state-chip--timer {
+  gap: 0.28rem;
+  border-color: rgba(248, 113, 113, 0.46) !important;
+  background: rgba(127, 29, 29, 0.9) !important;
+  color: rgb(254, 226, 226) !important;
+}
+
+.mock-state-chip--classic {
+  border-color: rgba(148, 163, 184, 0.42) !important;
+  color: rgb(71, 85, 105) !important;
+}
+
+.mock-student-card--timer-mode {
+  border-color: rgba(248, 113, 113, 0.42) !important;
+  background:
+    linear-gradient(145deg, rgba(24, 24, 27, 0.96), rgba(69, 10, 10, 0.9) 58%, rgba(124, 45, 18, 0.86)) !important;
+  color: rgb(254, 242, 242);
+  box-shadow:
+    0 18px 42px rgba(127, 29, 29, 0.22),
+    inset 0 1px 0 rgba(254, 202, 202, 0.12) !important;
+}
+
+.mock-student-card--timer-mode::before {
+  background: linear-gradient(180deg, #7f1d1d, #dc2626, #f97316) !important;
+}
+
+.mock-student-card--timer-mode .mock-student-card__shine {
+  background:
+    linear-gradient(110deg, transparent 0%, rgba(254, 202, 202, 0.14) 40%, transparent 58%),
+    linear-gradient(180deg, rgba(248, 113, 113, 0.1), transparent) !important;
+}
+
+.mock-student-card--timer-mode .text-gray-900,
+.mock-student-card--timer-mode .text-gray-800 {
+  color: rgb(255, 247, 237) !important;
+}
+
+.mock-student-card--timer-mode .text-gray-500,
+.mock-student-card--timer-mode .text-gray-600 {
+  color: rgb(254, 202, 202) !important;
+}
+
+.mock-student-card--timer-mode .mock-meta-pill,
+.mock-student-card--timer-mode .mock-card-command,
+.mock-student-card--timer-mode .mock-score-panel {
+  border-color: rgba(248, 113, 113, 0.24) !important;
+  background: rgba(69, 10, 10, 0.48) !important;
+  color: rgb(254, 226, 226) !important;
+}
+
+.mock-student-card--timer-mode .mock-score-value {
+  color: rgb(255, 247, 237) !important;
+}
+
+.mock-student-card--timer-mode .mock-score-track {
+  background: rgba(127, 29, 29, 0.72) !important;
+}
+
+.mock-student-card--timer-mode .mock-score-track__fill {
+  background: linear-gradient(90deg, #ef4444, #f97316, #facc15) !important;
+}
+
+.mock-student-card--timer-mode .mock-status-pill {
+  border-color: rgba(248, 113, 113, 0.24) !important;
+  background: rgba(24, 24, 27, 0.46) !important;
+  color: rgb(254, 202, 202) !important;
+}
+
+.mock-student-card--timer-mode .mock-reward-shell--timer {
+  border-color: rgba(248, 113, 113, 0.38) !important;
+  background: linear-gradient(135deg, rgba(24, 24, 27, 0.72), rgba(127, 29, 29, 0.48)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(254, 202, 202, 0.12),
+    0 10px 24px rgba(127, 29, 29, 0.2) !important;
+}
+
+.mock-student-card--timer-mode .mock-reward-title {
+  color: rgb(254, 226, 226) !important;
+}
+
+.mock-student-card--timer-mode .mock-reward-next {
+  color: rgb(253, 186, 116) !important;
+}
+
+.mock-student-card--timer-mode .mock-reward-track__bar {
+  background: rgba(69, 10, 10, 0.86) !important;
+}
+
+.mock-student-card--timer-mode .mock-reward-track__fill {
+  background: linear-gradient(90deg, #991b1b, #ef4444, #f97316, #facc15) !important;
+  box-shadow: 0 0 18px rgba(248, 113, 113, 0.28);
+}
+
+.mock-student-card--timer-mode .mock-reward-milestone__label {
+  border-color: rgba(248, 113, 113, 0.42) !important;
+  background: rgba(24, 24, 27, 0.92) !important;
+  color: rgb(255, 237, 213) !important;
+  box-shadow: 0 8px 18px rgba(127, 29, 29, 0.28) !important;
+}
+
+.mock-student-card--timer-mode .mock-reward-milestone__tick {
+  background: rgba(248, 113, 113, 0.58) !important;
+}
+
+.mock-student-card--timer-mode .mock-reward-milestone--achieved .mock-reward-milestone__label {
+  border-color: rgba(251, 191, 36, 0.58) !important;
+  background: linear-gradient(135deg, rgba(127, 29, 29, 0.98), rgba(234, 88, 12, 0.9)) !important;
+  color: rgb(255, 251, 235) !important;
+}
+
+.mock-exam-timer-chip,
+.mock-exam-timer-mobile,
+.mock-exam-timer-panel {
+  border: 1px solid rgba(248, 113, 113, 0.38);
+  background: linear-gradient(135deg, rgba(69, 10, 10, 0.96), rgba(153, 27, 27, 0.9), rgba(234, 88, 12, 0.82));
+  color: rgb(255, 247, 237);
+  box-shadow: 0 10px 24px rgba(127, 29, 29, 0.22);
+}
+
+.mock-exam-timer-chip,
+.mock-exam-timer-mobile {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.mock-exam-timer-mobile {
+  padding: 0.42rem 0.72rem;
+  letter-spacing: 0.08em;
+}
+
+.mock-exam-timer-panel {
+  border-radius: 1.25rem;
+  padding: 0.85rem 0.95rem;
+}
+
+.mock-exam-timer-chip--expired,
+.mock-exam-timer-mobile--expired,
+.mock-exam-timer-panel--expired {
+  border-color: rgba(244, 63, 94, 0.58);
+  background: linear-gradient(135deg, rgba(24, 24, 27, 0.98), rgba(127, 29, 29, 0.94));
+  color: rgb(254, 202, 202);
+}
+
 /* Mock page color balance: keep cyan as an accent, not the whole page. */
 .mock-student-hero,
 .mock-focus-card,
@@ -22491,5 +22687,2585 @@ html[data-theme='dark'] .progress-section--mocks .mock-filter-row {
 
   .progress-section--mocks .mock-filter-group button {
     white-space: nowrap;
+  }
+}
+
+/* Timer mock cards keep their separate reward language over the page theme. */
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode {
+  border-color: rgba(248, 113, 113, 0.42) !important;
+  background:
+    linear-gradient(145deg, rgba(24, 24, 27, 0.96), rgba(69, 10, 10, 0.9) 58%, rgba(124, 45, 18, 0.86)) !important;
+  color: rgb(254, 242, 242) !important;
+  box-shadow:
+    0 18px 42px rgba(127, 29, 29, 0.22),
+    inset 0 1px 0 rgba(254, 202, 202, 0.12) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode::before {
+  background: linear-gradient(180deg, #7f1d1d, #dc2626, #f97316) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-card-command,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-score-panel,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-meta-pill {
+  border-color: rgba(248, 113, 113, 0.26) !important;
+  background: rgba(69, 10, 10, 0.5) !important;
+  color: rgb(254, 226, 226) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-reward-shell--timer {
+  border-color: rgba(248, 113, 113, 0.38) !important;
+  background: linear-gradient(135deg, rgba(24, 24, 27, 0.72), rgba(127, 29, 29, 0.48)) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-reward-track__fill,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-score-track__fill {
+  background: linear-gradient(90deg, #991b1b, #ef4444, #f97316, #facc15) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-reward-milestone__label {
+  border-color: rgba(248, 113, 113, 0.42) !important;
+  background: rgba(24, 24, 27, 0.92) !important;
+  color: rgb(255, 237, 213) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-reward-milestone--achieved .mock-reward-milestone__label {
+  border-color: rgba(251, 191, 36, 0.58) !important;
+  background: linear-gradient(135deg, rgba(127, 29, 29, 0.98), rgba(234, 88, 12, 0.9)) !important;
+  color: rgb(255, 251, 235) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .text-gray-900,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .text-gray-800 {
+  color: rgb(255, 247, 237) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .text-gray-500,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .text-gray-600,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-score-label,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-score-primary,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-score-status {
+  color: rgb(254, 202, 202) !important;
+}
+
+/* Mock exams command center redesign. */
+.progress-section--mocks {
+  --mock-surface: rgba(255, 255, 255, 0.92);
+  --mock-surface-strong: rgba(255, 255, 255, 0.98);
+  --mock-line: rgba(203, 213, 225, 0.82);
+  --mock-ink: rgb(15, 23, 42);
+  --mock-muted: rgb(100, 116, 139);
+  --mock-blue: rgb(37, 99, 235);
+  --mock-cyan: rgb(8, 145, 178);
+  --mock-green: rgb(13, 148, 136);
+  --mock-amber: rgb(245, 158, 11);
+  --mock-red: rgb(220, 38, 38);
+}
+
+.progress-section--mocks .mock-student-hero.mock-command-center,
+html[data-theme='light'] .progress-section--mocks .mock-student-hero.mock-command-center,
+html[data-theme='dark'] .progress-section--mocks .mock-student-hero.mock-command-center {
+  border: 1px solid var(--mock-line) !important;
+  border-radius: 1.45rem !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.92) 52%, rgba(236, 253, 245, 0.66)) !important;
+  padding: 1rem !important;
+  box-shadow:
+    0 18px 44px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+.progress-section--mocks .mock-command-grid {
+  display: grid !important;
+}
+
+.progress-section--mocks .mock-command-topline {
+  gap: 0.45rem !important;
+}
+
+.progress-section--mocks .mock-command-stat {
+  min-height: 1.75rem !important;
+  border-color: rgba(203, 213, 225, 0.86) !important;
+  background: rgba(255, 255, 255, 0.78) !important;
+  color: rgb(71, 85, 105) !important;
+}
+
+.progress-section--mocks .mock-command-stat strong {
+  color: var(--mock-ink) !important;
+}
+
+.progress-section--mocks .mock-command-dock {
+  align-items: stretch;
+}
+
+.progress-section--mocks .mock-mode-preset,
+.progress-section--mocks .mock-priority-queue,
+.progress-section--mocks .mock-timer-vault,
+.progress-section--mocks .mock-card-brief__main,
+.progress-section--mocks .mock-card-brief__metric,
+.progress-section--mocks .mock-side-hint,
+.progress-section--mocks .mock-search-field,
+.progress-section--mocks .mock-sort-field {
+  border-color: rgba(203, 213, 225, 0.84) !important;
+  background: rgba(255, 255, 255, 0.78) !important;
+  color: var(--mock-ink) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.progress-section--mocks .mock-dock-kicker {
+  color: rgb(71, 85, 105);
+}
+
+.progress-section--mocks .mock-dock-title {
+  color: var(--mock-ink);
+}
+
+.progress-section--mocks .mock-mode-preset__icon {
+  border: 1px solid rgba(14, 165, 233, 0.24);
+  background: linear-gradient(135deg, rgba(224, 242, 254, 0.94), rgba(204, 251, 241, 0.76));
+  color: rgb(2, 132, 199);
+}
+
+.progress-section--mocks .mock-mode-switch--global {
+  border-color: rgba(203, 213, 225, 0.86) !important;
+  background: rgba(248, 250, 252, 0.92) !important;
+}
+
+.progress-section--mocks .mock-priority-row {
+  border: 1px solid transparent;
+  color: var(--mock-ink);
+}
+
+.progress-section--mocks .mock-priority-row:hover {
+  border-color: rgba(14, 165, 233, 0.28);
+  background: rgba(240, 249, 255, 0.82);
+}
+
+.progress-section--mocks .mock-priority-row span span:last-child,
+.progress-section--mocks .mock-priority-empty,
+.progress-section--mocks .mock-timer-vault .text-\[11px\] {
+  color: var(--mock-muted);
+}
+
+.progress-section--mocks .mock-priority-score {
+  background: rgba(236, 253, 245, 0.86);
+  color: rgb(4, 120, 87);
+}
+
+.progress-section--mocks .mock-timer-vault {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.86), rgba(255, 247, 237, 0.7)) !important;
+}
+
+.progress-section--mocks .mock-timer-vault__icon {
+  border: 1px solid rgba(251, 191, 36, 0.34);
+  background: linear-gradient(135deg, rgba(254, 243, 199, 0.96), rgba(255, 237, 213, 0.82));
+  color: rgb(180, 83, 9);
+}
+
+.progress-section--mocks .mock-vault-alert {
+  border: 1px solid rgba(248, 113, 113, 0.34);
+  background: rgba(254, 226, 226, 0.82);
+  color: rgb(185, 28, 28);
+}
+
+.progress-section--mocks .mock-filter-row {
+  border-color: rgba(203, 213, 225, 0.88) !important;
+  background:
+    linear-gradient(135deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.86)) !important;
+}
+
+.progress-section--mocks .mock-search-field,
+.progress-section--mocks .mock-sort-field {
+  min-height: 2.65rem;
+}
+
+.progress-section--mocks .mock-search-field svg,
+.progress-section--mocks .mock-sort-field svg {
+  color: rgb(14, 116, 144);
+}
+
+.progress-section--mocks .mock-search-field input,
+.progress-section--mocks .mock-sort-field select {
+  color: var(--mock-ink);
+}
+
+.progress-section--mocks .mock-search-field input::placeholder {
+  color: rgb(148, 163, 184);
+}
+
+.progress-section--mocks .mock-sort-field select option {
+  color: rgb(15, 23, 42);
+}
+
+.progress-section--mocks .mock-filter-reset {
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  background: rgba(255, 255, 255, 0.76);
+  color: rgb(71, 85, 105);
+}
+
+.progress-section--mocks .mock-filter-reset:hover {
+  border-color: rgba(14, 165, 233, 0.32);
+  color: rgb(3, 105, 161);
+}
+
+.progress-section--mocks .mock-student-card--compact {
+  border-radius: 1.35rem !important;
+  border-color: rgba(203, 213, 225, 0.86) !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.92)) !important;
+}
+
+.progress-section--mocks .mock-student-card--compact:hover {
+  border-color: rgba(14, 165, 233, 0.38) !important;
+  box-shadow:
+    0 18px 42px rgba(15, 23, 42, 0.11),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86) !important;
+}
+
+.progress-section--mocks .mock-card-brief__main {
+  color: rgb(51, 65, 85) !important;
+}
+
+.progress-section--mocks .mock-card-brief__main svg {
+  color: rgb(8, 145, 178);
+}
+
+.progress-section--mocks .mock-card-brief__main .mt-1 {
+  color: rgb(100, 116, 139);
+}
+
+.progress-section--mocks .mock-card-brief__metric {
+  min-width: 7.2rem;
+  color: rgb(3, 105, 161) !important;
+}
+
+.progress-section--mocks .mock-quick-tasks__label {
+  border: 1px solid rgba(203, 213, 225, 0.84);
+  background: rgba(248, 250, 252, 0.9);
+  color: rgb(71, 85, 105);
+}
+
+.progress-section--mocks .mock-quick-task {
+  border: 1px solid rgba(186, 230, 253, 0.8);
+  background: rgba(240, 249, 255, 0.86);
+  color: rgb(3, 105, 161);
+}
+
+.progress-section--mocks .mock-quick-task:hover {
+  transform: translateY(-1px);
+  border-color: rgba(20, 184, 166, 0.38);
+  background: rgba(204, 251, 241, 0.82);
+  color: rgb(15, 118, 110);
+}
+
+.progress-section--mocks .mock-quick-task--attempted {
+  border-color: rgba(251, 191, 36, 0.46);
+  background: rgba(254, 243, 199, 0.82);
+  color: rgb(180, 83, 9);
+}
+
+.progress-section--mocks .mock-side-hint {
+  color: rgb(71, 85, 105) !important;
+}
+
+.progress-section--mocks .mock-side-hint--mode {
+  color: rgb(3, 105, 161) !important;
+}
+
+.progress-section--mocks .mock-card-command {
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.92)) !important;
+}
+
+.progress-section--mocks .mock-state-chip--best {
+  border-color: rgba(245, 158, 11, 0.36) !important;
+  background: rgba(254, 243, 199, 0.86) !important;
+  color: rgb(180, 83, 9) !important;
+}
+
+.progress-section--mocks .mock-state-chip--progress {
+  border-color: rgba(20, 184, 166, 0.34) !important;
+  background: rgba(204, 251, 241, 0.72) !important;
+  color: rgb(15, 118, 110) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-mode-preset,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-card-brief__main,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-card-brief__metric,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-side-hint,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-quick-tasks__label {
+  border-color: rgba(248, 113, 113, 0.28) !important;
+  background: rgba(24, 24, 27, 0.44) !important;
+  color: rgb(254, 226, 226) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-card-brief__main .mt-1,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-side-hint--mode {
+  color: rgb(253, 186, 116) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-quick-task {
+  border-color: rgba(248, 113, 113, 0.36);
+  background: rgba(69, 10, 10, 0.72);
+  color: rgb(255, 237, 213);
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-quick-task--attempted,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-quick-task:hover {
+  border-color: rgba(251, 191, 36, 0.5);
+  background: rgba(124, 45, 18, 0.74);
+  color: rgb(255, 251, 235);
+}
+
+html[data-theme='dark'] .progress-section--mocks {
+  --mock-surface: rgba(15, 23, 42, 0.74);
+  --mock-surface-strong: rgba(15, 23, 42, 0.9);
+  --mock-line: rgba(51, 65, 85, 0.84);
+  --mock-ink: rgb(248, 250, 252);
+  --mock-muted: rgb(148, 163, 184);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-hero.mock-command-center {
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(17, 24, 39, 0.86) 58%, rgba(6, 78, 59, 0.24)) !important;
+  box-shadow:
+    0 18px 42px rgba(2, 6, 23, 0.32),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-preset,
+html[data-theme='dark'] .progress-section--mocks .mock-priority-queue,
+html[data-theme='dark'] .progress-section--mocks .mock-timer-vault,
+html[data-theme='dark'] .progress-section--mocks .mock-card-brief__main,
+html[data-theme='dark'] .progress-section--mocks .mock-card-brief__metric,
+html[data-theme='dark'] .progress-section--mocks .mock-side-hint,
+html[data-theme='dark'] .progress-section--mocks .mock-search-field,
+html[data-theme='dark'] .progress-section--mocks .mock-sort-field {
+  border-color: rgba(51, 65, 85, 0.84) !important;
+  background: rgba(15, 23, 42, 0.68) !important;
+  color: rgb(226, 232, 240) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.06);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-dock-kicker,
+html[data-theme='dark'] .progress-section--mocks .mock-card-brief__main .mt-1,
+html[data-theme='dark'] .progress-section--mocks .mock-side-hint {
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-dock-title,
+html[data-theme='dark'] .progress-section--mocks .mock-command-stat strong,
+html[data-theme='dark'] .progress-section--mocks .mock-search-field input,
+html[data-theme='dark'] .progress-section--mocks .mock-sort-field select {
+  color: rgb(248, 250, 252) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-preset__icon {
+  border-color: rgba(45, 212, 191, 0.26);
+  background: linear-gradient(135deg, rgba(8, 47, 73, 0.84), rgba(6, 78, 59, 0.44));
+  color: rgb(125, 211, 252);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-timer-vault__icon {
+  border-color: rgba(251, 191, 36, 0.28);
+  background: linear-gradient(135deg, rgba(69, 26, 3, 0.66), rgba(120, 53, 15, 0.42));
+  color: rgb(251, 191, 36);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-priority-row {
+  color: rgb(226, 232, 240);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-priority-row:hover {
+  border-color: rgba(56, 189, 248, 0.26);
+  background: rgba(8, 47, 73, 0.38);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-filter-row {
+  border-color: rgba(51, 65, 85, 0.84) !important;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.84), rgba(2, 6, 23, 0.34)) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-filter-reset {
+  border-color: rgba(51, 65, 85, 0.86);
+  background: rgba(15, 23, 42, 0.72);
+  color: rgb(148, 163, 184);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card--compact {
+  border-color: rgba(51, 65, 85, 0.86) !important;
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.42)) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-card-command {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.76), rgba(2, 6, 23, 0.34)) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-quick-tasks__label {
+  border-color: rgba(51, 65, 85, 0.84);
+  background: rgba(15, 23, 42, 0.76);
+  color: rgb(148, 163, 184);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-quick-task {
+  border-color: rgba(56, 189, 248, 0.24);
+  background: rgba(8, 47, 73, 0.4);
+  color: rgb(186, 230, 253);
+}
+
+@media (max-width: 720px) {
+  .progress-section--mocks .mock-card-brief__metric {
+    min-width: 0;
+    text-align: left;
+  }
+
+  .progress-section--mocks .mock-side-hints {
+    display: none;
+  }
+
+  .progress-section--mocks .mock-tools-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Mock exams visual hierarchy v3: main action first, readable in both themes. */
+.progress-section--mocks {
+  --mock-page-bg-light: rgb(248, 250, 252);
+  --mock-card-light: rgb(255, 255, 255);
+  --mock-card-soft-light: rgb(241, 245, 249);
+  --mock-card-line-light: rgb(203, 213, 225);
+  --mock-card-ink-light: rgb(15, 23, 42);
+  --mock-card-muted-light: rgb(100, 116, 139);
+  --mock-action-a: rgb(37, 99, 235);
+  --mock-action-b: rgb(20, 184, 166);
+  --mock-action-c: rgb(124, 58, 237);
+}
+
+.progress-section--mocks .mock-ticket-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.progress-section--mocks .mock-list-shell.surface-card {
+  border-color: rgba(203, 213, 225, 0.86) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94)) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact {
+  min-height: 13.5rem;
+  border: 1px solid rgba(203, 213, 225, 0.9) !important;
+  border-radius: 1.35rem !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94) 60%, rgba(240, 253, 250, 0.72)) !important;
+  color: var(--mock-card-ink-light) !important;
+  box-shadow:
+    0 16px 38px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact::before {
+  inset-block: 0 !important;
+  width: 0.28rem !important;
+  border-radius: 999px !important;
+  background: linear-gradient(180deg, #0ea5e9, #14b8a6, #8b5cf6) !important;
+  opacity: 0.82 !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact .relative.grid {
+  min-height: inherit;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact .mock-ticket-mark {
+  width: 2.75rem !important;
+  height: 2.75rem !important;
+  border-radius: 0.95rem !important;
+  border: 1px solid rgba(14, 165, 233, 0.28) !important;
+  background: linear-gradient(135deg, rgba(240, 249, 255, 0.96), rgba(204, 251, 241, 0.74)) !important;
+  color: rgb(3, 105, 161) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact .text-gray-900 {
+  color: rgb(15, 23, 42) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact .text-gray-500,
+.progress-section--mocks .mock-student-card.mock-student-card--compact .text-gray-600 {
+  color: rgb(100, 116, 139) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact .mock-meta-pill,
+.progress-section--mocks .mock-student-card.mock-student-card--compact .mock-state-chip,
+.progress-section--mocks .mock-student-card.mock-student-card--compact .mock-status-pill {
+  border: 1px solid rgba(203, 213, 225, 0.86) !important;
+  background: rgba(255, 255, 255, 0.78) !important;
+  color: rgb(71, 85, 105) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact .mock-card-sticker {
+  transform: rotate(-3deg);
+  filter: drop-shadow(0 12px 18px rgba(15, 23, 42, 0.1));
+}
+
+.progress-section--mocks .mock-card-brief {
+  max-width: 62rem;
+}
+
+.progress-section--mocks .mock-card-brief__main,
+.progress-section--mocks .mock-card-brief__metric {
+  border-radius: 1rem !important;
+  border: 1px solid rgba(203, 213, 225, 0.78) !important;
+  background: rgba(248, 250, 252, 0.86) !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-mode-switch {
+  border-color: rgba(203, 213, 225, 0.92) !important;
+  border-radius: 1.05rem !important;
+  background: rgba(226, 232, 240, 0.72) !important;
+  padding: 0.32rem !important;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.progress-section--mocks .mock-mode-switch__option {
+  min-height: 2.15rem;
+  border-radius: 0.82rem !important;
+  color: rgb(71, 85, 105) !important;
+}
+
+.progress-section--mocks .mock-mode-switch__option--active {
+  background: rgb(255, 255, 255) !important;
+  color: rgb(15, 23, 42) !important;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.1) !important;
+}
+
+.progress-section--mocks .mock-mode-switch__option--timer.mock-mode-switch__option--active {
+  background: linear-gradient(135deg, #7f1d1d, #dc2626, #f97316) !important;
+  color: rgb(255, 247, 237) !important;
+  box-shadow: 0 10px 22px rgba(220, 38, 38, 0.26) !important;
+}
+
+.progress-section--mocks .mock-reward-shell {
+  border-radius: 1.05rem !important;
+  border: 1px solid rgba(14, 165, 233, 0.22) !important;
+  background:
+    linear-gradient(135deg, rgba(240, 249, 255, 0.9), rgba(240, 253, 250, 0.78)) !important;
+  padding: 0.8rem 0.9rem !important;
+}
+
+.progress-section--mocks .mock-reward-track {
+  height: 2.35rem !important;
+}
+
+.progress-section--mocks .mock-reward-track__bar {
+  height: 0.42rem !important;
+  background: rgba(203, 213, 225, 0.92) !important;
+}
+
+.progress-section--mocks .mock-reward-track__fill {
+  background: linear-gradient(90deg, #2563eb, #14b8a6, #f59e0b) !important;
+}
+
+.progress-section--mocks .mock-card-command {
+  order: 0;
+  justify-content: stretch !important;
+  gap: 0.9rem !important;
+  border-color: rgba(203, 213, 225, 0.86) !important;
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(255, 255, 255, 0.96)) !important;
+  padding: 1rem !important;
+}
+
+.progress-section--mocks .mock-card-command > .space-y-1\.5 {
+  order: -2;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.progress-section--mocks .mock-start-button {
+  min-height: 4.25rem !important;
+  width: 100%;
+  justify-content: center !important;
+  gap: 0.65rem !important;
+  border-radius: 1.18rem !important;
+  background:
+    linear-gradient(135deg, var(--mock-action-a), var(--mock-action-c) 48%, var(--mock-action-b)) !important;
+  color: rgb(255, 255, 255) !important;
+  font-size: 1.08rem !important;
+  font-weight: 950 !important;
+  letter-spacing: 0 !important;
+  box-shadow:
+    0 18px 34px rgba(37, 99, 235, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28) !important;
+}
+
+.progress-section--mocks .mock-start-button svg {
+  width: 1.45rem;
+  height: 1.45rem;
+}
+
+.progress-section--mocks .mock-start-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow:
+    0 22px 42px rgba(37, 99, 235, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32) !important;
+}
+
+.progress-section--mocks .mock-start-button:disabled {
+  opacity: 0.55;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-card-command .mock-status-pill {
+  min-height: 2.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.95rem !important;
+  background: rgba(241, 245, 249, 0.9) !important;
+}
+
+.progress-section--mocks .mock-score-panel {
+  order: -1;
+  border-radius: 1.15rem !important;
+  border-color: rgba(203, 213, 225, 0.82) !important;
+  background: rgb(255, 255, 255) !important;
+  padding: 1rem !important;
+}
+
+.progress-section--mocks .mock-score-label {
+  color: rgb(100, 116, 139) !important;
+}
+
+.progress-section--mocks .mock-score-value {
+  color: rgb(15, 23, 42) !important;
+  font-size: 3.2rem !important;
+  line-height: 0.9 !important;
+}
+
+.progress-section--mocks .mock-score-primary,
+.progress-section--mocks .mock-score-status {
+  color: rgb(100, 116, 139) !important;
+}
+
+.progress-section--mocks .mock-side-hints {
+  order: 0;
+}
+
+.progress-section--mocks .mock-side-hint {
+  border-radius: 0.95rem !important;
+  border: 1px solid rgba(203, 213, 225, 0.72) !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+}
+
+.progress-section--mocks .mock-quick-tasks {
+  gap: 0.45rem !important;
+}
+
+.progress-section--mocks .mock-quick-task,
+.progress-section--mocks .mock-quick-tasks__label {
+  min-height: 1.95rem;
+  border-radius: 0.85rem !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-list-shell.surface-card {
+  border-color: rgba(51, 65, 85, 0.82) !important;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.86), rgba(2, 6, 23, 0.38)) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact {
+  border-color: rgba(71, 85, 105, 0.72) !important;
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(17, 24, 39, 0.9) 58%, rgba(20, 83, 45, 0.24)) !important;
+  color: rgb(248, 250, 252) !important;
+  box-shadow:
+    0 18px 48px rgba(2, 6, 23, 0.34),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact .text-gray-900,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact .text-gray-800 {
+  color: rgb(248, 250, 252) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact .text-gray-500,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact .text-gray-600 {
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact .mock-ticket-mark {
+  border-color: rgba(45, 212, 191, 0.22) !important;
+  background: linear-gradient(135deg, rgba(8, 47, 73, 0.84), rgba(20, 83, 45, 0.36)) !important;
+  color: rgb(125, 211, 252) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact .mock-meta-pill,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact .mock-state-chip,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact .mock-status-pill {
+  border-color: rgba(71, 85, 105, 0.7) !important;
+  background: rgba(15, 23, 42, 0.58) !important;
+  color: rgb(203, 213, 225) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-card-brief__main,
+html[data-theme='dark'] .progress-section--mocks .mock-card-brief__metric,
+html[data-theme='dark'] .progress-section--mocks .mock-side-hint {
+  border-color: rgba(71, 85, 105, 0.62) !important;
+  background: rgba(2, 6, 23, 0.28) !important;
+  color: rgb(226, 232, 240) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-switch {
+  border-color: rgba(71, 85, 105, 0.72) !important;
+  background: rgba(2, 6, 23, 0.38) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-switch__option {
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-switch__option--active {
+  background: rgba(30, 41, 59, 0.94) !important;
+  color: rgb(248, 250, 252) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-reward-shell {
+  border-color: rgba(56, 189, 248, 0.2) !important;
+  background:
+    linear-gradient(135deg, rgba(8, 47, 73, 0.34), rgba(2, 6, 23, 0.2)) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-card-command {
+  border-color: rgba(71, 85, 105, 0.68) !important;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(2, 6, 23, 0.44)) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-score-panel {
+  border-color: rgba(71, 85, 105, 0.62) !important;
+  background: rgba(2, 6, 23, 0.34) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-score-value {
+  color: rgb(248, 250, 252) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-score-label,
+html[data-theme='dark'] .progress-section--mocks .mock-score-primary,
+html[data-theme='dark'] .progress-section--mocks .mock-score-status {
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-card-command .mock-status-pill {
+  background: rgba(2, 6, 23, 0.36) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-start-button {
+  background:
+    linear-gradient(135deg, #2563eb, #7c3aed 50%, #0f766e) !important;
+  box-shadow:
+    0 18px 38px rgba(37, 99, 235, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode {
+  border-color: rgba(248, 113, 113, 0.48) !important;
+  background:
+    linear-gradient(135deg, rgba(24, 24, 27, 0.98), rgba(69, 10, 10, 0.94) 58%, rgba(124, 45, 18, 0.88)) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-start-button {
+  background:
+    linear-gradient(135deg, #991b1b, #dc2626 48%, #f97316) !important;
+  box-shadow:
+    0 18px 36px rgba(220, 38, 38, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-card-command {
+  background:
+    linear-gradient(180deg, rgba(69, 10, 10, 0.64), rgba(24, 24, 27, 0.42)) !important;
+}
+
+@media (max-width: 1023px) {
+  .progress-section--mocks .mock-card-command {
+    border-left: 0 !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .progress-section--mocks .mock-student-card.mock-student-card--compact {
+    min-height: 0;
+  }
+
+  .progress-section--mocks .mock-start-button {
+    min-height: 3.75rem !important;
+    font-size: 1rem !important;
+  }
+
+  .progress-section--mocks .mock-score-value {
+    font-size: 2.65rem !important;
+  }
+}
+
+/* Mode choice must look like a decision, not a passive segmented control. */
+.progress-section--mocks .mock-mode-choice {
+  position: relative;
+  border: 1px solid rgba(14, 165, 233, 0.28);
+  border-radius: 1.22rem;
+  background:
+    linear-gradient(135deg, rgba(240, 249, 255, 0.96), rgba(255, 255, 255, 0.92));
+  padding: 0.72rem;
+  box-shadow:
+    0 12px 28px rgba(14, 116, 144, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.progress-section--mocks .mock-mode-choice::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.42), transparent 34%, rgba(20, 184, 166, 0.3));
+  opacity: 0.42;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  padding: 1px;
+}
+
+.progress-section--mocks .mock-mode-choice__icon {
+  border: 1px solid rgba(14, 165, 233, 0.28);
+  background: rgba(224, 242, 254, 0.9);
+  color: rgb(3, 105, 161);
+}
+
+.progress-section--mocks .mock-mode-choice__title {
+  color: rgb(12, 74, 110);
+}
+
+.progress-section--mocks .mock-mode-choice__subtitle {
+  color: rgb(100, 116, 139);
+}
+
+.progress-section--mocks .mock-mode-choice__badge {
+  border: 1px solid rgba(14, 165, 233, 0.24);
+  background: rgba(224, 242, 254, 0.76);
+  color: rgb(3, 105, 161);
+}
+
+.progress-section--mocks .mock-mode-choice .mock-mode-switch {
+  background: rgba(226, 232, 240, 0.9) !important;
+  border-color: rgba(148, 163, 184, 0.78) !important;
+}
+
+.progress-section--mocks .mock-mode-choice .mock-mode-switch__option {
+  min-height: 2.5rem;
+  font-size: 0.78rem;
+}
+
+.progress-section--mocks .mock-mode-choice--warning {
+  border-color: rgba(245, 158, 11, 0.52);
+  background:
+    linear-gradient(135deg, rgba(255, 251, 235, 0.98), rgba(255, 255, 255, 0.94));
+  box-shadow:
+    0 14px 30px rgba(245, 158, 11, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.progress-section--mocks .mock-mode-choice--warning::before {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.62), transparent 34%, rgba(251, 191, 36, 0.36));
+  opacity: 0.66;
+}
+
+.progress-section--mocks .mock-mode-choice--warning .mock-mode-choice__icon {
+  border-color: rgba(245, 158, 11, 0.38);
+  background: rgba(254, 243, 199, 0.92);
+  color: rgb(180, 83, 9);
+}
+
+.progress-section--mocks .mock-mode-choice--warning .mock-mode-choice__title {
+  color: rgb(146, 64, 14);
+}
+
+.progress-section--mocks .mock-mode-choice--warning .mock-mode-choice__badge {
+  border-color: rgba(245, 158, 11, 0.36);
+  background: rgba(254, 243, 199, 0.9);
+  color: rgb(180, 83, 9);
+}
+
+.progress-section--mocks .mock-mode-choice__warning {
+  border: 1px solid rgba(245, 158, 11, 0.42);
+  background: rgba(255, 247, 237, 0.96);
+  color: rgb(154, 52, 18);
+}
+
+.progress-section--mocks .mock-mode-choice--timer {
+  border-color: rgba(248, 113, 113, 0.42);
+  background:
+    linear-gradient(135deg, rgba(69, 10, 10, 0.94), rgba(127, 29, 29, 0.82), rgba(234, 88, 12, 0.5));
+  color: rgb(255, 247, 237);
+  box-shadow:
+    0 16px 32px rgba(153, 27, 27, 0.22),
+    inset 0 1px 0 rgba(254, 202, 202, 0.12);
+}
+
+.progress-section--mocks .mock-mode-choice--timer::before {
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.62), transparent 32%, rgba(251, 191, 36, 0.42));
+  opacity: 0.7;
+}
+
+.progress-section--mocks .mock-mode-choice--timer .mock-mode-choice__icon {
+  border-color: rgba(251, 191, 36, 0.32);
+  background: rgba(24, 24, 27, 0.42);
+  color: rgb(251, 191, 36);
+}
+
+.progress-section--mocks .mock-mode-choice--timer .mock-mode-choice__title,
+.progress-section--mocks .mock-mode-choice--timer .mock-mode-choice__subtitle {
+  color: rgb(255, 237, 213);
+}
+
+.progress-section--mocks .mock-mode-choice--timer .mock-mode-choice__badge {
+  border-color: rgba(251, 191, 36, 0.36);
+  background: rgba(24, 24, 27, 0.42);
+  color: rgb(255, 237, 213);
+}
+
+.progress-section--mocks .mock-mode-choice__timer-note {
+  border: 1px solid rgba(251, 191, 36, 0.32);
+  background: rgba(24, 24, 27, 0.38);
+  color: rgb(255, 237, 213);
+}
+
+.progress-section--mocks .mock-mode-choice--locked {
+  border-style: solid;
+  opacity: 0.96;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice {
+  border-color: rgba(56, 189, 248, 0.26);
+  background:
+    linear-gradient(135deg, rgba(8, 47, 73, 0.42), rgba(15, 23, 42, 0.78));
+  box-shadow:
+    0 14px 32px rgba(2, 6, 23, 0.22),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice__icon {
+  border-color: rgba(56, 189, 248, 0.28);
+  background: rgba(8, 47, 73, 0.72);
+  color: rgb(125, 211, 252);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice__title {
+  color: rgb(224, 242, 254);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice__subtitle {
+  color: rgb(148, 163, 184);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice__badge {
+  border-color: rgba(56, 189, 248, 0.26);
+  background: rgba(8, 47, 73, 0.58);
+  color: rgb(186, 230, 253);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice--warning {
+  border-color: rgba(251, 191, 36, 0.44);
+  background:
+    linear-gradient(135deg, rgba(69, 26, 3, 0.58), rgba(15, 23, 42, 0.78));
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice--warning .mock-mode-choice__icon {
+  border-color: rgba(251, 191, 36, 0.34);
+  background: rgba(69, 26, 3, 0.66);
+  color: rgb(251, 191, 36);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice--warning .mock-mode-choice__title {
+  color: rgb(253, 230, 138);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice--warning .mock-mode-choice__badge,
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice__warning {
+  border-color: rgba(251, 191, 36, 0.34);
+  background: rgba(69, 26, 3, 0.5);
+  color: rgb(253, 230, 138);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice--timer {
+  border-color: rgba(248, 113, 113, 0.42);
+  background:
+    linear-gradient(135deg, rgba(24, 24, 27, 0.92), rgba(69, 10, 10, 0.84), rgba(124, 45, 18, 0.56));
+}
+
+/* Visual-only mode choice: the risk is shown by icons, not explanation text. */
+.progress-section--mocks .mock-mode-choice {
+  padding: 0.5rem !important;
+}
+
+.progress-section--mocks .mock-mode-switch--visual {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-mode-switch--visual .mock-mode-card {
+  position: relative;
+  min-height: 4.2rem;
+  flex-direction: column;
+  gap: 0.42rem;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  border-radius: 1rem !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.86), rgba(248, 250, 252, 0.78));
+  color: rgb(71, 85, 105) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.progress-section--mocks .mock-mode-switch--visual .mock-mode-card::after {
+  content: '';
+  position: absolute;
+  inset: 0.36rem;
+  pointer-events: none;
+  border-radius: 0.72rem;
+  border: 1px solid transparent;
+}
+
+.progress-section--mocks .mock-mode-card__icons {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.34rem;
+}
+
+.progress-section--mocks .mock-mode-card__label {
+  font-size: 0.76rem;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.progress-section--mocks .mock-mode-switch--visual .mock-mode-card.mock-mode-switch__option--active {
+  border-color: rgba(37, 99, 235, 0.46) !important;
+  background:
+    linear-gradient(135deg, rgba(239, 246, 255, 0.98), rgba(255, 255, 255, 0.94)) !important;
+  color: rgb(30, 64, 175) !important;
+  box-shadow:
+    0 12px 24px rgba(37, 99, 235, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+}
+
+.progress-section--mocks .mock-mode-switch--visual .mock-mode-card.mock-mode-switch__option--active::after {
+  border-color: rgba(37, 99, 235, 0.18);
+}
+
+.progress-section--mocks .mock-mode-switch--visual .mock-mode-switch__option--timer.mock-mode-switch__option--active {
+  border-color: rgba(248, 113, 113, 0.56) !important;
+  background:
+    linear-gradient(135deg, rgba(69, 10, 10, 0.96), rgba(153, 27, 27, 0.88), rgba(234, 88, 12, 0.78)) !important;
+  color: rgb(255, 247, 237) !important;
+  box-shadow:
+    0 14px 28px rgba(220, 38, 38, 0.24),
+    inset 0 1px 0 rgba(254, 202, 202, 0.14) !important;
+}
+
+.progress-section--mocks .mock-mode-lock-visual,
+.progress-section--mocks .mock-mode-timer-visual {
+  display: flex;
+  min-height: 2.55rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid rgba(245, 158, 11, 0.46);
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(245, 158, 11, 0.1) 0 8px,
+      rgba(255, 255, 255, 0.5) 8px 16px
+    ),
+    rgba(255, 251, 235, 0.94);
+  color: rgb(180, 83, 9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
+}
+
+.progress-section--mocks .mock-card-mode-icons,
+.progress-section--mocks .mock-side-mode-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: rgb(14, 116, 144);
+}
+
+.progress-section--mocks .mock-card-mode-icons svg:last-child,
+.progress-section--mocks .mock-side-mode-icons svg:last-child {
+  color: rgb(180, 83, 9);
+}
+
+.progress-section--mocks .mock-side-mode-icons {
+  min-height: 2.25rem;
+  justify-content: center;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-card-mode-icons,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-side-mode-icons {
+  color: rgb(255, 237, 213);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-card-mode-icons,
+html[data-theme='dark'] .progress-section--mocks .mock-side-mode-icons {
+  color: rgb(125, 211, 252);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-card-mode-icons svg:last-child,
+html[data-theme='dark'] .progress-section--mocks .mock-side-mode-icons svg:last-child {
+  color: rgb(251, 191, 36);
+}
+
+.progress-section--mocks .mock-mode-lock-visual__divider {
+  position: relative;
+  width: 2.2rem;
+  height: 1px;
+  background: rgba(180, 83, 9, 0.42);
+}
+
+.progress-section--mocks .mock-mode-lock-visual__divider::before,
+.progress-section--mocks .mock-mode-lock-visual__divider::after {
+  content: '';
+  position: absolute;
+  right: -0.1rem;
+  width: 0.45rem;
+  height: 1px;
+  background: currentColor;
+  transform-origin: right center;
+}
+
+.progress-section--mocks .mock-mode-lock-visual__divider::before {
+  transform: rotate(38deg);
+}
+
+.progress-section--mocks .mock-mode-lock-visual__divider::after {
+  transform: rotate(-38deg);
+}
+
+.progress-section--mocks .mock-mode-timer-visual {
+  border-color: rgba(248, 113, 113, 0.38);
+  background:
+    linear-gradient(135deg, rgba(69, 10, 10, 0.92), rgba(127, 29, 29, 0.72), rgba(234, 88, 12, 0.56));
+  color: rgb(255, 237, 213);
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-mode-switch--visual .mock-mode-card {
+  border-color: rgba(248, 113, 113, 0.26);
+  background: rgba(24, 24, 27, 0.34);
+  color: rgb(254, 202, 202) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-mode-timer-visual {
+  border-color: rgba(251, 191, 36, 0.34);
+  background: rgba(24, 24, 27, 0.36);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-switch--visual .mock-mode-card {
+  border-color: rgba(71, 85, 105, 0.72);
+  background: rgba(15, 23, 42, 0.58);
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-switch--visual .mock-mode-card.mock-mode-switch__option--active {
+  border-color: rgba(56, 189, 248, 0.34) !important;
+  background:
+    linear-gradient(135deg, rgba(8, 47, 73, 0.74), rgba(15, 23, 42, 0.82)) !important;
+  color: rgb(224, 242, 254) !important;
+  box-shadow:
+    0 12px 26px rgba(2, 6, 23, 0.24),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-lock-visual {
+  border-color: rgba(251, 191, 36, 0.38);
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(251, 191, 36, 0.12) 0 8px,
+      rgba(69, 26, 3, 0.38) 8px 16px
+    ),
+    rgba(69, 26, 3, 0.44);
+  color: rgb(253, 230, 138);
+}
+
+@media (max-width: 520px) {
+  .progress-section--mocks .mock-mode-switch--visual .mock-mode-card {
+    min-height: 3.85rem;
+  }
+
+  .progress-section--mocks .mock-mode-lock-visual,
+  .progress-section--mocks .mock-mode-timer-visual {
+    min-height: 2.3rem;
+  }
+}
+
+/* Restore the cleaner mode switch: visible, but not noisy. */
+.progress-section--mocks .mock-mode-choice,
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice {
+  border-radius: 1.12rem !important;
+  padding: 0.34rem !important;
+  box-shadow:
+    0 10px 22px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+}
+
+.progress-section--mocks .mock-mode-choice::before {
+  display: none !important;
+}
+
+.progress-section--mocks .mock-mode-choice--classic {
+  border: 1px solid rgba(245, 158, 11, 0.36) !important;
+  background: rgba(255, 251, 235, 0.82) !important;
+}
+
+.progress-section--mocks .mock-mode-choice--timer {
+  border: 1px solid rgba(248, 113, 113, 0.42) !important;
+  background:
+    linear-gradient(135deg, rgba(69, 10, 10, 0.82), rgba(127, 29, 29, 0.62)) !important;
+}
+
+.progress-section--mocks .mock-mode-choice .mock-mode-switch {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0.38rem !important;
+  border: 0 !important;
+  border-radius: 0.92rem !important;
+  background: transparent !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-mode-choice .mock-mode-switch__option {
+  min-height: 2.55rem !important;
+  flex-direction: row !important;
+  gap: 0.45rem !important;
+  border: 1px solid rgba(203, 213, 225, 0.88) !important;
+  border-radius: 0.82rem !important;
+  background: rgba(255, 255, 255, 0.66) !important;
+  color: rgb(71, 85, 105) !important;
+  font-size: 0.76rem !important;
+  font-weight: 900 !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-mode-choice .mock-mode-switch__option--active {
+  border-color: rgba(37, 99, 235, 0.42) !important;
+  background: rgb(255, 255, 255) !important;
+  color: rgb(30, 64, 175) !important;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.12) !important;
+}
+
+.progress-section--mocks .mock-mode-choice .mock-mode-switch__option--timer.mock-mode-switch__option--active {
+  border-color: rgba(251, 191, 36, 0.42) !important;
+  background: linear-gradient(135deg, #7f1d1d, #dc2626, #f97316) !important;
+  color: rgb(255, 247, 237) !important;
+  box-shadow: 0 10px 20px rgba(220, 38, 38, 0.22) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice--classic {
+  border-color: rgba(251, 191, 36, 0.28) !important;
+  background: rgba(69, 26, 3, 0.24) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice .mock-mode-switch__option {
+  border-color: rgba(71, 85, 105, 0.72) !important;
+  background: rgba(15, 23, 42, 0.54) !important;
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice .mock-mode-switch__option--active {
+  border-color: rgba(56, 189, 248, 0.32) !important;
+  background: rgba(8, 47, 73, 0.62) !important;
+  color: rgb(224, 242, 254) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice .mock-mode-switch__option--timer.mock-mode-switch__option--active {
+  border-color: rgba(251, 191, 36, 0.34) !important;
+  background: linear-gradient(135deg, #450a0a, #991b1b, #ea580c) !important;
+  color: rgb(255, 247, 237) !important;
+}
+
+/* Quest-card pass: make mock exam cards feel game-like, not administrative. */
+.progress-section--mocks .mock-student-card.mock-student-card--compact {
+  isolation: isolate;
+  min-height: 15rem;
+  border: 1px solid rgba(217, 119, 6, 0.5) !important;
+  border-radius: 1.45rem !important;
+  background:
+    linear-gradient(135deg, rgba(255, 251, 235, 0.96), rgba(255, 255, 255, 0.98) 42%, rgba(236, 253, 245, 0.88) 100%) !important;
+  box-shadow:
+    0 22px 46px rgba(15, 23, 42, 0.12),
+    0 0 0 1px rgba(255, 255, 255, 0.72) inset,
+    0 0 0 5px rgba(245, 158, 11, 0.08) inset !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact::before {
+  inset-block: 0.75rem !important;
+  left: 0.72rem !important;
+  width: 0.32rem !important;
+  border-radius: 999px !important;
+  background: linear-gradient(180deg, #22c55e, #0ea5e9 48%, #a855f7) !important;
+  box-shadow:
+    0 0 18px rgba(14, 165, 233, 0.45),
+    0 0 28px rgba(34, 197, 94, 0.24) !important;
+}
+
+.progress-section--mocks .mock-game-card__aura {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.52) 34%, transparent 52%),
+    repeating-linear-gradient(-32deg, rgba(245, 158, 11, 0.05) 0 1px, transparent 1px 18px);
+  opacity: 0.72;
+}
+
+.progress-section--mocks .mock-game-card__runes {
+  position: absolute;
+  right: 1.05rem;
+  bottom: 0.8rem;
+  z-index: 1;
+  display: flex;
+  gap: 0.42rem;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.progress-section--mocks .mock-game-card__runes span {
+  width: 0.46rem;
+  height: 0.46rem;
+  border: 1px solid rgba(217, 119, 6, 0.8);
+  transform: rotate(45deg);
+  background: rgba(254, 243, 199, 0.72);
+}
+
+.progress-section--mocks .mock-game-card__corner {
+  position: absolute;
+  z-index: 2;
+  width: 1.4rem;
+  height: 1.4rem;
+  pointer-events: none;
+  border-color: rgba(217, 119, 6, 0.7);
+}
+
+.progress-section--mocks .mock-game-card__corner--tl {
+  top: 0.55rem;
+  left: 0.55rem;
+  border-top: 2px solid;
+  border-left: 2px solid;
+  border-top-left-radius: 0.9rem;
+}
+
+.progress-section--mocks .mock-game-card__corner--tr {
+  top: 0.55rem;
+  right: 0.55rem;
+  border-top: 2px solid;
+  border-right: 2px solid;
+  border-top-right-radius: 0.9rem;
+}
+
+.progress-section--mocks .mock-game-card__corner--bl {
+  bottom: 0.55rem;
+  left: 0.55rem;
+  border-bottom: 2px solid;
+  border-left: 2px solid;
+  border-bottom-left-radius: 0.9rem;
+}
+
+.progress-section--mocks .mock-game-card__corner--br {
+  right: 0.55rem;
+  bottom: 0.55rem;
+  border-right: 2px solid;
+  border-bottom: 2px solid;
+  border-bottom-right-radius: 0.9rem;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact > .relative {
+  z-index: 3;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact .mock-ticket-mark {
+  border-color: rgba(217, 119, 6, 0.42) !important;
+  background:
+    linear-gradient(135deg, rgba(255, 247, 237, 0.98), rgba(240, 253, 250, 0.82)) !important;
+  color: rgb(14, 116, 144) !important;
+  box-shadow:
+    0 10px 22px rgba(217, 119, 6, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact p.font-display {
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact .mock-state-chip,
+.progress-section--mocks .mock-student-card.mock-student-card--compact .mock-meta-pill {
+  border-color: rgba(217, 119, 6, 0.28) !important;
+  background: rgba(255, 255, 255, 0.68) !important;
+  color: rgb(71, 85, 105) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact .mock-state-chip--focus {
+  border-color: rgba(14, 165, 233, 0.36) !important;
+  background: rgba(224, 242, 254, 0.82) !important;
+  color: rgb(3, 105, 161) !important;
+}
+
+.progress-section--mocks .mock-mode-choice {
+  border-radius: 1.1rem !important;
+  border-color: rgba(217, 119, 6, 0.46) !important;
+  background:
+    linear-gradient(135deg, rgba(120, 53, 15, 0.12), rgba(255, 255, 255, 0.68)) !important;
+  box-shadow:
+    0 10px 24px rgba(217, 119, 6, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76) !important;
+}
+
+.progress-section--mocks .mock-mode-choice .mock-mode-switch__option {
+  min-height: 2.85rem !important;
+  border-color: rgba(148, 163, 184, 0.48) !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(241, 245, 249, 0.58)) !important;
+}
+
+.progress-section--mocks .mock-mode-choice .mock-mode-switch__option--active {
+  border-color: rgba(14, 165, 233, 0.46) !important;
+  background:
+    linear-gradient(135deg, rgba(224, 242, 254, 0.98), rgba(255, 255, 255, 0.92)) !important;
+  box-shadow:
+    0 10px 24px rgba(14, 165, 233, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+.progress-section--mocks .mock-mode-choice .mock-mode-switch__option--timer.mock-mode-switch__option--active {
+  border-color: rgba(251, 191, 36, 0.5) !important;
+  background:
+    linear-gradient(135deg, #7f1d1d, #dc2626 58%, #f59e0b) !important;
+  box-shadow:
+    0 12px 26px rgba(220, 38, 38, 0.24),
+    inset 0 1px 0 rgba(254, 202, 202, 0.18) !important;
+}
+
+.progress-section--mocks .mock-reward-shell {
+  border-color: rgba(14, 165, 233, 0.3) !important;
+  background:
+    linear-gradient(135deg, rgba(8, 47, 73, 0.06), rgba(255, 255, 255, 0.68)) !important;
+  box-shadow:
+    0 12px 26px rgba(14, 116, 144, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76) !important;
+}
+
+.progress-section--mocks .mock-reward-track__bar {
+  height: 0.58rem !important;
+  border: 1px solid rgba(14, 116, 144, 0.2);
+  background:
+    repeating-linear-gradient(90deg, rgba(15, 23, 42, 0.08) 0 8px, transparent 8px 18px),
+    rgba(203, 213, 225, 0.76) !important;
+}
+
+.progress-section--mocks .mock-reward-track__fill {
+  background: linear-gradient(90deg, #0ea5e9, #14b8a6, #f59e0b) !important;
+  box-shadow: 0 0 16px rgba(20, 184, 166, 0.32);
+}
+
+.progress-section--mocks .mock-reward-milestone__label {
+  border-color: rgba(217, 119, 6, 0.34) !important;
+  background:
+    linear-gradient(135deg, rgba(255, 251, 235, 0.98), rgba(255, 255, 255, 0.94)) !important;
+  color: rgb(12, 74, 110) !important;
+  box-shadow:
+    0 8px 16px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82) !important;
+}
+
+.progress-section--mocks .mock-card-command {
+  border-color: rgba(217, 119, 6, 0.28) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 251, 235, 0.8), rgba(255, 255, 255, 0.58)) !important;
+}
+
+.progress-section--mocks .mock-start-button {
+  border: 1px solid rgba(255, 255, 255, 0.24) !important;
+  background:
+    linear-gradient(135deg, #0ea5e9, #7c3aed 48%, #14b8a6) !important;
+  box-shadow:
+    0 18px 34px rgba(124, 58, 237, 0.26),
+    0 0 0 4px rgba(124, 58, 237, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28) !important;
+}
+
+.progress-section--mocks .mock-score-panel {
+  border-color: rgba(217, 119, 6, 0.24) !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(255, 251, 235, 0.72)) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact {
+  border-color: rgba(245, 158, 11, 0.42) !important;
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.86) 46%, rgba(6, 78, 59, 0.28)) !important;
+  box-shadow:
+    0 24px 52px rgba(2, 6, 23, 0.46),
+    0 0 0 1px rgba(148, 163, 184, 0.08) inset,
+    0 0 0 5px rgba(245, 158, 11, 0.06) inset !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-game-card__aura {
+  background:
+    linear-gradient(110deg, transparent 0%, rgba(148, 163, 184, 0.06) 34%, transparent 52%),
+    repeating-linear-gradient(-32deg, rgba(245, 158, 11, 0.06) 0 1px, transparent 1px 18px);
+  opacity: 0.8;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-game-card__corner {
+  border-color: rgba(245, 158, 11, 0.52);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-game-card__runes span {
+  border-color: rgba(251, 191, 36, 0.7);
+  background: rgba(69, 26, 3, 0.4);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact p.font-display {
+  text-shadow: 0 2px 16px rgba(14, 165, 233, 0.12);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice {
+  border-color: rgba(245, 158, 11, 0.32) !important;
+  background:
+    linear-gradient(135deg, rgba(69, 26, 3, 0.24), rgba(2, 6, 23, 0.2)) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice .mock-mode-switch__option {
+  background: rgba(15, 23, 42, 0.62) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-reward-shell {
+  border-color: rgba(14, 165, 233, 0.2) !important;
+  background:
+    linear-gradient(135deg, rgba(8, 47, 73, 0.4), rgba(2, 6, 23, 0.28)) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-card-command {
+  border-color: rgba(245, 158, 11, 0.22) !important;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.82), rgba(2, 6, 23, 0.38)) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode {
+  border-color: rgba(248, 113, 113, 0.62) !important;
+  background:
+    linear-gradient(135deg, rgba(24, 24, 27, 0.98), rgba(69, 10, 10, 0.94) 55%, rgba(124, 45, 18, 0.9)) !important;
+  box-shadow:
+    0 24px 54px rgba(127, 29, 29, 0.28),
+    0 0 0 5px rgba(248, 113, 113, 0.07) inset !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-game-card__corner {
+  border-color: rgba(248, 113, 113, 0.62);
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode::before {
+  background: linear-gradient(180deg, #ef4444, #f97316, #facc15) !important;
+  box-shadow:
+    0 0 20px rgba(248, 113, 113, 0.5),
+    0 0 30px rgba(249, 115, 22, 0.3) !important;
+}
+
+/* Mock exam card refinement: cleaner game surface, stronger hierarchy. */
+.progress-section--mocks .mock-student-card.mock-student-card--compact {
+  --mock-card-line: rgba(14, 165, 233, 0.22);
+  --mock-card-line-strong: rgba(14, 165, 233, 0.44);
+  --mock-card-soft: rgba(255, 255, 255, 0.76);
+  --mock-card-muted: rgba(71, 85, 105, 0.12);
+  min-height: 0 !important;
+  border-color: var(--mock-card-line) !important;
+  border-radius: 1.35rem !important;
+  background:
+    linear-gradient(128deg, rgba(248, 250, 252, 0.98), rgba(255, 255, 255, 0.96) 48%, rgba(236, 253, 245, 0.88)) !important;
+  box-shadow:
+    0 20px 42px rgba(15, 23, 42, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    inset 0 -1px 0 rgba(14, 165, 233, 0.08) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact::before {
+  inset-block: 1rem !important;
+  left: 0.72rem !important;
+  width: 0.24rem !important;
+  border-radius: 999px !important;
+  background: linear-gradient(180deg, #22c55e, #06b6d4 48%, #8b5cf6) !important;
+  box-shadow: 0 0 18px rgba(6, 182, 212, 0.28) !important;
+}
+
+.progress-section--mocks .mock-game-card__aura {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(108deg, transparent 0%, transparent 32%, rgba(14, 165, 233, 0.08) 48%, transparent 66%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.44), transparent 42%) !important;
+  opacity: 0.72 !important;
+}
+
+.progress-section--mocks .mock-game-card__runes,
+.progress-section--mocks .mock-game-card__corner {
+  display: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact > .relative {
+  z-index: 2;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact .relative.grid > div:first-child {
+  padding: 1.1rem 1.15rem 1.05rem 1.45rem !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact .mock-ticket-mark {
+  width: 2.85rem !important;
+  height: 2.85rem !important;
+  border-color: rgba(14, 165, 233, 0.28) !important;
+  border-radius: 1rem !important;
+  background:
+    linear-gradient(145deg, rgba(224, 242, 254, 0.96), rgba(236, 253, 245, 0.84)) !important;
+  color: rgb(8, 145, 178) !important;
+  box-shadow:
+    0 12px 24px rgba(14, 165, 233, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact p.font-display {
+  letter-spacing: 0 !important;
+  text-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact .mock-state-chip,
+.progress-section--mocks .mock-student-card.mock-student-card--compact .mock-meta-pill {
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  color: rgb(71, 85, 105) !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact .mock-state-chip--focus {
+  border-color: rgba(14, 165, 233, 0.38) !important;
+  background: rgba(224, 242, 254, 0.9) !important;
+  color: rgb(3, 105, 161) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact .mock-card-sticker {
+  filter: saturate(0.92);
+  opacity: 0.94;
+}
+
+.progress-section--mocks .mock-mode-choice,
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice {
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  border-radius: 1rem !important;
+  padding: 0.3rem !important;
+  background: rgba(15, 23, 42, 0.045) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.48),
+    0 10px 22px rgba(15, 23, 42, 0.055) !important;
+}
+
+.progress-section--mocks .mock-mode-choice::before {
+  display: none !important;
+}
+
+.progress-section--mocks .mock-mode-choice--warning {
+  border-color: rgba(245, 158, 11, 0.42) !important;
+  box-shadow:
+    0 0 0 1px rgba(245, 158, 11, 0.12),
+    inset 0 -2px 0 rgba(245, 158, 11, 0.2),
+    0 10px 22px rgba(15, 23, 42, 0.055) !important;
+}
+
+.progress-section--mocks .mock-mode-choice .mock-mode-switch {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0.34rem !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-mode-choice .mock-mode-switch__option {
+  min-height: 2.62rem !important;
+  border: 1px solid transparent !important;
+  border-radius: 0.78rem !important;
+  background: rgba(255, 255, 255, 0.52) !important;
+  color: rgb(100, 116, 139) !important;
+  font-size: 0.76rem !important;
+  font-weight: 900 !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-mode-choice .mock-mode-switch__option--active {
+  border-color: rgba(14, 165, 233, 0.4) !important;
+  background:
+    linear-gradient(135deg, rgba(224, 242, 254, 0.98), rgba(255, 255, 255, 0.94)) !important;
+  color: rgb(12, 74, 110) !important;
+  box-shadow:
+    0 9px 18px rgba(14, 165, 233, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88) !important;
+}
+
+.progress-section--mocks .mock-mode-choice--warning .mock-mode-switch__option--active {
+  border-color: rgba(245, 158, 11, 0.5) !important;
+}
+
+.progress-section--mocks .mock-mode-choice .mock-mode-switch__option--timer.mock-mode-switch__option--active {
+  border-color: rgba(251, 146, 60, 0.56) !important;
+  background: linear-gradient(135deg, #7f1d1d, #dc2626 58%, #f97316) !important;
+  color: rgb(255, 247, 237) !important;
+  box-shadow:
+    0 12px 24px rgba(220, 38, 38, 0.22),
+    inset 0 1px 0 rgba(254, 202, 202, 0.22) !important;
+}
+
+.progress-section--mocks .mock-reward-shell {
+  border: 1px solid rgba(14, 165, 233, 0.18) !important;
+  border-radius: 1rem !important;
+  background: rgba(240, 249, 255, 0.58) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 10px 24px rgba(14, 116, 144, 0.055) !important;
+}
+
+.progress-section--mocks .mock-reward-title {
+  color: rgb(3, 105, 161) !important;
+}
+
+.progress-section--mocks .mock-reward-next {
+  color: rgb(100, 116, 139) !important;
+}
+
+.progress-section--mocks .mock-reward-track__bar {
+  height: 0.46rem !important;
+  border: 0 !important;
+  background: rgba(203, 213, 225, 0.82) !important;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.12) !important;
+}
+
+.progress-section--mocks .mock-reward-track__fill {
+  background: linear-gradient(90deg, #0ea5e9, #14b8a6, #f59e0b) !important;
+  box-shadow: 0 0 14px rgba(20, 184, 166, 0.28) !important;
+}
+
+.progress-section--mocks .mock-reward-milestone__label {
+  min-height: 1.1rem;
+  border-color: rgba(14, 165, 233, 0.24) !important;
+  background: rgba(255, 255, 255, 0.92) !important;
+  color: rgb(12, 74, 110) !important;
+  box-shadow:
+    0 6px 14px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+.progress-section--mocks .mock-reward-milestone__tick {
+  background: rgba(14, 165, 233, 0.42) !important;
+}
+
+.progress-section--mocks .mock-card-command {
+  justify-content: stretch !important;
+  gap: 0.95rem !important;
+  border-color: rgba(14, 165, 233, 0.14) !important;
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.62), rgba(255, 255, 255, 0.34)) !important;
+  padding: 1rem !important;
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.52) !important;
+}
+
+.progress-section--mocks .mock-score-panel {
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  border-radius: 1rem !important;
+  background: rgba(255, 255, 255, 0.68) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 22px rgba(15, 23, 42, 0.055) !important;
+}
+
+.progress-section--mocks .mock-score-label {
+  color: rgb(100, 116, 139) !important;
+}
+
+.progress-section--mocks .mock-score-value {
+  color: rgb(15, 23, 42) !important;
+  font-size: 3.05rem !important;
+}
+
+.progress-section--mocks .mock-score-primary,
+.progress-section--mocks .mock-score-status {
+  color: rgb(100, 116, 139) !important;
+}
+
+.progress-section--mocks .mock-score-track {
+  background: rgba(203, 213, 225, 0.86) !important;
+}
+
+.progress-section--mocks .mock-score-track__fill {
+  background: linear-gradient(90deg, #0ea5e9, #14b8a6) !important;
+}
+
+.progress-section--mocks .mock-start-button {
+  min-height: 4.1rem !important;
+  border: 1px solid rgba(255, 255, 255, 0.24) !important;
+  border-radius: 1rem !important;
+  background: linear-gradient(135deg, #2563eb, #7c3aed 52%, #0f766e) !important;
+  box-shadow:
+    0 18px 34px rgba(37, 99, 235, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28) !important;
+}
+
+.progress-section--mocks .mock-start-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow:
+    0 22px 42px rgba(37, 99, 235, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32) !important;
+}
+
+@media (min-width: 1024px) {
+  .progress-section--mocks .mock-student-card.mock-student-card--compact .relative.grid {
+    grid-template-columns: minmax(0, 1fr) minmax(270px, 286px) !important;
+  }
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact {
+  --mock-card-line: rgba(56, 189, 248, 0.2);
+  --mock-card-line-strong: rgba(56, 189, 248, 0.42);
+  border-color: var(--mock-card-line) !important;
+  background:
+    linear-gradient(128deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.92) 48%, rgba(6, 78, 59, 0.25)) !important;
+  color: rgb(248, 250, 252) !important;
+  box-shadow:
+    0 24px 50px rgba(2, 6, 23, 0.42),
+    inset 0 1px 0 rgba(148, 163, 184, 0.11),
+    inset 0 -1px 0 rgba(56, 189, 248, 0.08) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact::before {
+  box-shadow: 0 0 18px rgba(34, 211, 238, 0.36) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-game-card__aura {
+  background:
+    linear-gradient(108deg, transparent 0%, transparent 32%, rgba(125, 211, 252, 0.06) 48%, transparent 66%),
+    linear-gradient(180deg, rgba(148, 163, 184, 0.06), transparent 44%) !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact .mock-ticket-mark {
+  border-color: rgba(34, 211, 238, 0.22) !important;
+  background:
+    linear-gradient(145deg, rgba(8, 47, 73, 0.76), rgba(20, 83, 45, 0.34)) !important;
+  color: rgb(125, 211, 252) !important;
+  box-shadow:
+    0 12px 24px rgba(2, 6, 23, 0.22),
+    inset 0 1px 0 rgba(125, 211, 252, 0.12) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact .mock-state-chip,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact .mock-meta-pill {
+  border-color: rgba(71, 85, 105, 0.58) !important;
+  background: rgba(15, 23, 42, 0.58) !important;
+  color: rgb(203, 213, 225) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact .mock-state-chip--focus {
+  border-color: rgba(56, 189, 248, 0.34) !important;
+  background: rgba(8, 47, 73, 0.72) !important;
+  color: rgb(186, 230, 253) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice {
+  border-color: rgba(71, 85, 105, 0.5) !important;
+  background: rgba(2, 6, 23, 0.24) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.08),
+    0 10px 22px rgba(2, 6, 23, 0.18) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice--warning {
+  border-color: rgba(245, 158, 11, 0.32) !important;
+  box-shadow:
+    0 0 0 1px rgba(245, 158, 11, 0.1),
+    inset 0 -2px 0 rgba(245, 158, 11, 0.16),
+    0 10px 22px rgba(2, 6, 23, 0.18) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice .mock-mode-switch__option {
+  border-color: transparent !important;
+  background: rgba(15, 23, 42, 0.58) !important;
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice .mock-mode-switch__option--active {
+  border-color: rgba(56, 189, 248, 0.32) !important;
+  background:
+    linear-gradient(135deg, rgba(8, 47, 73, 0.76), rgba(15, 23, 42, 0.84)) !important;
+  color: rgb(224, 242, 254) !important;
+  box-shadow:
+    0 10px 20px rgba(2, 6, 23, 0.22),
+    inset 0 1px 0 rgba(125, 211, 252, 0.1) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-mode-choice .mock-mode-switch__option--timer.mock-mode-switch__option--active {
+  border-color: rgba(251, 146, 60, 0.44) !important;
+  background: linear-gradient(135deg, #450a0a, #991b1b 56%, #ea580c) !important;
+  color: rgb(255, 247, 237) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-reward-shell {
+  border-color: rgba(56, 189, 248, 0.16) !important;
+  background: rgba(8, 47, 73, 0.22) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(125, 211, 252, 0.06),
+    0 10px 24px rgba(2, 6, 23, 0.18) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-reward-title {
+  color: rgb(125, 211, 252) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-reward-next {
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-reward-track__bar,
+html[data-theme='dark'] .progress-section--mocks .mock-score-track {
+  background: rgba(51, 65, 85, 0.86) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-reward-milestone__label {
+  border-color: rgba(56, 189, 248, 0.24) !important;
+  background: rgba(15, 23, 42, 0.9) !important;
+  color: rgb(186, 230, 253) !important;
+  box-shadow:
+    0 8px 16px rgba(2, 6, 23, 0.26),
+    inset 0 1px 0 rgba(125, 211, 252, 0.08) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-card-command {
+  border-color: rgba(56, 189, 248, 0.12) !important;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.5), rgba(2, 6, 23, 0.22)) !important;
+  box-shadow: inset 1px 0 0 rgba(148, 163, 184, 0.06) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-score-panel {
+  border-color: rgba(71, 85, 105, 0.48) !important;
+  background: rgba(2, 6, 23, 0.3) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.08),
+    0 10px 22px rgba(2, 6, 23, 0.16) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-score-value {
+  color: rgb(248, 250, 252) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-score-label,
+html[data-theme='dark'] .progress-section--mocks .mock-score-primary,
+html[data-theme='dark'] .progress-section--mocks .mock-score-status {
+  color: rgb(148, 163, 184) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode {
+  border-color: rgba(248, 113, 113, 0.4) !important;
+  background:
+    linear-gradient(128deg, rgba(24, 24, 27, 0.98), rgba(69, 10, 10, 0.86) 54%, rgba(124, 45, 18, 0.62)) !important;
+  box-shadow:
+    0 24px 50px rgba(127, 29, 29, 0.28),
+    inset 0 1px 0 rgba(254, 202, 202, 0.08),
+    inset 0 -1px 0 rgba(248, 113, 113, 0.12) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode::before {
+  background: linear-gradient(180deg, #ef4444, #f97316, #facc15) !important;
+  box-shadow: 0 0 20px rgba(248, 113, 113, 0.42) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-ticket-mark,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-score-panel,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-card-command,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-reward-shell {
+  border-color: rgba(248, 113, 113, 0.24) !important;
+  background: rgba(69, 10, 10, 0.34) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-reward-title,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-reward-next {
+  color: rgb(254, 226, 226) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-reward-track__fill,
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-score-track__fill {
+  background: linear-gradient(90deg, #ef4444, #f97316, #facc15) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-start-button {
+  background: linear-gradient(135deg, #991b1b, #dc2626 50%, #f97316) !important;
+  box-shadow:
+    0 18px 36px rgba(220, 38, 38, 0.32),
+    inset 0 1px 0 rgba(254, 202, 202, 0.22) !important;
+}
+
+@media (max-width: 1023px) {
+  .progress-section--mocks .mock-card-command {
+    border-left: 0 !important;
+    box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.12) !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .progress-section--mocks .mock-student-card.mock-student-card--compact .relative.grid > div:first-child {
+    padding: 1rem 0.85rem 0.9rem 1.2rem !important;
+  }
+
+  .progress-section--mocks .mock-mode-choice .mock-mode-switch__option {
+    min-height: 2.9rem !important;
+    flex-direction: column !important;
+    gap: 0.18rem !important;
+  }
+
+  .progress-section--mocks .mock-start-button {
+    min-height: 3.75rem !important;
+  }
+}
+
+/* Right command panel polish: make CTA and score read as one compact control area. */
+.progress-section--mocks .mock-card-command {
+  position: relative;
+  justify-content: flex-start !important;
+  gap: 0.82rem !important;
+  border-color: rgba(14, 165, 233, 0.1) !important;
+  background:
+    linear-gradient(180deg, rgba(240, 249, 255, 0.34), rgba(255, 255, 255, 0.16) 54%, rgba(236, 253, 245, 0.24)) !important;
+}
+
+.progress-section--mocks .mock-card-command > .space-y-1\.5 {
+  order: -2;
+  gap: 0 !important;
+}
+
+.progress-section--mocks .mock-start-button {
+  min-height: 3.95rem !important;
+  border-radius: 1.05rem !important;
+  background: linear-gradient(135deg, #2563eb 0%, #4f46e5 46%, #0891b2 100%) !important;
+  box-shadow:
+    0 16px 30px rgba(37, 99, 235, 0.24),
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    inset 0 1px 0 rgba(255, 255, 255, 0.26) !important;
+}
+
+.progress-section--mocks .mock-start-button svg {
+  width: 1.3rem !important;
+  height: 1.3rem !important;
+}
+
+.progress-section--mocks .mock-score-panel {
+  position: relative;
+  overflow: hidden;
+  padding: 0.95rem 0.95rem 0.82rem !important;
+  border-color: rgba(14, 165, 233, 0.18) !important;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(240, 249, 255, 0.54)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.76),
+    0 8px 18px rgba(15, 23, 42, 0.05) !important;
+}
+
+.progress-section--mocks .mock-score-panel::before {
+  content: '';
+  position: absolute;
+  top: 0.82rem;
+  right: 0.95rem;
+  width: 2.15rem;
+  height: 0.16rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #0ea5e9, #14b8a6);
+  opacity: 0.72;
+}
+
+.progress-section--mocks .mock-score-panel > .flex {
+  align-items: center !important;
+}
+
+.progress-section--mocks .mock-score-label {
+  letter-spacing: 0.12em !important;
+}
+
+.progress-section--mocks .mock-score-value {
+  margin-top: 0.28rem !important;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: 2.68rem !important;
+  font-weight: 950 !important;
+  line-height: 0.9 !important;
+  letter-spacing: 0 !important;
+}
+
+.progress-section--mocks .mock-score-primary {
+  font-size: 0.72rem !important;
+  font-weight: 850 !important;
+}
+
+.progress-section--mocks .mock-score-status {
+  font-size: 0.72rem !important;
+}
+
+.progress-section--mocks .mock-score-track {
+  height: 0.34rem !important;
+  margin-top: 0.78rem !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-card-command {
+  border-color: rgba(56, 189, 248, 0.09) !important;
+  background:
+    linear-gradient(180deg, rgba(8, 47, 73, 0.22), rgba(2, 6, 23, 0.12) 56%, rgba(20, 83, 45, 0.12)) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-start-button {
+  background: linear-gradient(135deg, #2563eb 0%, #4f46e5 48%, #0f766e 100%) !important;
+  box-shadow:
+    0 16px 30px rgba(37, 99, 235, 0.24),
+    0 0 0 1px rgba(125, 211, 252, 0.08) inset,
+    inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-score-panel {
+  border-color: rgba(125, 211, 252, 0.16) !important;
+  background:
+    linear-gradient(145deg, rgba(2, 6, 23, 0.58), rgba(8, 47, 73, 0.3)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(125, 211, 252, 0.07),
+    0 8px 18px rgba(2, 6, 23, 0.14) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-score-panel::before {
+  opacity: 0.62;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-start-button {
+  background: linear-gradient(135deg, #991b1b 0%, #dc2626 50%, #f97316 100%) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-score-panel::before {
+  background: linear-gradient(90deg, #ef4444, #f97316);
+}
+
+/* Keep the right action stack optically centered inside the card height. */
+@media (min-width: 1024px) {
+  .progress-section--mocks .mock-card-command {
+    justify-content: flex-start !important;
+  }
+
+  .progress-section--mocks .mock-card-command > .space-y-1\.5,
+  .progress-section--mocks .mock-score-panel {
+    width: 100%;
+  }
+}
+
+/* Prefer a fuller score board over vertically centering a small stack. */
+@media (min-width: 1024px) {
+  .progress-section--mocks .mock-card-command {
+    align-items: stretch !important;
+  }
+
+  .progress-section--mocks .mock-card-command > .space-y-1\.5 {
+    flex: 0 0 auto;
+  }
+
+  .progress-section--mocks .mock-score-panel {
+    flex: 1 1 auto;
+    min-height: 8.8rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  .progress-section--mocks .mock-score-value {
+    font-size: 3rem !important;
+  }
+}
+
+/* Filled score board: the enlarged area now carries useful game stats. */
+.progress-section--mocks .mock-score-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.78rem;
+}
+
+.progress-section--mocks .mock-score-panel::before {
+  display: none !important;
+}
+
+.progress-section--mocks .mock-score-panel__hero {
+  align-items: flex-start !important;
+}
+
+.progress-section--mocks .mock-score-value {
+  font-size: 3.28rem !important;
+}
+
+.progress-section--mocks .mock-score-subline {
+  margin-top: 0.28rem;
+  color: rgb(100, 116, 139);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.progress-section--mocks .mock-score-orbit {
+  position: relative;
+  display: grid;
+  width: 3.75rem;
+  height: 3.75rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 999px;
+  background:
+    conic-gradient(#0ea5e9 0deg, #14b8a6 var(--mock-score-angle), rgba(203, 213, 225, 0.7) 0deg);
+  box-shadow:
+    0 10px 20px rgba(14, 116, 144, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.progress-section--mocks .mock-score-orbit::before {
+  content: '';
+  position: absolute;
+  inset: 0.38rem;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
+.progress-section--mocks .mock-score-orbit span,
+.progress-section--mocks .mock-score-orbit small {
+  position: relative;
+  z-index: 1;
+  color: rgb(12, 74, 110);
+  font-weight: 950;
+  line-height: 1;
+}
+
+.progress-section--mocks .mock-score-orbit span {
+  font-size: 1rem;
+}
+
+.progress-section--mocks .mock-score-orbit small {
+  margin-left: -0.12rem;
+  font-size: 0.64rem;
+}
+
+.progress-section--mocks .mock-score-stats {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.42rem;
+}
+
+.progress-section--mocks .mock-score-stat {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.52rem;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0.78rem;
+  background: rgba(255, 255, 255, 0.48);
+  padding: 0.5rem 0.58rem;
+  color: rgb(14, 116, 144);
+}
+
+.progress-section--mocks .mock-score-stat > svg,
+.progress-section--mocks .mock-score-stat > img {
+  flex: 0 0 auto;
+}
+
+.progress-section--mocks .mock-score-stat div {
+  min-width: 0;
+  display: grid;
+  gap: 0.02rem;
+}
+
+.progress-section--mocks .mock-score-stat strong {
+  min-width: 0;
+  color: rgb(15, 23, 42);
+  font-size: 0.78rem;
+  font-weight: 950;
+  line-height: 1.05;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-section--mocks .mock-score-stat span {
+  min-width: 0;
+  color: rgb(100, 116, 139);
+  font-size: 0.68rem;
+  font-weight: 750;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-section--mocks .mock-score-stat--reward {
+  border-color: rgba(245, 158, 11, 0.22);
+  background: rgba(255, 251, 235, 0.52);
+  color: rgb(217, 119, 6);
+}
+
+.progress-section--mocks .mock-score-track {
+  margin-top: auto !important;
+}
+
+@media (min-width: 1024px) {
+  .progress-section--mocks .mock-score-panel {
+    min-height: 11.6rem;
+  }
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-score-subline {
+  color: rgb(148, 163, 184);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-score-orbit {
+  background:
+    conic-gradient(#38bdf8 0deg, #14b8a6 var(--mock-score-angle), rgba(51, 65, 85, 0.82) 0deg);
+  box-shadow:
+    0 10px 22px rgba(2, 6, 23, 0.18),
+    inset 0 1px 0 rgba(125, 211, 252, 0.08);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-score-orbit::before {
+  background: rgba(2, 6, 23, 0.82);
+  box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.08);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-score-orbit span,
+html[data-theme='dark'] .progress-section--mocks .mock-score-orbit small {
+  color: rgb(224, 242, 254);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-score-stat {
+  border-color: rgba(71, 85, 105, 0.42);
+  background: rgba(15, 23, 42, 0.42);
+  color: rgb(125, 211, 252);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-score-stat strong {
+  color: rgb(248, 250, 252);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-score-stat span {
+  color: rgb(148, 163, 184);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-score-stat--reward {
+  border-color: rgba(251, 191, 36, 0.22);
+  background: rgba(69, 26, 3, 0.22);
+  color: rgb(251, 191, 36);
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-score-orbit {
+  background:
+    conic-gradient(#ef4444 0deg, #f97316 var(--mock-score-angle), rgba(127, 29, 29, 0.72) 0deg);
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-score-orbit::before {
+  background: rgba(24, 24, 27, 0.86);
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-score-stat {
+  border-color: rgba(248, 113, 113, 0.22);
+  background: rgba(69, 10, 10, 0.28);
+  color: rgb(254, 202, 202);
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-score-stat strong {
+  color: rgb(255, 247, 237);
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--timer-mode .mock-score-stat span {
+  color: rgb(254, 202, 202);
+}
+
+/* Score board simplification: fewer signals, bigger score. */
+.progress-section--mocks .mock-score-panel {
+  gap: 0.62rem !important;
+  padding: 0.9rem !important;
+}
+
+.progress-section--mocks .mock-score-panel__hero {
+  align-items: flex-start !important;
+}
+
+.progress-section--mocks .mock-score-main {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.progress-section--mocks .mock-score-side {
+  padding-top: 0.18rem;
+}
+
+.progress-section--mocks .mock-score-value {
+  font-size: 4.25rem !important;
+  line-height: 0.78 !important;
+}
+
+.progress-section--mocks .mock-score-primary {
+  font-size: 0.74rem !important;
+}
+
+.progress-section--mocks .mock-score-status {
+  font-size: 0.7rem !important;
+}
+
+.progress-section--mocks .mock-score-subline,
+.progress-section--mocks .mock-score-orbit {
+  display: none !important;
+}
+
+.progress-section--mocks .mock-score-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0.42rem !important;
+}
+
+.progress-section--mocks .mock-score-stat,
+.progress-section--mocks .mock-score-stat--reward {
+  grid-column: auto !important;
+}
+
+.progress-section--mocks .mock-score-stat {
+  min-height: 2.15rem !important;
+  padding: 0.48rem 0.52rem !important;
+}
+
+.progress-section--mocks .mock-score-track {
+  margin-top: 0.12rem !important;
+}
+
+.progress-section--mocks .mock-score-panel .mock-score-track {
+  display: none !important;
+}
+
+@media (min-width: 1024px) {
+  .progress-section--mocks .mock-score-panel {
+    min-height: 8rem !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .progress-section--mocks .mock-score-value {
+    font-size: 3.45rem !important;
+  }
+}
+
+/* Center the main score number; secondary status should not pull it left. */
+.progress-section--mocks .mock-score-panel__hero {
+  position: relative;
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  justify-items: center !important;
+  padding-top: 0.22rem;
+  text-align: center;
+}
+
+.progress-section--mocks .mock-score-main {
+  justify-items: center;
+  text-align: center;
+}
+
+.progress-section--mocks .mock-score-side {
+  position: absolute;
+  top: 0;
+  right: 0;
+  max-width: 5.2rem;
+  text-align: right;
+}
+
+.progress-section--mocks .mock-score-label,
+.progress-section--mocks .mock-score-value {
+  text-align: center;
+}
+
+/* Score board density correction: fill the existing board, do not grow it again. */
+.progress-section--mocks .mock-score-panel {
+  gap: 0.58rem !important;
+  padding: 0.82rem !important;
+}
+
+.progress-section--mocks .mock-score-value {
+  font-size: 3.46rem !important;
+}
+
+.progress-section--mocks .mock-score-subline {
+  margin-top: 0.16rem !important;
+}
+
+.progress-section--mocks .mock-score-orbit {
+  width: 4.05rem !important;
+  height: 4.05rem !important;
+}
+
+.progress-section--mocks .mock-score-orbit span {
+  font-size: 1.08rem !important;
+}
+
+.progress-section--mocks .mock-score-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0.38rem !important;
+}
+
+.progress-section--mocks .mock-score-stat {
+  min-height: 2.18rem;
+  gap: 0.42rem !important;
+  padding: 0.46rem 0.48rem !important;
+}
+
+.progress-section--mocks .mock-score-stat--reward {
+  grid-column: 1 / -1;
+}
+
+.progress-section--mocks .mock-score-stat strong {
+  font-size: 0.76rem !important;
+}
+
+.progress-section--mocks .mock-score-stat span {
+  font-size: 0.66rem !important;
+}
+
+@media (min-width: 1024px) {
+  .progress-section--mocks .mock-score-panel {
+    min-height: 8.8rem !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .progress-section--mocks .mock-score-stats {
+    grid-template-columns: 1fr !important;
+  }
+
+  .progress-section--mocks .mock-score-stat--reward {
+    grid-column: auto;
   }
 }
