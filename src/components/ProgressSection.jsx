@@ -3,8 +3,10 @@ import {
   ArrowUpDown,
   BarChart2,
   BookOpen,
+  ChevronRight,
   Clock3,
   Copy,
+  Crown,
   Eye,
   FileText,
   Flame,
@@ -16,8 +18,11 @@ import {
   Plus,
   Save,
   Search,
+  ShieldCheck,
+  Sparkles,
   Target,
   Trash2,
+  Trophy,
   Users,
 } from 'lucide-react';
 import { api } from '../services/api';
@@ -529,6 +534,7 @@ const ProgressSection = ({
   const [activeMockMode, setActiveMockMode] = useState(MOCK_ATTEMPT_MODE_CLASSIC);
   const [mockModeByExamId, setMockModeByExamId] = useState({});
   const [startingMockExamId, setStartingMockExamId] = useState(null);
+  const [classicModeWarning, setClassicModeWarning] = useState(null);
   const [mockExamFilter, setMockExamFilter] = useState('all');
   const [mockExamQuery, setMockExamQuery] = useState('');
   const [mockExamSort, setMockExamSort] = useState('smart');
@@ -557,6 +563,15 @@ const ProgressSection = ({
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const mockAttemptStudentId = role === 'student' ? null : effectiveStudentId;
   const prevEffectiveStudentIdRef = useRef(effectiveStudentId);
+
+  useEffect(() => {
+    if (!classicModeWarning || typeof window === 'undefined') return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setClassicModeWarning(null);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [classicModeWarning]);
 
   const visibleMockExams = useMemo(() => {
     const baseList = role !== 'student'
@@ -1969,11 +1984,21 @@ const ProgressSection = ({
       || cachedStats?.attemptedCount > 0
     );
     const resolvedMode = modeLocked ? cachedMode : requestedMode;
-    if (role === 'student' && !modeLocked && resolvedMode === MOCK_ATTEMPT_MODE_CLASSIC) {
-      const confirmed = window.confirm(
-        'Начать обычный режим?\n\nТаймер для этого пробника будет заблокирован.'
-      );
-      if (!confirmed) return;
+    const canWarnClassicModeLock = Boolean(effectiveStudentId) && isMockExamAccessible(exam, effectiveStudentId);
+    if (
+      canWarnClassicModeLock
+      && !modeLocked
+      && resolvedMode === MOCK_ATTEMPT_MODE_CLASSIC
+      && !options?.skipClassicModeWarning
+    ) {
+      setClassicModeWarning({
+        exam,
+        options: {
+          ...options,
+          mode: MOCK_ATTEMPT_MODE_CLASSIC,
+        },
+      });
+      return;
     }
     const requestId = mockAttemptRequestIdRef.current + 1;
     mockAttemptRequestIdRef.current = requestId;
@@ -2012,6 +2037,21 @@ const ProgressSection = ({
         setStartingMockExamId(null);
       }
     }
+  };
+
+  const closeClassicModeWarning = () => {
+    setClassicModeWarning(null);
+  };
+
+  const confirmClassicModeStart = () => {
+    const pending = classicModeWarning;
+    setClassicModeWarning(null);
+    if (!pending?.exam) return;
+    handleOpenMockExam(pending.exam, {
+      ...(pending.options || {}),
+      mode: MOCK_ATTEMPT_MODE_CLASSIC,
+      skipClassicModeWarning: true,
+    });
   };
 
   const showStudentMockPreview = Boolean(effectiveStudentId);
@@ -2360,6 +2400,7 @@ const ProgressSection = ({
     const scoreValue = Number.isFinite(numericSecondaryScore)
       ? Math.max(0, Math.min(100, numericSecondaryScore))
       : 0;
+    const progressValue = Math.max(0, Math.min(100, Number(examStats.progressPercent) || 0));
     const scoreGap = examRow?.rewardGap ?? (nextRewardMilestone ? Math.max(0, nextRewardMilestone.score - scoreValue) : 0);
     const nextRewardText = nextRewardMilestone
       ? `До ${isTimerMode ? 'сундука' : nextRewardMilestone.score}: ${scoreGap} ${getBallLabel(scoreGap)}.`
@@ -2412,17 +2453,18 @@ const ProgressSection = ({
         <div className="mock-game-card__corner mock-game-card__corner--tr" aria-hidden="true" />
         <div className="mock-game-card__corner mock-game-card__corner--bl" aria-hidden="true" />
         <div className="mock-game-card__corner mock-game-card__corner--br" aria-hidden="true" />
-        <div className="relative grid gap-0 lg:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="p-3.5 md:p-4">
-            <div className="flex flex-col gap-3 md:flex-row md:items-start">
-              <div className="mock-ticket-mark flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sky-300">
-                <BookOpen size={18} />
+        <div className="mock-quest-grid relative grid gap-0 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="mock-quest-body p-3.5 md:p-4">
+            <div className="mock-quest-heading flex flex-col gap-3 md:flex-row md:items-start">
+              <div className="mock-ticket-mark mock-quest-emblem flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sky-300">
+                <span className="mock-quest-emblem__ring" aria-hidden="true" />
+                {isTimerMode ? <Flame size={19} /> : <ShieldCheck size={19} />}
               </div>
 
               <div className="min-w-0 flex-1">
                 <div className="flex flex-col gap-2.5 xl:flex-row xl:items-start xl:justify-between">
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
+                    <div className="mock-quest-badges flex flex-wrap items-center gap-1.5">
                       {isFocusExam && <span className="mock-state-chip mock-state-chip--focus">Фокус</span>}
                       {isBestExam && <span className="mock-state-chip mock-state-chip--best">Лучший</span>}
                       {examStats.isCompleted && <span className="mock-state-chip mock-state-chip--done">Готово</span>}
@@ -2445,12 +2487,42 @@ const ProgressSection = ({
                     </div>
 
                     <div className="mt-2">
-                      <p className="text-xl font-display font-bold leading-tight text-gray-900 md:text-[1.35rem]">{exam.title}</p>
+                      <p className="mock-quest-title text-xl font-display font-bold leading-tight text-gray-900 md:text-[1.35rem]">{exam.title}</p>
+                    </div>
+
+                    <div className="mock-quest-stats mt-2 flex flex-wrap items-center gap-1.5">
+                      {hasExamTasks ? (
+                        <>
+                          <span>
+                            <Target size={12} />
+                            {`${progressValue}% пути`}
+                          </span>
+                          <span>
+                            <BookOpen size={12} />
+                            {`${examStats.solvedCount}/${examStats.totalCount} заданий`}
+                          </span>
+                          <span>
+                            <Trophy size={12} />
+                            {`${scoreValue}/100`}
+                          </span>
+                          {isTimerMode && (
+                            <span className="mock-quest-stat--timer">
+                              <Flame size={12} />
+                              {modeLocked ? timerRemainingLabel : 'Таймер 235 мин'}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span>
+                          <Sparkles size={12} />
+                          Подготовка арены
+                        </span>
+                      )}
                     </div>
                   </div>
 
                   {primaryBadge && (
-                    <div className="flex justify-start xl:justify-end xl:pl-4">
+                    <div className="mock-quest-sticker flex justify-start xl:justify-end xl:pl-4">
                       <MockExamBadgeSticker badge={primaryBadge} size="sm" className="mock-card-sticker" surface={stickerSurface} />
                     </div>
                   )}
@@ -2497,10 +2569,11 @@ const ProgressSection = ({
                     </div>
                   </div>
 
-                  <div className={`mock-reward-shell mt-3 rounded-2xl p-2.5 ${isTimerMode ? 'mock-reward-shell--timer' : ''}`}>
+                  <div className={`mock-reward-shell mock-quest-reward mt-3 rounded-2xl p-2.5 ${isTimerMode ? 'mock-reward-shell--timer' : ''}`}>
                     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px]">
-                      <span className="mock-reward-title font-semibold">
-                        {isTimerMode ? `Испытание: ${scoreValue}/100` : `Награды: ${scoreValue}/100`}
+                      <span className="mock-reward-title inline-flex items-center gap-1.5 font-semibold">
+                        {isTimerMode ? <Flame size={13} /> : <Crown size={13} />}
+                        {isTimerMode ? `Испытание: ${scoreValue}/100` : `Трофейная дорога: ${scoreValue}/100`}
                       </span>
                       <span className="mock-reward-next">
                         {isTimerMode && modeLocked ? `${timerRemainingLabel} · ` : ''}
@@ -2560,17 +2633,36 @@ const ProgressSection = ({
           </div>
 
           <div className="mock-card-command flex flex-col justify-between gap-3 border-t p-3 lg:border-l lg:border-t-0">
+            <div className="mock-command-cta space-y-1.5">
+              <Button
+                variant={examStats.isCompleted ? 'secondary' : 'primary'}
+                onClick={openStudentMockExam}
+                disabled={!hasExamTasks || isStartingThisMock}
+                className="mock-start-button w-full py-1.5 sm:py-2"
+              >
+                <span className="mock-start-button__icon">
+                  <PlayCircle size={16} />
+                </span>
+                <span className="mock-start-button__label">
+                  {isStartingThisMock ? 'Запускаем...' : (hasExamTasks ? examStats.actionLabel : 'Скоро')}
+                </span>
+                <ChevronRight className="mock-start-button__arrow" size={17} />
+              </Button>
+            </div>
             <div className="mock-score-panel rounded-2xl border p-3">
               <div className="mock-score-panel__hero flex items-start justify-between gap-3">
                 <div className="mock-score-main min-w-0">
-                  <div className="mock-score-label text-[10px] font-bold uppercase tracking-[0.18em]">
+                  <div className="mock-score-label inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em]">
+                    <Crown size={12} />
                     {hasExamTasks ? 'Баллы' : 'Статус'}
                   </div>
                   <div className="mock-score-value mt-1 font-display text-3xl font-bold leading-none">
                     {hasExamTasks ? examStats.secondary : '-'}
                   </div>
                 </div>
-
+                <div className="mock-score-crown flex shrink-0 items-center justify-center">
+                  {isTimerMode ? <Flame size={18} /> : <Trophy size={18} />}
+                </div>
               </div>
 
               {hasExamTasks && (
@@ -2602,17 +2694,6 @@ const ProgressSection = ({
                   style={{ width: `${scoreValue}%` }}
                 />
               </div>
-            </div>
-            <div className="space-y-1.5">
-              <Button
-                variant={examStats.isCompleted ? 'secondary' : 'primary'}
-                onClick={openStudentMockExam}
-                disabled={!hasExamTasks || isStartingThisMock}
-                className="mock-start-button w-full py-1.5 sm:py-2"
-              >
-                <PlayCircle size={16} />
-                {isStartingThisMock ? 'Запускаем...' : (hasExamTasks ? examStats.actionLabel : 'Скоро')}
-              </Button>
             </div>
           </div>
         </div>
@@ -4095,6 +4176,69 @@ const ProgressSection = ({
               getExpectedAnswers={getExpectedAnswers}
               allowsPartialAnswers={allowsPartialAnswers}
             />
+          )}
+
+          {classicModeWarning && (
+            <div
+              className="mock-classic-lock-modal fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/72 p-4 backdrop-blur-md"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="classic-mode-warning-title"
+              onClick={closeClassicModeWarning}
+            >
+              <div
+                className="mock-classic-lock-card relative w-full max-w-[34rem] overflow-hidden rounded-[28px] border p-4 shadow-2xl md:p-5"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="mock-classic-lock-card__glow" aria-hidden="true" />
+                <div className="relative flex items-start gap-3">
+                  <div className="mock-classic-lock-card__icon flex shrink-0 items-center justify-center">
+                    <Clock3 size={22} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="mock-classic-lock-card__kicker">
+                      Подтверждение
+                    </div>
+                    <h3 id="classic-mode-warning-title" className="mock-classic-lock-card__title mt-1">
+                      Начать пробник в обычном режиме?
+                    </h3>
+                    <p className="mock-classic-lock-card__text mt-2">
+                      Ты уверен? Если начать решать этот пробник без таймера, режим таймера для него потом будет недоступен.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mock-classic-lock-card__rules relative mt-4 grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <BookOpen size={15} />
+                    <span>Обычный режим запустится сразу после подтверждения</span>
+                  </div>
+                  <div>
+                    <Flame size={15} />
+                    <span>Таймерный режим нельзя будет выбрать позже</span>
+                  </div>
+                </div>
+
+                <div className="relative mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={closeClassicModeWarning}
+                    className="mock-classic-lock-card__cancel"
+                  >
+                    Нет
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={confirmClassicModeStart}
+                    className="mock-classic-lock-card__start"
+                  >
+                    <BookOpen size={16} />
+                    Да, начать
+                  </Button>
+                </div>
+              </div>
+            </div>
           )}
 
           {activeMockExam && (
