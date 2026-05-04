@@ -111,6 +111,7 @@ const MockExamModal = ({
   const [saveError, setSaveError] = useState('');
   const [saveStatus, setSaveStatus] = useState('');
   const [checking, setChecking] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [autoAdvance, setAutoAdvance] = useState(false);
   const [expandedImage, setExpandedImage] = useState(null);
   const [successBurst, setSuccessBurst] = useState(null);
@@ -124,12 +125,15 @@ const MockExamModal = ({
   const firstTaskNumber = MOCK_TASK_NUMBERS[0];
   const effectiveAttemptMode = normalizeMockAttemptMode(initialAttempt?.mode, normalizeMockAttemptMode(attemptMode));
   const isTimerMode = effectiveAttemptMode === MOCK_ATTEMPT_MODE_TIMER;
+  const timerPaused = isTimerMode && Boolean(String(initialAttempt?.timerPausedAt || '').trim()) && !String(initialAttempt?.timerFinishedAt || '').trim();
   const timerExpiresAtMs = isTimerMode ? Date.parse(String(initialAttempt?.timerExpiresAt || '')) : Number.NaN;
   const timerDurationMs = Math.max(60 * 1000, Math.floor(Number(initialAttempt?.timerDurationMs) || MOCK_EXAM_TIMER_DURATION_MS));
-  const timerRemainingMs = isTimerMode && Number.isFinite(timerExpiresAtMs)
+  const timerRemainingMs = timerPaused
+    ? Math.max(0, Math.floor(Number(initialAttempt?.timerRemainingMs) || 0))
+    : (isTimerMode && Number.isFinite(timerExpiresAtMs)
     ? Math.max(0, timerExpiresAtMs - nowMs)
-    : timerDurationMs;
-  const timerExpired = isTimerMode && Number.isFinite(timerExpiresAtMs) && timerRemainingMs <= 0;
+    : timerDurationMs);
+  const timerExpired = isTimerMode && (timerPaused || Number.isFinite(timerExpiresAtMs)) && timerRemainingMs <= 0;
   const timerLabel = formatMockTimerDuration(timerRemainingMs);
 
   const readAttemptAnswers = (attempt) => (
@@ -138,6 +142,21 @@ const MockExamModal = ({
   const readAttemptSolved = (attempt) => (
     attempt?.solved && typeof attempt.solved === 'object' ? attempt.solved : {}
   );
+  const isTimerAttemptFinished = (attempt) => (
+    Boolean(String(attempt?.timerFinishedAt || '').trim())
+  );
+  const readAttemptResults = (attempt) => {
+    const attemptModeValue = normalizeMockAttemptMode(attempt?.mode, normalizeMockAttemptMode(attemptMode));
+    if (attemptModeValue !== MOCK_ATTEMPT_MODE_TIMER || !isTimerAttemptFinished(attempt)) return {};
+    const solvedMap = readAttemptSolved(attempt);
+    return MOCK_TASK_NUMBERS.reduce((acc, taskNumber) => {
+      const key = String(taskNumber);
+      if (Object.prototype.hasOwnProperty.call(solvedMap, key)) {
+        acc[key] = Boolean(solvedMap[key]);
+      }
+      return acc;
+    }, {});
+  };
 
   const getNextUnsolvedTask = (solvedMap = solved, fromTask = selectedTask) => {
     const currentIndex = Math.max(0, MOCK_TASK_NUMBERS.indexOf(fromTask));
@@ -158,10 +177,11 @@ const MockExamModal = ({
     hasLocalAttemptChangesRef.current = false;
     setAnswers(readAttemptAnswers(latestInitialAttemptRef.current));
     setSolved(readAttemptSolved(latestInitialAttemptRef.current));
-    setResults({});
+    setResults(readAttemptResults(latestInitialAttemptRef.current));
     setSaveError('');
     setSaveStatus('');
     setChecking(false);
+    setClosing(false);
     setArtifactDropBurst(null);
     const requestedTask = String(initialTaskNumber ?? '').trim();
     const initialTask = requestedTask
@@ -174,17 +194,17 @@ const MockExamModal = ({
     if (hasLocalAttemptChangesRef.current) return;
     setAnswers(readAttemptAnswers(initialAttempt));
     setSolved(readAttemptSolved(initialAttempt));
-    setResults({});
+    setResults(readAttemptResults(initialAttempt));
     setSaveError('');
     setSaveStatus('');
   }, [initialAttempt]);
 
   useEffect(() => {
-    if (!isTimerMode) return undefined;
+    if (!isTimerMode || timerPaused) return undefined;
     setNowMs(Date.now());
     const timerId = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(timerId);
-  }, [isTimerMode, initialAttempt?.timerExpiresAt]);
+  }, [isTimerMode, timerPaused, initialAttempt?.timerExpiresAt]);
 
   useEffect(() => {
     setSaveError('');
@@ -246,20 +266,28 @@ const MockExamModal = ({
   const singleAnswer = typeof rawAnswer === 'string'
     ? rawAnswer
     : (Array.isArray(rawAnswer) ? (rawAnswer[0] ?? '') : '');
-  const solvedCount = Object.values(solved || {}).filter(Boolean).length;
-  const primaryScore = getPrimaryScoreFromSolved(solved);
-  const secondaryScore = getSecondaryScoreFromPrimary(primaryScore);
-  const totalTaskCount = MOCK_TASK_NUMBERS.length;
-  const selectedTaskIndex = Math.max(0, MOCK_TASK_NUMBERS.indexOf(selectedTask));
-  const progressPercent = totalTaskCount > 0
-    ? Math.min(100, Math.round((solvedCount / totalTaskCount) * 100))
-    : 0;
-  const isFirstTask = selectedTaskIndex <= 0;
-  const isLastTask = selectedTaskIndex >= totalTaskCount - 1;
   const screenshots = (Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [])
     .map((img) => ({ ...img, url: withStudentId(img?.url, studentId) }));
   const files = (Array.isArray(currentQuestion?.files) ? currentQuestion.files : [])
     .map((file) => ({ ...file, url: withStudentId(file?.url, studentId) }));
+  const hasAnswerForTask = (taskNumber, answersMap = answers) => {
+    const key = String(taskNumber);
+    const count = getMockAnswerCountForTask(taskNumber);
+    const value = answersMap?.[key];
+    if (count <= 1) {
+      const singleValue = Array.isArray(value) ? value[0] : value;
+      return Boolean(String(singleValue ?? '').trim());
+    }
+    const values = Array.isArray(value)
+      ? value
+      : (typeof value === 'string'
+        ? [value, ...Array.from({ length: Math.max(0, count - 1) }, () => '')]
+        : Array.from({ length: count }, () => '')
+      );
+    return allowsPartialAnswers(taskNumber)
+      ? values.some((entry) => String(entry ?? '').trim())
+      : values.slice(0, count).every((entry) => String(entry ?? '').trim());
+  };
   const hasQuestionText = Boolean(String(currentQuestion?.question || '').trim());
   const screenshotMaxHeightClass = hasQuestionText
     ? 'max-h-[30vh] sm:max-h-[36vh] lg:max-h-[42vh] xl:max-h-[50vh]'
@@ -270,18 +298,43 @@ const MockExamModal = ({
   const examBadges = normalizeMockExamBadges(exam?.badges);
   const primaryBadge = examBadges[0] || null;
   const secondaryBadges = examBadges.slice(1);
-  const isCurrentTaskSolved = Boolean(solved[taskKey]);
+  const totalTaskCount = MOCK_TASK_NUMBERS.length;
+  const timerResultsVisible = isTimerMode && (
+    isTimerAttemptFinished(initialAttempt)
+    || Object.keys(results || {}).length >= Math.max(1, totalTaskCount)
+  );
+  const visibleSolved = isTimerMode && !timerResultsVisible ? {} : solved;
+  const isCurrentTaskAnswered = hasAnswerForTask(selectedTask);
+  const isCurrentTaskSolved = Boolean(visibleSolved[taskKey]);
   const allowPartialForTask = answerCount > 1 ? allowsPartialAnswers(selectedTask) : false;
   const hasLargeAnswerGrid = answerCount > 6;
-  const isAnswerReady = answerCount > 1
-    ? (
-      allowPartialForTask
-        ? currentAnswers.some((value) => String(value ?? '').trim())
-        : currentAnswers.every((value) => String(value ?? '').trim())
-    )
-    : Boolean(String(singleAnswer ?? '').trim());
-  const nextUnsolvedTask = getNextUnsolvedTask(solved, selectedTask);
-  const canCheck = Boolean(currentQuestion && studentId && isAnswerReady && !checking && !timerExpired);
+  const isAnswerReady = isCurrentTaskAnswered;
+  const answeredCount = MOCK_TASK_NUMBERS.filter((taskNumber) => hasAnswerForTask(taskNumber)).length;
+  const solvedCount = Object.values(visibleSolved || {}).filter(Boolean).length;
+  const primaryScore = getPrimaryScoreFromSolved(visibleSolved);
+  const secondaryScore = getSecondaryScoreFromPrimary(primaryScore);
+  const displayProgressCount = isTimerMode && !timerResultsVisible ? answeredCount : solvedCount;
+  const selectedTaskIndex = Math.max(0, MOCK_TASK_NUMBERS.indexOf(selectedTask));
+  const progressPercent = totalTaskCount > 0
+    ? Math.min(100, Math.round((displayProgressCount / totalTaskCount) * 100))
+    : 0;
+  const isFirstTask = selectedTaskIndex <= 0;
+  const isLastTask = selectedTaskIndex >= totalTaskCount - 1;
+  const getNextUnansweredTask = (fromTask = selectedTask) => {
+    const currentIndex = Math.max(0, MOCK_TASK_NUMBERS.indexOf(fromTask));
+    const orderedTasks = [
+      ...MOCK_TASK_NUMBERS.slice(currentIndex + 1),
+      ...MOCK_TASK_NUMBERS.slice(0, currentIndex),
+    ];
+    return orderedTasks.find((taskNumber) => (
+      exam?.tasks?.[String(taskNumber)] && !hasAnswerForTask(taskNumber)
+    )) || null;
+  };
+  const nextUnsolvedTask = isTimerMode && !timerResultsVisible
+    ? getNextUnansweredTask(selectedTask)
+    : getNextUnsolvedTask(visibleSolved, selectedTask);
+  const canCheck = Boolean(currentQuestion && studentId && isAnswerReady && !checking && !timerExpired && !isTimerMode);
+  const canFinishTimerExam = Boolean(isTimerMode && currentQuestion && studentId && !checking && !closing && !timerResultsVisible);
 
   const handlePrevTask = () => {
     if (isFirstTask) return;
@@ -299,7 +352,7 @@ const MockExamModal = ({
   };
 
   const handleCheck = async (event) => {
-    if (!currentQuestion || !studentId || !isAnswerReady || checking || timerExpired) return;
+    if (!currentQuestion || !studentId || !isAnswerReady || checking || timerExpired || isTimerMode) return;
     const buttonRect = event?.currentTarget?.getBoundingClientRect?.();
     const sourceRect = (
       buttonRect
@@ -360,98 +413,278 @@ const MockExamModal = ({
     }
   };
 
+  const handleFinishTimerExam = async (event) => {
+    if (!canFinishTimerExam) return;
+    const buttonRect = event?.currentTarget?.getBoundingClientRect?.();
+    const sourceRect = (
+      buttonRect
+      && Number.isFinite(buttonRect.left)
+      && Number.isFinite(buttonRect.top)
+      && Number.isFinite(buttonRect.width)
+      && Number.isFinite(buttonRect.height)
+    )
+      ? {
+        left: buttonRect.left,
+        top: buttonRect.top,
+        width: buttonRect.width,
+        height: buttonRect.height,
+      }
+      : null;
+    hasLocalAttemptChangesRef.current = true;
+    setSaveError('');
+    setSaveStatus('');
+    setChecking(true);
+    try {
+      const saved = await api.saveMockAttempt(studentId, exam.id, {
+        answers,
+        mode: effectiveAttemptMode,
+        finishTimerExam: true,
+        localDay: typeof getLocalDayKey === 'function' ? getLocalDayKey() : undefined,
+      });
+      if (saved && typeof saved === 'object') {
+        const savedSolved = readAttemptSolved(saved);
+        const nextResults = MOCK_TASK_NUMBERS.reduce((acc, taskNumber) => {
+          const key = String(taskNumber);
+          acc[key] = Boolean(savedSolved[key]);
+          return acc;
+        }, {});
+        setSolved(savedSolved);
+        setResults(nextResults);
+        const mockArtifactDrop = getFeaturedMockArtifactDrop(saved);
+        if (mockArtifactDrop) triggerArtifactDropBurst(mockArtifactDrop);
+        const savedSecondaryScore = getSecondaryScoreFromPrimary(getPrimaryScoreFromSolved(savedSolved));
+        const timerChestsGained = Math.max(0, Math.floor(Number(saved?.timerChestsGained) || 0));
+        setSaveStatus(
+          saved?.timerRewardsDisabled
+            ? `Экзамен завершён. Баллы: ${savedSecondaryScore}. Сундуки таймера недоступны после обычного режима.`
+            : (timerChestsGained > 0
+            ? `Экзамен завершён. Баллы: ${savedSecondaryScore}. Открыто сундуков: ${timerChestsGained}.`
+            : `Экзамен завершён. Баллы: ${savedSecondaryScore}.`)
+        );
+        onAttemptSaved?.(exam.id, saved, { sourceRect });
+      }
+    } catch (err) {
+      const message = typeof err?.message === 'string' ? err.message : '';
+      setSaveError(message || 'Не удалось завершить экзамен. Попробуйте снова.');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const handleClose = async () => {
+    if (!isTimerMode || timerResultsVisible || !studentId || closing) {
+      onClose?.();
+      return;
+    }
+    setClosing(true);
+    setSaveError('');
+    setSaveStatus('Ставим таймер на паузу...');
+    try {
+      const saved = await api.pauseMockAttempt(studentId, exam.id, {
+        answers,
+        mode: effectiveAttemptMode,
+        localDay: typeof getLocalDayKey === 'function' ? getLocalDayKey() : undefined,
+      });
+      if (saved && typeof saved === 'object') {
+        onAttemptSaved?.(exam.id, saved);
+      }
+      onClose?.();
+    } catch (err) {
+      const message = typeof err?.message === 'string' ? err.message : '';
+      setSaveError(message || 'Не удалось поставить таймер на паузу. Попробуйте закрыть ещё раз.');
+      setSaveStatus('');
+    } finally {
+      setClosing(false);
+    }
+  };
+
   const handleAnswerKeyDown = (event) => {
     if (event.key !== 'Enter' || event.nativeEvent?.isComposing) return;
     event.preventDefault();
+    if (isTimerMode) {
+      if (isAnswerReady && !isLastTask) handleNextTask();
+      return;
+    }
     handleCheck(event);
   };
 
-  const shellClassName = isDarkTheme
-    ? 'border-white/10 text-slate-100'
-    : 'border-purple-100/70 text-slate-900';
-  const shellStyle = isDarkTheme
-    ? {
-      background: [
-        'radial-gradient(circle at 0% 0%, rgba(124, 58, 237, 0.24), transparent 28%)',
-        'radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.16), transparent 24%)',
-        'linear-gradient(180deg, rgba(7, 17, 31, 0.98), rgba(12, 23, 40, 0.98))',
-      ].join(', '),
-    }
-    : {
-      background: [
-        'radial-gradient(circle at 0% 0%, rgba(168, 85, 247, 0.12), transparent 28%)',
-        'radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.08), transparent 24%)',
-        'linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(250, 245, 255, 0.96))',
-      ].join(', '),
-    };
-  const panelClassName = isDarkTheme
-    ? 'border-white/10 bg-white/[0.05] shadow-[0_18px_40px_rgba(2,6,23,0.34)] backdrop-blur-xl'
-    : 'border-slate-200/70 bg-white/92 shadow-[0_14px_34px_rgba(15,23,42,0.08)] backdrop-blur-xl';
-  const mutedPanelClassName = isDarkTheme
-    ? 'border-white/10 bg-white/[0.04] shadow-[0_12px_28px_rgba(2,6,23,0.26)] backdrop-blur-xl'
-    : 'border-slate-200/70 bg-white/88 shadow-[0_12px_26px_rgba(15,23,42,0.07)] backdrop-blur-xl';
-  const summaryPanelClassName = isDarkTheme
-    ? 'border-violet-400/20 bg-white/[0.06] shadow-[0_24px_50px_rgba(76,29,149,0.24)] backdrop-blur-xl'
-    : 'border-purple-200/80 bg-white/90 shadow-[0_18px_40px_rgba(124,58,237,0.14)] backdrop-blur-xl';
-  const summaryPanelStyle = isDarkTheme
-    ? {
-      background: [
-        'linear-gradient(145deg, rgba(124, 58, 237, 0.22), rgba(14, 165, 233, 0.08) 140%)',
-        'linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03))',
-      ].join(', '),
-    }
-    : {
-      background: [
-        'linear-gradient(145deg, rgba(139, 92, 246, 0.14), rgba(236, 72, 153, 0.08) 120%)',
-        'linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(250, 245, 255, 0.9))',
-      ].join(', '),
-    };
+  const shellClassName = isTimerMode
+    ? (isDarkTheme ? 'border-rose-500/20 text-slate-100' : 'border-rose-200/80 text-slate-900')
+    : (isDarkTheme
+      ? 'border-white/10 text-slate-100'
+      : 'border-purple-100/70 text-slate-900');
+  const shellStyle = isTimerMode
+    ? (isDarkTheme
+      ? {
+        background: [
+          'radial-gradient(circle at 0% 0%, rgba(225, 29, 72, 0.24), transparent 28%)',
+          'radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.2), transparent 25%)',
+          'linear-gradient(180deg, rgba(17, 10, 24, 0.99), rgba(25, 12, 32, 0.98))',
+        ].join(', '),
+      }
+      : {
+        background: [
+          'radial-gradient(circle at 0% 0%, rgba(244, 63, 94, 0.14), transparent 28%)',
+          'radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.12), transparent 24%)',
+          'linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(255, 241, 247, 0.96))',
+        ].join(', '),
+      })
+    : (isDarkTheme
+      ? {
+        background: [
+          'radial-gradient(circle at 0% 0%, rgba(124, 58, 237, 0.24), transparent 28%)',
+          'radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.16), transparent 24%)',
+          'linear-gradient(180deg, rgba(7, 17, 31, 0.98), rgba(12, 23, 40, 0.98))',
+        ].join(', '),
+      }
+      : {
+        background: [
+          'radial-gradient(circle at 0% 0%, rgba(168, 85, 247, 0.12), transparent 28%)',
+          'radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.08), transparent 24%)',
+          'linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(250, 245, 255, 0.96))',
+        ].join(', '),
+      });
+  const panelClassName = isTimerMode
+    ? (isDarkTheme
+      ? 'border-rose-400/16 bg-rose-500/[0.055] shadow-[0_18px_42px_rgba(76,5,25,0.38)] backdrop-blur-xl'
+      : 'border-rose-100/80 bg-white/94 shadow-[0_16px_36px_rgba(190,18,60,0.1)] backdrop-blur-xl')
+    : (isDarkTheme
+      ? 'border-white/10 bg-white/[0.05] shadow-[0_18px_40px_rgba(2,6,23,0.34)] backdrop-blur-xl'
+      : 'border-slate-200/70 bg-white/92 shadow-[0_14px_34px_rgba(15,23,42,0.08)] backdrop-blur-xl');
+  const mutedPanelClassName = isTimerMode
+    ? (isDarkTheme
+      ? 'border-fuchsia-400/14 bg-white/[0.045] shadow-[0_12px_30px_rgba(76,5,25,0.3)] backdrop-blur-xl'
+      : 'border-rose-100/80 bg-white/90 shadow-[0_12px_28px_rgba(190,18,60,0.08)] backdrop-blur-xl')
+    : (isDarkTheme
+      ? 'border-white/10 bg-white/[0.04] shadow-[0_12px_28px_rgba(2,6,23,0.26)] backdrop-blur-xl'
+      : 'border-slate-200/70 bg-white/88 shadow-[0_12px_26px_rgba(15,23,42,0.07)] backdrop-blur-xl');
+  const summaryPanelClassName = isTimerMode
+    ? (isDarkTheme
+      ? 'border-rose-400/22 bg-white/[0.06] shadow-[0_24px_54px_rgba(136,19,55,0.28)] backdrop-blur-xl'
+      : 'border-rose-200/80 bg-white/92 shadow-[0_18px_44px_rgba(225,29,72,0.14)] backdrop-blur-xl')
+    : (isDarkTheme
+      ? 'border-violet-400/20 bg-white/[0.06] shadow-[0_24px_50px_rgba(76,29,149,0.24)] backdrop-blur-xl'
+      : 'border-purple-200/80 bg-white/90 shadow-[0_18px_40px_rgba(124,58,237,0.14)] backdrop-blur-xl');
+  const summaryPanelStyle = isTimerMode
+    ? (isDarkTheme
+      ? {
+        background: [
+          'linear-gradient(145deg, rgba(190, 18, 60, 0.24), rgba(147, 51, 234, 0.13) 130%)',
+          'linear-gradient(180deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.03))',
+        ].join(', '),
+      }
+      : {
+        background: [
+          'linear-gradient(145deg, rgba(244, 63, 94, 0.13), rgba(168, 85, 247, 0.1) 120%)',
+          'linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 241, 247, 0.9))',
+        ].join(', '),
+      })
+    : (isDarkTheme
+      ? {
+        background: [
+          'linear-gradient(145deg, rgba(124, 58, 237, 0.22), rgba(14, 165, 233, 0.08) 140%)',
+          'linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03))',
+        ].join(', '),
+      }
+      : {
+        background: [
+          'linear-gradient(145deg, rgba(139, 92, 246, 0.14), rgba(236, 72, 153, 0.08) 120%)',
+          'linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(250, 245, 255, 0.9))',
+        ].join(', '),
+      });
   const labelClassName = 'text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400';
-  const metaPillClassName = isDarkTheme
-    ? 'rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-slate-200'
-    : 'rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 text-xs text-slate-600';
+  const metaPillClassName = isTimerMode
+    ? (isDarkTheme
+      ? 'rounded-full border border-rose-400/18 bg-rose-500/[0.07] px-3 py-1.5 text-xs text-rose-100'
+      : 'rounded-full border border-rose-100 bg-white/92 px-3 py-1.5 text-xs text-rose-800')
+    : (isDarkTheme
+      ? 'rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-slate-200'
+      : 'rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 text-xs text-slate-600');
   const closeButtonClassName = isDarkTheme
     ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]'
     : 'border-slate-200 bg-white/90 text-slate-600 hover:bg-slate-100';
-  const navButtonClassName = isDarkTheme
-    ? 'border-white/10 bg-white/[0.05] text-slate-200 hover:border-violet-400/40 hover:bg-violet-500/10 disabled:opacity-35 disabled:cursor-not-allowed'
-    : 'border-slate-200 bg-white/95 text-slate-600 hover:border-purple-300 hover:bg-purple-50 disabled:opacity-40 disabled:cursor-not-allowed';
-  const inputClassName = isDarkTheme
-    ? 'w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:border-violet-400 outline-none'
-    : 'w-full rounded-2xl border border-slate-200 bg-slate-50/90 px-4 py-3 text-slate-800 placeholder:text-slate-400 focus:border-purple-500 outline-none';
-  const compactInputClassName = isDarkTheme
-    ? 'w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-violet-400 outline-none'
-    : 'w-full rounded-xl border border-slate-200 bg-slate-50/90 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-purple-500 outline-none';
+  const navButtonClassName = isTimerMode
+    ? (isDarkTheme
+      ? 'border-rose-400/16 bg-rose-500/[0.06] text-rose-100 hover:border-fuchsia-300/42 hover:bg-fuchsia-500/12 disabled:opacity-35 disabled:cursor-not-allowed'
+      : 'border-rose-100 bg-white/95 text-rose-700 hover:border-fuchsia-200 hover:bg-rose-50 disabled:opacity-40 disabled:cursor-not-allowed')
+    : (isDarkTheme
+      ? 'border-white/10 bg-white/[0.05] text-slate-200 hover:border-violet-400/40 hover:bg-violet-500/10 disabled:opacity-35 disabled:cursor-not-allowed'
+      : 'border-slate-200 bg-white/95 text-slate-600 hover:border-purple-300 hover:bg-purple-50 disabled:opacity-40 disabled:cursor-not-allowed');
+  const inputClassName = isTimerMode
+    ? (isDarkTheme
+      ? 'w-full rounded-2xl border border-rose-400/18 bg-slate-950/52 px-4 py-3 text-slate-100 placeholder:text-rose-200/35 focus:border-fuchsia-300 outline-none'
+      : 'w-full rounded-2xl border border-rose-100 bg-white/90 px-4 py-3 text-slate-900 placeholder:text-rose-300 focus:border-rose-500 outline-none')
+    : (isDarkTheme
+      ? 'w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:border-violet-400 outline-none'
+      : 'w-full rounded-2xl border border-slate-200 bg-slate-50/90 px-4 py-3 text-slate-800 placeholder:text-slate-400 focus:border-purple-500 outline-none');
+  const compactInputClassName = isTimerMode
+    ? (isDarkTheme
+      ? 'w-full rounded-xl border border-rose-400/18 bg-slate-950/52 px-3 py-2.5 text-sm text-slate-100 placeholder:text-rose-200/35 focus:border-fuchsia-300 outline-none'
+      : 'w-full rounded-xl border border-rose-100 bg-white/90 px-3 py-2.5 text-sm text-slate-900 placeholder:text-rose-300 focus:border-rose-500 outline-none')
+    : (isDarkTheme
+      ? 'w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-violet-400 outline-none'
+      : 'w-full rounded-xl border border-slate-200 bg-slate-50/90 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-purple-500 outline-none');
   const answerInputClassName = hasLargeAnswerGrid ? compactInputClassName : inputClassName;
   const answerPanelStyle = hasLargeAnswerGrid
     ? { height: 'min(35vh, 21rem)' }
     : undefined;
-  const attachmentLinkClassName = isDarkTheme
-    ? 'flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-200 transition hover:border-violet-400/40 hover:bg-violet-500/10'
-    : 'flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 transition hover:border-purple-300 hover:bg-purple-50';
-  const statusPillClassName = isCurrentTaskSolved
+  const attachmentLinkClassName = isTimerMode
     ? (isDarkTheme
-      ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
-      : 'border border-emerald-200 bg-emerald-50 text-emerald-700')
+      ? 'flex items-center justify-between gap-3 rounded-2xl border border-rose-400/16 bg-rose-500/[0.045] px-4 py-3 text-sm text-rose-100 transition hover:border-fuchsia-300/42 hover:bg-fuchsia-500/12'
+      : 'flex items-center justify-between gap-3 rounded-2xl border border-rose-100 bg-white px-4 py-3 text-sm text-rose-800 transition hover:border-fuchsia-200 hover:bg-rose-50')
     : (isDarkTheme
-      ? 'border border-white/10 bg-white/[0.05] text-slate-300'
-      : 'border border-slate-200 bg-slate-100 text-slate-600');
+      ? 'flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-200 transition hover:border-violet-400/40 hover:bg-violet-500/10'
+      : 'flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 transition hover:border-purple-300 hover:bg-purple-50');
+  const statusPillClassName = isTimerMode && !timerResultsVisible
+    ? (isCurrentTaskAnswered
+      ? (isDarkTheme
+        ? 'border border-fuchsia-400/28 bg-fuchsia-500/12 text-fuchsia-100'
+        : 'border border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700')
+      : (isDarkTheme
+        ? 'border border-rose-400/16 bg-rose-500/[0.06] text-rose-100'
+        : 'border border-rose-100 bg-rose-50 text-rose-700'))
+    : (isCurrentTaskSolved
+      ? (isDarkTheme
+        ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+        : 'border border-emerald-200 bg-emerald-50 text-emerald-700')
+      : (isDarkTheme
+        ? 'border border-white/10 bg-white/[0.05] text-slate-300'
+        : 'border border-slate-200 bg-slate-100 text-slate-600'));
+  const progressBarClassName = isTimerMode
+    ? (isDarkTheme ? 'bg-gradient-to-r from-rose-500 via-fuchsia-500 to-violet-500' : 'bg-gradient-to-r from-rose-500 via-fuchsia-500 to-violet-500')
+    : (isDarkTheme ? 'bg-white' : 'bg-gradient-to-r from-violet-500 to-fuchsia-500');
 
   const getTaskButtonClassName = (taskNumber, compact = false) => {
     const isSelected = taskNumber === selectedTask;
-    const isSolvedTask = Boolean(solved[String(taskNumber)]);
+    const isSolvedTask = Boolean(visibleSolved[String(taskNumber)]);
+    const isAnsweredTask = hasAnswerForTask(taskNumber);
     const sizeClassName = compact
       ? 'h-11 min-w-[2.9rem] px-3 rounded-2xl text-sm'
       : 'h-11 rounded-2xl text-sm';
 
     if (isSelected) {
+      if (isTimerMode) {
+        return `${sizeClassName} border border-rose-300 bg-gradient-to-br from-rose-600 via-fuchsia-600 to-violet-600 text-white shadow-[0_14px_26px_rgba(225,29,72,0.34)]`;
+      }
       return `${sizeClassName} border border-violet-400 bg-violet-500 text-white shadow-[0_14px_24px_rgba(139,92,246,0.32)]`;
+    }
+
+    if (isTimerMode && !timerResultsVisible && isAnsweredTask) {
+      return isDarkTheme
+        ? `${sizeClassName} border border-fuchsia-400/30 bg-fuchsia-500/12 text-fuchsia-100 hover:border-fuchsia-300/50 hover:bg-fuchsia-500/16`
+        : `${sizeClassName} border border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 hover:border-fuchsia-300 hover:bg-fuchsia-100`;
     }
 
     if (isSolvedTask) {
       return isDarkTheme
         ? `${sizeClassName} border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 hover:border-emerald-400/50 hover:bg-emerald-500/14`
         : `${sizeClassName} border border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100`;
+    }
+
+    if (isTimerMode) {
+      return isDarkTheme
+        ? `${sizeClassName} border border-rose-400/16 bg-rose-500/[0.055] text-rose-100/80 hover:border-rose-300/38 hover:bg-rose-500/12 hover:text-white`
+        : `${sizeClassName} border border-rose-100 bg-white/90 text-rose-700 hover:border-rose-200 hover:bg-rose-50`;
     }
 
     return isDarkTheme
@@ -474,7 +707,7 @@ const MockExamModal = ({
           key={taskNumber}
           type="button"
           onClick={() => setSelectedTask(taskNumber)}
-          className={`${getTaskButtonClassName(taskNumber, compact)} transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/60`}
+          className={`${getTaskButtonClassName(taskNumber, compact)} transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 ${isTimerMode ? 'focus-visible:ring-rose-400/65' : 'focus-visible:ring-purple-400/60'}`}
         >
           {taskNumber}
         </button>
@@ -485,7 +718,7 @@ const MockExamModal = ({
   const modal = (
     <div className="fixed inset-0 z-50 modal-backdrop flex items-center justify-center bg-black/65 p-3 backdrop-blur-md sm:p-4">
       <div
-        className={`modal-card relative flex max-h-[96vh] w-full max-w-[96rem] flex-col overflow-hidden rounded-[2rem] border p-4 shadow-2xl md:p-6 ${shellClassName}`}
+        className={`modal-card mock-exam-modal-card ${isTimerMode ? 'mock-exam-modal--timer' : ''} relative flex max-h-[96vh] w-full max-w-[96rem] flex-col overflow-hidden rounded-[2rem] border p-4 shadow-2xl md:p-6 ${shellClassName}`}
         style={shellStyle}
       >
         <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-white/8 to-transparent" />
@@ -493,10 +726,16 @@ const MockExamModal = ({
         <div className="relative mb-4 flex items-start gap-4">
           <div className="min-w-0 flex-1 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className={`${isDarkTheme ? 'border border-violet-400/20 bg-violet-500/12 text-violet-100' : 'bg-purple-50 text-purple-700'} inline-flex items-center rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em]`}>
+              <span className={`${isTimerMode
+                ? (isDarkTheme ? 'border border-rose-400/24 bg-rose-500/14 text-rose-100' : 'bg-rose-50 text-rose-700')
+                : (isDarkTheme ? 'border border-violet-400/20 bg-violet-500/12 text-violet-100' : 'bg-purple-50 text-purple-700')
+              } inline-flex items-center rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em]`}>
                 Пробник
               </span>
-              <span className={`${isDarkTheme ? 'border-white/10 bg-white/[0.05] text-slate-300' : 'border-purple-100 bg-white/80 text-gray-500'} inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest`}>
+              <span className={`${isTimerMode
+                ? (isDarkTheme ? 'border-fuchsia-400/18 bg-fuchsia-500/10 text-fuchsia-100' : 'border-fuchsia-100 bg-white/85 text-fuchsia-700')
+                : (isDarkTheme ? 'border-white/10 bg-white/[0.05] text-slate-300' : 'border-purple-100 bg-white/80 text-gray-500')
+              } inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest`}>
                 ЕГЭ
               </span>
               {isTimerMode && (
@@ -507,7 +746,7 @@ const MockExamModal = ({
               )}
             </div>
 
-            <div className="mock-exam-artifact-hint">
+            <div className={`mock-exam-artifact-hint ${isTimerMode ? 'mock-exam-artifact-hint--timer' : ''}`}>
               <Sparkles size={15} />
               <span>За решённые задачи пробника есть шанс выбить артефакт.</span>
             </div>
@@ -519,11 +758,14 @@ const MockExamModal = ({
                 </h3>
                 {secondaryBadges.length > 0 && <MockExamBadges badges={secondaryBadges} size="sm" className="gap-2" />}
                 <div className="flex flex-wrap items-center gap-2 lg:hidden">
+                  {(!isTimerMode || timerResultsVisible) && (
+                    <span className={metaPillClassName}>
+                      Баллы <span className="ml-1 font-semibold">{secondaryScore}</span>
+                    </span>
+                  )}
                   <span className={metaPillClassName}>
-                    Баллы <span className="ml-1 font-semibold">{secondaryScore}</span>
-                  </span>
-                  <span className={metaPillClassName}>
-                    Решено <span className="ml-1 font-semibold">{solvedCount}/{totalTaskCount}</span>
+                    {isTimerMode && !timerResultsVisible ? 'Заполнено' : 'Решено'}{' '}
+                    <span className="ml-1 font-semibold">{displayProgressCount}/{totalTaskCount}</span>
                   </span>
                   {isTimerMode && (
                     <span className={`mock-exam-timer-mobile ${timerExpired ? 'mock-exam-timer-mobile--expired' : ''}`}>
@@ -544,7 +786,8 @@ const MockExamModal = ({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
+            disabled={closing}
             aria-label="Закрыть пробник"
             className={`relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition ${closeButtonClassName}`}
           >
@@ -558,12 +801,12 @@ const MockExamModal = ({
               className={`rounded-[1.75rem] border p-3.5 ${summaryPanelClassName}`}
               style={summaryPanelStyle}
             >
-              <div className={labelClassName}>Прогресс</div>
+              <div className={labelClassName}>{isTimerMode && !timerResultsVisible ? 'Сдача' : 'Прогресс'}</div>
               <div className={`mt-3 text-3xl font-display font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-                {secondaryScore} баллов
+                {isTimerMode && !timerResultsVisible ? `${answeredCount}/${totalTaskCount}` : `${secondaryScore} баллов`}
               </div>
               <div className={`mt-1 text-sm ${isDarkTheme ? 'text-slate-300' : 'text-slate-500'}`}>
-                {primaryScore} первичных
+                {isTimerMode && !timerResultsVisible ? 'ответов заполнено' : `${primaryScore} первичных`}
               </div>
 
               {isTimerMode && (
@@ -578,8 +821,10 @@ const MockExamModal = ({
 
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <div className={`${isDarkTheme ? 'border-white/10 bg-black/10 text-slate-200' : 'border-white/50 bg-white/50 text-slate-700'} rounded-2xl border px-3 py-2`}>
-                  <div className="text-[10px] uppercase tracking-[0.18em] opacity-70">Решено</div>
-                  <div className="mt-1 text-base font-semibold">{solvedCount}/{totalTaskCount}</div>
+                  <div className="text-[10px] uppercase tracking-[0.18em] opacity-70">
+                    {isTimerMode && !timerResultsVisible ? 'Заполнено' : 'Решено'}
+                  </div>
+                  <div className="mt-1 text-base font-semibold">{displayProgressCount}/{totalTaskCount}</div>
                 </div>
                 <div className={`${isDarkTheme ? 'border-white/10 bg-black/10 text-slate-200' : 'border-white/50 bg-white/50 text-slate-700'} rounded-2xl border px-3 py-2`}>
                   <div className="text-[10px] uppercase tracking-[0.18em] opacity-70">Готово</div>
@@ -589,7 +834,7 @@ const MockExamModal = ({
 
               <div className={`mt-4 h-2 overflow-hidden rounded-full ${isDarkTheme ? 'bg-white/10' : 'bg-white/60'}`}>
                 <div
-                  className={`h-full rounded-full ${isDarkTheme ? 'bg-white' : 'bg-gradient-to-r from-violet-500 to-fuchsia-500'}`}
+                  className={`h-full rounded-full ${progressBarClassName}`}
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
@@ -609,12 +854,12 @@ const MockExamModal = ({
 
               <div className={`shrink-0 grid gap-1.5 pt-3 text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
                 <div className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full bg-violet-500" />
+                  <span className={`h-2.5 w-2.5 rounded-full ${isTimerMode ? 'bg-rose-500' : 'bg-violet-500'}`} />
                   Текущее
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
-                  Решено
+                  <span className={`h-2.5 w-2.5 rounded-full ${isTimerMode && !timerResultsVisible ? 'bg-fuchsia-400' : 'bg-emerald-400'}`} />
+                  {isTimerMode && !timerResultsVisible ? 'Заполнено' : 'Решено'}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={`h-2.5 w-2.5 rounded-full ${isDarkTheme ? 'bg-slate-600' : 'bg-slate-300'}`} />
@@ -634,17 +879,20 @@ const MockExamModal = ({
               </div>
 
               <div className="mb-3 flex flex-wrap items-center gap-2">
+                {(!isTimerMode || timerResultsVisible) && (
+                  <span className={metaPillClassName}>
+                    Баллы <span className="ml-1 font-semibold">{secondaryScore}</span>
+                  </span>
+                )}
                 <span className={metaPillClassName}>
-                  Баллы <span className="ml-1 font-semibold">{secondaryScore}</span>
-                </span>
-                <span className={metaPillClassName}>
-                  Решено <span className="ml-1 font-semibold">{solvedCount}/{totalTaskCount}</span>
+                  {isTimerMode && !timerResultsVisible ? 'Заполнено' : 'Решено'}{' '}
+                  <span className="ml-1 font-semibold">{displayProgressCount}/{totalTaskCount}</span>
                 </span>
               </div>
 
               <div className={`mb-3 h-2 overflow-hidden rounded-full ${isDarkTheme ? 'bg-white/10' : 'bg-slate-200/80'}`}>
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500"
+                  className={`h-full rounded-full ${progressBarClassName}`}
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
@@ -661,7 +909,9 @@ const MockExamModal = ({
                       № {selectedTask}
                     </span>
                     <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${statusPillClassName}`}>
-                      {isCurrentTaskSolved ? 'Решено' : 'Открыто'}
+                      {isTimerMode && !timerResultsVisible
+                        ? (isCurrentTaskAnswered ? 'Заполнено' : 'Открыто')
+                        : (isCurrentTaskSolved ? 'Решено' : 'Открыто')}
                     </span>
                   </div>
                 </div>
@@ -769,7 +1019,7 @@ const MockExamModal = ({
                   <div className="min-w-0 flex flex-1 flex-col gap-3 min-h-0">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className={labelClassName}>Ответ</div>
-                      {results[taskKey] !== undefined && (
+                      {(!isTimerMode || timerResultsVisible) && results[taskKey] !== undefined && (
                         <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${
                           results[taskKey]
                             ? (isDarkTheme
@@ -787,13 +1037,15 @@ const MockExamModal = ({
 
                     <div className={hasLargeAnswerGrid ? 'min-h-0 flex-1 overflow-y-auto pr-1' : ''}>
                       <div className={`mb-2 text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                        {answerCount > 1
+                        {isTimerMode && !timerResultsVisible
+                          ? 'Ответы проверятся только после завершения экзамена. Enter переходит дальше, когда задание заполнено.'
+                          : (answerCount > 1
                           ? (
                             allowPartialForTask
                               ? 'Можно заполнить часть ответов. Enter проверяет.'
                               : `Нужно заполнить ${answerCount} ответов. Enter проверяет.`
                           )
-                          : 'Введите ответ без лишних пробелов. Enter проверяет.'}
+                          : 'Введите ответ без лишних пробелов. Enter проверяет.')}
                       </div>
                       {answerCount > 1 ? (
                         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -802,6 +1054,7 @@ const MockExamModal = ({
                               key={idx}
                               type="text"
                               value={currentAnswers[idx] ?? ''}
+                              disabled={isTimerMode && timerResultsVisible}
                               onKeyDown={handleAnswerKeyDown}
                               onChange={(e) => {
                                 const value = e.target.value;
@@ -831,6 +1084,7 @@ const MockExamModal = ({
                         <input
                           type="text"
                           value={singleAnswer}
+                          disabled={isTimerMode && timerResultsVisible}
                           onKeyDown={handleAnswerKeyDown}
                           onChange={(e) => {
                             hasLocalAttemptChangesRef.current = true;
@@ -844,59 +1098,77 @@ const MockExamModal = ({
                       )}
                     </div>
 
-                    {timerExpired && (
+                    {timerExpired && !timerResultsVisible && (
                       <div className={`rounded-2xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm font-semibold ${isDarkTheme ? 'text-rose-200' : 'text-rose-700'}`}>
-                        Время таймерного режима истекло. Проверка ответов закрыта.
+                        Время вышло. Завершите экзамен, чтобы увидеть результаты.
                       </div>
                     )}
                     {saveError && (
                       <div className="text-sm text-rose-500">{saveError}</div>
                     )}
                     {saveStatus && !saveError && (
-                      <div className={`text-sm ${results[taskKey] ? 'text-emerald-600' : 'text-amber-600'}`}>
+                      <div className={`text-sm ${isTimerMode ? (isDarkTheme ? 'text-fuchsia-200' : 'text-fuchsia-700') : (results[taskKey] ? 'text-emerald-600' : 'text-amber-600')}`}>
                         {saveStatus}
                       </div>
                     )}
                   </div>
 
-                  <div className="flex w-full shrink-0 flex-col gap-2 sm:flex-row xl:w-auto xl:flex-col xl:self-end">
-                    <label className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold sm:w-auto xl:min-w-[9rem] ${
-                      isDarkTheme
-                        ? 'border-white/10 bg-white/[0.04] text-slate-300'
-                        : 'border-slate-200 bg-white/80 text-slate-600'
-                    }`}>
-                      <input
-                        type="checkbox"
-                        checked={autoAdvance}
-                        onChange={(event) => setAutoAdvance(event.target.checked)}
-                        className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
-                      />
-                      Автодалее
-                    </label>
-                    <Button
-                      variant="secondary"
-                      onClick={handleNextUnsolvedTask}
-                      disabled={!nextUnsolvedTask}
-                      className={`w-full sm:w-auto xl:min-w-[9rem] sm:hidden ${isDarkTheme ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]' : ''}`}
-                    >
-                      <ArrowRight size={16} />
-                      Следующее
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      onClick={onClose}
-                      className={`w-full sm:w-auto xl:min-w-[9rem] ${isDarkTheme ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]' : ''}`}
-                    >
-                      Закрыть
-                    </Button>
-                    <Button
-                      onClick={handleCheck}
-                      disabled={!canCheck}
-                      className="w-full sm:w-auto xl:min-w-[9rem]"
-                    >
-                      {timerExpired ? 'Время вышло' : (checking ? 'Проверяем...' : 'Проверить')}
-                    </Button>
-                  </div>
+                  {isTimerMode ? (
+                    <div className="flex w-full shrink-0 flex-col gap-2 xl:w-[15rem] xl:self-end">
+                      <Button
+                        onClick={handleFinishTimerExam}
+                        disabled={!canFinishTimerExam}
+                        className="min-h-[3.35rem] w-full rounded-2xl text-base shadow-[0_18px_34px_rgba(225,29,72,0.28)]"
+                        style={{
+                          background: 'linear-gradient(135deg, #e11d48, #c026d3 58%, #7c3aed)',
+                          color: '#fff',
+                        }}
+                      >
+                        <Flame size={18} />
+                        {timerResultsVisible ? 'Экзамен завершён' : (checking ? 'Завершаем...' : 'Завершить экзамен')}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex w-full shrink-0 flex-col gap-2 sm:flex-row xl:w-auto xl:flex-col xl:self-end">
+                      <label className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold sm:w-auto xl:min-w-[9rem] ${
+                        isDarkTheme
+                          ? 'border-white/10 bg-white/[0.04] text-slate-300'
+                          : 'border-slate-200 bg-white/80 text-slate-600'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          checked={autoAdvance}
+                          onChange={(event) => setAutoAdvance(event.target.checked)}
+                          className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                        />
+                        Автодалее
+                      </label>
+                      <Button
+                        variant="secondary"
+                        onClick={handleNextUnsolvedTask}
+                        disabled={!nextUnsolvedTask}
+                        className={`w-full sm:w-auto xl:min-w-[9rem] sm:hidden ${isDarkTheme ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]' : ''}`}
+                      >
+                        <ArrowRight size={16} />
+                        Следующее
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={handleClose}
+                        disabled={closing}
+                        className={`w-full sm:w-auto xl:min-w-[9rem] ${isDarkTheme ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]' : ''}`}
+                      >
+                        {closing ? 'Пауза...' : 'Закрыть'}
+                      </Button>
+                      <Button
+                        onClick={handleCheck}
+                        disabled={!canCheck}
+                        className="w-full sm:w-auto xl:min-w-[9rem]"
+                      >
+                        {checking ? 'Проверяем...' : 'Проверить'}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -904,10 +1176,11 @@ const MockExamModal = ({
                 <div className="flex justify-end">
                   <Button
                     variant="secondary"
-                    onClick={onClose}
+                    onClick={handleClose}
+                    disabled={closing}
                     className={`w-full sm:w-auto ${isDarkTheme ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]' : ''}`}
                   >
-                    Закрыть
+                    {closing ? 'Пауза...' : 'Закрыть'}
                   </Button>
                 </div>
               </div>

@@ -1,4 +1,5 @@
 ﻿import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ArrowUpDown,
   BarChart2,
@@ -392,10 +393,20 @@ const getMockNextRewardInfo = (score, mode) => {
 };
 
 const getMockTimerRemainingMs = (attempt, nowMs = Date.now()) => {
+  if (String(attempt?.timerPausedAt || '').trim()) {
+    const pausedRemainingMs = Math.max(0, Math.floor(Number(attempt?.timerRemainingMs) || 0));
+    return Number.isFinite(pausedRemainingMs) ? pausedRemainingMs : 0;
+  }
   const expiresAtMs = Date.parse(String(attempt?.timerExpiresAt || ''));
   if (!Number.isFinite(expiresAtMs)) return null;
   return Math.max(0, expiresAtMs - nowMs);
 };
+
+const isMockTimerAttemptPaused = (attempt) => (
+  normalizeMockAttemptMode(attempt?.mode) === MOCK_ATTEMPT_MODE_TIMER
+  && Boolean(String(attempt?.timerPausedAt || '').trim())
+  && !String(attempt?.timerFinishedAt || '').trim()
+);
 
 const formatMockTimerDuration = (value) => {
   const totalSeconds = Math.max(0, Math.ceil(Number(value) / 1000));
@@ -565,12 +576,20 @@ const ProgressSection = ({
   const prevEffectiveStudentIdRef = useRef(effectiveStudentId);
 
   useEffect(() => {
-    if (!classicModeWarning || typeof window === 'undefined') return undefined;
+    if (!classicModeWarning || typeof window === 'undefined' || typeof document === 'undefined') return undefined;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousDocumentOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') setClassicModeWarning(null);
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousDocumentOverflow;
+    };
   }, [classicModeWarning]);
 
   const visibleMockExams = useMemo(() => {
@@ -609,7 +628,9 @@ const ProgressSection = ({
         : null;
       const isTimerExpired = attemptMode === MOCK_ATTEMPT_MODE_TIMER && timerRemainingMs === 0;
       const answersMap = attempt?.answers && typeof attempt.answers === 'object' ? attempt.answers : {};
-      const solvedMap = attempt?.solved && typeof attempt.solved === 'object' ? attempt.solved : {};
+      const storedSolvedMap = attempt?.solved && typeof attempt.solved === 'object' ? attempt.solved : {};
+      const timerResultsVisible = attemptMode !== MOCK_ATTEMPT_MODE_TIMER || Boolean(String(attempt?.timerFinishedAt || '').trim());
+      const solvedMap = timerResultsVisible ? storedSolvedMap : {};
       const taskStats = getMockExamTaskKeys(exam).map((taskKey) => {
         const answerCount = getMockAnswerCountForTask(taskKey);
         const attempted = hasMockAnswerValue(answersMap[taskKey], answerCount);
@@ -644,8 +665,10 @@ const ProgressSection = ({
         isModeLocked,
         timerStartedAt: typeof attempt?.timerStartedAt === 'string' ? attempt.timerStartedAt : '',
         timerExpiresAt: typeof attempt?.timerExpiresAt === 'string' ? attempt.timerExpiresAt : '',
+        timerPausedAt: typeof attempt?.timerPausedAt === 'string' ? attempt.timerPausedAt : '',
         timerDurationMs: Math.max(0, Math.floor(Number(attempt?.timerDurationMs) || MOCK_EXAM_TIMER_DURATION_MS)),
         timerRemainingMs,
+        isTimerPaused: isMockTimerAttemptPaused(attempt),
         isTimerExpired,
         totalCount,
         attemptedCount,
@@ -1983,7 +2006,15 @@ const ProgressSection = ({
       || cachedAttempt?.timerStartedAt
       || cachedStats?.attemptedCount > 0
     );
-    const resolvedMode = modeLocked ? cachedMode : requestedMode;
+    const canSwitchClassicAttemptToTimer = Boolean(
+      modeLocked
+      && cachedMode === MOCK_ATTEMPT_MODE_CLASSIC
+      && requestedMode === MOCK_ATTEMPT_MODE_TIMER
+      && !cachedAttempt?.timerFinishedAt
+    );
+    const resolvedMode = canSwitchClassicAttemptToTimer
+      ? MOCK_ATTEMPT_MODE_TIMER
+      : (modeLocked ? cachedMode : requestedMode);
     const canWarnClassicModeLock = Boolean(effectiveStudentId) && isMockExamAccessible(exam, effectiveStudentId);
     if (
       canWarnClassicModeLock
@@ -2017,10 +2048,14 @@ const ProgressSection = ({
       return;
     }
     try {
-      const shouldStartAttempt = role === 'student' && !modeLocked;
-      const attempt = shouldStartAttempt
+      const shouldStartAttempt = role === 'student' && (!modeLocked || canSwitchClassicAttemptToTimer);
+      const fetchedAttempt = shouldStartAttempt
         ? await api.startMockAttempt(mockAttemptStudentId, exam.id, { mode: resolvedMode })
         : await api.getMockAttempt(mockAttemptStudentId, exam.id);
+      const shouldResumeTimer = role === 'student' && isMockTimerAttemptPaused(fetchedAttempt);
+      const attempt = shouldResumeTimer
+        ? await api.resumeMockAttempt(mockAttemptStudentId, exam.id, { mode: MOCK_ATTEMPT_MODE_TIMER })
+        : fetchedAttempt;
       if (mockAttemptRequestIdRef.current !== requestId) return;
       setActiveMockAttempt(attempt && typeof attempt === 'object' ? attempt : {});
       setActiveMockMode(normalizeMockAttemptMode(attempt?.mode, resolvedMode));
@@ -2106,7 +2141,11 @@ const ProgressSection = ({
   const studentMockExamRows = useMemo(() => (
     (studentVisibleMockExams || []).map((exam, index) => {
       const attempt = mockAttemptsByExam?.[exam.id];
-      const primary = getPrimaryScoreFromSolved(attempt?.solved);
+      const fallbackAttemptMode = normalizeMockAttemptMode(attempt?.mode);
+      const fallbackSolvedMap = fallbackAttemptMode === MOCK_ATTEMPT_MODE_TIMER && !String(attempt?.timerFinishedAt || '').trim()
+        ? {}
+        : attempt?.solved;
+      const primary = getPrimaryScoreFromSolved(fallbackSolvedMap);
       const secondary = getSecondaryScoreFromPrimary(primary);
       const fallbackStats = {
         examId: exam?.id || '',
@@ -2116,6 +2155,7 @@ const ProgressSection = ({
         attemptMode: normalizeMockAttemptMode(attempt?.mode),
         isModeLocked: Boolean(attempt?.modeLockedAt || attempt?.timerStartedAt),
         timerRemainingMs: getMockTimerRemainingMs(attempt),
+        isTimerPaused: isMockTimerAttemptPaused(attempt),
         isTimerExpired: false,
         totalCount: 0,
         attemptedCount: 0,
@@ -2137,10 +2177,19 @@ const ProgressSection = ({
         || attempt?.timerStartedAt
         || stats.attemptedCount > 0
       );
-      const selectedMode = modeLocked
+      const canSwitchClassicAttemptToTimer = Boolean(
+        modeLocked
+        && lockedMode === MOCK_ATTEMPT_MODE_CLASSIC
+        && !attempt?.timerFinishedAt
+      );
+      const selectedMode = modeLocked && !canSwitchClassicAttemptToTimer
         ? lockedMode
-        : normalizeMockAttemptMode(mockModeByExamId?.[exam.id] || mockModePreset, lockedMode);
+        : normalizeMockAttemptMode(
+          mockModeByExamId?.[exam.id] || (canSwitchClassicAttemptToTimer ? lockedMode : mockModePreset),
+          lockedMode
+        );
       const isTimerMode = selectedMode === MOCK_ATTEMPT_MODE_TIMER;
+      const timerRewardsDisabled = Boolean(attempt?.timerRewardsDisabled || (canSwitchClassicAttemptToTimer && isTimerMode));
       const rewardInfo = getMockNextRewardInfo(stats.secondary, selectedMode);
       const taskStats = Array.isArray(stats.taskStats) ? stats.taskStats : [];
       const nextOpenTask = taskStats.find((taskStat) => !taskStat.solved && taskStat.attempted)
@@ -2162,7 +2211,7 @@ const ProgressSection = ({
       const isFocus = String(stats.examId || '') === String(studentMockOverview?.focusExamId || '');
       const isBest = String(stats.examId || '') === String(studentMockOverview?.bestExamId || '');
       const hasExamTasks = stats.totalCount > 0;
-      const rewardIsNear = Boolean(rewardInfo.milestone && rewardInfo.gap <= 10);
+      const rewardIsNear = Boolean(rewardInfo.milestone && rewardInfo.gap <= 10 && !timerRewardsDisabled);
       let smartRank = 50;
       if (isFocus) {
         smartRank = 0;
@@ -2185,8 +2234,10 @@ const ProgressSection = ({
         hasExamTasks,
         lockedMode,
         modeLocked,
+        canSwitchClassicAttemptToTimer,
         selectedMode,
         isTimerMode,
+        timerRewardsDisabled,
         scoreValue: rewardInfo.scoreValue,
         nextRewardMilestone: rewardInfo.milestone,
         rewardGap: rewardInfo.gap,
@@ -2302,7 +2353,9 @@ const ProgressSection = ({
       })
       .slice(0, 3);
     const timerChestsTotal = Math.max(0, Math.floor(Number(studentData?.mockTimerChestsTotal) || 0));
-    const potentialTimerChests = playableRows.length * MOCK_TIMER_CHEST_MILESTONES.length;
+    const potentialTimerChests = playableRows
+      .filter((row) => !row.timerRewardsDisabled)
+      .length * MOCK_TIMER_CHEST_MILESTONES.length;
 
     return {
       activeTimerCount: activeTimerRows.length,
@@ -2346,7 +2399,11 @@ const ProgressSection = ({
     const primaryBadge = examBadges[0] || null;
     const secondaryBadges = examBadges.slice(1);
     const attempt = examRow?.attempt || mockAttemptsByExam?.[exam.id];
-    const primary = getPrimaryScoreFromSolved(attempt?.solved);
+    const fallbackAttemptMode = normalizeMockAttemptMode(attempt?.mode);
+    const fallbackSolvedMap = fallbackAttemptMode === MOCK_ATTEMPT_MODE_TIMER && !String(attempt?.timerFinishedAt || '').trim()
+      ? {}
+      : attempt?.solved;
+    const primary = getPrimaryScoreFromSolved(fallbackSolvedMap);
     const secondary = getSecondaryScoreFromPrimary(primary);
     const awardedCoinMilestones = normalizeMockCoinMilestones(attempt?.coinsAwardedMilestones);
     const awardedTimerChestMilestones = normalizeMockCoinMilestones(attempt?.timerChestAwardedMilestones);
@@ -2356,6 +2413,7 @@ const ProgressSection = ({
       attemptMode: normalizeMockAttemptMode(attempt?.mode),
       isModeLocked: Boolean(attempt?.modeLockedAt || attempt?.timerStartedAt),
       timerRemainingMs: getMockTimerRemainingMs(attempt),
+      isTimerPaused: isMockTimerAttemptPaused(attempt),
       isTimerExpired: false,
       totalCount: 0,
       attemptedCount: 0,
@@ -2371,10 +2429,21 @@ const ProgressSection = ({
     const hasExamTasks = examStats.totalCount > 0;
     const lockedMode = examRow?.lockedMode || normalizeMockAttemptMode(examStats.attemptMode || attempt?.mode);
     const modeLocked = Boolean(examRow?.modeLocked || examStats.isModeLocked);
+    const canSwitchClassicAttemptToTimer = Boolean(
+      examRow?.canSwitchClassicAttemptToTimer
+      || (
+        modeLocked
+        && lockedMode === MOCK_ATTEMPT_MODE_CLASSIC
+        && !attempt?.timerFinishedAt
+      )
+    );
     const selectedMode = examRow?.selectedMode || (
-      modeLocked
+      modeLocked && !canSwitchClassicAttemptToTimer
         ? lockedMode
-        : normalizeMockAttemptMode(mockModeByExamId?.[exam.id] || mockModePreset, lockedMode)
+        : normalizeMockAttemptMode(
+          mockModeByExamId?.[exam.id] || (canSwitchClassicAttemptToTimer ? lockedMode : mockModePreset),
+          lockedMode
+        )
     );
     const isTimerMode = Boolean(examRow?.isTimerMode ?? (selectedMode === MOCK_ATTEMPT_MODE_TIMER));
     const shouldWarnClassicLock = hasExamTasks && !modeLocked && !isTimerMode;
@@ -2402,15 +2471,22 @@ const ProgressSection = ({
       : 0;
     const progressValue = Math.max(0, Math.min(100, Number(examStats.progressPercent) || 0));
     const scoreGap = examRow?.rewardGap ?? (nextRewardMilestone ? Math.max(0, nextRewardMilestone.score - scoreValue) : 0);
-    const nextRewardText = nextRewardMilestone
-      ? `До ${isTimerMode ? 'сундука' : nextRewardMilestone.score}: ${scoreGap} ${getBallLabel(scoreGap)}.`
-      : (isTimerMode ? 'Все сундуки открыты' : 'Все рубежи забраны');
-    const scoreRewardValue = nextRewardMilestone
-      ? (isTimerMode ? `x${nextRewardMilestone.chests}` : nextRewardMilestone.coins)
-      : '✓';
-    const scoreRewardCaption = nextRewardMilestone
-      ? `через ${scoreGap} б.`
-      : 'забрано';
+    const timerRewardsDisabled = Boolean(attempt?.timerRewardsDisabled || (canSwitchClassicAttemptToTimer && isTimerMode));
+    const nextRewardText = timerRewardsDisabled
+      ? 'Сундуки таймера недоступны после обычного режима'
+      : (nextRewardMilestone
+        ? `До ${isTimerMode ? 'сундука' : nextRewardMilestone.score}: ${scoreGap} ${getBallLabel(scoreGap)}.`
+        : (isTimerMode ? 'Все сундуки открыты' : 'Все рубежи забраны'));
+    const scoreRewardValue = timerRewardsDisabled && isTimerMode
+      ? (nextRewardMilestone ? `x${nextRewardMilestone.chests}` : '✓')
+      : (nextRewardMilestone
+        ? (isTimerMode ? `x${nextRewardMilestone.chests}` : nextRewardMilestone.coins)
+        : '✓');
+    const scoreRewardCaption = timerRewardsDisabled && isTimerMode
+      ? 'недоступно'
+      : (nextRewardMilestone
+        ? `через ${scoreGap} б.`
+        : 'забрано');
     const timerRemainingLabel = isTimerMode && examStats.timerRemainingMs !== null
       ? formatMockTimerDuration(examStats.timerRemainingMs)
       : formatMockTimerDuration(MOCK_EXAM_TIMER_DURATION_MS);
@@ -2420,7 +2496,7 @@ const ProgressSection = ({
       handleOpenMockExam(exam, { mode: selectedMode });
     };
     const setStudentMockMode = (nextMode) => {
-      if (modeLocked) return;
+      if (modeLocked && !canSwitchClassicAttemptToTimer) return;
       setMockModeByExamId((prev) => ({
         ...(prev || {}),
         [exam.id]: normalizeMockAttemptMode(nextMode),
@@ -2440,7 +2516,7 @@ const ProgressSection = ({
             handleOpenMockExam(exam, { mode: selectedMode });
           }
         }}
-        className={`mock-student-card mock-student-card--compact group relative overflow-hidden rounded-[26px] border p-0 text-left transition-all duration-300 ${hasExamTasks ? 'cursor-pointer hover:-translate-y-0.5' : 'mock-student-card--empty cursor-default'} ${cardStateClass} ${isTimerMode ? 'mock-student-card--timer-mode' : ''}`}
+        className={`mock-student-card mock-student-card--compact group relative overflow-hidden rounded-[26px] border p-0 text-left transition-all duration-300 ${hasExamTasks ? 'cursor-pointer hover:-translate-y-0.5' : 'mock-student-card--empty cursor-default'} ${cardStateClass} ${isTimerMode ? 'mock-student-card--timer-mode' : ''} ${timerRewardsDisabled ? 'mock-student-card--timer-rewards-disabled' : ''}`}
       >
         <div className="mock-student-card__shine" />
         <div className="mock-game-card__aura" aria-hidden="true" />
@@ -2481,6 +2557,18 @@ const ProgressSection = ({
                           Таймер
                         </span>
                       )}
+                      {hasExamTasks && isTimerMode && timerRewardsDisabled && (
+                        <span className="mock-state-chip mock-state-chip--timer mock-state-chip--no-rewards">
+                          <PackageOpen size={11} />
+                          Без наград
+                        </span>
+                      )}
+                      {hasExamTasks && isTimerMode && examStats.isTimerPaused && (
+                        <span className="mock-state-chip mock-state-chip--timer">
+                          <Clock3 size={11} />
+                          Пауза
+                        </span>
+                      )}
                       {hasExamTasks && modeLocked && !isTimerMode && (
                         <span className="mock-state-chip mock-state-chip--classic">Обычный</span>
                       )}
@@ -2508,7 +2596,7 @@ const ProgressSection = ({
                           {isTimerMode && (
                             <span className="mock-quest-stat--timer">
                               <Flame size={12} />
-                              {modeLocked ? timerRemainingLabel : 'Таймер 235 мин'}
+                              {modeLocked ? `${examStats.isTimerPaused ? 'Пауза: ' : ''}${timerRemainingLabel}` : 'Таймер 235 мин'}
                             </span>
                           )}
                         </>
@@ -2535,18 +2623,18 @@ const ProgressSection = ({
                 {hasExamTasks ? (
                   <>
                   <div
-                    className={`mock-mode-choice mt-3 ${isTimerMode ? 'mock-mode-choice--timer' : 'mock-mode-choice--classic'} ${modeLocked ? 'mock-mode-choice--locked' : ''} ${shouldWarnClassicLock ? 'mock-mode-choice--warning' : ''}`}
+                    className={`mock-mode-choice mt-3 ${isTimerMode ? 'mock-mode-choice--timer' : 'mock-mode-choice--classic'} ${modeLocked && !canSwitchClassicAttemptToTimer ? 'mock-mode-choice--locked' : ''} ${shouldWarnClassicLock ? 'mock-mode-choice--warning' : ''}`}
                     onClick={(event) => event.stopPropagation()}
                     onKeyDown={(event) => event.stopPropagation()}
                   >
-                    <div className={`mock-mode-switch ${modeLocked ? 'mock-mode-switch--locked' : ''}`}>
+                    <div className={`mock-mode-switch ${modeLocked && !canSwitchClassicAttemptToTimer ? 'mock-mode-switch--locked' : ''}`}>
                       <button
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
                           setStudentMockMode(MOCK_ATTEMPT_MODE_CLASSIC);
                         }}
-                        disabled={modeLocked && isTimerMode}
+                        disabled={modeLocked && !canSwitchClassicAttemptToTimer && isTimerMode}
                         aria-pressed={!isTimerMode}
                         className={`mock-mode-switch__option ${!isTimerMode ? 'mock-mode-switch__option--active' : ''}`}
                       >
@@ -2559,7 +2647,7 @@ const ProgressSection = ({
                           event.stopPropagation();
                           setStudentMockMode(MOCK_ATTEMPT_MODE_TIMER);
                         }}
-                        disabled={modeLocked && !isTimerMode}
+                        disabled={modeLocked && !canSwitchClassicAttemptToTimer && !isTimerMode}
                         aria-pressed={isTimerMode}
                         className={`mock-mode-switch__option mock-mode-switch__option--timer ${isTimerMode ? 'mock-mode-switch__option--active' : ''}`}
                       >
@@ -2569,14 +2657,14 @@ const ProgressSection = ({
                     </div>
                   </div>
 
-                  <div className={`mock-reward-shell mock-quest-reward mt-3 rounded-2xl p-2.5 ${isTimerMode ? 'mock-reward-shell--timer' : ''}`}>
+                  <div className={`mock-reward-shell mock-quest-reward mt-3 rounded-2xl p-2.5 ${isTimerMode ? 'mock-reward-shell--timer' : ''} ${timerRewardsDisabled ? 'mock-reward-shell--disabled' : ''}`}>
                     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px]">
                       <span className="mock-reward-title inline-flex items-center gap-1.5 font-semibold">
                         {isTimerMode ? <Flame size={13} /> : <Crown size={13} />}
                         {isTimerMode ? `Испытание: ${scoreValue}/100` : `Трофейная дорога: ${scoreValue}/100`}
                       </span>
                       <span className="mock-reward-next">
-                        {isTimerMode && modeLocked ? `${timerRemainingLabel} · ` : ''}
+                        {isTimerMode && modeLocked ? `${examStats.isTimerPaused ? 'Пауза: ' : ''}${timerRemainingLabel} · ` : ''}
                         {nextRewardText}
                       </span>
                     </div>
@@ -2588,8 +2676,9 @@ const ProgressSection = ({
                         />
                       </div>
                       {visibleMilestones.map((milestone) => {
-                        const achieved = achievedCoinMilestones.has(milestone.score);
-                        const awarded = awardedMilestoneSet.has(milestone.score);
+                        const rewardDisabled = timerRewardsDisabled && isTimerMode;
+                        const achieved = !rewardDisabled && achievedCoinMilestones.has(milestone.score);
+                        const awarded = !rewardDisabled && awardedMilestoneSet.has(milestone.score);
                         const edgeClass = milestone.score >= 100
                           ? 'mock-reward-milestone--edge-end'
                           : milestone.score <= 30
@@ -2598,7 +2687,7 @@ const ProgressSection = ({
                         return (
                           <div
                             key={milestone.score}
-                            className={`mock-reward-milestone ${achieved ? 'mock-reward-milestone--achieved' : ''} ${awarded ? 'mock-reward-milestone--awarded' : ''} ${edgeClass}`}
+                            className={`mock-reward-milestone ${achieved ? 'mock-reward-milestone--achieved' : ''} ${awarded ? 'mock-reward-milestone--awarded' : ''} ${rewardDisabled ? 'mock-reward-milestone--disabled' : ''} ${edgeClass}`}
                             style={{ left: `${milestone.score}%` }}
                           >
                             <div className="mock-reward-milestone__label">
@@ -2674,7 +2763,7 @@ const ProgressSection = ({
                       <span>решено</span>
                     </div>
                   </div>
-                  <div className="mock-score-stat mock-score-stat--reward">
+                  <div className={`mock-score-stat mock-score-stat--reward ${timerRewardsDisabled && isTimerMode ? 'mock-score-stat--reward-disabled' : ''}`}>
                     {isTimerMode ? (
                       <PackageOpen size={13} />
                     ) : (
@@ -4178,9 +4267,9 @@ const ProgressSection = ({
             />
           )}
 
-          {classicModeWarning && (
+          {classicModeWarning && typeof document !== 'undefined' && createPortal((
             <div
-              className="mock-classic-lock-modal fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/72 p-4 backdrop-blur-md"
+              className="mock-classic-lock-modal fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto bg-slate-950/78 p-4 backdrop-blur-md"
               role="dialog"
               aria-modal="true"
               aria-labelledby="classic-mode-warning-title"
@@ -4203,7 +4292,7 @@ const ProgressSection = ({
                       Начать пробник в обычном режиме?
                     </h3>
                     <p className="mock-classic-lock-card__text mt-2">
-                      Ты уверен? Если начать решать этот пробник без таймера, режим таймера для него потом будет недоступен.
+                      Ты уверен? Таймерный режим потом останется доступен, но сундуки таймера за этот пробник уже не начислятся.
                     </p>
                   </div>
                 </div>
@@ -4215,7 +4304,7 @@ const ProgressSection = ({
                   </div>
                   <div>
                     <Flame size={15} />
-                    <span>Таймерный режим нельзя будет выбрать позже</span>
+                    <span>Таймер можно пройти позже, но уже без сундуков</span>
                   </div>
                 </div>
 
@@ -4239,7 +4328,7 @@ const ProgressSection = ({
                 </div>
               </div>
             </div>
-          )}
+          ), document.body)}
 
           {activeMockExam && (
             <MockExamModal
@@ -4254,6 +4343,7 @@ const ProgressSection = ({
               allowsPartialAnswers={allowsPartialAnswers}
               getPrimaryScoreFromSolved={getPrimaryScoreFromSolved}
               getSecondaryScoreFromPrimary={getSecondaryScoreFromPrimary}
+              getLocalDayKey={getLocalDayKey}
               withStudentId={withStudentId}
               onAttemptSaved={(examId, attempt, meta) => {
                 setActiveMockAttempt(attempt);

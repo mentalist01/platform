@@ -661,6 +661,24 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  pauseMockAttempt: async (studentId, examId, payload) => {
+    const res = await apiFetch('/api/mock-exams/attempt', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, examId, pauseTimerExam: true, ...(payload || {}) }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  resumeMockAttempt: async (studentId, examId, payload) => {
+    const res = await apiFetch('/api/mock-exams/attempt', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, examId, startOnly: true, resumeTimerExam: true, ...(payload || {}) }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getTaskTitles: async () => {
     const res = await apiFetch('/api/task-titles');
     if (!res.ok) throw new Error(await parseApiError(res));
