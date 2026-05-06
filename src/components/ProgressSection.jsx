@@ -408,6 +408,18 @@ const isMockTimerAttemptPaused = (attempt) => (
   && !String(attempt?.timerFinishedAt || '').trim()
 );
 
+const isMockTimerAttemptEnded = (attempt, nowMs = Date.now()) => {
+  if (normalizeMockAttemptMode(attempt?.mode) !== MOCK_ATTEMPT_MODE_TIMER) return false;
+  if (String(attempt?.timerFinishedAt || '').trim()) return true;
+  const remainingMs = getMockTimerRemainingMs(attempt, nowMs);
+  const hasTimerStarted = Boolean(
+    String(attempt?.timerStartedAt || '').trim()
+    || String(attempt?.timerExpiresAt || '').trim()
+    || String(attempt?.timerPausedAt || '').trim()
+  );
+  return hasTimerStarted && remainingMs === 0;
+};
+
 const formatMockTimerDuration = (value) => {
   const totalSeconds = Math.max(0, Math.ceil(Number(value) / 1000));
   const hours = Math.floor(totalSeconds / 3600);
@@ -627,6 +639,7 @@ const ProgressSection = ({
         ? getMockTimerRemainingMs(attempt)
         : null;
       const isTimerExpired = attemptMode === MOCK_ATTEMPT_MODE_TIMER && timerRemainingMs === 0;
+      const canRestartTimerAttempt = isMockTimerAttemptEnded(attempt);
       const answersMap = attempt?.answers && typeof attempt.answers === 'object' ? attempt.answers : {};
       const storedSolvedMap = attempt?.solved && typeof attempt.solved === 'object' ? attempt.solved : {};
       const timerResultsVisible = attemptMode !== MOCK_ATTEMPT_MODE_TIMER || Boolean(String(attempt?.timerFinishedAt || '').trim());
@@ -680,9 +693,10 @@ const ProgressSection = ({
         attemptedPercent,
         hasStarted,
         isCompleted,
+        canRestartTimerAttempt,
         updatedAt: typeof attempt?.updatedAt === 'string' ? attempt.updatedAt : '',
         updatedLabel: formatMockUpdatedAt(attempt?.updatedAt),
-        actionLabel: isCompleted ? 'Повторить' : hasStarted ? 'Продолжить' : 'Начать',
+        actionLabel: canRestartTimerAttempt ? 'Решить заново' : (isCompleted ? 'Повторить' : hasStarted ? 'Продолжить' : 'Начать'),
         taskStats,
       };
     });
@@ -2012,6 +2026,11 @@ const ProgressSection = ({
       && requestedMode === MOCK_ATTEMPT_MODE_TIMER
       && !cachedAttempt?.timerFinishedAt
     );
+    const canRestartTimerAttempt = Boolean(
+      requestedMode === MOCK_ATTEMPT_MODE_TIMER
+      && cachedMode === MOCK_ATTEMPT_MODE_TIMER
+      && isMockTimerAttemptEnded(cachedAttempt)
+    );
     const resolvedMode = canSwitchClassicAttemptToTimer
       ? MOCK_ATTEMPT_MODE_TIMER
       : (modeLocked ? cachedMode : requestedMode);
@@ -2048,9 +2067,12 @@ const ProgressSection = ({
       return;
     }
     try {
-      const shouldStartAttempt = role === 'student' && (!modeLocked || canSwitchClassicAttemptToTimer);
+      const shouldStartAttempt = role === 'student' && (!modeLocked || canSwitchClassicAttemptToTimer || canRestartTimerAttempt);
       const fetchedAttempt = shouldStartAttempt
-        ? await api.startMockAttempt(mockAttemptStudentId, exam.id, { mode: resolvedMode })
+        ? await api.startMockAttempt(mockAttemptStudentId, exam.id, {
+          mode: resolvedMode,
+          ...(canRestartTimerAttempt ? { restartTimerExam: true } : {}),
+        })
         : await api.getMockAttempt(mockAttemptStudentId, exam.id);
       const shouldResumeTimer = role === 'student' && isMockTimerAttemptPaused(fetchedAttempt);
       const attempt = shouldResumeTimer
@@ -2165,6 +2187,7 @@ const ProgressSection = ({
         attemptedPercent: 0,
         hasStarted: false,
         isCompleted: false,
+        canRestartTimerAttempt: false,
         actionLabel: 'Начать',
         updatedLabel: '',
         taskStats: [],
@@ -2189,6 +2212,7 @@ const ProgressSection = ({
           lockedMode
         );
       const isTimerMode = selectedMode === MOCK_ATTEMPT_MODE_TIMER;
+      const canRestartTimerAttempt = Boolean(isTimerMode && (stats.canRestartTimerAttempt || isMockTimerAttemptEnded(attempt)));
       const timerRewardsDisabled = Boolean(attempt?.timerRewardsDisabled || (canSwitchClassicAttemptToTimer && isTimerMode));
       const rewardInfo = getMockNextRewardInfo(stats.secondary, selectedMode);
       const taskStats = Array.isArray(stats.taskStats) ? stats.taskStats : [];
@@ -2237,6 +2261,7 @@ const ProgressSection = ({
         canSwitchClassicAttemptToTimer,
         selectedMode,
         isTimerMode,
+        canRestartTimerAttempt,
         timerRewardsDisabled,
         scoreValue: rewardInfo.scoreValue,
         nextRewardMilestone: rewardInfo.milestone,
@@ -2422,6 +2447,7 @@ const ProgressSection = ({
       progressPercent: 0,
       hasStarted: false,
       isCompleted: false,
+      canRestartTimerAttempt: false,
       actionLabel: 'Начать',
       updatedLabel: '',
       taskStats: [],
@@ -2471,9 +2497,10 @@ const ProgressSection = ({
       : 0;
     const progressValue = Math.max(0, Math.min(100, Number(examStats.progressPercent) || 0));
     const scoreGap = examRow?.rewardGap ?? (nextRewardMilestone ? Math.max(0, nextRewardMilestone.score - scoreValue) : 0);
+    const canRestartTimerAttempt = Boolean(isTimerMode && (examRow?.canRestartTimerAttempt || examStats.canRestartTimerAttempt || isMockTimerAttemptEnded(attempt)));
     const timerRewardsDisabled = Boolean(attempt?.timerRewardsDisabled || (canSwitchClassicAttemptToTimer && isTimerMode));
     const nextRewardText = timerRewardsDisabled
-      ? 'Сундуки таймера недоступны после обычного режима'
+      ? 'Награды таймера отключены'
       : (nextRewardMilestone
         ? `До ${isTimerMode ? 'сундука' : nextRewardMilestone.score}: ${scoreGap} ${getBallLabel(scoreGap)}.`
         : (isTimerMode ? 'Все сундуки открыты' : 'Все рубежи забраны'));
@@ -2490,6 +2517,7 @@ const ProgressSection = ({
     const timerRemainingLabel = isTimerMode && examStats.timerRemainingMs !== null
       ? formatMockTimerDuration(examStats.timerRemainingMs)
       : formatMockTimerDuration(MOCK_EXAM_TIMER_DURATION_MS);
+    const actionLabel = canRestartTimerAttempt ? 'Решить заново' : examStats.actionLabel;
     const isStartingThisMock = String(startingMockExamId || '') === String(exam.id || '');
     const openStudentMockExam = () => {
       if (!hasExamTasks || isStartingThisMock) return;
@@ -2733,7 +2761,7 @@ const ProgressSection = ({
                   <PlayCircle size={16} />
                 </span>
                 <span className="mock-start-button__label">
-                  {isStartingThisMock ? 'Запускаем...' : (hasExamTasks ? examStats.actionLabel : 'Скоро')}
+                  {isStartingThisMock ? 'Запускаем...' : (hasExamTasks ? actionLabel : 'Скоро')}
                 </span>
                 <ChevronRight className="mock-start-button__arrow" size={17} />
               </Button>
@@ -4351,6 +4379,29 @@ const ProgressSection = ({
                 setMockAttemptsByExam((prev) => ({ ...prev, [examId]: attempt }));
                 onMockAttemptSaved?.(examId, attempt, meta);
               }}
+              onRestartTimerAttempt={async () => {
+                if (!activeMockExam || !effectiveStudentId) return null;
+                const requestId = mockAttemptRequestIdRef.current + 1;
+                mockAttemptRequestIdRef.current = requestId;
+                setStartingMockExamId(activeMockExam.id);
+                try {
+                  const attempt = await api.startMockAttempt(mockAttemptStudentId, activeMockExam.id, {
+                    mode: MOCK_ATTEMPT_MODE_TIMER,
+                    restartTimerExam: true,
+                  });
+                  if (mockAttemptRequestIdRef.current !== requestId) return null;
+                  setActiveMockAttempt(attempt && typeof attempt === 'object' ? attempt : {});
+                  setActiveMockMode(normalizeMockAttemptMode(attempt?.mode, MOCK_ATTEMPT_MODE_TIMER));
+                  setMockAttemptsByExam((prev) => ({
+                    ...prev,
+                    [activeMockExam.id]: attempt && typeof attempt === 'object' ? attempt : {},
+                  }));
+                  onMockAttemptSaved?.(activeMockExam.id, attempt);
+                  return attempt;
+                } finally {
+                  if (mockAttemptRequestIdRef.current === requestId) setStartingMockExamId(null);
+                }
+              }}
               onClose={() => {
                 mockAttemptRequestIdRef.current += 1;
                 setActiveMockExam(null);
@@ -4361,6 +4412,7 @@ const ProgressSection = ({
               }}
             />
           )}
+
         </div>
       )}
     </div>

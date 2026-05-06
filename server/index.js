@@ -248,12 +248,6 @@ const ARTIFACT_RANK_CHANCES = [
   { rank: 'B', chance: 0.30 },
   { rank: 'C', chance: 0.54 },
 ];
-const MOCK_EXAM_ARTIFACT_DROP_CHANCES = [
-  { rank: 'S', chance: 0.005 },
-  { rank: 'A', chance: 0.02 },
-  { rank: 'B', chance: 0.05 },
-  { rank: 'C', chance: 0.10 },
-];
 const ARTIFACT_EARLY_PULL_PROTECTION_COUNT = 20;
 const ARTIFACT_EARLY_PULL_PROTECTED_IDS = new Set(['transfer-agreement']);
 const ARTIFACT_DISABLED_DROP_IDS = new Set(['transfer-agreement']);
@@ -5638,10 +5632,7 @@ const buildStudentArtifactState = (data) => {
   );
   return {
     spinCost: ARTIFACT_SPIN_COST,
-    rankChances: ARTIFACT_RANK_CHANCES.map((entry) => ({
-      rank: entry.rank,
-      chancePercent: Math.round(entry.chance * 100),
-    })),
+    rankChances: getPublicArtifactRankChances(),
     totalPulls,
     totalOwned,
     uniqueOwned,
@@ -5673,11 +5664,30 @@ const getProtectedArtifactDropIds = (totalPullsBefore = 0) => {
   return protectedIds;
 };
 
+const getDroppableArtifactIdsForRank = (rank, blockedIds = ARTIFACT_DISABLED_DROP_IDS) => {
+  const normalizedRank = String(rank || '').trim().toUpperCase();
+  if (!ARTIFACT_RANK_ORDER.includes(normalizedRank)) return [];
+  const blocked = blockedIds instanceof Set ? blockedIds : new Set(blockedIds);
+  return (ARTIFACT_IDS_BY_RANK.get(normalizedRank) || []).filter((artifactId) => !blocked.has(artifactId));
+};
+
+const getPublicArtifactRankChances = () => {
+  const availableChances = ARTIFACT_RANK_CHANCES.filter((entry) => (
+    getDroppableArtifactIdsForRank(entry.rank).length > 0
+  ));
+  const totalChance = availableChances.reduce((sum, entry) => sum + (Number(entry.chance) || 0), 0);
+  if (totalChance <= 0) return [];
+  return availableChances.map((entry) => ({
+    rank: entry.rank,
+    chancePercent: Math.round(((Number(entry.chance) || 0) / totalChance) * 100),
+  }));
+};
+
 const rollArtifactReward = ({ totalPullsBefore = 0 } = {}) => {
   const protectedIds = getProtectedArtifactDropIds(totalPullsBefore);
   const availableIdsByRank = new Map();
   ARTIFACT_RANK_ORDER.forEach((rank) => {
-    const rankIds = (ARTIFACT_IDS_BY_RANK.get(rank) || []).filter((artifactId) => !protectedIds.has(artifactId));
+    const rankIds = getDroppableArtifactIdsForRank(rank, protectedIds);
     if (rankIds.length > 0) availableIdsByRank.set(rank, rankIds);
   });
   const availableChances = ARTIFACT_RANK_CHANCES.filter((entry) => (
@@ -5689,34 +5699,6 @@ const rollArtifactReward = ({ totalPullsBefore = 0 } = {}) => {
     return ARTIFACT_CATALOG.find((artifact) => !protectedIds.has(artifact.id)) || null;
   }
   const artifactId = rankIds[Math.floor(Math.random() * rankIds.length)];
-  return ARTIFACT_CATALOG_BY_ID.get(artifactId) || null;
-};
-
-const rollMockExamArtifactRank = (randomValue = Math.random()) => {
-  const target = Number(randomValue);
-  if (!Number.isFinite(target) || target < 0) return null;
-  let cursor = 0;
-  for (const entry of MOCK_EXAM_ARTIFACT_DROP_CHANCES) {
-    cursor += Number(entry.chance) || 0;
-    if (target < cursor) return entry.rank;
-  }
-  return null;
-};
-
-const getMockExamArtifactIdsForRank = (rank) => {
-  const normalizedRank = String(rank || '').trim().toUpperCase();
-  if (!MOCK_EXAM_ARTIFACT_DROP_CHANCES.some((entry) => entry.rank === normalizedRank)) return [];
-  return (ARTIFACT_IDS_BY_RANK.get(normalizedRank) || []).filter((artifactId) => (
-    !ARTIFACT_DISABLED_DROP_IDS.has(artifactId)
-  ));
-};
-
-const rollMockExamArtifactReward = () => {
-  const rank = rollMockExamArtifactRank(Math.random());
-  if (!rank) return null;
-  const candidateIds = getMockExamArtifactIdsForRank(rank);
-  if (candidateIds.length <= 0) return null;
-  const artifactId = candidateIds[Math.floor(Math.random() * candidateIds.length)];
   return ARTIFACT_CATALOG_BY_ID.get(artifactId) || null;
 };
 
@@ -6419,6 +6401,7 @@ const MOCK_TIMER_CHEST_MILESTONES = [
   { score: 80, chests: 1 },
   { score: 100, chests: 1 },
 ];
+const MOCK_TIMER_CHEST_ARTIFACTS_PER_CHEST = 2;
 
 const normalizeMockAttemptMode = (value, fallback = MOCK_ATTEMPT_MODE_CLASSIC) => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -11370,6 +11353,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     finishTimerExam,
     pauseTimerExam,
     resumeTimerExam,
+    restartTimerExam,
   } = req.body || {};
   const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
   if (isStudentRole(req.auth) && requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
@@ -11428,7 +11412,6 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const attemptMode = canSwitchClassicAttemptToTimer
     ? MOCK_ATTEMPT_MODE_TIMER
     : (previousModeLocked ? previousMode : requestedMode);
-  const timerRewardsDisabled = Boolean(previousAttempt?.timerRewardsDisabled) || canSwitchClassicAttemptToTimer;
   const isTimerFinishRequest = attemptMode === MOCK_ATTEMPT_MODE_TIMER && !startOnly && finishTimerExam === true;
   const isTimerPauseRequest = attemptMode === MOCK_ATTEMPT_MODE_TIMER && !startOnly && pauseTimerExam === true;
   const isTimerResumeRequest = attemptMode === MOCK_ATTEMPT_MODE_TIMER && resumeTimerExam === true;
@@ -11439,18 +11422,35 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     return res.status(409).json({ error: 'Таймерный экзамен уже завершён.' });
   }
   const savedAt = new Date().toISOString();
+  const savedAtMs = Date.parse(savedAt);
+  const previousTimerExpiresAtMs = Date.parse(previousTimerExpiresAt || '');
+  const previousTimerExpired = attemptMode === MOCK_ATTEMPT_MODE_TIMER && (
+    (Number.isFinite(previousTimerExpiresAtMs) && previousTimerExpiresAtMs <= savedAtMs)
+    || (previousTimerPausedAt && previousTimerRemainingMs <= 0)
+  );
+  const requestedTimerRestart = restartTimerExam === true;
+  const canRestartTimerAttempt = Boolean(
+    requestedTimerRestart
+    && startOnly
+    && attemptMode === MOCK_ATTEMPT_MODE_TIMER
+    && (previousTimerFinishedAt || previousTimerExpired)
+  );
+  if (requestedTimerRestart && !canRestartTimerAttempt) {
+    return res.status(409).json({ error: 'Повторный таймер можно запустить только после завершения времени.' });
+  }
+  const timerRewardsDisabled = Boolean(previousAttempt?.timerRewardsDisabled) || canSwitchClassicAttemptToTimer || canRestartTimerAttempt;
   const modeLockedAt = typeof previousAttempt?.modeLockedAt === 'string' && previousAttempt.modeLockedAt.trim()
     ? previousAttempt.modeLockedAt.trim()
     : savedAt;
   const timerStartedAt = attemptMode === MOCK_ATTEMPT_MODE_TIMER
-    ? previousTimerStartedAt || savedAt
+    ? (canRestartTimerAttempt ? savedAt : (previousTimerStartedAt || savedAt))
     : '';
   const timerDurationMs = attemptMode === MOCK_ATTEMPT_MODE_TIMER
     ? Math.max(60 * 1000, Math.floor(Number(previousAttempt?.timerDurationMs) || MOCK_EXAM_TIMER_DURATION_MS))
     : 0;
-  const savedAtMs = Date.parse(savedAt);
   const timerExpiresAt = (() => {
     if (attemptMode !== MOCK_ATTEMPT_MODE_TIMER) return '';
+    if (canRestartTimerAttempt) return getMockTimerExpiresAt(timerStartedAt, timerDurationMs);
     if (isTimerResumeRequest && previousTimerPausedAt) {
       const remainingMs = previousTimerRemainingMs > 0
         ? previousTimerRemainingMs
@@ -11491,11 +11491,14 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     if (diff < -1 || diff > 1) return serverDayKey;
     return clientDayKey;
   })();
-  const rawAnswersForSave = startOnly ? previousAttemptNormalized.answers : answers;
+  const rawAnswersForSave = startOnly
+    ? (canRestartTimerAttempt ? {} : previousAttemptNormalized.answers)
+    : answers;
   const normalizedAttemptBase = normalizeMockAttemptPayload(exam, rawAnswersForSave, savedAt, {
     ...previousAttempt,
     mode: attemptMode,
     modeLockedAt,
+    ...(canRestartTimerAttempt ? { timerFinishedAt: '' } : {}),
     timerPausedAt,
     timerRemainingMs,
     timerRewardsDisabled,
@@ -11505,8 +11508,8 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   if (!shouldEvaluateMockAttempt) {
     const normalizedAttempt = {
       ...normalizedAttemptBase,
-      solved: previousSolved,
-      solvedEver: previousSolvedEver,
+      solved: canRestartTimerAttempt ? normalizedAttemptBase.solved : previousSolved,
+      solvedEver: canRestartTimerAttempt ? normalizedAttemptBase.solvedEver : previousSolvedEver,
       mode: attemptMode,
       modeLockedAt,
       coinsAwardedMilestones: previousAwardedMilestones,
@@ -11571,13 +11574,16 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     .filter(([, solvedNow]) => Boolean(solvedNow))
     .map(([entryTaskKey]) => entryTaskKey)
     .filter((entryTaskKey) => !previousSolvedEver?.[entryTaskKey]);
+  const rewardableSolvedTaskKeys = attemptMode === MOCK_ATTEMPT_MODE_TIMER && timerRewardsDisabled
+    ? []
+    : newlySolvedTaskKeys;
   let coinsTotal = normalizeCoinsTotal(data.coinsTotal) + coinsGained;
   const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
   const artifactLevels = normalizeArtifactLevels(data?.artifactLevels, artifactInventory);
   const artifactCards = normalizeArtifactCards(data?.artifactCards, artifactInventory);
   const mockSolveXpByTaskKey = new Map();
   let mockSolveXpGained = 0;
-  newlySolvedTaskKeys.forEach((solvedTaskKey) => {
+  rewardableSolvedTaskKeys.forEach((solvedTaskKey) => {
     const solveXpGained = applyArtifactXpBonus(
       getTaskLevelXpReward(solvedTaskKey, MOCK_EXAM_SOLVE_XP_LEVEL_ID),
       artifactLevels,
@@ -11590,10 +11596,10 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   let xpTotal = normalizeXpTotal(data.xpTotal) + mockSolveXpGained;
   let artifactTotalPulls = normalizeArtifactTotalPulls(data?.artifactTotalPulls);
   const artifactDropRecords = [];
+  const timerChestRewardRecords = [];
   let artifactXpGained = 0;
   let artifactCoinsGained = 0;
-  newlySolvedTaskKeys.forEach((solvedTaskKey) => {
-    const artifact = rollMockExamArtifactReward();
+  const grantMockArtifactReward = (artifact, meta = {}) => {
     if (!artifact) return;
     const artifactLevelBeforePull = getArtifactLevel(artifactLevels, artifact.id);
     const maxLevelDuplicateCoins = artifactLevelBeforePull >= ARTIFACT_MAX_LEVEL
@@ -11610,18 +11616,48 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     artifactCoinsGained += dropCoinsGained;
     xpTotal += dropXpGained;
     coinsTotal += dropCoinsGained;
-    artifactDropRecords.push({
+    const record = {
       artifactId: artifact.id,
       pulledAt: savedAt,
-      taskKey: solvedTaskKey,
       maxLevelDuplicateCoins,
-    });
+      ...meta,
+    };
+    artifactDropRecords.push(record);
+    return record;
+  };
+  newlyReachedTimerChestMilestones.forEach((score, milestoneIndex) => {
+    const milestone = MOCK_TIMER_CHEST_MILESTONES.find((entry) => entry.score === score);
+    const chestCount = Math.max(1, Math.floor(Number(milestone?.chests) || 1));
+    const milestoneCoins = getMockCoinsForMilestones([score]);
+    const baseCoins = Math.floor(milestoneCoins / chestCount);
+    const extraCoins = milestoneCoins % chestCount;
+    for (let chestOffset = 0; chestOffset < chestCount; chestOffset += 1) {
+      const chestRecord = {
+        id: crypto.randomUUID(),
+        milestoneScore: score,
+        chestIndex: timerChestRewardRecords.length + 1,
+        milestoneIndex: milestoneIndex + 1,
+        coinsGained: normalizeCoinsTotal(baseCoins + (chestOffset < extraCoins ? 1 : 0)),
+        artifactRecords: [],
+      };
+      coinsTotal += chestRecord.coinsGained;
+      for (let itemIndex = 0; itemIndex < MOCK_TIMER_CHEST_ARTIFACTS_PER_CHEST; itemIndex += 1) {
+        const record = grantMockArtifactReward(rollArtifactReward({ totalPullsBefore: artifactTotalPulls }), {
+          source: 'mock-timer-chest',
+          milestoneScore: score,
+          chestIndex: chestRecord.chestIndex,
+          chestItemIndex: itemIndex + 1,
+        });
+        if (record) chestRecord.artifactRecords.push(record);
+      }
+      timerChestRewardRecords.push(chestRecord);
+    }
   });
   const solvedEvents = Array.isArray(data.solvedEvents) ? [...data.solvedEvents] : [];
   const examTitle = typeof exam?.title === 'string' && exam.title.trim()
     ? exam.title.trim()
     : 'Пробник';
-  newlySolvedTaskKeys.forEach((taskKey) => {
+  rewardableSolvedTaskKeys.forEach((taskKey) => {
     const taskNum = Number(taskKey);
     const solveXpGained = normalizeXpTotal(mockSolveXpByTaskKey.get(String(taskKey)));
     solvedEvents.push({
@@ -11668,6 +11704,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       }
       : {}),
   });
+  const dropPayloadByRecord = new Map();
   const mockArtifactDrops = artifactDropRecords
     .map((record) => {
       const drop = buildArtifactRewardPayload(
@@ -11681,16 +11718,44 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       );
       if (!drop) return null;
       const taskNum = Number(record.taskKey);
-      return {
+      const payload = {
         ...drop,
-        source: 'mock-exam',
+        source: record.source || 'mock-exam',
         mockExamId: String(examId),
         mockExamTitle: examTitle,
-        mockTaskNumber: Number.isFinite(taskNum) ? taskNum : record.taskKey,
+        ...(record.taskKey !== undefined
+          ? { mockTaskNumber: Number.isFinite(taskNum) ? taskNum : record.taskKey }
+          : {}),
+        ...(record.milestoneScore !== undefined
+          ? { milestoneScore: record.milestoneScore }
+          : {}),
+        ...(record.chestIndex !== undefined
+          ? { chestIndex: record.chestIndex }
+          : {}),
+        ...(record.chestItemIndex !== undefined
+          ? { chestItemIndex: record.chestItemIndex }
+          : {}),
       };
+      dropPayloadByRecord.set(record, payload);
+      return payload;
     })
     .filter(Boolean);
+  const mockChestRewards = timerChestRewardRecords
+    .map((chestRecord) => ({
+      id: chestRecord.id,
+      source: 'mock-timer-chest',
+      mockExamId: String(examId),
+      mockExamTitle: examTitle,
+      milestoneScore: chestRecord.milestoneScore,
+      chestIndex: chestRecord.chestIndex,
+      coinsGained: normalizeCoinsTotal(chestRecord.coinsGained),
+      artifacts: (Array.isArray(chestRecord.artifactRecords) ? chestRecord.artifactRecords : [])
+        .map((record) => dropPayloadByRecord.get(record))
+        .filter(Boolean),
+    }))
+    .filter((reward) => reward.coinsGained > 0 || reward.artifacts.length > 0);
   const xpGained = normalizeXpTotal(mockSolveXpGained + artifactXpGained);
+  const timerChestCoinsGained = normalizeCoinsTotal(mockChestRewards.reduce((sum, reward) => sum + normalizeCoinsTotal(reward.coinsGained), 0));
   res.json({
     ...(updated.mockAttempts?.[String(examId)] || normalizedAttempt),
     xpGained,
@@ -11699,7 +11764,9 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     coinsGained,
     coinsTotal: updated.coinsTotal,
     timerChestsGained,
+    timerChestCoinsGained,
     timerChestsTotal: normalizeCoinsTotal(updated.mockTimerChestsTotal),
+    ...(mockChestRewards.length > 0 ? { mockChestRewards } : {}),
     ...(mockArtifactDrops.length > 0
       ? {
         artifactXpGained,

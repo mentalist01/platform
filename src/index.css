@@ -3192,6 +3192,1172 @@ html[data-theme='dark'] .mock-answer-burst__badge {
   animation-delay: var(--delay, 0ms);
 }
 
+.mock-chest-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(250, 204, 21, 0.2), transparent 24rem),
+    radial-gradient(circle at 18% 22%, rgba(34, 211, 238, 0.16), transparent 19rem),
+    radial-gradient(circle at 82% 18%, rgba(168, 85, 247, 0.2), transparent 21rem),
+    linear-gradient(180deg, rgba(2, 6, 23, 0.92), rgba(10, 15, 31, 0.98));
+  color: white;
+  isolation: isolate;
+}
+
+.mock-chest-overlay__aura {
+  position: absolute;
+  inset: -20%;
+  background:
+    conic-gradient(from 20deg, transparent 0 12%, rgba(250, 204, 21, 0.22) 14% 18%, transparent 20% 33%, rgba(34, 211, 238, 0.16) 35% 40%, transparent 42% 58%, rgba(168, 85, 247, 0.2) 60% 66%, transparent 68%),
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.1), transparent 36%);
+  filter: blur(1px);
+  opacity: 0.82;
+  animation: mockChestAuraSpin 10s linear infinite;
+}
+
+.mock-chest-overlay__stars {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.mock-chest-overlay__stars span {
+  position: absolute;
+  left: calc(8% + (var(--star-index) * 5.2%));
+  top: calc(12% + ((var(--star-index) % 7) * 10%));
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 0 18px rgba(255, 255, 255, 0.66);
+  opacity: 0.58;
+  animation: mockChestStarTwinkle 2.6s ease-in-out infinite;
+  animation-delay: calc((var(--star-index) % 6) * 130ms);
+}
+
+.mock-chest-overlay__close {
+  position: absolute;
+  right: 1rem;
+  top: 1rem;
+  z-index: 5;
+  display: inline-flex;
+  width: 2.5rem;
+  height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(15, 23, 42, 0.54);
+  color: rgba(255, 255, 255, 0.8);
+  transition: transform 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.mock-chest-overlay__close:hover {
+  transform: translateY(-1px);
+  background: rgba(30, 41, 59, 0.82);
+  color: white;
+}
+
+.mock-chest-overlay--closing {
+  pointer-events: none;
+  animation: mockChestOverlayExit 0.76s cubic-bezier(0.18, 0.78, 0.22, 1) both;
+}
+
+.mock-chest-overlay--closing .mock-chest-overlay__aura {
+  animation: mockChestAuraExit 0.76s ease both;
+}
+
+.mock-chest-overlay--closing .mock-chest-overlay__stars span {
+  animation: mockChestStarExit 0.46s ease both;
+  animation-delay: calc((var(--star-index) % 8) * 18ms);
+}
+
+.mock-chest-overlay--closing .mock-chest-overlay__close,
+.mock-chest-overlay--closing .mock-chest-stage__kicker,
+.mock-chest-overlay--closing .mock-chest-stage__copy,
+.mock-chest-overlay--closing .mock-chest-coin-prize {
+  animation: mockChestUiExit 0.42s ease both;
+}
+
+.mock-chest-overlay--closing .mock-chest {
+  animation: mockChestLeave 0.76s cubic-bezier(0.18, 0.78, 0.2, 1) both !important;
+}
+
+.mock-chest-overlay--closing .mock-chest__asset-glow {
+  animation: mockChestAssetGlowExit 0.62s ease both !important;
+}
+
+.mock-chest-overlay--closing .mock-chest__shine {
+  animation: mockChestGlowExit 0.62s ease both !important;
+}
+
+.mock-chest-overlay--closing .mock-chest-artifact {
+  animation: mockChestRewardExit 0.54s cubic-bezier(0.18, 0.78, 0.2, 1) both !important;
+}
+
+.mock-chest-overlay--closing .mock-chest-coins {
+  animation: mockChestUiExit 0.34s ease both;
+}
+
+.mock-chest-stage {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  width: min(92vw, 54rem);
+  min-height: min(88vh, 44rem);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.25rem;
+  perspective: 58rem;
+  text-align: center;
+}
+
+.mock-chest-stage--clickable {
+  cursor: pointer;
+}
+
+.mock-chest-stage__kicker {
+  position: absolute;
+  top: 0.8rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(250, 204, 21, 0.28);
+  background: rgba(15, 23, 42, 0.5);
+  padding: 0.55rem 0.9rem;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(254, 240, 138, 0.96);
+  box-shadow: 0 18px 42px rgba(2, 6, 23, 0.28);
+}
+
+.mock-chest {
+  position: relative;
+  width: min(23.5rem, 74vw);
+  height: min(17.2rem, 55vw);
+  padding: 0;
+  border: 0;
+  appearance: none;
+  background: transparent;
+  perspective: 42rem;
+  transform-style: preserve-3d;
+  filter: drop-shadow(0 2.2rem 2.5rem rgba(0, 0, 0, 0.44));
+  animation: mockChestArrive 0.92s cubic-bezier(0.14, 0.88, 0.24, 1.12) both, mockChestFloat 3.2s ease-in-out 0.92s infinite;
+}
+
+.mock-chest--clickable {
+  cursor: pointer;
+}
+
+.mock-chest--clickable:hover {
+  filter:
+    drop-shadow(0 2.4rem 2.7rem rgba(0, 0, 0, 0.46))
+    drop-shadow(0 0 2.4rem rgba(250, 204, 21, 0.34));
+}
+
+.mock-chest.mock-chest--image {
+  width: min(30rem, 82vw);
+  height: min(24rem, 72vw);
+  margin: -1.1rem 0 -2.4rem;
+  overflow: visible;
+}
+
+.mock-chest__asset-shell {
+  pointer-events: none;
+  position: absolute;
+  inset: -3%;
+  display: block;
+  transform-origin: 50% 78%;
+  transform-style: preserve-3d;
+  will-change: transform, filter;
+  z-index: 3;
+}
+
+.mock-chest__asset {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform-origin: 50% 62%;
+  user-select: none;
+  filter:
+    drop-shadow(0 2rem 2.2rem rgba(0, 0, 0, 0.38))
+    drop-shadow(0 0 2.2rem rgba(250, 204, 21, 0.16));
+}
+
+.mock-chest__asset--closed {
+  opacity: 1;
+  transform: translateY(0.2rem) scale(0.86);
+}
+
+.mock-chest__asset--open {
+  opacity: 0;
+  transform: translateY(1.7rem) scale(0.66) rotateX(10deg);
+  filter:
+    drop-shadow(0 2.2rem 2.6rem rgba(0, 0, 0, 0.42))
+    drop-shadow(0 0 3rem rgba(250, 204, 21, 0.28));
+}
+
+.mock-chest--opened .mock-chest__asset--closed {
+  animation: mockChestClosedAssetExit 0.48s cubic-bezier(0.16, 0.86, 0.24, 1) both;
+}
+
+.mock-chest--opened .mock-chest__asset--open {
+  animation: mockChestOpenAssetReveal 0.86s cubic-bezier(0.14, 0.92, 0.18, 1.04) 0.12s both;
+}
+
+.mock-chest__asset-glow {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  width: 72%;
+  height: 42%;
+  border-radius: 999px;
+  background:
+    radial-gradient(ellipse at 50% 54%, rgba(255, 250, 205, 0.9), rgba(250, 204, 21, 0.36) 28%, rgba(245, 158, 11, 0.14) 48%, transparent 72%),
+    radial-gradient(ellipse at 38% 46%, rgba(34, 211, 238, 0.18), transparent 42%);
+  filter: blur(0.35rem);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.62);
+  z-index: -1;
+}
+
+.mock-chest--opened .mock-chest__asset-glow {
+  animation: mockChestAssetGlow 1.35s cubic-bezier(0.16, 0.86, 0.2, 1) 0.18s both, mockChestAssetGlowPulse 2.4s ease-in-out 1.45s infinite;
+}
+
+.mock-chest__asset-spark {
+  position: absolute;
+  width: 0.46rem;
+  height: 0.46rem;
+  border-radius: 999px;
+  background: #fff8c9;
+  box-shadow:
+    0 0 0.7rem rgba(255, 248, 201, 0.96),
+    0 0 1.6rem rgba(250, 204, 21, 0.58);
+  opacity: 0;
+  z-index: 5;
+}
+
+.mock-chest__asset-spark--one {
+  left: 33%;
+  top: 28%;
+}
+
+.mock-chest__asset-spark--two {
+  left: 55%;
+  top: 22%;
+}
+
+.mock-chest__asset-spark--three {
+  left: 69%;
+  top: 36%;
+}
+
+.mock-chest--opened .mock-chest__asset-spark {
+  animation: mockChestAssetSpark 1.55s ease-in-out infinite;
+}
+
+.mock-chest--opened .mock-chest__asset-spark--one {
+  animation-delay: 0.22s;
+}
+
+.mock-chest--opened .mock-chest__asset-spark--two {
+  animation-delay: 0.5s;
+}
+
+.mock-chest--opened .mock-chest__asset-spark--three {
+  animation-delay: 0.78s;
+}
+
+.mock-chest--press-odd .mock-chest__asset-shell {
+  animation: mockChestPressOdd 0.38s cubic-bezier(0.16, 0.82, 0.18, 1.08) both;
+}
+
+.mock-chest--press-even .mock-chest__asset-shell {
+  animation: mockChestPressEven 0.38s cubic-bezier(0.16, 0.82, 0.18, 1.08) both;
+}
+
+.mock-chest--press-odd .mock-chest__base {
+  animation: mockChestPressShadowOdd 0.38s cubic-bezier(0.16, 0.82, 0.18, 1.08) both;
+}
+
+.mock-chest--press-even .mock-chest__base {
+  animation: mockChestPressShadowEven 0.38s cubic-bezier(0.16, 0.82, 0.18, 1.08) both;
+}
+
+.mock-chest__shine {
+  position: absolute;
+  inset: -22%;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(255, 255, 255, 0.34), transparent 10%),
+    radial-gradient(circle at 50% 54%, rgba(250, 204, 21, 0.24), transparent 45%);
+  opacity: 0.72;
+  animation: mockChestPulse 2.4s ease-in-out infinite;
+}
+
+.mock-chest__lid,
+.mock-chest__body,
+.mock-chest__base {
+  position: absolute;
+  left: 50%;
+  box-sizing: border-box;
+  transform: translateX(-50%);
+  overflow: hidden;
+}
+
+.mock-chest__lid {
+  top: 14%;
+  width: 84%;
+  height: 32%;
+  border-radius: 2.8rem 2.8rem 0.78rem 0.78rem / 2.05rem 2.05rem 0.78rem 0.78rem;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.26), transparent 13% 83%, rgba(91, 33, 10, 0.2)),
+    repeating-linear-gradient(90deg, transparent 0 22%, rgba(92, 38, 8, 0.22) 22.5% 23.5%, transparent 24% 48%, rgba(255, 248, 190, 0.18) 48.5% 49.2%, transparent 49.8% 73%, rgba(92, 38, 8, 0.2) 73.5% 74.5%, transparent 75% 100%),
+    radial-gradient(ellipse at 50% -22%, rgba(255, 249, 196, 0.92), rgba(255, 249, 196, 0.12) 32%, transparent 33%),
+    linear-gradient(180deg, #ffd86a 0%, #eba22a 42%, #a95317 100%);
+  border: 0.28rem solid rgba(254, 226, 95, 0.92);
+  box-shadow:
+    inset 0 0.65rem 0.75rem rgba(255, 255, 255, 0.32),
+    inset 0 -0.75rem 0.95rem rgba(83, 38, 8, 0.48),
+    0 1rem 1.4rem rgba(0, 0, 0, 0.3);
+  backface-visibility: visible;
+  transform-origin: 50% 96%;
+  transform-style: preserve-3d;
+  will-change: transform;
+  z-index: 3;
+}
+
+.mock-chest__lid::before {
+  content: '';
+  position: absolute;
+  inset: 0.58rem 0.76rem 0.72rem;
+  border-radius: 2rem 2rem 0.46rem 0.46rem / 1.38rem 1.38rem 0.46rem 0.46rem;
+  background:
+    radial-gradient(ellipse at 22% 40%, rgba(255, 245, 157, 0.42), transparent 18%),
+    radial-gradient(ellipse at 75% 56%, rgba(92, 38, 8, 0.2), transparent 24%),
+    repeating-linear-gradient(90deg, transparent 0 31%, rgba(92, 38, 8, 0.24) 31.5% 32.5%, transparent 33% 65%, rgba(255, 248, 190, 0.16) 65.5% 66%, transparent 66.5% 100%);
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.mock-chest__lid::after {
+  content: '';
+  position: absolute;
+  right: 0.42rem;
+  bottom: 0.3rem;
+  left: 0.42rem;
+  height: 0.76rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fff2a8, #d99517 54%, #7c3b0c);
+  box-shadow:
+    inset 0 0.18rem 0.26rem rgba(255, 255, 255, 0.42),
+    0 0.24rem 0.34rem rgba(70, 26, 7, 0.28);
+  pointer-events: none;
+}
+
+.mock-chest-overlay--opening .mock-chest__lid,
+.mock-chest-overlay--coins .mock-chest__lid,
+.mock-chest-overlay--artifact-one .mock-chest__lid,
+.mock-chest-overlay--artifact-two .mock-chest__lid,
+.mock-chest-overlay--done .mock-chest__lid {
+  animation: mockChestLidOpen 1.08s cubic-bezier(0.16, 0.92, 0.16, 1) both;
+  filter: saturate(1.08) brightness(1.08);
+  z-index: 4;
+}
+
+.mock-chest-overlay--coins .mock-chest__body,
+.mock-chest-overlay--artifact-one .mock-chest__body,
+.mock-chest-overlay--artifact-two .mock-chest__body,
+.mock-chest-overlay--done .mock-chest__body {
+  animation: mockChestBodyOpen 0.92s cubic-bezier(0.18, 0.88, 0.24, 1) both;
+  z-index: 5;
+}
+
+.mock-chest__interior {
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  top: 31%;
+  width: 83%;
+  height: 21%;
+  border-radius: 1.45rem 1.45rem 0.76rem 0.76rem / 1rem 1rem 0.65rem 0.65rem;
+  background:
+    radial-gradient(ellipse at 50% 18%, rgba(255, 244, 179, 0.86), transparent 18%),
+    radial-gradient(ellipse at 50% 84%, rgba(245, 158, 11, 0.78), transparent 38%),
+    linear-gradient(180deg, #311306 0%, #120804 72%);
+  box-shadow:
+    inset 0 0.5rem 0.7rem rgba(255, 231, 147, 0.28),
+    inset 0 -1rem 1.1rem rgba(0, 0, 0, 0.76),
+    0 0 0 0.18rem rgba(253, 224, 71, 0.68),
+    0 -0.4rem 1.8rem rgba(250, 204, 21, 0);
+  opacity: 0;
+  overflow: visible;
+  transform: translateX(-50%) translateY(0.35rem) scaleY(0.08);
+  transform-origin: 50% 100%;
+  z-index: 3;
+}
+
+.mock-chest__interior::before {
+  content: '';
+  position: absolute;
+  top: 0.24rem;
+  right: 0.72rem;
+  left: 0.72rem;
+  height: 0.48rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 252, 211, 0.96), rgba(202, 122, 12, 0.8));
+  box-shadow: 0 0.28rem 0.4rem rgba(45, 16, 4, 0.42);
+  z-index: 4;
+}
+
+.mock-chest__interior::after {
+  content: '';
+  position: absolute;
+  right: 0.28rem;
+  bottom: 0;
+  left: 0.28rem;
+  height: 0.74rem;
+  border-radius: 999px 999px 0 0;
+  background: linear-gradient(180deg, #fff0a3, #cf8012 52%, #6d2c08);
+  box-shadow: inset 0 0.18rem 0.22rem rgba(255, 255, 255, 0.34);
+  z-index: 5;
+}
+
+.mock-chest__interior-glow {
+  position: absolute;
+  inset: -150% -22% -38%;
+  background:
+    radial-gradient(ellipse at 50% 72%, rgba(255, 250, 205, 0.94), rgba(250, 204, 21, 0.44) 17%, rgba(245, 158, 11, 0.22) 34%, transparent 62%),
+    radial-gradient(ellipse at 34% 58%, rgba(255, 237, 153, 0.3), transparent 36%),
+    radial-gradient(ellipse at 66% 56%, rgba(34, 211, 238, 0.14), transparent 34%);
+  border-radius: 999px;
+  filter: blur(0.12rem);
+  opacity: 0;
+  transform: translateY(1rem) scale(0.68);
+}
+
+.mock-chest__interior-spark {
+  position: absolute;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: #fff8c9;
+  box-shadow:
+    0 0 0.65rem rgba(255, 248, 201, 0.94),
+    0 0 1.4rem rgba(250, 204, 21, 0.56);
+  opacity: 0;
+  z-index: 6;
+}
+
+.mock-chest__hinge {
+  position: absolute;
+  bottom: 0.26rem;
+  width: 0.52rem;
+  height: 3.35rem;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.18), transparent 44%, rgba(74, 28, 6, 0.38)),
+    linear-gradient(180deg, #ffeaa2, #c97912 58%, #5f2608);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 0.35rem 0.7rem rgba(0, 0, 0, 0.34),
+    0 0 1.1rem rgba(250, 204, 21, 0.24);
+  opacity: 0;
+  transform-origin: 50% 100%;
+  z-index: 3;
+}
+
+.mock-chest__hinge--left {
+  left: 20%;
+  transform: rotate(-13deg) scaleY(0.4);
+}
+
+.mock-chest__hinge--right {
+  right: 20%;
+  transform: rotate(13deg) scaleY(0.4);
+}
+
+.mock-chest-overlay--coins .mock-chest__hinge--left,
+.mock-chest-overlay--artifact-one .mock-chest__hinge--left,
+.mock-chest-overlay--artifact-two .mock-chest__hinge--left,
+.mock-chest-overlay--done .mock-chest__hinge--left {
+  animation: mockChestHingeLeftOpen 0.92s cubic-bezier(0.14, 0.9, 0.18, 1) 0.08s both;
+}
+
+.mock-chest-overlay--coins .mock-chest__hinge--right,
+.mock-chest-overlay--artifact-one .mock-chest__hinge--right,
+.mock-chest-overlay--artifact-two .mock-chest__hinge--right,
+.mock-chest-overlay--done .mock-chest__hinge--right {
+  animation: mockChestHingeRightOpen 0.92s cubic-bezier(0.14, 0.9, 0.18, 1) 0.08s both;
+}
+
+.mock-chest__interior-spark--one {
+  left: 26%;
+  top: 45%;
+}
+
+.mock-chest__interior-spark--two {
+  left: 56%;
+  top: 31%;
+}
+
+.mock-chest__interior-spark--three {
+  left: 75%;
+  top: 52%;
+}
+
+.mock-chest-overlay--coins .mock-chest__interior,
+.mock-chest-overlay--artifact-one .mock-chest__interior,
+.mock-chest-overlay--artifact-two .mock-chest__interior,
+.mock-chest-overlay--done .mock-chest__interior {
+  animation: mockChestInteriorOpen 0.86s cubic-bezier(0.14, 0.9, 0.18, 1) 0.08s both;
+  box-shadow:
+    inset 0 0.5rem 0.7rem rgba(255, 231, 147, 0.3),
+    inset 0 -1rem 1.1rem rgba(0, 0, 0, 0.76),
+    0 0 0 0.18rem rgba(253, 224, 71, 0.76),
+    0 -0.55rem 2.4rem rgba(250, 204, 21, 0.46);
+}
+
+.mock-chest-overlay--coins .mock-chest__interior-glow,
+.mock-chest-overlay--artifact-one .mock-chest__interior-glow,
+.mock-chest-overlay--artifact-two .mock-chest__interior-glow,
+.mock-chest-overlay--done .mock-chest__interior-glow {
+  animation: mockChestInteriorGlow 1.6s cubic-bezier(0.16, 0.88, 0.2, 1) 0.18s both, mockChestInteriorPulse 2.4s ease-in-out 1.55s infinite;
+}
+
+.mock-chest-overlay--coins .mock-chest__interior-spark,
+.mock-chest-overlay--artifact-one .mock-chest__interior-spark,
+.mock-chest-overlay--artifact-two .mock-chest__interior-spark,
+.mock-chest-overlay--done .mock-chest__interior-spark {
+  animation: mockChestInteriorSpark 1.4s ease-in-out infinite;
+}
+
+.mock-chest-overlay--coins .mock-chest__interior-spark--one,
+.mock-chest-overlay--artifact-one .mock-chest__interior-spark--one,
+.mock-chest-overlay--artifact-two .mock-chest__interior-spark--one,
+.mock-chest-overlay--done .mock-chest__interior-spark--one {
+  animation-delay: 0.2s;
+}
+
+.mock-chest-overlay--coins .mock-chest__interior-spark--two,
+.mock-chest-overlay--artifact-one .mock-chest__interior-spark--two,
+.mock-chest-overlay--artifact-two .mock-chest__interior-spark--two,
+.mock-chest-overlay--done .mock-chest__interior-spark--two {
+  animation-delay: 0.48s;
+}
+
+.mock-chest-overlay--coins .mock-chest__interior-spark--three,
+.mock-chest-overlay--artifact-one .mock-chest__interior-spark--three,
+.mock-chest-overlay--artifact-two .mock-chest__interior-spark--three,
+.mock-chest-overlay--done .mock-chest__interior-spark--three {
+  animation-delay: 0.74s;
+}
+
+.mock-chest__lid-band,
+.mock-chest__body-band {
+  position: absolute;
+  inset-block: 0;
+  left: 50%;
+  width: 16%;
+  transform: translateX(-50%);
+  border-inline: 1px solid rgba(255, 255, 255, 0.3);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.28), transparent 38% 72%, rgba(92, 38, 8, 0.22)),
+    linear-gradient(180deg, #fff1a4, #f2a817 55%, #89410d);
+  box-shadow:
+    inset 0.18rem 0 0.25rem rgba(255, 255, 255, 0.22),
+    inset -0.18rem 0 0.28rem rgba(92, 38, 8, 0.24);
+  z-index: 5;
+}
+
+.mock-chest__lid-band::before,
+.mock-chest__body-band::before {
+  content: '';
+  position: absolute;
+  top: 18%;
+  left: 50%;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: #fff7c2;
+  box-shadow:
+    0 1.2rem 0 #a35b0f,
+    0 2.4rem 0 #fff7c2,
+    0 3.6rem 0 #a35b0f;
+  transform: translateX(-50%);
+}
+
+.mock-chest__body {
+  top: 40%;
+  width: 92%;
+  height: 44%;
+  border-radius: 0.95rem 0.95rem 2rem 2rem;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.2), transparent 12% 84%, rgba(61, 22, 8, 0.3)),
+    repeating-linear-gradient(90deg, transparent 0 24%, rgba(54, 21, 6, 0.24) 24.5% 25.5%, transparent 26% 49%, rgba(255, 235, 150, 0.12) 49.5% 50%, transparent 50.5% 74%, rgba(54, 21, 6, 0.22) 74.5% 75.5%, transparent 76% 100%),
+    radial-gradient(ellipse at 50% 0%, rgba(255, 214, 102, 0.22), transparent 40%),
+    linear-gradient(180deg, #c87926 0%, #9d4d17 48%, #5d260c 100%);
+  border: 0.28rem solid rgba(253, 224, 71, 0.88);
+  box-shadow:
+    inset 0 0.58rem 0.9rem rgba(255, 255, 255, 0.16),
+    inset 0 -0.9rem 1.05rem rgba(38, 15, 4, 0.48),
+    inset 0 0 0 0.08rem rgba(255, 248, 190, 0.18);
+  z-index: 2;
+}
+
+.mock-chest__body::before {
+  content: '';
+  position: absolute;
+  inset: 0.65rem 1.35rem 0.9rem;
+  border-radius: 0.62rem 0.62rem 1.25rem 1.25rem;
+  background:
+    radial-gradient(ellipse at 20% 38%, rgba(255, 224, 122, 0.18), transparent 22%),
+    radial-gradient(ellipse at 72% 74%, rgba(39, 14, 5, 0.2), transparent 26%),
+    repeating-linear-gradient(90deg, transparent 0 31%, rgba(45, 17, 6, 0.24) 31.5% 32.5%, transparent 33% 65%, rgba(255, 245, 180, 0.1) 65.5% 66%, transparent 66.5% 100%);
+  pointer-events: none;
+}
+
+.mock-chest__body::after {
+  content: '';
+  position: absolute;
+  right: 0.58rem;
+  bottom: 0.48rem;
+  left: 0.58rem;
+  height: 0.62rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffeaa2, #d08a14 58%, #78350f);
+  box-shadow: inset 0 0.18rem 0.2rem rgba(255, 255, 255, 0.34);
+  pointer-events: none;
+}
+
+.mock-chest__base {
+  top: 79.5%;
+  width: 82%;
+  height: 11%;
+  border-radius: 999px;
+  background: radial-gradient(ellipse, rgba(0, 0, 0, 0.46), rgba(0, 0, 0, 0.02) 72%);
+  filter: blur(0.12rem);
+  z-index: 1;
+}
+
+.mock-chest__lid-rail {
+  position: absolute;
+  top: 0.45rem;
+  right: 12%;
+  left: 12%;
+  height: 0.46rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 252, 211, 0.98), rgba(244, 180, 30, 0.82));
+  box-shadow: 0 0.18rem 0.26rem rgba(97, 38, 8, 0.22);
+  z-index: 4;
+}
+
+.mock-chest__corner {
+  position: absolute;
+  top: 0.42rem;
+  bottom: 0.62rem;
+  width: 1.22rem;
+  border-radius: 0.55rem;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.24), transparent 48%, rgba(92, 38, 8, 0.3)),
+    linear-gradient(180deg, #fff0a3, #d69214 58%, #78350f);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 0.26rem 0.45rem rgba(50, 18, 4, 0.24);
+  z-index: 6;
+}
+
+.mock-chest__corner--left {
+  left: 0.7rem;
+}
+
+.mock-chest__corner--right {
+  right: 0.7rem;
+}
+
+.mock-chest__corner::before {
+  content: '';
+  position: absolute;
+  top: 0.7rem;
+  left: 50%;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: #fff5b5;
+  box-shadow:
+    0 1.25rem 0 #9a560e,
+    0 2.5rem 0 #fff5b5;
+  transform: translateX(-50%);
+}
+
+.mock-chest__lock-top {
+  position: absolute;
+  left: 50%;
+  bottom: -0.78rem;
+  width: 3.35rem;
+  height: 2rem;
+  transform: translateX(-50%);
+  border-radius: 1.2rem 1.2rem 0.2rem 0.2rem;
+  border: 0.18rem solid rgba(255, 255, 255, 0.34);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.24), transparent 65%, rgba(92, 38, 8, 0.22)),
+    linear-gradient(180deg, #fff7cf, #f0a615 70%, #91400c);
+  box-shadow: 0 0.35rem 0.5rem rgba(61, 22, 8, 0.24);
+  z-index: 6;
+}
+
+.mock-chest__lock {
+  position: absolute;
+  left: 50%;
+  top: -0.34rem;
+  display: flex;
+  width: 4.15rem;
+  height: 4.55rem;
+  align-items: center;
+  justify-content: center;
+  transform: translateX(-50%);
+  border-radius: 1rem 1rem 1.18rem 1.18rem;
+  border: 0.2rem solid rgba(255, 255, 255, 0.42);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.3), transparent 40% 72%, rgba(92, 38, 8, 0.26)),
+    linear-gradient(180deg, #fff8cb, #f5ad18 58%, #9a430b);
+  color: #7c2d12;
+  box-shadow:
+    inset 0 0.35rem 0.5rem rgba(255, 255, 255, 0.42),
+    0 0.8rem 1rem rgba(0, 0, 0, 0.24),
+    0 0 1.5rem rgba(250, 204, 21, 0.46);
+  z-index: 7;
+}
+
+.mock-chest__lock::before {
+  content: '';
+  position: absolute;
+  top: 0.55rem;
+  right: 0.62rem;
+  left: 0.62rem;
+  height: 0.36rem;
+  border-radius: 999px;
+  background: rgba(255, 252, 211, 0.72);
+  box-shadow: 0 0.18rem 0.22rem rgba(92, 38, 8, 0.2);
+}
+
+.mock-chest__lock-keyhole {
+  position: relative;
+  width: 0.78rem;
+  height: 1.38rem;
+  margin-top: 0.62rem;
+  border-radius: 0.28rem 0.28rem 0.42rem 0.42rem;
+  background: linear-gradient(180deg, #4b1d08, #7c2d12);
+  box-shadow:
+    inset 0 0.12rem 0.12rem rgba(0, 0, 0, 0.45),
+    0 0.08rem 0 rgba(255, 255, 255, 0.26);
+}
+
+.mock-chest__lock-keyhole::before {
+  content: '';
+  position: absolute;
+  top: -0.52rem;
+  left: 50%;
+  width: 1.16rem;
+  height: 1.16rem;
+  border-radius: 999px;
+  background: #4b1d08;
+  box-shadow: inset 0 0.12rem 0.16rem rgba(0, 0, 0, 0.45);
+  transform: translateX(-50%);
+}
+
+.mock-chest-coins {
+  --coin-prize-x: 0px;
+  --coin-prize-y: -32vh;
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  top: 39%;
+  z-index: 21;
+}
+
+.mock-chest-coin {
+  position: absolute;
+  width: 2rem;
+  height: 2rem;
+  margin: -1rem;
+  opacity: 0;
+  transform-style: preserve-3d;
+  will-change: opacity, transform, filter;
+  filter:
+    drop-shadow(0 0.35rem 0.35rem rgba(0, 0, 0, 0.28))
+    drop-shadow(0 0 0.65rem rgba(250, 204, 21, 0.38));
+  animation: mockChestCoinPop 2.18s cubic-bezier(0.13, 0.78, 0.2, 1) both;
+  animation-delay: var(--coin-delay);
+}
+
+.mock-chest-coin::before {
+  content: '';
+  position: absolute;
+  inset: -0.35rem;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255, 247, 180, 0.58), transparent 58%);
+  opacity: 0;
+  transform: scale(0.35);
+  animation: mockChestCoinGlint 2.18s ease both;
+  animation-delay: var(--coin-delay);
+}
+
+.mock-chest-coin img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  animation: mockChestCoinSpin 0.62s linear infinite;
+}
+
+.mock-chest-stage__copy {
+  position: relative;
+  z-index: 5;
+  margin-top: -1rem;
+  min-height: 4.4rem;
+}
+
+.mock-chest-stage__copy h3 {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-shadow: 0 0 1.4rem rgba(250, 204, 21, 0.28);
+}
+
+.mock-chest-stage__copy p {
+  margin: 0.45rem 0 0;
+  color: rgba(226, 232, 240, 0.86);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.mock-chest-coin-prize {
+  position: relative;
+  z-index: 22;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 2.7rem;
+  margin-top: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid rgba(250, 204, 21, 0.4);
+  background: rgba(15, 23, 42, 0.62);
+  padding: 0.4rem 1rem;
+  font-size: 1.25rem;
+  font-weight: 1000;
+  color: #fef3c7;
+  opacity: 0;
+  transform: translateY(0.8rem) scale(0.86);
+  transition: opacity 0.34s ease, transform 0.34s ease;
+  box-shadow: 0 1rem 2.6rem rgba(2, 6, 23, 0.35);
+}
+
+.mock-chest-coin-prize::before {
+  content: '';
+  position: absolute;
+  inset: -0.55rem;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 24% 50%, rgba(255, 247, 180, 0.58), rgba(250, 204, 21, 0.18) 38%, transparent 66%),
+    radial-gradient(circle at 58% 50%, rgba(34, 211, 238, 0.24), transparent 58%);
+  opacity: 0;
+  filter: blur(0.36rem);
+  transform: scale(0.72);
+  z-index: -1;
+}
+
+.mock-chest-coin-prize.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.mock-chest-coin-prize.is-visible::before {
+  opacity: 0.34;
+  transform: scale(1);
+}
+
+.mock-chest-coin-prize img {
+  width: 2rem;
+  height: 2rem;
+}
+
+.mock-chest-artifacts {
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  top: clamp(3.9rem, 11vh, 5.8rem);
+  z-index: 18;
+  display: block;
+  width: min(96vw, 46rem);
+  height: 21rem;
+  margin: 0;
+  transform: translateX(-50%);
+}
+
+.mock-chest-artifacts::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 12.2rem;
+  width: min(22rem, 78vw);
+  height: 9rem;
+  border-radius: 999px;
+  background:
+    radial-gradient(ellipse at 50% 60%, rgba(255, 250, 205, 0.76), rgba(250, 204, 21, 0.34) 28%, rgba(168, 85, 247, 0.18) 44%, transparent 70%),
+    conic-gradient(from 15deg at 50% 54%, transparent 0 12%, rgba(255, 255, 255, 0.32) 15% 18%, transparent 23% 42%, rgba(34, 211, 238, 0.2) 47% 51%, transparent 57% 74%, rgba(250, 204, 21, 0.32) 78% 82%, transparent 88% 100%);
+  opacity: 0;
+  filter: blur(0.2rem);
+  transform: translate(-50%, -50%) scale(0.42);
+  z-index: -1;
+}
+
+.mock-chest-artifacts.is-awakening::before {
+  animation: mockChestArtifactPortal 1.25s cubic-bezier(0.16, 0.88, 0.2, 1) both;
+}
+
+.mock-chest-artifact {
+  --artifact-color: #64748b;
+  --artifact-x: -50%;
+  --artifact-rotate: -5deg;
+  position: absolute;
+  left: 50%;
+  top: 2.8rem;
+  display: flex;
+  width: min(15.4rem, 40vw);
+  min-height: 12.8rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  border-radius: 1.6rem;
+  border: 1px solid color-mix(in srgb, var(--artifact-color), white 14%);
+  background:
+    radial-gradient(circle at 50% 4%, rgba(255, 255, 255, 0.28), transparent 28%),
+    radial-gradient(circle at 50% 20%, color-mix(in srgb, var(--artifact-color), transparent 34%), transparent 58%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(2, 6, 23, 0.92));
+  opacity: 0;
+  transform: translate(-50%, 9.2rem) scale(0.3) rotate(0deg);
+  transform-origin: 50% 100%;
+  isolation: isolate;
+  will-change: opacity, transform, filter;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 0 1.8rem color-mix(in srgb, var(--artifact-color), transparent 72%),
+    0 1.8rem 3.5rem rgba(2, 6, 23, 0.42),
+    0 0 2.8rem color-mix(in srgb, var(--artifact-color), transparent 42%),
+    0 0 5.4rem color-mix(in srgb, var(--artifact-color), transparent 70%);
+}
+
+.mock-chest-artifact::before {
+  content: '';
+  position: absolute;
+  inset: -2.6rem;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.52), transparent 16%),
+    radial-gradient(circle at 50% 48%, color-mix(in srgb, var(--artifact-color), transparent 12%), transparent 44%),
+    radial-gradient(circle at 50% 100%, rgba(250, 204, 21, 0.5), transparent 38%);
+  opacity: 0;
+  filter: blur(0.62rem);
+  transform: scale(0.5);
+  z-index: -1;
+}
+
+.mock-chest-artifact::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 0.42rem;
+  height: 8rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--artifact-color), white 34%), transparent);
+  opacity: 0;
+  filter: blur(0.18rem);
+  transform: translateX(-50%) scaleY(0.35);
+  transform-origin: 50% 0;
+  z-index: -2;
+}
+
+.mock-chest-artifact:nth-child(2) {
+  --artifact-x: -3%;
+  --artifact-rotate: 5deg;
+}
+
+.mock-chest-artifact:only-child {
+  --artifact-x: -50%;
+  --artifact-rotate: 0deg;
+}
+
+.mock-chest-artifacts--single .mock-chest-artifact:first-child {
+  --artifact-x: -50%;
+  --artifact-rotate: -2deg;
+}
+
+.mock-chest-artifacts--pair .mock-chest-artifact:first-child {
+  --artifact-x: -112%;
+  --artifact-rotate: -2.5deg;
+}
+
+.mock-chest-artifacts--pair .mock-chest-artifact:nth-child(2) {
+  --artifact-x: 12%;
+  --artifact-rotate: 2.5deg;
+}
+
+.mock-chest-artifact.is-visible {
+  animation: mockChestArtifactReveal 0.9s cubic-bezier(0.13, 0.92, 0.22, 1.12) both;
+  animation-delay: var(--artifact-delay, 0ms);
+}
+
+.mock-chest-artifact.is-visible::before {
+  animation:
+    mockChestArtifactAura 1.05s ease both,
+    mockChestArtifactAuraPulse 2.8s ease-in-out infinite;
+  animation-delay: var(--artifact-delay, 0ms), calc(var(--artifact-delay, 0ms) + 1.05s);
+}
+
+.mock-chest-artifact.is-visible::after {
+  animation: mockChestArtifactTrail 0.8s ease-out both;
+  animation-delay: var(--artifact-delay, 0ms);
+}
+
+.mock-chest-artifact__rank {
+  position: absolute;
+  right: 0.9rem;
+  top: 0.9rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--artifact-color), white 24%);
+  background:
+    radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.58), transparent 34%),
+    color-mix(in srgb, var(--artifact-color), transparent 56%);
+  padding: 0.26rem 0.68rem;
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 1000;
+  box-shadow:
+    0 0 1rem color-mix(in srgb, var(--artifact-color), transparent 22%),
+    inset 0 1px 0 rgba(255, 255, 255, 0.34);
+}
+
+.mock-chest-artifact__image {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 7.15rem;
+  height: 7.15rem;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in srgb, var(--artifact-color), white 30%);
+  filter:
+    drop-shadow(0 1.1rem 1.25rem rgba(0, 0, 0, 0.38))
+    drop-shadow(0 0 1.7rem color-mix(in srgb, var(--artifact-color), transparent 14%))
+    drop-shadow(0 0 3.2rem color-mix(in srgb, var(--artifact-color), transparent 48%));
+}
+
+.mock-chest-artifact__image::before,
+.mock-chest-artifact__image::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.mock-chest-artifact__image::before {
+  width: 118%;
+  height: 118%;
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.22) 19%, color-mix(in srgb, var(--artifact-color), transparent 24%) 45%, transparent 72%);
+  filter: blur(0.5rem);
+  opacity: 0.72;
+  z-index: -1;
+}
+
+.mock-chest-artifact__image::after {
+  width: 145%;
+  height: 145%;
+  border: 1px solid color-mix(in srgb, var(--artifact-color), white 28%);
+  background:
+    conic-gradient(from 12deg, transparent 0 16%, rgba(255, 255, 255, 0.78) 18% 20%, transparent 24% 46%, color-mix(in srgb, var(--artifact-color), white 18%) 49% 51%, transparent 55% 78%, rgba(255, 255, 255, 0.56) 80% 82%, transparent 86% 100%);
+  opacity: 0.5;
+  mix-blend-mode: screen;
+  z-index: -2;
+}
+
+.mock-chest-artifact.is-visible .mock-chest-artifact__image {
+  animation: mockChestArtifactImageGlow 2.4s ease-in-out calc(var(--artifact-delay, 0ms) + 0.7s) infinite;
+}
+
+.mock-chest-artifact__image img {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.mock-chest-artifact__name {
+  margin-top: 1rem;
+  max-width: 92%;
+  color: white;
+  font-size: 1.12rem;
+  font-weight: 1000;
+  line-height: 1.2;
+  text-shadow:
+    0 0.5rem 1.2rem rgba(2, 6, 23, 0.54),
+    0 0 1.1rem color-mix(in srgb, var(--artifact-color), transparent 36%);
+}
+
+.mock-chest-artifact__title {
+  margin-top: 0.38rem;
+  color: color-mix(in srgb, var(--artifact-color), white 70%);
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 0 0 1rem color-mix(in srgb, var(--artifact-color), transparent 28%);
+}
+
+.mock-chest-collect {
+  position: absolute;
+  left: 50%;
+  bottom: clamp(1rem, 5vh, 2.4rem);
+  z-index: 6;
+  margin-top: 0;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #facc15, #22d3ee 52%, #a855f7);
+  padding: 0.9rem 1.6rem;
+  color: #0f172a;
+  font-size: 0.95rem;
+  font-weight: 1000;
+  transform: translateX(-50%);
+  box-shadow:
+    0 1.2rem 2.6rem rgba(14, 165, 233, 0.26),
+    0 0 2.5rem rgba(250, 204, 21, 0.24);
+  transition: transform 0.16s ease, filter 0.16s ease;
+}
+
+.mock-chest-collect:hover {
+  transform: translate(-50%, -1px);
+  filter: brightness(1.04);
+}
+
 @keyframes mockArtifactDropStage {
   0% { opacity: 0; }
   8% { opacity: 1; }
@@ -3261,6 +4427,707 @@ html[data-theme='dark'] .mock-answer-burst__badge {
   }
 }
 
+@keyframes mockChestAuraSpin {
+  from { transform: rotate(0deg) scale(1); }
+  to { transform: rotate(360deg) scale(1.04); }
+}
+
+@keyframes mockChestStarTwinkle {
+  0%, 100% { transform: scale(0.76); opacity: 0.36; }
+  50% { transform: scale(1.18); opacity: 0.88; }
+}
+
+@keyframes mockChestArrive {
+  0% {
+    opacity: 0;
+    transform: translateY(6rem) scale(0.3) rotateX(22deg);
+  }
+  62% {
+    opacity: 1;
+    transform: translateY(-0.65rem) scale(1.08) rotateX(0deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotateX(0deg);
+  }
+}
+
+@keyframes mockChestFloat {
+  0%, 100% { transform: translateY(0) rotate(-0.6deg); }
+  50% { transform: translateY(-0.55rem) rotate(0.7deg); }
+}
+
+@keyframes mockChestOverlayExit {
+  0% {
+    opacity: 1;
+    backdrop-filter: blur(0);
+  }
+  62% {
+    opacity: 0.74;
+  }
+  100% {
+    opacity: 0;
+    backdrop-filter: blur(4px);
+  }
+}
+
+@keyframes mockChestAuraExit {
+  0% {
+    opacity: 0.82;
+    transform: rotate(0deg) scale(1);
+    filter: blur(1px);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(18deg) scale(0.82);
+    filter: blur(1.2rem);
+  }
+}
+
+@keyframes mockChestStarExit {
+  0% {
+    opacity: 0.58;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-0.85rem) scale(0.3);
+  }
+}
+
+@keyframes mockChestUiExit {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.96);
+    filter: blur(0.28rem);
+  }
+}
+
+@keyframes mockChestLeave {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotate(0deg) rotateX(0deg);
+    filter:
+      drop-shadow(0 2.2rem 2.5rem rgba(0, 0, 0, 0.44))
+      saturate(1);
+  }
+  28% {
+    opacity: 1;
+    transform: translateY(-0.35rem) scale(1.035) rotate(-0.4deg) rotateX(2deg);
+    filter:
+      drop-shadow(0 2.4rem 2.8rem rgba(0, 0, 0, 0.4))
+      saturate(1.08);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(5.8rem) scale(0.66) rotate(1.8deg) rotateX(18deg);
+    filter:
+      blur(0.42rem)
+      drop-shadow(0 1.1rem 1.6rem rgba(0, 0, 0, 0.22))
+      saturate(0.78);
+  }
+}
+
+@keyframes mockChestGlowExit {
+  0% {
+    opacity: 0.72;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.58);
+  }
+}
+
+@keyframes mockChestAssetGlowExit {
+  0% {
+    opacity: 0.7;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.58);
+  }
+}
+
+@keyframes mockChestRewardExit {
+  0% {
+    opacity: 1;
+    transform: translate(var(--artifact-x, -50%), 0) scale(1) rotate(var(--artifact-rotate, 0deg));
+    filter: blur(0) brightness(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--artifact-x, -50%), 1.4rem) scale(0.82) rotate(var(--artifact-rotate, 0deg));
+    filter: blur(0.4rem) brightness(0.7);
+  }
+}
+
+@keyframes mockChestPulse {
+  0%, 100% { transform: scale(0.92); opacity: 0.58; }
+  50% { transform: scale(1.05); opacity: 0.92; }
+}
+
+@keyframes mockChestPressOdd {
+  0% {
+    transform: translateY(0) scaleX(1) scaleY(1) rotateZ(0deg);
+    filter: brightness(1);
+  }
+  18% {
+    transform: translateY(0.72rem) scaleX(1.055) scaleY(0.91) rotateZ(-0.8deg);
+    filter: brightness(0.96);
+  }
+  42% {
+    transform: translateY(-0.18rem) scaleX(0.985) scaleY(1.025) rotateZ(0.45deg);
+    filter: brightness(1.08);
+  }
+  68% {
+    transform: translateY(0.12rem) scaleX(1.012) scaleY(0.99) rotateZ(-0.15deg);
+  }
+  100% {
+    transform: translateY(0) scaleX(1) scaleY(1) rotateZ(0deg);
+    filter: brightness(1);
+  }
+}
+
+@keyframes mockChestPressEven {
+  0% {
+    transform: translateY(0) scaleX(1) scaleY(1) rotateZ(0deg);
+    filter: brightness(1);
+  }
+  18% {
+    transform: translateY(0.72rem) scaleX(1.055) scaleY(0.91) rotateZ(0.8deg);
+    filter: brightness(0.96);
+  }
+  42% {
+    transform: translateY(-0.18rem) scaleX(0.985) scaleY(1.025) rotateZ(-0.45deg);
+    filter: brightness(1.08);
+  }
+  68% {
+    transform: translateY(0.12rem) scaleX(1.012) scaleY(0.99) rotateZ(0.15deg);
+  }
+  100% {
+    transform: translateY(0) scaleX(1) scaleY(1) rotateZ(0deg);
+    filter: brightness(1);
+  }
+}
+
+@keyframes mockChestPressShadowOdd {
+  0%, 100% {
+    opacity: 1;
+    transform: translateX(0) scaleX(1) scaleY(1);
+  }
+  18% {
+    opacity: 0.72;
+    transform: translateX(0) scaleX(1.18) scaleY(0.72);
+  }
+  42% {
+    opacity: 0.95;
+    transform: translateX(0) scaleX(0.92) scaleY(1.08);
+  }
+}
+
+@keyframes mockChestPressShadowEven {
+  0%, 100% {
+    opacity: 1;
+    transform: translateX(0) scaleX(1) scaleY(1);
+  }
+  18% {
+    opacity: 0.72;
+    transform: translateX(0) scaleX(1.18) scaleY(0.72);
+  }
+  42% {
+    opacity: 0.95;
+    transform: translateX(0) scaleX(0.92) scaleY(1.08);
+  }
+}
+
+@keyframes mockChestLidOpen {
+  0% {
+    transform: translateX(-50%) translateY(0) rotateX(0deg) rotateZ(0deg) scaleY(1);
+  }
+  16% {
+    transform: translateX(-50%) translateY(0.22rem) rotateX(-8deg) rotateZ(-0.4deg) scaleY(1.02);
+  }
+  42% {
+    transform: translateX(-50%) translateY(-2.45rem) rotateX(30deg) rotateZ(-1.1deg) scaleY(0.96);
+  }
+  66% {
+    transform: translateX(-50%) translateY(-4.15rem) rotateX(18deg) rotateZ(1deg) scaleY(1);
+  }
+  82% {
+    transform: translateX(-50%) translateY(-3.1rem) rotateX(32deg) rotateZ(-0.55deg) scaleY(0.94);
+  }
+  100% {
+    transform: translateX(-50%) translateY(-3.45rem) rotateX(24deg) rotateZ(0deg) scaleY(0.96);
+  }
+}
+
+@keyframes mockChestBodyOpen {
+  0% {
+    transform: translateX(-50%) translateY(0) scaleY(1);
+  }
+  22% {
+    transform: translateX(-50%) translateY(0.2rem) scaleY(0.98);
+  }
+  54% {
+    transform: translateX(-50%) translateY(0.02rem) scaleY(1.01);
+  }
+  100% {
+    transform: translateX(-50%) translateY(0) scaleY(1);
+  }
+}
+
+@keyframes mockChestInteriorOpen {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(0.42rem) scaleY(0.08);
+  }
+  28% {
+    opacity: 0.72;
+    transform: translateX(-50%) translateY(0.18rem) scaleY(0.42);
+  }
+  66% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-0.12rem) scaleY(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scaleY(1);
+  }
+}
+
+@keyframes mockChestInteriorGlow {
+  0% {
+    opacity: 0;
+    transform: translateY(1rem) scale(0.55);
+  }
+  52% {
+    opacity: 0.95;
+    transform: translateY(-0.2rem) scale(1.08);
+  }
+  100% {
+    opacity: 0.72;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes mockChestInteriorPulse {
+  0%, 100% {
+    opacity: 0.56;
+    transform: translateY(0) scale(0.96);
+  }
+  50% {
+    opacity: 0.88;
+    transform: translateY(-0.22rem) scale(1.05);
+  }
+}
+
+@keyframes mockChestInteriorSpark {
+  0%, 100% {
+    opacity: 0;
+    transform: translateY(0.55rem) scale(0.55);
+  }
+  42% {
+    opacity: 1;
+    transform: translateY(-0.18rem) scale(1.12);
+  }
+  78% {
+    opacity: 0.34;
+    transform: translateY(-0.85rem) scale(0.72);
+  }
+}
+
+@keyframes mockChestHingeLeftOpen {
+  0% {
+    opacity: 0;
+    transform: rotate(-3deg) scaleY(0.18);
+  }
+  48% {
+    opacity: 0.84;
+    transform: rotate(-18deg) scaleY(1.08);
+  }
+  100% {
+    opacity: 0.72;
+    transform: rotate(-13deg) scaleY(1);
+  }
+}
+
+@keyframes mockChestHingeRightOpen {
+  0% {
+    opacity: 0;
+    transform: rotate(3deg) scaleY(0.18);
+  }
+  48% {
+    opacity: 0.84;
+    transform: rotate(18deg) scaleY(1.08);
+  }
+  100% {
+    opacity: 0.72;
+    transform: rotate(13deg) scaleY(1);
+  }
+}
+
+@keyframes mockChestCoinPop {
+  0% {
+    opacity: 0;
+    transform:
+      translate(var(--coin-start-x, 0), 2.7rem)
+      scale(0.18)
+      rotateZ(0deg)
+      rotateY(80deg);
+    filter:
+      blur(4px)
+      brightness(2.1)
+      drop-shadow(0 0 0.8rem rgba(250, 204, 21, 0.48));
+  }
+  10% {
+    opacity: 1;
+  }
+  34% {
+    opacity: 1;
+    transform:
+      translate(var(--coin-peak-x, 0), var(--coin-peak-y, -7rem))
+      scale(var(--coin-peak-scale, 1.08))
+      rotateZ(var(--coin-spin))
+      rotateY(210deg);
+    filter:
+      blur(0)
+      brightness(1.25)
+      drop-shadow(0 0.5rem 0.45rem rgba(0, 0, 0, 0.24))
+      drop-shadow(0 0 1rem rgba(250, 204, 21, 0.6));
+  }
+  68% {
+    opacity: 1;
+    transform:
+      translate(var(--coin-fall-x, var(--coin-peak-x, 0)), var(--coin-fall-y, -3rem))
+      scale(var(--coin-scale, 1))
+      rotateZ(calc(var(--coin-spin) + 120deg))
+      rotateY(430deg);
+    filter:
+      blur(0)
+      brightness(1)
+      drop-shadow(0 0.42rem 0.38rem rgba(0, 0, 0, 0.26))
+      drop-shadow(0 0 0.7rem rgba(250, 204, 21, 0.38));
+  }
+  82% {
+    opacity: 1;
+    transform:
+      translate(var(--coin-late-x, var(--coin-fall-x, 0)), var(--coin-late-y, var(--coin-fall-y, -3rem)))
+      scale(var(--coin-late-scale, 0.78))
+      rotateZ(calc(var(--coin-spin) + 220deg))
+      rotateY(560deg);
+    filter:
+      blur(0)
+      brightness(1.18)
+      drop-shadow(0 0.32rem 0.28rem rgba(0, 0, 0, 0.2))
+      drop-shadow(0 0 1rem rgba(250, 204, 21, 0.58));
+  }
+  94% {
+    opacity: 0.92;
+    transform:
+      translate(
+        calc(var(--coin-prize-x, 0rem) + var(--coin-collect-x, 0px)),
+        calc(var(--coin-prize-y, 11rem) + var(--coin-collect-y, 0px))
+      )
+      scale(0.46)
+      rotateZ(calc(var(--coin-spin) + 320deg))
+      rotateY(720deg);
+    filter:
+      blur(0)
+      brightness(1.55)
+      drop-shadow(0 0 1.25rem rgba(250, 204, 21, 0.82));
+  }
+  100% {
+    opacity: 0;
+    transform:
+      translate(
+        calc(var(--coin-prize-x, 0rem) + var(--coin-end-x, 0px)),
+        calc(var(--coin-prize-y, 11rem) + var(--coin-end-y, 0px))
+      )
+      scale(0.08)
+      rotateZ(calc(var(--coin-spin) + 390deg))
+      rotateY(810deg);
+    filter:
+      blur(1px)
+      brightness(2)
+      drop-shadow(0 0 1rem rgba(250, 204, 21, 0.74));
+  }
+}
+
+@keyframes mockChestCoinPrizeCollect {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  42% {
+    transform: translateY(-0.08rem) scale(1.09);
+  }
+  68% {
+    transform: translateY(0.03rem) scale(0.98);
+  }
+}
+
+@keyframes mockChestCoinPrizeGlow {
+  0% {
+    opacity: 0;
+    transform: scale(0.68);
+  }
+  34% {
+    opacity: 0.95;
+    transform: scale(1.14);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.38);
+  }
+}
+
+@keyframes mockChestCoinSpin {
+  from { transform: rotateY(0deg) rotateZ(-10deg) scaleX(1); }
+  50% { transform: rotateY(180deg) rotateZ(7deg) scaleX(0.78); }
+  to { transform: rotateY(360deg) rotateZ(10deg) scaleX(1); }
+}
+
+@keyframes mockChestCoinGlint {
+  0%, 100% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  20% {
+    opacity: 0.75;
+    transform: scale(0.88);
+  }
+  48% {
+    opacity: 0.36;
+    transform: scale(1.25);
+  }
+  72% {
+    opacity: 0.12;
+    transform: scale(0.72);
+  }
+}
+
+@keyframes mockChestArtifactReveal {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 10.2rem) scale(0.12) rotate(0deg) rotateX(30deg);
+    filter: blur(14px) brightness(3);
+  }
+  18% {
+    opacity: 1;
+    filter: blur(4px) brightness(2.2);
+  }
+  38% {
+    opacity: 1;
+    transform: translate(-50%, 4.2rem) scale(0.58) rotate(0deg) rotateX(12deg);
+    filter: blur(1px) brightness(1.55);
+  }
+  56% {
+    opacity: 1;
+    transform: translate(var(--artifact-x), -1.35rem) scale(1.12) rotate(var(--artifact-rotate)) rotateX(-3deg);
+    filter: blur(0) brightness(1.16);
+  }
+  76% {
+    opacity: 1;
+    transform: translate(var(--artifact-x), 0.32rem) scale(0.96) rotate(var(--artifact-rotate)) rotateX(1deg);
+    filter: blur(0) brightness(1);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(var(--artifact-x), 0) scale(1) rotate(var(--artifact-rotate)) rotateX(0deg);
+    filter: blur(0);
+  }
+}
+
+@keyframes mockChestArtifactPortal {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.34);
+    filter: blur(0.7rem);
+  }
+  28% {
+    opacity: 0.82;
+    transform: translate(-50%, -50%) scale(0.92);
+    filter: blur(0.14rem);
+  }
+  62% {
+    opacity: 0.62;
+    transform: translate(-50%, -50%) scale(1.12);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.28);
+    filter: blur(0.52rem);
+  }
+}
+
+@keyframes mockChestArtifactAura {
+  0% {
+    opacity: 0;
+    transform: scale(0.36);
+  }
+  34% {
+    opacity: 0.9;
+    transform: scale(0.92);
+  }
+  72% {
+    opacity: 0.34;
+    transform: scale(1.14);
+  }
+  100% {
+    opacity: 0.22;
+    transform: scale(1);
+  }
+}
+
+@keyframes mockChestArtifactAuraPulse {
+  0%, 100% {
+    opacity: 0.34;
+    transform: scale(0.96);
+    filter: blur(0.62rem);
+  }
+  50% {
+    opacity: 0.72;
+    transform: scale(1.08);
+    filter: blur(0.42rem);
+  }
+}
+
+@keyframes mockChestArtifactImageGlow {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+    filter:
+      drop-shadow(0 1.1rem 1.25rem rgba(0, 0, 0, 0.38))
+      drop-shadow(0 0 1.7rem color-mix(in srgb, var(--artifact-color), transparent 14%))
+      drop-shadow(0 0 3.2rem color-mix(in srgb, var(--artifact-color), transparent 48%));
+  }
+  50% {
+    transform: translateY(-0.2rem) scale(1.045);
+    filter:
+      drop-shadow(0 1.15rem 1.3rem rgba(0, 0, 0, 0.38))
+      drop-shadow(0 0 2.3rem color-mix(in srgb, var(--artifact-color), transparent 2%))
+      drop-shadow(0 0 4.5rem color-mix(in srgb, var(--artifact-color), transparent 32%));
+  }
+}
+
+@keyframes mockChestArtifactTrail {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scaleY(0.12);
+  }
+  28% {
+    opacity: 0.82;
+    transform: translateX(-50%) scaleY(1);
+  }
+  72% {
+    opacity: 0.22;
+    transform: translateX(-50%) scaleY(0.72);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) scaleY(0.2);
+  }
+}
+
+@keyframes mockChestClosedAssetExit {
+  0% {
+    opacity: 1;
+    transform: translateY(0.2rem) scale(0.86) rotate(0deg);
+    filter:
+      drop-shadow(0 2rem 2.2rem rgba(0, 0, 0, 0.38))
+      drop-shadow(0 0 2.2rem rgba(250, 204, 21, 0.16));
+  }
+  42% {
+    opacity: 0.75;
+    transform: translateY(-0.55rem) scale(0.92) rotate(-1.4deg);
+    filter:
+      drop-shadow(0 2.1rem 2.3rem rgba(0, 0, 0, 0.36))
+      drop-shadow(0 0 3.2rem rgba(250, 204, 21, 0.34));
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(1.2rem) scale(0.74) rotate(2deg);
+    filter: blur(3px);
+  }
+}
+
+@keyframes mockChestOpenAssetReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(1.8rem) scale(0.66) rotateX(10deg);
+    filter:
+      blur(6px)
+      drop-shadow(0 1.8rem 2.1rem rgba(0, 0, 0, 0.34))
+      drop-shadow(0 0 1rem rgba(250, 204, 21, 0.14));
+  }
+  54% {
+    opacity: 1;
+    transform: translateY(-0.45rem) scale(0.96) rotateX(-2deg);
+    filter:
+      blur(0)
+      drop-shadow(0 2.2rem 2.6rem rgba(0, 0, 0, 0.42))
+      drop-shadow(0 0 3.2rem rgba(250, 204, 21, 0.38));
+  }
+  78% {
+    opacity: 1;
+    transform: translateY(0.08rem) scale(0.9) rotateX(1deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(0.92) rotateX(0deg);
+    filter:
+      blur(0)
+      drop-shadow(0 2.2rem 2.6rem rgba(0, 0, 0, 0.42))
+      drop-shadow(0 0 2.7rem rgba(250, 204, 21, 0.3));
+  }
+}
+
+@keyframes mockChestAssetGlow {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.52);
+  }
+  56% {
+    opacity: 0.92;
+    transform: translate(-50%, -50%) scale(1.12);
+  }
+  100% {
+    opacity: 0.7;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes mockChestAssetGlowPulse {
+  0%, 100% {
+    opacity: 0.54;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+  50% {
+    opacity: 0.82;
+    transform: translate(-50%, -50%) scale(1.05);
+  }
+}
+
+@keyframes mockChestAssetSpark {
+  0%, 100% {
+    opacity: 0;
+    transform: translateY(0.45rem) scale(0.55);
+  }
+  38% {
+    opacity: 1;
+    transform: translateY(-0.3rem) scale(1.15);
+  }
+  76% {
+    opacity: 0.32;
+    transform: translateY(-1.1rem) scale(0.72);
+  }
+}
+
 @media (max-width: 640px) {
   .mock-exam-artifact-hint {
     border-radius: 1rem;
@@ -3271,6 +5138,86 @@ html[data-theme='dark'] .mock-answer-burst__badge {
   .mock-artifact-drop__card {
     width: min(92vw, 22rem);
     border-radius: 1.15rem;
+  }
+
+  .mock-chest-stage {
+    min-height: 94vh;
+    padding: 3.75rem 0.85rem 1rem;
+  }
+
+  .mock-chest {
+    width: min(18rem, 82vw);
+    height: min(14.6rem, 66vw);
+  }
+
+  .mock-chest.mock-chest--image {
+    width: min(22rem, 92vw);
+    height: min(18rem, 78vw);
+    margin: -0.5rem 0 -1.65rem;
+  }
+
+  .mock-chest-coins {
+    --coin-prize-x: 0px;
+    --coin-prize-y: -30vh;
+  }
+
+  .mock-chest-stage__copy {
+    margin-top: -0.35rem;
+  }
+
+  .mock-chest-stage__copy h3 {
+    font-size: 1.28rem;
+  }
+
+  .mock-chest-artifacts {
+    top: 4.7rem;
+    width: min(98vw, 27rem);
+    height: 15.2rem;
+  }
+
+  .mock-chest-artifact {
+    --artifact-x: -50%;
+    top: 1.8rem;
+    width: min(11.4rem, 43vw);
+    min-height: 9.7rem;
+    border-radius: 1.15rem;
+  }
+
+  .mock-chest-artifact:nth-child(2) {
+    --artifact-x: 3%;
+  }
+
+  .mock-chest-artifacts--single .mock-chest-artifact:first-child {
+    --artifact-x: -50%;
+    --artifact-rotate: -2deg;
+  }
+
+  .mock-chest-artifacts--pair .mock-chest-artifact:first-child {
+    --artifact-x: -108%;
+    --artifact-rotate: -2deg;
+  }
+
+  .mock-chest-artifacts--pair .mock-chest-artifact:nth-child(2) {
+    --artifact-x: 8%;
+    --artifact-rotate: 2deg;
+  }
+
+  .mock-chest-artifact:only-child {
+    --artifact-x: -50%;
+  }
+
+  .mock-chest-artifact__image {
+    width: 4.35rem;
+    height: 4.35rem;
+  }
+
+  .mock-chest-artifact__name {
+    margin-top: 0.76rem;
+    font-size: 0.82rem;
+  }
+
+  .mock-chest-artifact__title {
+    font-size: 0.62rem;
   }
 }
 
@@ -3293,6 +5240,13 @@ html[data-theme='dark'] .mock-answer-burst__badge {
   .mock-artifact-drop__card,
   .mock-artifact-drop__image-shell {
     animation-duration: 0.65s;
+  }
+
+  .mock-chest-overlay *,
+  .mock-chest-overlay *::before,
+  .mock-chest-overlay *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

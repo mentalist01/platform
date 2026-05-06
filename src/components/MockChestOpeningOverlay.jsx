@@ -1,0 +1,421 @@
+﻿import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { PackageOpen, Sparkles, X } from 'lucide-react';
+import chestClosedImage from '../assets/mock-chest/chest-closed.png';
+import chestOpenImage from '../assets/mock-chest/chest-open.png';
+import ivanCoin from '../assets/ivan-coin-badge.png';
+import { ARTIFACT_CATALOG_METADATA } from '../data/artifactCatalog';
+
+const artifactImageModules = import.meta.glob('../assets/artefacts/**/*.png', { eager: true, import: 'default' });
+
+const ARTIFACT_IMAGE_BY_ID = new Map(
+  Object.entries(artifactImageModules)
+    .map(([path, src]) => {
+      const match = path.match(/\/artefacts\/[^/]+\/([^/]+)\.png$/);
+      if (!match) return null;
+      return [String(match[1] || '').trim(), src];
+    })
+    .filter(Boolean)
+);
+
+const RANK_META = {
+  SS: { label: 'SS', color: '#ff1f6d', title: 'Сверхлегендарный' },
+  S: { label: 'S', color: '#ef4444', title: 'Легендарный' },
+  A: { label: 'A', color: '#a855f7', title: 'Эпический' },
+  B: { label: 'B', color: '#3b82f6', title: 'Редкий' },
+  C: { label: 'C', color: '#64748b', title: 'Обычный' },
+};
+
+const ARTIFACT_CATALOG = ARTIFACT_CATALOG_METADATA
+  .map((artifact) => {
+    const id = String(artifact?.id || '').trim();
+    if (!id) return null;
+    return {
+      id,
+      rank: String(artifact?.rank || 'C').trim().toUpperCase() || 'C',
+      name: String(artifact?.name || id).trim() || id,
+      description: typeof artifact?.description === 'string' ? artifact.description : '',
+      src: ARTIFACT_IMAGE_BY_ID.get(id) || '',
+    };
+  })
+  .filter(Boolean);
+
+const CHEST_COIN_BURST = Array.from({ length: 32 }, (_, index) => {
+  const lane = index % 8;
+  const row = Math.floor(index / 8);
+  const sideBias = lane - 3.5;
+  const wave = Math.sin((index + 1) * 1.37);
+  const startX = sideBias * 7 + wave * 6;
+  const peakX = sideBias * 42 + wave * 22;
+  const peakY = -92 - row * 32 - Math.abs(wave) * 28;
+  const fallX = peakX + sideBias * 10 + Math.cos(index * 0.9) * 16;
+  const fallY = peakY + 58 + row * 8;
+  const collectX = -18 + (lane % 4 - 1.5) * 8 + wave * 5;
+  const collectY = (row - 1.5) * 5 + Math.cos(index * 0.72) * 4;
+  const scale = 0.76 + ((index % 5) * 0.08);
+  return {
+    startX: `${Math.round(startX)}px`,
+    peakX: `${Math.round(peakX)}px`,
+    peakY: `${Math.round(peakY)}px`,
+    fallX: `${Math.round(fallX)}px`,
+    fallY: `${Math.round(fallY)}px`,
+    lateX: `${Math.round(fallX + sideBias * 3)}px`,
+    lateY: `${Math.round(fallY + 21)}px`,
+    collectX: `${Math.round(collectX)}px`,
+    collectY: `${Math.round(collectY)}px`,
+    endX: `${Math.round(collectX * 0.3)}px`,
+    endY: `${Math.round(collectY * 0.3)}px`,
+    delay: `${Math.round(lane * 34 + row * 78)}ms`,
+    spin: `${Math.round((index % 2 === 0 ? 1 : -1) * (150 + row * 46 + lane * 13))}deg`,
+    scale: scale.toFixed(2),
+    peakScale: (scale + 0.16).toFixed(2),
+    lateScale: Math.max(0.58, scale - 0.12).toFixed(2),
+  };
+});
+
+const CHEST_CLOSE_ANIMATION_MS = 760;
+
+const normalizeChestArtifact = (artifact) => {
+  const id = String(artifact?.id || artifact?.artifactId || '').trim();
+  const catalogArtifact = ARTIFACT_CATALOG.find((item) => item.id === id) || null;
+  if (!id && !catalogArtifact) return null;
+  const rank = String(artifact?.rank || catalogArtifact?.rank || 'C').trim().toUpperCase() || 'C';
+  return {
+    id: id || catalogArtifact.id,
+    rank,
+    name: String(artifact?.name || catalogArtifact?.name || id || 'Артефакт').trim(),
+    description: typeof artifact?.description === 'string' && artifact.description.trim()
+      ? artifact.description.trim()
+      : (catalogArtifact?.description || ''),
+    src: artifact?.src || catalogArtifact?.src || ARTIFACT_IMAGE_BY_ID.get(id) || '',
+  };
+};
+
+const normalizeChestRewards = (rewards) => (
+  (Array.isArray(rewards) ? rewards : [])
+    .map((reward, index) => {
+      const artifacts = (Array.isArray(reward?.artifacts) ? reward.artifacts : [])
+        .map(normalizeChestArtifact)
+        .filter(Boolean)
+        .slice(0, 2);
+      return {
+        id: String(reward?.id || `mock-chest-${index}`).trim() || `mock-chest-${index}`,
+        coinsGained: Math.max(0, Math.floor(Number(reward?.coinsGained ?? reward?.coins ?? 0) || 0)),
+        milestoneScore: Math.max(0, Math.floor(Number(reward?.milestoneScore) || 0)),
+        chestIndex: Math.max(1, Math.floor(Number(reward?.chestIndex) || (index + 1))),
+        artifacts,
+      };
+    })
+    .filter((reward) => reward.coinsGained > 0 || reward.artifacts.length > 0)
+);
+
+const getPhaseStep = (phase) => {
+  if (phase === 'done') return 4;
+  if (phase === 'artifact-two') return 3;
+  if (phase === 'artifact-one') return 2;
+  if (phase === 'coins') return 1;
+  return 0;
+};
+
+const getVisibleCoinBalanceTarget = () => {
+  if (typeof document === 'undefined') return null;
+  const selectors = [
+    '[data-coin-balance-target="top"]',
+    '[data-coin-balance-target="dock"]',
+    '.level-progress-coin',
+    '.xp-flight-dock-coin',
+  ];
+  const candidates = selectors.flatMap((selector) => Array.from(document.querySelectorAll(selector)));
+  const seen = new Set();
+  return candidates.find((element) => {
+    if (!element || seen.has(element)) return false;
+    seen.add(element);
+    const rect = element.getBoundingClientRect();
+    const style = typeof window !== 'undefined' ? window.getComputedStyle(element) : null;
+    return rect.width >= 12
+      && rect.height >= 12
+      && style?.display !== 'none'
+      && style?.visibility !== 'hidden'
+      && style?.opacity !== '0';
+  }) || null;
+};
+
+const MockChestOpeningOverlay = ({ rewards, onClose }) => {
+  const safeRewards = useMemo(() => normalizeChestRewards(rewards), [rewards]);
+  const [rewardIndex, setRewardIndex] = useState(0);
+  const [phase, setPhase] = useState('landing');
+  const [chestPressTick, setChestPressTick] = useState(0);
+  const [coinPrizeTarget, setCoinPrizeTarget] = useState({ x: '0px', y: '-32vh' });
+  const [isClosing, setIsClosing] = useState(false);
+  const coinLayerRef = useRef(null);
+  const closeTimerRef = useRef(null);
+  const currentReward = safeRewards[rewardIndex] || null;
+  const phaseStep = getPhaseStep(phase);
+  const maxRevealStep = currentReward ? Math.min(3, 1 + currentReward.artifacts.length) : 0;
+  const canAdvance = phaseStep < maxRevealStep;
+  const rewardReady = currentReward && phaseStep >= maxRevealStep;
+  const isLastReward = rewardIndex >= safeRewards.length - 1;
+  const visibleArtifactCount = currentReward
+    ? Math.min(currentReward.artifacts.length, Math.max(0, phaseStep - 1))
+    : 0;
+  const chestTitle = phaseStep <= 0
+    ? 'Сундук уже перед тобой'
+    : (rewardReady ? 'Награда раскрыта' : 'Сундук открывается');
+  const chestHint = phaseStep <= 0
+    ? 'Первый клик - монеты.'
+    : (phaseStep === 1
+      ? 'Второй клик - первый артефакт.'
+      : (phaseStep === 2
+        ? 'Третий клик - второй артефакт.'
+        : 'Кликни по экрану, чтобы забрать награду.'));
+  const chestAriaLabel = phaseStep <= 0
+    ? 'Открыть монеты из сундука'
+    : (phaseStep === 1
+      ? 'Открыть первый артефакт'
+      : (phaseStep === 2 ? 'Открыть второй артефакт' : 'Забрать награду'));
+
+  const canInteractWithChest = !isClosing && (canAdvance || rewardReady);
+  const chestPressClass = chestPressTick > 0
+    ? `mock-chest--press-${chestPressTick % 2 === 0 ? 'even' : 'odd'}`
+    : '';
+
+  useEffect(() => {
+    if (!currentReward || isClosing) return undefined;
+    const timer = window.setTimeout(() => {
+      setPhase((prevPhase) => (prevPhase === 'landing' ? 'ready' : prevPhase));
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [currentReward, isClosing]);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    if (phaseStep < 1 || typeof window === 'undefined') return undefined;
+
+    const measureCoinBalanceTarget = () => {
+      const coinLayer = coinLayerRef.current;
+      const coinBalanceTarget = getVisibleCoinBalanceTarget();
+      if (!coinLayer || !coinBalanceTarget) return;
+
+      const layerRect = coinLayer.getBoundingClientRect();
+      const targetRect = coinBalanceTarget.getBoundingClientRect();
+      const targetX = (targetRect.left + (targetRect.width / 2)) - layerRect.left;
+      const targetY = (targetRect.top + (targetRect.height / 2)) - layerRect.top;
+      const nextTarget = {
+        x: `${Math.round(targetX)}px`,
+        y: `${Math.round(targetY)}px`,
+      };
+
+      setCoinPrizeTarget((prevTarget) => (
+        prevTarget.x === nextTarget.x && prevTarget.y === nextTarget.y ? prevTarget : nextTarget
+      ));
+    };
+
+    measureCoinBalanceTarget();
+    const rafId = window.requestAnimationFrame(measureCoinBalanceTarget);
+    window.addEventListener('resize', measureCoinBalanceTarget);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', measureCoinBalanceTarget);
+    };
+  }, [phaseStep, rewardIndex, currentReward?.coinsGained]);
+
+  if (!currentReward || typeof document === 'undefined') return null;
+
+  const requestClose = () => {
+    if (isClosing) return;
+    setIsClosing(true);
+
+    const prefersReducedMotion = typeof window !== 'undefined'
+      && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      onClose?.();
+    }, prefersReducedMotion ? 0 : CHEST_CLOSE_ANIMATION_MS);
+  };
+
+  const advanceChest = () => {
+    if (isClosing) return;
+    if (canInteractWithChest) {
+      setChestPressTick((prev) => (prev + 1) % 1000);
+    }
+    if (rewardReady) {
+      finishCurrentReward();
+      return;
+    }
+    if (!canAdvance) return;
+    if (phaseStep <= 0) {
+      setPhase('coins');
+      return;
+    }
+    if (phaseStep === 1) {
+      setPhase('artifact-one');
+      return;
+    }
+    setPhase('artifact-two');
+  };
+
+  const finishCurrentReward = () => {
+    if (!isLastReward) {
+      setPhase('landing');
+      setRewardIndex((prev) => prev + 1);
+      return;
+    }
+    requestClose();
+  };
+
+  const modal = (
+    <div className={`mock-chest-overlay mock-chest-overlay--${phase} ${isClosing ? 'mock-chest-overlay--closing' : ''}`} role="dialog" aria-modal="true">
+      <div className="mock-chest-overlay__aura" aria-hidden="true" />
+      <div className="mock-chest-overlay__stars" aria-hidden="true">
+        {Array.from({ length: 18 }).map((_, index) => (
+          <span key={index} style={{ '--star-index': index }} />
+        ))}
+      </div>
+
+      <button
+        type="button"
+        className="mock-chest-overlay__close"
+        onClick={(event) => {
+          event.stopPropagation();
+          requestClose();
+        }}
+        aria-label="Закрыть открытие сундука"
+        disabled={isClosing}
+      >
+        <X size={18} />
+      </button>
+
+      <div
+        className={`mock-chest-stage ${canInteractWithChest ? 'mock-chest-stage--clickable' : ''}`}
+        onClick={advanceChest}
+      >
+        <div className="mock-chest-stage__kicker">
+          <PackageOpen size={17} />
+          <span>{safeRewards.length > 1 ? `Сундук ${rewardIndex + 1}/${safeRewards.length}` : 'Сундук получен'}</span>
+        </div>
+
+        <button
+          type="button"
+          className={`mock-chest mock-chest--image ${phaseStep >= 1 ? 'mock-chest--opened' : ''} ${canInteractWithChest ? 'mock-chest--clickable' : ''} ${chestPressClass}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            advanceChest();
+          }}
+          disabled={!canInteractWithChest}
+          aria-label={chestAriaLabel}
+        >
+          <span className="mock-chest__shine" />
+          <span className="mock-chest__asset-shell" aria-hidden="true">
+            <img
+              className="mock-chest__asset mock-chest__asset--closed"
+              src={chestClosedImage}
+              alt=""
+              draggable="false"
+            />
+            <img
+              className="mock-chest__asset mock-chest__asset--open"
+              src={chestOpenImage}
+              alt=""
+              draggable="false"
+            />
+            <span className="mock-chest__asset-glow" />
+            <span className="mock-chest__asset-spark mock-chest__asset-spark--one" />
+            <span className="mock-chest__asset-spark mock-chest__asset-spark--two" />
+            <span className="mock-chest__asset-spark mock-chest__asset-spark--three" />
+          </span>
+          <span className="mock-chest__base" />
+        </button>
+
+        {phaseStep >= 1 && (
+          <div
+            ref={coinLayerRef}
+            className="mock-chest-coins"
+            style={{
+              '--coin-prize-x': coinPrizeTarget.x,
+              '--coin-prize-y': coinPrizeTarget.y,
+            }}
+            aria-hidden="true"
+          >
+            {CHEST_COIN_BURST.map((coin, index) => (
+              <span
+                key={index}
+                className="mock-chest-coin"
+                style={{
+                  '--coin-start-x': coin.startX,
+                  '--coin-peak-x': coin.peakX,
+                  '--coin-peak-y': coin.peakY,
+                  '--coin-fall-x': coin.fallX,
+                  '--coin-fall-y': coin.fallY,
+                  '--coin-late-x': coin.lateX,
+                  '--coin-late-y': coin.lateY,
+                  '--coin-collect-x': coin.collectX,
+                  '--coin-collect-y': coin.collectY,
+                  '--coin-end-x': coin.endX,
+                  '--coin-end-y': coin.endY,
+                  '--coin-delay': coin.delay,
+                  '--coin-spin': coin.spin,
+                  '--coin-scale': coin.scale,
+                  '--coin-peak-scale': coin.peakScale,
+                  '--coin-late-scale': coin.lateScale,
+                }}
+              >
+                <img src={ivanCoin} alt="" draggable="false" />
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="mock-chest-stage__copy">
+          <h3>{chestTitle}</h3>
+          <p>{chestHint}</p>
+        </div>
+
+        <div className={`mock-chest-coin-prize ${phaseStep >= 1 ? 'is-visible' : ''}`}>
+          <img src={ivanCoin} alt="" draggable="false" />
+          <span>{`+${currentReward.coinsGained.toLocaleString('ru-RU')}`}</span>
+        </div>
+
+        <div
+          className={`mock-chest-artifacts ${phaseStep >= 2 ? 'is-awakening' : ''} ${
+            visibleArtifactCount === 1 ? 'mock-chest-artifacts--single' : ''
+          } ${visibleArtifactCount >= 2 ? 'mock-chest-artifacts--pair' : ''}`}
+        >
+          {currentReward.artifacts.slice(0, 2).map((artifact, index) => {
+            const meta = RANK_META[artifact.rank] || RANK_META.C;
+            const visible = phaseStep >= (index === 0 ? 2 : 3);
+            return (
+              <div
+                key={`${artifact.id}-${index}`}
+                className={`mock-chest-artifact mock-chest-artifact--${String(artifact.rank || 'C').toLowerCase()} ${visible ? 'is-visible' : ''}`}
+                style={{
+                  '--artifact-color': meta.color,
+                  '--artifact-delay': index === 0 ? '0ms' : '80ms',
+                }}
+              >
+                <div className="mock-chest-artifact__rank">{meta.label}</div>
+                <div className="mock-chest-artifact__image">
+                  {artifact.src ? (
+                    <img src={artifact.src} alt="" draggable="false" />
+                  ) : (
+                    <Sparkles size={54} />
+                  )}
+                </div>
+                <div className="mock-chest-artifact__name">{artifact.name}</div>
+                <div className="mock-chest-artifact__title">{meta.title}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
+  return createPortal(modal, document.body);
+};
+
+export default MockChestOpeningOverlay;

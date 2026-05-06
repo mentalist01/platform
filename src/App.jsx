@@ -13959,6 +13959,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   <span
                     ref={coinDockBadgeRef}
                     className="xp-flight-dock-coin"
+                    data-coin-balance-target="dock"
                     title={`Монеты Python: ${totalCoinsLabel}`}
                   >
                     <CoinGuideIcon />
@@ -14605,6 +14606,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                           <span
                             ref={coinInlineBadgeRef}
                             className="level-progress-coin"
+                            data-coin-balance-target="top"
                             title={`Монеты Python: ${totalCoinsLabel}`}
                           >
                             <CoinGuideIcon />

@@ -14,6 +14,7 @@ import {
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import MockExamBadges, { MockExamBadgeSticker } from './MockExamBadges';
+import MockChestOpeningOverlay from './MockChestOpeningOverlay';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
 import { Button } from './ui';
 
@@ -70,6 +71,12 @@ const getFeaturedMockArtifactDrop = (saved) => {
     .sort((a, b) => getMockArtifactDropRankWeight(a.rank) - getMockArtifactDropRankWeight(b.rank))[0];
 };
 
+const getMockChestRewards = (saved) => (
+  Array.isArray(saved?.mockChestRewards)
+    ? saved.mockChestRewards.filter((reward) => reward && typeof reward === 'object')
+    : []
+);
+
 const getMockArtifactRankClassName = (rank) => (
   String(rank || 'C').trim().toLowerCase().replace(/[^a-z0-9-]/g, '') || 'c'
 );
@@ -95,6 +102,7 @@ const MockExamModal = ({
   initialTaskNumber = null,
   onClose,
   onAttemptSaved,
+  onRestartTimerAttempt,
   MOCK_TASK_NUMBERS,
   getMockAnswerCountForTask,
   allowsPartialAnswers,
@@ -112,10 +120,12 @@ const MockExamModal = ({
   const [saveStatus, setSaveStatus] = useState('');
   const [checking, setChecking] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [restartingTimer, setRestartingTimer] = useState(false);
   const [autoAdvance, setAutoAdvance] = useState(false);
   const [expandedImage, setExpandedImage] = useState(null);
   const [successBurst, setSuccessBurst] = useState(null);
   const [artifactDropBurst, setArtifactDropBurst] = useState(null);
+  const [chestOpeningRewards, setChestOpeningRewards] = useState([]);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const hasLocalAttemptChangesRef = useRef(false);
   const latestInitialAttemptRef = useRef(initialAttempt);
@@ -182,7 +192,9 @@ const MockExamModal = ({
     setSaveStatus('');
     setChecking(false);
     setClosing(false);
+    setRestartingTimer(false);
     setArtifactDropBurst(null);
+    setChestOpeningRewards([]);
     const requestedTask = String(initialTaskNumber ?? '').trim();
     const initialTask = requestedTask
       ? MOCK_TASK_NUMBERS.find((taskNumber) => String(taskNumber) === requestedTask)
@@ -334,7 +346,7 @@ const MockExamModal = ({
     ? getNextUnansweredTask(selectedTask)
     : getNextUnsolvedTask(visibleSolved, selectedTask);
   const canCheck = Boolean(currentQuestion && studentId && isAnswerReady && !checking && !timerExpired && !isTimerMode);
-  const canFinishTimerExam = Boolean(isTimerMode && currentQuestion && studentId && !checking && !closing && !timerResultsVisible);
+  const canFinishTimerExam = Boolean(isTimerMode && currentQuestion && studentId && !checking && !closing && !restartingTimer && !timerResultsVisible);
 
   const handlePrevTask = () => {
     if (isFirstTask) return;
@@ -383,8 +395,11 @@ const MockExamModal = ({
         const isCorrect = Boolean(savedSolved[taskKey]);
         setSolved(savedSolved);
         setResults((prev) => ({ ...prev, [taskKey]: isCorrect }));
-        const mockArtifactDrop = getFeaturedMockArtifactDrop(saved);
-        if (mockArtifactDrop) {
+        const mockChestRewards = getMockChestRewards(saved);
+        const mockArtifactDrop = mockChestRewards.length > 0 ? null : getFeaturedMockArtifactDrop(saved);
+        if (mockChestRewards.length > 0) {
+          setChestOpeningRewards(mockChestRewards);
+        } else if (mockArtifactDrop) {
           triggerArtifactDropBurst(mockArtifactDrop);
         } else if (isCorrect) {
           triggerSuccessBurst(taskKey);
@@ -450,13 +465,18 @@ const MockExamModal = ({
         }, {});
         setSolved(savedSolved);
         setResults(nextResults);
-        const mockArtifactDrop = getFeaturedMockArtifactDrop(saved);
-        if (mockArtifactDrop) triggerArtifactDropBurst(mockArtifactDrop);
+        const mockChestRewards = getMockChestRewards(saved);
+        const mockArtifactDrop = mockChestRewards.length > 0 ? null : getFeaturedMockArtifactDrop(saved);
+        if (mockChestRewards.length > 0) {
+          setChestOpeningRewards(mockChestRewards);
+        } else if (mockArtifactDrop) {
+          triggerArtifactDropBurst(mockArtifactDrop);
+        }
         const savedSecondaryScore = getSecondaryScoreFromPrimary(getPrimaryScoreFromSolved(savedSolved));
         const timerChestsGained = Math.max(0, Math.floor(Number(saved?.timerChestsGained) || 0));
         setSaveStatus(
           saved?.timerRewardsDisabled
-            ? `Экзамен завершён. Баллы: ${savedSecondaryScore}. Сундуки таймера недоступны после обычного режима.`
+            ? `Экзамен завершён. Баллы: ${savedSecondaryScore}. Награды таймера отключены.`
             : (timerChestsGained > 0
             ? `Экзамен завершён. Баллы: ${savedSecondaryScore}. Открыто сундуков: ${timerChestsGained}.`
             : `Экзамен завершён. Баллы: ${savedSecondaryScore}.`)
@@ -472,6 +492,7 @@ const MockExamModal = ({
   };
 
   const handleClose = async () => {
+    if (restartingTimer) return;
     if (!isTimerMode || timerResultsVisible || !studentId || closing) {
       onClose?.();
       return;
@@ -495,6 +516,44 @@ const MockExamModal = ({
       setSaveStatus('');
     } finally {
       setClosing(false);
+    }
+  };
+
+  const canRestartTimerExam = Boolean(
+    isTimerMode
+    && (timerExpired || timerResultsVisible)
+    && typeof onRestartTimerAttempt === 'function'
+    && !checking
+    && !closing
+    && !restartingTimer
+  );
+
+  const handleRestartTimerExam = async () => {
+    if (!canRestartTimerExam) return;
+    hasLocalAttemptChangesRef.current = false;
+    setRestartingTimer(true);
+    setSaveError('');
+    setSaveStatus('Запускаем новый таймер без наград...');
+    try {
+      const restarted = await onRestartTimerAttempt?.();
+      if (restarted && typeof restarted === 'object') {
+        latestInitialAttemptRef.current = restarted;
+        setAnswers(readAttemptAnswers(restarted));
+        setSolved(readAttemptSolved(restarted));
+        setResults(readAttemptResults(restarted));
+        setChestOpeningRewards([]);
+        setArtifactDropBurst(null);
+        setSuccessBurst(null);
+        setNowMs(Date.now());
+        setSelectedTask(firstTaskNumber);
+        setSaveStatus('Новый таймер запущен без наград.');
+      }
+    } catch (err) {
+      const message = typeof err?.message === 'string' ? err.message : '';
+      setSaveError(message || 'Не удалось запустить повторный таймер.');
+      setSaveStatus('');
+    } finally {
+      setRestartingTimer(false);
     }
   };
 
@@ -748,7 +807,11 @@ const MockExamModal = ({
 
             <div className={`mock-exam-artifact-hint ${isTimerMode ? 'mock-exam-artifact-hint--timer' : ''}`}>
               <Sparkles size={15} />
-              <span>За решённые задачи пробника есть шанс выбить артефакт.</span>
+              <span>
+                {isTimerMode
+                  ? 'Артефакты выпадают только из сундуков за рубежи таймера.'
+                  : 'Артефакты не выпадают в обычном режиме. Запусти таймерный пробник и открывай сундуки за рубежи.'}
+              </span>
             </div>
 
             <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
@@ -1115,6 +1178,17 @@ const MockExamModal = ({
 
                   {isTimerMode ? (
                     <div className="flex w-full shrink-0 flex-col gap-2 xl:w-[15rem] xl:self-end">
+                      {(timerExpired || timerResultsVisible) && typeof onRestartTimerAttempt === 'function' && (
+                        <Button
+                          variant="secondary"
+                          onClick={handleRestartTimerExam}
+                          disabled={!canRestartTimerExam}
+                          className={`min-h-[2.8rem] w-full rounded-2xl ${isDarkTheme ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]' : ''}`}
+                        >
+                          <Clock3 size={17} />
+                          {restartingTimer ? 'Запускаем...' : 'Решить заново без наград'}
+                        </Button>
+                      )}
                       <Button
                         onClick={handleFinishTimerExam}
                         disabled={!canFinishTimerExam}
@@ -1238,6 +1312,13 @@ const MockExamModal = ({
             />
           ))}
         </div>
+      )}
+
+      {chestOpeningRewards.length > 0 && (
+        <MockChestOpeningOverlay
+          rewards={chestOpeningRewards}
+          onClose={() => setChestOpeningRewards([])}
+        />
       )}
 
       {expandedImage && (
