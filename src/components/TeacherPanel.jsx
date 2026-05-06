@@ -80,6 +80,7 @@ const TeacherPanel = ({
   const [screenshotPreviews, setScreenshotPreviews] = useState([]);
   const [questionUploadError, setQuestionUploadError] = useState('');
   const [isUploadingQuestion, setIsUploadingQuestion] = useState(false);
+  const [isDraggingQuestionAttachments, setIsDraggingQuestionAttachments] = useState(false);
   const [isDraggingScreens, setIsDraggingScreens] = useState(false);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const screenshotsRef = useRef(null);
@@ -683,6 +684,28 @@ const TeacherPanel = ({
     setQuestionFiles((prev) => [...prev, ...entries]);
   };
 
+  const isQuestionAttachmentDrag = (e) => {
+    if ((e.dataTransfer?.files?.length || 0) > 0) return true;
+    const types = Array.from(e.dataTransfer?.types || []);
+    if (types.includes('Files')) return true;
+    return Array.from(e.dataTransfer?.items || []).some((item) => item?.kind === 'file');
+  };
+
+  const resetQuestionAttachmentDragState = () => {
+    setIsDraggingQuestionAttachments(false);
+    setIsDraggingScreens(false);
+    setIsDraggingFiles(false);
+  };
+
+  const addQuestionAttachmentFiles = (fileList) => {
+    const incoming = Array.from(fileList || []).filter(Boolean);
+    if (incoming.length === 0) return;
+    const images = incoming.filter((file) => file.type?.startsWith('image/'));
+    const extraFiles = incoming.filter((file) => !file.type?.startsWith('image/'));
+    addScreenshotFiles(images);
+    addExtraFiles(extraFiles);
+  };
+
   const removeScreenshot = (idx) => {
     setQuestionScreenshots((prev) => prev.filter((_, i) => i !== idx));
   };
@@ -694,39 +717,68 @@ const TeacherPanel = ({
   const handleScreenshotsDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDraggingScreens(false);
+    resetQuestionAttachmentDragState();
     addScreenshotFiles(e.dataTransfer?.files || []);
   };
 
   const handleScreenshotsDragOver = (e) => {
     e.preventDefault();
-    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     if (!isDraggingScreens) setIsDraggingScreens(true);
   };
 
   const handleScreenshotsDragLeave = (e) => {
     e.preventDefault();
-    e.stopPropagation();
     setIsDraggingScreens(false);
   };
 
   const handleFilesDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDraggingFiles(false);
+    resetQuestionAttachmentDragState();
     addExtraFiles(e.dataTransfer?.files || []);
   };
 
   const handleFilesDragOver = (e) => {
     e.preventDefault();
-    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     if (!isDraggingFiles) setIsDraggingFiles(true);
   };
 
   const handleFilesDragLeave = (e) => {
     e.preventDefault();
-    e.stopPropagation();
     setIsDraggingFiles(false);
+  };
+
+  const handleQuestionAttachmentDragEnter = (e) => {
+    if (!isQuestionAttachmentDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingQuestionAttachments(true);
+  };
+
+  const handleQuestionAttachmentDragOver = (e) => {
+    if (!isQuestionAttachmentDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    if (!isDraggingQuestionAttachments) setIsDraggingQuestionAttachments(true);
+  };
+
+  const handleQuestionAttachmentDragLeave = (e) => {
+    if (!isQuestionAttachmentDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget)) return;
+    setIsDraggingQuestionAttachments(false);
+  };
+
+  const handleQuestionAttachmentDrop = (e) => {
+    if (!isQuestionAttachmentDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    resetQuestionAttachmentDragState();
+    addQuestionAttachmentFiles(e.dataTransfer?.files || []);
   };
 
   const handlePasteImages = (e) => {
@@ -1637,7 +1689,13 @@ const TeacherPanel = ({
 
         {/* MIDDLE COLUMN: Form */}
         <div className="lg:col-span-2 space-y-6">
-          <Card>
+          <Card
+            className={`question-attachment-drop-card ${isDraggingQuestionAttachments ? 'is-dragging-attachments' : ''}`}
+            onDragEnter={handleQuestionAttachmentDragEnter}
+            onDragOver={handleQuestionAttachmentDragOver}
+            onDragLeave={handleQuestionAttachmentDragLeave}
+            onDrop={handleQuestionAttachmentDrop}
+          >
             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
               <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                 {editingQuestionId ? <Pencil size={20} className="text-purple-600" /> : <Plus size={20} className="text-purple-600" />}

@@ -62,6 +62,7 @@ const MockExamEditorModal = ({
   const [previewScreens, setPreviewScreens] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [isDraggingTaskAttachments, setIsDraggingTaskAttachments] = useState(false);
   const [isDraggingScreens, setIsDraggingScreens] = useState(false);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const screenshotsRef = useRef(null);
@@ -186,6 +187,28 @@ const MockExamEditorModal = ({
     setNewFiles((prev) => [...prev, ...list]);
   };
 
+  const isTaskAttachmentDrag = (e) => {
+    if ((e.dataTransfer?.files?.length || 0) > 0) return true;
+    const types = Array.from(e.dataTransfer?.types || []);
+    if (types.includes('Files')) return true;
+    return Array.from(e.dataTransfer?.items || []).some((item) => item?.kind === 'file');
+  };
+
+  const resetTaskAttachmentDragState = () => {
+    setIsDraggingTaskAttachments(false);
+    setIsDraggingScreens(false);
+    setIsDraggingFiles(false);
+  };
+
+  const addTaskAttachmentFiles = (files) => {
+    const incoming = Array.from(files || []).filter(Boolean);
+    if (incoming.length === 0) return;
+    const images = incoming.filter((file) => file.type?.startsWith('image/'));
+    const extraFiles = incoming.filter((file) => !file.type?.startsWith('image/'));
+    addScreenshotFiles(images);
+    addExtraFiles(extraFiles);
+  };
+
   const handlePasteImages = (e) => {
     const items = Array.from(e.clipboardData?.items || []);
     const images = items
@@ -199,14 +222,47 @@ const MockExamEditorModal = ({
 
   const handleScreensDrop = (e) => {
     e.preventDefault();
-    setIsDraggingScreens(false);
+    e.stopPropagation();
+    resetTaskAttachmentDragState();
     addScreenshotFiles(e.dataTransfer?.files || []);
   };
 
   const handleFilesDrop = (e) => {
     e.preventDefault();
-    setIsDraggingFiles(false);
+    e.stopPropagation();
+    resetTaskAttachmentDragState();
     addExtraFiles(e.dataTransfer?.files || []);
+  };
+
+  const handleTaskAttachmentDragEnter = (e) => {
+    if (!isTaskAttachmentDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingTaskAttachments(true);
+  };
+
+  const handleTaskAttachmentDragOver = (e) => {
+    if (!isTaskAttachmentDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    setIsDraggingTaskAttachments(true);
+  };
+
+  const handleTaskAttachmentDragLeave = (e) => {
+    if (!isTaskAttachmentDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget)) return;
+    setIsDraggingTaskAttachments(false);
+  };
+
+  const handleTaskAttachmentDrop = (e) => {
+    if (!isTaskAttachmentDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    resetTaskAttachmentDragState();
+    addTaskAttachmentFiles(e.dataTransfer?.files || []);
   };
 
   const requestTaskChange = (taskNumber) => {
@@ -558,7 +614,14 @@ const MockExamEditorModal = ({
               </div>
             </div>
 
-            <div className="lg:col-span-2 space-y-4" onPaste={handlePasteImages}>
+            <div
+              className={`mock-task-attachment-drop-zone lg:col-span-2 space-y-4 ${isDraggingTaskAttachments ? 'is-dragging-attachments' : ''}`}
+              onPaste={handlePasteImages}
+              onDragEnter={handleTaskAttachmentDragEnter}
+              onDragOver={handleTaskAttachmentDragOver}
+              onDragLeave={handleTaskAttachmentDragLeave}
+              onDrop={handleTaskAttachmentDrop}
+            >
               <div>
                 <label className="text-xs font-semibold text-gray-500">Текст задания</label>
                 <textarea
@@ -574,7 +637,7 @@ const MockExamEditorModal = ({
                   <label className="text-xs font-semibold text-gray-500">Скриншоты</label>
                   <div
                     onDrop={handleScreensDrop}
-                    onDragOver={(e) => { e.preventDefault(); setIsDraggingScreens(true); }}
+                    onDragOver={(e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; setIsDraggingScreens(true); }}
                     onDragLeave={() => setIsDraggingScreens(false)}
                     className={`mt-1 rounded-2xl border-2 border-dashed p-3 transition-colors ${
                       isDraggingScreens ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
@@ -693,7 +756,7 @@ const MockExamEditorModal = ({
                   <label className="text-xs font-semibold text-gray-500">Доп. файлы</label>
                   <div
                     onDrop={handleFilesDrop}
-                    onDragOver={(e) => { e.preventDefault(); setIsDraggingFiles(true); }}
+                    onDragOver={(e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; setIsDraggingFiles(true); }}
                     onDragLeave={() => setIsDraggingFiles(false)}
                     className={`mt-1 rounded-2xl border-2 border-dashed p-3 transition-colors ${
                       isDraggingFiles ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
