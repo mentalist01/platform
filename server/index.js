@@ -11887,12 +11887,20 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     (Number.isFinite(previousTimerExpiresAtMs) && previousTimerExpiresAtMs <= savedAtMs)
     || (previousTimerPausedAt && previousTimerRemainingMs <= 0)
   );
+  const previousTimerSolvedMap = previousAttempt?.solved && typeof previousAttempt.solved === 'object' && !Array.isArray(previousAttempt.solved)
+    ? previousAttempt.solved
+    : {};
+  const previousTimerHasEvaluatedSolvedResults = Boolean(
+    attemptMode === MOCK_ATTEMPT_MODE_TIMER
+    && previousTimerStartedAt
+    && Object.keys(previousTimerSolvedMap).length > 0
+  );
   const requestedTimerRestart = restartTimerExam === true;
   const canRestartTimerAttempt = Boolean(
     requestedTimerRestart
     && startOnly
     && attemptMode === MOCK_ATTEMPT_MODE_TIMER
-    && (previousTimerFinishedAt || previousTimerExpired)
+    && (previousTimerFinishedAt || previousTimerExpired || previousTimerHasEvaluatedSolvedResults)
   );
   if (requestedTimerRestart && !canRestartTimerAttempt) {
     return res.status(409).json({ error: 'Повторный таймер можно запустить только после завершения времени.' });

@@ -838,7 +838,7 @@ const StudentLeaderboardSection = ({
           </div>
         </div>
 
-        {isChestVaultEmpty ? (
+        {isChestVaultEmpty && (
           <div className="mock-timer-chest-panel__empty-state">
             <div className="mock-timer-chest-panel__empty-copy">
               <div className="mock-timer-chest-panel__empty-icon">
@@ -849,114 +849,108 @@ const StudentLeaderboardSection = ({
                 <div className="mock-timer-chest-panel__empty-text">Сундуки появятся здесь после таймерных пробников.</div>
               </div>
             </div>
-            <div className="mock-timer-chest-panel__empty-slots" aria-hidden="true">
-              {Array.from({ length: slotCount }).map((_, index) => (
-                <span key={`empty-chest-preview-${index}`} />
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="mock-timer-chest-panel__slots">
-            {slots.map((chest, index) => {
-              if (!chest) {
-                return (
-                  <div key={`empty-chest-slot-${index}`} className="mock-timer-chest-slot mock-timer-chest-slot--empty">
-                    <div className="mock-timer-chest-slot__status">Пусто</div>
-                    <div className="mock-timer-chest-slot__ghost" />
-                    <div className="mock-timer-chest-slot__action">Слот</div>
-                  </div>
-                );
-              }
-              const chestId = String(chest.id || '');
-              const state = getClientChestState(chest, chestTimerNow);
-              const readyAtMs = Date.parse(chest.openReadyAt || '');
-              const remainingMs = Number.isFinite(readyAtMs) ? Math.max(0, readyAtMs - chestTimerNow) : 0;
-              const isReady = state === 'ready';
-              const isOpening = state === 'opening';
-              const isClosed = state === 'closed';
-              const actionId = isReady ? `claim:${chestId}` : `start:${chestId}`;
-              const isBusy = chestActionId === actionId;
-              const isStarting = chestActionId === `start:${chestId}`;
-              const isClaiming = chestActionId === `claim:${chestId}`;
-              const isSquishing = chestPressFeedback.id === chestId;
-              const canStart = isClosed && !hasOpeningChest;
-              const canPress = isReady || canStart;
-              const statusLabel = isClaiming
-                ? 'Открываем'
-                : isStarting
-                  ? 'Запуск'
-                  : isReady
-                    ? 'Готово'
-                    : (isOpening ? 'Открывается' : 'Закрыто');
-              const timeLabel = isReady
-                ? '!'
-                : (isOpening ? formatChestCountdown(remainingMs) : (isStarting ? openDurationCountdown : openDurationLabel));
-              const actionLabel = isReady
-                ? (isBusy ? 'Открываем...' : 'Открыть')
-                : (isOpening ? 'Идёт таймер' : (isBusy ? 'Запуск...' : 'Начать'));
-              const slotClassName = [
-                'mock-timer-chest-slot',
-                `mock-timer-chest-slot--${state}`,
-                'mock-timer-chest-slot--interactive',
-                canPress ? 'mock-timer-chest-slot--clickable' : '',
-                isStarting ? 'mock-timer-chest-slot--starting' : '',
-                isClaiming ? 'mock-timer-chest-slot--claiming' : '',
-                isSquishing ? 'mock-timer-chest-slot--squish' : '',
-                isClosed && hasOpeningChest ? 'mock-timer-chest-slot--blocked' : '',
-              ].filter(Boolean).join(' ');
-              return (
-                <button
-                  key={chestId || `chest-slot-${index}`}
-                  type="button"
-                  disabled={isBusy}
-                  aria-disabled={!canPress && !isOpening ? 'true' : undefined}
-                  onClick={() => {
-                    triggerChestPressFeedback(chestId);
-                    if (isReady) {
-                      void handleClaimChest(chestId);
-                      return;
-                    }
-                    if (isOpening) {
-                      showChestNotice({
-                        title: 'Этот сундук уже открывается',
-                        message: 'Таймер запущен. Когда отсчёт дойдёт до нуля, сундук можно будет открыть.',
-                        chestId,
-                      });
-                      return;
-                    }
-                    if (canStart) void handleStartChestOpening(chestId);
-                    else if (isClosed && hasOpeningChest) {
-                      showChestNotice({
-                        title: 'Этот сундук пока нельзя открыть',
-                        message: `Сейчас уже открывается другой сундук. Осталось ${formatChestCountdown(openingRemainingMs)}.`,
-                        chestId: String(openingChest?.id || ''),
-                      });
-                    }
-                  }}
-                  className={slotClassName}
-                >
-                  <span className="mock-timer-chest-slot__aura" aria-hidden="true" />
-                  <span className="mock-timer-chest-slot__burst" aria-hidden="true" />
-                  <div className="mock-timer-chest-slot__status">
-                    <span>{statusLabel}</span>
-                    <strong>{timeLabel}</strong>
-                  </div>
-                  <img
-                    src={isReady ? chestOpenImage : chestClosedImage}
-                    alt=""
-                    draggable="false"
-                    className="mock-timer-chest-slot__image"
-                  />
-                  <div className="mock-timer-chest-slot__action">
-                    {isReady && !isClaiming && <CheckCircle2 size={13} />}
-                    {(isOpening || isStarting || isClaiming) && <Clock3 size={13} />}
-                    <span>{actionLabel}</span>
-                  </div>
-                </button>
-              );
-            })}
           </div>
         )}
+        <div className="mock-timer-chest-panel__slots">
+          {slots.map((chest, index) => {
+            if (!chest) {
+              return (
+                <div key={`empty-chest-slot-${index}`} className="mock-timer-chest-slot mock-timer-chest-slot--empty">
+                  <div className="mock-timer-chest-slot__status">Пусто</div>
+                  <div className="mock-timer-chest-slot__ghost" />
+                  <div className="mock-timer-chest-slot__action">Слот</div>
+                </div>
+              );
+            }
+            const chestId = String(chest.id || '');
+            const state = getClientChestState(chest, chestTimerNow);
+            const readyAtMs = Date.parse(chest.openReadyAt || '');
+            const remainingMs = Number.isFinite(readyAtMs) ? Math.max(0, readyAtMs - chestTimerNow) : 0;
+            const isReady = state === 'ready';
+            const isOpening = state === 'opening';
+            const isClosed = state === 'closed';
+            const actionId = isReady ? `claim:${chestId}` : `start:${chestId}`;
+            const isBusy = chestActionId === actionId;
+            const isStarting = chestActionId === `start:${chestId}`;
+            const isClaiming = chestActionId === `claim:${chestId}`;
+            const isSquishing = chestPressFeedback.id === chestId;
+            const canStart = isClosed && !hasOpeningChest;
+            const canPress = isReady || canStart;
+            const statusLabel = isClaiming
+              ? 'Открываем'
+              : isStarting
+                ? 'Запуск'
+                : isReady
+                  ? 'Готово'
+                  : (isOpening ? 'Открывается' : 'Закрыто');
+            const timeLabel = isReady
+              ? '!'
+              : (isOpening ? formatChestCountdown(remainingMs) : (isStarting ? openDurationCountdown : openDurationLabel));
+            const actionLabel = isReady
+              ? (isBusy ? 'Открываем...' : 'Открыть')
+              : (isOpening ? 'Идёт таймер' : (isBusy ? 'Запуск...' : 'Начать'));
+            const slotClassName = [
+              'mock-timer-chest-slot',
+              `mock-timer-chest-slot--${state}`,
+              'mock-timer-chest-slot--interactive',
+              canPress ? 'mock-timer-chest-slot--clickable' : '',
+              isStarting ? 'mock-timer-chest-slot--starting' : '',
+              isClaiming ? 'mock-timer-chest-slot--claiming' : '',
+              isSquishing ? 'mock-timer-chest-slot--squish' : '',
+              isClosed && hasOpeningChest ? 'mock-timer-chest-slot--blocked' : '',
+            ].filter(Boolean).join(' ');
+            return (
+              <button
+                key={chestId || `chest-slot-${index}`}
+                type="button"
+                disabled={isBusy}
+                aria-disabled={!canPress && !isOpening ? 'true' : undefined}
+                onClick={() => {
+                  triggerChestPressFeedback(chestId);
+                  if (isReady) {
+                    void handleClaimChest(chestId);
+                    return;
+                  }
+                  if (isOpening) {
+                    showChestNotice({
+                      title: 'Этот сундук уже открывается',
+                      message: 'Таймер запущен. Когда отсчёт дойдёт до нуля, сундук можно будет открыть.',
+                      chestId,
+                    });
+                    return;
+                  }
+                  if (canStart) void handleStartChestOpening(chestId);
+                  else if (isClosed && hasOpeningChest) {
+                    showChestNotice({
+                      title: 'Этот сундук пока нельзя открыть',
+                      message: `Сейчас уже открывается другой сундук. Осталось ${formatChestCountdown(openingRemainingMs)}.`,
+                      chestId: String(openingChest?.id || ''),
+                    });
+                  }
+                }}
+                className={slotClassName}
+              >
+                <span className="mock-timer-chest-slot__aura" aria-hidden="true" />
+                <span className="mock-timer-chest-slot__burst" aria-hidden="true" />
+                <div className="mock-timer-chest-slot__status">
+                  <span>{statusLabel}</span>
+                  <strong>{timeLabel}</strong>
+                </div>
+                <img
+                  src={isReady ? chestOpenImage : chestClosedImage}
+                  alt=""
+                  draggable="false"
+                  className="mock-timer-chest-slot__image"
+                />
+                <div className="mock-timer-chest-slot__action">
+                  {isReady && !isClaiming && <CheckCircle2 size={13} />}
+                  {(isOpening || isStarting || isClaiming) && <Clock3 size={13} />}
+                  <span>{actionLabel}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
 
         {(overflowCount > 0 || chestError) && (
           <div className="mock-timer-chest-panel__footer">
@@ -978,10 +972,6 @@ const StudentLeaderboardSection = ({
     const remainingMs = Number.isFinite(readyAtMs)
       ? Math.max(0, readyAtMs - chestTimerNow)
       : null;
-    const canTestOpenNow = Boolean(relatedChestId)
-      && relatedChest
-      && getClientChestState(relatedChest, chestTimerNow) === 'opening';
-    const isTestOpeningNow = Boolean(relatedChestId) && chestActionId === `claim:${relatedChestId}`;
     const modal = (
       <div className="mock-timer-chest-modal" role="presentation" onMouseDown={handleCloseChestNotice}>
         <div
@@ -1008,18 +998,6 @@ const StudentLeaderboardSection = ({
             </div>
           )}
           <div className="mock-timer-chest-modal__actions">
-            {canTestOpenNow && (
-              <button
-                type="button"
-                className="mock-timer-chest-modal__button mock-timer-chest-modal__button--test"
-                disabled={isTestOpeningNow}
-                onClick={() => {
-                  void handleClaimChest(relatedChestId, { openNow: true });
-                }}
-              >
-                {isTestOpeningNow ? 'Открываем...' : 'Открыть сейчас'}
-              </button>
-            )}
             <button
               type="button"
               className="mock-timer-chest-modal__button"

@@ -128,19 +128,23 @@ const MockExamModal = ({
   const [artifactDropBurst, setArtifactDropBurst] = useState(null);
   const [chestOpeningRewards, setChestOpeningRewards] = useState([]);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [displayAttempt, setDisplayAttempt] = useState(() => (
+    initialAttempt && typeof initialAttempt === 'object' ? initialAttempt : {}
+  ));
   const hasLocalAttemptChangesRef = useRef(false);
   const latestInitialAttemptRef = useRef(initialAttempt);
   const autoAdvanceTimerRef = useRef(null);
   const successBurstTimerRef = useRef(null);
   const artifactDropTimerRef = useRef(null);
   const firstTaskNumber = MOCK_TASK_NUMBERS[0];
-  const effectiveAttemptMode = normalizeMockAttemptMode(initialAttempt?.mode, normalizeMockAttemptMode(attemptMode));
+  const activeAttempt = displayAttempt && typeof displayAttempt === 'object' ? displayAttempt : {};
+  const effectiveAttemptMode = normalizeMockAttemptMode(activeAttempt?.mode, normalizeMockAttemptMode(attemptMode));
   const isTimerMode = effectiveAttemptMode === MOCK_ATTEMPT_MODE_TIMER;
-  const timerPaused = isTimerMode && Boolean(String(initialAttempt?.timerPausedAt || '').trim()) && !String(initialAttempt?.timerFinishedAt || '').trim();
-  const timerExpiresAtMs = isTimerMode ? Date.parse(String(initialAttempt?.timerExpiresAt || '')) : Number.NaN;
-  const timerDurationMs = Math.max(60 * 1000, Math.floor(Number(initialAttempt?.timerDurationMs) || MOCK_EXAM_TIMER_DURATION_MS));
+  const timerPaused = isTimerMode && Boolean(String(activeAttempt?.timerPausedAt || '').trim()) && !String(activeAttempt?.timerFinishedAt || '').trim();
+  const timerExpiresAtMs = isTimerMode ? Date.parse(String(activeAttempt?.timerExpiresAt || '')) : Number.NaN;
+  const timerDurationMs = Math.max(60 * 1000, Math.floor(Number(activeAttempt?.timerDurationMs) || MOCK_EXAM_TIMER_DURATION_MS));
   const timerRemainingMs = timerPaused
-    ? Math.max(0, Math.floor(Number(initialAttempt?.timerRemainingMs) || 0))
+    ? Math.max(0, Math.floor(Number(activeAttempt?.timerRemainingMs) || 0))
     : (isTimerMode && Number.isFinite(timerExpiresAtMs)
     ? Math.max(0, timerExpiresAtMs - nowMs)
     : timerDurationMs);
@@ -186,6 +190,9 @@ const MockExamModal = ({
 
   useEffect(() => {
     hasLocalAttemptChangesRef.current = false;
+    setDisplayAttempt(latestInitialAttemptRef.current && typeof latestInitialAttemptRef.current === 'object'
+      ? latestInitialAttemptRef.current
+      : {});
     setAnswers(readAttemptAnswers(latestInitialAttemptRef.current));
     setSolved(readAttemptSolved(latestInitialAttemptRef.current));
     setResults(readAttemptResults(latestInitialAttemptRef.current));
@@ -206,6 +213,7 @@ const MockExamModal = ({
 
   useEffect(() => {
     if (hasLocalAttemptChangesRef.current) return;
+    setDisplayAttempt(initialAttempt && typeof initialAttempt === 'object' ? initialAttempt : {});
     setAnswers(readAttemptAnswers(initialAttempt));
     setSolved(readAttemptSolved(initialAttempt));
     setResults(readAttemptResults(initialAttempt));
@@ -218,7 +226,7 @@ const MockExamModal = ({
     setNowMs(Date.now());
     const timerId = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(timerId);
-  }, [isTimerMode, timerPaused, initialAttempt?.timerExpiresAt]);
+  }, [isTimerMode, timerPaused, activeAttempt?.timerExpiresAt]);
 
   useEffect(() => {
     setSaveError('');
@@ -314,7 +322,7 @@ const MockExamModal = ({
   const secondaryBadges = examBadges.slice(1);
   const totalTaskCount = MOCK_TASK_NUMBERS.length;
   const timerResultsVisible = isTimerMode && (
-    isTimerAttemptFinished(initialAttempt)
+    isTimerAttemptFinished(activeAttempt)
     || Object.keys(results || {}).length >= Math.max(1, totalTaskCount)
   );
   const visibleSolved = isTimerMode && !timerResultsVisible ? {} : solved;
@@ -397,6 +405,7 @@ const MockExamModal = ({
         localDay: typeof getLocalDayKey === 'function' ? getLocalDayKey() : undefined,
       });
       if (saved && typeof saved === 'object') {
+        setDisplayAttempt(saved);
         const savedSolved = readAttemptSolved(saved);
         const isCorrect = Boolean(savedSolved[taskKey]);
         setSolved(savedSolved);
@@ -551,6 +560,7 @@ const MockExamModal = ({
       const restarted = await onRestartTimerAttempt?.();
       if (restarted && typeof restarted === 'object') {
         latestInitialAttemptRef.current = restarted;
+        setDisplayAttempt(restarted);
         setAnswers(readAttemptAnswers(restarted));
         setSolved(readAttemptSolved(restarted));
         setResults(readAttemptResults(restarted));

@@ -35,6 +35,7 @@ import ProgressReviewModal from './ProgressReviewModal';
 import StudentSearchSelect from './StudentSearchSelect';
 import StudentTestModal from './StudentTestModal';
 import { Button, Card, ProgressBar } from './ui';
+import chestClosedImage from '../assets/mock-chest/chest-closed.png';
 import { ARTIFACT_CATALOG_METADATA } from '../data/artifactCatalog';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
 import CoinGuideIcon from './CoinGuideTooltip';
@@ -599,6 +600,7 @@ const ProgressSection = ({
   const [mockExamSort, setMockExamSort] = useState('smart');
   const [mockModePreset, setMockModePreset] = useState(MOCK_ATTEMPT_MODE_CLASSIC);
   const [mockChestTestRewards, setMockChestTestRewards] = useState([]);
+  const [timerChestFlights, setTimerChestFlights] = useState([]);
   const [duplicatingMockExamId, setDuplicatingMockExamId] = useState(null);
   const [newMockTitle, setNewMockTitle] = useState('');
   const [mockAccessExamId, setMockAccessExamId] = useState(null);
@@ -619,10 +621,79 @@ const ProgressSection = ({
   const taskRunnerWorkerRef = useRef(null);
   const taskRunnerPendingRef = useRef(new Map());
   const mockAttemptRequestIdRef = useRef(0);
+  const timerChestFlightTimersRef = useRef([]);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const mockAttemptStudentId = role === 'student' ? null : effectiveStudentId;
   const prevEffectiveStudentIdRef = useRef(effectiveStudentId);
+
+  useEffect(() => () => {
+    timerChestFlightTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+    timerChestFlightTimersRef.current = [];
+  }, []);
+
+  const triggerTimerChestFlight = (count, sourceRect) => {
+    const chestCount = Math.max(0, Math.floor(Number(count) || 0));
+    if (chestCount <= 0 || typeof window === 'undefined' || typeof document === 'undefined') return;
+    const normalizeRect = (rect) => {
+      if (!rect || typeof rect !== 'object') return null;
+      const left = Number(rect.left);
+      const top = Number(rect.top);
+      const width = Number(rect.width);
+      const height = Number(rect.height);
+      if (![left, top, width, height].every(Number.isFinite)) return null;
+      return { left, top, width, height };
+    };
+    const startRect = normalizeRect(sourceRect) || {
+      left: window.innerWidth * 0.5 - 28,
+      top: window.innerHeight * 0.72 - 28,
+      width: 56,
+      height: 56,
+    };
+    const targetElement = document.querySelector('[data-tour="rating-timer-chests"]')
+      || document.querySelector('[data-tour="rating-nav"]');
+    const targetRect = targetElement?.getBoundingClientRect?.();
+    const endRect = normalizeRect(targetRect) || {
+      left: window.innerWidth - 96,
+      top: 96,
+      width: 72,
+      height: 72,
+    };
+    const startX = startRect.left + startRect.width / 2;
+    const startY = startRect.top + startRect.height / 2;
+    const endCenterX = endRect.left + endRect.width / 2;
+    const endCenterY = endRect.top + endRect.height / 2;
+    const createdAt = Date.now();
+    const spread = Math.min(78, Math.max(18, chestCount * 18));
+    const flights = Array.from({ length: chestCount }, (_, index) => {
+      const centered = index - (chestCount - 1) / 2;
+      const stagger = index * 105;
+      const endX = endCenterX + centered * Math.min(22, spread / Math.max(1, chestCount));
+      const endY = endCenterY + ((index % 2) - 0.5) * 12;
+      const midX = startX + (endX - startX) * (0.42 + (index % 3) * 0.04) + centered * 28;
+      const midY = Math.min(startY, endY) - 135 - (index % 3) * 28 - Math.abs(centered) * 8;
+      return {
+        id: `timer-chest-flight-${createdAt}-${index}`,
+        startX,
+        startY,
+        dx: endX - startX,
+        dy: endY - startY,
+        midDx: midX - startX,
+        midDy: midY - startY,
+        nearDx: (endX - startX) * 0.84,
+        nearDy: (endY - startY) * 0.86,
+        delay: stagger,
+        rotate: centered * 11,
+      };
+    });
+    const flightIds = new Set(flights.map((flight) => flight.id));
+    setTimerChestFlights((prev) => [...prev, ...flights]);
+    const timerId = window.setTimeout(() => {
+      setTimerChestFlights((prev) => prev.filter((flight) => !flightIds.has(flight.id)));
+      timerChestFlightTimersRef.current = timerChestFlightTimersRef.current.filter((id) => id !== timerId);
+    }, 1780 + (chestCount - 1) * 105);
+    timerChestFlightTimersRef.current.push(timerId);
+  };
 
   useEffect(() => {
     if (!classicModeWarning || typeof window === 'undefined' || typeof document === 'undefined') return undefined;
@@ -2103,6 +2174,7 @@ const ProgressSection = ({
       setStartingMockExamId(null);
       return;
     }
+    setMockExamsError('');
     try {
       const shouldStartAttempt = role === 'student' && (!modeLocked || canSwitchClassicAttemptToTimer || canRestartTimerAttempt);
       const fetchedAttempt = shouldStartAttempt
@@ -2124,7 +2196,7 @@ const ProgressSection = ({
       }));
     } catch (err) {
       if (mockAttemptRequestIdRef.current !== requestId) return;
-      alert(err?.message || 'Не удалось открыть пробник.');
+      setMockExamsError(err?.message || 'Не удалось открыть пробник.');
       setActiveMockAttempt({});
     } finally {
       if (mockAttemptRequestIdRef.current === requestId) {
@@ -3960,14 +4032,6 @@ const ProgressSection = ({
                           {`${studentMockDashboard.expiredTimerCount} таймер истёк`}
                         </div>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => setMockChestTestRewards(createMockChestTestRewards())}
-                        className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2 text-[11px] font-black text-amber-800 transition hover:-translate-y-0.5 hover:bg-amber-100"
-                      >
-                        <PackageOpen size={14} />
-                        Тест открытия сундука
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -4479,6 +4543,10 @@ const ProgressSection = ({
                 setActiveMockAttempt(attempt);
                 setActiveMockMode(normalizeMockAttemptMode(attempt?.mode, activeMockMode));
                 setMockAttemptsByExam((prev) => ({ ...prev, [examId]: attempt }));
+                const timerChestsGained = Math.max(0, Math.floor(Number(attempt?.timerChestsGained) || 0));
+                if (timerChestsGained > 0) {
+                  triggerTimerChestFlight(timerChestsGained, meta?.sourceRect);
+                }
                 if (Number.isFinite(Number(attempt?.timerChestsTotal))) {
                   setStudentData((prev) => ({
                     ...prev,
@@ -4529,6 +4597,32 @@ const ProgressSection = ({
           )}
 
         </div>
+      )}
+      {timerChestFlights.length > 0 && typeof document !== 'undefined' && createPortal(
+        <div className="mock-timer-chest-flight-layer" aria-hidden="true">
+          {timerChestFlights.map((flight) => (
+            <div
+              key={flight.id}
+              className="mock-timer-chest-flight"
+              style={{
+                left: `${flight.startX}px`,
+                top: `${flight.startY}px`,
+                '--mock-timer-chest-flight-x': `${flight.dx}px`,
+                '--mock-timer-chest-flight-y': `${flight.dy}px`,
+                '--mock-timer-chest-flight-mid-x': `${flight.midDx}px`,
+                '--mock-timer-chest-flight-mid-y': `${flight.midDy}px`,
+                '--mock-timer-chest-flight-near-x': `${flight.nearDx}px`,
+                '--mock-timer-chest-flight-near-y': `${flight.nearDy}px`,
+                '--mock-timer-chest-flight-delay': `${flight.delay}ms`,
+                '--mock-timer-chest-flight-rotate': `${flight.rotate}deg`,
+              }}
+            >
+              <span className="mock-timer-chest-flight__spark" />
+              <img src={chestClosedImage} alt="" draggable="false" />
+            </div>
+          ))}
+        </div>,
+        document.body
       )}
     </div>
   );
