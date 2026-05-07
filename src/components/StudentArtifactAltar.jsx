@@ -467,6 +467,7 @@ const StudentArtifactAltar = ({
 
   const [altarPhase, setAltarPhase] = useState('idle');
   const [spinIntensity, setSpinIntensity] = useState('idle');
+  const [preRevealRank, setPreRevealRank] = useState('');
   const [displayPull, setDisplayPull] = useState(null);
   const [selectedArtifactId, setSelectedArtifactId] = useState('');
   const [upgradingArtifactId, setUpgradingArtifactId] = useState('');
@@ -627,6 +628,7 @@ const StudentArtifactAltar = ({
     setUpgradeShowcase(null);
     setDuplicateCoinFlights([]);
     setDisplayPull(null);
+    setPreRevealRank('');
     setSpinIntensity('building');
     setAltarPhase('spinning');
   };
@@ -640,14 +642,18 @@ const StudentArtifactAltar = ({
       pendingAltarRef.current = null;
       const restoredPull = hiddenPullRef.current || null;
       setDisplayPull(restoredPull);
+      setPreRevealRank('');
       setSpinIntensity('idle');
       setAltarPhase(restoredPull ? 'settled' : 'idle');
       return;
     }
+    const normalizedRevealRank = String(pull?.rank || '').trim().toUpperCase();
+    const revealRank = RANK_META[normalizedRevealRank] ? normalizedRevealRank : '';
     const elapsed = spinStartedAtRef.current ? Date.now() - spinStartedAtRef.current : MIN_SPIN_DURATION_MS;
     const delay = Math.max(0, MIN_SPIN_DURATION_MS - elapsed);
     const revealDelay = Math.max(delay, SPIN_RUPTURE_MS);
     spinRuptureTimerRef.current = window.setTimeout(() => {
+      setPreRevealRank(revealRank);
       setSpinIntensity('rupture');
       spinRuptureTimerRef.current = null;
     }, Math.max(0, revealDelay - SPIN_RUPTURE_MS));
@@ -661,6 +667,7 @@ const StudentArtifactAltar = ({
       pendingAltarRef.current = null;
       clearSpinPhaseTimers();
       setDisplayPull(pull);
+      setPreRevealRank('');
       setSpinIntensity('idle');
       setAltarPhase('revealed');
       spinCycleRef.current = false;
@@ -704,7 +711,11 @@ const StudentArtifactAltar = ({
     : '';
   const displayPullRankMeta = RANK_META[displayPull?.rank] || RANK_META.C;
   const hasDisplayStageArtifact = Boolean(displayPull) && (altarPhase === 'revealed' || altarPhase === 'settled');
-  const stageMeta = hasDisplayStageArtifact ? displayPullRankMeta : IDLE_ALTAR_META;
+  const preRevealRankMeta = RANK_META[preRevealRank] || null;
+  const stageMeta = hasDisplayStageArtifact
+    ? displayPullRankMeta
+    : (altarPhase === 'spinning' && preRevealRankMeta ? preRevealRankMeta : IDLE_ALTAR_META);
+  const hasRankStageAccent = hasDisplayStageArtifact || Boolean(preRevealRankMeta);
   const stageArtifact = hasDisplayStageArtifact ? displayPullMeta : null;
   const stageArtifactDescription = typeof stageArtifact?.description === 'string'
     ? stageArtifact.description.trim()
@@ -712,11 +723,11 @@ const StudentArtifactAltar = ({
 
   const altarStageStyle = {
     '--artifact-altar-accent': stageMeta.accent,
-    '--artifact-altar-accent-soft': hexToRgba(stageMeta.accent, hasDisplayStageArtifact ? 0.22 : 0.18),
-    '--artifact-altar-accent-mid': hexToRgba(stageMeta.accent, hasDisplayStageArtifact ? 0.42 : 0.32),
-    '--artifact-altar-accent-strong': hexToRgba(stageMeta.accent, hasDisplayStageArtifact ? 0.68 : 0.52),
+    '--artifact-altar-accent-soft': hexToRgba(stageMeta.accent, hasRankStageAccent ? 0.22 : 0.18),
+    '--artifact-altar-accent-mid': hexToRgba(stageMeta.accent, hasRankStageAccent ? 0.42 : 0.32),
+    '--artifact-altar-accent-strong': hexToRgba(stageMeta.accent, hasRankStageAccent ? 0.68 : 0.52),
     '--artifact-altar-accent-faint': hexToRgba(stageMeta.accent, 0.12),
-    '--artifact-altar-core-shadow': hexToRgba(stageMeta.accent, hasDisplayStageArtifact ? 0.35 : 0.24),
+    '--artifact-altar-core-shadow': hexToRgba(stageMeta.accent, hasRankStageAccent ? 0.35 : 0.24),
     '--artifact-altar-spin-ramp-duration': `${MIN_SPIN_DURATION_MS}ms`,
   };
 
@@ -744,6 +755,9 @@ const StudentArtifactAltar = ({
   const stageChipRank = altarPhase === 'spinning'
     ? 'summon'
     : (stageArtifact ? String(displayPull?.rank || 'C').toUpperCase() : 'idle');
+  const stageEffectRank = altarPhase === 'spinning' && preRevealRank
+    ? preRevealRank
+    : stageChipRank;
   const stageChipStatusText = altarPhase === 'spinning'
     ? '\u042d\u043d\u0435\u0440\u0433\u0438\u044f \u0440\u0430\u0441\u0442\u0435\u0442'
     : stageArtifact
@@ -1273,7 +1287,7 @@ const StudentArtifactAltar = ({
                     ? 'artifact-altar-stage--settled'
                     : 'artifact-altar-stage--idle'
             } ${altarPhase === 'spinning' ? `artifact-altar-stage--spin-${spinIntensity}` : ''}`}
-            data-rank={stageChipRank}
+            data-rank={stageEffectRank}
             style={altarStageStyle}
             aria-live="polite"
           >
@@ -1400,7 +1414,6 @@ const StudentArtifactAltar = ({
                 <CoinGuideIcon className="h-4 w-4 object-contain" />
               </button>
             </div>
-
             {!canSpin && !spinButtonBusy && coinsTotal < spinCost && (
               <div className="mt-2 text-xs text-rose-600">
                 Нужно еще {(spinCost - Math.max(0, Math.floor(Number(coinsTotal) || 0))).toLocaleString('ru-RU')} монет.
