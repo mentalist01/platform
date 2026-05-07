@@ -484,6 +484,47 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  startMockTimerChestOpening: async (chestId) => {
+    const normalizedChestId = String(chestId || '').trim();
+    if (!normalizedChestId) throw new Error('chestId required');
+    const res = await apiFetch(`/api/students/mock-timer-chests/${encodeURIComponent(normalizedChestId)}/start`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  prepareMockTimerChestOpening: async (chestId, options = {}) => {
+    const normalizedChestId = String(chestId || '').trim();
+    if (!normalizedChestId) throw new Error('chestId required');
+    const openNow = Boolean(options?.openNow);
+    const res = await apiFetch(`/api/students/mock-timer-chests/${encodeURIComponent(normalizedChestId)}/prepare`, {
+      method: 'POST',
+      ...(openNow
+        ? {
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ openNow: true }),
+        }
+        : {}),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  claimMockTimerChest: async (chestId, options = {}) => {
+    const normalizedChestId = String(chestId || '').trim();
+    if (!normalizedChestId) throw new Error('chestId required');
+    const openNow = Boolean(options?.openNow);
+    const res = await apiFetch(`/api/students/mock-timer-chests/${encodeURIComponent(normalizedChestId)}/claim`, {
+      method: 'POST',
+      ...(openNow
+        ? {
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ openNow: true }),
+        }
+        : {}),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   spinArtifactAltar: async () => {
     const res = await apiFetch('/api/students/altar/spin', {
       method: 'POST',
@@ -675,6 +716,15 @@ export const api = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ studentId, examId, startOnly: true, resumeTimerExam: true, ...(payload || {}) }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  restoreMockTimerRewards: async (studentId, examId) => {
+    const res = await apiFetch('/api/mock-exams/attempt/timer-rewards', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, examId }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);

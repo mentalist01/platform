@@ -226,7 +226,7 @@ const PYTHON_COIN_TASK_ORDER = [
   101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
   205, 208, 214, 216, 217, 223, 224, 225, 226, 227,
 ];
-const ARTIFACT_SPIN_COST = 20;
+const ARTIFACT_SPIN_COST = 50;
 const ARTIFACT_MAX_LEVEL = 5;
 const ARTIFACT_UPGRADE_REQUIREMENTS = {
   2: { cards: 2, coins: 25 },
@@ -6402,6 +6402,8 @@ const MOCK_TIMER_CHEST_MILESTONES = [
   { score: 100, chests: 1 },
 ];
 const MOCK_TIMER_CHEST_ARTIFACTS_PER_CHEST = 2;
+const MOCK_TIMER_CHEST_OPEN_DURATION_MS = 3 * 60 * 60 * 1000;
+const MOCK_TIMER_CHEST_SLOT_COUNT = 8;
 
 const normalizeMockAttemptMode = (value, fallback = MOCK_ATTEMPT_MODE_CLASSIC) => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -6487,6 +6489,229 @@ const getPreviouslyAwardedMockCoinMilestones = (attempt) => {
 const getPreviouslyAwardedMockTimerChestMilestones = (attempt) => {
   if (!attempt || typeof attempt !== 'object') return [];
   return normalizeMockCoinMilestones(attempt.timerChestAwardedMilestones);
+};
+
+const normalizeMockTimerChestPendingReward = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const artifactIds = (Array.isArray(value.artifactIds) ? value.artifactIds : [])
+    .map((artifactId) => normalizeArtifactId(artifactId))
+    .filter((artifactId) => artifactId && ARTIFACT_CATALOG_BY_ID.has(artifactId))
+    .slice(0, MOCK_TIMER_CHEST_ARTIFACTS_PER_CHEST);
+  if (artifactIds.length <= 0) return null;
+  const preparedAt = typeof value.preparedAt === 'string' && !Number.isNaN(Date.parse(value.preparedAt))
+    ? new Date(value.preparedAt).toISOString()
+    : new Date().toISOString();
+  return {
+    preparedAt,
+    artifactIds,
+  };
+};
+
+const normalizeMockTimerChestQueue = (value) => (
+  (Array.isArray(value) ? value : [])
+    .map((raw, index) => {
+      if (!raw || typeof raw !== 'object') return null;
+      const id = typeof raw.id === 'string' && raw.id.trim()
+        ? raw.id.trim()
+        : '';
+      if (!id) return null;
+      const createdAt = typeof raw.createdAt === 'string' && raw.createdAt.trim()
+        ? raw.createdAt.trim()
+        : new Date(0).toISOString();
+      const openStartedAt = typeof raw.openStartedAt === 'string' && raw.openStartedAt.trim()
+        ? raw.openStartedAt.trim()
+        : '';
+      const openReadyAt = typeof raw.openReadyAt === 'string' && raw.openReadyAt.trim()
+        ? raw.openReadyAt.trim()
+        : '';
+      const mockExamId = typeof raw.mockExamId === 'string' && raw.mockExamId.trim()
+        ? raw.mockExamId.trim()
+        : '';
+      const mockExamTitle = typeof raw.mockExamTitle === 'string' && raw.mockExamTitle.trim()
+        ? raw.mockExamTitle.trim().slice(0, 120)
+        : '';
+      const milestoneScore = normalizeMockScore(raw.milestoneScore);
+      const chestIndex = Math.max(1, Math.floor(Number(raw.chestIndex) || (index + 1)));
+      const pendingReward = normalizeMockTimerChestPendingReward(raw.pendingReward);
+      return {
+        id,
+        source: 'mock-timer-chest',
+        createdAt,
+        ...(mockExamId ? { mockExamId } : {}),
+        ...(mockExamTitle ? { mockExamTitle } : {}),
+        ...(milestoneScore > 0 ? { milestoneScore } : {}),
+        chestIndex,
+        coinsGained: normalizeCoinsTotal(raw.coinsGained),
+        ...(openStartedAt ? { openStartedAt } : {}),
+        ...(openReadyAt ? { openReadyAt } : {}),
+        ...(pendingReward ? { pendingReward } : {}),
+      };
+    })
+    .filter(Boolean)
+);
+
+const getMockTimerChestState = (chest, nowMs = Date.now()) => {
+  const readyAtMs = Date.parse(chest?.openReadyAt || '');
+  if (Number.isFinite(readyAtMs)) {
+    return readyAtMs <= nowMs ? 'ready' : 'opening';
+  }
+  return 'closed';
+};
+
+const serializeMockTimerChest = (chest, now = new Date()) => {
+  const nowMs = now instanceof Date ? now.getTime() : Date.now();
+  const state = getMockTimerChestState(chest, nowMs);
+  const readyAtMs = Date.parse(chest?.openReadyAt || '');
+  return {
+    id: String(chest?.id || ''),
+    state,
+    source: 'mock-timer-chest',
+    createdAt: chest?.createdAt || '',
+    mockExamId: chest?.mockExamId || '',
+    mockExamTitle: chest?.mockExamTitle || '',
+    milestoneScore: normalizeMockScore(chest?.milestoneScore),
+    chestIndex: Math.max(1, Math.floor(Number(chest?.chestIndex) || 1)),
+    openDurationMs: MOCK_TIMER_CHEST_OPEN_DURATION_MS,
+    remainingMs: state === 'opening' && Number.isFinite(readyAtMs)
+      ? Math.max(0, readyAtMs - nowMs)
+      : 0,
+    ...(chest?.openStartedAt ? { openStartedAt: chest.openStartedAt } : {}),
+    ...(chest?.openReadyAt ? { openReadyAt: chest.openReadyAt } : {}),
+  };
+};
+
+const buildMockTimerChestPanelState = (data, now = new Date()) => {
+  const queue = normalizeMockTimerChestQueue(data?.mockTimerChests);
+  const nowMs = now instanceof Date ? now.getTime() : Date.now();
+  const chests = queue.map((chest) => serializeMockTimerChest(chest, now));
+  const openingCount = chests.filter((chest) => chest.state === 'opening').length;
+  const readyCount = chests.filter((chest) => chest.state === 'ready').length;
+  const closedCount = chests.filter((chest) => chest.state === 'closed').length;
+  return {
+    slotCount: MOCK_TIMER_CHEST_SLOT_COUNT,
+    openDurationMs: MOCK_TIMER_CHEST_OPEN_DURATION_MS,
+    chests,
+    visibleChests: chests.slice(0, MOCK_TIMER_CHEST_SLOT_COUNT),
+    overflowCount: Math.max(0, chests.length - MOCK_TIMER_CHEST_SLOT_COUNT),
+    closedCount,
+    openingCount,
+    readyCount,
+    totalCount: chests.length,
+    canStartOpening: !queue.some((chest) => getMockTimerChestState(chest, nowMs) === 'opening'),
+  };
+};
+
+const createMockTimerChestPendingReward = (data, preparedAt = new Date().toISOString()) => {
+  let artifactTotalPulls = normalizeArtifactTotalPulls(data?.artifactTotalPulls);
+  const artifactIds = [];
+  for (let itemIndex = 0; itemIndex < MOCK_TIMER_CHEST_ARTIFACTS_PER_CHEST; itemIndex += 1) {
+    const artifact = rollArtifactReward({ totalPullsBefore: artifactTotalPulls });
+    if (!artifact?.id) continue;
+    artifactIds.push(artifact.id);
+    artifactTotalPulls += 1;
+  }
+  return normalizeMockTimerChestPendingReward({
+    preparedAt,
+    artifactIds,
+  });
+};
+
+const buildMockTimerChestRewardSnapshot = (chest, pendingReward, data, openedAt = new Date().toISOString()) => {
+  const safeChest = chest && typeof chest === 'object' ? chest : {};
+  const safePendingReward = normalizeMockTimerChestPendingReward(pendingReward)
+    || createMockTimerChestPendingReward(data, openedAt)
+    || { preparedAt: openedAt, artifactIds: [] };
+  const pulledAt = safePendingReward.preparedAt || openedAt;
+  const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
+  const artifactLevels = normalizeArtifactLevels(data?.artifactLevels, artifactInventory);
+  const artifactCards = normalizeArtifactCards(data?.artifactCards, artifactInventory);
+  let artifactTotalPulls = normalizeArtifactTotalPulls(data?.artifactTotalPulls);
+  let xpTotal = normalizeXpTotal(data?.xpTotal);
+  let coinsTotal = normalizeCoinsTotal(data?.coinsTotal) + normalizeCoinsTotal(safeChest.coinsGained);
+  let artifactXpGained = 0;
+  let artifactCoinsGained = 0;
+  const artifactDropRecords = [];
+
+  safePendingReward.artifactIds.forEach((artifactId, itemIndex) => {
+    const artifact = ARTIFACT_CATALOG_BY_ID.get(normalizeArtifactId(artifactId));
+    if (!artifact) return;
+    const artifactLevelBeforePull = getArtifactLevel(artifactLevels, artifact.id);
+    const maxLevelDuplicateCoins = artifactLevelBeforePull >= ARTIFACT_MAX_LEVEL
+      ? getArtifactMaxLevelDuplicateCoinReward(artifact)
+      : 0;
+    artifactInventory[artifact.id] = getArtifactInventoryCount(artifactInventory, artifact.id) + 1;
+    artifactCards[artifact.id] = getArtifactInventoryCount(artifactCards, artifact.id) + 1;
+    if (!artifactLevels[artifact.id]) artifactLevels[artifact.id] = 1;
+    artifactTotalPulls += 1;
+    const instantReward = getArtifactInstantRewardForPull(artifact.id);
+    const dropXpGained = normalizeXpTotal(instantReward.xp);
+    const dropCoinsGained = normalizeCoinsTotal(instantReward.coins + maxLevelDuplicateCoins);
+    artifactXpGained += dropXpGained;
+    artifactCoinsGained += dropCoinsGained;
+    xpTotal += dropXpGained;
+    coinsTotal += dropCoinsGained;
+    artifactDropRecords.push({
+      artifactId: artifact.id,
+      pulledAt,
+      maxLevelDuplicateCoins,
+      source: 'mock-timer-chest',
+      mockExamId: safeChest.mockExamId || '',
+      mockExamTitle: safeChest.mockExamTitle || '',
+      milestoneScore: normalizeMockScore(safeChest.milestoneScore),
+      chestIndex: Math.max(1, Math.floor(Number(safeChest.chestIndex) || 1)),
+      chestItemIndex: itemIndex + 1,
+    });
+  });
+
+  const mockArtifactDrops = artifactDropRecords
+    .map((record) => {
+      const drop = buildArtifactRewardPayload(
+        record.artifactId,
+        artifactInventory,
+        record.pulledAt,
+        artifactLevels,
+        artifactCards,
+        coinsTotal,
+        { maxLevelDuplicateCoins: record.maxLevelDuplicateCoins }
+      );
+      if (!drop) return null;
+      return {
+        ...drop,
+        source: 'mock-timer-chest',
+        mockExamId: record.mockExamId,
+        mockExamTitle: record.mockExamTitle,
+        milestoneScore: record.milestoneScore,
+        chestIndex: record.chestIndex,
+        chestItemIndex: record.chestItemIndex,
+      };
+    })
+    .filter(Boolean);
+
+  const mockChestReward = {
+    id: String(safeChest.id || ''),
+    source: 'mock-timer-chest',
+    mockExamId: safeChest.mockExamId || '',
+    mockExamTitle: safeChest.mockExamTitle || '',
+    milestoneScore: normalizeMockScore(safeChest.milestoneScore),
+    chestIndex: Math.max(1, Math.floor(Number(safeChest.chestIndex) || 1)),
+    coinsGained: normalizeCoinsTotal(safeChest.coinsGained),
+    artifacts: mockArtifactDrops,
+  };
+
+  return {
+    pendingReward: safePendingReward,
+    mockChestReward,
+    mockArtifactDrops,
+    artifactDropRecords,
+    artifactInventory,
+    artifactLevels,
+    artifactCards,
+    artifactTotalPulls,
+    xpTotal: normalizeXpTotal(xpTotal),
+    coinsTotal: normalizeCoinsTotal(coinsTotal),
+    artifactXpGained: normalizeXpTotal(artifactXpGained),
+    artifactCoinsGained: normalizeCoinsTotal(artifactCoinsGained),
+  };
 };
 
 const deriveCoinsFromMockAttempts = (mockAttempts) => {
@@ -6753,6 +6978,7 @@ const getStudentData = (studentId) => {
       xpTotal: 0,
       coinsTotal: 0,
       mockTimerChestsTotal: 0,
+      mockTimerChests: [],
       coinsSpentTotal: 0,
       artifactInventory: {},
       artifactLevels: {},
@@ -6775,6 +7001,7 @@ const getStudentData = (studentId) => {
     || Object.prototype.hasOwnProperty.call(raw, 'xpTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'coinsTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'mockTimerChestsTotal')
+    || Object.prototype.hasOwnProperty.call(raw, 'mockTimerChests')
     || Object.prototype.hasOwnProperty.call(raw, 'coinsSpentTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'artifactInventory')
     || Object.prototype.hasOwnProperty.call(raw, 'artifactLevels')
@@ -6832,6 +7059,7 @@ const getStudentData = (studentId) => {
       xpTotal,
       coinsTotal,
       mockTimerChestsTotal: normalizeCoinsTotal(raw.mockTimerChestsTotal),
+      mockTimerChests: normalizeMockTimerChestQueue(raw.mockTimerChests),
       coinsSpentTotal,
       artifactInventory,
       artifactLevels,
@@ -6859,6 +7087,7 @@ const getStudentData = (studentId) => {
     xpTotal: legacyXp,
     coinsTotal: 0,
     mockTimerChestsTotal: 0,
+    mockTimerChests: [],
     coinsSpentTotal: 0,
     artifactInventory: {},
     artifactLevels: {},
@@ -6886,6 +7115,8 @@ const setStudentData = (studentId, data) => {
     mockAttempts: data.mockAttempts && typeof data.mockAttempts === 'object' ? data.mockAttempts : {},
     xpTotal: normalizeXpTotal(data.xpTotal),
     coinsTotal: normalizeCoinsTotal(data.coinsTotal),
+    mockTimerChestsTotal: normalizeCoinsTotal(data.mockTimerChestsTotal),
+    mockTimerChests: normalizeMockTimerChestQueue(data.mockTimerChests),
     coinsSpentTotal: normalizeCoinsSpentTotal(data.coinsSpentTotal),
     artifactInventory: normalizeArtifactInventory(data.artifactInventory),
     artifactLevels: normalizeArtifactLevels(data.artifactLevels, data.artifactInventory),
@@ -10634,6 +10865,7 @@ app.get('/api/students/leaderboard', (req, res) => {
           hasAlias: currentStudent.hasAlias,
           mainName: normalizeStudentName(currentStudentEntry?.name || ''),
           coinsTotal: normalizeCoinsTotal(currentStudentData?.coinsTotal),
+          mockTimerChests: buildMockTimerChestPanelState(currentStudentData),
           leaderboardAliasRewardClaimed: Boolean(currentStudentData?.leaderboardAliasRewardClaimed),
         }
       : null,
@@ -10645,9 +10877,179 @@ app.get('/api/students/leaderboard', (req, res) => {
           mainName: normalizeStudentName(selectedStudentEntry?.name || ''),
           nickname: normalizeStudentNickname(selectedStudentEntry?.nickname || ''),
           coinsTotal: normalizeCoinsTotal(selectedStudentData?.coinsTotal),
+          mockTimerChests: buildMockTimerChestPanelState(selectedStudentData),
         }
       : null,
     altar: selectedStudentData ? buildStudentArtifactState(selectedStudentData) : null,
+  });
+});
+
+app.post('/api/students/mock-timer-chests/:chestId/start', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const chestId = String(req.params?.chestId || '').trim();
+  if (!chestId) return res.status(400).json({ error: 'chestId required' });
+  const student = ensureStudentAccess(req, res, req.auth.id);
+  if (!student) return;
+  const data = getStudentData(student.id);
+  const queue = normalizeMockTimerChestQueue(data?.mockTimerChests);
+  const chestIndex = queue.findIndex((chest) => chest.id === chestId);
+  if (chestIndex < 0) return res.status(404).json({ error: 'Сундук не найден' });
+
+  const now = new Date();
+  const nowMs = now.getTime();
+  const targetState = getMockTimerChestState(queue[chestIndex], nowMs);
+  if (targetState === 'ready') {
+    return res.status(409).json({ error: 'Сундук уже готов к открытию.' });
+  }
+  if (targetState === 'opening') {
+    return res.json({ mockTimerChests: buildMockTimerChestPanelState(data, now) });
+  }
+  const hasActiveOpening = queue.some((chest) => getMockTimerChestState(chest, nowMs) === 'opening');
+  if (hasActiveOpening) {
+    return res.status(409).json({ error: 'Сначала дождитесь открытия текущего сундука.' });
+  }
+
+  const openStartedAt = now.toISOString();
+  const openReadyAt = new Date(nowMs + MOCK_TIMER_CHEST_OPEN_DURATION_MS).toISOString();
+  queue[chestIndex] = {
+    ...queue[chestIndex],
+    openStartedAt,
+    openReadyAt,
+  };
+  const updated = setStudentData(student.id, {
+    ...data,
+    mockTimerChests: queue,
+  });
+  return res.json({
+    mockTimerChests: buildMockTimerChestPanelState(updated, now),
+  });
+});
+
+app.post('/api/students/mock-timer-chests/:chestId/prepare', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const chestId = String(req.params?.chestId || '').trim();
+  if (!chestId) return res.status(400).json({ error: 'chestId required' });
+  const student = ensureStudentAccess(req, res, req.auth.id);
+  if (!student) return;
+  const data = getStudentData(student.id);
+  const queue = normalizeMockTimerChestQueue(data?.mockTimerChests);
+  const chestIndex = queue.findIndex((chest) => chest.id === chestId);
+  if (chestIndex < 0) return res.status(404).json({ error: 'Сундук не найден' });
+
+  const now = new Date();
+  const nowMs = now.getTime();
+  const openNow = req.body?.openNow === true;
+  let chest = queue[chestIndex];
+  const targetState = getMockTimerChestState(chest, nowMs);
+  if (targetState !== 'ready') {
+    if (!(openNow && targetState === 'opening')) {
+      return res.status(409).json({ error: 'Сундук ещё не готов к открытию.' });
+    }
+    chest = {
+      ...chest,
+      openReadyAt: now.toISOString(),
+    };
+  }
+
+  const pendingReward = normalizeMockTimerChestPendingReward(chest.pendingReward)
+    || createMockTimerChestPendingReward(data, now.toISOString());
+  if (!pendingReward) {
+    return res.status(500).json({ error: 'Не удалось подготовить награду сундука.' });
+  }
+  chest = {
+    ...chest,
+    pendingReward,
+  };
+  queue[chestIndex] = chest;
+  const updated = setStudentData(student.id, {
+    ...data,
+    mockTimerChests: queue,
+  });
+  const rewardSnapshot = buildMockTimerChestRewardSnapshot(chest, pendingReward, updated, pendingReward.preparedAt);
+  return res.json({
+    mockTimerChests: buildMockTimerChestPanelState(updated, now),
+    mockChestReward: rewardSnapshot.mockChestReward,
+    mockChestRewards: [rewardSnapshot.mockChestReward],
+  });
+});
+
+app.post('/api/students/mock-timer-chests/:chestId/claim', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const chestId = String(req.params?.chestId || '').trim();
+  if (!chestId) return res.status(400).json({ error: 'chestId required' });
+  const student = ensureStudentAccess(req, res, req.auth.id);
+  if (!student) return;
+  const data = getStudentData(student.id);
+  const queue = normalizeMockTimerChestQueue(data?.mockTimerChests);
+  const chestIndex = queue.findIndex((chest) => chest.id === chestId);
+  if (chestIndex < 0) return res.status(404).json({ error: 'Сундук не найден' });
+
+  const now = new Date();
+  const nowMs = now.getTime();
+  let chest = queue[chestIndex];
+  const targetState = getMockTimerChestState(chest, nowMs);
+  const openNow = req.body?.openNow === true;
+  if (targetState !== 'ready') {
+    if (!(openNow && targetState === 'opening')) {
+      return res.status(409).json({ error: 'Сундук ещё открывается.' });
+    }
+    chest = {
+      ...chest,
+      openReadyAt: now.toISOString(),
+    };
+  }
+
+  const openedAt = now.toISOString();
+  const pendingReward = normalizeMockTimerChestPendingReward(chest.pendingReward)
+    || createMockTimerChestPendingReward(data, openedAt);
+  if (!pendingReward) {
+    return res.status(500).json({ error: 'Не удалось открыть сундук.' });
+  }
+  const rewardSnapshot = buildMockTimerChestRewardSnapshot(chest, pendingReward, data, pendingReward.preparedAt || openedAt);
+
+  const nextQueue = queue.filter((item) => item.id !== chest.id);
+  const lastArtifactDropRecord = rewardSnapshot.artifactDropRecords[rewardSnapshot.artifactDropRecords.length - 1] || null;
+  const updated = setStudentData(student.id, {
+    ...data,
+    mockTimerChests: nextQueue,
+    xpTotal: rewardSnapshot.xpTotal,
+    coinsTotal: rewardSnapshot.coinsTotal,
+    artifactInventory: rewardSnapshot.artifactInventory,
+    artifactLevels: rewardSnapshot.artifactLevels,
+    artifactCards: rewardSnapshot.artifactCards,
+    artifactTotalPulls: rewardSnapshot.artifactTotalPulls,
+    ...(lastArtifactDropRecord
+      ? {
+        artifactLastPull: {
+          id: lastArtifactDropRecord.artifactId,
+          pulledAt: lastArtifactDropRecord.pulledAt,
+          ...(lastArtifactDropRecord.maxLevelDuplicateCoins > 0
+            ? { maxLevelDuplicateCoins: lastArtifactDropRecord.maxLevelDuplicateCoins }
+            : {}),
+        },
+      }
+      : {}),
+  });
+
+  const mockArtifactDrops = rewardSnapshot.mockArtifactDrops;
+  const mockChestReward = rewardSnapshot.mockChestReward;
+  return res.json({
+    mockTimerChests: buildMockTimerChestPanelState(updated, now),
+    mockChestReward,
+    mockChestRewards: [mockChestReward],
+    coinsGained: normalizeCoinsTotal(mockChestReward.coinsGained + rewardSnapshot.artifactCoinsGained),
+    coinsTotal: normalizeCoinsTotal(updated.coinsTotal),
+    xpGained: normalizeXpTotal(rewardSnapshot.artifactXpGained),
+    xpTotal: normalizeXpTotal(updated.xpTotal),
+    artifactXpGained: rewardSnapshot.artifactXpGained,
+    artifactCoinsGained: rewardSnapshot.artifactCoinsGained,
+    altar: buildStudentArtifactState(updated),
+    ...(mockArtifactDrops.length > 0
+      ? {
+        mockArtifactDrop: mockArtifactDrops[0],
+        mockArtifactDrops,
+      }
+      : {}),
   });
 });
 
@@ -11342,6 +11744,63 @@ app.get('/api/mock-exams/attempt', (req, res) => {
   res.json(normalizeMockAttemptPayload(exam, stored.answers, stored.updatedAt, stored));
 });
 
+app.patch('/api/mock-exams/attempt/timer-rewards', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
+  const { studentId, examId } = req.body || {};
+  const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
+  const requestedExamId = typeof examId === 'string' ? examId.trim() : '';
+  if (!requestedStudentId || !requestedExamId) {
+    return res.status(400).json({ error: 'studentId and examId required' });
+  }
+  const student = ensureStudentAccess(req, res, requestedStudentId);
+  if (!student) return;
+  const list = readMockExamsDb();
+  const exam = (Array.isArray(list) ? list : []).find((item) => item.id === requestedExamId);
+  if (!exam) return res.status(404).json({ error: 'Mock exam not found' });
+  if (!isMockExamVisibleToStudent(exam, student.id)) {
+    return res.status(403).json({ error: 'Mock exam access denied' });
+  }
+  const data = getStudentData(student.id);
+  const attempts = data.mockAttempts && typeof data.mockAttempts === 'object' ? { ...data.mockAttempts } : {};
+  const previousAttempt = attempts[requestedExamId] && typeof attempts[requestedExamId] === 'object'
+    ? attempts[requestedExamId]
+    : null;
+  if (!previousAttempt || Object.keys(previousAttempt).length === 0) {
+    return res.status(404).json({ error: 'Попытка пробника не найдена' });
+  }
+  const previousAttemptMode = normalizeMockAttemptMode(previousAttempt?.mode);
+  const hasTimerAttemptMarkers = Boolean(
+    normalizeMockTimerTimestamp(previousAttempt?.timerStartedAt)
+    || normalizeMockTimerTimestamp(previousAttempt?.timerFinishedAt)
+    || normalizeMockTimerTimestamp(previousAttempt?.timerExpiresAt)
+  );
+  const hasDisabledTimerRewards = previousAttempt.timerRewardsDisabled === true;
+  if (!hasDisabledTimerRewards && previousAttemptMode !== MOCK_ATTEMPT_MODE_TIMER && !hasTimerAttemptMarkers) {
+    return res.status(409).json({ error: 'Награды можно вернуть только для таймерного режима.' });
+  }
+  if (!hasDisabledTimerRewards) {
+    return res.json(normalizeMockAttemptPayload(exam, previousAttempt.answers, previousAttempt.updatedAt, previousAttempt));
+  }
+
+  const restoredAt = new Date().toISOString();
+  const nextAttempt = {
+    ...previousAttempt,
+    timerRewardsRestoredAt: restoredAt,
+    updatedAt: restoredAt,
+  };
+  delete nextAttempt.timerRewardsDisabled;
+  delete nextAttempt.timerChestAwardedMilestones;
+  delete nextAttempt.timerChestAwardedTotal;
+  delete nextAttempt.timerChestAwardedAt;
+  attempts[requestedExamId] = nextAttempt;
+  const updated = setStudentData(student.id, {
+    ...data,
+    mockAttempts: attempts,
+  });
+  const stored = updated.mockAttempts?.[requestedExamId] || nextAttempt;
+  return res.json(normalizeMockAttemptPayload(exam, stored.answers, stored.updatedAt, stored));
+});
+
 app.put('/api/mock-exams/attempt', (req, res) => {
   const {
     studentId,
@@ -11438,7 +11897,13 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   if (requestedTimerRestart && !canRestartTimerAttempt) {
     return res.status(409).json({ error: 'Повторный таймер можно запустить только после завершения времени.' });
   }
-  const timerRewardsDisabled = Boolean(previousAttempt?.timerRewardsDisabled) || canSwitchClassicAttemptToTimer || canRestartTimerAttempt;
+  const timerRewardsRestoredAt = normalizeMockTimerTimestamp(previousAttempt?.timerRewardsRestoredAt);
+  const canRestartWithRestoredTimerRewards = Boolean(canRestartTimerAttempt && timerRewardsRestoredAt);
+  const timerRewardsDisabled = (
+    Boolean(previousAttempt?.timerRewardsDisabled)
+    || canSwitchClassicAttemptToTimer
+    || (canRestartTimerAttempt && !canRestartWithRestoredTimerRewards)
+  );
   const modeLockedAt = typeof previousAttempt?.modeLockedAt === 'string' && previousAttempt.modeLockedAt.trim()
     ? previousAttempt.modeLockedAt.trim()
     : savedAt;
@@ -11479,7 +11944,13 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     return res.status(409).json({ error: 'Время таймерного режима истекло.' });
   }
   const previousAwardedMilestones = getPreviouslyAwardedMockCoinMilestones(previousAttempt);
-  const previousTimerChestMilestones = getPreviouslyAwardedMockTimerChestMilestones(previousAttempt);
+  const shouldResetTimerChestMilestones = Boolean(
+    normalizeMockTimerTimestamp(previousAttempt?.timerRewardsRestoredAt)
+    && previousAttempt?.timerRewardsDisabled !== true
+  );
+  const previousTimerChestMilestones = shouldResetTimerChestMilestones
+    ? []
+    : getPreviouslyAwardedMockTimerChestMilestones(previousAttempt);
   const serverDayKey = savedAt.slice(0, 10);
   const clientDayKey = normalizeDayKey(localDay);
   const resolvedDayKey = (() => {
@@ -11597,8 +12068,12 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   let artifactTotalPulls = normalizeArtifactTotalPulls(data?.artifactTotalPulls);
   const artifactDropRecords = [];
   const timerChestRewardRecords = [];
+  const nextMockTimerChests = normalizeMockTimerChestQueue(data?.mockTimerChests);
   let artifactXpGained = 0;
   let artifactCoinsGained = 0;
+  const examTitle = typeof exam?.title === 'string' && exam.title.trim()
+    ? exam.title.trim()
+    : 'Пробник';
   const grantMockArtifactReward = (artifact, meta = {}) => {
     if (!artifact) return;
     const artifactLevelBeforePull = getArtifactLevel(artifactLevels, artifact.id);
@@ -11634,29 +12109,20 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     for (let chestOffset = 0; chestOffset < chestCount; chestOffset += 1) {
       const chestRecord = {
         id: crypto.randomUUID(),
+        source: 'mock-timer-chest',
+        mockExamId: String(examId),
+        mockExamTitle: examTitle,
         milestoneScore: score,
         chestIndex: timerChestRewardRecords.length + 1,
         milestoneIndex: milestoneIndex + 1,
+        createdAt: savedAt,
         coinsGained: normalizeCoinsTotal(baseCoins + (chestOffset < extraCoins ? 1 : 0)),
-        artifactRecords: [],
       };
-      coinsTotal += chestRecord.coinsGained;
-      for (let itemIndex = 0; itemIndex < MOCK_TIMER_CHEST_ARTIFACTS_PER_CHEST; itemIndex += 1) {
-        const record = grantMockArtifactReward(rollArtifactReward({ totalPullsBefore: artifactTotalPulls }), {
-          source: 'mock-timer-chest',
-          milestoneScore: score,
-          chestIndex: chestRecord.chestIndex,
-          chestItemIndex: itemIndex + 1,
-        });
-        if (record) chestRecord.artifactRecords.push(record);
-      }
       timerChestRewardRecords.push(chestRecord);
+      nextMockTimerChests.push(chestRecord);
     }
   });
   const solvedEvents = Array.isArray(data.solvedEvents) ? [...data.solvedEvents] : [];
-  const examTitle = typeof exam?.title === 'string' && exam.title.trim()
-    ? exam.title.trim()
-    : 'Пробник';
   rewardableSolvedTaskKeys.forEach((taskKey) => {
     const taskNum = Number(taskKey);
     const solveXpGained = normalizeXpTotal(mockSolveXpByTaskKey.get(String(taskKey)));
@@ -11687,6 +12153,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     xpTotal,
     coinsTotal,
     mockTimerChestsTotal: normalizeCoinsTotal(data?.mockTimerChestsTotal) + timerChestsGained,
+    mockTimerChests: nextMockTimerChests,
     solvedEvents,
     artifactInventory,
     artifactLevels,
@@ -11740,22 +12207,9 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       return payload;
     })
     .filter(Boolean);
-  const mockChestRewards = timerChestRewardRecords
-    .map((chestRecord) => ({
-      id: chestRecord.id,
-      source: 'mock-timer-chest',
-      mockExamId: String(examId),
-      mockExamTitle: examTitle,
-      milestoneScore: chestRecord.milestoneScore,
-      chestIndex: chestRecord.chestIndex,
-      coinsGained: normalizeCoinsTotal(chestRecord.coinsGained),
-      artifacts: (Array.isArray(chestRecord.artifactRecords) ? chestRecord.artifactRecords : [])
-        .map((record) => dropPayloadByRecord.get(record))
-        .filter(Boolean),
-    }))
-    .filter((reward) => reward.coinsGained > 0 || reward.artifacts.length > 0);
+  const mockChestRewards = [];
   const xpGained = normalizeXpTotal(mockSolveXpGained + artifactXpGained);
-  const timerChestCoinsGained = normalizeCoinsTotal(mockChestRewards.reduce((sum, reward) => sum + normalizeCoinsTotal(reward.coinsGained), 0));
+  const timerChestCoinsGained = 0;
   res.json({
     ...(updated.mockAttempts?.[String(examId)] || normalizedAttempt),
     xpGained,
@@ -11764,8 +12218,10 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     coinsGained,
     coinsTotal: updated.coinsTotal,
     timerChestsGained,
+    timerChestsAdded: timerChestsGained,
     timerChestCoinsGained,
     timerChestsTotal: normalizeCoinsTotal(updated.mockTimerChestsTotal),
+    mockTimerChests: buildMockTimerChestPanelState(updated),
     ...(mockChestRewards.length > 0 ? { mockChestRewards } : {}),
     ...(mockArtifactDrops.length > 0
       ? {

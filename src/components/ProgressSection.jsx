@@ -28,12 +28,14 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import MockExamBadges, { MockExamBadgeSticker } from './MockExamBadges';
+import MockChestOpeningOverlay from './MockChestOpeningOverlay';
 import MockExamEditorModal from './MockExamEditorModal';
 import MockExamModal from './MockExamModal';
 import ProgressReviewModal from './ProgressReviewModal';
 import StudentSearchSelect from './StudentSearchSelect';
 import StudentTestModal from './StudentTestModal';
 import { Button, Card, ProgressBar } from './ui';
+import { ARTIFACT_CATALOG_METADATA } from '../data/artifactCatalog';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
 import CoinGuideIcon from './CoinGuideTooltip';
 
@@ -88,6 +90,39 @@ const MOCK_TIMER_CHEST_MILESTONES = [
   { score: 80, chests: 1 },
   { score: 100, chests: 1 },
 ];
+const MOCK_CHEST_TEST_DISABLED_ARTIFACT_IDS = new Set(['transfer-agreement']);
+const MOCK_CHEST_TEST_ARTIFACTS = ARTIFACT_CATALOG_METADATA
+  .map((artifact) => {
+    const id = String(artifact?.id || '').trim();
+    if (!id || MOCK_CHEST_TEST_DISABLED_ARTIFACT_IDS.has(id)) return null;
+    return {
+      id,
+      rank: String(artifact?.rank || 'C').trim().toUpperCase() || 'C',
+      name: String(artifact?.name || id).trim() || id,
+      description: typeof artifact?.description === 'string' ? artifact.description : '',
+    };
+  })
+  .filter(Boolean);
+
+const createMockChestTestRewards = () => {
+  const usedArtifactIds = new Set();
+  const pickArtifact = () => {
+    if (MOCK_CHEST_TEST_ARTIFACTS.length === 0) return null;
+    const freshPool = MOCK_CHEST_TEST_ARTIFACTS.filter((artifact) => !usedArtifactIds.has(artifact.id));
+    const pool = freshPool.length > 0 ? freshPool : MOCK_CHEST_TEST_ARTIFACTS;
+    const artifact = pool[Math.floor(Math.random() * pool.length)] || null;
+    if (artifact?.id) usedArtifactIds.add(artifact.id);
+    return artifact;
+  };
+
+  return [{
+    id: `mock-chest-test-${Date.now()}`,
+    coinsGained: 50 + Math.floor(Math.random() * 71),
+    milestoneScore: 80,
+    chestIndex: 1,
+    artifacts: [pickArtifact(), pickArtifact()].filter(Boolean),
+  }];
+};
 const MOCK_EXAM_FILTERS = [
   { id: 'all', label: 'Все' },
   { id: 'focus', label: 'Фокус' },
@@ -549,6 +584,7 @@ const ProgressSection = ({
   const [mockExamsLoading, setMockExamsLoading] = useState(false);
   const [mockAttemptsByExam, setMockAttemptsByExam] = useState({});
   const [mockAttemptsLoading, setMockAttemptsLoading] = useState(false);
+  const [restoringMockTimerRewardsExamId, setRestoringMockTimerRewardsExamId] = useState(null);
   const [hoveredMockTaskPoint, setHoveredMockTaskPoint] = useState(null);
   const [mockEditorExam, setMockEditorExam] = useState(null);
   const [activeMockExam, setActiveMockExam] = useState(null);
@@ -562,6 +598,7 @@ const ProgressSection = ({
   const [mockExamQuery, setMockExamQuery] = useState('');
   const [mockExamSort, setMockExamSort] = useState('smart');
   const [mockModePreset, setMockModePreset] = useState(MOCK_ATTEMPT_MODE_CLASSIC);
+  const [mockChestTestRewards, setMockChestTestRewards] = useState([]);
   const [duplicatingMockExamId, setDuplicatingMockExamId] = useState(null);
   const [newMockTitle, setNewMockTitle] = useState('');
   const [mockAccessExamId, setMockAccessExamId] = useState(null);
@@ -2096,6 +2133,33 @@ const ProgressSection = ({
     }
   };
 
+  const handleRestoreMockTimerRewards = async (exam) => {
+    if (role !== 'teacher' || !effectiveStudentId || !exam?.id) return;
+    if (!confirm('Вернуть ученику награды таймера для этого пробника? Уже выданные раньше рубежи снова смогут дать сундуки.')) return;
+    const examId = exam.id;
+    setRestoringMockTimerRewardsExamId(examId);
+    try {
+      const attempt = await api.restoreMockTimerRewards(effectiveStudentId, examId);
+      const normalizedAttempt = attempt && typeof attempt === 'object' ? attempt : {};
+      setMockAttemptsByExam((prev) => ({
+        ...(prev || {}),
+        [examId]: normalizedAttempt,
+      }));
+      setActiveMockAttempt((current) => (
+        String(activeMockExam?.id || '') === String(examId || '')
+          ? normalizedAttempt
+          : current
+      ));
+      setMockExamsError('');
+    } catch (err) {
+      alert(err?.message || 'Не удалось вернуть награды таймера.');
+    } finally {
+      setRestoringMockTimerRewardsExamId((current) => (
+        String(current || '') === String(examId || '') ? null : current
+      ));
+    }
+  };
+
   const closeClassicModeWarning = () => {
     setClassicModeWarning(null);
   };
@@ -2519,6 +2583,21 @@ const ProgressSection = ({
       : formatMockTimerDuration(MOCK_EXAM_TIMER_DURATION_MS);
     const actionLabel = canRestartTimerAttempt ? 'Решить заново' : examStats.actionLabel;
     const isStartingThisMock = String(startingMockExamId || '') === String(exam.id || '');
+    const attemptHasTimerMarkers = Boolean(
+      normalizeMockAttemptMode(attempt?.mode) === MOCK_ATTEMPT_MODE_TIMER
+      || String(attempt?.timerStartedAt || '').trim()
+      || String(attempt?.timerFinishedAt || '').trim()
+      || String(attempt?.timerExpiresAt || '').trim()
+      || String(attempt?.timerPausedAt || '').trim()
+    );
+    const canTeacherRestoreTimerRewards = Boolean(
+      role === 'teacher'
+      && effectiveStudentId
+      && hasExamTasks
+      && attempt?.timerRewardsDisabled
+      && (isTimerMode || attemptHasTimerMarkers)
+    );
+    const isRestoringTimerRewards = String(restoringMockTimerRewardsExamId || '') === String(exam.id || '');
     const openStudentMockExam = () => {
       if (!hasExamTasks || isStartingThisMock) return;
       handleOpenMockExam(exam, { mode: selectedMode });
@@ -2811,6 +2890,21 @@ const ProgressSection = ({
                   style={{ width: `${scoreValue}%` }}
                 />
               </div>
+              {canTeacherRestoreTimerRewards && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleRestoreMockTimerRewards(exam);
+                  }}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  disabled={isRestoringTimerRewards}
+                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-black text-emerald-700 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
+                >
+                  <PackageOpen size={14} />
+                  <span>{isRestoringTimerRewards ? 'Возвращаем...' : 'Вернуть награды таймера'}</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -3866,6 +3960,14 @@ const ProgressSection = ({
                           {`${studentMockDashboard.expiredTimerCount} таймер истёк`}
                         </div>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => setMockChestTestRewards(createMockChestTestRewards())}
+                        className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2 text-[11px] font-black text-amber-800 transition hover:-translate-y-0.5 hover:bg-amber-100"
+                      >
+                        <PackageOpen size={14} />
+                        Тест открытия сундука
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -4377,6 +4479,12 @@ const ProgressSection = ({
                 setActiveMockAttempt(attempt);
                 setActiveMockMode(normalizeMockAttemptMode(attempt?.mode, activeMockMode));
                 setMockAttemptsByExam((prev) => ({ ...prev, [examId]: attempt }));
+                if (Number.isFinite(Number(attempt?.timerChestsTotal))) {
+                  setStudentData((prev) => ({
+                    ...prev,
+                    mockTimerChestsTotal: Math.max(0, Math.floor(Number(attempt.timerChestsTotal) || 0)),
+                  }));
+                }
                 onMockAttemptSaved?.(examId, attempt, meta);
               }}
               onRestartTimerAttempt={async () => {
@@ -4410,6 +4518,13 @@ const ProgressSection = ({
                 setActiveMockMode(MOCK_ATTEMPT_MODE_CLASSIC);
                 setStartingMockExamId(null);
               }}
+            />
+          )}
+
+          {mockChestTestRewards.length > 0 && (
+            <MockChestOpeningOverlay
+              rewards={mockChestTestRewards}
+              onClose={() => setMockChestTestRewards([])}
             />
           )}
 

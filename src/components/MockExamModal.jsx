@@ -121,6 +121,7 @@ const MockExamModal = ({
   const [checking, setChecking] = useState(false);
   const [closing, setClosing] = useState(false);
   const [restartingTimer, setRestartingTimer] = useState(false);
+  const [finishConfirmOpen, setFinishConfirmOpen] = useState(false);
   const [autoAdvance, setAutoAdvance] = useState(false);
   const [expandedImage, setExpandedImage] = useState(null);
   const [successBurst, setSuccessBurst] = useState(null);
@@ -195,6 +196,7 @@ const MockExamModal = ({
     setRestartingTimer(false);
     setArtifactDropBurst(null);
     setChestOpeningRewards([]);
+    setFinishConfirmOpen(false);
     const requestedTask = String(initialTaskNumber ?? '').trim();
     const initialTask = requestedTask
       ? MOCK_TASK_NUMBERS.find((taskNumber) => String(taskNumber) === requestedTask)
@@ -348,6 +350,10 @@ const MockExamModal = ({
   const canCheck = Boolean(currentQuestion && studentId && isAnswerReady && !checking && !timerExpired && !isTimerMode);
   const canFinishTimerExam = Boolean(isTimerMode && currentQuestion && studentId && !checking && !closing && !restartingTimer && !timerResultsVisible);
 
+  useEffect(() => {
+    if (!canFinishTimerExam) setFinishConfirmOpen(false);
+  }, [canFinishTimerExam]);
+
   const handlePrevTask = () => {
     if (isFirstTask) return;
     setSelectedTask(MOCK_TASK_NUMBERS[selectedTaskIndex - 1]);
@@ -404,12 +410,12 @@ const MockExamModal = ({
         } else if (isCorrect) {
           triggerSuccessBurst(taskKey);
         }
-        const timerChestsGained = Math.max(0, Math.floor(Number(saved?.timerChestsGained) || 0));
-        setSaveStatus(
-          timerChestsGained > 0
-            ? `Верно! Открыто сундуков: ${timerChestsGained}.`
-            : (isCorrect ? 'Ответ верный и сохранён.' : 'Ответ сохранён, но пока неверный.')
-        );
+          const timerChestsGained = Math.max(0, Math.floor(Number(saved?.timerChestsGained) || 0));
+          setSaveStatus(
+            timerChestsGained > 0
+              ? `Верно! Получено сундуков: ${timerChestsGained}. Они ждут в рейтинге.`
+              : (isCorrect ? 'Ответ верный и сохранён.' : 'Ответ сохранён, но пока неверный.')
+          );
         onAttemptSaved?.(exam.id, saved, { sourceRect });
         const nextTaskAfterSave = getNextUnsolvedTask(savedSolved, selectedTask);
         if (autoAdvance && isCorrect && nextTaskAfterSave) {
@@ -426,6 +432,12 @@ const MockExamModal = ({
     } finally {
       setChecking(false);
     }
+  };
+
+  const handleRequestFinishTimerExam = () => {
+    if (!canFinishTimerExam) return;
+    setSaveError('');
+    setFinishConfirmOpen(true);
   };
 
   const handleFinishTimerExam = async (event) => {
@@ -446,6 +458,7 @@ const MockExamModal = ({
       }
       : null;
     hasLocalAttemptChangesRef.current = true;
+    setFinishConfirmOpen(false);
     setSaveError('');
     setSaveStatus('');
     setChecking(true);
@@ -474,13 +487,13 @@ const MockExamModal = ({
         }
         const savedSecondaryScore = getSecondaryScoreFromPrimary(getPrimaryScoreFromSolved(savedSolved));
         const timerChestsGained = Math.max(0, Math.floor(Number(saved?.timerChestsGained) || 0));
-        setSaveStatus(
-          saved?.timerRewardsDisabled
-            ? `Экзамен завершён. Баллы: ${savedSecondaryScore}. Награды таймера отключены.`
-            : (timerChestsGained > 0
-            ? `Экзамен завершён. Баллы: ${savedSecondaryScore}. Открыто сундуков: ${timerChestsGained}.`
+          setSaveStatus(
+            saved?.timerRewardsDisabled
+              ? `Экзамен завершён. Баллы: ${savedSecondaryScore}. Награды таймера отключены.`
+              : (timerChestsGained > 0
+            ? `Экзамен завершён. Баллы: ${savedSecondaryScore}. Получено сундуков: ${timerChestsGained}. Они ждут в рейтинге.`
             : `Экзамен завершён. Баллы: ${savedSecondaryScore}.`)
-        );
+          );
         onAttemptSaved?.(exam.id, saved, { sourceRect });
       }
     } catch (err) {
@@ -1190,7 +1203,7 @@ const MockExamModal = ({
                         </Button>
                       )}
                       <Button
-                        onClick={handleFinishTimerExam}
+                        onClick={handleRequestFinishTimerExam}
                         disabled={!canFinishTimerExam}
                         className="min-h-[3.35rem] w-full rounded-2xl text-base shadow-[0_18px_34px_rgba(225,29,72,0.28)]"
                         style={{
@@ -1262,6 +1275,94 @@ const MockExamModal = ({
           </section>
         </div>
       </div>
+
+      {finishConfirmOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-xl"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !checking) setFinishConfirmOpen(false);
+          }}
+        >
+          <div
+            className={`w-full max-w-md rounded-[1.75rem] border p-5 shadow-2xl ${
+              isDarkTheme
+                ? 'border-rose-400/30 bg-slate-950/95 text-slate-100 shadow-rose-950/40'
+                : 'border-rose-200 bg-white text-slate-950 shadow-rose-200/40'
+            }`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mock-finish-confirm-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${
+                isDarkTheme ? 'bg-rose-500/15 text-rose-200' : 'bg-rose-50 text-rose-600'
+              }`}>
+                <CircleAlert size={22} />
+              </div>
+              <div className="min-w-0">
+                <h2 id="mock-finish-confirm-title" className="text-lg font-black">
+                  Завершить экзамен?
+                </h2>
+                <p className={`mt-1 text-sm leading-6 ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
+                  После завершения ответы проверятся, таймер остановится, а продолжить этот запуск уже не получится.
+                </p>
+              </div>
+            </div>
+
+            <div className={`mt-4 grid grid-cols-2 gap-2 rounded-2xl border p-3 text-sm ${
+              isDarkTheme
+                ? 'border-white/10 bg-white/[0.04] text-slate-200'
+                : 'border-slate-200 bg-slate-50 text-slate-700'
+            }`}>
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-widest opacity-60">Ответы</div>
+                <div className="mt-1 text-base font-black">{`${answeredCount}/${totalTaskCount}`}</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-widest opacity-60">Таймер</div>
+                <div className="mt-1 text-base font-black">{timerLabel}</div>
+              </div>
+            </div>
+
+            {answeredCount < totalTaskCount && (
+              <div className={`mt-3 rounded-2xl border px-3 py-2 text-sm font-semibold ${
+                isDarkTheme
+                  ? 'border-amber-300/20 bg-amber-300/10 text-amber-100'
+                  : 'border-amber-200 bg-amber-50 text-amber-800'
+              }`}>
+                Есть незаполненные задания. Их результат будет засчитан как неверный.
+              </div>
+            )}
+
+            <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setFinishConfirmOpen(false)}
+                disabled={checking}
+                className={`min-h-[2.75rem] rounded-2xl ${isDarkTheme ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]' : ''}`}
+              >
+                Вернуться
+              </Button>
+              <Button
+                type="button"
+                onClick={handleFinishTimerExam}
+                disabled={!canFinishTimerExam}
+                className="min-h-[2.75rem] rounded-2xl shadow-[0_16px_30px_rgba(225,29,72,0.25)]"
+                style={{
+                  background: 'linear-gradient(135deg, #e11d48, #f97316)',
+                  color: '#fff',
+                }}
+              >
+                <Flame size={17} />
+                {checking ? 'Завершаем...' : 'Завершить'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {successBurst && (
         <div key={successBurst.id} className="mock-answer-burst mock-answer-burst--fullscreen" aria-hidden="true">

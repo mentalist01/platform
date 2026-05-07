@@ -1,7 +1,11 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Package2, RefreshCcw, Sparkles } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { CheckCircle2, Clock3, LockKeyhole, Package2, RefreshCcw, Sparkles } from 'lucide-react';
 import CoinGuideIcon from './CoinGuideTooltip';
 import { api } from '../services/api';
+import chestClosedImage from '../assets/mock-chest/chest-closed.png';
+import chestOpenImage from '../assets/mock-chest/chest-open.png';
+import MockChestOpeningOverlay from './MockChestOpeningOverlay';
 import StudentArtifactAltar from './StudentArtifactAltar';
 import StudentLeaderboardProfileModal from './StudentLeaderboardProfileModal';
 import StudentSearchSelect from './StudentSearchSelect';
@@ -12,11 +16,53 @@ const BONUS_TONE_CLASSNAME = {
   instant: 'border-emerald-200 bg-emerald-50/90 text-emerald-700',
 };
 const LEADERBOARD_ALIAS_COIN_REWARD = 100;
+const MOCK_TIMER_CHEST_DEFAULT_SLOT_COUNT = 8;
+const MOCK_TIMER_CHEST_DEFAULT_OPEN_MS = 3 * 60 * 60 * 1000;
 
 const normalizeOptionalWholeNumber = (value) => {
   const number = Number(value);
   if (!Number.isFinite(number)) return null;
   return Math.max(0, Math.floor(number));
+};
+
+const formatChestDuration = (value) => {
+  const ms = Math.max(0, Math.ceil(Number(value) || 0));
+  if (ms <= 0) return '0 м';
+  const totalMinutes = Math.max(1, Math.ceil(ms / 60000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0 && minutes > 0) return `${hours} ч ${minutes} м`;
+  if (hours > 0) return `${hours} ч`;
+  return `${minutes} м`;
+};
+
+const formatChestCountdown = (value) => {
+  const totalSeconds = Math.max(0, Math.ceil((Number(value) || 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds]
+    .map((part) => String(part).padStart(2, '0'))
+    .join(':');
+};
+
+const formatChestCountLabel = (count) => {
+  const normalized = Math.max(0, Math.floor(Number(count) || 0));
+  const lastTwo = normalized % 100;
+  const last = normalized % 10;
+  if (lastTwo >= 11 && lastTwo <= 14) return `${normalized} сундуков`;
+  if (last === 1) return `${normalized} сундук`;
+  if (last >= 2 && last <= 4) return `${normalized} сундука`;
+  return `${normalized} сундуков`;
+};
+
+const getClientChestState = (chest, nowMs) => {
+  const readyAtMs = Date.parse(chest?.openReadyAt || '');
+  if (Number.isFinite(readyAtMs)) {
+    return readyAtMs <= nowMs ? 'ready' : 'opening';
+  }
+  const state = String(chest?.state || '').trim().toLowerCase();
+  return ['closed', 'opening', 'ready'].includes(state) ? state : 'closed';
 };
 
 const LeaderboardAliasRewardChip = () => (
@@ -84,6 +130,12 @@ const StudentLeaderboardSection = ({
   const [isLeagueRangesOpen, setIsLeagueRangesOpen] = useState(false);
   const [spinLoading, setSpinLoading] = useState(false);
   const [spinError, setSpinError] = useState('');
+  const [chestActionId, setChestActionId] = useState('');
+  const [chestError, setChestError] = useState('');
+  const [chestNotice, setChestNotice] = useState(null);
+  const [chestPressFeedback, setChestPressFeedback] = useState({ id: '', nonce: 0 });
+  const [chestOpeningRewards, setChestOpeningRewards] = useState([]);
+  const [chestTimerNow, setChestTimerNow] = useState(() => Date.now());
   const [studentProfileState, setStudentProfileState] = useState({
     open: false,
     studentId: '',
@@ -94,11 +146,16 @@ const StudentLeaderboardSection = ({
   });
   const mountedRef = useRef(true);
   const studentProfileRequestIdRef = useRef(0);
+  const chestPressTimerRef = useRef(null);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      if (chestPressTimerRef.current) {
+        window.clearTimeout(chestPressTimerRef.current);
+        chestPressTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -125,6 +182,7 @@ const StudentLeaderboardSection = ({
         : null;
       setLeaderboard({ items, week, currentStudent, selectedStudent });
       setAltar(nextAltar);
+      setChestError('');
       if (role === 'student') {
         if (currentStudent?.hasAlias && typeof currentStudent.publicName === 'string') {
           setAliasInput(currentStudent.publicName);
@@ -280,6 +338,19 @@ const StudentLeaderboardSection = ({
   const currentStudentMeta = role === 'student' && leaderboard?.currentStudent
     ? leaderboard.currentStudent
     : null;
+  const currentChestPanel = currentStudentMeta?.mockTimerChests && typeof currentStudentMeta.mockTimerChests === 'object'
+    ? currentStudentMeta.mockTimerChests
+    : {
+        slotCount: MOCK_TIMER_CHEST_DEFAULT_SLOT_COUNT,
+        openDurationMs: MOCK_TIMER_CHEST_DEFAULT_OPEN_MS,
+        chests: [],
+        visibleChests: [],
+        overflowCount: 0,
+        canStartOpening: true,
+      };
+  const currentChestList = Array.isArray(currentChestPanel.chests)
+    ? currentChestPanel.chests
+    : (Array.isArray(currentChestPanel.visibleChests) ? currentChestPanel.visibleChests : []);
   const currentStudentMainName = (() => {
     const fromLeaderboard = typeof currentStudentMeta?.mainName === 'string'
       ? currentStudentMeta.mainName.trim()
@@ -335,6 +406,18 @@ const StudentLeaderboardSection = ({
         return index >= 0 ? index + 1 : null;
       })()
     : null;
+
+  useEffect(() => {
+    if (role !== 'student') return undefined;
+    const hasOpeningChest = currentChestList.some((chest) => (
+      getClientChestState(chest, chestTimerNow) === 'opening'
+    ));
+    if (!hasOpeningChest) return undefined;
+    const timer = window.setInterval(() => {
+      setChestTimerNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [currentChestList, chestTimerNow, role]);
 
   const handleSaveAlias = async () => {
     const normalized = String(aliasInput || '').trim();
@@ -453,6 +536,171 @@ const StudentLeaderboardSection = ({
     return data;
   }, [loadLeaderboard, onStudentCoinsChange, role]);
 
+  const applyMockTimerChestPanel = useCallback((panel) => {
+    if (!panel || typeof panel !== 'object') return;
+    setLeaderboard((prev) => ({
+      ...prev,
+      currentStudent: prev.currentStudent
+        ? {
+            ...prev.currentStudent,
+            mockTimerChests: panel,
+          }
+        : prev.currentStudent,
+    }));
+    setChestTimerNow(Date.now());
+  }, []);
+
+  const triggerChestPressFeedback = useCallback((chestId) => {
+    const normalizedChestId = String(chestId || '').trim();
+    if (!normalizedChestId || typeof window === 'undefined') return;
+    if (chestPressTimerRef.current) {
+      window.clearTimeout(chestPressTimerRef.current);
+      chestPressTimerRef.current = null;
+    }
+    setChestPressFeedback({ id: '', nonce: 0 });
+    window.requestAnimationFrame(() => {
+      if (!mountedRef.current) return;
+      setChestPressFeedback({ id: normalizedChestId, nonce: Date.now() });
+      chestPressTimerRef.current = window.setTimeout(() => {
+        if (mountedRef.current) setChestPressFeedback({ id: '', nonce: 0 });
+        chestPressTimerRef.current = null;
+      }, 420);
+    });
+  }, []);
+
+  const showChestNotice = useCallback((notice) => {
+    setChestNotice({
+      title: 'Сундук пока ждёт',
+      message: 'Сейчас уже открывается другой сундук. Дождись таймера, потом можно будет поставить следующий.',
+      chestId: '',
+      ...notice,
+    });
+  }, []);
+
+  const handleCloseChestNotice = useCallback(() => {
+    setChestNotice(null);
+  }, []);
+
+  const handleStartChestOpening = useCallback(async (chestId) => {
+    if (role !== 'student' || !chestId) return;
+    const actionId = `start:${chestId}`;
+    setChestActionId(actionId);
+    setChestError('');
+    setChestNotice(null);
+    try {
+      const data = await api.startMockTimerChestOpening(chestId);
+      if (!mountedRef.current) return;
+      if (data?.mockTimerChests) applyMockTimerChestPanel(data.mockTimerChests);
+    } catch (err) {
+      if (!mountedRef.current) return;
+      const message = err?.message || 'Не удалось поставить сундук на открытие.';
+      setChestError(message);
+      showChestNotice({
+        title: 'Этот сундук пока нельзя открыть',
+        message,
+      });
+    } finally {
+      if (mountedRef.current) {
+        setChestActionId((current) => (current === actionId ? '' : current));
+      }
+    }
+  }, [applyMockTimerChestPanel, role, showChestNotice]);
+
+  const handleClaimChest = useCallback(async (chestId, options = {}) => {
+    if (role !== 'student' || !chestId) return;
+    const actionId = `claim:${chestId}`;
+    const openNow = Boolean(options?.openNow);
+    setChestActionId(actionId);
+    setChestError('');
+    setChestNotice(null);
+    try {
+      if (!openNow) {
+        await new Promise((resolve) => window.setTimeout(resolve, 520));
+        if (!mountedRef.current) return;
+      }
+      const data = await api.prepareMockTimerChestOpening(chestId, { openNow });
+      if (!mountedRef.current) return;
+      if (data?.mockTimerChests) applyMockTimerChestPanel(data.mockTimerChests);
+      const rewards = Array.isArray(data?.mockChestRewards)
+        ? data.mockChestRewards.filter((reward) => reward && typeof reward === 'object')
+        : (data?.mockChestReward && typeof data.mockChestReward === 'object' ? [data.mockChestReward] : []);
+      if (rewards.length > 0) {
+        setChestOpeningRewards(rewards);
+      }
+    } catch (err) {
+      if (!mountedRef.current) return;
+      const message = err?.message || 'Не удалось открыть сундук.';
+      setChestError(message);
+      showChestNotice({
+        title: 'Не получилось открыть сундук',
+        message,
+      });
+    } finally {
+      if (mountedRef.current) {
+        setChestActionId((current) => (current === actionId ? '' : current));
+      }
+    }
+  }, [applyMockTimerChestPanel, role, showChestNotice]);
+
+  const finalizePreparedChestRewards = useCallback(async (rewards) => {
+    if (role !== 'student') return;
+    const rewardIds = Array.from(new Set(
+      (Array.isArray(rewards) ? rewards : [])
+        .map((reward) => String(reward?.id || '').trim())
+        .filter(Boolean)
+    ));
+    if (rewardIds.length <= 0) return;
+
+    const actionId = rewardIds.length === 1 ? `claim:${rewardIds[0]}` : 'claim:prepared';
+    setChestActionId(actionId);
+    setChestError('');
+    try {
+      for (const rewardId of rewardIds) {
+        const data = await api.claimMockTimerChest(rewardId);
+        if (!mountedRef.current) return;
+        const nextCoinsTotal = normalizeOptionalWholeNumber(data?.coinsTotal);
+        const nextXpTotal = normalizeOptionalWholeNumber(data?.xpTotal);
+        if (typeof onStudentCoinsChange === 'function' && nextCoinsTotal !== null) {
+          onStudentCoinsChange(nextCoinsTotal);
+        }
+        if (typeof onStudentXpChange === 'function' && nextXpTotal !== null) {
+          onStudentXpChange(nextXpTotal);
+        }
+        if (data?.altar && typeof data.altar === 'object') {
+          setAltar(data.altar);
+        }
+        if (data?.mockTimerChests) applyMockTimerChestPanel(data.mockTimerChests);
+      }
+      void loadLeaderboard({ silent: true });
+    } catch (err) {
+      if (!mountedRef.current) return;
+      const message = err?.message || 'Не удалось забрать награду сундука.';
+      setChestError(message);
+      showChestNotice({
+        title: 'Награда не зафиксировалась',
+        message,
+      });
+      void loadLeaderboard({ silent: true });
+    } finally {
+      if (mountedRef.current) {
+        setChestActionId((current) => (current === actionId ? '' : current));
+      }
+    }
+  }, [
+    applyMockTimerChestPanel,
+    loadLeaderboard,
+    onStudentCoinsChange,
+    onStudentXpChange,
+    role,
+    showChestNotice,
+  ]);
+
+  const handleChestOverlayClose = useCallback(() => {
+    const rewards = chestOpeningRewards;
+    setChestOpeningRewards([]);
+    void finalizePreparedChestRewards(rewards);
+  }, [chestOpeningRewards, finalizePreparedChestRewards]);
+
   const handleTeacherStudentSelect = useCallback((studentId) => {
     if (role !== 'teacher') return;
     const normalized = String(studentId || '').trim();
@@ -541,6 +789,251 @@ const StudentLeaderboardSection = ({
         />
       </div>
     );
+  };
+
+  const renderMockTimerChestPanel = () => {
+    if (role !== 'student') return null;
+    const slotCount = Math.max(
+      MOCK_TIMER_CHEST_DEFAULT_SLOT_COUNT,
+      Math.floor(Number(currentChestPanel?.slotCount) || MOCK_TIMER_CHEST_DEFAULT_SLOT_COUNT)
+    );
+    const chests = Array.isArray(currentChestPanel?.chests)
+      ? currentChestPanel.chests
+      : [];
+    const openDurationLabel = formatChestDuration(currentChestPanel?.openDurationMs || MOCK_TIMER_CHEST_DEFAULT_OPEN_MS);
+    const openDurationCountdown = formatChestCountdown(currentChestPanel?.openDurationMs || MOCK_TIMER_CHEST_DEFAULT_OPEN_MS);
+    const hasOpeningChest = chests.some((chest) => getClientChestState(chest, chestTimerNow) === 'opening');
+    const openingChest = chests.find((chest) => getClientChestState(chest, chestTimerNow) === 'opening') || null;
+    const openingReadyAtMs = Date.parse(openingChest?.openReadyAt || '');
+    const openingRemainingMs = Number.isFinite(openingReadyAtMs)
+      ? Math.max(0, openingReadyAtMs - chestTimerNow)
+      : 0;
+    const visibleChests = chests.slice(0, slotCount);
+    const slots = Array.from({ length: slotCount }, (_, index) => visibleChests[index] || null);
+    const overflowCount = Math.max(
+      Number(currentChestPanel?.overflowCount) || 0,
+      Math.max(0, chests.length - slotCount)
+    );
+    const isChestVaultEmpty = chests.length <= 0;
+    return (
+      <div
+        className={`mock-timer-chest-panel mt-3 ${isChestVaultEmpty ? 'mock-timer-chest-panel--empty' : ''}`}
+        data-tour="rating-timer-chests"
+      >
+        <div className="mock-timer-chest-panel__top">
+          <div>
+            <div className="mock-timer-chest-panel__eyebrow">
+              <LockKeyhole size={13} />
+              Сундуки таймера
+            </div>
+            <div className="mock-timer-chest-panel__title">
+              {chests.length > 0
+                ? `${formatChestCountLabel(chests.length)} в хранилище`
+                : 'Хранилище пустое'}
+            </div>
+          </div>
+          <div className="mock-timer-chest-panel__duration">
+            <Clock3 size={14} />
+            {openDurationLabel}
+          </div>
+        </div>
+
+        {isChestVaultEmpty ? (
+          <div className="mock-timer-chest-panel__empty-state">
+            <div className="mock-timer-chest-panel__empty-copy">
+              <div className="mock-timer-chest-panel__empty-icon">
+                <Package2 size={20} />
+              </div>
+              <div>
+                <div className="mock-timer-chest-panel__empty-title">Слоты свободны</div>
+                <div className="mock-timer-chest-panel__empty-text">Сундуки появятся здесь после таймерных пробников.</div>
+              </div>
+            </div>
+            <div className="mock-timer-chest-panel__empty-slots" aria-hidden="true">
+              {Array.from({ length: slotCount }).map((_, index) => (
+                <span key={`empty-chest-preview-${index}`} />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="mock-timer-chest-panel__slots">
+            {slots.map((chest, index) => {
+              if (!chest) {
+                return (
+                  <div key={`empty-chest-slot-${index}`} className="mock-timer-chest-slot mock-timer-chest-slot--empty">
+                    <div className="mock-timer-chest-slot__status">Пусто</div>
+                    <div className="mock-timer-chest-slot__ghost" />
+                    <div className="mock-timer-chest-slot__action">Слот</div>
+                  </div>
+                );
+              }
+              const chestId = String(chest.id || '');
+              const state = getClientChestState(chest, chestTimerNow);
+              const readyAtMs = Date.parse(chest.openReadyAt || '');
+              const remainingMs = Number.isFinite(readyAtMs) ? Math.max(0, readyAtMs - chestTimerNow) : 0;
+              const isReady = state === 'ready';
+              const isOpening = state === 'opening';
+              const isClosed = state === 'closed';
+              const actionId = isReady ? `claim:${chestId}` : `start:${chestId}`;
+              const isBusy = chestActionId === actionId;
+              const isStarting = chestActionId === `start:${chestId}`;
+              const isClaiming = chestActionId === `claim:${chestId}`;
+              const isSquishing = chestPressFeedback.id === chestId;
+              const canStart = isClosed && !hasOpeningChest;
+              const canPress = isReady || canStart;
+              const statusLabel = isClaiming
+                ? 'Открываем'
+                : isStarting
+                  ? 'Запуск'
+                  : isReady
+                    ? 'Готово'
+                    : (isOpening ? 'Открывается' : 'Закрыто');
+              const timeLabel = isReady
+                ? '!'
+                : (isOpening ? formatChestCountdown(remainingMs) : (isStarting ? openDurationCountdown : openDurationLabel));
+              const actionLabel = isReady
+                ? (isBusy ? 'Открываем...' : 'Открыть')
+                : (isOpening ? 'Идёт таймер' : (isBusy ? 'Запуск...' : 'Начать'));
+              const slotClassName = [
+                'mock-timer-chest-slot',
+                `mock-timer-chest-slot--${state}`,
+                'mock-timer-chest-slot--interactive',
+                canPress ? 'mock-timer-chest-slot--clickable' : '',
+                isStarting ? 'mock-timer-chest-slot--starting' : '',
+                isClaiming ? 'mock-timer-chest-slot--claiming' : '',
+                isSquishing ? 'mock-timer-chest-slot--squish' : '',
+                isClosed && hasOpeningChest ? 'mock-timer-chest-slot--blocked' : '',
+              ].filter(Boolean).join(' ');
+              return (
+                <button
+                  key={chestId || `chest-slot-${index}`}
+                  type="button"
+                  disabled={isBusy}
+                  aria-disabled={!canPress && !isOpening ? 'true' : undefined}
+                  onClick={() => {
+                    triggerChestPressFeedback(chestId);
+                    if (isReady) {
+                      void handleClaimChest(chestId);
+                      return;
+                    }
+                    if (isOpening) {
+                      showChestNotice({
+                        title: 'Этот сундук уже открывается',
+                        message: 'Таймер запущен. Когда отсчёт дойдёт до нуля, сундук можно будет открыть.',
+                        chestId,
+                      });
+                      return;
+                    }
+                    if (canStart) void handleStartChestOpening(chestId);
+                    else if (isClosed && hasOpeningChest) {
+                      showChestNotice({
+                        title: 'Этот сундук пока нельзя открыть',
+                        message: `Сейчас уже открывается другой сундук. Осталось ${formatChestCountdown(openingRemainingMs)}.`,
+                        chestId: String(openingChest?.id || ''),
+                      });
+                    }
+                  }}
+                  className={slotClassName}
+                >
+                  <span className="mock-timer-chest-slot__aura" aria-hidden="true" />
+                  <span className="mock-timer-chest-slot__burst" aria-hidden="true" />
+                  <div className="mock-timer-chest-slot__status">
+                    <span>{statusLabel}</span>
+                    <strong>{timeLabel}</strong>
+                  </div>
+                  <img
+                    src={isReady ? chestOpenImage : chestClosedImage}
+                    alt=""
+                    draggable="false"
+                    className="mock-timer-chest-slot__image"
+                  />
+                  <div className="mock-timer-chest-slot__action">
+                    {isReady && !isClaiming && <CheckCircle2 size={13} />}
+                    {(isOpening || isStarting || isClaiming) && <Clock3 size={13} />}
+                    <span>{actionLabel}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {(overflowCount > 0 || chestError) && (
+          <div className="mock-timer-chest-panel__footer">
+            {overflowCount > 0 && <span>{`Ещё ${overflowCount} в очереди`}</span>}
+            {chestError && <strong>{chestError}</strong>}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderChestNoticeModal = () => {
+    if (!chestNotice) return null;
+    const relatedChestId = String(chestNotice.chestId || '').trim();
+    const relatedChest = relatedChestId
+      ? currentChestList.find((chest) => String(chest?.id || '') === relatedChestId)
+      : null;
+    const readyAtMs = Date.parse(relatedChest?.openReadyAt || '');
+    const remainingMs = Number.isFinite(readyAtMs)
+      ? Math.max(0, readyAtMs - chestTimerNow)
+      : null;
+    const canTestOpenNow = Boolean(relatedChestId)
+      && relatedChest
+      && getClientChestState(relatedChest, chestTimerNow) === 'opening';
+    const isTestOpeningNow = Boolean(relatedChestId) && chestActionId === `claim:${relatedChestId}`;
+    const modal = (
+      <div className="mock-timer-chest-modal" role="presentation" onMouseDown={handleCloseChestNotice}>
+        <div
+          className="mock-timer-chest-modal__card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="mock-timer-chest-modal-title"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <div className="mock-timer-chest-modal__glow" aria-hidden="true" />
+          <div className="mock-timer-chest-modal__icon" aria-hidden="true">
+            <img src={chestClosedImage} alt="" draggable="false" />
+          </div>
+          <div id="mock-timer-chest-modal-title" className="mock-timer-chest-modal__title">
+            {chestNotice.title || 'Сундук пока ждёт'}
+          </div>
+          <div className="mock-timer-chest-modal__message">
+            {chestNotice.message || 'Дождись открытия текущего сундука.'}
+          </div>
+          {remainingMs !== null && (
+            <div className="mock-timer-chest-modal__timer">
+              <Clock3 size={15} />
+              <span>{formatChestCountdown(remainingMs)}</span>
+            </div>
+          )}
+          <div className="mock-timer-chest-modal__actions">
+            {canTestOpenNow && (
+              <button
+                type="button"
+                className="mock-timer-chest-modal__button mock-timer-chest-modal__button--test"
+                disabled={isTestOpeningNow}
+                onClick={() => {
+                  void handleClaimChest(relatedChestId, { openNow: true });
+                }}
+              >
+                {isTestOpeningNow ? 'Открываем...' : 'Открыть сейчас'}
+              </button>
+            )}
+            <button
+              type="button"
+              className="mock-timer-chest-modal__button"
+              onClick={handleCloseChestNotice}
+            >
+              Понял
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+    return typeof document !== 'undefined' && document.body
+      ? createPortal(modal, document.body)
+      : modal;
   };
 
   const renderTeacherArtifactBonuses = () => {
@@ -892,6 +1385,8 @@ const StudentLeaderboardSection = ({
               </div>
             </div>
 
+            {renderMockTimerChestPanel()}
+
             {isLeagueRangesOpen && (
               <div className="rounded-2xl border border-purple-200 bg-white px-3 py-2.5">
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-purple-500">Лиги и диапазоны XP</div>
@@ -1057,6 +1552,15 @@ const StudentLeaderboardSection = ({
         {renderBoard(byLevel, 'level')}
         {renderBoard(byWeeklyXp, 'week')}
       </div>
+
+      {chestOpeningRewards.length > 0 && (
+        <MockChestOpeningOverlay
+          rewards={chestOpeningRewards}
+          onClose={handleChestOverlayClose}
+        />
+      )}
+
+      {renderChestNoticeModal()}
 
       <StudentLeaderboardProfileModal
         open={role === 'student' && studentProfileState.open}

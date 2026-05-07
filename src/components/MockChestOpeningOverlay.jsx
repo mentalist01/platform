@@ -73,7 +73,20 @@ const CHEST_COIN_BURST = Array.from({ length: 32 }, (_, index) => {
   };
 });
 
-const CHEST_CLOSE_ANIMATION_MS = 760;
+const CHEST_ARTIFACT_SPARKS = Array.from({ length: 18 }, (_, index) => {
+  const angle = -118 + index * 14 + Math.sin(index * 1.7) * 9;
+  const distance = 54 + (index % 6) * 12 + Math.abs(Math.sin(index * 0.83)) * 24;
+  const yLift = 20 + (index % 4) * 9;
+  return {
+    x: `${Math.round(Math.cos((angle * Math.PI) / 180) * distance)}px`,
+    y: `${Math.round(Math.sin((angle * Math.PI) / 180) * distance - yLift)}px`,
+    delay: `${Math.round((index % 6) * 18 + Math.floor(index / 6) * 34)}ms`,
+    scale: (0.72 + (index % 5) * 0.12).toFixed(2),
+    rotate: `${Math.round(angle + 90)}deg`,
+  };
+});
+
+const CHEST_CLOSE_ANIMATION_MS = 1240;
 
 const normalizeChestArtifact = (artifact) => {
   const id = String(artifact?.id || artifact?.artifactId || '').trim();
@@ -140,6 +153,39 @@ const getVisibleCoinBalanceTarget = () => {
   }) || null;
 };
 
+const clampNumber = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const getVisibleArtifactCollectionTarget = () => {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return null;
+  const selectors = [
+    '[data-tour="rating-artifacts"] .student-artifact-altar__artifact-card',
+    '[data-tour="rating-artifacts"]',
+    '.student-artifact-altar__collection-shell',
+  ];
+  const candidates = selectors.flatMap((selector) => Array.from(document.querySelectorAll(selector)));
+  const seen = new Set();
+  const target = candidates.find((element) => {
+    if (!element || seen.has(element)) return false;
+    seen.add(element);
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    return rect.width >= 24
+      && rect.height >= 24
+      && style.display !== 'none'
+      && style.visibility !== 'hidden'
+      && style.opacity !== '0';
+  });
+  if (!target) return null;
+
+  const rect = target.getBoundingClientRect();
+  const targetX = rect.left + (rect.width * 0.5);
+  const targetY = rect.top + Math.min(rect.height * 0.46, 150);
+  return {
+    x: clampNumber(targetX, 54, Math.max(54, window.innerWidth - 54)),
+    y: clampNumber(targetY, 54, Math.max(54, window.innerHeight - 54)),
+  };
+};
+
 const MockChestOpeningOverlay = ({ rewards, onClose }) => {
   const safeRewards = useMemo(() => normalizeChestRewards(rewards), [rewards]);
   const [rewardIndex, setRewardIndex] = useState(0);
@@ -147,7 +193,9 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
   const [chestPressTick, setChestPressTick] = useState(0);
   const [coinPrizeTarget, setCoinPrizeTarget] = useState({ x: '0px', y: '-32vh' });
   const [isClosing, setIsClosing] = useState(false);
+  const [artifactExitTargets, setArtifactExitTargets] = useState([]);
   const coinLayerRef = useRef(null);
+  const artifactRefs = useRef([]);
   const closeTimerRef = useRef(null);
   const currentReward = safeRewards[rewardIndex] || null;
   const phaseStep = getPhaseStep(phase);
@@ -158,16 +206,6 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
   const visibleArtifactCount = currentReward
     ? Math.min(currentReward.artifacts.length, Math.max(0, phaseStep - 1))
     : 0;
-  const chestTitle = phaseStep <= 0
-    ? 'Сундук уже перед тобой'
-    : (rewardReady ? 'Награда раскрыта' : 'Сундук открывается');
-  const chestHint = phaseStep <= 0
-    ? 'Первый клик - монеты.'
-    : (phaseStep === 1
-      ? 'Второй клик - первый артефакт.'
-      : (phaseStep === 2
-        ? 'Третий клик - второй артефакт.'
-        : 'Кликни по экрану, чтобы забрать награду.'));
   const chestAriaLabel = phaseStep <= 0
     ? 'Открыть монеты из сундука'
     : (phaseStep === 1
@@ -226,8 +264,32 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
 
   if (!currentReward || typeof document === 'undefined') return null;
 
+  const measureArtifactExitTargets = () => {
+    if (typeof window === 'undefined') return [];
+    const collectionTarget = getVisibleArtifactCollectionTarget();
+    const fallbackTarget = {
+      x: Math.max(72, window.innerWidth - 120),
+      y: Math.max(72, window.innerHeight - 110),
+    };
+    const target = collectionTarget || fallbackTarget;
+    return currentReward.artifacts.slice(0, 2).map((artifact, index) => {
+      const element = artifactRefs.current[index] || null;
+      const rect = element?.getBoundingClientRect?.();
+      const originX = rect ? rect.left + (rect.width / 2) : (window.innerWidth / 2);
+      const originY = rect ? rect.top + (rect.height / 2) : (window.innerHeight / 2);
+      const pairOffset = currentReward.artifacts.length > 1 ? (index === 0 ? -24 : 24) : 0;
+      return {
+        x: `${Math.round(target.x + pairOffset - originX)}px`,
+        y: `${Math.round(target.y + (index * 10) - originY)}px`,
+        rotate: `${index === 0 ? -12 : 12}deg`,
+        delay: `${index * 90}ms`,
+      };
+    });
+  };
+
   const requestClose = () => {
     if (isClosing) return;
+    setArtifactExitTargets(measureArtifactExitTargets());
     setIsClosing(true);
 
     const prefersReducedMotion = typeof window !== 'undefined'
@@ -370,11 +432,6 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
           </div>
         )}
 
-        <div className="mock-chest-stage__copy">
-          <h3>{chestTitle}</h3>
-          <p>{chestHint}</p>
-        </div>
-
         <div className={`mock-chest-coin-prize ${phaseStep >= 1 ? 'is-visible' : ''}`}>
           <img src={ivanCoin} alt="" draggable="false" />
           <span>{`+${currentReward.coinsGained.toLocaleString('ru-RU')}`}</span>
@@ -388,15 +445,39 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
           {currentReward.artifacts.slice(0, 2).map((artifact, index) => {
             const meta = RANK_META[artifact.rank] || RANK_META.C;
             const visible = phaseStep >= (index === 0 ? 2 : 3);
+            const exitTarget = artifactExitTargets[index] || null;
             return (
               <div
                 key={`${artifact.id}-${index}`}
+                ref={(node) => {
+                  artifactRefs.current[index] = node;
+                }}
                 className={`mock-chest-artifact mock-chest-artifact--${String(artifact.rank || 'C').toLowerCase()} ${visible ? 'is-visible' : ''}`}
                 style={{
                   '--artifact-color': meta.color,
                   '--artifact-delay': index === 0 ? '0ms' : '80ms',
+                  '--artifact-exit-x': exitTarget?.x || '0px',
+                  '--artifact-exit-y': exitTarget?.y || '0px',
+                  '--artifact-exit-rotate': exitTarget?.rotate || '0deg',
+                  '--artifact-exit-delay': exitTarget?.delay || '0ms',
                 }}
               >
+                <span className="mock-chest-artifact__flare" aria-hidden="true" />
+                <span className="mock-chest-artifact__sparks" aria-hidden="true">
+                  {CHEST_ARTIFACT_SPARKS.map((spark, sparkIndex) => (
+                    <span
+                      key={sparkIndex}
+                      style={{
+                        '--spark-x': spark.x,
+                        '--spark-y': spark.y,
+                        '--spark-delay': spark.delay,
+                        '--spark-scale': spark.scale,
+                        '--spark-rotate': spark.rotate,
+                      }}
+                    />
+                  ))}
+                </span>
+                <span className="mock-chest-artifact__mystery" aria-hidden="true" />
                 <div className="mock-chest-artifact__rank">{meta.label}</div>
                 <div className="mock-chest-artifact__image">
                   {artifact.src ? (
