@@ -2869,10 +2869,15 @@ const ProgressSection = ({
                             className={`mock-reward-milestone ${achieved ? 'mock-reward-milestone--achieved' : ''} ${awarded ? 'mock-reward-milestone--awarded' : ''} ${rewardDisabled ? 'mock-reward-milestone--disabled' : ''} ${edgeClass}`}
                             style={{ left: `${milestone.score}%` }}
                           >
-                            <div className="mock-reward-milestone__label">
+                            <div className={`mock-reward-milestone__label ${isTimerMode ? 'mock-reward-milestone__label--chest' : ''}`}>
                               {isTimerMode ? (
                                 <>
-                                  <PackageOpen className="h-3 w-3" />
+                                  <img
+                                    src={chestClosedImage}
+                                    alt=""
+                                    draggable="false"
+                                    className="mock-reward-milestone__chest-icon"
+                                  />
                                   <span>{`x${milestone.chests}`}</span>
                                 </>
                               ) : (

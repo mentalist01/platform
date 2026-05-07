@@ -2515,6 +2515,16 @@ const STUDENT_RATING_TOUR_STEPS = [
     menu: 'close'
   },
   {
+    id: 'rating-timer-chests',
+    title: 'Сундуки таймера',
+    text: 'Сундуки дают за таймерные пробники: по 1 за рубежи 30, 50, 80 и 100 баллов. Они ждут здесь; открывается один сундук за раз, таймер на 3 часа.',
+    emotion: 'greetings',
+    target: '[data-tour="rating-timer-chests"]',
+    fallback: '[data-tour="rating-overview"]',
+    view: 'rating',
+    menu: 'close'
+  },
+  {
     id: 'rating-level-board',
     title: 'Общий рейтинг',
     text: 'Эта таблица сортирует учеников по уровню и общему XP. Текущая строка подсвечивается.',

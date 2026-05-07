@@ -1273,6 +1273,7 @@ const StudentArtifactAltar = ({
                     ? 'artifact-altar-stage--settled'
                     : 'artifact-altar-stage--idle'
             } ${altarPhase === 'spinning' ? `artifact-altar-stage--spin-${spinIntensity}` : ''}`}
+            data-rank={stageChipRank}
             style={altarStageStyle}
             aria-live="polite"
           >
@@ -1324,6 +1325,7 @@ const StudentArtifactAltar = ({
                           ? 'artifact-altar-stage__artifact-shell--revealed'
                           : 'artifact-altar-stage__artifact-shell--settled'
                     }`}
+                    data-rank={String(displayPull?.rank || stageArtifact.rank || 'C').toUpperCase()}
                   >
                     <img
                       src={stageArtifact.src}
