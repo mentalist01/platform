@@ -26017,6 +26017,9 @@ html[data-theme='dark'] .sidebar-brand-dot {
 
 .sidebar-nav {
   padding: 1.1rem 0.95rem 1.15rem !important;
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.72), rgba(241, 245, 249, 0.82)),
+    repeating-linear-gradient(135deg, transparent 0 18px, rgba(124, 58, 237, 0.12) 18px 19px, transparent 19px 36px) !important;
 }
 
 .sidebar-nav-title {
@@ -26037,7 +26040,8 @@ html[data-theme='dark'] .sidebar-brand-dot {
 
 .sidebar-nav .sidebar-nav-item.is-active {
   border-color: rgba(167, 139, 250, 0.52) !important;
-  background: rgba(124, 58, 237, 0.16) !important;
+  background:
+    linear-gradient(90deg, rgba(246, 243, 255, 0.94), rgba(243, 232, 255, 0.86)) !important;
   color: rgb(67, 20, 134) !important;
   box-shadow:
     0 14px 26px rgba(88, 28, 135, 0.14),
@@ -26134,9 +26138,16 @@ html[data-theme='dark'] .sidebar-shell {
   --sidebar-row-active-strong: rgba(255, 255, 255, 0.12);
 }
 
+html[data-theme='dark'] .sidebar-nav {
+  background:
+    linear-gradient(180deg, rgba(13, 21, 36, 0.42), rgba(10, 16, 29, 0.74)),
+    repeating-linear-gradient(135deg, transparent 0 18px, rgba(148, 163, 184, 0.2) 18px 19px, transparent 19px 36px) !important;
+}
+
 html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.is-active {
   border-color: rgba(139, 92, 246, 0.34) !important;
-  background: rgba(124, 58, 237, 0.14) !important;
+  background:
+    linear-gradient(90deg, rgba(37, 32, 72, 0.94), rgba(30, 27, 58, 0.9)) !important;
   color: rgb(248, 250, 252) !important;
   box-shadow:
     inset 3px 0 0 rgba(167, 139, 250, 0.82),
