@@ -17844,7 +17844,7 @@ html[data-theme='dark'] .student-artifact-altar__bonus-card[data-tone='instant']
   display: grid;
   min-height: 8.35rem;
   place-items: center;
-  overflow: visible;
+  overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.58);
   border-radius: 0.92rem;
   background:
@@ -17927,8 +17927,8 @@ html[data-theme='dark'] .student-artifact-altar__bonus-card[data-tone='instant']
     linear-gradient(180deg, #fbbf24 0%, #f472b6 44%, #7c3aed 100%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.7),
-    0 0.8rem 1.4rem rgba(236, 72, 153, 0.22),
-    0 0 1.8rem rgba(250, 204, 21, 0.38);
+    inset 0 0 1.7rem rgba(250, 204, 21, 0.24),
+    0 0.8rem 1.4rem rgba(236, 72, 153, 0.18);
   animation: mockTimerChestReadyGlow 1.9s ease-in-out infinite;
 }
 
@@ -18010,8 +18010,17 @@ html[data-theme='dark'] .student-artifact-altar__bonus-card[data-tone='instant']
 }
 
 .mock-timer-chest-slot--ready .mock-timer-chest-slot__aura {
-  opacity: 0.86;
-  animation: mockTimerChestAuraSweep 2.7s linear infinite;
+  inset: 1.18rem auto auto 50%;
+  width: min(6.8rem, 92%);
+  height: 5.85rem;
+  border-radius: 999px;
+  background:
+    radial-gradient(ellipse at 50% 36%, rgba(255, 255, 255, 0.66), transparent 22%),
+    radial-gradient(ellipse at 50% 52%, rgba(254, 240, 138, 0.62), transparent 52%),
+    radial-gradient(ellipse at 50% 60%, rgba(244, 114, 182, 0.3), transparent 72%);
+  opacity: 0.82;
+  transform: translateX(-50%);
+  animation: mockTimerChestImageHalo 2.25s ease-in-out infinite;
 }
 
 .mock-timer-chest-slot--starting .mock-timer-chest-slot__burst {
