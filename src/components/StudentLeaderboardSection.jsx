@@ -937,7 +937,7 @@ const StudentLeaderboardSection = ({
                   <strong>{timeLabel}</strong>
                 </div>
                 <img
-                  src={isReady ? chestOpenImage : chestClosedImage}
+                  src={isClaiming ? chestOpenImage : chestClosedImage}
                   alt=""
                   draggable="false"
                   className="mock-timer-chest-slot__image"
