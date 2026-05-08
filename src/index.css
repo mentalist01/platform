@@ -30234,6 +30234,17 @@ html[data-theme='dark'] .progress-section--mocks .mock-score-panel::before {
   flex: 0 0 auto;
 }
 
+.progress-section--mocks .mock-score-stat__chest-icon {
+  display: block;
+  width: 1.14rem;
+  height: 1.14rem;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 2px 2px rgba(15, 23, 42, 0.24))
+    drop-shadow(0 0 8px rgba(251, 146, 60, 0.16));
+  transform: translateY(-1px);
+}
+
 .progress-section--mocks .mock-score-stat div {
   min-width: 0;
   display: grid;
@@ -30825,10 +30836,95 @@ html[data-theme='dark'] .progress-section--mocks .mock-score-stat--reward {
 }
 
 .progress-section--mocks .mock-student-card--timer-mode .mock-reward-milestone__label--chest {
+  position: relative;
   min-width: 2.72rem !important;
   gap: 0.18rem !important;
   padding: 0.08rem 0.36rem 0.08rem 0.22rem !important;
+  cursor: help;
   overflow: visible;
+  pointer-events: auto;
+}
+
+.progress-section--mocks .mock-reward-milestone__tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 0.48rem);
+  z-index: 25;
+  width: max-content;
+  max-width: min(16rem, 72vw);
+  border: 1px solid rgba(251, 146, 60, 0.42);
+  border-radius: 0.7rem;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.97), rgba(30, 41, 59, 0.96));
+  box-shadow:
+    0 14px 28px rgba(2, 6, 23, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  color: rgb(255, 247, 237);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.35;
+  opacity: 0;
+  padding: 0.48rem 0.58rem;
+  pointer-events: none;
+  text-align: left;
+  text-decoration: none !important;
+  text-shadow: none;
+  text-transform: none;
+  transform: translate(-50%, 0.24rem) scale(0.96);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease,
+    visibility 0.16s ease;
+  visibility: hidden;
+  white-space: normal;
+}
+
+.progress-section--mocks .mock-reward-milestone__tooltip::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 1px solid rgba(251, 146, 60, 0.42);
+  border-bottom: 1px solid rgba(251, 146, 60, 0.42);
+  background: rgba(30, 41, 59, 0.96);
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.progress-section--mocks .mock-reward-milestone__label--chest:hover .mock-reward-milestone__tooltip,
+.progress-section--mocks .mock-reward-milestone__label--chest:focus-visible .mock-reward-milestone__tooltip {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+  visibility: visible;
+}
+
+.progress-section--mocks .mock-reward-milestone--edge-start .mock-reward-milestone__tooltip {
+  left: 0;
+  transform: translate(0, 0.24rem) scale(0.96);
+}
+
+.progress-section--mocks .mock-reward-milestone--edge-start .mock-reward-milestone__tooltip::after {
+  left: 1.15rem;
+}
+
+.progress-section--mocks .mock-reward-milestone--edge-end .mock-reward-milestone__tooltip {
+  right: 0;
+  left: auto;
+  transform: translate(0, 0.24rem) scale(0.96);
+}
+
+.progress-section--mocks .mock-reward-milestone--edge-end .mock-reward-milestone__tooltip::after {
+  right: 1.15rem;
+  left: auto;
+  transform: translate(50%, -50%) rotate(45deg);
+}
+
+.progress-section--mocks .mock-reward-milestone--edge-start .mock-reward-milestone__label--chest:hover .mock-reward-milestone__tooltip,
+.progress-section--mocks .mock-reward-milestone--edge-start .mock-reward-milestone__label--chest:focus-visible .mock-reward-milestone__tooltip,
+.progress-section--mocks .mock-reward-milestone--edge-end .mock-reward-milestone__label--chest:hover .mock-reward-milestone__tooltip,
+.progress-section--mocks .mock-reward-milestone--edge-end .mock-reward-milestone__label--chest:focus-visible .mock-reward-milestone__tooltip {
+  transform: translate(0, 0) scale(1);
 }
 
 .progress-section--mocks .mock-reward-milestone__chest-icon {

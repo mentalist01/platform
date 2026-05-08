@@ -418,6 +418,15 @@ const getMockMilestonesForMode = (mode) => (
     : MOCK_COIN_MILESTONES
 );
 
+const getMockChestCountLabel = (count) => {
+  const value = Math.max(0, Math.floor(Number(count) || 0));
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${value} сундук`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} сундука`;
+  return `${value} сундуков`;
+};
+
 const getMockNextRewardInfo = (score, mode) => {
   const scoreValue = Math.max(0, Math.min(100, Math.floor(Number(score) || 0)));
   const milestone = getMockMilestonesForMode(mode).find((item) => scoreValue < item.score) || null;
@@ -2863,13 +2872,34 @@ const ProgressSection = ({
                           : milestone.score <= 30
                             ? 'mock-reward-milestone--edge-start'
                             : '';
+                        const chestTooltipText = isTimerMode ? (() => {
+                          const chestLabel = getMockChestCountLabel(milestone.chests);
+                          const scoreLabel = `${milestone.score} ${getBallLabel(milestone.score)}`;
+                          if (rewardDisabled) {
+                            return `${chestLabel} за ${scoreLabel} сейчас недоступен: награды таймера для этого пробника отключены.`;
+                          }
+                          if (awarded) {
+                            return `${chestLabel} за ${scoreLabel} уже добавлен в хранилище сундуков.`;
+                          }
+                          if (achieved) {
+                            return `${chestLabel} за ${scoreLabel} уже заработан и появится после сохранения результата.`;
+                          }
+                          return `${chestLabel} за ${scoreLabel}: набери этот результат в режиме таймера, чтобы получить сундук с наградой.`;
+                        })() : '';
                         return (
                           <div
                             key={milestone.score}
                             className={`mock-reward-milestone ${achieved ? 'mock-reward-milestone--achieved' : ''} ${awarded ? 'mock-reward-milestone--awarded' : ''} ${rewardDisabled ? 'mock-reward-milestone--disabled' : ''} ${edgeClass}`}
                             style={{ left: `${milestone.score}%` }}
                           >
-                            <div className={`mock-reward-milestone__label ${isTimerMode ? 'mock-reward-milestone__label--chest' : ''}`}>
+                            <div
+                              className={`mock-reward-milestone__label ${isTimerMode ? 'mock-reward-milestone__label--chest' : ''}`}
+                              data-tooltip={chestTooltipText || undefined}
+                              aria-label={chestTooltipText || undefined}
+                              tabIndex={isTimerMode ? 0 : undefined}
+                              onClick={isTimerMode ? (event) => event.stopPropagation() : undefined}
+                              onKeyDown={isTimerMode ? (event) => event.stopPropagation() : undefined}
+                            >
                               {isTimerMode ? (
                                 <>
                                   <img
@@ -2879,6 +2909,9 @@ const ProgressSection = ({
                                     className="mock-reward-milestone__chest-icon"
                                   />
                                   <span>{`x${milestone.chests}`}</span>
+                                  <span className="mock-reward-milestone__tooltip" role="tooltip">
+                                    {chestTooltipText}
+                                  </span>
                                 </>
                               ) : (
                                 <>
@@ -2949,7 +2982,12 @@ const ProgressSection = ({
                   </div>
                   <div className={`mock-score-stat mock-score-stat--reward ${timerRewardsDisabled && isTimerMode ? 'mock-score-stat--reward-disabled' : ''}`}>
                     {isTimerMode ? (
-                      <PackageOpen size={13} />
+                      <img
+                        src={chestClosedImage}
+                        alt=""
+                        draggable="false"
+                        className="mock-score-stat__chest-icon"
+                      />
                     ) : (
                       <CoinGuideIcon className="h-3.5 w-3.5 object-contain" />
                     )}
