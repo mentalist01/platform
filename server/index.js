@@ -470,7 +470,7 @@ const STUDENT_SOLVED_EVENTS_LIMIT = (() => {
   return 200;
 })();
 const STUDENT_XP_BALANCE_VERSION = 4;
-const STUDENT_RECENT_XP_REBALANCE_MAX_SOURCE_VERSION = 2;
+const STUDENT_RECENT_XP_REBALANCE_VERSION = 1;
 const TEACHER_SOLVED_EVENTS_READ_BASE_LIMIT = (() => {
   const raw = Number(process.env.TEACHER_SOLVED_EVENTS_READ_LIMIT);
   if (Number.isFinite(raw) && raw >= 500) return Math.floor(raw);
@@ -5204,6 +5204,12 @@ const normalizeStudentXpBalanceVersion = (value) => {
   return Math.floor(version);
 };
 
+const normalizeStudentRecentXpRebalanceVersion = (value) => {
+  const version = Number(value);
+  if (!Number.isFinite(version) || version <= 0) return 0;
+  return Math.floor(version);
+};
+
 const normalizeCoinsTotal = (value) => {
   const num = Number(value);
   if (!Number.isFinite(num) || num <= 0) return 0;
@@ -7081,6 +7087,8 @@ const getStudentData = (studentId) => {
       mockTimerChests: [],
       coinsSpentTotal: 0,
       xpBalanceVersion: STUDENT_XP_BALANCE_VERSION,
+      xpRecentRebalanceVersion: STUDENT_RECENT_XP_REBALANCE_VERSION,
+      xpRecentRebalanceAppliedAt: null,
       artifactInventory: {},
       artifactLevels: {},
       artifactCards: {},
@@ -7102,6 +7110,7 @@ const getStudentData = (studentId) => {
     || Object.prototype.hasOwnProperty.call(raw, 'xpTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'coinsTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'xpBalanceVersion')
+    || Object.prototype.hasOwnProperty.call(raw, 'xpRecentRebalanceVersion')
     || Object.prototype.hasOwnProperty.call(raw, 'mockTimerChestsTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'mockTimerChests')
     || Object.prototype.hasOwnProperty.call(raw, 'coinsSpentTotal')
@@ -7167,6 +7176,8 @@ const getStudentData = (studentId) => {
       mockTimerChests: normalizeMockTimerChestQueue(raw.mockTimerChests),
       coinsSpentTotal,
       xpBalanceVersion: STUDENT_XP_BALANCE_VERSION,
+      xpRecentRebalanceVersion: normalizeStudentRecentXpRebalanceVersion(raw.xpRecentRebalanceVersion),
+      xpRecentRebalanceAppliedAt: typeof raw.xpRecentRebalanceAppliedAt === 'string' ? raw.xpRecentRebalanceAppliedAt : null,
       artifactInventory,
       artifactLevels,
       artifactCards,
@@ -7196,6 +7207,8 @@ const getStudentData = (studentId) => {
     mockTimerChests: [],
     coinsSpentTotal: 0,
     xpBalanceVersion: STUDENT_XP_BALANCE_VERSION,
+    xpRecentRebalanceVersion: STUDENT_RECENT_XP_REBALANCE_VERSION,
+    xpRecentRebalanceAppliedAt: null,
     artifactInventory: {},
     artifactLevels: {},
     artifactCards: {},
@@ -7226,6 +7239,8 @@ const setStudentData = (studentId, data) => {
     mockTimerChests: normalizeMockTimerChestQueue(data.mockTimerChests),
     coinsSpentTotal: normalizeCoinsSpentTotal(data.coinsSpentTotal),
     xpBalanceVersion: STUDENT_XP_BALANCE_VERSION,
+    xpRecentRebalanceVersion: normalizeStudentRecentXpRebalanceVersion(data.xpRecentRebalanceVersion),
+    xpRecentRebalanceAppliedAt: typeof data.xpRecentRebalanceAppliedAt === 'string' ? data.xpRecentRebalanceAppliedAt : null,
     artifactInventory: normalizeArtifactInventory(data.artifactInventory),
     artifactLevels: normalizeArtifactLevels(data.artifactLevels, data.artifactInventory),
     artifactCards: normalizeArtifactCards(data.artifactCards, data.artifactInventory),
@@ -7248,43 +7263,100 @@ const createProgressBackup = (label) => {
   return backupFile;
 };
 
+const findLatestProgressBackup = (label) => {
+  const safeLabel = String(label || '').trim();
+  if (!safeLabel || !fs.existsSync(dataDir)) return null;
+  const prefix = `progress.${safeLabel}.`;
+  const entries = fs.readdirSync(dataDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.startsWith(prefix) && entry.name.endsWith('.json'))
+    .map((entry) => {
+      const fullPath = path.join(dataDir, entry.name);
+      let mtimeMs = 0;
+      try {
+        mtimeMs = fs.statSync(fullPath).mtimeMs;
+      } catch {}
+      return { name: entry.name, fullPath, mtimeMs };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return entries[0] || null;
+};
+
+const readProgressBackupDb = (backupPath) => {
+  if (!backupPath) return null;
+  try {
+    const raw = fs.readFileSync(backupPath, 'utf8');
+    const data = JSON.parse(raw);
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+  } catch {
+    return null;
+  }
+};
+
 const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
   const db = readProgressDb();
   const studentById = new Map(readStudentsDb().map((student) => [student.id, student]));
   const window = getRecentXpRebalanceWindow();
+  const baseBackup = findLatestProgressBackup('xp-balance-v3');
+  const baseBackupDb = readProgressBackupDb(baseBackup?.fullPath);
   const candidates = Object.entries(db).filter(([, raw]) => (
     raw
     && typeof raw === 'object'
     && !Array.isArray(raw)
-    && normalizeStudentXpBalanceVersion(raw.xpBalanceVersion) <= STUDENT_RECENT_XP_REBALANCE_MAX_SOURCE_VERSION
+    && normalizeStudentRecentXpRebalanceVersion(raw.xpRecentRebalanceVersion) < STUDENT_RECENT_XP_REBALANCE_VERSION
+    && (
+      normalizeStudentXpBalanceVersion(raw.xpBalanceVersion) < 3
+      || Boolean(baseBackupDb)
+    )
   ));
   const changed = [];
-  const blockedIncreases = [];
+  const skipped = [];
   let loweredCount = 0;
   let unchangedCount = 0;
+  let increasedCount = 0;
   let initializedCount = 0;
   let totalRemovedXp = 0;
+  let totalCurrentDelta = 0;
   let backupFile = null;
+  const appliedAt = new Date().toISOString();
 
   candidates.forEach(([studentId, raw]) => {
     const student = studentById.get(studentId) || null;
     const hasStoredXp = Object.prototype.hasOwnProperty.call(raw, 'xpTotal');
     const oldXpTotal = normalizeXpTotal(raw.xpTotal);
     const oldBalanceVersion = normalizeStudentXpBalanceVersion(raw.xpBalanceVersion);
+    const oldRecentRebalanceVersion = normalizeStudentRecentXpRebalanceVersion(raw.xpRecentRebalanceVersion);
+    const backupRaw = baseBackupDb?.[studentId] && typeof baseBackupDb[studentId] === 'object'
+      ? baseBackupDb[studentId]
+      : null;
+    const canUseCurrentAsBase = oldBalanceVersion < 3;
+    if (!backupRaw && !canUseCurrentAsBase) {
+      skipped.push({
+        studentId,
+        reason: 'missing-v3-backup',
+        oldBalanceVersion,
+      });
+      return;
+    }
+    const baseRaw = backupRaw || raw;
+    const baseXpTotal = normalizeXpTotal(baseRaw?.xpTotal);
+    const baseSource = backupRaw ? baseBackup.name : 'current-progress';
     const normalized = getStudentData(studentId);
     const recentStats = getRecentXpRebalanceStats(normalized, window);
     const nextXpTotal = hasStoredXp
-      ? normalizeXpTotal(oldXpTotal - recentStats.removedXp)
+      ? normalizeXpTotal(baseXpTotal - recentStats.removedXp)
       : normalizeXpTotal(normalized?.xpTotal);
 
     const delta = nextXpTotal - oldXpTotal;
     if (!hasStoredXp && nextXpTotal > 0) initializedCount += 1;
     if (delta < 0) {
       loweredCount += 1;
-      totalRemovedXp += Math.abs(delta);
+    } else if (delta > 0) {
+      increasedCount += 1;
     } else if (delta === 0) {
       unchangedCount += 1;
     }
+    totalRemovedXp += recentStats.removedXp;
+    totalCurrentDelta += delta;
 
     changed.push({
       studentId,
@@ -7292,11 +7364,16 @@ const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
       nickname: normalizeStudentNickname(student?.nickname || ''),
       leaderboardAlias: normalizeLeaderboardAlias(normalized?.leaderboardAlias),
       oldBalanceVersion,
+      oldRecentRebalanceVersion,
       nextBalanceVersion: STUDENT_XP_BALANCE_VERSION,
+      nextRecentRebalanceVersion: STUDENT_RECENT_XP_REBALANCE_VERSION,
       hadStoredXp: hasStoredXp,
+      baseSource,
+      baseXpTotal,
       oldXpTotal,
       nextXpTotal,
       delta,
+      baseDelta: nextXpTotal - baseXpTotal,
       recentStoredXp: recentStats.storedRecentXp,
       recentRecalculatedXp: recentStats.recalculatedRecentXp,
       recentRemovedXp: recentStats.removedXp,
@@ -7310,6 +7387,24 @@ const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
         ...raw,
         xpTotal: nextXpTotal,
         xpBalanceVersion: STUDENT_XP_BALANCE_VERSION,
+        xpRecentRebalanceVersion: STUDENT_RECENT_XP_REBALANCE_VERSION,
+        xpRecentRebalanceAppliedAt: appliedAt,
+        xpRecentRebalance: {
+          mode: 'recent-solved-events',
+          baseSource,
+          baseXpTotal,
+          oldXpTotal,
+          nextXpTotal,
+          delta,
+          recentStoredXp: recentStats.storedRecentXp,
+          recentRecalculatedXp: recentStats.recalculatedRecentXp,
+          recentRemovedXp: recentStats.removedXp,
+          window: {
+            days: window.days,
+            startDay: window.startDay,
+            endDay: window.endDay,
+          },
+        },
       };
     }
   });
@@ -7319,15 +7414,17 @@ const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
   }
 
   const largestDrops = changed
-    .filter((entry) => entry.delta < 0)
-    .sort((a, b) => a.delta - b.delta)
+    .filter((entry) => entry.recentRemovedXp > 0)
+    .sort((a, b) => b.recentRemovedXp - a.recentRemovedXp)
     .slice(0, 20);
 
   return {
     applied: Boolean(apply),
     balanceVersion: STUDENT_XP_BALANCE_VERSION,
+    recentRebalanceVersion: STUDENT_RECENT_XP_REBALANCE_VERSION,
     mode: 'recent-solved-events',
-    sourceVersions: `<=${STUDENT_RECENT_XP_REBALANCE_MAX_SOURCE_VERSION}`,
+    baseBackup: baseBackup ? baseBackup.name : null,
+    baseSource: baseBackup ? 'latest-v3-backup' : 'current-progress',
     window: {
       days: window.days,
       startDay: window.startDay,
@@ -7337,13 +7434,14 @@ const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
     candidates: candidates.length,
     changed: changed.length,
     lowered: loweredCount,
+    increasedFromCurrent: increasedCount,
     unchanged: unchangedCount,
     initialized: initializedCount,
-    blockedIncreases: blockedIncreases.length,
     totalRemovedXp,
+    totalCurrentDelta,
     backupFile,
+    skipped,
     largestDrops,
-    blockedIncreaseSamples: blockedIncreases.slice(0, 20),
   };
 };
 
