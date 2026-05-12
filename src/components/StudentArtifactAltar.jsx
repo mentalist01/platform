@@ -268,10 +268,10 @@ const BONUS_TONE_CLASSNAME = {
 
 const ARTIFACT_EFFECTS_BY_ID = {
   krylov: [
-    { tone: 'xp', label: 'Любой опыт', type: 'multiplier', perCopyBonus: 1, hint: 'Усиливает весь получаемый опыт.' },
+    { tone: 'xp', label: 'Любой опыт', type: 'multiplier', baseBonus: 0.4, perLevelBonus: 0.1, hint: 'Усиливает весь получаемый опыт.' },
   ],
   tears: [
-    { tone: 'xp', label: 'XP за 24-27', type: 'multiplier', perCopyBonus: 3, hint: 'Работает на самых сложных задачах.' },
+    { tone: 'xp', label: 'XP за 24-27', type: 'multiplier', baseBonus: 0.5, perLevelBonus: 0.25, hint: 'Работает на самых сложных задачах.' },
   ],
   '1tbssd': [
     { tone: 'xp', label: 'XP за 15-16', type: 'multiplier', perCopyBonus: 0.5, hint: 'Помогает на задачах 15 и 16.' },
@@ -343,6 +343,20 @@ const formatArtifactInstantAmount = (amount, unit) => {
   return `+${normalizedAmount.toLocaleString('ru-RU')} ${unit}`;
 };
 
+const getArtifactEffectBonus = (effect, level) => {
+  const normalizedLevel = Math.max(0, Math.floor(Number(level) || 0));
+  if (normalizedLevel <= 0) return 0;
+  const hasScaledBonus = Number.isFinite(Number(effect?.baseBonus)) || Number.isFinite(Number(effect?.perLevelBonus));
+  if (hasScaledBonus) {
+    const baseBonus = Math.max(0, Number(effect?.baseBonus) || 0);
+    const perLevelBonus = Math.max(0, Number(effect?.perLevelBonus) || 0);
+    return baseBonus + (perLevelBonus * normalizedLevel);
+  }
+  return Math.max(0, Number(effect?.perCopyBonus) || 0) * normalizedLevel;
+};
+
+const getArtifactEffectMultiplier = (effect, level) => 1 + getArtifactEffectBonus(effect, level);
+
 const pluralizeArtifactCopies = (count) => {
   const value = Math.max(0, Math.floor(Number(count) || 0));
   const mod10 = value % 10;
@@ -369,10 +383,9 @@ const getArtifactDetailEffects = (artifact) => {
 
   return effects.map((effect) => {
     if (effect.type === 'multiplier') {
-      const perCopyBonus = Number(effect.perCopyBonus) || 0;
-      const currentMultiplier = 1 + (perCopyBonus * level);
+      const currentMultiplier = getArtifactEffectMultiplier(effect, level);
       const nextLevel = Math.floor(Number(artifact?.upgrade?.nextLevel) || 0);
-      const nextMultiplier = nextLevel > level ? 1 + (perCopyBonus * nextLevel) : null;
+      const nextMultiplier = nextLevel > level ? getArtifactEffectMultiplier(effect, nextLevel) : null;
       return {
         tone: effect.tone,
         label: effect.label,
@@ -410,9 +423,8 @@ const buildArtifactUpgradeComparisons = (artifact, nextLevel) => {
   const multiplierComparisons = effects
     .filter((effect) => effect?.type === 'multiplier')
     .map((effect) => {
-      const perLevelBonus = Number(effect.perCopyBonus) || 0;
-      const beforeMultiplier = 1 + (perLevelBonus * currentLevel);
-      const afterMultiplier = 1 + (perLevelBonus * targetLevel);
+      const beforeMultiplier = getArtifactEffectMultiplier(effect, currentLevel);
+      const afterMultiplier = getArtifactEffectMultiplier(effect, targetLevel);
       return {
         tone: effect.tone || 'default',
         label: effect.label || 'Бонус',

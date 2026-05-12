@@ -5280,6 +5280,18 @@ const getArtifactLevel = (levels = {}, artifactId) => (
   Math.min(ARTIFACT_MAX_LEVEL, Math.max(0, Math.floor(Number(levels?.[artifactId]) || 0)))
 );
 
+const getArtifactXpLevelBonus = (artifactId, level, perLevelBonus = 0) => {
+  const normalizedLevel = Math.min(ARTIFACT_MAX_LEVEL, Math.max(0, Math.floor(Number(level) || 0)));
+  if (normalizedLevel <= 0) return 0;
+  if (artifactId === 'krylov') return 0.4 + (0.1 * normalizedLevel);
+  if (artifactId === 'tears') return 0.5 + (0.25 * normalizedLevel);
+  return Math.max(0, Number(perLevelBonus) || 0) * normalizedLevel;
+};
+
+const getArtifactXpLevelMultiplier = (artifactId, level, perLevelBonus = 0) => (
+  1 + getArtifactXpLevelBonus(artifactId, level, perLevelBonus)
+);
+
 const getArtifactMaxLevelDuplicateCoinReward = (artifact) => {
   const rank = String(artifact?.rank || '').trim().toUpperCase();
   return normalizeCoinsTotal(ARTIFACT_MAX_LEVEL_DUPLICATE_COIN_REWARDS[rank]);
@@ -5359,7 +5371,7 @@ const getArtifactSolveXpMultiplier = (artifactLevels = {}, taskNumber) => {
   Object.entries(ARTIFACT_XP_GLOBAL_MULTIPLIERS).forEach(([artifactId, perCopyBonus]) => {
     const level = getArtifactLevel(safeLevels, artifactId);
     if (level <= 0) return;
-    multiplier *= (1 + (perCopyBonus * level));
+    multiplier *= getArtifactXpLevelMultiplier(artifactId, level, perCopyBonus);
   });
 
   if (Number.isFinite(normalizedTask)) {
@@ -5367,7 +5379,7 @@ const getArtifactSolveXpMultiplier = (artifactLevels = {}, taskNumber) => {
       if (!Array.isArray(entry?.tasks) || !entry.tasks.includes(normalizedTask)) return;
       const level = getArtifactLevel(safeLevels, artifactId);
       if (level <= 0) return;
-      multiplier *= (1 + (Number(entry.perCopyBonus) * level));
+      multiplier *= getArtifactXpLevelMultiplier(artifactId, level, entry.perCopyBonus);
     });
   }
 
