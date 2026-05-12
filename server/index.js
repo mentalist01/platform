@@ -469,6 +469,7 @@ const STUDENT_SOLVED_EVENTS_LIMIT = (() => {
   if (Number.isFinite(raw) && raw >= 50) return Math.floor(raw);
   return 200;
 })();
+const STUDENT_XP_BALANCE_VERSION = 2;
 const TEACHER_SOLVED_EVENTS_READ_BASE_LIMIT = (() => {
   const raw = Number(process.env.TEACHER_SOLVED_EVENTS_READ_LIMIT);
   if (Number.isFinite(raw) && raw >= 500) return Math.floor(raw);
@@ -5196,6 +5197,12 @@ const normalizeXpTotal = (value) => {
   return Math.floor(num);
 };
 
+const normalizeStudentXpBalanceVersion = (value) => {
+  const version = Number(value);
+  if (!Number.isFinite(version) || version <= 0) return 0;
+  return Math.floor(version);
+};
+
 const normalizeCoinsTotal = (value) => {
   const num = Number(value);
   if (!Number.isFinite(num) || num <= 0) return 0;
@@ -5740,7 +5747,15 @@ const containsBlockedLeaderboardWord = (value) => {
   return LEADERBOARD_BLOCKED_WORD_PATTERNS.some((pattern) => pattern.test(normalized));
 };
 
-const deriveXpFromSolvedByTask = (solvedByTask) => {
+const getArtifactAdjustedTaskLevelXpReward = (taskNumber, levelId, artifactLevels = null) => {
+  const reward = getTaskLevelXpReward(taskNumber, levelId);
+  if (reward <= 0) return 0;
+  return artifactLevels && typeof artifactLevels === 'object'
+    ? applyArtifactXpBonus(reward, artifactLevels, taskNumber)
+    : reward;
+};
+
+const deriveXpFromSolvedByTask = (solvedByTask, artifactLevels = null) => {
   if (!solvedByTask || typeof solvedByTask !== 'object') return 0;
   let totalXp = 0;
   Object.entries(solvedByTask).forEach(([taskKey, taskEntry]) => {
@@ -5752,7 +5767,7 @@ const deriveXpFromSolvedByTask = (solvedByTask) => {
       if (solvedList.length <= 0) return;
       const solvedCount = new Set(solvedList.map((id) => String(id))).size;
       if (solvedCount <= 0) return;
-      const reward = getTaskLevelXpReward(taskKey, levelKey);
+      const reward = getArtifactAdjustedTaskLevelXpReward(taskKey, levelKey, artifactLevels);
       if (reward <= 0) return;
       totalXp += solvedCount * reward;
     });
@@ -5780,7 +5795,7 @@ const deriveCoinsFromSolvedByTask = (solvedByTask) => {
   return normalizeCoinsTotal(totalCoins);
 };
 
-const deriveXpFromSolvedEvents = (events) => {
+const deriveXpFromSolvedEvents = (events, artifactLevels = null) => {
   if (!Array.isArray(events) || events.length <= 0) return 0;
   const seenIds = new Set();
   let totalXp = 0;
@@ -5795,7 +5810,9 @@ const deriveXpFromSolvedEvents = (events) => {
     if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) return;
     const levelId = String(event.levelId || '').trim();
     if (levelId === PYTHON_LEVEL_ID) return;
-    const reward = normalizeXpTotal(event?.xpGained) || getTaskLevelXpReward(taskNum, levelId);
+    const reward = artifactLevels && typeof artifactLevels === 'object'
+      ? getArtifactAdjustedTaskLevelXpReward(taskNum, levelId, artifactLevels)
+      : (normalizeXpTotal(event?.xpGained) || getTaskLevelXpReward(taskNum, levelId));
     if (reward <= 0) return;
     totalXp += reward;
   });
@@ -5837,7 +5854,7 @@ const getLegacyProgressLevelCompletionRatio = (taskProgress, levelId) => {
   return Math.max(0, Math.min(1, (safeTaskProgress - levelStart) / levelWeight));
 };
 
-const deriveXpFromLegacyProgress = (progress, testsDb = null) => {
+const deriveXpFromLegacyProgress = (progress, testsDb = null, artifactLevels = null) => {
   if (!progress || typeof progress !== 'object' || Array.isArray(progress)) return 0;
   const safeTestsDb = testsDb || readTestsDb();
   let totalXp = 0;
@@ -5856,7 +5873,7 @@ const deriveXpFromLegacyProgress = (progress, testsDb = null) => {
       if (questionCount <= 0) return;
       const completionRatio = getLegacyProgressLevelCompletionRatio(taskProgress, levelId);
       if (completionRatio <= 0) return;
-      const reward = getTaskLevelXpReward(normalizedTask, levelId);
+      const reward = getArtifactAdjustedTaskLevelXpReward(normalizedTask, levelId, artifactLevels);
       if (reward <= 0) return;
       totalXp += completionRatio * questionCount * reward;
     });
@@ -5886,7 +5903,7 @@ const isTestingSolvedEvent = (event) => {
   return levelId !== PYTHON_LEVEL_ID;
 };
 
-const getRecentXpFromSolvedEvents = (events, endDayNum, days = LEADERBOARD_WEEK_DAYS) => {
+const getRecentXpFromSolvedEvents = (events, endDayNum, days = LEADERBOARD_WEEK_DAYS, artifactLevels = null) => {
   if (!Array.isArray(events) || events.length <= 0) return 0;
   const parsedDays = Number(days);
   const periodDays = Number.isFinite(parsedDays) && parsedDays > 0
@@ -5909,7 +5926,9 @@ const getRecentXpFromSolvedEvents = (events, endDayNum, days = LEADERBOARD_WEEK_
     const dayKey = getSolvedEventDayKey(event);
     const dayNum = dayKeyToNumber(dayKey);
     if (!Number.isFinite(dayNum) || dayNum < startDayNum || dayNum > safeEndDayNum) return;
-    const reward = normalizeXpTotal(event?.xpGained) || getTaskLevelXpReward(event.taskNumber, event.levelId);
+    const reward = artifactLevels && typeof artifactLevels === 'object'
+      ? getArtifactAdjustedTaskLevelXpReward(event.taskNumber, event.levelId, artifactLevels)
+      : (normalizeXpTotal(event?.xpGained) || getTaskLevelXpReward(event.taskNumber, event.levelId));
     if (reward <= 0) return;
     xpTotal += reward;
   });
@@ -6734,6 +6753,24 @@ const deriveCoinsFromMockAttempts = (mockAttempts) => {
   }, 0));
 };
 
+const deriveXpFromMockAttempts = (mockAttempts, artifactLevels = null) => {
+  if (!mockAttempts || typeof mockAttempts !== 'object') return 0;
+  return normalizeXpTotal(Object.values(mockAttempts).reduce((sum, attempt) => {
+    if (!attempt || typeof attempt !== 'object') return sum;
+    const mode = normalizeMockAttemptMode(attempt.mode);
+    if (mode === MOCK_ATTEMPT_MODE_TIMER && (attempt.timerRewardsDisabled === true || !attempt.timerFinishedAt)) {
+      return sum;
+    }
+    const solvedMap = attempt.solvedEver && typeof attempt.solvedEver === 'object' && !Array.isArray(attempt.solvedEver)
+      ? attempt.solvedEver
+      : (attempt.solved && typeof attempt.solved === 'object' && !Array.isArray(attempt.solved) ? attempt.solved : {});
+    return sum + Object.entries(solvedMap).reduce((attemptSum, [taskKey, isSolved]) => {
+      if (!isSolved) return attemptSum;
+      return attemptSum + getArtifactAdjustedTaskLevelXpReward(taskKey, MOCK_EXAM_SOLVE_XP_LEVEL_ID, artifactLevels);
+    }, 0);
+  }, 0));
+};
+
 const getExpectedAnswersForQuestion = (question, count) => {
   if (!question || typeof question !== 'object') {
     return Array.from({ length: count }, () => '');
@@ -6992,6 +7029,7 @@ const getStudentData = (studentId) => {
       mockTimerChestsTotal: 0,
       mockTimerChests: [],
       coinsSpentTotal: 0,
+      xpBalanceVersion: STUDENT_XP_BALANCE_VERSION,
       artifactInventory: {},
       artifactLevels: {},
       artifactCards: {},
@@ -7012,6 +7050,7 @@ const getStudentData = (studentId) => {
     || raw.mockAttempts
     || Object.prototype.hasOwnProperty.call(raw, 'xpTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'coinsTotal')
+    || Object.prototype.hasOwnProperty.call(raw, 'xpBalanceVersion')
     || Object.prototype.hasOwnProperty.call(raw, 'mockTimerChestsTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'mockTimerChests')
     || Object.prototype.hasOwnProperty.call(raw, 'coinsSpentTotal')
@@ -7031,23 +7070,30 @@ const getStudentData = (studentId) => {
     const artifactCards = normalizeArtifactCards(raw.artifactCards, artifactInventory);
     const instantArtifactRewards = getArtifactInstantRewardsFromInventory(artifactInventory);
     const hasStoredXp = Object.prototype.hasOwnProperty.call(raw, 'xpTotal');
+    const xpBalanceVersion = normalizeStudentXpBalanceVersion(raw.xpBalanceVersion);
     const hasStoredCoins = Object.prototype.hasOwnProperty.call(raw, 'coinsTotal');
     const hasStoredCoinsSpent = Object.prototype.hasOwnProperty.call(raw, 'coinsSpentTotal');
     const leaderboardAlias = normalizeLeaderboardAlias(raw.leaderboardAlias);
-    const derivedSolvedXp = deriveXpFromSolvedByTask(solvedByTask);
-    const derivedEventsXp = deriveXpFromSolvedEvents(solvedEvents);
-    const derivedLegacyProgressXp = deriveXpFromLegacyProgress(progress);
+    const derivedSolvedXp = deriveXpFromSolvedByTask(solvedByTask, artifactLevels);
+    const derivedEventsXp = deriveXpFromSolvedEvents(solvedEvents, artifactLevels);
+    const derivedLegacyProgressXp = deriveXpFromLegacyProgress(progress, null, artifactLevels);
+    const derivedMockXp = deriveXpFromMockAttempts(raw.mockAttempts, artifactLevels);
     const derivedSolvedCoins = deriveCoinsFromSolvedByTask(solvedByTask);
     const derivedEventsCoins = deriveCoinsFromSolvedEvents(solvedEvents);
     const derivedMockCoins = deriveCoinsFromMockAttempts(raw.mockAttempts);
-    const derivedXp = Math.max(derivedSolvedXp, derivedEventsXp, derivedLegacyProgressXp);
+    const derivedXp = Math.max(
+      Math.max(derivedSolvedXp, derivedLegacyProgressXp) + derivedMockXp,
+      derivedEventsXp
+    );
     const derivedCoins = Math.max(derivedSolvedCoins, derivedEventsCoins) + derivedMockCoins;
     const coinsSpentTotal = normalizeCoinsSpentTotal(raw.coinsSpentTotal);
     const minXpTotal = normalizeXpTotal(derivedXp + instantArtifactRewards.xp);
     const minCoinsTotal = Math.max(0, normalizeCoinsTotal(derivedCoins + instantArtifactRewards.coins) - coinsSpentTotal);
-    const xpTotal = hasStoredXp
-      ? Math.max(normalizeXpTotal(raw.xpTotal), minXpTotal)
-      : minXpTotal;
+    const xpTotal = xpBalanceVersion < STUDENT_XP_BALANCE_VERSION
+      ? minXpTotal
+      : (hasStoredXp
+        ? Math.max(normalizeXpTotal(raw.xpTotal), minXpTotal)
+        : minXpTotal);
     let coinsTotal = hasStoredCoins
       ? normalizeCoinsTotal(raw.coinsTotal)
       : minCoinsTotal;
@@ -7073,6 +7119,7 @@ const getStudentData = (studentId) => {
       mockTimerChestsTotal: normalizeCoinsTotal(raw.mockTimerChestsTotal),
       mockTimerChests: normalizeMockTimerChestQueue(raw.mockTimerChests),
       coinsSpentTotal,
+      xpBalanceVersion: STUDENT_XP_BALANCE_VERSION,
       artifactInventory,
       artifactLevels,
       artifactCards,
@@ -7101,6 +7148,7 @@ const getStudentData = (studentId) => {
     mockTimerChestsTotal: 0,
     mockTimerChests: [],
     coinsSpentTotal: 0,
+    xpBalanceVersion: STUDENT_XP_BALANCE_VERSION,
     artifactInventory: {},
     artifactLevels: {},
     artifactCards: {},
@@ -7130,6 +7178,7 @@ const setStudentData = (studentId, data) => {
     mockTimerChestsTotal: normalizeCoinsTotal(data.mockTimerChestsTotal),
     mockTimerChests: normalizeMockTimerChestQueue(data.mockTimerChests),
     coinsSpentTotal: normalizeCoinsSpentTotal(data.coinsSpentTotal),
+    xpBalanceVersion: STUDENT_XP_BALANCE_VERSION,
     artifactInventory: normalizeArtifactInventory(data.artifactInventory),
     artifactLevels: normalizeArtifactLevels(data.artifactLevels, data.artifactInventory),
     artifactCards: normalizeArtifactCards(data.artifactCards, data.artifactInventory),
@@ -10826,7 +10875,7 @@ app.get('/api/students/leaderboard', (req, res) => {
   const items = students.map((student) => {
     const data = getStudentData(student.id);
     const xpTotal = normalizeXpTotal(data?.xpTotal);
-    const weeklyXp = getRecentXpFromSolvedEvents(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS);
+    const weeklyXp = getRecentXpFromSolvedEvents(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS, data?.artifactLevels);
     const level = getLevelFromXp(xpTotal);
     const alias = normalizeLeaderboardAlias(data?.leaderboardAlias);
     const mainName = includeTeacherIdentity ? normalizeStudentName(student.name) : '';
@@ -11121,7 +11170,7 @@ app.get('/api/students/leaderboard-profile', (req, res) => {
     isCurrent: isStudentRole(req.auth) && String(req.auth.id || '') === targetStudent.id,
     level: getLevelFromXp(xpTotal),
     xpTotal,
-    weeklyXp: getRecentXpFromSolvedEvents(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS),
+    weeklyXp: getRecentXpFromSolvedEvents(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS, data?.artifactLevels),
     streak: normalizeStreak(data?.streak),
     preparation: getLeaderboardProfilePreparationSummary(targetStudent),
     progress: getLeaderboardProfileProgressSummary(data, testsDb),
