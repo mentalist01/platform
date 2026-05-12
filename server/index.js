@@ -470,7 +470,8 @@ const STUDENT_SOLVED_EVENTS_LIMIT = (() => {
   return 200;
 })();
 const STUDENT_XP_BALANCE_VERSION = 4;
-const STUDENT_RECENT_XP_REBALANCE_VERSION = 2;
+const STUDENT_RECENT_XP_REBALANCE_VERSION = 3;
+const STUDENT_BAD_RECENT_XP_REBALANCE_VERSION = 2;
 const RECENT_XP_REBALANCE_PRE_FIX_ARTIFACT_BONUSES = {
   krylov: 3,
   tears: 5,
@@ -7213,6 +7214,7 @@ const getStudentData = (studentId) => {
     || Object.prototype.hasOwnProperty.call(raw, 'coinsTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'xpBalanceVersion')
     || Object.prototype.hasOwnProperty.call(raw, 'xpRecentRebalanceVersion')
+    || Object.prototype.hasOwnProperty.call(raw, 'xpRecentRebalanceRepairedAt')
     || Object.prototype.hasOwnProperty.call(raw, 'mockTimerChestsTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'mockTimerChests')
     || Object.prototype.hasOwnProperty.call(raw, 'coinsSpentTotal')
@@ -7280,6 +7282,7 @@ const getStudentData = (studentId) => {
       xpBalanceVersion: STUDENT_XP_BALANCE_VERSION,
       xpRecentRebalanceVersion: normalizeStudentRecentXpRebalanceVersion(raw.xpRecentRebalanceVersion),
       xpRecentRebalanceAppliedAt: typeof raw.xpRecentRebalanceAppliedAt === 'string' ? raw.xpRecentRebalanceAppliedAt : null,
+      xpRecentRebalanceRepairedAt: typeof raw.xpRecentRebalanceRepairedAt === 'string' ? raw.xpRecentRebalanceRepairedAt : null,
       artifactInventory,
       artifactLevels,
       artifactCards,
@@ -7343,6 +7346,7 @@ const setStudentData = (studentId, data) => {
     xpBalanceVersion: STUDENT_XP_BALANCE_VERSION,
     xpRecentRebalanceVersion: normalizeStudentRecentXpRebalanceVersion(data.xpRecentRebalanceVersion),
     xpRecentRebalanceAppliedAt: typeof data.xpRecentRebalanceAppliedAt === 'string' ? data.xpRecentRebalanceAppliedAt : null,
+    xpRecentRebalanceRepairedAt: typeof data.xpRecentRebalanceRepairedAt === 'string' ? data.xpRecentRebalanceRepairedAt : null,
     artifactInventory: normalizeArtifactInventory(data.artifactInventory),
     artifactLevels: normalizeArtifactLevels(data.artifactLevels, data.artifactInventory),
     artifactCards: normalizeArtifactCards(data.artifactCards, data.artifactInventory),
@@ -7491,6 +7495,75 @@ const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
     totalCurrentDelta,
     backupFile,
     largestDrops,
+  };
+};
+
+const repairBadRecentXpRebalance = ({ apply = false } = {}) => {
+  const db = readProgressDb();
+  const studentById = new Map(readStudentsDb().map((student) => [student.id, student]));
+  const candidates = Object.entries(db).filter(([, raw]) => (
+    raw
+    && typeof raw === 'object'
+    && !Array.isArray(raw)
+    && normalizeStudentRecentXpRebalanceVersion(raw.xpRecentRebalanceVersion) === STUDENT_BAD_RECENT_XP_REBALANCE_VERSION
+    && raw.xpRecentRebalance
+    && typeof raw.xpRecentRebalance === 'object'
+    && normalizeXpTotal(raw.xpRecentRebalance.oldXpTotal) > normalizeXpTotal(raw.xpTotal)
+  ));
+  const changed = [];
+  let backupFile = null;
+  const repairedAt = new Date().toISOString();
+
+  candidates.forEach(([studentId, raw]) => {
+    const student = studentById.get(studentId) || null;
+    const oldXpTotal = normalizeXpTotal(raw.xpTotal);
+    const repairedXpTotal = normalizeXpTotal(raw.xpRecentRebalance.oldXpTotal);
+    const delta = repairedXpTotal - oldXpTotal;
+    changed.push({
+      studentId,
+      name: normalizeStudentName(student?.name || ''),
+      nickname: normalizeStudentNickname(student?.nickname || ''),
+      oldXpTotal,
+      repairedXpTotal,
+      delta,
+      badRecentRebalanceVersion: normalizeStudentRecentXpRebalanceVersion(raw.xpRecentRebalanceVersion),
+    });
+
+    if (apply) {
+      if (!backupFile) {
+        backupFile = createProgressBackup(`xp-rebalance-repair-v${STUDENT_RECENT_XP_REBALANCE_VERSION}`);
+      }
+      db[studentId] = {
+        ...raw,
+        xpTotal: repairedXpTotal,
+        xpBalanceVersion: STUDENT_XP_BALANCE_VERSION,
+        xpRecentRebalanceVersion: STUDENT_RECENT_XP_REBALANCE_VERSION,
+        xpRecentRebalanceRepairedAt: repairedAt,
+        xpRecentRebalanceRepair: {
+          mode: 'restore-before-bad-recent-rebalance',
+          oldXpTotal,
+          repairedXpTotal,
+          delta,
+          badRecentRebalance: raw.xpRecentRebalance,
+        },
+      };
+    }
+  });
+
+  if (apply && candidates.length > 0) {
+    writeProgressDb(db);
+  }
+
+  return {
+    applied: Boolean(apply),
+    repairVersion: STUDENT_RECENT_XP_REBALANCE_VERSION,
+    badVersion: STUDENT_BAD_RECENT_XP_REBALANCE_VERSION,
+    scannedStudents: Object.keys(db).length,
+    candidates: candidates.length,
+    changed: changed.length,
+    totalRestoredXp: changed.reduce((sum, entry) => sum + Math.max(0, entry.delta), 0),
+    backupFile,
+    changedStudents: changed,
   };
 };
 
@@ -9983,13 +10056,13 @@ app.get('/api/session', (req, res) => {
 
 app.get('/api/admin/xp-rebalance', (req, res) => {
   if (!isAdminRole(req.auth)) return forbid(res);
-  return res.json(rebalanceStudentXpBalance({ apply: false }));
+  return res.json(repairBadRecentXpRebalance({ apply: false }));
 });
 
 app.post('/api/admin/xp-rebalance', (req, res) => {
   if (!isAdminRole(req.auth)) return forbid(res);
   const apply = req.body?.apply === true;
-  return res.json(rebalanceStudentXpBalance({ apply }));
+  return res.json(repairBadRecentXpRebalance({ apply }));
 });
 
 app.post('/api/board/reset', async (req, res) => {
@@ -16147,7 +16220,7 @@ notificationsWss.on('connection', (ws, _request, user) => {
 });
 
 if (process.argv.includes('--rebalance-student-xp')) {
-  const summary = rebalanceStudentXpBalance({ apply: process.argv.includes('--apply') });
+  const summary = repairBadRecentXpRebalance({ apply: process.argv.includes('--apply') });
   console.log(JSON.stringify(summary, null, 2));
   process.exit(0);
 }
@@ -16155,12 +16228,12 @@ if (process.argv.includes('--rebalance-student-xp')) {
 const runStartupStudentXpRebalance = () => {
   if (process.env.DISABLE_STARTUP_XP_REBALANCE === '1') return;
   try {
-    const summary = rebalanceStudentXpBalance({ apply: true });
+    const summary = repairBadRecentXpRebalance({ apply: true });
     if (summary.changed > 0 || summary.skipped?.length > 0) {
-      console.info('[xp-rebalance] startup apply:', JSON.stringify(summary));
+      console.info('[xp-rebalance] startup repair:', JSON.stringify(summary));
     }
   } catch (error) {
-    console.warn('[xp-rebalance] startup apply failed:', error?.message || error);
+    console.warn('[xp-rebalance] startup repair failed:', error?.message || error);
   }
 };
 
