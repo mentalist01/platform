@@ -472,6 +472,10 @@ const STUDENT_SOLVED_EVENTS_LIMIT = (() => {
 const STUDENT_XP_BALANCE_VERSION = 4;
 const STUDENT_RECENT_XP_REBALANCE_VERSION = 3;
 const STUDENT_BAD_RECENT_XP_REBALANCE_VERSION = 2;
+const ALEXANDER_WEEK_START_XP_FIX_VERSION = 1;
+const ALEXANDER_WEEK_START_XP_BASE = 100000;
+const ALEXANDER_WEEK_START_XP_NAME = 'александр';
+const ALEXANDER_WEEK_START_XP_NICKNAME_PART = 'зенков';
 const RECENT_XP_REBALANCE_PRE_FIX_ARTIFACT_BONUSES = {
   krylov: 3,
   tears: 5,
@@ -5215,6 +5219,12 @@ const normalizeStudentRecentXpRebalanceVersion = (value) => {
   return Math.floor(version);
 };
 
+const normalizeAlexanderWeekStartXpFixVersion = (value) => {
+  const version = Number(value);
+  if (!Number.isFinite(version) || version <= 0) return 0;
+  return Math.floor(version);
+};
+
 const normalizeCoinsTotal = (value) => {
   const num = Number(value);
   if (!Number.isFinite(num) || num <= 0) return 0;
@@ -7192,6 +7202,8 @@ const getStudentData = (studentId) => {
       xpBalanceVersion: STUDENT_XP_BALANCE_VERSION,
       xpRecentRebalanceVersion: STUDENT_RECENT_XP_REBALANCE_VERSION,
       xpRecentRebalanceAppliedAt: null,
+      alexanderWeekStartXpFixVersion: ALEXANDER_WEEK_START_XP_FIX_VERSION,
+      alexanderWeekStartXpFixAppliedAt: null,
       artifactInventory: {},
       artifactLevels: {},
       artifactCards: {},
@@ -7215,6 +7227,7 @@ const getStudentData = (studentId) => {
     || Object.prototype.hasOwnProperty.call(raw, 'xpBalanceVersion')
     || Object.prototype.hasOwnProperty.call(raw, 'xpRecentRebalanceVersion')
     || Object.prototype.hasOwnProperty.call(raw, 'xpRecentRebalanceRepairedAt')
+    || Object.prototype.hasOwnProperty.call(raw, 'alexanderWeekStartXpFixVersion')
     || Object.prototype.hasOwnProperty.call(raw, 'mockTimerChestsTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'mockTimerChests')
     || Object.prototype.hasOwnProperty.call(raw, 'coinsSpentTotal')
@@ -7283,6 +7296,8 @@ const getStudentData = (studentId) => {
       xpRecentRebalanceVersion: normalizeStudentRecentXpRebalanceVersion(raw.xpRecentRebalanceVersion),
       xpRecentRebalanceAppliedAt: typeof raw.xpRecentRebalanceAppliedAt === 'string' ? raw.xpRecentRebalanceAppliedAt : null,
       xpRecentRebalanceRepairedAt: typeof raw.xpRecentRebalanceRepairedAt === 'string' ? raw.xpRecentRebalanceRepairedAt : null,
+      alexanderWeekStartXpFixVersion: normalizeAlexanderWeekStartXpFixVersion(raw.alexanderWeekStartXpFixVersion),
+      alexanderWeekStartXpFixAppliedAt: typeof raw.alexanderWeekStartXpFixAppliedAt === 'string' ? raw.alexanderWeekStartXpFixAppliedAt : null,
       artifactInventory,
       artifactLevels,
       artifactCards,
@@ -7314,6 +7329,8 @@ const getStudentData = (studentId) => {
     xpBalanceVersion: STUDENT_XP_BALANCE_VERSION,
     xpRecentRebalanceVersion: STUDENT_RECENT_XP_REBALANCE_VERSION,
     xpRecentRebalanceAppliedAt: null,
+    alexanderWeekStartXpFixVersion: ALEXANDER_WEEK_START_XP_FIX_VERSION,
+    alexanderWeekStartXpFixAppliedAt: null,
     artifactInventory: {},
     artifactLevels: {},
     artifactCards: {},
@@ -7347,6 +7364,8 @@ const setStudentData = (studentId, data) => {
     xpRecentRebalanceVersion: normalizeStudentRecentXpRebalanceVersion(data.xpRecentRebalanceVersion),
     xpRecentRebalanceAppliedAt: typeof data.xpRecentRebalanceAppliedAt === 'string' ? data.xpRecentRebalanceAppliedAt : null,
     xpRecentRebalanceRepairedAt: typeof data.xpRecentRebalanceRepairedAt === 'string' ? data.xpRecentRebalanceRepairedAt : null,
+    alexanderWeekStartXpFixVersion: normalizeAlexanderWeekStartXpFixVersion(data.alexanderWeekStartXpFixVersion),
+    alexanderWeekStartXpFixAppliedAt: typeof data.alexanderWeekStartXpFixAppliedAt === 'string' ? data.alexanderWeekStartXpFixAppliedAt : null,
     artifactInventory: normalizeArtifactInventory(data.artifactInventory),
     artifactLevels: normalizeArtifactLevels(data.artifactLevels, data.artifactInventory),
     artifactCards: normalizeArtifactCards(data.artifactCards, data.artifactInventory),
@@ -7566,6 +7585,112 @@ const repairBadRecentXpRebalance = ({ apply = false } = {}) => {
     changedStudents: changed,
   };
 };
+
+const isAlexanderWeekStartXpFixTarget = (student) => {
+  const name = normalizeStudentName(student?.name || '').toLowerCase();
+  const nickname = normalizeStudentNickname(student?.nickname || '').toLowerCase();
+  return name === ALEXANDER_WEEK_START_XP_NAME
+    && nickname.includes(ALEXANDER_WEEK_START_XP_NICKNAME_PART);
+};
+
+const applyAlexanderWeekStartXpBaseFix = ({ apply = false } = {}) => {
+  const db = readProgressDb();
+  const window = getRecentXpRebalanceWindow();
+  const students = readStudentsDb().filter((student) => isActiveStudent(student) && isAlexanderWeekStartXpFixTarget(student));
+  const changed = [];
+  const skipped = [];
+  let backupFile = null;
+  const appliedAt = new Date().toISOString();
+
+  students.forEach((student) => {
+    const raw = db[student.id];
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      skipped.push({ studentId: student.id, reason: 'missing-progress' });
+      return;
+    }
+    const currentFixVersion = normalizeAlexanderWeekStartXpFixVersion(raw.alexanderWeekStartXpFixVersion);
+    if (currentFixVersion >= ALEXANDER_WEEK_START_XP_FIX_VERSION) {
+      skipped.push({ studentId: student.id, reason: 'already-applied', currentFixVersion });
+      return;
+    }
+
+    const data = getStudentData(student.id);
+    const oldXpTotal = normalizeXpTotal(raw.xpTotal);
+    const weeklyXp = normalizeXpTotal(
+      getRecentXpFromSolvedEvents(data?.solvedEvents, window.endDayNum, window.days, data?.artifactLevels)
+    );
+    const nextXpTotal = normalizeXpTotal(ALEXANDER_WEEK_START_XP_BASE + weeklyXp);
+    const delta = nextXpTotal - oldXpTotal;
+
+    changed.push({
+      studentId: student.id,
+      name: normalizeStudentName(student.name),
+      nickname: normalizeStudentNickname(student.nickname),
+      oldXpTotal,
+      baseXp: ALEXANDER_WEEK_START_XP_BASE,
+      weeklyXp,
+      nextXpTotal,
+      delta,
+      window: {
+        days: window.days,
+        startDay: window.startDay,
+        endDay: window.endDay,
+      },
+    });
+
+    if (apply) {
+      if (!backupFile) {
+        backupFile = createProgressBackup(`alexander-week-start-xp-fix-v${ALEXANDER_WEEK_START_XP_FIX_VERSION}`);
+      }
+      db[student.id] = {
+        ...raw,
+        xpTotal: nextXpTotal,
+        xpBalanceVersion: STUDENT_XP_BALANCE_VERSION,
+        alexanderWeekStartXpFixVersion: ALEXANDER_WEEK_START_XP_FIX_VERSION,
+        alexanderWeekStartXpFixAppliedAt: appliedAt,
+        alexanderWeekStartXpFix: {
+          mode: 'week-start-base-plus-weekly-xp',
+          baseXp: ALEXANDER_WEEK_START_XP_BASE,
+          weeklyXp,
+          oldXpTotal,
+          nextXpTotal,
+          delta,
+          window: {
+            days: window.days,
+            startDay: window.startDay,
+            endDay: window.endDay,
+          },
+        },
+      };
+    }
+  });
+
+  if (apply && changed.length > 0) {
+    writeProgressDb(db);
+  }
+
+  return {
+    applied: Boolean(apply),
+    fixVersion: ALEXANDER_WEEK_START_XP_FIX_VERSION,
+    target: {
+      name: ALEXANDER_WEEK_START_XP_NAME,
+      nicknamePart: ALEXANDER_WEEK_START_XP_NICKNAME_PART,
+    },
+    baseXp: ALEXANDER_WEEK_START_XP_BASE,
+    scannedStudents: Object.keys(db).length,
+    matchedStudents: students.length,
+    changed: changed.length,
+    totalDelta: changed.reduce((sum, entry) => sum + entry.delta, 0),
+    backupFile,
+    skipped,
+    changedStudents: changed,
+  };
+};
+
+const runStudentXpFixes = ({ apply = false } = {}) => ({
+  repair: repairBadRecentXpRebalance({ apply }),
+  alexanderWeekStart: applyAlexanderWeekStartXpBaseFix({ apply }),
+});
 
 const getQuestionsCountForLevel = (testsDb, taskNum, levelId) => {
   if (!testsDb || !taskNum || !levelId) return 0;
@@ -10056,13 +10181,13 @@ app.get('/api/session', (req, res) => {
 
 app.get('/api/admin/xp-rebalance', (req, res) => {
   if (!isAdminRole(req.auth)) return forbid(res);
-  return res.json(repairBadRecentXpRebalance({ apply: false }));
+  return res.json(runStudentXpFixes({ apply: false }));
 });
 
 app.post('/api/admin/xp-rebalance', (req, res) => {
   if (!isAdminRole(req.auth)) return forbid(res);
   const apply = req.body?.apply === true;
-  return res.json(repairBadRecentXpRebalance({ apply }));
+  return res.json(runStudentXpFixes({ apply }));
 });
 
 app.post('/api/board/reset', async (req, res) => {
@@ -16220,7 +16345,7 @@ notificationsWss.on('connection', (ws, _request, user) => {
 });
 
 if (process.argv.includes('--rebalance-student-xp')) {
-  const summary = repairBadRecentXpRebalance({ apply: process.argv.includes('--apply') });
+  const summary = runStudentXpFixes({ apply: process.argv.includes('--apply') });
   console.log(JSON.stringify(summary, null, 2));
   process.exit(0);
 }
@@ -16228,12 +16353,16 @@ if (process.argv.includes('--rebalance-student-xp')) {
 const runStartupStudentXpRebalance = () => {
   if (process.env.DISABLE_STARTUP_XP_REBALANCE === '1') return;
   try {
-    const summary = repairBadRecentXpRebalance({ apply: true });
-    if (summary.changed > 0 || summary.skipped?.length > 0) {
-      console.info('[xp-rebalance] startup repair:', JSON.stringify(summary));
+    const repairSummary = repairBadRecentXpRebalance({ apply: true });
+    if (repairSummary.changed > 0 || repairSummary.skipped?.length > 0) {
+      console.info('[xp-rebalance] startup repair:', JSON.stringify(repairSummary));
+    }
+    const alexanderSummary = applyAlexanderWeekStartXpBaseFix({ apply: true });
+    if (alexanderSummary.changed > 0 || alexanderSummary.skipped?.length > 0) {
+      console.info('[xp-rebalance] alexander week-start fix:', JSON.stringify(alexanderSummary));
     }
   } catch (error) {
-    console.warn('[xp-rebalance] startup repair failed:', error?.message || error);
+    console.warn('[xp-rebalance] startup fix failed:', error?.message || error);
   }
 };
 
