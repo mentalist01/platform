@@ -16152,6 +16152,20 @@ if (process.argv.includes('--rebalance-student-xp')) {
   process.exit(0);
 }
 
+const runStartupStudentXpRebalance = () => {
+  if (process.env.DISABLE_STARTUP_XP_REBALANCE === '1') return;
+  try {
+    const summary = rebalanceStudentXpBalance({ apply: true });
+    if (summary.changed > 0 || summary.skipped?.length > 0) {
+      console.info('[xp-rebalance] startup apply:', JSON.stringify(summary));
+    }
+  } catch (error) {
+    console.warn('[xp-rebalance] startup apply failed:', error?.message || error);
+  }
+};
+
+runStartupStudentXpRebalance();
+
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   resolvePythonRunner()
