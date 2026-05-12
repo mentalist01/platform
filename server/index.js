@@ -470,7 +470,11 @@ const STUDENT_SOLVED_EVENTS_LIMIT = (() => {
   return 200;
 })();
 const STUDENT_XP_BALANCE_VERSION = 4;
-const STUDENT_RECENT_XP_REBALANCE_VERSION = 1;
+const STUDENT_RECENT_XP_REBALANCE_VERSION = 2;
+const RECENT_XP_REBALANCE_PRE_FIX_ARTIFACT_BONUSES = {
+  krylov: 3,
+  tears: 5,
+};
 const TEACHER_SOLVED_EVENTS_READ_BASE_LIMIT = (() => {
   const raw = Number(process.env.TEACHER_SOLVED_EVENTS_READ_LIMIT);
   if (Number.isFinite(raw) && raw >= 500) return Math.floor(raw);
@@ -5419,6 +5423,63 @@ const applyArtifactXpBonus = (baseReward, artifactLevels = {}, taskNumber) => {
   return normalizeXpTotal(Math.round(reward * getArtifactSolveXpMultiplier(artifactLevels, taskNumber)));
 };
 
+const getArtifactRecentXpRebalanceLevelMultiplier = (
+  artifactId,
+  level,
+  perLevelBonus = 0,
+  balanceMode = 'current'
+) => {
+  const normalizedLevel = getArtifactLevel({ [artifactId]: level }, artifactId);
+  if (normalizedLevel <= 0) return 1;
+  if (balanceMode === 'pre-fix') {
+    const oldBonus = RECENT_XP_REBALANCE_PRE_FIX_ARTIFACT_BONUSES[artifactId];
+    if (Number.isFinite(Number(oldBonus)) && Number(oldBonus) > 0) {
+      return 1 + Number(oldBonus);
+    }
+  }
+  return getArtifactXpLevelMultiplier(artifactId, normalizedLevel, perLevelBonus);
+};
+
+const getArtifactRecentXpRebalanceMultiplier = (
+  artifactLevels = {},
+  taskNumber,
+  balanceMode = 'current'
+) => {
+  const safeLevels = normalizeArtifactLevels(artifactLevels);
+  const normalizedTask = normalizeClassicTaskForXp(taskNumber);
+  let multiplier = 1;
+
+  Object.entries(ARTIFACT_XP_GLOBAL_MULTIPLIERS).forEach(([artifactId, perCopyBonus]) => {
+    const level = getArtifactLevel(safeLevels, artifactId);
+    if (level <= 0) return;
+    multiplier *= getArtifactRecentXpRebalanceLevelMultiplier(artifactId, level, perCopyBonus, balanceMode);
+  });
+
+  if (Number.isFinite(normalizedTask)) {
+    Object.entries(ARTIFACT_XP_TASK_MULTIPLIERS).forEach(([artifactId, entry]) => {
+      if (!Array.isArray(entry?.tasks) || !entry.tasks.includes(normalizedTask)) return;
+      const level = getArtifactLevel(safeLevels, artifactId);
+      if (level <= 0) return;
+      multiplier *= getArtifactRecentXpRebalanceLevelMultiplier(artifactId, level, entry.perCopyBonus, balanceMode);
+    });
+  }
+
+  return Math.max(1, multiplier);
+};
+
+const getArtifactRecentXpRebalanceReward = (
+  taskNumber,
+  levelId,
+  artifactLevels = {},
+  balanceMode = 'current'
+) => {
+  const reward = getTaskLevelXpReward(taskNumber, levelId);
+  if (reward <= 0) return 0;
+  return normalizeXpTotal(
+    Math.round(reward * getArtifactRecentXpRebalanceMultiplier(artifactLevels, taskNumber, balanceMode))
+  );
+};
+
 const applyArtifactCoinBonus = (baseReward, artifactLevels = {}) => {
   const reward = Number(baseReward);
   if (!Number.isFinite(reward) || reward <= 0) return 0;
@@ -5976,19 +6037,60 @@ const getRecentXpRebalanceWindow = (now = new Date(), days = LEADERBOARD_WEEK_DA
   };
 };
 
+const getRecentXpFromSolvedEventsForBalance = (
+  events,
+  window,
+  artifactLevels = {},
+  balanceMode = 'current'
+) => {
+  if (!Array.isArray(events) || events.length <= 0 || !window) return 0;
+  const seenIds = new Set();
+  let xpTotal = 0;
+
+  events.forEach((event) => {
+    const eventId = typeof event?.id === 'string' ? event.id.trim() : '';
+    if (eventId) {
+      if (seenIds.has(eventId)) return;
+      seenIds.add(eventId);
+    }
+    if (!isTestingSolvedEvent(event)) return;
+    const dayKey = getSolvedEventDayKey(event);
+    const dayNum = dayKeyToNumber(dayKey);
+    if (!Number.isFinite(dayNum) || dayNum < window.startDayNum || dayNum > window.endDayNum) return;
+    const reward = getArtifactRecentXpRebalanceReward(
+      event.taskNumber,
+      event.levelId,
+      artifactLevels,
+      balanceMode
+    );
+    if (reward <= 0) return;
+    xpTotal += reward;
+  });
+
+  return normalizeXpTotal(xpTotal);
+};
+
 const getRecentXpRebalanceStats = (data, window) => {
   const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
   const artifactLevels = normalizeArtifactLevels(data?.artifactLevels, artifactInventory);
-  const storedRecentXp = normalizeXpTotal(
-    getRecentXpFromSolvedEvents(data?.solvedEvents, window?.endDayNum, window?.days, null)
+  const oldRecentXp = getRecentXpFromSolvedEventsForBalance(
+    data?.solvedEvents,
+    window,
+    artifactLevels,
+    'pre-fix'
   );
-  const recalculatedRecentXp = normalizeXpTotal(
-    getRecentXpFromSolvedEvents(data?.solvedEvents, window?.endDayNum, window?.days, artifactLevels)
+  const newRecentXp = getRecentXpFromSolvedEventsForBalance(
+    data?.solvedEvents,
+    window,
+    artifactLevels,
+    'current'
   );
-  const removedXp = Math.max(0, storedRecentXp - recalculatedRecentXp);
+  const removedXp = Math.max(0, oldRecentXp - newRecentXp);
   return {
-    storedRecentXp,
-    recalculatedRecentXp,
+    oldRecentXp,
+    newRecentXp,
+    storedRecentXp: oldRecentXp,
+    recalculatedRecentXp: newRecentXp,
     removedXp,
   };
 };
@@ -7263,53 +7365,17 @@ const createProgressBackup = (label) => {
   return backupFile;
 };
 
-const findLatestProgressBackup = (label) => {
-  const safeLabel = String(label || '').trim();
-  if (!safeLabel || !fs.existsSync(dataDir)) return null;
-  const prefix = `progress.${safeLabel}.`;
-  const entries = fs.readdirSync(dataDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.startsWith(prefix) && entry.name.endsWith('.json'))
-    .map((entry) => {
-      const fullPath = path.join(dataDir, entry.name);
-      let mtimeMs = 0;
-      try {
-        mtimeMs = fs.statSync(fullPath).mtimeMs;
-      } catch {}
-      return { name: entry.name, fullPath, mtimeMs };
-    })
-    .sort((a, b) => b.mtimeMs - a.mtimeMs);
-  return entries[0] || null;
-};
-
-const readProgressBackupDb = (backupPath) => {
-  if (!backupPath) return null;
-  try {
-    const raw = fs.readFileSync(backupPath, 'utf8');
-    const data = JSON.parse(raw);
-    return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
-  } catch {
-    return null;
-  }
-};
-
 const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
   const db = readProgressDb();
   const studentById = new Map(readStudentsDb().map((student) => [student.id, student]));
   const window = getRecentXpRebalanceWindow();
-  const baseBackup = findLatestProgressBackup('xp-balance-v3');
-  const baseBackupDb = readProgressBackupDb(baseBackup?.fullPath);
   const candidates = Object.entries(db).filter(([, raw]) => (
     raw
     && typeof raw === 'object'
     && !Array.isArray(raw)
     && normalizeStudentRecentXpRebalanceVersion(raw.xpRecentRebalanceVersion) < STUDENT_RECENT_XP_REBALANCE_VERSION
-    && (
-      normalizeStudentXpBalanceVersion(raw.xpBalanceVersion) < 3
-      || Boolean(baseBackupDb)
-    )
   ));
   const changed = [];
-  const skipped = [];
   let loweredCount = 0;
   let unchangedCount = 0;
   let increasedCount = 0;
@@ -7325,25 +7391,10 @@ const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
     const oldXpTotal = normalizeXpTotal(raw.xpTotal);
     const oldBalanceVersion = normalizeStudentXpBalanceVersion(raw.xpBalanceVersion);
     const oldRecentRebalanceVersion = normalizeStudentRecentXpRebalanceVersion(raw.xpRecentRebalanceVersion);
-    const backupRaw = baseBackupDb?.[studentId] && typeof baseBackupDb[studentId] === 'object'
-      ? baseBackupDb[studentId]
-      : null;
-    const canUseCurrentAsBase = oldBalanceVersion < 3;
-    if (!backupRaw && !canUseCurrentAsBase) {
-      skipped.push({
-        studentId,
-        reason: 'missing-v3-backup',
-        oldBalanceVersion,
-      });
-      return;
-    }
-    const baseRaw = backupRaw || raw;
-    const baseXpTotal = normalizeXpTotal(baseRaw?.xpTotal);
-    const baseSource = backupRaw ? baseBackup.name : 'current-progress';
     const normalized = getStudentData(studentId);
     const recentStats = getRecentXpRebalanceStats(normalized, window);
     const nextXpTotal = hasStoredXp
-      ? normalizeXpTotal(baseXpTotal - recentStats.removedXp)
+      ? normalizeXpTotal(oldXpTotal - recentStats.oldRecentXp + recentStats.newRecentXp)
       : normalizeXpTotal(normalized?.xpTotal);
 
     const delta = nextXpTotal - oldXpTotal;
@@ -7368,12 +7419,11 @@ const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
       nextBalanceVersion: STUDENT_XP_BALANCE_VERSION,
       nextRecentRebalanceVersion: STUDENT_RECENT_XP_REBALANCE_VERSION,
       hadStoredXp: hasStoredXp,
-      baseSource,
-      baseXpTotal,
       oldXpTotal,
       nextXpTotal,
       delta,
-      baseDelta: nextXpTotal - baseXpTotal,
+      recentOldXp: recentStats.oldRecentXp,
+      recentNewXp: recentStats.newRecentXp,
       recentStoredXp: recentStats.storedRecentXp,
       recentRecalculatedXp: recentStats.recalculatedRecentXp,
       recentRemovedXp: recentStats.removedXp,
@@ -7391,11 +7441,11 @@ const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
         xpRecentRebalanceAppliedAt: appliedAt,
         xpRecentRebalance: {
           mode: 'recent-solved-events',
-          baseSource,
-          baseXpTotal,
           oldXpTotal,
           nextXpTotal,
           delta,
+          recentOldXp: recentStats.oldRecentXp,
+          recentNewXp: recentStats.newRecentXp,
           recentStoredXp: recentStats.storedRecentXp,
           recentRecalculatedXp: recentStats.recalculatedRecentXp,
           recentRemovedXp: recentStats.removedXp,
@@ -7423,8 +7473,8 @@ const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
     balanceVersion: STUDENT_XP_BALANCE_VERSION,
     recentRebalanceVersion: STUDENT_RECENT_XP_REBALANCE_VERSION,
     mode: 'recent-solved-events',
-    baseBackup: baseBackup ? baseBackup.name : null,
-    baseSource: baseBackup ? 'latest-v3-backup' : 'current-progress',
+    formula: 'xpTotal - recentOldXp + recentNewXp',
+    oldArtifactBonuses: RECENT_XP_REBALANCE_PRE_FIX_ARTIFACT_BONUSES,
     window: {
       days: window.days,
       startDay: window.startDay,
@@ -7440,7 +7490,6 @@ const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
     totalRemovedXp,
     totalCurrentDelta,
     backupFile,
-    skipped,
     largestDrops,
   };
 };
