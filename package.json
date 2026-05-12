@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "server": "node server/index.js",
+    "xp:rebalance": "node server/index.js --rebalance-student-xp",
+    "xp:rebalance:apply": "node server/index.js --rebalance-student-xp --apply",
     "build": "vite build",
     "android:prepare": "npm run build && npx cap sync android",
     "cap:sync": "npx cap sync",

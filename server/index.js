@@ -469,7 +469,7 @@ const STUDENT_SOLVED_EVENTS_LIMIT = (() => {
   if (Number.isFinite(raw) && raw >= 50) return Math.floor(raw);
   return 200;
 })();
-const STUDENT_XP_BALANCE_VERSION = 2;
+const STUDENT_XP_BALANCE_VERSION = 3;
 const TEACHER_SOLVED_EVENTS_READ_BASE_LIMIT = (() => {
   const raw = Number(process.env.TEACHER_SOLVED_EVENTS_READ_LIMIT);
   if (Number.isFinite(raw) && raw >= 500) return Math.floor(raw);
@@ -5755,6 +5755,18 @@ const getArtifactAdjustedTaskLevelXpReward = (taskNumber, levelId, artifactLevel
     : reward;
 };
 
+const getSolvedEventXpReward = (event, artifactLevels = null) => {
+  const taskNum = Number(event?.taskNumber);
+  const levelId = String(event?.levelId || '').trim();
+  const storedReward = normalizeXpTotal(event?.xpGained);
+  if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27 || levelId === PYTHON_LEVEL_ID) {
+    return storedReward;
+  }
+  const recalculatedReward = getArtifactAdjustedTaskLevelXpReward(taskNum, levelId, artifactLevels);
+  if (storedReward > 0 && recalculatedReward > 0) return Math.min(storedReward, recalculatedReward);
+  return storedReward || recalculatedReward;
+};
+
 const deriveXpFromSolvedByTask = (solvedByTask, artifactLevels = null) => {
   if (!solvedByTask || typeof solvedByTask !== 'object') return 0;
   let totalXp = 0;
@@ -5811,7 +5823,7 @@ const deriveXpFromSolvedEvents = (events, artifactLevels = null) => {
     const levelId = String(event.levelId || '').trim();
     if (levelId === PYTHON_LEVEL_ID) return;
     const reward = artifactLevels && typeof artifactLevels === 'object'
-      ? getArtifactAdjustedTaskLevelXpReward(taskNum, levelId, artifactLevels)
+      ? getSolvedEventXpReward(event, artifactLevels)
       : (normalizeXpTotal(event?.xpGained) || getTaskLevelXpReward(taskNum, levelId));
     if (reward <= 0) return;
     totalXp += reward;
@@ -5927,7 +5939,7 @@ const getRecentXpFromSolvedEvents = (events, endDayNum, days = LEADERBOARD_WEEK_
     const dayNum = dayKeyToNumber(dayKey);
     if (!Number.isFinite(dayNum) || dayNum < startDayNum || dayNum > safeEndDayNum) return;
     const reward = artifactLevels && typeof artifactLevels === 'object'
-      ? getArtifactAdjustedTaskLevelXpReward(event.taskNumber, event.levelId, artifactLevels)
+      ? getSolvedEventXpReward(event, artifactLevels)
       : (normalizeXpTotal(event?.xpGained) || getTaskLevelXpReward(event.taskNumber, event.levelId));
     if (reward <= 0) return;
     xpTotal += reward;
@@ -7074,10 +7086,10 @@ const getStudentData = (studentId) => {
     const hasStoredCoins = Object.prototype.hasOwnProperty.call(raw, 'coinsTotal');
     const hasStoredCoinsSpent = Object.prototype.hasOwnProperty.call(raw, 'coinsSpentTotal');
     const leaderboardAlias = normalizeLeaderboardAlias(raw.leaderboardAlias);
-    const derivedSolvedXp = deriveXpFromSolvedByTask(solvedByTask, artifactLevels);
+    const derivedSolvedXp = deriveXpFromSolvedByTask(solvedByTask);
     const derivedEventsXp = deriveXpFromSolvedEvents(solvedEvents, artifactLevels);
-    const derivedLegacyProgressXp = deriveXpFromLegacyProgress(progress, null, artifactLevels);
-    const derivedMockXp = deriveXpFromMockAttempts(raw.mockAttempts, artifactLevels);
+    const derivedLegacyProgressXp = deriveXpFromLegacyProgress(progress);
+    const derivedMockXp = deriveXpFromMockAttempts(raw.mockAttempts);
     const derivedSolvedCoins = deriveCoinsFromSolvedByTask(solvedByTask);
     const derivedEventsCoins = deriveCoinsFromSolvedEvents(solvedEvents);
     const derivedMockCoins = deriveCoinsFromMockAttempts(raw.mockAttempts);
@@ -7089,10 +7101,13 @@ const getStudentData = (studentId) => {
     const coinsSpentTotal = normalizeCoinsSpentTotal(raw.coinsSpentTotal);
     const minXpTotal = normalizeXpTotal(derivedXp + instantArtifactRewards.xp);
     const minCoinsTotal = Math.max(0, normalizeCoinsTotal(derivedCoins + instantArtifactRewards.coins) - coinsSpentTotal);
-    const xpTotal = xpBalanceVersion < STUDENT_XP_BALANCE_VERSION
-      ? minXpTotal
+    const storedXpTotal = normalizeXpTotal(raw.xpTotal);
+    const xpTotal = xpBalanceVersion < STUDENT_XP_BALANCE_VERSION && hasStoredXp
+      ? Math.min(storedXpTotal, minXpTotal)
+      : xpBalanceVersion < STUDENT_XP_BALANCE_VERSION
+        ? minXpTotal
       : (hasStoredXp
-        ? Math.max(normalizeXpTotal(raw.xpTotal), minXpTotal)
+        ? storedXpTotal
         : minXpTotal);
     let coinsTotal = hasStoredCoins
       ? normalizeCoinsTotal(raw.coinsTotal)
@@ -7190,6 +7205,104 @@ const setStudentData = (studentId, data) => {
   db[studentId] = payload;
   writeProgressDb(db);
   return payload;
+};
+
+const createProgressBackup = (label) => {
+  if (!fs.existsSync(progressFile)) return null;
+  const safeLabel = String(label || 'backup').replace(/[^a-z0-9_-]/gi, '-').slice(0, 80) || 'backup';
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupFile = path.join(dataDir, `progress.${safeLabel}.${timestamp}.json`);
+  fs.copyFileSync(progressFile, backupFile);
+  return backupFile;
+};
+
+const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
+  const db = readProgressDb();
+  const studentById = new Map(readStudentsDb().map((student) => [student.id, student]));
+  const candidates = Object.entries(db).filter(([, raw]) => (
+    raw
+    && typeof raw === 'object'
+    && !Array.isArray(raw)
+    && normalizeStudentXpBalanceVersion(raw.xpBalanceVersion) < STUDENT_XP_BALANCE_VERSION
+  ));
+  const changed = [];
+  const blockedIncreases = [];
+  let loweredCount = 0;
+  let unchangedCount = 0;
+  let initializedCount = 0;
+  let totalRemovedXp = 0;
+  let backupFile = null;
+
+  candidates.forEach(([studentId, raw]) => {
+    const student = studentById.get(studentId) || null;
+    const hasStoredXp = Object.prototype.hasOwnProperty.call(raw, 'xpTotal');
+    const oldXpTotal = normalizeXpTotal(raw.xpTotal);
+    const oldBalanceVersion = normalizeStudentXpBalanceVersion(raw.xpBalanceVersion);
+    const normalized = getStudentData(studentId);
+    let nextXpTotal = normalizeXpTotal(normalized?.xpTotal);
+
+    if (hasStoredXp && nextXpTotal > oldXpTotal) {
+      blockedIncreases.push({
+        studentId,
+        oldXpTotal,
+        recalculatedXpTotal: nextXpTotal,
+      });
+      nextXpTotal = oldXpTotal;
+    }
+
+    const delta = nextXpTotal - oldXpTotal;
+    if (!hasStoredXp && nextXpTotal > 0) initializedCount += 1;
+    if (delta < 0) {
+      loweredCount += 1;
+      totalRemovedXp += Math.abs(delta);
+    } else if (delta === 0) {
+      unchangedCount += 1;
+    }
+
+    changed.push({
+      studentId,
+      name: normalizeStudentName(student?.name || ''),
+      nickname: normalizeStudentNickname(student?.nickname || ''),
+      leaderboardAlias: normalizeLeaderboardAlias(normalized?.leaderboardAlias),
+      oldBalanceVersion,
+      nextBalanceVersion: STUDENT_XP_BALANCE_VERSION,
+      hadStoredXp: hasStoredXp,
+      oldXpTotal,
+      nextXpTotal,
+      delta,
+    });
+
+    if (apply) {
+      if (!backupFile) {
+        backupFile = createProgressBackup(`xp-balance-v${STUDENT_XP_BALANCE_VERSION}`);
+      }
+      setStudentData(studentId, {
+        ...normalized,
+        xpTotal: nextXpTotal,
+      });
+    }
+  });
+
+  const largestDrops = changed
+    .filter((entry) => entry.delta < 0)
+    .sort((a, b) => a.delta - b.delta)
+    .slice(0, 20);
+
+  return {
+    applied: Boolean(apply),
+    balanceVersion: STUDENT_XP_BALANCE_VERSION,
+    scannedStudents: Object.keys(db).length,
+    candidates: candidates.length,
+    changed: changed.length,
+    lowered: loweredCount,
+    unchanged: unchangedCount,
+    initialized: initializedCount,
+    blockedIncreases: blockedIncreases.length,
+    totalRemovedXp,
+    backupFile,
+    largestDrops,
+    blockedIncreaseSamples: blockedIncreases.slice(0, 20),
+  };
 };
 
 const getQuestionsCountForLevel = (testsDb, taskNum, levelId) => {
@@ -9677,6 +9790,17 @@ app.get('/api/session', (req, res) => {
     ...req.auth,
     token: String(req.authToken || '').trim(),
   });
+});
+
+app.get('/api/admin/xp-rebalance', (req, res) => {
+  if (!isAdminRole(req.auth)) return forbid(res);
+  return res.json(rebalanceStudentXpBalance({ apply: false }));
+});
+
+app.post('/api/admin/xp-rebalance', (req, res) => {
+  if (!isAdminRole(req.auth)) return forbid(res);
+  const apply = req.body?.apply === true;
+  return res.json(rebalanceStudentXpBalance({ apply }));
 });
 
 app.post('/api/board/reset', async (req, res) => {
@@ -15832,6 +15956,12 @@ notificationsWss.on('connection', (ws, _request, user) => {
     cleanupNotificationClient(ws);
   });
 });
+
+if (process.argv.includes('--rebalance-student-xp')) {
+  const summary = rebalanceStudentXpBalance({ apply: process.argv.includes('--apply') });
+  console.log(JSON.stringify(summary, null, 2));
+  process.exit(0);
+}
 
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
