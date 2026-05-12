@@ -469,7 +469,8 @@ const STUDENT_SOLVED_EVENTS_LIMIT = (() => {
   if (Number.isFinite(raw) && raw >= 50) return Math.floor(raw);
   return 200;
 })();
-const STUDENT_XP_BALANCE_VERSION = 3;
+const STUDENT_XP_BALANCE_VERSION = 4;
+const STUDENT_RECENT_XP_REBALANCE_MAX_SOURCE_VERSION = 2;
 const TEACHER_SOLVED_EVENTS_READ_BASE_LIMIT = (() => {
   const raw = Number(process.env.TEACHER_SOLVED_EVENTS_READ_LIMIT);
   if (Number.isFinite(raw) && raw >= 500) return Math.floor(raw);
@@ -5948,6 +5949,44 @@ const getRecentXpFromSolvedEvents = (events, endDayNum, days = LEADERBOARD_WEEK_
   return xpTotal;
 };
 
+const getRecentXpRebalanceWindow = (now = new Date(), days = LEADERBOARD_WEEK_DAYS) => {
+  const parsedDays = Number(days);
+  const periodDays = Number.isFinite(parsedDays) && parsedDays > 0
+    ? Math.floor(parsedDays)
+    : LEADERBOARD_WEEK_DAYS;
+  const todayKey = now instanceof Date && !Number.isNaN(now.getTime())
+    ? now.toISOString().slice(0, 10)
+    : new Date().toISOString().slice(0, 10);
+  const fallbackEndDayNum = Math.floor(Date.now() / DAY_MS);
+  const parsedTodayNum = dayKeyToNumber(todayKey);
+  const endDayNum = Number.isFinite(parsedTodayNum) ? parsedTodayNum : fallbackEndDayNum;
+  const startDayNum = endDayNum - Math.max(periodDays - 1, 0);
+  return {
+    days: periodDays,
+    startDayNum,
+    endDayNum,
+    startDay: numberToDayKey(startDayNum) || todayKey,
+    endDay: numberToDayKey(endDayNum) || todayKey,
+  };
+};
+
+const getRecentXpRebalanceStats = (data, window) => {
+  const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
+  const artifactLevels = normalizeArtifactLevels(data?.artifactLevels, artifactInventory);
+  const storedRecentXp = normalizeXpTotal(
+    getRecentXpFromSolvedEvents(data?.solvedEvents, window?.endDayNum, window?.days, null)
+  );
+  const recalculatedRecentXp = normalizeXpTotal(
+    getRecentXpFromSolvedEvents(data?.solvedEvents, window?.endDayNum, window?.days, artifactLevels)
+  );
+  const removedXp = Math.max(0, storedRecentXp - recalculatedRecentXp);
+  return {
+    storedRecentXp,
+    recalculatedRecentXp,
+    removedXp,
+  };
+};
+
 const buildLeaderboardAnonNameMap = (students = []) => {
   const orderedStudents = [...students].sort((a, b) => {
     const aTs = Date.parse(a?.createdAt || '');
@@ -7082,7 +7121,6 @@ const getStudentData = (studentId) => {
     const artifactCards = normalizeArtifactCards(raw.artifactCards, artifactInventory);
     const instantArtifactRewards = getArtifactInstantRewardsFromInventory(artifactInventory);
     const hasStoredXp = Object.prototype.hasOwnProperty.call(raw, 'xpTotal');
-    const xpBalanceVersion = normalizeStudentXpBalanceVersion(raw.xpBalanceVersion);
     const hasStoredCoins = Object.prototype.hasOwnProperty.call(raw, 'coinsTotal');
     const hasStoredCoinsSpent = Object.prototype.hasOwnProperty.call(raw, 'coinsSpentTotal');
     const leaderboardAlias = normalizeLeaderboardAlias(raw.leaderboardAlias);
@@ -7102,13 +7140,7 @@ const getStudentData = (studentId) => {
     const minXpTotal = normalizeXpTotal(derivedXp + instantArtifactRewards.xp);
     const minCoinsTotal = Math.max(0, normalizeCoinsTotal(derivedCoins + instantArtifactRewards.coins) - coinsSpentTotal);
     const storedXpTotal = normalizeXpTotal(raw.xpTotal);
-    const xpTotal = xpBalanceVersion < STUDENT_XP_BALANCE_VERSION && hasStoredXp
-      ? Math.min(storedXpTotal, minXpTotal)
-      : xpBalanceVersion < STUDENT_XP_BALANCE_VERSION
-        ? minXpTotal
-      : (hasStoredXp
-        ? storedXpTotal
-        : minXpTotal);
+    const xpTotal = hasStoredXp ? storedXpTotal : minXpTotal;
     let coinsTotal = hasStoredCoins
       ? normalizeCoinsTotal(raw.coinsTotal)
       : minCoinsTotal;
@@ -7219,11 +7251,12 @@ const createProgressBackup = (label) => {
 const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
   const db = readProgressDb();
   const studentById = new Map(readStudentsDb().map((student) => [student.id, student]));
+  const window = getRecentXpRebalanceWindow();
   const candidates = Object.entries(db).filter(([, raw]) => (
     raw
     && typeof raw === 'object'
     && !Array.isArray(raw)
-    && normalizeStudentXpBalanceVersion(raw.xpBalanceVersion) < STUDENT_XP_BALANCE_VERSION
+    && normalizeStudentXpBalanceVersion(raw.xpBalanceVersion) <= STUDENT_RECENT_XP_REBALANCE_MAX_SOURCE_VERSION
   ));
   const changed = [];
   const blockedIncreases = [];
@@ -7239,16 +7272,10 @@ const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
     const oldXpTotal = normalizeXpTotal(raw.xpTotal);
     const oldBalanceVersion = normalizeStudentXpBalanceVersion(raw.xpBalanceVersion);
     const normalized = getStudentData(studentId);
-    let nextXpTotal = normalizeXpTotal(normalized?.xpTotal);
-
-    if (hasStoredXp && nextXpTotal > oldXpTotal) {
-      blockedIncreases.push({
-        studentId,
-        oldXpTotal,
-        recalculatedXpTotal: nextXpTotal,
-      });
-      nextXpTotal = oldXpTotal;
-    }
+    const recentStats = getRecentXpRebalanceStats(normalized, window);
+    const nextXpTotal = hasStoredXp
+      ? normalizeXpTotal(oldXpTotal - recentStats.removedXp)
+      : normalizeXpTotal(normalized?.xpTotal);
 
     const delta = nextXpTotal - oldXpTotal;
     if (!hasStoredXp && nextXpTotal > 0) initializedCount += 1;
@@ -7270,18 +7297,26 @@ const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
       oldXpTotal,
       nextXpTotal,
       delta,
+      recentStoredXp: recentStats.storedRecentXp,
+      recentRecalculatedXp: recentStats.recalculatedRecentXp,
+      recentRemovedXp: recentStats.removedXp,
     });
 
     if (apply) {
       if (!backupFile) {
         backupFile = createProgressBackup(`xp-balance-v${STUDENT_XP_BALANCE_VERSION}`);
       }
-      setStudentData(studentId, {
-        ...normalized,
+      db[studentId] = {
+        ...raw,
         xpTotal: nextXpTotal,
-      });
+        xpBalanceVersion: STUDENT_XP_BALANCE_VERSION,
+      };
     }
   });
+
+  if (apply && candidates.length > 0) {
+    writeProgressDb(db);
+  }
 
   const largestDrops = changed
     .filter((entry) => entry.delta < 0)
@@ -7291,6 +7326,13 @@ const rebalanceStudentXpBalance = ({ apply = false } = {}) => {
   return {
     applied: Boolean(apply),
     balanceVersion: STUDENT_XP_BALANCE_VERSION,
+    mode: 'recent-solved-events',
+    sourceVersions: `<=${STUDENT_RECENT_XP_REBALANCE_MAX_SOURCE_VERSION}`,
+    window: {
+      days: window.days,
+      startDay: window.startDay,
+      endDay: window.endDay,
+    },
     scannedStudents: Object.keys(db).length,
     candidates: candidates.length,
     changed: changed.length,
