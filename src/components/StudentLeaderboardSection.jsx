@@ -1,6 +1,13 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CheckCircle2, Clock3, LockKeyhole, Package2, RefreshCcw, Sparkles } from 'lucide-react';
+import {
+  CheckCircle2,
+  Clock3,
+  LockKeyhole,
+  Package2,
+  RefreshCcw,
+  Sparkles,
+} from 'lucide-react';
 import CoinGuideIcon from './CoinGuideTooltip';
 import { api } from '../services/api';
 import chestClosedImage from '../assets/mock-chest/chest-closed.png';
@@ -55,6 +62,170 @@ const formatChestCountLabel = (count) => {
   if (last >= 2 && last <= 4) return `${normalized} сундука`;
   return `${normalized} сундуков`;
 };
+
+const clampLeaderboardNumber = (value) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(0, Math.round(number));
+};
+
+const clampLeaderboardPercent = (value) => Math.max(0, Math.min(100, clampLeaderboardNumber(value)));
+
+const formatLeaderboardNumber = (value) => clampLeaderboardNumber(value).toLocaleString('ru-RU');
+
+const formatLeaderboardPercent = (value) => `${clampLeaderboardPercent(value)}%`;
+
+const formatLeaderboardSignedPercent = (value) => {
+  const percent = clampLeaderboardPercent(value);
+  return percent > 0 ? `+${percent}%` : '0%';
+};
+
+const formatLeaderboardDayCount = (value) => {
+  const days = clampLeaderboardNumber(value);
+  const mod10 = days % 10;
+  const mod100 = days % 100;
+  let suffix = 'дней';
+  if (mod10 === 1 && mod100 !== 11) suffix = 'день';
+  else if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) suffix = 'дня';
+  return `${days.toLocaleString('ru-RU')} ${suffix}`;
+};
+
+const compareLeaderboardNumberDesc = (left, right) => {
+  const diff = Number(right || 0) - Number(left || 0);
+  return Math.abs(diff) > 0.0001 ? diff : 0;
+};
+
+const compareLeaderboardFallback = (left, right) => (
+  compareLeaderboardNumberDesc(left.level, right.level)
+  || compareLeaderboardNumberDesc(left.xpTotal, right.xpTotal)
+  || compareLeaderboardNumberDesc(left.weeklyXp, right.weeklyXp)
+  || String(left.displayName || '').localeCompare(String(right.displayName || ''), 'ru')
+);
+
+const sortLeaderboardRowsByMetric = (rows, metricId, period) => {
+  const list = Array.isArray(rows) ? [...rows] : [];
+  const normalizedMetricId = String(metricId || 'xp');
+  const normalizedPeriod = period === 'week' ? 'week' : 'all';
+
+  return list.sort((left, right) => {
+    if (normalizedMetricId === 'course') {
+      return normalizedPeriod === 'week'
+        ? (
+          compareLeaderboardNumberDesc(left.weeklyCoursePercent, right.weeklyCoursePercent)
+          || compareLeaderboardNumberDesc(left.weeklyCourseSolvedQuestions, right.weeklyCourseSolvedQuestions)
+          || compareLeaderboardFallback(left, right)
+        )
+        : (
+          compareLeaderboardNumberDesc(left.coursePercent, right.coursePercent)
+          || compareLeaderboardNumberDesc(left.courseCompletedTasks, right.courseCompletedTasks)
+          || compareLeaderboardNumberDesc(left.courseStartedTasks, right.courseStartedTasks)
+          || compareLeaderboardFallback(left, right)
+        );
+    }
+
+    if (normalizedMetricId === 'python') {
+      return normalizedPeriod === 'week'
+        ? (
+          compareLeaderboardNumberDesc(left.weeklyPythonPercent, right.weeklyPythonPercent)
+          || compareLeaderboardNumberDesc(left.weeklyPythonSolvedQuestions, right.weeklyPythonSolvedQuestions)
+          || compareLeaderboardFallback(left, right)
+        )
+        : (
+          compareLeaderboardNumberDesc(left.pythonPercent, right.pythonPercent)
+          || compareLeaderboardNumberDesc(left.pythonCompletedTasks, right.pythonCompletedTasks)
+          || compareLeaderboardNumberDesc(left.pythonStartedTasks, right.pythonStartedTasks)
+          || compareLeaderboardFallback(left, right)
+        );
+    }
+
+    if (normalizedMetricId === 'platformDays') {
+      return normalizedPeriod === 'week'
+        ? (
+          compareLeaderboardNumberDesc(left.platformDaysWeek, right.platformDaysWeek)
+          || compareLeaderboardNumberDesc(left.platformDaysTotal, right.platformDaysTotal)
+          || compareLeaderboardFallback(left, right)
+        )
+        : (
+          compareLeaderboardNumberDesc(left.platformDaysTotal, right.platformDaysTotal)
+          || compareLeaderboardNumberDesc(left.platformDaysWeek, right.platformDaysWeek)
+          || compareLeaderboardFallback(left, right)
+        );
+    }
+
+    if (normalizedMetricId === 'solved') {
+      return normalizedPeriod === 'week'
+        ? (
+          compareLeaderboardNumberDesc(left.weeklySolvedQuestions, right.weeklySolvedQuestions)
+          || compareLeaderboardNumberDesc(left.weeklyXp, right.weeklyXp)
+          || compareLeaderboardFallback(left, right)
+        )
+        : (
+          compareLeaderboardNumberDesc(left.solvedQuestions, right.solvedQuestions)
+          || compareLeaderboardFallback(left, right)
+        );
+    }
+
+    if (normalizedMetricId === 'activity') {
+      return normalizedPeriod === 'week'
+        ? (
+          compareLeaderboardNumberDesc(left.activeDaysWeek, right.activeDaysWeek)
+          || compareLeaderboardNumberDesc(left.weeklySolvedQuestions, right.weeklySolvedQuestions)
+          || compareLeaderboardFallback(left, right)
+        )
+        : (
+          compareLeaderboardNumberDesc(left.activeDaysTotal, right.activeDaysTotal)
+          || compareLeaderboardNumberDesc(left.solvedQuestions, right.solvedQuestions)
+          || compareLeaderboardFallback(left, right)
+        );
+    }
+
+    return normalizedPeriod === 'week'
+      ? (
+        compareLeaderboardNumberDesc(left.weeklyXp, right.weeklyXp)
+        || compareLeaderboardFallback(left, right)
+      )
+      : compareLeaderboardFallback(left, right);
+  });
+};
+
+const LEADERBOARD_METRIC_OPTIONS = [
+  {
+    id: 'xp',
+    titleLabel: 'XP',
+    allSubtitle: 'Сортировка: уровень, общий XP',
+    weekSubtitle: (weekRangeLabel) => `Период: ${weekRangeLabel}`,
+  },
+  {
+    id: 'course',
+    titleLabel: 'завершению курса',
+    allSubtitle: 'Процент прохождения заданий ЕГЭ',
+    weekSubtitle: (weekRangeLabel) => `Новые проценты за период: ${weekRangeLabel}`,
+  },
+  {
+    id: 'python',
+    titleLabel: 'Python',
+    allSubtitle: 'Процент прохождения Python-трека',
+    weekSubtitle: (weekRangeLabel) => `Новые проценты за период: ${weekRangeLabel}`,
+  },
+  {
+    id: 'platformDays',
+    titleLabel: 'дням на платформе',
+    allSubtitle: 'Дней с момента регистрации на платформе',
+    weekSubtitle: (weekRangeLabel) => `Дней внутри периода: ${weekRangeLabel}`,
+  },
+  {
+    id: 'solved',
+    titleLabel: 'решениям',
+    allSubtitle: 'Количество решённых вопросов',
+    weekSubtitle: (weekRangeLabel) => `Период: ${weekRangeLabel}`,
+  },
+  {
+    id: 'activity',
+    titleLabel: 'активности',
+    allSubtitle: 'Дни с решёнными заданиями',
+    weekSubtitle: (weekRangeLabel) => `Период: ${weekRangeLabel}`,
+  },
+];
 
 const getClientChestState = (chest, nowMs) => {
   const readyAtMs = Date.parse(chest?.openReadyAt || '');
@@ -118,6 +289,7 @@ const StudentLeaderboardSection = ({
     currentStudent: null,
     selectedStudent: null,
   });
+  const [selectedMetricId, setSelectedMetricId] = useState('xp');
   const [altar, setAltar] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -227,6 +399,27 @@ const StudentLeaderboardSection = ({
       const hasAlias = Boolean(entry?.hasAlias);
       const mainName = typeof entry?.mainName === 'string' ? entry.mainName.trim() : '';
       const nickname = typeof entry?.nickname === 'string' ? entry.nickname.trim() : '';
+      const course = entry?.course && typeof entry.course === 'object' ? entry.course : {};
+      const python = entry?.python && typeof entry.python === 'object' ? entry.python : {};
+      const platformDays = entry?.platformDays && typeof entry.platformDays === 'object' ? entry.platformDays : {};
+      const solvedQuestions = clampLeaderboardNumber(entry?.solvedQuestions);
+      const weeklySolvedQuestions = clampLeaderboardNumber(entry?.weeklySolvedQuestions);
+      const activeDaysTotal = clampLeaderboardNumber(entry?.activeDaysTotal);
+      const activeDaysWeek = clampLeaderboardNumber(entry?.activeDaysWeek);
+      const coursePercent = clampLeaderboardPercent(course.overallPercent);
+      const weeklyCoursePercent = clampLeaderboardPercent(course.weeklyPercent);
+      const courseStartedTasks = clampLeaderboardNumber(course.startedTasks);
+      const courseCompletedTasks = clampLeaderboardNumber(course.completedTasks);
+      const courseTotalTasks = clampLeaderboardNumber(course.totalTasks);
+      const weeklyCourseSolvedQuestions = clampLeaderboardNumber(course.weeklySolvedQuestions);
+      const pythonPercent = clampLeaderboardPercent(python.overallPercent);
+      const weeklyPythonPercent = clampLeaderboardPercent(python.weeklyPercent);
+      const pythonStartedTasks = clampLeaderboardNumber(python.startedTasks);
+      const pythonCompletedTasks = clampLeaderboardNumber(python.completedTasks);
+      const pythonTotalTasks = clampLeaderboardNumber(python.totalTasks);
+      const weeklyPythonSolvedQuestions = clampLeaderboardNumber(python.weeklySolvedQuestions);
+      const platformDaysTotal = clampLeaderboardNumber(platformDays.totalDays);
+      const platformDaysWeek = clampLeaderboardNumber(platformDays.weeklyDays);
       const isCurrent = role === 'student' && (
         Boolean(entry?.isCurrent) || (String(userId || '') === studentId)
       );
@@ -244,6 +437,40 @@ const StudentLeaderboardSection = ({
         xpTotalLabel: xpTotal.toLocaleString('ru-RU'),
         weeklyXp,
         weeklyXpLabel: weeklyXp.toLocaleString('ru-RU'),
+        solvedQuestions,
+        solvedQuestionsLabel: formatLeaderboardNumber(solvedQuestions),
+        weeklySolvedQuestions,
+        weeklySolvedQuestionsLabel: formatLeaderboardNumber(weeklySolvedQuestions),
+        activeDaysTotal,
+        activeDaysTotalLabel: formatLeaderboardNumber(activeDaysTotal),
+        activeDaysWeek,
+        activeDaysWeekLabel: formatLeaderboardNumber(activeDaysWeek),
+        coursePercent,
+        coursePercentLabel: formatLeaderboardPercent(coursePercent),
+        weeklyCoursePercent,
+        weeklyCoursePercentLabel: formatLeaderboardSignedPercent(weeklyCoursePercent),
+        courseStartedTasks,
+        courseCompletedTasks,
+        courseCompletedTasksLabel: formatLeaderboardNumber(courseCompletedTasks),
+        courseTotalTasks,
+        courseTotalTasksLabel: formatLeaderboardNumber(courseTotalTasks),
+        weeklyCourseSolvedQuestions,
+        weeklyCourseSolvedQuestionsLabel: formatLeaderboardNumber(weeklyCourseSolvedQuestions),
+        pythonPercent,
+        pythonPercentLabel: formatLeaderboardPercent(pythonPercent),
+        weeklyPythonPercent,
+        weeklyPythonPercentLabel: formatLeaderboardSignedPercent(weeklyPythonPercent),
+        pythonStartedTasks,
+        pythonCompletedTasks,
+        pythonCompletedTasksLabel: formatLeaderboardNumber(pythonCompletedTasks),
+        pythonTotalTasks,
+        pythonTotalTasksLabel: formatLeaderboardNumber(pythonTotalTasks),
+        weeklyPythonSolvedQuestions,
+        weeklyPythonSolvedQuestionsLabel: formatLeaderboardNumber(weeklyPythonSolvedQuestions),
+        platformDaysTotal,
+        platformDaysTotalLabel: formatLeaderboardDayCount(platformDaysTotal),
+        platformDaysWeek,
+        platformDaysWeekLabel: formatLeaderboardDayCount(platformDaysWeek),
         level,
         league,
         isCurrent,
@@ -298,6 +525,21 @@ const StudentLeaderboardSection = ({
     });
   }, [rows]);
 
+  const selectedMetric = useMemo(() => (
+    LEADERBOARD_METRIC_OPTIONS.find((metric) => metric.id === selectedMetricId)
+    || LEADERBOARD_METRIC_OPTIONS[0]
+  ), [selectedMetricId]);
+
+  const metricAllTimeRows = useMemo(
+    () => sortLeaderboardRowsByMetric(rows, selectedMetric.id, 'all'),
+    [rows, selectedMetric.id]
+  );
+
+  const metricWeekRows = useMemo(
+    () => sortLeaderboardRowsByMetric(rows, selectedMetric.id, 'week'),
+    [rows, selectedMetric.id]
+  );
+
   const weekRangeLabel = useMemo(() => {
     const week = leaderboard?.week && typeof leaderboard.week === 'object'
       ? leaderboard.week
@@ -328,7 +570,7 @@ const StudentLeaderboardSection = ({
     : null;
   const currentRatingPosition = role === 'student'
     ? (() => {
-      const index = byLevel.findIndex((row) => row.isCurrent);
+      const index = metricAllTimeRows.findIndex((row) => row.isCurrent);
       return index >= 0 ? index + 1 : null;
     })()
     : null;
@@ -1092,20 +1334,129 @@ const StudentLeaderboardSection = ({
     );
   };
 
+  const getMetricBoardCopy = (period) => {
+    const isWeek = period === 'week';
+    return {
+      subtitle: isWeek
+        ? (typeof selectedMetric.weekSubtitle === 'function' ? selectedMetric.weekSubtitle(weekRangeLabel) : 'Период: последние 7 дней')
+        : selectedMetric.allSubtitle,
+    };
+  };
+
+  const renderMetricBoardTitle = (period) => {
+    const periodLabel = period === 'week' ? 'за неделю' : 'за всё время';
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span>Рейтинг по</span>
+        <span className="inline-grid min-w-[4.75rem] max-w-full align-middle">
+          <span
+            aria-hidden="true"
+            className="invisible col-start-1 row-start-1 whitespace-pre rounded-md border border-transparent px-1.5 py-0.5 pr-7 text-[11px] font-black uppercase tracking-[0.06em]"
+          >
+            {selectedMetric.titleLabel}
+          </span>
+          <select
+            value={selectedMetric.id}
+            onChange={(event) => setSelectedMetricId(event.target.value)}
+            aria-label="Показатель рейтинга"
+            className="col-start-1 row-start-1 h-full w-full rounded-md border border-purple-200 bg-purple-50 px-1.5 py-0.5 pr-7 text-[11px] font-black uppercase tracking-[0.06em] text-purple-700 outline-none transition focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
+          >
+            {LEADERBOARD_METRIC_OPTIONS.map((metric) => (
+              <option key={metric.id} value={metric.id}>
+                {metric.titleLabel}
+              </option>
+            ))}
+          </select>
+        </span>
+        <span>{periodLabel}</span>
+      </div>
+    );
+  };
+
+  const getMetricValueParts = (row, period) => {
+    const isWeek = period === 'week';
+    if (selectedMetric.id === 'course') {
+      return isWeek
+        ? {
+          primary: row.weeklyCoursePercentLabel,
+          secondary: `${row.weeklyCourseSolvedQuestionsLabel} реш. за 7 дней`,
+        }
+        : {
+          primary: row.coursePercentLabel,
+          secondary: row.courseTotalTasks > 0
+            ? `${row.courseCompletedTasksLabel}/${row.courseTotalTasksLabel} тем`
+            : 'курс не настроен',
+        };
+    }
+    if (selectedMetric.id === 'python') {
+      return isWeek
+        ? {
+          primary: row.weeklyPythonPercentLabel,
+          secondary: `${row.weeklyPythonSolvedQuestionsLabel} реш. за 7 дней`,
+        }
+        : {
+          primary: row.pythonPercentLabel,
+          secondary: row.pythonTotalTasks > 0
+            ? `${row.pythonCompletedTasksLabel}/${row.pythonTotalTasksLabel} тем`
+            : 'Python не настроен',
+        };
+    }
+    if (selectedMetric.id === 'platformDays') {
+      return isWeek
+        ? {
+          primary: row.platformDaysWeekLabel,
+          secondary: 'в этом периоде',
+        }
+        : {
+          primary: row.platformDaysTotalLabel,
+          secondary: 'на платформе всего',
+        };
+    }
+    if (selectedMetric.id === 'solved') {
+      return isWeek
+        ? {
+          primary: row.weeklySolvedQuestionsLabel,
+          secondary: 'реш. за 7 дней',
+        }
+        : {
+          primary: row.solvedQuestionsLabel,
+          secondary: 'решено всего',
+        };
+    }
+    if (selectedMetric.id === 'activity') {
+      return isWeek
+        ? {
+          primary: row.activeDaysWeekLabel,
+          secondary: 'дней за 7 дней',
+        }
+        : {
+          primary: row.activeDaysTotalLabel,
+          secondary: 'активных дней',
+        };
+    }
+    return isWeek
+      ? {
+        primary: `${row.weeklyXpLabel} XP`,
+        secondary: 'за 7 дней',
+      }
+      : {
+        primary: `Ур. ${row.level}`,
+        secondary: `${row.xpTotalLabel} XP`,
+      };
+  };
+
   const renderBoard = (items, type) => (
     <div
       className="rounded-3xl border border-purple-200/70 bg-white/90 p-4 shadow-soft"
-      data-tour={type === 'level' ? 'rating-level-board' : 'rating-week-board'}
+      data-tour={type === 'all' ? 'rating-level-board' : 'rating-week-board'}
     >
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs font-bold uppercase tracking-[0.18em] text-purple-600">
-            {type === 'level' ? 'Рейтинг по уровню' : 'Рейтинг по XP за неделю'}
+            {renderMetricBoardTitle(type)}
           </div>
           <div className="mt-1 text-xs text-gray-500">
-            {type === 'level'
-              ? 'Сортировка: уровень, общий XP'
-              : `Период: ${weekRangeLabel}`}
+            {getMetricBoardCopy(type).subtitle}
           </div>
         </div>
         <div className="rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-[11px] font-semibold text-purple-700">
@@ -1221,17 +1572,15 @@ const StudentLeaderboardSection = ({
               <div className="text-[11px] text-slate-500">{`${row.league.label} - Уровень ${row.level} - ${row.xpTotalLabel} XP`}</div>
             </div>
             <div className="text-right">
-              {type === 'level' ? (
-                <>
-                  <div className="text-sm font-bold text-slate-900">{`Ур. ${row.level}`}</div>
-                  <div className="text-[11px] font-semibold text-purple-600">{`${row.xpTotalLabel} XP`}</div>
-                </>
-              ) : (
-                <>
-                  <div className="text-sm font-bold text-slate-900">{`${row.weeklyXpLabel} XP`}</div>
-                  <div className="text-[11px] font-semibold text-purple-600">за 7 дней</div>
-                </>
-              )}
+              {(() => {
+                const valueParts = getMetricValueParts(row, type);
+                return (
+                  <>
+                    <div className="text-sm font-bold text-slate-900">{valueParts.primary}</div>
+                    <div className="text-[11px] font-semibold text-purple-600">{valueParts.secondary}</div>
+                  </>
+                );
+              })()}
             </div>
             </div>
           );
@@ -1284,7 +1633,7 @@ const StudentLeaderboardSection = ({
                 : 'Общий рейтинг по группе'}
             </div>
             <div className="mt-2 inline-flex items-center rounded-full border border-purple-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-purple-700">
-              {`Период XP: ${weekRangeLabel}`}
+              {`Недельный период: ${weekRangeLabel}`}
             </div>
             {role === 'student' && (
               <div className="mt-2 text-xs text-slate-500">
@@ -1527,8 +1876,8 @@ const StudentLeaderboardSection = ({
       )}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        {renderBoard(byLevel, 'level')}
-        {renderBoard(byWeeklyXp, 'week')}
+        {renderBoard(metricAllTimeRows, 'all')}
+        {renderBoard(metricWeekRows, 'week')}
       </div>
 
       {chestOpeningRewards.length > 0 && (

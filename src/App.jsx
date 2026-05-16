@@ -2527,7 +2527,7 @@ const STUDENT_RATING_TOUR_STEPS = [
   {
     id: 'rating-level-board',
     title: 'Общий рейтинг',
-    text: 'Эта таблица сортирует учеников по уровню и общему XP. Текущая строка подсвечивается.',
+    text: 'Левая таблица показывает выбранный показатель за всё время: XP, курс, Python, дни на платформе или активность. Текущая строка подсвечивается.',
     emotion: 'approval',
     target: '[data-tour="rating-level-board"]',
     fallback: '[data-tour="rating-overview"]',
@@ -2537,7 +2537,7 @@ const STUDENT_RATING_TOUR_STEPS = [
   {
     id: 'rating-week-board',
     title: 'Недельная гонка',
-    text: 'Здесь видно XP за последние семь дней. Можно догонять даже тех, у кого общий уровень выше.',
+    text: 'Правая таблица показывает тот же показатель за последние семь дней. Можно догонять даже тех, у кого общий уровень выше.',
     emotion: 'approval',
     target: '[data-tour="rating-week-board"]',
     fallback: '[data-tour="rating-level-board"]',

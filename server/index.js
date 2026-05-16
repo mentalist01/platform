@@ -6364,6 +6364,189 @@ const getLeaderboardProfileProgressSummary = (studentData, testsDb) => {
   };
 };
 
+const getLeaderboardProgressKindForTask = (taskNumber) => {
+  const taskNum = Number(taskNumber);
+  if (!Number.isFinite(taskNum)) return '';
+  if (isPythonTaskNumber(taskNum)) return 'python';
+  if (taskNum >= 1 && taskNum <= 27) return 'course';
+  return '';
+};
+
+const shouldIncludeLeaderboardProgressKind = (taskNumber, kind = 'all') => {
+  const normalizedKind = String(kind || 'all').trim();
+  const taskKind = getLeaderboardProgressKindForTask(taskNumber);
+  if (!taskKind) return false;
+  if (normalizedKind === 'all') return true;
+  return taskKind === normalizedKind;
+};
+
+const getLeaderboardProgressTaskIds = (testsDb, kind = 'all') => {
+  const taskIds = new Set();
+  Object.entries(testsDb || {}).forEach(([taskId, taskValue]) => {
+    const taskNum = Number(taskId);
+    if (!Number.isFinite(taskNum)) return;
+    if (!taskValue || typeof taskValue !== 'object' || Array.isArray(taskValue)) return;
+    if (!shouldIncludeLeaderboardProgressKind(taskNum, kind)) return;
+    taskIds.add(String(Math.trunc(taskNum)));
+  });
+  return taskIds;
+};
+
+const getLeaderboardProgressSummaryByKind = (studentData, testsDb, kind = 'all') => {
+  const progress = recomputeProgressFromSolved(studentData);
+  const taskIds = getLeaderboardProgressTaskIds(testsDb, kind);
+  const progressByTaskId = new Map();
+
+  Object.entries(progress || {}).forEach(([taskId, value]) => {
+    const taskNum = Number(taskId);
+    if (!Number.isFinite(taskNum)) return;
+    if (!shouldIncludeLeaderboardProgressKind(taskNum, kind)) return;
+    const normalizedTaskId = String(Math.trunc(taskNum));
+    const normalizedValue = Math.max(0, Math.min(100, Number(value) || 0));
+    taskIds.add(normalizedTaskId);
+    progressByTaskId.set(normalizedTaskId, normalizedValue);
+  });
+
+  let startedTasks = 0;
+  let completedTasks = 0;
+  let totalProgress = 0;
+  taskIds.forEach((taskId) => {
+    const value = progressByTaskId.get(taskId) || 0;
+    if (value > 0) startedTasks += 1;
+    if (value >= 100) completedTasks += 1;
+    totalProgress += value;
+  });
+
+  const totalTasks = taskIds.size;
+  const overallPercent = totalTasks > 0
+    ? Math.max(0, Math.min(100, Math.round(totalProgress / totalTasks)))
+    : 0;
+
+  return {
+    startedTasks,
+    completedTasks,
+    totalTasks,
+    overallPercent,
+  };
+};
+
+const getLeaderboardLevelProgressWeight = (levelId) => {
+  const normalizedLevelId = String(levelId || '').trim();
+  if (normalizedLevelId === PYTHON_LEVEL_ID) return 100;
+  const weight = Number(LEVEL_WEIGHTS[normalizedLevelId]);
+  return Number.isFinite(weight) && weight > 0 ? weight : 0;
+};
+
+const isLeaderboardProgressEventSource = (event) => {
+  const source = String(event?.source || event?.eventKind || '').trim().toLowerCase();
+  return source !== 'mock-exam' && source !== 'mock-exam-task';
+};
+
+const getRecentProgressPercentFromSolvedEvents = (events, testsDb, endDayNum, days = LEADERBOARD_WEEK_DAYS, kind = 'all') => {
+  const taskIds = getLeaderboardProgressTaskIds(testsDb, kind);
+  if (taskIds.size <= 0 || !Array.isArray(events) || events.length <= 0) return 0;
+
+  const parsedDays = Number(days);
+  const periodDays = Number.isFinite(parsedDays) && parsedDays > 0
+    ? Math.floor(parsedDays)
+    : LEADERBOARD_WEEK_DAYS;
+  const fallbackEnd = dayKeyToNumber(new Date().toISOString().slice(0, 10));
+  const safeEndDayNum = Number.isFinite(endDayNum) ? Math.floor(endDayNum) : fallbackEnd;
+  if (!Number.isFinite(safeEndDayNum)) return 0;
+  const startDayNum = safeEndDayNum - Math.max(periodDays - 1, 0);
+  const seenKeys = new Set();
+  const taskProgressById = new Map();
+
+  events.forEach((event) => {
+    if (!event || typeof event !== 'object') return;
+    if (!isLeaderboardProgressEventSource(event)) return;
+    const taskNum = Number(event.taskNumber);
+    if (!Number.isFinite(taskNum) || !shouldIncludeLeaderboardProgressKind(taskNum, kind)) return;
+    const taskId = String(Math.trunc(taskNum));
+    if (!taskIds.has(taskId)) return;
+    const dayKey = getSolvedEventDayKey(event);
+    const dayNum = dayKeyToNumber(dayKey);
+    if (!Number.isFinite(dayNum) || dayNum < startDayNum || dayNum > safeEndDayNum) return;
+
+    const levelId = String(event.levelId || '').trim();
+    const questionId = String(event.questionId ?? '').trim();
+    if (!questionId) return;
+    const { questions, question } = getQuestionEntryFromTestsDb(testsDb, taskNum, levelId, questionId);
+    if (!Array.isArray(questions) || questions.length <= 0 || !question) return;
+    const seenKey = `${taskId}:${levelId}:${questionId}`;
+    if (seenKeys.has(seenKey)) return;
+    seenKeys.add(seenKey);
+
+    const levelWeight = getLeaderboardLevelProgressWeight(levelId);
+    if (levelWeight <= 0) return;
+    const increment = levelWeight / questions.length;
+    taskProgressById.set(
+      taskId,
+      Math.min(100, (taskProgressById.get(taskId) || 0) + increment)
+    );
+  });
+
+  const totalProgress = [...taskProgressById.values()].reduce((sum, value) => sum + value, 0);
+  return Math.max(0, Math.min(100, Math.round(totalProgress / taskIds.size)));
+};
+
+const getRecentSolvedQuestionCountByKind = (events, endDayNum, days = LEADERBOARD_WEEK_DAYS, kind = 'all') => {
+  if (!Array.isArray(events) || events.length <= 0) return 0;
+  const parsedDays = Number(days);
+  const periodDays = Number.isFinite(parsedDays) && parsedDays > 0
+    ? Math.floor(parsedDays)
+    : LEADERBOARD_WEEK_DAYS;
+  const fallbackEnd = dayKeyToNumber(new Date().toISOString().slice(0, 10));
+  const safeEndDayNum = Number.isFinite(endDayNum) ? Math.floor(endDayNum) : fallbackEnd;
+  if (!Number.isFinite(safeEndDayNum)) return 0;
+  const startDayNum = safeEndDayNum - Math.max(periodDays - 1, 0);
+  const seenKeys = new Set();
+
+  events.forEach((event) => {
+    if (!event || typeof event !== 'object') return;
+    if (!isLeaderboardProgressEventSource(event)) return;
+    const taskNum = Number(event.taskNumber);
+    if (!Number.isFinite(taskNum) || !shouldIncludeLeaderboardProgressKind(taskNum, kind)) return;
+    const dayKey = getSolvedEventDayKey(event);
+    const dayNum = dayKeyToNumber(dayKey);
+    if (!Number.isFinite(dayNum) || dayNum < startDayNum || dayNum > safeEndDayNum) return;
+    const levelId = String(event.levelId || '').trim();
+    const questionId = String(event.questionId ?? '').trim();
+    if (!questionId) return;
+    seenKeys.add(`${Math.trunc(taskNum)}:${levelId}:${questionId}`);
+  });
+
+  return seenKeys.size;
+};
+
+const getLeaderboardPlatformDaysSummary = (student, periodWindow) => {
+  const todayDayNum = Number.isFinite(periodWindow?.endDayNum)
+    ? Math.floor(periodWindow.endDayNum)
+    : dayKeyToNumber(new Date().toISOString().slice(0, 10));
+  const weekStartDayNum = Number.isFinite(periodWindow?.startDayNum)
+    ? Math.floor(periodWindow.startDayNum)
+    : todayDayNum - (LEADERBOARD_WEEK_DAYS - 1);
+  const joinedAt = typeof student?.createdAt === 'string' ? student.createdAt.trim() : '';
+  const joinedDayNum = dayKeyToNumber(getLeaderboardProfileDayKey(joinedAt || new Date()));
+  if (!Number.isFinite(todayDayNum) || !Number.isFinite(joinedDayNum)) {
+    return {
+      totalDays: 0,
+      weeklyDays: 0,
+    };
+  }
+
+  const totalDays = Math.max(0, todayDayNum - joinedDayNum + 1);
+  const weeklyStart = Number.isFinite(weekStartDayNum) ? Math.max(weekStartDayNum, joinedDayNum) : joinedDayNum;
+  const weeklyDays = weeklyStart <= todayDayNum
+    ? Math.max(0, todayDayNum - weeklyStart + 1)
+    : 0;
+
+  return {
+    totalDays,
+    weeklyDays,
+  };
+};
+
 const getLeaderboardProfileActivitySummary = (events, endDayNum, days = LEADERBOARD_WEEK_DAYS) => {
   const summary = {
     weeklySolvedQuestions: 0,
@@ -11377,11 +11560,17 @@ app.get('/api/students/leaderboard', (req, res) => {
   const startDayNum = endDayNum - (LEADERBOARD_WEEK_DAYS - 1);
   const startDay = numberToDayKey(startDayNum) || todayKey;
   const endDay = numberToDayKey(endDayNum) || todayKey;
+  const leaderboardWindow = {
+    startDayNum,
+    endDayNum,
+    days: LEADERBOARD_WEEK_DAYS,
+  };
   const currentStudentId = isStudentRole(req.auth) ? String(req.auth.id || '') : '';
   const selectedStudentId = isTeacherRole(req.auth) && requestedStudentId
     ? requestedStudentId
     : currentStudentId;
   const anonNameById = buildLeaderboardAnonNameMap(students);
+  const testsDb = readTestsDb();
 
   const items = students.map((student) => {
     const data = getStudentData(student.id);
@@ -11391,12 +11580,55 @@ app.get('/api/students/leaderboard', (req, res) => {
     const alias = normalizeLeaderboardAlias(data?.leaderboardAlias);
     const mainName = includeTeacherIdentity ? normalizeStudentName(student.name) : '';
     const nickname = includeTeacherIdentity ? normalizeStudentNickname(student.nickname) : '';
+    const activity = getLeaderboardProfileActivitySummary(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS);
+    const courseProgress = getLeaderboardProgressSummaryByKind(data, testsDb, 'course');
+    const pythonProgress = getLeaderboardProgressSummaryByKind(data, testsDb, 'python');
+    const platformDays = getLeaderboardPlatformDaysSummary(student, leaderboardWindow);
+    const weeklyCoursePercent = getRecentProgressPercentFromSolvedEvents(
+      data?.solvedEvents,
+      testsDb,
+      endDayNum,
+      LEADERBOARD_WEEK_DAYS,
+      'course'
+    );
+    const weeklyPythonPercent = getRecentProgressPercentFromSolvedEvents(
+      data?.solvedEvents,
+      testsDb,
+      endDayNum,
+      LEADERBOARD_WEEK_DAYS,
+      'python'
+    );
     return {
       studentId: student.id,
       publicName: alias || anonNameById.get(student.id) || 'Аноним',
       level,
       xpTotal,
       weeklyXp,
+      solvedQuestions: getSolvedQuestionCountFromSolvedByTask(data?.solvedByTask),
+      weeklySolvedQuestions: activity.weeklySolvedQuestions,
+      activeDaysTotal: activity.totalActiveDays,
+      activeDaysWeek: activity.weeklyActiveDays,
+      course: {
+        ...courseProgress,
+        weeklyPercent: weeklyCoursePercent,
+        weeklySolvedQuestions: getRecentSolvedQuestionCountByKind(
+          data?.solvedEvents,
+          endDayNum,
+          LEADERBOARD_WEEK_DAYS,
+          'course'
+        ),
+      },
+      python: {
+        ...pythonProgress,
+        weeklyPercent: weeklyPythonPercent,
+        weeklySolvedQuestions: getRecentSolvedQuestionCountByKind(
+          data?.solvedEvents,
+          endDayNum,
+          LEADERBOARD_WEEK_DAYS,
+          'python'
+        ),
+      },
+      platformDays,
       hasAlias: Boolean(alias),
       mainName,
       nickname,
