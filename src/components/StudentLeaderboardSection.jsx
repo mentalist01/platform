@@ -2,6 +2,7 @@
 import { createPortal } from 'react-dom';
 import {
   CheckCircle2,
+  ChevronDown,
   Clock3,
   LockKeyhole,
   Package2,
@@ -1091,108 +1092,115 @@ const StudentLeaderboardSection = ({
                 <div className="mock-timer-chest-panel__empty-text">Сундуки появятся здесь после таймерных пробников.</div>
               </div>
             </div>
+            <div className="mock-timer-chest-panel__empty-slots" aria-hidden="true">
+              {Array.from({ length: Math.min(slotCount, 6) }, (_, index) => (
+                <span key={`timer-empty-preview-${index}`} />
+              ))}
+            </div>
           </div>
         )}
-        <div className="mock-timer-chest-panel__slots">
-          {slots.map((chest, index) => {
-            if (!chest) {
+        {!isChestVaultEmpty && (
+          <div className="mock-timer-chest-panel__slots">
+            {slots.map((chest, index) => {
+              if (!chest) {
+                return (
+                  <div key={`empty-chest-slot-${index}`} className="mock-timer-chest-slot mock-timer-chest-slot--empty">
+                    <div className="mock-timer-chest-slot__status">Пусто</div>
+                    <div className="mock-timer-chest-slot__ghost" />
+                    <div className="mock-timer-chest-slot__action">Слот</div>
+                  </div>
+                );
+              }
+              const chestId = String(chest.id || '');
+              const state = getClientChestState(chest, chestTimerNow);
+              const readyAtMs = Date.parse(chest.openReadyAt || '');
+              const remainingMs = Number.isFinite(readyAtMs) ? Math.max(0, readyAtMs - chestTimerNow) : 0;
+              const isReady = state === 'ready';
+              const isOpening = state === 'opening';
+              const isClosed = state === 'closed';
+              const actionId = isReady ? `claim:${chestId}` : `start:${chestId}`;
+              const isBusy = chestActionId === actionId;
+              const isStarting = chestActionId === `start:${chestId}`;
+              const isClaiming = chestActionId === `claim:${chestId}`;
+              const isSquishing = chestPressFeedback.id === chestId;
+              const canStart = isClosed && !hasOpeningChest;
+              const canPress = isReady || canStart;
+              const statusLabel = isClaiming
+                ? 'Открываем'
+                : isStarting
+                  ? 'Запуск'
+                  : isReady
+                    ? 'Готово'
+                    : (isOpening ? 'Открывается' : 'Закрыто');
+              const timeLabel = isReady
+                ? '!'
+                : (isOpening ? formatChestCountdown(remainingMs) : (isStarting ? openDurationCountdown : openDurationLabel));
+              const actionLabel = isReady
+                ? (isBusy ? 'Открываем...' : 'Открыть')
+                : (isOpening ? 'Идёт таймер' : (isBusy ? 'Запуск...' : 'Начать'));
+              const slotClassName = [
+                'mock-timer-chest-slot',
+                `mock-timer-chest-slot--${state}`,
+                'mock-timer-chest-slot--interactive',
+                canPress ? 'mock-timer-chest-slot--clickable' : '',
+                isStarting ? 'mock-timer-chest-slot--starting' : '',
+                isClaiming ? 'mock-timer-chest-slot--claiming' : '',
+                isSquishing ? 'mock-timer-chest-slot--squish' : '',
+                isClosed && hasOpeningChest ? 'mock-timer-chest-slot--blocked' : '',
+              ].filter(Boolean).join(' ');
               return (
-                <div key={`empty-chest-slot-${index}`} className="mock-timer-chest-slot mock-timer-chest-slot--empty">
-                  <div className="mock-timer-chest-slot__status">Пусто</div>
-                  <div className="mock-timer-chest-slot__ghost" />
-                  <div className="mock-timer-chest-slot__action">Слот</div>
-                </div>
+                <button
+                  key={chestId || `chest-slot-${index}`}
+                  type="button"
+                  disabled={isBusy}
+                  aria-disabled={!canPress && !isOpening ? 'true' : undefined}
+                  onClick={() => {
+                    triggerChestPressFeedback(chestId);
+                    if (isReady) {
+                      void handleClaimChest(chestId);
+                      return;
+                    }
+                    if (isOpening) {
+                      showChestNotice({
+                        title: 'Этот сундук уже открывается',
+                        message: 'Таймер запущен. Когда отсчёт дойдёт до нуля, сундук можно будет открыть.',
+                        chestId,
+                      });
+                      return;
+                    }
+                    if (canStart) void handleStartChestOpening(chestId);
+                    else if (isClosed && hasOpeningChest) {
+                      showChestNotice({
+                        title: 'Этот сундук пока нельзя открыть',
+                        message: `Сейчас уже открывается другой сундук. Осталось ${formatChestCountdown(openingRemainingMs)}.`,
+                        chestId: String(openingChest?.id || ''),
+                      });
+                    }
+                  }}
+                  className={slotClassName}
+                >
+                  <span className="mock-timer-chest-slot__aura" aria-hidden="true" />
+                  <span className="mock-timer-chest-slot__burst" aria-hidden="true" />
+                  <div className="mock-timer-chest-slot__status">
+                    <span>{statusLabel}</span>
+                    <strong>{timeLabel}</strong>
+                  </div>
+                  <img
+                    src={isClaiming ? chestOpenImage : chestClosedImage}
+                    alt=""
+                    draggable="false"
+                    className="mock-timer-chest-slot__image"
+                  />
+                  <div className="mock-timer-chest-slot__action">
+                    {isReady && !isClaiming && <CheckCircle2 size={13} />}
+                    {(isOpening || isStarting || isClaiming) && <Clock3 size={13} />}
+                    <span>{actionLabel}</span>
+                  </div>
+                </button>
               );
-            }
-            const chestId = String(chest.id || '');
-            const state = getClientChestState(chest, chestTimerNow);
-            const readyAtMs = Date.parse(chest.openReadyAt || '');
-            const remainingMs = Number.isFinite(readyAtMs) ? Math.max(0, readyAtMs - chestTimerNow) : 0;
-            const isReady = state === 'ready';
-            const isOpening = state === 'opening';
-            const isClosed = state === 'closed';
-            const actionId = isReady ? `claim:${chestId}` : `start:${chestId}`;
-            const isBusy = chestActionId === actionId;
-            const isStarting = chestActionId === `start:${chestId}`;
-            const isClaiming = chestActionId === `claim:${chestId}`;
-            const isSquishing = chestPressFeedback.id === chestId;
-            const canStart = isClosed && !hasOpeningChest;
-            const canPress = isReady || canStart;
-            const statusLabel = isClaiming
-              ? 'Открываем'
-              : isStarting
-                ? 'Запуск'
-                : isReady
-                  ? 'Готово'
-                  : (isOpening ? 'Открывается' : 'Закрыто');
-            const timeLabel = isReady
-              ? '!'
-              : (isOpening ? formatChestCountdown(remainingMs) : (isStarting ? openDurationCountdown : openDurationLabel));
-            const actionLabel = isReady
-              ? (isBusy ? 'Открываем...' : 'Открыть')
-              : (isOpening ? 'Идёт таймер' : (isBusy ? 'Запуск...' : 'Начать'));
-            const slotClassName = [
-              'mock-timer-chest-slot',
-              `mock-timer-chest-slot--${state}`,
-              'mock-timer-chest-slot--interactive',
-              canPress ? 'mock-timer-chest-slot--clickable' : '',
-              isStarting ? 'mock-timer-chest-slot--starting' : '',
-              isClaiming ? 'mock-timer-chest-slot--claiming' : '',
-              isSquishing ? 'mock-timer-chest-slot--squish' : '',
-              isClosed && hasOpeningChest ? 'mock-timer-chest-slot--blocked' : '',
-            ].filter(Boolean).join(' ');
-            return (
-              <button
-                key={chestId || `chest-slot-${index}`}
-                type="button"
-                disabled={isBusy}
-                aria-disabled={!canPress && !isOpening ? 'true' : undefined}
-                onClick={() => {
-                  triggerChestPressFeedback(chestId);
-                  if (isReady) {
-                    void handleClaimChest(chestId);
-                    return;
-                  }
-                  if (isOpening) {
-                    showChestNotice({
-                      title: 'Этот сундук уже открывается',
-                      message: 'Таймер запущен. Когда отсчёт дойдёт до нуля, сундук можно будет открыть.',
-                      chestId,
-                    });
-                    return;
-                  }
-                  if (canStart) void handleStartChestOpening(chestId);
-                  else if (isClosed && hasOpeningChest) {
-                    showChestNotice({
-                      title: 'Этот сундук пока нельзя открыть',
-                      message: `Сейчас уже открывается другой сундук. Осталось ${formatChestCountdown(openingRemainingMs)}.`,
-                      chestId: String(openingChest?.id || ''),
-                    });
-                  }
-                }}
-                className={slotClassName}
-              >
-                <span className="mock-timer-chest-slot__aura" aria-hidden="true" />
-                <span className="mock-timer-chest-slot__burst" aria-hidden="true" />
-                <div className="mock-timer-chest-slot__status">
-                  <span>{statusLabel}</span>
-                  <strong>{timeLabel}</strong>
-                </div>
-                <img
-                  src={isClaiming ? chestOpenImage : chestClosedImage}
-                  alt=""
-                  draggable="false"
-                  className="mock-timer-chest-slot__image"
-                />
-                <div className="mock-timer-chest-slot__action">
-                  {isReady && !isClaiming && <CheckCircle2 size={13} />}
-                  {(isOpening || isStarting || isClaiming) && <Clock3 size={13} />}
-                  <span>{actionLabel}</span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+            })}
+          </div>
+        )}
 
         {(overflowCount > 0 || chestError) && (
           <div className="mock-timer-chest-panel__footer">
@@ -1273,10 +1281,10 @@ const StudentLeaderboardSection = ({
               <Sparkles size={14} />
               Бонусы артефактов
             </div>
-            <div className="teacher-rating-artifact-bonuses__name mt-1 text-base font-semibold text-slate-900">
+            <div className="teacher-rating-artifact-bonuses__name student-leaderboard-heading mt-1 text-base font-semibold text-slate-900">
               {hasSelectedStudent ? selectedLabel : 'Выберите ученика'}
             </div>
-            <div className="teacher-rating-artifact-bonuses__subtitle mt-1 text-xs text-slate-500">
+            <div className="teacher-rating-artifact-bonuses__subtitle student-leaderboard-copy mt-1 text-xs text-slate-500">
               {hasSelectedStudent
                 ? (selectedTeacherSubtitle || 'Сводка по выбранному ученику')
                 : 'После выбора здесь появятся все активные бонусы его артефактов.'}
@@ -1317,8 +1325,8 @@ const StudentLeaderboardSection = ({
                 data-tone={String(entry.tone || 'default')}
               >
                 <div className="flex items-baseline justify-between gap-3">
-                  <div className="min-w-0 truncate text-xs font-semibold">{entry.label || 'Бонус'}</div>
-                  <div className="shrink-0 whitespace-nowrap text-base font-black">{entry.value || 'Активен'}</div>
+                  <div className="student-leaderboard-row-name min-w-0 truncate text-xs font-semibold">{entry.label || 'Бонус'}</div>
+                  <div className="student-leaderboard-metric-value shrink-0 whitespace-nowrap text-base font-black">{entry.value || 'Активен'}</div>
                 </div>
               </div>
             ))}
@@ -1348,10 +1356,10 @@ const StudentLeaderboardSection = ({
     return (
       <div className="flex flex-wrap items-center gap-1.5">
         <span>Рейтинг по</span>
-        <span className="inline-grid min-w-[4.75rem] max-w-full align-middle">
+        <span className="relative inline-grid min-w-[4.35rem] max-w-full align-middle">
           <span
             aria-hidden="true"
-            className="invisible col-start-1 row-start-1 whitespace-pre rounded-md border border-transparent px-1.5 py-0.5 pr-7 text-[11px] font-black uppercase tracking-[0.06em]"
+            className="student-leaderboard-metric-select invisible whitespace-pre rounded-md border border-transparent px-1.5 py-0.5 pr-5 text-[11px] font-black uppercase"
           >
             {selectedMetric.titleLabel}
           </span>
@@ -1359,7 +1367,7 @@ const StudentLeaderboardSection = ({
             value={selectedMetric.id}
             onChange={(event) => setSelectedMetricId(event.target.value)}
             aria-label="Показатель рейтинга"
-            className="col-start-1 row-start-1 h-full w-full rounded-md border border-purple-200 bg-purple-50 px-1.5 py-0.5 pr-7 text-[11px] font-black uppercase tracking-[0.06em] text-purple-700 outline-none transition focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
+            className="student-leaderboard-metric-select absolute inset-0 h-full w-full appearance-none rounded-md border border-purple-200 bg-purple-50 px-1.5 py-0.5 pr-5 text-[11px] font-black uppercase text-purple-700 outline-none transition focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
           >
             {LEADERBOARD_METRIC_OPTIONS.map((metric) => (
               <option key={metric.id} value={metric.id}>
@@ -1367,6 +1375,11 @@ const StudentLeaderboardSection = ({
               </option>
             ))}
           </select>
+          <ChevronDown
+            size={12}
+            aria-hidden="true"
+            className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-purple-600"
+          />
         </span>
         <span>{periodLabel}</span>
       </div>
@@ -1447,27 +1460,29 @@ const StudentLeaderboardSection = ({
 
   const renderBoard = (items, type) => (
     <div
-      className="rounded-3xl border border-purple-200/70 bg-white/90 p-4 shadow-soft"
+      className={`student-leaderboard-board student-leaderboard-board--${type} rounded-3xl border border-purple-200/70 bg-white/90 p-4 shadow-soft`}
       data-tour={type === 'all' ? 'rating-level-board' : 'rating-week-board'}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="student-leaderboard-board-header flex items-start justify-between gap-3">
         <div>
-          <div className="text-xs font-bold uppercase tracking-[0.18em] text-purple-600">
+          <div className="student-leaderboard-kicker text-xs font-bold uppercase text-purple-600">
             {renderMetricBoardTitle(type)}
           </div>
-          <div className="mt-1 text-xs text-gray-500">
+          <div className="student-leaderboard-copy mt-1 text-xs text-gray-500">
             {getMetricBoardCopy(type).subtitle}
           </div>
         </div>
-        <div className="rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-[11px] font-semibold text-purple-700">
+        <div className="student-leaderboard-chip rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-[11px] font-semibold text-purple-700">
           {`${items.length} учен.`}
         </div>
       </div>
-      <div className="mt-3 space-y-2">
+      <div className="student-leaderboard-board-list mt-3 space-y-2">
         {items.map((row, index) => {
           const topPlaceDecor = TOP_PLACE_NUMBER_DECOR[index];
           const leagueAuraStyle = getLeagueAuraStyle(row.league.id);
           const isAbsoluteLeague = isAbsoluteOrAboveLeague(row.league.id);
+          const place = index + 1;
+          const isTopPlace = place <= 3;
           const canSelectRow = role === 'teacher' && typeof onSelectStudent === 'function';
           const canOpenProfile = role === 'student';
           const isInteractiveRow = canSelectRow || canOpenProfile;
@@ -1503,6 +1518,7 @@ const StudentLeaderboardSection = ({
               aria-pressed={canSelectRow ? row.isSelected : undefined}
               aria-haspopup={canOpenProfile ? 'dialog' : undefined}
               aria-expanded={canOpenProfile ? isProfileActive : undefined}
+              data-place={place}
               onClick={isInteractiveRow ? handleRowActivate : undefined}
               onKeyDown={isInteractiveRow ? (event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
@@ -1510,12 +1526,18 @@ const StudentLeaderboardSection = ({
                   handleRowActivate();
                 }
               } : undefined}
-              className={`flex items-center gap-3 rounded-2xl border px-3 py-2.5 transition ${rowStateClass} ${
+              className={`student-leaderboard-row ${isTopPlace ? 'student-leaderboard-row--top' : ''} ${
+                row.isCurrent ? 'student-leaderboard-row--current' : ''
+              } ${row.isSelected ? 'student-leaderboard-row--selected' : ''} ${
+                isProfileActive ? 'student-leaderboard-row--profile-active' : ''
+              } flex items-center gap-3 rounded-2xl border px-3 py-2.5 transition ${rowStateClass} ${
                 interactiveClassName
               }`}
             >
             <div
-              className={`relative flex h-10 w-10 shrink-0 items-center justify-center overflow-visible rounded-full border ${
+              className={`student-leaderboard-rank-badge ${
+                row.league.id === 'blank' ? 'student-leaderboard-rank-badge--blank' : ''
+              } relative flex h-10 w-10 shrink-0 items-center justify-center overflow-visible rounded-full border ${
                 row.league.id === 'blank'
                   ? 'border-slate-200 bg-slate-50'
                   : 'border-purple-200 bg-white'
@@ -1564,20 +1586,20 @@ const StudentLeaderboardSection = ({
                 </span>
               )}
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-semibold text-slate-900">{row.displayName}</div>
+            <div className="student-leaderboard-row-copy min-w-0 flex-1">
+              <div className="student-leaderboard-row-name truncate text-sm font-semibold text-slate-900">{row.displayName}</div>
               {row.showTeacherIdentity && (
-                <div className="truncate text-[11px] text-slate-500">{`Имя: ${row.mainName || '—'} • Имя2: ${row.nickname || '—'}`}</div>
+                <div className="student-leaderboard-row-meta truncate text-[11px] text-slate-500">{`Имя: ${row.mainName || '—'} • Имя2: ${row.nickname || '—'}`}</div>
               )}
-              <div className="text-[11px] text-slate-500">{`${row.league.label} - Уровень ${row.level} - ${row.xpTotalLabel} XP`}</div>
+              <div className="student-leaderboard-row-meta text-[11px] text-slate-500">{`${row.league.label} - Уровень ${row.level} - ${row.xpTotalLabel} XP`}</div>
             </div>
-            <div className="text-right">
+            <div className="student-leaderboard-metric-cell text-right">
               {(() => {
                 const valueParts = getMetricValueParts(row, type);
                 return (
                   <>
-                    <div className="text-sm font-bold text-slate-900">{valueParts.primary}</div>
-                    <div className="text-[11px] font-semibold text-purple-600">{valueParts.secondary}</div>
+                    <div className="student-leaderboard-metric-value text-sm font-bold text-slate-900">{valueParts.primary}</div>
+                    <div className="student-leaderboard-metric-note text-[11px] font-semibold text-purple-600">{valueParts.secondary}</div>
                   </>
                 );
               })()}
@@ -1591,7 +1613,7 @@ const StudentLeaderboardSection = ({
 
   if (loading) {
     return (
-      <section className="rounded-3xl border border-purple-200/70 bg-white/90 p-6 text-sm text-gray-600 shadow-soft" data-tour="rating-overview">
+      <section className="student-leaderboard-section rounded-3xl border border-purple-200/70 bg-white/90 p-6 text-sm text-gray-600 shadow-soft" data-tour="rating-overview">
         Загрузка рейтинга...
       </section>
     );
@@ -1599,7 +1621,7 @@ const StudentLeaderboardSection = ({
 
   if (error) {
     return (
-      <section className="rounded-3xl border border-rose-200 bg-rose-50/70 p-6 text-sm text-rose-700 shadow-soft" data-tour="rating-overview">
+      <section className="student-leaderboard-section rounded-3xl border border-rose-200 bg-rose-50/70 p-6 text-sm text-rose-700 shadow-soft" data-tour="rating-overview">
         <div>{error}</div>
         <button
           type="button"
@@ -1615,28 +1637,28 @@ const StudentLeaderboardSection = ({
 
   if (rows.length === 0) {
     return (
-      <section className="rounded-3xl border border-purple-200/70 bg-white/90 p-6 text-sm text-gray-600 shadow-soft" data-tour="rating-overview">
+      <section className="student-leaderboard-section rounded-3xl border border-purple-200/70 bg-white/90 p-6 text-sm text-gray-600 shadow-soft" data-tour="rating-overview">
         Учеников для рейтинга пока нет.
       </section>
     );
   }
 
   return (
-    <section className="space-y-4" data-tour="rating-section">
-      <div className="surface-panel rounded-3xl border border-purple-200/70 px-4 py-4 text-sm text-gray-700 shadow-soft" data-tour="rating-overview">
+    <section className="student-leaderboard-section space-y-4" data-tour="rating-section">
+      <div className="student-leaderboard-overview surface-panel rounded-3xl border border-purple-200/70 px-4 py-4 text-sm text-gray-700 shadow-soft" data-tour="rating-overview">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="text-xs font-bold uppercase tracking-[0.18em] text-purple-600">Рейтинг учеников</div>
-            <div className="mt-1 text-base font-semibold text-gray-900">
+            <div className="student-leaderboard-kicker text-xs font-bold uppercase text-purple-600">Рейтинг учеников</div>
+            <div className="student-leaderboard-heading mt-1 text-base font-semibold text-gray-900">
               {role === 'student'
                 ? `Твоя позиция в рейтинге: ${currentRatingPosition || '—'}`
                 : 'Общий рейтинг по группе'}
             </div>
-            <div className="mt-2 inline-flex items-center rounded-full border border-purple-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-purple-700">
+            <div className="student-leaderboard-chip mt-2 inline-flex items-center rounded-full border border-purple-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-purple-700">
               {`Недельный период: ${weekRangeLabel}`}
             </div>
             {role === 'student' && (
-              <div className="mt-2 text-xs text-slate-500">
+              <div className="student-leaderboard-copy mt-2 text-xs text-slate-500">
                 Нажмите на ученика в рейтинге, чтобы открыть его полный профиль.
               </div>
             )}
@@ -1647,7 +1669,7 @@ const StudentLeaderboardSection = ({
               type="button"
               onClick={() => loadLeaderboard({ silent: true })}
               disabled={refreshing}
-              className="inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-white px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-50 disabled:opacity-60"
+              className="student-leaderboard-refresh inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-white px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-50 disabled:opacity-60"
             >
               <RefreshCcw size={14} className={refreshing ? 'animate-spin' : ''} />
               {refreshing ? 'Обновляем...' : 'Обновить'}
@@ -1656,9 +1678,9 @@ const StudentLeaderboardSection = ({
         </div>
         {role === 'student' && (
           <div className="mt-3 space-y-2">
-            <div className="rounded-2xl border border-purple-200 bg-white px-3 py-2.5" data-tour="rating-league">
+            <div className="student-leaderboard-league-card rounded-2xl border border-purple-200 bg-white px-3 py-2.5" data-tour="rating-league">
               <div className="flex items-center justify-between gap-3">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-purple-500">Ваша лига</div>
+                <div className="student-leaderboard-kicker text-[11px] font-semibold uppercase text-purple-500">Ваша лига</div>
                 <button
                   type="button"
                   onClick={() => setIsLeagueRangesOpen((prev) => !prev)}
@@ -1704,8 +1726,8 @@ const StudentLeaderboardSection = ({
                   )}
                 </div>
                 <div className="min-w-0">
-                  <div className="truncate text-base font-bold text-slate-900">{currentLeague.label}</div>
-                  <div className="text-[11px] text-slate-500">
+                  <div className="student-leaderboard-heading truncate text-base font-bold text-slate-900">{currentLeague.label}</div>
+                  <div className="student-leaderboard-row-meta text-[11px] text-slate-500">
                     {`${currentStudentRow?.xpTotalLabel || '0'} XP${currentStudentRow ? ` - Уровень ${currentStudentRow.level}` : ''}`}
                   </div>
                 </div>
@@ -1716,8 +1738,8 @@ const StudentLeaderboardSection = ({
 
             {isLeagueRangesOpen && (
               <div className="rounded-2xl border border-purple-200 bg-white px-3 py-2.5">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-purple-500">Лиги и диапазоны XP</div>
-                <div className="mt-1 text-[11px] text-slate-500">Сколько опыта нужно для каждой лиги</div>
+                <div className="student-leaderboard-kicker text-[11px] font-semibold uppercase text-purple-500">Лиги и диапазоны XP</div>
+                <div className="student-leaderboard-copy mt-1 text-[11px] text-slate-500">Сколько опыта нужно для каждой лиги</div>
                 <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {leagueRangeRows.map((leagueItem) => {
                     const isCurrentLeagueItem = leagueItem.id === currentLeague.id;
@@ -1766,10 +1788,10 @@ const StudentLeaderboardSection = ({
                           )}
                         </div>
                         <div className="min-w-0">
-                          <div className={`truncate text-xs font-bold ${isCurrentLeagueItem ? 'text-purple-700' : 'text-slate-900'}`}>
+                          <div className={`student-leaderboard-row-name truncate text-xs font-bold ${isCurrentLeagueItem ? 'text-purple-700' : 'text-slate-900'}`}>
                             {leagueItem.label}
                           </div>
-                          <div className="text-[11px] text-slate-500">{leagueItem.rangeLabel}</div>
+                          <div className="student-leaderboard-row-meta text-[11px] text-slate-500">{leagueItem.rangeLabel}</div>
                         </div>
                       </div>
                     );
@@ -1785,11 +1807,11 @@ const StudentLeaderboardSection = ({
 
       {needsAliasPrompt && (
         <div className="rounded-3xl border border-amber-200 bg-amber-50/70 p-4 shadow-soft" data-tour="rating-name">
-          <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Имя в рейтинге</div>
-          <div className="mt-1 text-sm font-semibold text-slate-900">
+          <div className="student-leaderboard-kicker text-xs font-bold uppercase text-amber-700">Имя в рейтинге</div>
+          <div className="student-leaderboard-heading mt-1 text-sm font-semibold text-slate-900">
             Сейчас вы отображаетесь как «{currentStudentMeta?.publicName || 'Аноним'}».
           </div>
-          <div className="mt-1 text-xs text-slate-600">
+          <div className="student-leaderboard-copy mt-1 text-xs text-slate-600">
             Вы можете выбрать, как показываться в рейтинге: под основным именем или под псевдонимом.
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
