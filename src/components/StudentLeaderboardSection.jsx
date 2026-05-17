@@ -936,44 +936,16 @@ const StudentLeaderboardSection = ({
     }
   }, [applyMockTimerChestPanel, role, showChestNotice]);
 
-  const handleAddTestChest = useCallback(async () => {
-    if (role !== 'student') return;
-    const actionId = 'test:add-chest';
-    setChestActionId(actionId);
-    setChestError('');
-    setChestNotice(null);
-    try {
-      const data = await api.addTestMockTimerChest();
-      if (!mountedRef.current) return;
-      if (data?.mockTimerChests) applyMockTimerChestPanel(data.mockTimerChests);
-    } catch (err) {
-      if (!mountedRef.current) return;
-      const message = err?.message || 'Не удалось добавить тестовый сундук.';
-      setChestError(message);
-      showChestNotice({
-        title: 'Тестовый сундук не добавился',
-        message,
-      });
-    } finally {
-      if (mountedRef.current) {
-        setChestActionId((current) => (current === actionId ? '' : current));
-      }
-    }
-  }, [applyMockTimerChestPanel, role, showChestNotice]);
-
-  const handleClaimChest = useCallback(async (chestId, options = {}) => {
+  const handleClaimChest = useCallback(async (chestId) => {
     if (role !== 'student' || !chestId) return;
     const actionId = `claim:${chestId}`;
-    const openNow = Boolean(options?.openNow);
     setChestActionId(actionId);
     setChestError('');
     setChestNotice(null);
     try {
-      if (!openNow) {
-        await new Promise((resolve) => window.setTimeout(resolve, 520));
-        if (!mountedRef.current) return;
-      }
-      const data = await api.prepareMockTimerChestOpening(chestId, { openNow });
+      await new Promise((resolve) => window.setTimeout(resolve, 520));
+      if (!mountedRef.current) return;
+      const data = await api.prepareMockTimerChestOpening(chestId);
       if (!mountedRef.current) return;
       if (data?.mockTimerChests) applyMockTimerChestPanel(data.mockTimerChests);
       const rewards = Array.isArray(data?.mockChestRewards)
@@ -1263,12 +1235,6 @@ const StudentLeaderboardSection = ({
       Math.max(0, chests.length - slotCount)
     );
     const isChestVaultEmpty = chests.length <= 0;
-    const testOpenChest = chests.find((chest) => Boolean(String(chest?.id || '').trim())) || null;
-    const isChestActionBusy = Boolean(chestActionId);
-    const isAddingTestChest = chestActionId === 'test:add-chest';
-    const isTestOpeningChest = testOpenChest
-      ? chestActionId === `claim:${String(testOpenChest.id || '')}`
-      : false;
     return (
       <div
         className={`mock-timer-chest-panel mt-3 ${isChestVaultEmpty ? 'mock-timer-chest-panel--empty' : ''}`}
@@ -1317,29 +1283,6 @@ const StudentLeaderboardSection = ({
             <div className="mock-timer-chest-panel__duration">
               <Clock3 size={14} />
               {openDurationLabel}
-            </div>
-            <div className="mock-timer-chest-panel__test-actions" aria-label="Тестовые действия с сундуками">
-              <button
-                type="button"
-                onClick={() => {
-                  void handleAddTestChest();
-                }}
-                disabled={isChestActionBusy}
-              >
-                {isAddingTestChest ? 'Добавляем...' : '+ сундук'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const chestId = String(testOpenChest?.id || '').trim();
-                  if (!chestId) return;
-                  triggerChestPressFeedback(chestId);
-                  void handleClaimChest(chestId, { openNow: true });
-                }}
-                disabled={!testOpenChest || isChestActionBusy}
-              >
-                {isTestOpeningChest ? 'Открываем...' : 'Открыть сейчас'}
-              </button>
             </div>
           </div>
         </div>

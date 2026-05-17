@@ -11974,35 +11974,6 @@ app.post('/api/students/mock-timer-chests/:chestId/start', (req, res) => {
   });
 });
 
-app.post('/api/students/mock-timer-chests/test-add', (req, res) => {
-  if (!isStudentRole(req.auth)) return forbid(res);
-  const student = ensureStudentAccess(req, res, req.auth.id);
-  if (!student) return;
-  const data = getStudentData(student.id);
-  const queue = normalizeMockTimerChestQueue(data?.mockTimerChests);
-  const now = new Date();
-  const testChest = {
-    id: crypto.randomUUID(),
-    source: 'mock-timer-chest',
-    mockExamId: 'test-chest',
-    mockExamTitle: 'Тестовый сундук',
-    chestIndex: queue.length + 1,
-    createdAt: now.toISOString(),
-    coinsGained: 0,
-  };
-  queue.push(testChest);
-  const updated = setStudentData(student.id, {
-    ...data,
-    mockTimerChestsTotal: normalizeCoinsTotal(data?.mockTimerChestsTotal) + 1,
-    mockTimerChests: queue,
-  });
-  return res.json({
-    ok: true,
-    chest: serializeMockTimerChest(testChest, now),
-    mockTimerChests: buildMockTimerChestPanelState(updated, now),
-  });
-});
-
 app.post('/api/students/mock-timer-chests/:chestId/prepare', (req, res) => {
   if (!isStudentRole(req.auth)) return forbid(res);
   const chestId = String(req.params?.chestId || '').trim();
@@ -12016,18 +11987,10 @@ app.post('/api/students/mock-timer-chests/:chestId/prepare', (req, res) => {
 
   const now = new Date();
   const nowMs = now.getTime();
-  const openNow = req.body?.openNow === true;
   let chest = queue[chestIndex];
   const targetState = getMockTimerChestState(chest, nowMs);
   if (targetState !== 'ready') {
-    if (!(openNow && (targetState === 'opening' || targetState === 'closed'))) {
-      return res.status(409).json({ error: 'Сундук ещё не готов к открытию.' });
-    }
-    chest = {
-      ...chest,
-      openStartedAt: chest.openStartedAt || now.toISOString(),
-      openReadyAt: now.toISOString(),
-    };
+    return res.status(409).json({ error: 'Сундук ещё не готов к открытию.' });
   }
 
   const pendingReward = normalizeMockTimerChestPendingReward(chest.pendingReward)
@@ -12067,16 +12030,8 @@ app.post('/api/students/mock-timer-chests/:chestId/claim', (req, res) => {
   const nowMs = now.getTime();
   let chest = queue[chestIndex];
   const targetState = getMockTimerChestState(chest, nowMs);
-  const openNow = req.body?.openNow === true;
   if (targetState !== 'ready') {
-    if (!(openNow && (targetState === 'opening' || targetState === 'closed'))) {
-      return res.status(409).json({ error: 'Сундук ещё открывается.' });
-    }
-    chest = {
-      ...chest,
-      openStartedAt: chest.openStartedAt || now.toISOString(),
-      openReadyAt: now.toISOString(),
-    };
+    return res.status(409).json({ error: 'Сундук ещё открывается.' });
   }
 
   const openedAt = now.toISOString();

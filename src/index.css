@@ -18387,40 +18387,6 @@ html[data-theme='dark'] .student-artifact-altar__bonus-card[data-tone='instant']
   gap: 0.45rem;
 }
 
-.mock-timer-chest-panel__test-actions {
-  display: inline-flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.35rem;
-}
-
-.mock-timer-chest-panel__test-actions button {
-  border: 1px solid rgba(168, 85, 247, 0.22);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.76);
-  padding: 0.36rem 0.58rem;
-  color: #7e22ce;
-  font-size: 0.66rem;
-  font-weight: 900;
-  line-height: 1;
-  transition:
-    border-color 0.18s ease,
-    background 0.18s ease,
-    color 0.18s ease,
-    transform 0.18s ease;
-}
-
-.mock-timer-chest-panel__test-actions button:hover:not(:disabled) {
-  border-color: rgba(168, 85, 247, 0.42);
-  background: rgba(250, 245, 255, 0.96);
-  transform: translateY(-1px);
-}
-
-.mock-timer-chest-panel__test-actions button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
 .mock-timer-chest-panel--empty {
   padding-bottom: 0.9rem;
 }
@@ -19710,17 +19676,6 @@ html[data-theme='dark'] .mock-timer-chest-panel__hint-row {
 
 html[data-theme='dark'] .mock-timer-chest-panel__hint-row strong {
   color: rgba(248, 250, 252, 0.98);
-}
-
-html[data-theme='dark'] .mock-timer-chest-panel__test-actions button {
-  border-color: rgba(167, 139, 250, 0.28);
-  background: rgba(15, 23, 42, 0.68);
-  color: rgba(233, 213, 255, 0.96);
-}
-
-html[data-theme='dark'] .mock-timer-chest-panel__test-actions button:hover:not(:disabled) {
-  border-color: rgba(196, 181, 253, 0.48);
-  background: rgba(88, 28, 135, 0.36);
 }
 
 html[data-theme='dark'] .mock-timer-chest-panel__empty-copy {
