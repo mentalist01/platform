@@ -166,7 +166,7 @@ const getArtifactRankSummary = (collection = []) => (
   }).filter((item) => item.totalOwned > 0)
 );
 
-const MetricTile = ({ icon: Icon, label, value, tone = 'violet' }) => {
+const MetricTile = ({ icon, label, value, tone = 'violet' }) => {
   const theme = TILE_THEME[tone] || TILE_THEME.violet;
   return (
     <div className={`relative min-w-0 overflow-hidden rounded-[1.4rem] px-4 py-4 ${theme.borderClassName}`}>
@@ -177,7 +177,7 @@ const MetricTile = ({ icon: Icon, label, value, tone = 'violet' }) => {
         </div>
       </div>
       <div className={`absolute right-4 top-4 inline-flex h-11 w-11 items-center justify-center rounded-2xl ${theme.iconClassName}`}>
-        <Icon size={19} />
+        {icon ? React.createElement(icon, { size: 19 }) : null}
       </div>
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/5 to-transparent" />
     </div>
@@ -340,7 +340,6 @@ const StudentLeaderboardProfileModal = ({
   ABSOLUTE_AURA_CROWN_STYLE,
   getLevelFromXp,
   getLevelProgressFromXp,
-  formatStreakDate,
   getLeagueIconClassName,
 }) => {
   useEffect(() => {
@@ -389,6 +388,16 @@ const StudentLeaderboardProfileModal = ({
     const mockSummary = profileData?.mocks && typeof profileData.mocks === 'object' ? profileData.mocks : {};
     const coinSummary = profileData?.coins && typeof profileData.coins === 'object' ? profileData.coins : {};
     const artifactSummary = profileData?.artifacts && typeof profileData.artifacts === 'object' ? profileData.artifacts : {};
+    const profileThemeRaw = profileData?.profileTheme && typeof profileData.profileTheme === 'object'
+      ? profileData.profileTheme
+      : (row?.profileTheme && typeof row.profileTheme === 'object' ? row.profileTheme : null);
+    const profileTheme = profileThemeRaw?.id
+      ? {
+          id: String(profileThemeRaw.id || '').trim(),
+          name: String(profileThemeRaw.name || profileThemeRaw.shortName || profileThemeRaw.id || '').trim(),
+          rarity: String(profileThemeRaw.rarity || 'common').trim().toLowerCase(),
+        }
+      : null;
     const collection = (Array.isArray(artifactSummary.collection) ? artifactSummary.collection : [])
       .map(getArtifactVisual)
       .filter(Boolean)
@@ -418,6 +427,7 @@ const StudentLeaderboardProfileModal = ({
       mockSummary,
       coinSummary,
       artifactSummary,
+      profileTheme,
       topCollection,
       collection,
       bonusEntries,
@@ -425,14 +435,6 @@ const StudentLeaderboardProfileModal = ({
   }, [getLeagueByXp, getLevelFromXp, getLevelProgressFromXp, profileData, row]);
 
   const [selectedArtifactId, setSelectedArtifactId] = useState('');
-
-  useEffect(() => {
-    if (!open) return;
-    setSelectedArtifactId((currentId) => {
-      if (visualState.topCollection.some((artifact) => artifact.id === currentId)) return currentId;
-      return visualState.topCollection[0]?.id || '';
-    });
-  }, [open, visualState.topCollection]);
 
   if (!open || typeof document === 'undefined') return null;
 
@@ -452,6 +454,7 @@ const StudentLeaderboardProfileModal = ({
     mockSummary,
     coinSummary,
     artifactSummary,
+    profileTheme,
     topCollection,
     collection,
     bonusEntries,
@@ -463,7 +466,10 @@ const StudentLeaderboardProfileModal = ({
   const rankSummary = getArtifactRankSummary(collection);
   const strongestTasks = Array.isArray(progressSummary.strongestTasks) ? progressSummary.strongestTasks.slice(0, 3) : [];
   const bestMock = mockSummary.best && typeof mockSummary.best === 'object' ? mockSummary.best : null;
-  const featuredArtifact = topCollection.find((artifact) => artifact.id === selectedArtifactId) || topCollection[0] || null;
+  const resolvedSelectedArtifactId = topCollection.some((artifact) => artifact.id === selectedArtifactId)
+    ? selectedArtifactId
+    : (topCollection[0]?.id || '');
+  const featuredArtifact = topCollection.find((artifact) => artifact.id === resolvedSelectedArtifactId) || topCollection[0] || null;
   const bestStreak = Math.max(clampNumber(streakSummary.best), clampNumber(streakSummary.current));
   const quickStats = [
     { key: 'week-xp', icon: TrendingUp, label: 'XP 7д', value: formatNumber(resolvedWeeklyXp), tone: 'sky' },
@@ -535,7 +541,10 @@ const StudentLeaderboardProfileModal = ({
         if (event.target === event.currentTarget) onClose?.();
       }}
     >
-      <div className="modal-card relative mx-auto w-full max-w-6xl overflow-hidden rounded-[2rem] bg-slate-950 text-slate-100 shadow-[0_35px_120px_rgba(15,23,42,0.72)]">
+      <div
+        className="modal-card student-profile-modal-card relative mx-auto w-full max-w-6xl overflow-hidden rounded-[2rem] bg-slate-950 text-slate-100 shadow-[0_35px_120px_rgba(15,23,42,0.72)]"
+        data-profile-theme={profileTheme?.id || undefined}
+      >
         <div className="absolute inset-0">
           <div className="absolute inset-x-0 top-0 h-[24rem] sm:h-[26rem] lg:h-[28rem] bg-[radial-gradient(circle_at_top_left,rgba(168,85,247,0.34),transparent_48%),radial-gradient(circle_at_top_right,rgba(56,189,248,0.25),transparent_40%),linear-gradient(180deg,rgba(59,7,100,0.5)_0%,rgba(37,26,78,0.28)_58%,rgba(2,6,23,0)_100%)]" />
           <div className="absolute -left-20 top-12 h-44 w-44 rounded-full bg-violet-500/10 blur-3xl" />
@@ -614,6 +623,11 @@ const StudentLeaderboardProfileModal = ({
                     {profileData?.isCurrent && (
                       <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-100">
                         Это вы
+                      </span>
+                    )}
+                    {profileTheme && (
+                      <span className="student-profile-modal-card__theme-chip rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-100">
+                        {profileTheme.name || profileTheme.id}
                       </span>
                     )}
                   </div>

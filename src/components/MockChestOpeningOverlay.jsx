@@ -5,6 +5,7 @@ import chestClosedImage from '../assets/mock-chest/chest-closed.png';
 import chestOpenImage from '../assets/mock-chest/chest-open.png';
 import ivanCoin from '../assets/ivan-coin-badge.png';
 import { ARTIFACT_CATALOG_METADATA } from '../data/artifactCatalog';
+import { PROFILE_THEME_CATALOG_BY_ID } from '../data/profileThemeCatalog';
 
 const artifactImageModules = import.meta.glob('../assets/artefacts/**/*.png', { eager: true, import: 'default' });
 
@@ -24,6 +25,13 @@ const RANK_META = {
   A: { label: 'A', color: '#a855f7', title: 'Эпический' },
   B: { label: 'B', color: '#3b82f6', title: 'Редкий' },
   C: { label: 'C', color: '#64748b', title: 'Обычный' },
+};
+
+const PROFILE_THEME_RANK_BY_RARITY = {
+  legendary: 'S',
+  epic: 'A',
+  rare: 'B',
+  common: 'C',
 };
 
 const ARTIFACT_CATALOG = ARTIFACT_CATALOG_METADATA
@@ -104,26 +112,58 @@ const normalizeChestArtifact = (artifact) => {
   };
 };
 
+const normalizeChestProfileTheme = (theme) => {
+  const id = String(theme?.id || theme?.themeId || '').trim();
+  const catalogTheme = PROFILE_THEME_CATALOG_BY_ID.get(id) || null;
+  if (!id || !catalogTheme) return null;
+  const rarity = String(theme?.rarity || catalogTheme.rarity || 'common').trim().toLowerCase();
+  const rank = PROFILE_THEME_RANK_BY_RARITY[rarity] || 'C';
+  return {
+    id,
+    kind: 'profile-theme',
+    rank,
+    rarity,
+    name: String(theme?.name || catalogTheme.name || id).trim() || id,
+    description: typeof theme?.description === 'string' && theme.description.trim()
+      ? theme.description.trim()
+      : (catalogTheme.description || ''),
+    src: '',
+    accent: typeof theme?.accent === 'string' && theme.accent.trim()
+      ? theme.accent.trim()
+      : (catalogTheme.accent || ''),
+    isNew: Boolean(theme?.isNew),
+  };
+};
+
 const normalizeChestRewards = (rewards) => (
   (Array.isArray(rewards) ? rewards : [])
     .map((reward, index) => {
       const artifacts = (Array.isArray(reward?.artifacts) ? reward.artifacts : [])
         .map(normalizeChestArtifact)
-        .filter(Boolean)
-        .slice(0, 2);
+        .filter(Boolean);
+      const profileThemes = (Array.isArray(reward?.profileThemes) ? reward.profileThemes : [])
+        .map(normalizeChestProfileTheme)
+        .filter(Boolean);
+      const prizes = [
+        ...artifacts.map((artifact) => ({ ...artifact, kind: 'artifact' })),
+        ...profileThemes,
+      ].slice(0, 3);
       return {
         id: String(reward?.id || `mock-chest-${index}`).trim() || `mock-chest-${index}`,
         coinsGained: Math.max(0, Math.floor(Number(reward?.coinsGained ?? reward?.coins ?? 0) || 0)),
         milestoneScore: Math.max(0, Math.floor(Number(reward?.milestoneScore) || 0)),
         chestIndex: Math.max(1, Math.floor(Number(reward?.chestIndex) || (index + 1))),
-        artifacts,
+        artifacts: artifacts.slice(0, 2),
+        profileThemes,
+        prizes,
       };
     })
-    .filter((reward) => reward.coinsGained > 0 || reward.artifacts.length > 0)
+    .filter((reward) => reward.coinsGained > 0 || reward.prizes.length > 0)
 );
 
 const getPhaseStep = (phase) => {
   if (phase === 'done') return 4;
+  if (phase === 'prize-three') return 4;
   if (phase === 'artifact-two') return 3;
   if (phase === 'artifact-one') return 2;
   if (phase === 'coins') return 1;
@@ -199,18 +239,16 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
   const closeTimerRef = useRef(null);
   const currentReward = safeRewards[rewardIndex] || null;
   const phaseStep = getPhaseStep(phase);
-  const maxRevealStep = currentReward ? Math.min(3, 1 + currentReward.artifacts.length) : 0;
+  const maxRevealStep = currentReward ? Math.min(4, 1 + currentReward.prizes.length) : 0;
   const canAdvance = phaseStep < maxRevealStep;
   const rewardReady = currentReward && phaseStep >= maxRevealStep;
   const isLastReward = rewardIndex >= safeRewards.length - 1;
-  const visibleArtifactCount = currentReward
-    ? Math.min(currentReward.artifacts.length, Math.max(0, phaseStep - 1))
+  const visiblePrizeCount = currentReward
+    ? Math.min(currentReward.prizes.length, Math.max(0, phaseStep - 1))
     : 0;
   const chestAriaLabel = phaseStep <= 0
     ? 'Открыть монеты из сундука'
-    : (phaseStep === 1
-      ? 'Открыть первый артефакт'
-      : (phaseStep === 2 ? 'Открыть второй артефакт' : 'Забрать награду'));
+    : (phaseStep < maxRevealStep ? 'Открыть следующую награду' : 'Забрать награду');
 
   const canInteractWithChest = !isClosing && (canAdvance || rewardReady);
   const chestPressClass = chestPressTick > 0
@@ -272,16 +310,16 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
       y: Math.max(72, window.innerHeight - 110),
     };
     const target = collectionTarget || fallbackTarget;
-    return currentReward.artifacts.slice(0, 2).map((artifact, index) => {
+    return currentReward.prizes.slice(0, 3).map((_, index) => {
       const element = artifactRefs.current[index] || null;
       const rect = element?.getBoundingClientRect?.();
       const originX = rect ? rect.left + (rect.width / 2) : (window.innerWidth / 2);
       const originY = rect ? rect.top + (rect.height / 2) : (window.innerHeight / 2);
-      const pairOffset = currentReward.artifacts.length > 1 ? (index === 0 ? -24 : 24) : 0;
+      const pairOffset = currentReward.prizes.length > 1 ? (index - ((currentReward.prizes.length - 1) / 2)) * 26 : 0;
       return {
         x: `${Math.round(target.x + pairOffset - originX)}px`,
         y: `${Math.round(target.y + (index * 10) - originY)}px`,
-        rotate: `${index === 0 ? -12 : 12}deg`,
+        rotate: `${index === 0 ? -12 : (index === 1 ? 12 : 4)}deg`,
         delay: `${index * 90}ms`,
       };
     });
@@ -318,7 +356,11 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
       setPhase('artifact-one');
       return;
     }
-    setPhase('artifact-two');
+    if (phaseStep === 2) {
+      setPhase('artifact-two');
+      return;
+    }
+    setPhase('prize-three');
   };
 
   const finishCurrentReward = () => {
@@ -439,22 +481,27 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
 
         <div
           className={`mock-chest-artifacts ${phaseStep >= 2 ? 'is-awakening' : ''} ${
-            visibleArtifactCount === 1 ? 'mock-chest-artifacts--single' : ''
-          } ${visibleArtifactCount >= 2 ? 'mock-chest-artifacts--pair' : ''}`}
+            visiblePrizeCount === 1 ? 'mock-chest-artifacts--single' : ''
+          } ${visiblePrizeCount === 2 ? 'mock-chest-artifacts--pair' : ''} ${
+            visiblePrizeCount >= 3 ? 'mock-chest-artifacts--trio' : ''
+          }`}
         >
-          {currentReward.artifacts.slice(0, 2).map((artifact, index) => {
-            const meta = RANK_META[artifact.rank] || RANK_META.C;
-            const visible = phaseStep >= (index === 0 ? 2 : 3);
+          {currentReward.prizes.slice(0, 3).map((prize, index) => {
+            const meta = RANK_META[prize.rank] || RANK_META.C;
+            const revealStep = index === 0 ? 2 : (index === 1 ? 3 : 4);
             const exitTarget = artifactExitTargets[index] || null;
+            const isProfileTheme = prize.kind === 'profile-theme';
             return (
               <div
-                key={`${artifact.id}-${index}`}
+                key={`${prize.kind || 'artifact'}-${prize.id}-${index}`}
                 ref={(node) => {
                   artifactRefs.current[index] = node;
                 }}
-                className={`mock-chest-artifact mock-chest-artifact--${String(artifact.rank || 'C').toLowerCase()} ${visible ? 'is-visible' : ''}`}
+                className={`mock-chest-artifact mock-chest-artifact--${String(prize.rank || 'C').toLowerCase()} ${
+                  isProfileTheme ? 'mock-chest-artifact--profile-theme' : ''
+                } ${phaseStep >= revealStep ? 'is-visible' : ''}`}
                 style={{
-                  '--artifact-color': meta.color,
+                  '--artifact-color': prize.accent || meta.color,
                   '--artifact-delay': index === 0 ? '0ms' : '80ms',
                   '--artifact-exit-x': exitTarget?.x || '0px',
                   '--artifact-exit-y': exitTarget?.y || '0px',
@@ -480,14 +527,22 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
                 <span className="mock-chest-artifact__mystery" aria-hidden="true" />
                 <div className="mock-chest-artifact__rank">{meta.label}</div>
                 <div className="mock-chest-artifact__image">
-                  {artifact.src ? (
-                    <img src={artifact.src} alt="" draggable="false" />
+                  {prize.src ? (
+                    <img src={prize.src} alt="" draggable="false" />
+                  ) : isProfileTheme ? (
+                    <span className="mock-chest-artifact__theme-preview" data-profile-theme={prize.id}>
+                      <Sparkles size={28} />
+                    </span>
                   ) : (
                     <Sparkles size={54} />
                   )}
                 </div>
-                <div className="mock-chest-artifact__name">{artifact.name}</div>
-                <div className="mock-chest-artifact__title">{meta.title}</div>
+                <div className="mock-chest-artifact__name">{prize.name}</div>
+                <div className="mock-chest-artifact__title">
+                  {isProfileTheme
+                    ? (prize.isNew ? 'Новое оформление' : 'Дубликат оформления')
+                    : meta.title}
+                </div>
               </div>
             );
           })}

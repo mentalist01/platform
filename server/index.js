@@ -11,6 +11,7 @@ import webpush from 'web-push';
 import { WebSocketServer } from 'ws';
 import yWsUtils from 'y-websocket/bin/utils';
 import { ARTIFACT_CATALOG_METADATA } from '../src/data/artifactCatalog.js';
+import { PROFILE_THEME_CATALOG, PROFILE_THEME_RARITY_ORDER } from '../src/data/profileThemeCatalog.js';
 import { getLevelFromXp } from '../src/utils/leveling.js';
 
 const { setupWSConnection } = yWsUtils;
@@ -259,6 +260,27 @@ const ARTIFACT_IDS_BY_RANK = ARTIFACT_CATALOG.reduce((acc, artifact) => {
   acc.set(artifact.rank, current);
   return acc;
 }, new Map());
+const PROFILE_THEME_CATALOG_BY_ID = new Map(PROFILE_THEME_CATALOG.map((theme) => [theme.id, theme]));
+const PROFILE_THEME_IDS_BY_RARITY = PROFILE_THEME_CATALOG.reduce((acc, theme) => {
+  const rarity = String(theme?.rarity || 'common').trim().toLowerCase();
+  const current = acc.get(rarity) || [];
+  current.push(theme.id);
+  acc.set(rarity, current);
+  return acc;
+}, new Map());
+const PROFILE_THEME_DROP_CHANCE = 0.45;
+const PROFILE_THEME_RARITY_CHANCES = [
+  { rarity: 'legendary', chance: 0.04 },
+  { rarity: 'epic', chance: 0.12 },
+  { rarity: 'rare', chance: 0.28 },
+  { rarity: 'common', chance: 0.56 },
+];
+const PROFILE_THEME_DUPLICATE_COIN_REWARDS = {
+  legendary: 120,
+  epic: 60,
+  rare: 28,
+  common: 12,
+};
 const ARTIFACT_XP_GLOBAL_MULTIPLIERS = {
   krylov: 1,
   duck: 0.15,
@@ -5301,6 +5323,143 @@ const normalizeArtifactTotalPulls = (value) => {
   return Math.floor(num);
 };
 
+const normalizeProfileThemeId = (value) => {
+  const id = String(value || '').trim();
+  return PROFILE_THEME_CATALOG_BY_ID.has(id) ? id : '';
+};
+
+const normalizeProfileThemeInventory = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const next = {};
+  Object.entries(value).forEach(([rawId, rawCount]) => {
+    const id = normalizeProfileThemeId(rawId);
+    if (!id) return;
+    const count = Number(rawCount);
+    if (!Number.isFinite(count) || count <= 0) return;
+    next[id] = Math.floor(count);
+  });
+  return next;
+};
+
+const getProfileThemeInventoryCount = (inventory = {}, themeId) => (
+  Math.max(0, Math.floor(Number(inventory?.[themeId]) || 0))
+);
+
+const normalizeActiveProfileThemeId = (value, inventory = {}) => {
+  const id = normalizeProfileThemeId(value);
+  if (!id) return '';
+  const safeInventory = normalizeProfileThemeInventory(inventory);
+  return getProfileThemeInventoryCount(safeInventory, id) > 0 ? id : '';
+};
+
+const getProfileThemeRarityRank = (rarity) => {
+  const normalized = String(rarity || 'common').trim().toLowerCase();
+  const index = PROFILE_THEME_RARITY_ORDER.indexOf(normalized);
+  return index >= 0 ? PROFILE_THEME_RARITY_ORDER.length - index : 0;
+};
+
+const isProfileThemeUpgrade = (nextThemeId, currentThemeId) => {
+  const nextTheme = PROFILE_THEME_CATALOG_BY_ID.get(normalizeProfileThemeId(nextThemeId));
+  if (!nextTheme) return false;
+  const currentTheme = PROFILE_THEME_CATALOG_BY_ID.get(normalizeProfileThemeId(currentThemeId));
+  if (!currentTheme) return true;
+  return getProfileThemeRarityRank(nextTheme.rarity) > getProfileThemeRarityRank(currentTheme.rarity);
+};
+
+const buildProfileThemePayload = (themeId, inventory = null) => {
+  const id = normalizeProfileThemeId(themeId);
+  if (!id) return null;
+  if (inventory && getProfileThemeInventoryCount(normalizeProfileThemeInventory(inventory), id) <= 0) return null;
+  const theme = PROFILE_THEME_CATALOG_BY_ID.get(id);
+  if (!theme) return null;
+  return {
+    id: theme.id,
+    rarity: String(theme.rarity || 'common').trim().toLowerCase() || 'common',
+    name: String(theme.name || theme.id).trim() || theme.id,
+    shortName: String(theme.shortName || theme.name || theme.id).trim() || theme.id,
+    description: typeof theme.description === 'string' ? theme.description : '',
+    accent: typeof theme.accent === 'string' ? theme.accent : '',
+  };
+};
+
+const buildProfileThemeCollectionPayload = (inventory = {}, activeThemeId = '') => {
+  const safeInventory = normalizeProfileThemeInventory(inventory);
+  const activeId = normalizeActiveProfileThemeId(activeThemeId, safeInventory);
+  const unlocked = Object.entries(safeInventory)
+    .map(([themeId, count]) => {
+      const payload = buildProfileThemePayload(themeId);
+      if (!payload) return null;
+      return {
+        ...payload,
+        count: getProfileThemeInventoryCount(safeInventory, themeId),
+        active: themeId === activeId,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => (
+      getProfileThemeRarityRank(right.rarity) - getProfileThemeRarityRank(left.rarity)
+      || String(left.name || '').localeCompare(String(right.name || ''), 'ru')
+    ));
+  return {
+    active: buildProfileThemePayload(activeId),
+    unlocked,
+    totalOwned: Object.values(safeInventory).reduce((sum, count) => (
+      sum + Math.max(0, Math.floor(Number(count) || 0))
+    ), 0),
+    uniqueOwned: unlocked.length,
+  };
+};
+
+const rollProfileThemeRarity = (randomValue = Math.random(), chances = PROFILE_THEME_RARITY_CHANCES) => {
+  const safeChances = (Array.isArray(chances) ? chances : PROFILE_THEME_RARITY_CHANCES)
+    .filter((entry) => entry && PROFILE_THEME_RARITY_ORDER.includes(entry.rarity) && Number(entry.chance) > 0);
+  const totalChance = safeChances.reduce((sum, entry) => sum + Number(entry.chance), 0);
+  if (totalChance <= 0) return 'common';
+  const target = Number(randomValue) * totalChance;
+  let cursor = 0;
+  for (const entry of safeChances) {
+    cursor += Number(entry.chance);
+    if (target < cursor) return entry.rarity;
+  }
+  return safeChances[safeChances.length - 1]?.rarity || 'common';
+};
+
+const rollProfileThemeReward = () => {
+  if (PROFILE_THEME_CATALOG.length <= 0) return null;
+  const availableIdsByRarity = new Map();
+  PROFILE_THEME_RARITY_ORDER.forEach((rarity) => {
+    const ids = PROFILE_THEME_IDS_BY_RARITY.get(rarity) || [];
+    if (ids.length > 0) availableIdsByRarity.set(rarity, ids);
+  });
+  const availableChances = PROFILE_THEME_RARITY_CHANCES.filter((entry) => (
+    (availableIdsByRarity.get(entry.rarity) || []).length > 0
+  ));
+  const rarity = rollProfileThemeRarity(Math.random(), availableChances);
+  const rarityIds = availableIdsByRarity.get(rarity) || [];
+  const fallbackIds = PROFILE_THEME_CATALOG.map((theme) => theme.id).filter(Boolean);
+  const sourceIds = rarityIds.length > 0 ? rarityIds : fallbackIds;
+  const themeId = sourceIds[Math.floor(Math.random() * sourceIds.length)];
+  return PROFILE_THEME_CATALOG_BY_ID.get(themeId) || null;
+};
+
+const getProfileThemeDuplicateCoinReward = (theme) => {
+  const rarity = String(theme?.rarity || 'common').trim().toLowerCase();
+  return normalizeCoinsTotal(PROFILE_THEME_DUPLICATE_COIN_REWARDS[rarity]);
+};
+
+const buildProfileThemeRewardPayload = (themeId, inventory = {}, extra = {}) => {
+  const payload = buildProfileThemePayload(themeId);
+  if (!payload) return null;
+  return {
+    ...payload,
+    type: 'profile-theme',
+    count: getProfileThemeInventoryCount(inventory, payload.id),
+    isNew: Boolean(extra.isNew),
+    duplicateCoins: normalizeCoinsTotal(extra.duplicateCoins),
+    source: typeof extra.source === 'string' ? extra.source : '',
+  };
+};
+
 const getArtifactInventoryCount = (inventory = {}, artifactId) => (
   Math.max(0, Math.floor(Number(inventory?.[artifactId]) || 0))
 );
@@ -6881,13 +7040,18 @@ const normalizeMockTimerChestPendingReward = (value) => {
     .map((artifactId) => normalizeArtifactId(artifactId))
     .filter((artifactId) => artifactId && ARTIFACT_CATALOG_BY_ID.has(artifactId))
     .slice(0, MOCK_TIMER_CHEST_ARTIFACTS_PER_CHEST);
-  if (artifactIds.length <= 0) return null;
+  const profileThemeIds = (Array.isArray(value.profileThemeIds) ? value.profileThemeIds : [])
+    .map((themeId) => normalizeProfileThemeId(themeId))
+    .filter((themeId) => themeId && PROFILE_THEME_CATALOG_BY_ID.has(themeId))
+    .slice(0, 1);
+  if (artifactIds.length <= 0 && profileThemeIds.length <= 0) return null;
   const preparedAt = typeof value.preparedAt === 'string' && !Number.isNaN(Date.parse(value.preparedAt))
     ? new Date(value.preparedAt).toISOString()
     : new Date().toISOString();
   return {
     preparedAt,
     artifactIds,
+    ...(profileThemeIds.length > 0 ? { profileThemeIds } : {}),
   };
 };
 
@@ -6994,9 +7158,15 @@ const createMockTimerChestPendingReward = (data, preparedAt = new Date().toISOSt
     artifactIds.push(artifact.id);
     artifactTotalPulls += 1;
   }
+  const profileThemeIds = [];
+  if (Math.random() < PROFILE_THEME_DROP_CHANCE) {
+    const profileTheme = rollProfileThemeReward();
+    if (profileTheme?.id) profileThemeIds.push(profileTheme.id);
+  }
   return normalizeMockTimerChestPendingReward({
     preparedAt,
     artifactIds,
+    profileThemeIds,
   });
 };
 
@@ -7009,12 +7179,16 @@ const buildMockTimerChestRewardSnapshot = (chest, pendingReward, data, openedAt 
   const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
   const artifactLevels = normalizeArtifactLevels(data?.artifactLevels, artifactInventory);
   const artifactCards = normalizeArtifactCards(data?.artifactCards, artifactInventory);
+  const profileThemeInventory = normalizeProfileThemeInventory(data?.profileThemeInventory);
+  let activeProfileThemeId = normalizeActiveProfileThemeId(data?.activeProfileThemeId, profileThemeInventory);
   let artifactTotalPulls = normalizeArtifactTotalPulls(data?.artifactTotalPulls);
   let xpTotal = normalizeXpTotal(data?.xpTotal);
   let coinsTotal = normalizeCoinsTotal(data?.coinsTotal) + normalizeCoinsTotal(safeChest.coinsGained);
   let artifactXpGained = 0;
   let artifactCoinsGained = 0;
+  let profileThemeCoinsGained = 0;
   const artifactDropRecords = [];
+  const profileThemeDropRecords = [];
 
   safePendingReward.artifactIds.forEach((artifactId, itemIndex) => {
     const artifact = ARTIFACT_CATALOG_BY_ID.get(normalizeArtifactId(artifactId));
@@ -7047,6 +7221,32 @@ const buildMockTimerChestRewardSnapshot = (chest, pendingReward, data, openedAt 
     });
   });
 
+  (Array.isArray(safePendingReward.profileThemeIds) ? safePendingReward.profileThemeIds : []).forEach((themeId, themeIndex) => {
+    const profileTheme = PROFILE_THEME_CATALOG_BY_ID.get(normalizeProfileThemeId(themeId));
+    if (!profileTheme) return;
+    const ownedBefore = getProfileThemeInventoryCount(profileThemeInventory, profileTheme.id);
+    const isNew = ownedBefore <= 0;
+    const duplicateCoins = isNew ? 0 : getProfileThemeDuplicateCoinReward(profileTheme);
+    profileThemeInventory[profileTheme.id] = ownedBefore + 1;
+    profileThemeCoinsGained += duplicateCoins;
+    coinsTotal += duplicateCoins;
+    if (!activeProfileThemeId || (isNew && isProfileThemeUpgrade(profileTheme.id, activeProfileThemeId))) {
+      activeProfileThemeId = profileTheme.id;
+    }
+    profileThemeDropRecords.push({
+      themeId: profileTheme.id,
+      source: 'mock-timer-chest',
+      pulledAt,
+      isNew,
+      duplicateCoins,
+      mockExamId: safeChest.mockExamId || '',
+      mockExamTitle: safeChest.mockExamTitle || '',
+      milestoneScore: normalizeMockScore(safeChest.milestoneScore),
+      chestIndex: Math.max(1, Math.floor(Number(safeChest.chestIndex) || 1)),
+      chestItemIndex: safePendingReward.artifactIds.length + themeIndex + 1,
+    });
+  });
+
   const mockArtifactDrops = artifactDropRecords
     .map((record) => {
       const drop = buildArtifactRewardPayload(
@@ -7071,6 +7271,25 @@ const buildMockTimerChestRewardSnapshot = (chest, pendingReward, data, openedAt 
     })
     .filter(Boolean);
 
+  const mockProfileThemeDrops = profileThemeDropRecords
+    .map((record) => {
+      const drop = buildProfileThemeRewardPayload(record.themeId, profileThemeInventory, {
+        isNew: record.isNew,
+        duplicateCoins: record.duplicateCoins,
+        source: 'mock-timer-chest',
+      });
+      if (!drop) return null;
+      return {
+        ...drop,
+        mockExamId: record.mockExamId,
+        mockExamTitle: record.mockExamTitle,
+        milestoneScore: record.milestoneScore,
+        chestIndex: record.chestIndex,
+        chestItemIndex: record.chestItemIndex,
+      };
+    })
+    .filter(Boolean);
+
   const mockChestReward = {
     id: String(safeChest.id || ''),
     source: 'mock-timer-chest',
@@ -7080,6 +7299,7 @@ const buildMockTimerChestRewardSnapshot = (chest, pendingReward, data, openedAt 
     chestIndex: Math.max(1, Math.floor(Number(safeChest.chestIndex) || 1)),
     coinsGained: normalizeCoinsTotal(safeChest.coinsGained),
     artifacts: mockArtifactDrops,
+    profileThemes: mockProfileThemeDrops,
   };
 
   return {
@@ -7091,10 +7311,13 @@ const buildMockTimerChestRewardSnapshot = (chest, pendingReward, data, openedAt 
     artifactLevels,
     artifactCards,
     artifactTotalPulls,
+    profileThemeInventory,
+    activeProfileThemeId,
     xpTotal: normalizeXpTotal(xpTotal),
     coinsTotal: normalizeCoinsTotal(coinsTotal),
     artifactXpGained: normalizeXpTotal(artifactXpGained),
     artifactCoinsGained: normalizeCoinsTotal(artifactCoinsGained),
+    profileThemeCoinsGained: normalizeCoinsTotal(profileThemeCoinsGained),
   };
 };
 
@@ -7392,6 +7615,8 @@ const getStudentData = (studentId) => {
       artifactCards: {},
       artifactLastPull: null,
       artifactTotalPulls: 0,
+      profileThemeInventory: {},
+      activeProfileThemeId: '',
       leaderboardAlias: '',
       leaderboardAliasRewardClaimed: false,
     };
@@ -7419,6 +7644,8 @@ const getStudentData = (studentId) => {
     || Object.prototype.hasOwnProperty.call(raw, 'artifactCards')
     || Object.prototype.hasOwnProperty.call(raw, 'artifactLastPull')
     || Object.prototype.hasOwnProperty.call(raw, 'artifactTotalPulls')
+    || Object.prototype.hasOwnProperty.call(raw, 'profileThemeInventory')
+    || Object.prototype.hasOwnProperty.call(raw, 'activeProfileThemeId')
     || Object.prototype.hasOwnProperty.call(raw, 'leaderboardAlias')
     || Object.prototype.hasOwnProperty.call(raw, 'leaderboardAliasRewardClaimed')
   ) {
@@ -7428,6 +7655,8 @@ const getStudentData = (studentId) => {
     const artifactInventory = normalizeArtifactInventory(raw.artifactInventory);
     const artifactLevels = normalizeArtifactLevels(raw.artifactLevels, artifactInventory);
     const artifactCards = normalizeArtifactCards(raw.artifactCards, artifactInventory);
+    const profileThemeInventory = normalizeProfileThemeInventory(raw.profileThemeInventory);
+    const activeProfileThemeId = normalizeActiveProfileThemeId(raw.activeProfileThemeId, profileThemeInventory);
     const instantArtifactRewards = getArtifactInstantRewardsFromInventory(artifactInventory);
     const hasStoredXp = Object.prototype.hasOwnProperty.call(raw, 'xpTotal');
     const hasStoredCoins = Object.prototype.hasOwnProperty.call(raw, 'coinsTotal');
@@ -7486,6 +7715,8 @@ const getStudentData = (studentId) => {
       artifactCards,
       artifactLastPull: normalizeArtifactLastPull(raw.artifactLastPull),
       artifactTotalPulls: normalizeArtifactTotalPulls(raw.artifactTotalPulls),
+      profileThemeInventory,
+      activeProfileThemeId,
       leaderboardAlias,
       leaderboardAliasRewardClaimed: Boolean(raw.leaderboardAliasRewardClaimed) || Boolean(leaderboardAlias),
     };
@@ -7519,6 +7750,8 @@ const getStudentData = (studentId) => {
     artifactCards: {},
     artifactLastPull: null,
     artifactTotalPulls: 0,
+    profileThemeInventory: {},
+    activeProfileThemeId: '',
     leaderboardAlias: '',
     leaderboardAliasRewardClaimed: false,
   };
@@ -7554,6 +7787,8 @@ const setStudentData = (studentId, data) => {
     artifactCards: normalizeArtifactCards(data.artifactCards, data.artifactInventory),
     artifactLastPull: normalizeArtifactLastPull(data.artifactLastPull),
     artifactTotalPulls: normalizeArtifactTotalPulls(data.artifactTotalPulls),
+    profileThemeInventory: normalizeProfileThemeInventory(data.profileThemeInventory),
+    activeProfileThemeId: normalizeActiveProfileThemeId(data.activeProfileThemeId, data.profileThemeInventory),
     leaderboardAlias: normalizeLeaderboardAlias(data.leaderboardAlias),
     leaderboardAliasRewardClaimed: Boolean(data.leaderboardAliasRewardClaimed),
   };
@@ -11584,6 +11819,7 @@ app.get('/api/students/leaderboard', (req, res) => {
     const courseProgress = getLeaderboardProgressSummaryByKind(data, testsDb, 'course');
     const pythonProgress = getLeaderboardProgressSummaryByKind(data, testsDb, 'python');
     const platformDays = getLeaderboardPlatformDaysSummary(student, leaderboardWindow);
+    const profileThemeState = buildProfileThemeCollectionPayload(data?.profileThemeInventory, data?.activeProfileThemeId);
     const weeklyCoursePercent = getRecentProgressPercentFromSolvedEvents(
       data?.solvedEvents,
       testsDb,
@@ -11629,6 +11865,7 @@ app.get('/api/students/leaderboard', (req, res) => {
         ),
       },
       platformDays,
+      profileTheme: profileThemeState.active,
       hasAlias: Boolean(alias),
       mainName,
       nickname,
@@ -11670,6 +11907,10 @@ app.get('/api/students/leaderboard', (req, res) => {
           mainName: normalizeStudentName(currentStudentEntry?.name || ''),
           coinsTotal: normalizeCoinsTotal(currentStudentData?.coinsTotal),
           mockTimerChests: buildMockTimerChestPanelState(currentStudentData),
+          profileThemes: buildProfileThemeCollectionPayload(
+            currentStudentData?.profileThemeInventory,
+            currentStudentData?.activeProfileThemeId
+          ),
           leaderboardAliasRewardClaimed: Boolean(currentStudentData?.leaderboardAliasRewardClaimed),
         }
       : null,
@@ -11682,6 +11923,10 @@ app.get('/api/students/leaderboard', (req, res) => {
           nickname: normalizeStudentNickname(selectedStudentEntry?.nickname || ''),
           coinsTotal: normalizeCoinsTotal(selectedStudentData?.coinsTotal),
           mockTimerChests: buildMockTimerChestPanelState(selectedStudentData),
+          profileThemes: buildProfileThemeCollectionPayload(
+            selectedStudentData?.profileThemeInventory,
+            selectedStudentData?.activeProfileThemeId
+          ),
         }
       : null,
     altar: selectedStudentData ? buildStudentArtifactState(selectedStudentData) : null,
@@ -11729,6 +11974,35 @@ app.post('/api/students/mock-timer-chests/:chestId/start', (req, res) => {
   });
 });
 
+app.post('/api/students/mock-timer-chests/test-add', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.auth.id);
+  if (!student) return;
+  const data = getStudentData(student.id);
+  const queue = normalizeMockTimerChestQueue(data?.mockTimerChests);
+  const now = new Date();
+  const testChest = {
+    id: crypto.randomUUID(),
+    source: 'mock-timer-chest',
+    mockExamId: 'test-chest',
+    mockExamTitle: 'Тестовый сундук',
+    chestIndex: queue.length + 1,
+    createdAt: now.toISOString(),
+    coinsGained: 0,
+  };
+  queue.push(testChest);
+  const updated = setStudentData(student.id, {
+    ...data,
+    mockTimerChestsTotal: normalizeCoinsTotal(data?.mockTimerChestsTotal) + 1,
+    mockTimerChests: queue,
+  });
+  return res.json({
+    ok: true,
+    chest: serializeMockTimerChest(testChest, now),
+    mockTimerChests: buildMockTimerChestPanelState(updated, now),
+  });
+});
+
 app.post('/api/students/mock-timer-chests/:chestId/prepare', (req, res) => {
   if (!isStudentRole(req.auth)) return forbid(res);
   const chestId = String(req.params?.chestId || '').trim();
@@ -11746,11 +12020,12 @@ app.post('/api/students/mock-timer-chests/:chestId/prepare', (req, res) => {
   let chest = queue[chestIndex];
   const targetState = getMockTimerChestState(chest, nowMs);
   if (targetState !== 'ready') {
-    if (!(openNow && targetState === 'opening')) {
+    if (!(openNow && (targetState === 'opening' || targetState === 'closed'))) {
       return res.status(409).json({ error: 'Сундук ещё не готов к открытию.' });
     }
     chest = {
       ...chest,
+      openStartedAt: chest.openStartedAt || now.toISOString(),
       openReadyAt: now.toISOString(),
     };
   }
@@ -11794,11 +12069,12 @@ app.post('/api/students/mock-timer-chests/:chestId/claim', (req, res) => {
   const targetState = getMockTimerChestState(chest, nowMs);
   const openNow = req.body?.openNow === true;
   if (targetState !== 'ready') {
-    if (!(openNow && targetState === 'opening')) {
+    if (!(openNow && (targetState === 'opening' || targetState === 'closed'))) {
       return res.status(409).json({ error: 'Сундук ещё открывается.' });
     }
     chest = {
       ...chest,
+      openStartedAt: chest.openStartedAt || now.toISOString(),
       openReadyAt: now.toISOString(),
     };
   }
@@ -11822,6 +12098,8 @@ app.post('/api/students/mock-timer-chests/:chestId/claim', (req, res) => {
     artifactLevels: rewardSnapshot.artifactLevels,
     artifactCards: rewardSnapshot.artifactCards,
     artifactTotalPulls: rewardSnapshot.artifactTotalPulls,
+    profileThemeInventory: rewardSnapshot.profileThemeInventory,
+    activeProfileThemeId: rewardSnapshot.activeProfileThemeId,
     ...(lastArtifactDropRecord
       ? {
         artifactLastPull: {
@@ -11841,12 +12119,18 @@ app.post('/api/students/mock-timer-chests/:chestId/claim', (req, res) => {
     mockTimerChests: buildMockTimerChestPanelState(updated, now),
     mockChestReward,
     mockChestRewards: [mockChestReward],
-    coinsGained: normalizeCoinsTotal(mockChestReward.coinsGained + rewardSnapshot.artifactCoinsGained),
+    coinsGained: normalizeCoinsTotal(
+      mockChestReward.coinsGained
+      + rewardSnapshot.artifactCoinsGained
+      + rewardSnapshot.profileThemeCoinsGained
+    ),
     coinsTotal: normalizeCoinsTotal(updated.coinsTotal),
     xpGained: normalizeXpTotal(rewardSnapshot.artifactXpGained),
     xpTotal: normalizeXpTotal(updated.xpTotal),
     artifactXpGained: rewardSnapshot.artifactXpGained,
     artifactCoinsGained: rewardSnapshot.artifactCoinsGained,
+    profileThemeCoinsGained: rewardSnapshot.profileThemeCoinsGained,
+    profileThemes: buildProfileThemeCollectionPayload(updated.profileThemeInventory, updated.activeProfileThemeId),
     altar: buildStudentArtifactState(updated),
     ...(mockArtifactDrops.length > 0
       ? {
@@ -11905,6 +12189,7 @@ app.get('/api/students/leaderboard-profile', (req, res) => {
   const coinsBalance = normalizeCoinsTotal(data?.coinsTotal);
   const coinsSpentTotal = normalizeCoinsSpentTotal(data?.coinsSpentTotal);
   const alias = normalizeLeaderboardAlias(data?.leaderboardAlias);
+  const profileThemeState = buildProfileThemeCollectionPayload(data?.profileThemeInventory, data?.activeProfileThemeId);
 
   return res.json({
     studentId: targetStudent.id,
@@ -11914,6 +12199,8 @@ app.get('/api/students/leaderboard-profile', (req, res) => {
     level: getLevelFromXp(xpTotal),
     xpTotal,
     weeklyXp: getRecentXpFromSolvedEvents(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS, data?.artifactLevels),
+    profileTheme: profileThemeState.active,
+    profileThemes: profileThemeState,
     streak: normalizeStreak(data?.streak),
     preparation: getLeaderboardProfilePreparationSummary(targetStudent),
     progress: getLeaderboardProfileProgressSummary(data, testsDb),
@@ -11973,6 +12260,33 @@ app.patch('/api/students/leaderboard-alias', (req, res) => {
     alias: normalizeLeaderboardAlias(updated?.leaderboardAlias),
     coinsGained,
     coinsTotal: normalizeCoinsTotal(updated?.coinsTotal),
+  });
+});
+
+app.patch('/api/students/profile-theme', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.auth.id);
+  if (!student) return;
+
+  const data = getStudentData(student.id);
+  const profileThemeInventory = normalizeProfileThemeInventory(data?.profileThemeInventory);
+  const requestedThemeId = String(req.body?.themeId || '').trim();
+  const activeProfileThemeId = requestedThemeId ? normalizeProfileThemeId(requestedThemeId) : '';
+  if (requestedThemeId && !activeProfileThemeId) {
+    return res.status(400).json({ error: 'Оформление не найдено.' });
+  }
+  if (activeProfileThemeId && getProfileThemeInventoryCount(profileThemeInventory, activeProfileThemeId) <= 0) {
+    return res.status(400).json({ error: 'Сначала нужно выбить это оформление из сундука.' });
+  }
+
+  const updated = setStudentData(student.id, {
+    ...data,
+    profileThemeInventory,
+    activeProfileThemeId,
+  });
+  return res.json({
+    ok: true,
+    profileThemes: buildProfileThemeCollectionPayload(updated.profileThemeInventory, updated.activeProfileThemeId),
   });
 });
 

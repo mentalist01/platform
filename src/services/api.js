@@ -484,10 +484,26 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  setProfileTheme: async (themeId) => {
+    const res = await apiFetch('/api/students/profile-theme', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ themeId: String(themeId || '').trim() }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   startMockTimerChestOpening: async (chestId) => {
     const normalizedChestId = String(chestId || '').trim();
     if (!normalizedChestId) throw new Error('chestId required');
     const res = await apiFetch(`/api/students/mock-timer-chests/${encodeURIComponent(normalizedChestId)}/start`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  addTestMockTimerChest: async () => {
+    const res = await apiFetch('/api/students/mock-timer-chests/test-add', {
       method: 'POST',
     });
     if (!res.ok) throw new Error(await parseApiError(res));

@@ -4,7 +4,9 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
+  Info,
   LockKeyhole,
+  Palette,
   Package2,
   RefreshCcw,
   Sparkles,
@@ -17,6 +19,7 @@ import MockChestOpeningOverlay from './MockChestOpeningOverlay';
 import StudentArtifactAltar from './StudentArtifactAltar';
 import StudentLeaderboardProfileModal from './StudentLeaderboardProfileModal';
 import StudentSearchSelect from './StudentSearchSelect';
+import { PROFILE_THEME_CATALOG, PROFILE_THEME_CATALOG_BY_ID } from '../data/profileThemeCatalog';
 
 const BONUS_TONE_CLASSNAME = {
   xp: 'border-violet-200 bg-violet-50/90 text-violet-700',
@@ -26,6 +29,41 @@ const BONUS_TONE_CLASSNAME = {
 const LEADERBOARD_ALIAS_COIN_REWARD = 100;
 const MOCK_TIMER_CHEST_DEFAULT_SLOT_COUNT = 8;
 const MOCK_TIMER_CHEST_DEFAULT_OPEN_MS = 3 * 60 * 60 * 1000;
+
+const normalizeProfileThemePayload = (value) => {
+  if (!value || typeof value !== 'object') return null;
+  const id = String(value.id || '').trim();
+  const catalogTheme = PROFILE_THEME_CATALOG_BY_ID.get(id) || null;
+  if (!id || !catalogTheme) return null;
+  return {
+    id,
+    rarity: String(value.rarity || catalogTheme.rarity || 'common').trim().toLowerCase(),
+    name: String(value.name || catalogTheme.name || id).trim() || id,
+    shortName: String(value.shortName || catalogTheme.shortName || value.name || catalogTheme.name || id).trim() || id,
+    description: typeof value.description === 'string' && value.description.trim()
+      ? value.description.trim()
+      : (catalogTheme.description || ''),
+    accent: typeof value.accent === 'string' && value.accent.trim()
+      ? value.accent.trim()
+      : (catalogTheme.accent || ''),
+    count: Math.max(0, Math.floor(Number(value.count) || 0)),
+    active: Boolean(value.active),
+  };
+};
+
+const normalizeProfileThemeCollection = (value) => {
+  const source = value && typeof value === 'object' ? value : {};
+  const active = normalizeProfileThemePayload(source.active);
+  const unlocked = (Array.isArray(source.unlocked) ? source.unlocked : [])
+    .map(normalizeProfileThemePayload)
+    .filter(Boolean);
+  return {
+    active,
+    unlocked,
+    totalOwned: Math.max(0, Math.floor(Number(source.totalOwned) || 0)),
+    uniqueOwned: Math.max(0, Math.floor(Number(source.uniqueOwned) || unlocked.length)),
+  };
+};
 
 const normalizeOptionalWholeNumber = (value) => {
   const number = Number(value);
@@ -251,8 +289,8 @@ const getLeagueIconClassName = (leagueId, size = 'default') => {
 
   if (leagueId === 'celestial') {
     if (size === 'sm') return 'h-10 w-10 max-w-none scale-[1.12]';
-    if (size === 'md') return 'h-[2.8rem] w-[2.8rem] max-w-none scale-[1.28]';
-    return 'h-12 w-12 max-w-none scale-[1.34]';
+    if (size === 'md') return 'h-[2.8rem] w-[2.8rem] max-w-none scale-[1.22]';
+    return 'h-12 w-12 max-w-none scale-[1.24]';
   }
 
   if (size === 'sm') return 'h-10 w-10 max-w-none scale-[1.12]';
@@ -300,6 +338,9 @@ const StudentLeaderboardSection = ({
   const [aliasError, setAliasError] = useState('');
   const [aliasSuccess, setAliasSuccess] = useState('');
   const [aliasMode, setAliasMode] = useState('choose');
+  const [profileThemeSaving, setProfileThemeSaving] = useState(false);
+  const [profileThemeError, setProfileThemeError] = useState('');
+  const [profileThemeSuccess, setProfileThemeSuccess] = useState('');
   const [isLeagueRangesOpen, setIsLeagueRangesOpen] = useState(false);
   const [spinLoading, setSpinLoading] = useState(false);
   const [spinError, setSpinError] = useState('');
@@ -403,6 +444,7 @@ const StudentLeaderboardSection = ({
       const course = entry?.course && typeof entry.course === 'object' ? entry.course : {};
       const python = entry?.python && typeof entry.python === 'object' ? entry.python : {};
       const platformDays = entry?.platformDays && typeof entry.platformDays === 'object' ? entry.platformDays : {};
+      const profileTheme = normalizeProfileThemePayload(entry?.profileTheme);
       const solvedQuestions = clampLeaderboardNumber(entry?.solvedQuestions);
       const weeklySolvedQuestions = clampLeaderboardNumber(entry?.weeklySolvedQuestions);
       const activeDaysTotal = clampLeaderboardNumber(entry?.activeDaysTotal);
@@ -472,6 +514,7 @@ const StudentLeaderboardSection = ({
         platformDaysTotalLabel: formatLeaderboardDayCount(platformDaysTotal),
         platformDaysWeek,
         platformDaysWeekLabel: formatLeaderboardDayCount(platformDaysWeek),
+        profileTheme,
         level,
         league,
         isCurrent,
@@ -581,6 +624,9 @@ const StudentLeaderboardSection = ({
   const currentStudentMeta = role === 'student' && leaderboard?.currentStudent
     ? leaderboard.currentStudent
     : null;
+  const currentProfileThemeCollection = normalizeProfileThemeCollection(currentStudentMeta?.profileThemes);
+  const currentProfileTheme = currentProfileThemeCollection.active;
+  const currentProfileThemeOptions = currentProfileThemeCollection.unlocked;
   const currentChestPanel = currentStudentMeta?.mockTimerChests && typeof currentStudentMeta.mockTimerChests === 'object'
     ? currentStudentMeta.mockTimerChests
     : {
@@ -725,6 +771,47 @@ const StudentLeaderboardSection = ({
     }
   };
 
+  const handleProfileThemeChange = useCallback(async (themeId) => {
+    if (role !== 'student') return;
+    const normalizedThemeId = String(themeId || '').trim();
+    setProfileThemeSaving(true);
+    setProfileThemeError('');
+    setProfileThemeSuccess('');
+    try {
+      const data = await api.setProfileTheme(normalizedThemeId);
+      if (!mountedRef.current) return;
+      const nextProfileThemes = normalizeProfileThemeCollection(data?.profileThemes);
+      setLeaderboard((prev) => ({
+        ...prev,
+        currentStudent: prev.currentStudent
+          ? {
+              ...prev.currentStudent,
+              profileThemes: nextProfileThemes,
+            }
+          : prev.currentStudent,
+        items: (Array.isArray(prev.items) ? prev.items : []).map((item) => (
+          item?.isCurrent
+            ? {
+                ...item,
+                profileTheme: nextProfileThemes.active,
+              }
+            : item
+        )),
+      }));
+      setProfileThemeSuccess(nextProfileThemes.active
+        ? `Оформление «${nextProfileThemes.active.name}» применено.`
+        : 'Стандартное оформление применено.');
+      void loadLeaderboard({ silent: true });
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setProfileThemeError(err?.message || 'Не удалось применить оформление.');
+    } finally {
+      if (mountedRef.current) {
+        setProfileThemeSaving(false);
+      }
+    }
+  }, [loadLeaderboard, role]);
+
   const handleSpinArtifact = useCallback(async () => {
     if (role !== 'student' || spinLoading) return;
     setSpinError('');
@@ -840,6 +927,31 @@ const StudentLeaderboardSection = ({
       setChestError(message);
       showChestNotice({
         title: 'Этот сундук пока нельзя открыть',
+        message,
+      });
+    } finally {
+      if (mountedRef.current) {
+        setChestActionId((current) => (current === actionId ? '' : current));
+      }
+    }
+  }, [applyMockTimerChestPanel, role, showChestNotice]);
+
+  const handleAddTestChest = useCallback(async () => {
+    if (role !== 'student') return;
+    const actionId = 'test:add-chest';
+    setChestActionId(actionId);
+    setChestError('');
+    setChestNotice(null);
+    try {
+      const data = await api.addTestMockTimerChest();
+      if (!mountedRef.current) return;
+      if (data?.mockTimerChests) applyMockTimerChestPanel(data.mockTimerChests);
+    } catch (err) {
+      if (!mountedRef.current) return;
+      const message = err?.message || 'Не удалось добавить тестовый сундук.';
+      setChestError(message);
+      showChestNotice({
+        title: 'Тестовый сундук не добавился',
         message,
       });
     } finally {
@@ -1034,6 +1146,99 @@ const StudentLeaderboardSection = ({
     );
   };
 
+  const renderProfileThemePicker = () => {
+    if (role !== 'student') return null;
+    const activeThemeId = currentProfileTheme?.id || '';
+    const hasUnlockedThemes = currentProfileThemeOptions.length > 0;
+    return (
+      <div
+        className="student-leaderboard-profile-theme rounded-2xl border border-purple-200 bg-white px-3 py-2.5"
+        data-tour="rating-profile-theme"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="student-leaderboard-kicker inline-flex items-center gap-2 text-[11px] font-semibold uppercase text-purple-500">
+              <Palette size={13} />
+              Оформление рейтинга
+              <button
+                type="button"
+                className="student-leaderboard-profile-theme__hint"
+                aria-label="Где получить оформления рейтинга"
+                aria-describedby="rating-profile-theme-help"
+              >
+                <Info size={12} aria-hidden="true" />
+                <span
+                  id="rating-profile-theme-help"
+                  className="student-leaderboard-profile-theme__hint-popover"
+                  role="tooltip"
+                >
+                  <span className="student-leaderboard-profile-theme__hint-title">Где получить</span>
+                  <span className="student-leaderboard-profile-theme__hint-row">
+                    <strong>Выпадает</strong>
+                    <span>из сундуков таймера.</span>
+                  </span>
+                  <span className="student-leaderboard-profile-theme__hint-row">
+                    <strong>Выбирается</strong>
+                    <span>здесь после первого выпадения.</span>
+                  </span>
+                  <span className="student-leaderboard-profile-theme__hint-row">
+                    <strong>Дубликаты</strong>
+                    <span>автоматически превращаются в монеты.</span>
+                  </span>
+                </span>
+              </button>
+            </div>
+            <div className="student-leaderboard-copy mt-1 text-[11px] text-slate-500">
+              {hasUnlockedThemes
+                ? `${currentProfileThemeOptions.length} из ${PROFILE_THEME_CATALOG.length} открыто`
+                : 'Оформления выпадают из сундуков таймера'}
+            </div>
+          </div>
+          <div className="flex min-w-[13rem] flex-1 items-center justify-end gap-2 sm:flex-none">
+            <select
+              value={activeThemeId}
+              onChange={(event) => {
+                void handleProfileThemeChange(event.target.value);
+              }}
+              disabled={profileThemeSaving || !hasUnlockedThemes}
+              aria-label="Оформление рейтинга"
+              className="student-leaderboard-profile-theme__select min-w-0 flex-1 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-bold text-purple-700 outline-none transition focus:border-purple-400 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-56"
+            >
+              <option value="">Стандартное</option>
+              {currentProfileThemeOptions.map((theme) => (
+                <option key={theme.id} value={theme.id}>
+                  {`${theme.name}${theme.count > 1 ? ` x${theme.count}` : ''}`}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        {(currentProfileTheme || profileThemeSaving || profileThemeError || profileThemeSuccess) && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {currentProfileTheme && (
+              <span
+                className="student-leaderboard-profile-theme__active inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold"
+                data-rarity={currentProfileTheme.rarity}
+              >
+                <span aria-hidden="true" />
+                {currentProfileTheme.name}
+              </span>
+            )}
+            {profileThemeSaving && (
+              <span className="student-leaderboard-copy text-[11px] text-slate-500">Применяем...</span>
+            )}
+            {profileThemeError && (
+              <span className="text-[11px] font-semibold text-rose-600">{profileThemeError}</span>
+            )}
+            {profileThemeSuccess && !profileThemeError && (
+              <span className="text-[11px] font-semibold text-emerald-700">{profileThemeSuccess}</span>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderMockTimerChestPanel = () => {
     if (role !== 'student') return null;
     const slotCount = Math.max(
@@ -1058,6 +1263,12 @@ const StudentLeaderboardSection = ({
       Math.max(0, chests.length - slotCount)
     );
     const isChestVaultEmpty = chests.length <= 0;
+    const testOpenChest = chests.find((chest) => Boolean(String(chest?.id || '').trim())) || null;
+    const isChestActionBusy = Boolean(chestActionId);
+    const isAddingTestChest = chestActionId === 'test:add-chest';
+    const isTestOpeningChest = testOpenChest
+      ? chestActionId === `claim:${String(testOpenChest.id || '')}`
+      : false;
     return (
       <div
         className={`mock-timer-chest-panel mt-3 ${isChestVaultEmpty ? 'mock-timer-chest-panel--empty' : ''}`}
@@ -1068,6 +1279,33 @@ const StudentLeaderboardSection = ({
             <div className="mock-timer-chest-panel__eyebrow">
               <LockKeyhole size={13} />
               Сундуки таймера
+              <button
+                type="button"
+                className="mock-timer-chest-panel__hint"
+                aria-label="Где получить сундуки таймера"
+                aria-describedby="rating-timer-chests-help"
+              >
+                <Info size={12} aria-hidden="true" />
+                <span
+                  id="rating-timer-chests-help"
+                  className="mock-timer-chest-panel__hint-popover"
+                  role="tooltip"
+                >
+                  <span className="mock-timer-chest-panel__hint-title">Где получить</span>
+                  <span className="mock-timer-chest-panel__hint-row">
+                    <strong>Появляются</strong>
+                    <span>после таймерных пробников.</span>
+                  </span>
+                  <span className="mock-timer-chest-panel__hint-row">
+                    <strong>Хранятся</strong>
+                    <span>в слотах этой панели.</span>
+                  </span>
+                  <span className="mock-timer-chest-panel__hint-row">
+                    <strong>Открываются</strong>
+                    <span>после ожидания и дают награды.</span>
+                  </span>
+                </span>
+              </button>
             </div>
             <div className="mock-timer-chest-panel__title">
               {chests.length > 0
@@ -1075,9 +1313,34 @@ const StudentLeaderboardSection = ({
                 : 'Хранилище пустое'}
             </div>
           </div>
-          <div className="mock-timer-chest-panel__duration">
-            <Clock3 size={14} />
-            {openDurationLabel}
+          <div className="mock-timer-chest-panel__right">
+            <div className="mock-timer-chest-panel__duration">
+              <Clock3 size={14} />
+              {openDurationLabel}
+            </div>
+            <div className="mock-timer-chest-panel__test-actions" aria-label="Тестовые действия с сундуками">
+              <button
+                type="button"
+                onClick={() => {
+                  void handleAddTestChest();
+                }}
+                disabled={isChestActionBusy}
+              >
+                {isAddingTestChest ? 'Добавляем...' : '+ сундук'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const chestId = String(testOpenChest?.id || '').trim();
+                  if (!chestId) return;
+                  triggerChestPressFeedback(chestId);
+                  void handleClaimChest(chestId, { openNow: true });
+                }}
+                disabled={!testOpenChest || isChestActionBusy}
+              >
+                {isTestOpeningChest ? 'Открываем...' : 'Открыть сейчас'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1519,6 +1782,7 @@ const StudentLeaderboardSection = ({
               aria-haspopup={canOpenProfile ? 'dialog' : undefined}
               aria-expanded={canOpenProfile ? isProfileActive : undefined}
               data-place={place}
+              data-profile-theme={row.profileTheme?.id || undefined}
               onClick={isInteractiveRow ? handleRowActivate : undefined}
               onKeyDown={isInteractiveRow ? (event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
@@ -1530,6 +1794,7 @@ const StudentLeaderboardSection = ({
                 row.isCurrent ? 'student-leaderboard-row--current' : ''
               } ${row.isSelected ? 'student-leaderboard-row--selected' : ''} ${
                 isProfileActive ? 'student-leaderboard-row--profile-active' : ''
+              } ${row.profileTheme ? 'student-leaderboard-row--profile-theme' : ''
               } flex items-center gap-3 rounded-2xl border px-3 py-2.5 transition ${rowStateClass} ${
                 interactiveClassName
               }`}
@@ -1587,7 +1852,18 @@ const StudentLeaderboardSection = ({
               )}
             </div>
             <div className="student-leaderboard-row-copy min-w-0 flex-1">
-              <div className="student-leaderboard-row-name truncate text-sm font-semibold text-slate-900">{row.displayName}</div>
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="student-leaderboard-row-name truncate text-sm font-semibold text-slate-900">{row.displayName}</div>
+                {row.profileTheme && (
+                  <span
+                    className="student-leaderboard-row-theme-badge shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black uppercase"
+                    data-rarity={row.profileTheme.rarity}
+                    title={row.profileTheme.name}
+                  >
+                    {row.profileTheme.shortName}
+                  </span>
+                )}
+              </div>
               {row.showTeacherIdentity && (
                 <div className="student-leaderboard-row-meta truncate text-[11px] text-slate-500">{`Имя: ${row.mainName || '—'} • Имя2: ${row.nickname || '—'}`}</div>
               )}
@@ -1733,6 +2009,8 @@ const StudentLeaderboardSection = ({
                 </div>
               </div>
             </div>
+
+            {renderProfileThemePicker()}
 
             {renderMockTimerChestPanel()}
 
