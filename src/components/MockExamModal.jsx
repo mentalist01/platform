@@ -805,6 +805,40 @@ const MockExamModal = ({
     </div>
   );
 
+  const renderTimerExamActions = (compact = false) => {
+    if (!isTimerMode) return null;
+
+    return (
+      <div className={`${compact ? 'mb-3 flex flex-col gap-2 sm:flex-row' : 'mt-4 flex flex-col gap-2'}`}>
+        {(timerExpired || timerResultsVisible) && typeof onRestartTimerAttempt === 'function' && (
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleRestartTimerExam}
+            disabled={!canRestartTimerExam}
+            className={`min-h-[2.8rem] w-full rounded-2xl ${isDarkTheme ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]' : ''}`}
+          >
+            <Clock3 size={17} />
+            {restartingTimer ? 'Запускаем...' : 'Решить заново без наград'}
+          </Button>
+        )}
+        <Button
+          type="button"
+          onClick={handleRequestFinishTimerExam}
+          disabled={!canFinishTimerExam}
+          className="min-h-[3.15rem] w-full rounded-2xl text-sm shadow-[0_18px_34px_rgba(225,29,72,0.28)]"
+          style={{
+            background: 'linear-gradient(135deg, #e11d48, #c026d3 58%, #7c3aed)',
+            color: '#fff',
+          }}
+        >
+          <Flame size={18} />
+          {timerResultsVisible ? 'Экзамен завершён' : (checking ? 'Завершаем...' : 'Завершить экзамен')}
+        </Button>
+      </div>
+    );
+  };
+
   const modal = (
     <div className="fixed inset-0 z-50 modal-backdrop flex items-center justify-center bg-black/65 p-3 backdrop-blur-md sm:p-4">
       <div
@@ -932,6 +966,8 @@ const MockExamModal = ({
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
+
+              {renderTimerExamActions(false)}
             </div>
 
             <div className={`flex min-h-0 flex-1 flex-col rounded-[1.75rem] border p-3.5 ${panelClassName}`}>
@@ -990,6 +1026,8 @@ const MockExamModal = ({
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
+
+              {renderTimerExamActions(true)}
 
               {renderTaskPicker(true)}
             </div>
@@ -1207,33 +1245,7 @@ const MockExamModal = ({
                     )}
                   </div>
 
-                  {isTimerMode ? (
-                    <div className="flex w-full shrink-0 flex-col gap-2 xl:w-[15rem] xl:self-end">
-                      {(timerExpired || timerResultsVisible) && typeof onRestartTimerAttempt === 'function' && (
-                        <Button
-                          variant="secondary"
-                          onClick={handleRestartTimerExam}
-                          disabled={!canRestartTimerExam}
-                          className={`min-h-[2.8rem] w-full rounded-2xl ${isDarkTheme ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]' : ''}`}
-                        >
-                          <Clock3 size={17} />
-                          {restartingTimer ? 'Запускаем...' : 'Решить заново без наград'}
-                        </Button>
-                      )}
-                      <Button
-                        onClick={handleRequestFinishTimerExam}
-                        disabled={!canFinishTimerExam}
-                        className="min-h-[3.35rem] w-full rounded-2xl text-base shadow-[0_18px_34px_rgba(225,29,72,0.28)]"
-                        style={{
-                          background: 'linear-gradient(135deg, #e11d48, #c026d3 58%, #7c3aed)',
-                          color: '#fff',
-                        }}
-                      >
-                        <Flame size={18} />
-                        {timerResultsVisible ? 'Экзамен завершён' : (checking ? 'Завершаем...' : 'Завершить экзамен')}
-                      </Button>
-                    </div>
-                  ) : (
+                  {!isTimerMode && (
                     <div className="flex w-full shrink-0 flex-col gap-2 sm:flex-row xl:w-auto xl:flex-col xl:self-end">
                       <label className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold sm:w-auto xl:min-w-[9rem] ${
                         isDarkTheme
