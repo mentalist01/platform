@@ -103,6 +103,7 @@ const MockExamModal = ({
   onClose,
   onAttemptSaved,
   onRestartTimerAttempt,
+  onContinueTimerAttempt,
   MOCK_TASK_NUMBERS,
   getMockAnswerCountForTask,
   allowsPartialAnswers,
@@ -121,6 +122,7 @@ const MockExamModal = ({
   const [checking, setChecking] = useState(false);
   const [closing, setClosing] = useState(false);
   const [restartingTimer, setRestartingTimer] = useState(false);
+  const [continuingTimer, setContinuingTimer] = useState(false);
   const [finishConfirmOpen, setFinishConfirmOpen] = useState(false);
   const [autoAdvance, setAutoAdvance] = useState(false);
   const [expandedImage, setExpandedImage] = useState(null);
@@ -207,6 +209,7 @@ const MockExamModal = ({
     setChecking(false);
     setClosing(false);
     setRestartingTimer(false);
+    setContinuingTimer(false);
     setArtifactDropBurst(null);
     setChestOpeningRewards([]);
     setFinishConfirmOpen(false);
@@ -327,8 +330,9 @@ const MockExamModal = ({
   const primaryBadge = examBadges[0] || null;
   const secondaryBadges = examBadges.slice(1);
   const totalTaskCount = modalTaskNumbers.length;
+  const timerAttemptFinished = isTimerAttemptFinished(activeAttempt);
   const timerResultsVisible = isTimerMode && (
-    isTimerAttemptFinished(activeAttempt)
+    timerAttemptFinished
     || Object.keys(results || {}).length >= Math.max(1, totalTaskCount)
   );
   const visibleSolved = isTimerMode && !timerResultsVisible ? {} : solved;
@@ -557,6 +561,18 @@ const MockExamModal = ({
     && !closing
     && !restartingTimer
   );
+  const shouldShowContinueTimerExam = Boolean(
+    isTimerMode
+    && timerAttemptFinished
+    && typeof onContinueTimerAttempt === 'function'
+  );
+  const canContinueTimerExam = Boolean(
+    shouldShowContinueTimerExam
+    && !checking
+    && !closing
+    && !restartingTimer
+    && !continuingTimer
+  );
 
   const handleRestartTimerExam = async () => {
     if (!canRestartTimerExam) return;
@@ -585,6 +601,34 @@ const MockExamModal = ({
       setSaveStatus('');
     } finally {
       setRestartingTimer(false);
+    }
+  };
+
+  const handleContinueTimerExam = async () => {
+    if (!canContinueTimerExam) return;
+    setContinuingTimer(true);
+    setSaveError('');
+    setSaveStatus('Открываем экзамен для продолжения...');
+    try {
+      const continued = await onContinueTimerAttempt?.();
+      if (continued && typeof continued === 'object') {
+        latestInitialAttemptRef.current = continued;
+        setDisplayAttempt(continued);
+        setAnswers(readAttemptAnswers(continued));
+        setSolved(readAttemptSolved(continued));
+        setResults(readAttemptResults(continued));
+        setNowMs(Date.now());
+        setFinishConfirmOpen(false);
+        setSaveStatus('Экзамен снова открыт для продолжения.');
+      } else {
+        setSaveStatus('');
+      }
+    } catch (err) {
+      const message = typeof err?.message === 'string' ? err.message : '';
+      setSaveError(message || 'Не удалось продолжить экзамен.');
+      setSaveStatus('');
+    } finally {
+      setContinuingTimer(false);
     }
   };
 
@@ -822,19 +866,35 @@ const MockExamModal = ({
             {restartingTimer ? 'Запускаем...' : 'Решить заново без наград'}
           </Button>
         )}
-        <Button
-          type="button"
-          onClick={handleRequestFinishTimerExam}
-          disabled={!canFinishTimerExam}
-          className="min-h-[3.15rem] w-full rounded-2xl text-sm shadow-[0_18px_34px_rgba(225,29,72,0.28)]"
-          style={{
-            background: 'linear-gradient(135deg, #e11d48, #c026d3 58%, #7c3aed)',
-            color: '#fff',
-          }}
-        >
-          <Flame size={18} />
-          {timerResultsVisible ? 'Экзамен завершён' : (checking ? 'Завершаем...' : 'Завершить экзамен')}
-        </Button>
+        {shouldShowContinueTimerExam ? (
+          <Button
+            type="button"
+            onClick={handleContinueTimerExam}
+            disabled={!canContinueTimerExam}
+            className="min-h-[3.15rem] w-full rounded-2xl text-sm shadow-[0_18px_34px_rgba(34,211,238,0.24)]"
+            style={{
+              background: 'linear-gradient(135deg, #0891b2, #2563eb 58%, #7c3aed)',
+              color: '#fff',
+            }}
+          >
+            <Clock3 size={18} />
+            {continuingTimer ? 'Открываем...' : 'Продолжить экзамен'}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            onClick={handleRequestFinishTimerExam}
+            disabled={!canFinishTimerExam}
+            className="min-h-[3.15rem] w-full rounded-2xl text-sm shadow-[0_18px_34px_rgba(225,29,72,0.28)]"
+            style={{
+              background: 'linear-gradient(135deg, #e11d48, #c026d3 58%, #7c3aed)',
+              color: '#fff',
+            }}
+          >
+            <Flame size={18} />
+            {timerResultsVisible ? 'Экзамен завершён' : (checking ? 'Завершаем...' : 'Завершить экзамен')}
+          </Button>
+        )}
       </div>
     );
   };

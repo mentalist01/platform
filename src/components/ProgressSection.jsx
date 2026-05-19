@@ -447,6 +447,13 @@ const getMockTimerRemainingMs = (attempt, nowMs = Date.now()) => {
   return Math.max(0, expiresAtMs - nowMs);
 };
 
+const getMockTimerRemainingAtFinishMs = (attempt) => {
+  const finishedAtMs = Date.parse(String(attempt?.timerFinishedAt || ''));
+  const expiresAtMs = Date.parse(String(attempt?.timerExpiresAt || ''));
+  if (!Number.isFinite(finishedAtMs) || !Number.isFinite(expiresAtMs)) return 0;
+  return Math.max(0, expiresAtMs - finishedAtMs);
+};
+
 const isMockTimerAttemptPaused = (attempt) => (
   normalizeMockAttemptMode(attempt?.mode) === MOCK_ATTEMPT_MODE_TIMER
   && Boolean(String(attempt?.timerPausedAt || '').trim())
@@ -595,6 +602,7 @@ const ProgressSection = ({
   const [mockAttemptsByExam, setMockAttemptsByExam] = useState({});
   const [mockAttemptsLoading, setMockAttemptsLoading] = useState(false);
   const [restoringMockTimerRewardsExamId, setRestoringMockTimerRewardsExamId] = useState(null);
+  const [continuingMockTimerExamId, setContinuingMockTimerExamId] = useState(null);
   const [hoveredMockTaskPoint, setHoveredMockTaskPoint] = useState(null);
   const [mockEditorExam, setMockEditorExam] = useState(null);
   const [activeMockExam, setActiveMockExam] = useState(null);
@@ -2238,6 +2246,39 @@ const ProgressSection = ({
     }
   };
 
+  const handleContinueMockTimerAttempt = async (exam, options = {}) => {
+    if (role !== 'teacher' || !effectiveStudentId || !exam?.id) return null;
+    if (!options?.skipConfirm && !confirm('Продолжить завершённый таймерный экзамен? Результаты снова скроются до повторного завершения, уже выданные награды не снимутся.')) {
+      return null;
+    }
+    const examId = exam.id;
+    setContinuingMockTimerExamId(examId);
+    try {
+      const attempt = await api.continueMockTimerAttempt(effectiveStudentId, examId);
+      const normalizedAttempt = attempt && typeof attempt === 'object' ? attempt : {};
+      setMockAttemptsByExam((prev) => ({
+        ...(prev || {}),
+        [examId]: normalizedAttempt,
+      }));
+      setActiveMockAttempt((current) => (
+        String(activeMockExam?.id || '') === String(examId || '')
+          ? normalizedAttempt
+          : current
+      ));
+      setActiveMockMode(MOCK_ATTEMPT_MODE_TIMER);
+      setMockExamsError('');
+      onMockAttemptSaved?.(examId, normalizedAttempt);
+      return normalizedAttempt;
+    } catch (err) {
+      if (!options?.silentErrors) alert(err?.message || 'Не удалось продолжить экзамен.');
+      throw err;
+    } finally {
+      setContinuingMockTimerExamId((current) => (
+        String(current || '') === String(examId || '') ? null : current
+      ));
+    }
+  };
+
   const closeClassicModeWarning = () => {
     setClassicModeWarning(null);
   };
@@ -2668,6 +2709,15 @@ const ProgressSection = ({
       || String(attempt?.timerExpiresAt || '').trim()
       || String(attempt?.timerPausedAt || '').trim()
     );
+    const finishedTimerRemainingMs = getMockTimerRemainingAtFinishMs(attempt);
+    const canTeacherContinueTimerAttempt = Boolean(
+      role === 'teacher'
+      && effectiveStudentId
+      && hasExamTasks
+      && normalizeMockAttemptMode(attempt?.mode) === MOCK_ATTEMPT_MODE_TIMER
+      && String(attempt?.timerFinishedAt || '').trim()
+      && finishedTimerRemainingMs > 0
+    );
     const canTeacherRestoreTimerRewards = Boolean(
       role === 'teacher'
       && effectiveStudentId
@@ -2676,6 +2726,7 @@ const ProgressSection = ({
       && (isTimerMode || attemptHasTimerMarkers)
     );
     const isRestoringTimerRewards = String(restoringMockTimerRewardsExamId || '') === String(exam.id || '');
+    const isContinuingTimerAttempt = String(continuingMockTimerExamId || '') === String(exam.id || '');
     const openStudentMockExam = () => {
       if (!hasExamTasks || isStartingThisMock) return;
       handleOpenMockExam(exam, { mode: selectedMode });
@@ -3002,6 +3053,21 @@ const ProgressSection = ({
                   style={{ width: `${scoreValue}%` }}
                 />
               </div>
+              {canTeacherContinueTimerAttempt && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleContinueMockTimerAttempt(exam);
+                  }}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  disabled={isContinuingTimerAttempt}
+                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-[11px] font-black text-cyan-700 shadow-sm transition hover:-translate-y-0.5 hover:border-cyan-300 hover:bg-cyan-100 disabled:cursor-wait disabled:opacity-60"
+                >
+                  <Clock3 size={14} />
+                  <span>{isContinuingTimerAttempt ? 'Открываем...' : 'Продолжить экзамен'}</span>
+                </button>
+              )}
               {canTeacherRestoreTimerRewards && (
                 <button
                   type="button"
@@ -4618,6 +4684,10 @@ const ProgressSection = ({
                   if (mockAttemptRequestIdRef.current === requestId) setStartingMockExamId(null);
                 }
               }}
+              onContinueTimerAttempt={role === 'teacher' ? async () => {
+                if (!activeMockExam || !effectiveStudentId) return null;
+                return handleContinueMockTimerAttempt(activeMockExam, { silentErrors: true });
+              } : undefined}
               onClose={() => {
                 mockAttemptRequestIdRef.current += 1;
                 setActiveMockExam(null);

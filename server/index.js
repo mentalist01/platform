@@ -12890,6 +12890,71 @@ app.patch('/api/mock-exams/attempt/timer-rewards', (req, res) => {
   return res.json(normalizeMockAttemptPayload(exam, stored.answers, stored.updatedAt, stored));
 });
 
+app.patch('/api/mock-exams/attempt/continue-timer', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
+  const { studentId, examId } = req.body || {};
+  const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
+  const requestedExamId = typeof examId === 'string' ? examId.trim() : '';
+  if (!requestedStudentId || !requestedExamId) {
+    return res.status(400).json({ error: 'studentId and examId required' });
+  }
+  const student = ensureStudentAccess(req, res, requestedStudentId);
+  if (!student) return;
+  const list = readMockExamsDb();
+  const exam = (Array.isArray(list) ? list : []).find((item) => item.id === requestedExamId);
+  if (!exam) return res.status(404).json({ error: 'Mock exam not found' });
+  if (!isMockExamVisibleToStudent(exam, student.id)) {
+    return res.status(403).json({ error: 'Mock exam access denied' });
+  }
+
+  const data = getStudentData(student.id);
+  const attempts = data.mockAttempts && typeof data.mockAttempts === 'object' ? { ...data.mockAttempts } : {};
+  const previousAttempt = attempts[requestedExamId] && typeof attempts[requestedExamId] === 'object'
+    ? attempts[requestedExamId]
+    : null;
+  if (!previousAttempt || Object.keys(previousAttempt).length === 0) {
+    return res.status(404).json({ error: 'Попытка пробника не найдена' });
+  }
+  const previousAttemptMode = normalizeMockAttemptMode(previousAttempt?.mode);
+  const previousTimerFinishedAt = normalizeMockTimerTimestamp(previousAttempt?.timerFinishedAt);
+  if (previousAttemptMode !== MOCK_ATTEMPT_MODE_TIMER || !previousTimerFinishedAt) {
+    return res.status(409).json({ error: 'Продолжить можно только завершённый таймерный экзамен.' });
+  }
+
+  const timerFinishedAtMs = Date.parse(previousTimerFinishedAt);
+  const timerExpiresAtMs = Date.parse(normalizeMockTimerTimestamp(previousAttempt?.timerExpiresAt) || '');
+  const remainingAtFinishMs = (
+    Number.isFinite(timerFinishedAtMs) && Number.isFinite(timerExpiresAtMs)
+      ? Math.max(0, timerExpiresAtMs - timerFinishedAtMs)
+      : 0
+  );
+  if (remainingAtFinishMs <= 0) {
+    return res.status(409).json({ error: 'В завершённом таймере не осталось времени.' });
+  }
+
+  const continuedAt = new Date().toISOString();
+  const nextAttempt = {
+    ...previousAttempt,
+    mode: MOCK_ATTEMPT_MODE_TIMER,
+    timerExpiresAt: new Date(Date.parse(continuedAt) + remainingAtFinishMs).toISOString(),
+    timerContinuedAt: continuedAt,
+    timerContinuedBy: String(req.auth?.id || '').trim(),
+    updatedAt: continuedAt,
+  };
+  delete nextAttempt.timerFinishedAt;
+  delete nextAttempt.timerPausedAt;
+  delete nextAttempt.timerRemainingMs;
+
+  const normalizedAttempt = normalizeMockAttemptPayload(exam, nextAttempt.answers, continuedAt, nextAttempt);
+  attempts[requestedExamId] = normalizedAttempt;
+  const updated = setStudentData(student.id, {
+    ...data,
+    mockAttempts: attempts,
+  });
+  const stored = updated.mockAttempts?.[requestedExamId] || normalizedAttempt;
+  return res.json(normalizeMockAttemptPayload(exam, stored.answers, stored.updatedAt, stored));
+});
+
 app.put('/api/mock-exams/attempt', (req, res) => {
   const {
     studentId,
