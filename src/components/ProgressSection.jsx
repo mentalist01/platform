@@ -2655,6 +2655,13 @@ const ProgressSection = ({
         )
     );
     const isTimerMode = Boolean(examRow?.isTimerMode ?? (selectedMode === MOCK_ATTEMPT_MODE_TIMER));
+    const timerResultsHidden = Boolean(
+      isTimerMode
+      && normalizeMockAttemptMode(attempt?.mode) === MOCK_ATTEMPT_MODE_TIMER
+      && modeLocked
+      && !String(attempt?.timerFinishedAt || '').trim()
+      && examStats.attemptedCount > 0
+    );
     const shouldWarnClassicLock = hasExamTasks && !modeLocked && !isTimerMode;
     const visibleMilestones = isTimerMode ? MOCK_TIMER_CHEST_MILESTONES : MOCK_COIN_MILESTONES;
     const achievedCoinMilestones = new Set(
@@ -2682,21 +2689,27 @@ const ProgressSection = ({
     const scoreGap = examRow?.rewardGap ?? (nextRewardMilestone ? Math.max(0, nextRewardMilestone.score - scoreValue) : 0);
     const canRestartTimerAttempt = Boolean(isTimerMode && (examRow?.canRestartTimerAttempt || examStats.canRestartTimerAttempt || isMockTimerAttemptEnded(attempt)));
     const timerRewardsDisabled = Boolean(attempt?.timerRewardsDisabled || (canSwitchClassicAttemptToTimer && isTimerMode));
-    const nextRewardText = timerRewardsDisabled
+    const nextRewardText = timerResultsHidden
+      ? 'Результат после завершения'
+      : (timerRewardsDisabled
       ? 'Награды таймера отключены'
       : (nextRewardMilestone
         ? `До ${isTimerMode ? 'сундука' : nextRewardMilestone.score}: ${scoreGap} ${getBallLabel(scoreGap)}.`
-        : (isTimerMode ? 'Все сундуки открыты' : 'Все рубежи забраны'));
-    const scoreRewardValue = timerRewardsDisabled && isTimerMode
+        : (isTimerMode ? 'Все сундуки открыты' : 'Все рубежи забраны')));
+    const scoreRewardValue = timerResultsHidden
+      ? '—'
+      : (timerRewardsDisabled && isTimerMode
       ? (nextRewardMilestone ? `x${nextRewardMilestone.chests}` : '✓')
       : (nextRewardMilestone
         ? (isTimerMode ? `x${nextRewardMilestone.chests}` : nextRewardMilestone.coins)
-        : '✓');
-    const scoreRewardCaption = timerRewardsDisabled && isTimerMode
+        : '✓'));
+    const scoreRewardCaption = timerResultsHidden
+      ? 'после финиша'
+      : (timerRewardsDisabled && isTimerMode
       ? 'недоступно'
       : (nextRewardMilestone
         ? `через ${scoreGap} б.`
-        : 'забрано');
+        : 'забрано'));
     const timerRemainingLabel = isTimerMode && examStats.timerRemainingMs !== null
       ? formatMockTimerDuration(examStats.timerRemainingMs)
       : formatMockTimerDuration(MOCK_EXAM_TIMER_DURATION_MS);
@@ -2897,7 +2910,9 @@ const ProgressSection = ({
                     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px]">
                       <span className="mock-reward-title inline-flex items-center gap-1.5 font-semibold">
                         {isTimerMode ? <Flame size={13} /> : <Crown size={13} />}
-                        {isTimerMode ? `Испытание: ${scoreValue}/100` : `Трофейная дорога: ${scoreValue}/100`}
+                        {isTimerMode
+                          ? (timerResultsHidden ? 'Испытание: ответы сохранены' : `Испытание: ${scoreValue}/100`)
+                          : `Трофейная дорога: ${scoreValue}/100`}
                       </span>
                       <span className="mock-reward-next">
                         {isTimerMode && modeLocked ? `${examStats.isTimerPaused ? 'Пауза: ' : ''}${timerRemainingLabel} · ` : ''}
@@ -3011,7 +3026,7 @@ const ProgressSection = ({
                     {hasExamTasks ? 'Баллы' : 'Статус'}
                   </div>
                   <div className="mock-score-value mt-1 font-display text-3xl font-bold leading-none">
-                    {hasExamTasks ? examStats.secondary : '-'}
+                    {hasExamTasks ? (timerResultsHidden ? '—' : examStats.secondary) : '-'}
                   </div>
                 </div>
                 <div className="mock-score-crown flex shrink-0 items-center justify-center">
@@ -3022,11 +3037,11 @@ const ProgressSection = ({
               {hasExamTasks && (
                 <div className="mock-score-stats">
                   <div className="mock-score-stat">
-                    <BookOpen size={13} />
-                    <div>
-                      <strong>{`${examStats.solvedCount}/${examStats.totalCount}`}</strong>
-                      <span>решено</span>
-                    </div>
+                      <BookOpen size={13} />
+                      <div>
+                        <strong>{timerResultsHidden ? `${examStats.attemptedCount}/${examStats.totalCount}` : `${examStats.solvedCount}/${examStats.totalCount}`}</strong>
+                        <span>{timerResultsHidden ? 'заполнено' : 'решено'}</span>
+                      </div>
                   </div>
                   <div className={`mock-score-stat mock-score-stat--reward ${timerRewardsDisabled && isTimerMode ? 'mock-score-stat--reward-disabled' : ''}`}>
                     {isTimerMode ? (

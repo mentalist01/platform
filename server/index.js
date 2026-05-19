@@ -7438,15 +7438,28 @@ const normalizeMockAttemptAnswers = (exam, rawAnswers) => {
   return normalized;
 };
 
-const mergeMockAttemptAnswers = (exam, previousAnswers, nextAnswers) => {
+const mergeMockAttemptAnswers = (exam, previousAnswers, nextAnswers, options = {}) => {
   const tasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
   const source = nextAnswers && typeof nextAnswers === 'object' && !Array.isArray(nextAnswers)
     ? nextAnswers
     : {};
   const previous = normalizeMockAttemptAnswers(exam, previousAnswers);
   const next = normalizeMockAttemptAnswers(exam, nextAnswers);
+  const preservePreviousNonEmpty = options?.preservePreviousNonEmpty === true;
   const merged = {};
   Object.keys(tasks).forEach((taskKey) => {
+    const answerCount = getMockAnswerCountForTask(taskKey);
+    const hasNextAnswer = hasMockAttemptAnswerValue(next[taskKey], answerCount);
+    const hasPreviousAnswer = hasMockAttemptAnswerValue(previous[taskKey], answerCount);
+    if (
+      preservePreviousNonEmpty
+      && Object.prototype.hasOwnProperty.call(source, taskKey)
+      && !hasNextAnswer
+      && hasPreviousAnswer
+    ) {
+      merged[taskKey] = previous[taskKey];
+      return;
+    }
     merged[taskKey] = Object.prototype.hasOwnProperty.call(source, taskKey)
       ? next[taskKey]
       : previous[taskKey];
@@ -7519,6 +7532,23 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
   const timerRemainingMs = mode === MOCK_ATTEMPT_MODE_TIMER && timerPausedAt
     ? Math.max(0, Math.floor(Number(meta?.timerRemainingMs) || 0))
     : 0;
+  const timerContinuedAt = mode === MOCK_ATTEMPT_MODE_TIMER
+    ? normalizeMockTimerTimestamp(meta?.timerContinuedAt)
+    : '';
+  const timerContinuedBy = mode === MOCK_ATTEMPT_MODE_TIMER
+    && typeof meta?.timerContinuedBy === 'string'
+    && meta.timerContinuedBy.trim()
+    ? meta.timerContinuedBy.trim()
+    : '';
+  const timerContinuedFromFinishedAt = mode === MOCK_ATTEMPT_MODE_TIMER
+    ? normalizeMockTimerTimestamp(meta?.timerContinuedFromFinishedAt)
+    : '';
+  const timerContinuedAnswersBackup = mode === MOCK_ATTEMPT_MODE_TIMER
+    && meta?.timerContinuedAnswersBackup
+    && typeof meta.timerContinuedAnswersBackup === 'object'
+    && !Array.isArray(meta.timerContinuedAnswersBackup)
+    ? normalizeMockAttemptAnswers(exam, meta.timerContinuedAnswersBackup)
+    : null;
   const previousSolvedEver = meta?.solvedEver && typeof meta.solvedEver === 'object' && !Array.isArray(meta.solvedEver)
     ? meta.solvedEver
     : (meta?.solved && typeof meta.solved === 'object' && !Array.isArray(meta.solved) ? meta.solved : {});
@@ -7550,6 +7580,10 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
     ...(timerFinishedAt ? { timerFinishedAt } : {}),
     ...(timerPausedAt ? { timerPausedAt } : {}),
     ...(timerPausedAt ? { timerRemainingMs } : {}),
+    ...(timerContinuedAt ? { timerContinuedAt } : {}),
+    ...(timerContinuedBy ? { timerContinuedBy } : {}),
+    ...(timerContinuedFromFinishedAt ? { timerContinuedFromFinishedAt } : {}),
+    ...(timerContinuedAnswersBackup ? { timerContinuedAnswersBackup } : {}),
     updatedAt: typeof updatedAt === 'string' && updatedAt.trim()
       ? updatedAt
       : new Date().toISOString(),
@@ -12933,12 +12967,23 @@ app.patch('/api/mock-exams/attempt/continue-timer', (req, res) => {
   }
 
   const continuedAt = new Date().toISOString();
+  const previousAnswersBackup = previousAttempt?.timerContinuedAnswersBackup
+    && typeof previousAttempt.timerContinuedAnswersBackup === 'object'
+    && !Array.isArray(previousAttempt.timerContinuedAnswersBackup)
+    ? previousAttempt.timerContinuedAnswersBackup
+    : null;
+  const continuedAnswers = hasMockAttemptStarted(exam, previousAttempt.answers)
+    ? previousAttempt.answers
+    : (previousAnswersBackup || previousAttempt.answers);
   const nextAttempt = {
     ...previousAttempt,
+    answers: continuedAnswers,
     mode: MOCK_ATTEMPT_MODE_TIMER,
     timerExpiresAt: new Date(Date.parse(continuedAt) + remainingAtFinishMs).toISOString(),
     timerContinuedAt: continuedAt,
     timerContinuedBy: String(req.auth?.id || '').trim(),
+    timerContinuedFromFinishedAt: previousTimerFinishedAt,
+    timerContinuedAnswersBackup: previousAnswersBackup || previousAttempt.answers,
     updatedAt: continuedAt,
   };
   delete nextAttempt.timerFinishedAt;
@@ -13126,7 +13171,9 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   })();
   const rawAnswersForSave = startOnly
     ? previousAttemptNormalized.answers
-    : mergeMockAttemptAnswers(exam, previousAttemptNormalized.answers, answers);
+    : mergeMockAttemptAnswers(exam, previousAttemptNormalized.answers, answers, {
+      preservePreviousNonEmpty: isTimerPauseRequest,
+    });
   const normalizedAttemptBase = normalizeMockAttemptPayload(exam, rawAnswersForSave, savedAt, {
     ...previousAttempt,
     mode: attemptMode,
