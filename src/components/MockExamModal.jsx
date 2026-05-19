@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowLeft,
@@ -136,7 +136,13 @@ const MockExamModal = ({
   const autoAdvanceTimerRef = useRef(null);
   const successBurstTimerRef = useRef(null);
   const artifactDropTimerRef = useRef(null);
-  const firstTaskNumber = MOCK_TASK_NUMBERS[0];
+  const modalTaskNumbers = useMemo(() => {
+    const examTasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
+    const available = (Array.isArray(MOCK_TASK_NUMBERS) ? MOCK_TASK_NUMBERS : [])
+      .filter((taskNumber) => Boolean(examTasks[String(taskNumber)]));
+    return available.length > 0 ? available : (Array.isArray(MOCK_TASK_NUMBERS) ? MOCK_TASK_NUMBERS : []);
+  }, [exam?.tasks, MOCK_TASK_NUMBERS]);
+  const firstTaskNumber = modalTaskNumbers[0] ?? MOCK_TASK_NUMBERS[0];
   const activeAttempt = displayAttempt && typeof displayAttempt === 'object' ? displayAttempt : {};
   const effectiveAttemptMode = normalizeMockAttemptMode(activeAttempt?.mode, normalizeMockAttemptMode(attemptMode));
   const isTimerMode = effectiveAttemptMode === MOCK_ATTEMPT_MODE_TIMER;
@@ -151,33 +157,33 @@ const MockExamModal = ({
   const timerExpired = isTimerMode && (timerPaused || Number.isFinite(timerExpiresAtMs)) && timerRemainingMs <= 0;
   const timerLabel = formatMockTimerDuration(timerRemainingMs);
 
-  const readAttemptAnswers = (attempt) => (
+  const readAttemptAnswers = useCallback((attempt) => (
     attempt?.answers && typeof attempt.answers === 'object' ? attempt.answers : {}
-  );
-  const readAttemptSolved = (attempt) => (
+  ), []);
+  const readAttemptSolved = useCallback((attempt) => (
     attempt?.solved && typeof attempt.solved === 'object' ? attempt.solved : {}
-  );
-  const isTimerAttemptFinished = (attempt) => (
+  ), []);
+  const isTimerAttemptFinished = useCallback((attempt) => (
     Boolean(String(attempt?.timerFinishedAt || '').trim())
-  );
-  const readAttemptResults = (attempt) => {
+  ), []);
+  const readAttemptResults = useCallback((attempt) => {
     const attemptModeValue = normalizeMockAttemptMode(attempt?.mode, normalizeMockAttemptMode(attemptMode));
     if (attemptModeValue !== MOCK_ATTEMPT_MODE_TIMER || !isTimerAttemptFinished(attempt)) return {};
     const solvedMap = readAttemptSolved(attempt);
-    return MOCK_TASK_NUMBERS.reduce((acc, taskNumber) => {
+    return modalTaskNumbers.reduce((acc, taskNumber) => {
       const key = String(taskNumber);
       if (Object.prototype.hasOwnProperty.call(solvedMap, key)) {
         acc[key] = Boolean(solvedMap[key]);
       }
       return acc;
     }, {});
-  };
+  }, [attemptMode, isTimerAttemptFinished, modalTaskNumbers, readAttemptSolved]);
 
   const getNextUnsolvedTask = (solvedMap = solved, fromTask = selectedTask) => {
-    const currentIndex = Math.max(0, MOCK_TASK_NUMBERS.indexOf(fromTask));
+    const currentIndex = Math.max(0, modalTaskNumbers.indexOf(fromTask));
     const orderedTasks = [
-      ...MOCK_TASK_NUMBERS.slice(currentIndex + 1),
-      ...MOCK_TASK_NUMBERS.slice(0, currentIndex),
+      ...modalTaskNumbers.slice(currentIndex + 1),
+      ...modalTaskNumbers.slice(0, currentIndex),
     ];
     return orderedTasks.find((taskNumber) => (
       exam?.tasks?.[String(taskNumber)] && !solvedMap?.[String(taskNumber)]
@@ -206,10 +212,10 @@ const MockExamModal = ({
     setFinishConfirmOpen(false);
     const requestedTask = String(initialTaskNumber ?? '').trim();
     const initialTask = requestedTask
-      ? MOCK_TASK_NUMBERS.find((taskNumber) => String(taskNumber) === requestedTask)
+      ? modalTaskNumbers.find((taskNumber) => String(taskNumber) === requestedTask)
       : null;
     setSelectedTask(initialTask || firstTaskNumber);
-  }, [exam?.id, studentId, firstTaskNumber, initialTaskNumber, MOCK_TASK_NUMBERS]);
+  }, [exam?.id, studentId, firstTaskNumber, initialTaskNumber, modalTaskNumbers, readAttemptAnswers, readAttemptResults, readAttemptSolved]);
 
   useEffect(() => {
     if (hasLocalAttemptChangesRef.current) return;
@@ -219,7 +225,7 @@ const MockExamModal = ({
     setResults(readAttemptResults(initialAttempt));
     setSaveError('');
     setSaveStatus('');
-  }, [initialAttempt]);
+  }, [initialAttempt, readAttemptAnswers, readAttemptResults, readAttemptSolved]);
 
   useEffect(() => {
     if (!isTimerMode || timerPaused) return undefined;
@@ -320,7 +326,7 @@ const MockExamModal = ({
   const examBadges = normalizeMockExamBadges(exam?.badges);
   const primaryBadge = examBadges[0] || null;
   const secondaryBadges = examBadges.slice(1);
-  const totalTaskCount = MOCK_TASK_NUMBERS.length;
+  const totalTaskCount = modalTaskNumbers.length;
   const timerResultsVisible = isTimerMode && (
     isTimerAttemptFinished(activeAttempt)
     || Object.keys(results || {}).length >= Math.max(1, totalTaskCount)
@@ -331,22 +337,22 @@ const MockExamModal = ({
   const allowPartialForTask = answerCount > 1 ? allowsPartialAnswers(selectedTask) : false;
   const hasLargeAnswerGrid = answerCount > 6;
   const isAnswerReady = isCurrentTaskAnswered;
-  const answeredCount = MOCK_TASK_NUMBERS.filter((taskNumber) => hasAnswerForTask(taskNumber)).length;
+  const answeredCount = modalTaskNumbers.filter((taskNumber) => hasAnswerForTask(taskNumber)).length;
   const solvedCount = Object.values(visibleSolved || {}).filter(Boolean).length;
   const primaryScore = getPrimaryScoreFromSolved(visibleSolved);
   const secondaryScore = getSecondaryScoreFromPrimary(primaryScore);
   const displayProgressCount = isTimerMode && !timerResultsVisible ? answeredCount : solvedCount;
-  const selectedTaskIndex = Math.max(0, MOCK_TASK_NUMBERS.indexOf(selectedTask));
+  const selectedTaskIndex = Math.max(0, modalTaskNumbers.indexOf(selectedTask));
   const progressPercent = totalTaskCount > 0
     ? Math.min(100, Math.round((displayProgressCount / totalTaskCount) * 100))
     : 0;
   const isFirstTask = selectedTaskIndex <= 0;
   const isLastTask = selectedTaskIndex >= totalTaskCount - 1;
   const getNextUnansweredTask = (fromTask = selectedTask) => {
-    const currentIndex = Math.max(0, MOCK_TASK_NUMBERS.indexOf(fromTask));
+    const currentIndex = Math.max(0, modalTaskNumbers.indexOf(fromTask));
     const orderedTasks = [
-      ...MOCK_TASK_NUMBERS.slice(currentIndex + 1),
-      ...MOCK_TASK_NUMBERS.slice(0, currentIndex),
+      ...modalTaskNumbers.slice(currentIndex + 1),
+      ...modalTaskNumbers.slice(0, currentIndex),
     ];
     return orderedTasks.find((taskNumber) => (
       exam?.tasks?.[String(taskNumber)] && !hasAnswerForTask(taskNumber)
@@ -364,12 +370,12 @@ const MockExamModal = ({
 
   const handlePrevTask = () => {
     if (isFirstTask) return;
-    setSelectedTask(MOCK_TASK_NUMBERS[selectedTaskIndex - 1]);
+    setSelectedTask(modalTaskNumbers[selectedTaskIndex - 1]);
   };
 
   const handleNextTask = () => {
     if (isLastTask) return;
-    setSelectedTask(MOCK_TASK_NUMBERS[selectedTaskIndex + 1]);
+    setSelectedTask(modalTaskNumbers[selectedTaskIndex + 1]);
   };
 
   const handleNextUnsolvedTask = () => {
@@ -480,7 +486,9 @@ const MockExamModal = ({
       });
       if (saved && typeof saved === 'object') {
         const savedSolved = readAttemptSolved(saved);
-        const nextResults = MOCK_TASK_NUMBERS.reduce((acc, taskNumber) => {
+        setDisplayAttempt(saved);
+        latestInitialAttemptRef.current = saved;
+        const nextResults = modalTaskNumbers.reduce((acc, taskNumber) => {
           const key = String(taskNumber);
           acc[key] = Boolean(savedSolved[key]);
           return acc;
@@ -784,7 +792,7 @@ const MockExamModal = ({
 
   const renderTaskPicker = (compact = false) => (
     <div className={compact ? 'flex gap-2 overflow-x-auto pb-1' : 'grid grid-cols-4 gap-2'}>
-      {MOCK_TASK_NUMBERS.map((taskNumber) => (
+      {modalTaskNumbers.map((taskNumber) => (
         <button
           key={taskNumber}
           type="button"

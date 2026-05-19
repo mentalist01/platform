@@ -757,6 +757,7 @@ const ProgressSection = ({
         : null;
       const isTimerExpired = attemptMode === MOCK_ATTEMPT_MODE_TIMER && timerRemainingMs === 0;
       const canRestartTimerAttempt = isMockTimerAttemptEnded(attempt);
+      const isEndedTimerAttempt = attemptMode === MOCK_ATTEMPT_MODE_TIMER && canRestartTimerAttempt;
       const answersMap = attempt?.answers && typeof attempt.answers === 'object' ? attempt.answers : {};
       const storedSolvedMap = attempt?.solved && typeof attempt.solved === 'object' ? attempt.solved : {};
       const timerResultsVisible = attemptMode !== MOCK_ATTEMPT_MODE_TIMER || Boolean(String(attempt?.timerFinishedAt || '').trim());
@@ -813,7 +814,7 @@ const ProgressSection = ({
         canRestartTimerAttempt,
         updatedAt: typeof attempt?.updatedAt === 'string' ? attempt.updatedAt : '',
         updatedLabel: formatMockUpdatedAt(attempt?.updatedAt),
-        actionLabel: canRestartTimerAttempt ? 'Решить заново' : (isCompleted ? 'Повторить' : hasStarted ? 'Продолжить' : 'Начать'),
+        actionLabel: isEndedTimerAttempt ? 'Открыть' : (isCompleted ? 'Повторить' : hasStarted ? 'Продолжить' : 'Начать'),
         taskStats,
       };
     });
@@ -2143,11 +2144,6 @@ const ProgressSection = ({
       && requestedMode === MOCK_ATTEMPT_MODE_TIMER
       && !cachedAttempt?.timerFinishedAt
     );
-    const canRestartTimerAttempt = Boolean(
-      requestedMode === MOCK_ATTEMPT_MODE_TIMER
-      && cachedMode === MOCK_ATTEMPT_MODE_TIMER
-      && isMockTimerAttemptEnded(cachedAttempt)
-    );
     const resolvedMode = canSwitchClassicAttemptToTimer
       ? MOCK_ATTEMPT_MODE_TIMER
       : (modeLocked ? cachedMode : requestedMode);
@@ -2185,14 +2181,15 @@ const ProgressSection = ({
     }
     setMockExamsError('');
     try {
-      const shouldStartAttempt = role === 'student' && (!modeLocked || canSwitchClassicAttemptToTimer || canRestartTimerAttempt);
+      const shouldStartAttempt = role === 'student' && (!modeLocked || canSwitchClassicAttemptToTimer);
       const fetchedAttempt = shouldStartAttempt
         ? await api.startMockAttempt(mockAttemptStudentId, exam.id, {
           mode: resolvedMode,
-          ...(canRestartTimerAttempt ? { restartTimerExam: true } : {}),
         })
         : await api.getMockAttempt(mockAttemptStudentId, exam.id);
-      const shouldResumeTimer = role === 'student' && isMockTimerAttemptPaused(fetchedAttempt);
+      const shouldResumeTimer = role === 'student'
+        && isMockTimerAttemptPaused(fetchedAttempt)
+        && !isMockTimerAttemptEnded(fetchedAttempt);
       const attempt = shouldResumeTimer
         ? await api.resumeMockAttempt(mockAttemptStudentId, exam.id, { mode: MOCK_ATTEMPT_MODE_TIMER })
         : fetchedAttempt;
@@ -2662,7 +2659,7 @@ const ProgressSection = ({
     const timerRemainingLabel = isTimerMode && examStats.timerRemainingMs !== null
       ? formatMockTimerDuration(examStats.timerRemainingMs)
       : formatMockTimerDuration(MOCK_EXAM_TIMER_DURATION_MS);
-    const actionLabel = canRestartTimerAttempt ? 'Решить заново' : examStats.actionLabel;
+    const actionLabel = canRestartTimerAttempt ? 'Открыть' : examStats.actionLabel;
     const isStartingThisMock = String(startingMockExamId || '') === String(exam.id || '');
     const attemptHasTimerMarkers = Boolean(
       normalizeMockAttemptMode(attempt?.mode) === MOCK_ATTEMPT_MODE_TIMER

@@ -7438,6 +7438,22 @@ const normalizeMockAttemptAnswers = (exam, rawAnswers) => {
   return normalized;
 };
 
+const mergeMockAttemptAnswers = (exam, previousAnswers, nextAnswers) => {
+  const tasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
+  const source = nextAnswers && typeof nextAnswers === 'object' && !Array.isArray(nextAnswers)
+    ? nextAnswers
+    : {};
+  const previous = normalizeMockAttemptAnswers(exam, previousAnswers);
+  const next = normalizeMockAttemptAnswers(exam, nextAnswers);
+  const merged = {};
+  Object.keys(tasks).forEach((taskKey) => {
+    merged[taskKey] = Object.prototype.hasOwnProperty.call(source, taskKey)
+      ? next[taskKey]
+      : previous[taskKey];
+  });
+  return merged;
+};
+
 const hasMockAttemptStarted = (exam, answers = {}) => {
   const tasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
   return Object.keys(tasks).some((taskKey) => {
@@ -13044,8 +13060,8 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     return clientDayKey;
   })();
   const rawAnswersForSave = startOnly
-    ? (canRestartTimerAttempt ? {} : previousAttemptNormalized.answers)
-    : answers;
+    ? previousAttemptNormalized.answers
+    : mergeMockAttemptAnswers(exam, previousAttemptNormalized.answers, answers);
   const normalizedAttemptBase = normalizeMockAttemptPayload(exam, rawAnswersForSave, savedAt, {
     ...previousAttempt,
     mode: attemptMode,
