@@ -2707,6 +2707,7 @@ const CollabSection = ({
   const taskFilesPanelOpenRef = useRef(taskFilesPanelOpen);
   const runTaskNumberRef = useRef(runTaskNumber);
   const runTaskCategoryRef = useRef(runTaskCategory);
+  const handleRunCodeRef = useRef(null);
   const selectedTaskFileIdsRef = useRef(selectedTaskFileIds);
   const testFileTextareaRef = useRef(null);
   const testFileHighlightOverlayRef = useRef(null);
@@ -5385,6 +5386,25 @@ const CollabSection = ({
       }
     }
   };
+  handleRunCodeRef.current = handleRunCode;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleRunHotkey = (event) => {
+      const isPlainF5 = (event.key === 'F5' || event.code === 'F5')
+        && !event.ctrlKey
+        && !event.metaKey
+        && !event.altKey
+        && !event.shiftKey;
+      if (!isPlainF5) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.repeat || runLoading || !roomId) return;
+      void handleRunCodeRef.current?.('all');
+    };
+    window.addEventListener('keydown', handleRunHotkey, true);
+    return () => window.removeEventListener('keydown', handleRunHotkey, true);
+  }, [roomId, runLoading]);
 
   const handleStopRun = () => {
     if (!runLoading) return;
@@ -7283,7 +7303,7 @@ const CollabSection = ({
                 ? collabIconButtonDisabled
                 : collabIconButtonPrimary
             }`}
-            title="Запустить код"
+            title="Запустить код (F5)"
             aria-label="Запустить код"
           >
             <Play size={15} />
