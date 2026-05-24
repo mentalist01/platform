@@ -173,12 +173,13 @@ const BOARD_STROKE_SMOOTHING_MIN_ALPHA = 0.22;
 const BOARD_STROKE_SMOOTHING_MAX_ALPHA = 0.72;
 const BOARD_PRESSURE_MIN_RATIO = 0.6;
 const BOARD_LOW_BANDWIDTH_CURSOR_MS = 130;
-const BOARD_LOW_BANDWIDTH_PREVIEW_MS = 130;
-const BOARD_LOW_BANDWIDTH_POINT_STEP = 2;
+const BOARD_LOW_BANDWIDTH_PREVIEW_MS = 16;
+const BOARD_LIVE_STROKE_POINTS_PER_UPDATE = 28;
 const BOARD_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const BOARD_MAX_ITEM_COUNT = 2500;
 const BOARD_MAX_TOTAL_BYTES = 12 * 1024 * 1024;
 const BOARD_MAX_STROKE_POINTS = 1400;
+const BOARD_REMOTE_LIVE_STROKE_MAX_POINTS = BOARD_MAX_STROKE_POINTS;
 const BOARD_SCENE_PADDING = 48;
 const BOARD_SCENE_MAX_DIMENSION = 4096;
 const BOARD_SCENE_MAX_PIXELS = 8 * 1024 * 1024;
@@ -271,6 +272,19 @@ const trimBoardStrokePoints = (points) => {
   for (let index = 0; index < targetCount; index += 1) {
     const sourceIndex = Math.min(source.length - 1, Math.round(index * step));
     next.push(normalizeBoardStoredPoint(source[sourceIndex]));
+  }
+  return next;
+};
+const compactBoardLiveStrokePoints = (points, maxPoints = BOARD_LIVE_STROKE_POINTS_PER_UPDATE) => {
+  const source = Array.isArray(points)
+    ? points.map((point) => normalizeBoardStoredPoint(point))
+    : [];
+  const limit = Math.max(2, Number(maxPoints) || BOARD_LIVE_STROKE_POINTS_PER_UPDATE);
+  if (source.length <= limit) return source;
+  const step = (source.length - 1) / (limit - 1);
+  const next = [];
+  for (let index = 0; index < limit; index += 1) {
+    next.push(source[Math.min(source.length - 1, Math.round(index * step))]);
   }
   return next;
 };
@@ -7801,6 +7815,7 @@ const BoardSection = ({
   const pendingCursorRef = useRef(null);
   const lastCursorSyncAtRef = useRef(0);
   const lastPreviewSyncAtRef = useRef(0);
+  const remotePreviewStateRef = useRef(new Map());
   const imageDragRafRef = useRef(null);
   const pendingImageMoveRef = useRef(null);
   const lastSummonIdRef = useRef(null);
@@ -7951,6 +7966,7 @@ const BoardSection = ({
     awarenessRef.current?.setLocalStateField('drawing', null);
     awarenessRef.current?.setLocalStateField('cursor', null);
     awarenessRef.current?.setLocalStateField('summon', null);
+    remotePreviewStateRef.current.clear();
     setRemotePreviews([]);
     setRemoteCursors([]);
     setSelectedIds([]);
@@ -9734,7 +9750,7 @@ const BoardSection = ({
     );
     if (remotePreviews.length > 0) {
       ctx.save();
-      ctx.globalAlpha = 0.65;
+      ctx.globalAlpha = 0.95;
       remotePreviews.forEach((preview) => {
         if (preview?.type === 'stroke') {
           drawStroke(ctx, preview, overlay.width, overlay.height);
@@ -9873,6 +9889,7 @@ const BoardSection = ({
       providerRef.current = null;
       awarenessRef.current = null;
       undoManagerRef.current = null;
+      remotePreviewStateRef.current.clear();
       setRemotePreviews([]);
       setRemoteCursors([]);
       return;
@@ -9942,12 +9959,65 @@ const BoardSection = ({
       setPeerCount(Math.max(0, total - 1));
       const previews = [];
       const cursors = [];
+      const activePreviewClientIds = new Set();
       let incomingSummon = null;
       states.forEach((state, clientId) => {
         if (clientId === provider.awareness.clientID) return;
+        const clientKey = String(clientId);
+        const remoteUser = state?.user;
+        const remoteName = typeof remoteUser?.name === 'string' && remoteUser.name.trim()
+          ? remoteUser.name.trim()
+          : 'Участник';
+        const remoteColor = typeof remoteUser?.color === 'string' && remoteUser.color
+          ? remoteUser.color
+          : '#6366f1';
         const drawing = state?.drawing;
         if (drawing && (drawing.type === 'stroke' || drawing.type === 'line')) {
-          previews.push(drawing);
+          activePreviewClientIds.add(clientKey);
+          if (drawing.type === 'stroke') {
+            const incomingPoints = Array.isArray(drawing.points)
+              ? drawing.points.map((point) => normalizeBoardStoredPoint(point))
+              : [];
+            if (incomingPoints.length > 0) {
+              const previewId = String(drawing.previewId || `${clientKey}:legacy`);
+              const seq = Number.isFinite(Number(drawing.seq)) ? Number(drawing.seq) : 0;
+              const previous = remotePreviewStateRef.current.get(clientKey);
+              if (previous && previous.previewId === previewId && seq <= Number(previous.seq || 0)) {
+                previews.push(previous);
+              } else {
+                const canAppend = Boolean(drawing.append)
+                  && previous
+                  && previous.previewId === previewId
+                  && seq > Number(previous.seq || 0);
+                let nextPoints = canAppend
+                  ? [
+                    ...(Array.isArray(previous.points) ? previous.points : []),
+                    ...incomingPoints.slice(1),
+                  ]
+                  : incomingPoints;
+                if (nextPoints.length > BOARD_REMOTE_LIVE_STROKE_MAX_POINTS) {
+                  nextPoints = nextPoints.slice(nextPoints.length - BOARD_REMOTE_LIVE_STROKE_MAX_POINTS);
+                }
+                const preview = {
+                  type: 'stroke',
+                  previewId,
+                  seq,
+                  color: typeof drawing.color === 'string' ? drawing.color : remoteColor,
+                  width: Number(drawing.width) || BOARD_STROKE_WIDTH,
+                  points: nextPoints,
+                  name: remoteName,
+                  authorId: clientKey,
+                };
+                remotePreviewStateRef.current.set(clientKey, preview);
+                previews.push(preview);
+              }
+            }
+          } else {
+            remotePreviewStateRef.current.delete(clientKey);
+            previews.push(drawing);
+          }
+        } else {
+          remotePreviewStateRef.current.delete(clientKey);
         }
         const cursor = state?.cursor;
         if (
@@ -9955,15 +10025,8 @@ const BoardSection = ({
           && Number.isFinite(Number(cursor?.x))
           && Number.isFinite(Number(cursor?.y))
         ) {
-          const remoteUser = state?.user;
-          const remoteName = typeof remoteUser?.name === 'string' && remoteUser.name.trim()
-            ? remoteUser.name.trim()
-            : 'Участник';
-          const remoteColor = typeof remoteUser?.color === 'string' && remoteUser.color
-            ? remoteUser.color
-            : '#6366f1';
           cursors.push({
-            id: String(clientId),
+            id: clientKey,
             x: Number(cursor.x),
             y: Number(cursor.y),
             name: remoteName,
@@ -9973,6 +10036,11 @@ const BoardSection = ({
         const summon = state?.summon;
         if (summon?.ts && (!incomingSummon || summon.ts > (incomingSummon.ts || 0))) {
           incomingSummon = summon;
+        }
+      });
+      remotePreviewStateRef.current.forEach((_, clientKey) => {
+        if (!activePreviewClientIds.has(clientKey)) {
+          remotePreviewStateRef.current.delete(clientKey);
         }
       });
       setRemotePreviews(previews);
@@ -10118,17 +10186,30 @@ const BoardSection = ({
       lastPreviewSyncAtRef.current = now;
       if (tool === 'pen') {
         const sourcePoints = Array.isArray(state.points) ? state.points : [];
-        const points = lowBandwidthMode && sourcePoints.length > 8
-          ? sourcePoints.filter((_, index) => (
-            index === sourcePoints.length - 1
-            || index % BOARD_LOW_BANDWIDTH_POINT_STEP === 0
-          ))
-          : sourcePoints;
+        if (sourcePoints.length === 0) return;
+        const latestIndex = sourcePoints.length - 1;
+        const lastSentIndex = Number.isInteger(state.previewLastSentIndex)
+          ? state.previewLastSentIndex
+          : -1;
+        if (lastSentIndex >= latestIndex) return;
+        const sliceStart = lastSentIndex > 0 ? lastSentIndex : 0;
+        const rawPoints = sourcePoints.slice(sliceStart);
+        const maxPoints = lowBandwidthMode
+          ? Math.max(8, Math.floor(BOARD_LIVE_STROKE_POINTS_PER_UPDATE / 2))
+          : BOARD_LIVE_STROKE_POINTS_PER_UPDATE;
+        const points = compactBoardLiveStrokePoints(rawPoints, maxPoints);
+        state.previewLastSentIndex = latestIndex;
+        state.previewSeq = (Number(state.previewSeq) || 0) + 1;
         awarenessRef.current?.setLocalStateField('drawing', {
           type: 'stroke',
+          previewId: state.previewId,
+          seq: state.previewSeq,
+          append: lastSentIndex >= 0,
           color,
           width: penWidth,
           points,
+          totalPoints: sourcePoints.length,
+          ts: now,
         });
       } else if (tool === 'line') {
         awarenessRef.current?.setLocalStateField('drawing', {
@@ -10264,7 +10345,17 @@ const BoardSection = ({
       return;
     }
     if (tool === 'pen') {
-      drawStateRef.current = { drawing: true, points: [withPenPressure(point, event)], start: null, end: null };
+      drawStateRef.current = {
+        drawing: true,
+        points: [withPenPressure(point, event)],
+        start: null,
+        end: null,
+        previewId: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`,
+        previewSeq: 0,
+        previewLastSentIndex: -1,
+      };
     } else if (tool === 'line') {
       drawStateRef.current = { drawing: true, points: [], start: point, end: point };
     }
