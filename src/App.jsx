@@ -2859,7 +2859,7 @@ const CollabSection = ({
   const editorOptions = useMemo(() => ({
     minimap: { enabled: false },
     fontSize: editorFontSize,
-    fontWeight: '560',
+    fontWeight: '650',
     tabSize: 4,
     insertSpaces: true,
     wordWrap: 'on',
