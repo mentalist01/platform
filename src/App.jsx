@@ -2888,9 +2888,12 @@ const CollabSection = ({
     ? (isMobileViewport ? '60vh' : '82vh')
     : (isMobileViewport ? '50vh' : (isDesktopCollabCompact ? '100%' : '65vh'));
   const notesPdfMinHeight = isMobileViewport ? 90 : 120;
+  const compactNotesPdfMaxHeight = typeof window !== 'undefined'
+    ? Math.max(360, Math.min(620, window.innerHeight - 260))
+    : 500;
   const notesPdfMaxHeight = isCollabFullscreen
     ? (isMobileViewport ? 520 : 760)
-    : (isDesktopCollabCompact ? 260 : 560);
+    : (isDesktopCollabCompact ? compactNotesPdfMaxHeight : 560);
   const clampNotesPdfHeight = useCallback(
     (value) => Math.max(notesPdfMinHeight, Math.min(notesPdfMaxHeight, Math.round(value))),
     [notesPdfMinHeight, notesPdfMaxHeight]
@@ -2900,6 +2903,7 @@ const CollabSection = ({
     [clampNotesPdfHeight, isMobileViewport, isCollabFullscreen, isDesktopCollabCompact]
   );
   const isNotesBoardMode = notesPanelMode === COLLAB_TOP_PANE_MODE_BOARD;
+  const useBoardGlassCodePanel = notesPdfPanelOpen && isNotesBoardMode;
   const canResizeTopPane = notesPdfPanelOpen && (isNotesBoardMode || Boolean(selectedNotesPdfFile));
   const isFullscreenDark = isCollabFullscreen && isDarkTheme;
   const isFullscreenLight = isCollabFullscreen && !isDarkTheme;
@@ -2913,7 +2917,7 @@ const CollabSection = ({
   const collabShellStyle = isDesktopCollabCompact
     ? { height: compactCollabHeight, maxHeight: compactCollabHeight }
     : undefined;
-  const collabCardClass = isCollabFullscreen
+  const collabCardBaseClass = isCollabFullscreen
     ? `collab-workspace-card relative z-[1] flex min-h-0 flex-1 flex-col ${isMobileViewport ? 'overflow-visible' : 'overflow-hidden'} border ring-1 ${
       isFullscreenDark
         ? 'border-slate-700/75 ring-cyan-300/10 bg-slate-950/54 shadow-[0_30px_72px_rgba(2,6,23,0.62)]'
@@ -2922,6 +2926,10 @@ const CollabSection = ({
     : (isDesktopCollabCompact
       ? 'collab-workspace-card p-1 md:p-1.5 flex min-h-0 flex-1 flex-col overflow-hidden'
       : 'collab-workspace-card p-4 md:p-6');
+  const collabCardClass = `${collabCardBaseClass}${useBoardGlassCodePanel ? ' collab-workspace-card--glass-board' : ''}`;
+  const collabCardStyle = useBoardGlassCodePanel
+    ? { '--collab-board-pane-height': `${notesPdfPanelHeight}px` }
+    : undefined;
   const collabTitleClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-50' : 'text-slate-900') : 'text-gray-900';
   const collabSubtitleClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-300/90' : 'text-slate-600') : 'text-gray-500';
   const collabLabelClass = isCollabFullscreen ? (isFullscreenDark ? 'text-cyan-300' : 'text-violet-600') : 'text-purple-600';
@@ -5918,6 +5926,7 @@ const CollabSection = ({
     if (!canResizeTopPane) return;
     event.preventDefault();
     const handleNode = event.currentTarget;
+    const cardNode = handleNode?.closest?.('.collab-workspace-card');
     const pointerId = event.pointerId;
     const startY = event.clientY;
     const startHeight = notesPdfPanelHeightRef.current;
@@ -5925,6 +5934,9 @@ const CollabSection = ({
     const applyHeight = (rawHeight) => {
       const nextHeight = clampNotesPdfHeight(rawHeight);
       notesPdfDragHeightRef.current = nextHeight;
+      if (cardNode) {
+        cardNode.style.setProperty('--collab-board-pane-height', `${nextHeight}px`);
+      }
       if (notesPdfPreviewRef.current) {
         notesPdfPreviewRef.current.style.height = `${nextHeight}px`;
       }
@@ -6723,7 +6735,7 @@ const CollabSection = ({
       aria-valuenow={Math.round(notesPdfPanelHeight)}
       onPointerDown={handleNotesPdfResizeStart}
       onDoubleClick={handleNotesPdfResizeReset}
-      className="group absolute inset-x-0 bottom-0 z-30 flex h-6 translate-y-[32%] cursor-row-resize select-none touch-none items-center justify-center"
+      className="collab-top-pane-resize-handle group absolute inset-x-0 bottom-0 z-30 flex h-6 translate-y-[32%] cursor-row-resize select-none touch-none items-center justify-center"
       title="Тяните вверх или вниз, чтобы изменить высоту. Двойной клик — сброс."
     >
       <div className="relative flex h-full w-full items-center justify-center">
@@ -6925,7 +6937,7 @@ const CollabSection = ({
           )}
           {isNotesBoardMode ? (
             <>
-              <div className="relative">
+              <div className="collab-board-underlay-wrap relative">
                 <div
                   ref={notesPdfPreviewRef}
                   className={`collab-board-stage overflow-hidden rounded-[0.7rem] ${
@@ -7139,7 +7151,7 @@ const CollabSection = ({
 
   const mergeHeaderIntoToolbar = isDesktopCollabCompact || isCollabFullscreen;
   const collabTopActions = (
-    <div className={`flex flex-wrap items-center ${
+    <div className={`collab-top-actions flex flex-wrap items-center ${
       isCollabFullscreen
         ? 'gap-1.5 md:justify-end'
         : (isDesktopCollabCompact ? 'gap-1.5' : 'gap-2')
@@ -7268,7 +7280,7 @@ const CollabSection = ({
         </div>
       )}
 
-      <Card className={collabCardClass}>
+      <Card className={collabCardClass} style={collabCardStyle}>
         {SHOW_COLLAB_AUTOFORMAT && !isCollabFullscreen && !isDesktopCollabCompact && (
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-end">
             <div className="flex flex-wrap items-center gap-2 md:justify-end">
@@ -7288,7 +7300,8 @@ const CollabSection = ({
           {notesPdfPane}
         </div>
 
-        <div className={`${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-0 flex flex-wrap items-center gap-1.5' : 'mt-0.5 flex flex-wrap items-center gap-1.5') : ''}`}>
+        <div className="collab-code-glass-layer">
+        <div className={`collab-code-command-row ${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-0 flex flex-wrap items-center gap-1.5' : 'mt-0.5 flex flex-wrap items-center gap-1.5') : ''}`}>
           <div className={`collab-code-toolbar max-w-full flex flex-wrap items-center gap-2 rounded-xl border ${
             isCollabFullscreen
               ? 'min-w-0 flex-1 rounded-xl px-0.5 py-px sm:px-1 sm:py-0.5'
@@ -7548,6 +7561,7 @@ const CollabSection = ({
             </div>
           </>
         )}
+        </div>
       </Card>
       {isCollabFullscreen
         ? saveModal
