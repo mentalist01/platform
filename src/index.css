@@ -25600,6 +25600,74 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-top-pane-res
     inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
 }
 
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-embedded-card .board-toolbar__button:not(.is-active),
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-embedded-card .board-toolbar__zoom-value,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row .collab-code-toolbar button:not(:first-child),
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-top-actions > *,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-aux-panel button,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-aux-panel [role='button'] {
+  border-color: rgba(203, 213, 225, 0.92) !important;
+  background:
+    linear-gradient(180deg, #ffffff, #f8fafc) !important;
+  color: rgba(30, 41, 59, 0.94) !important;
+  box-shadow:
+    0 8px 18px rgba(15, 23, 42, 0.12),
+    0 1px 2px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-embedded-card .board-toolbar__button:not(.is-active):not(:disabled):hover,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row .collab-code-toolbar button:not(:first-child):not(:disabled):hover,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-top-actions > *:not(:disabled):hover,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-aux-panel button:not(:disabled):hover {
+  border-color: rgba(167, 139, 250, 0.52) !important;
+  background:
+    linear-gradient(180deg, #ffffff, #f5f3ff) !important;
+  color: rgba(88, 28, 135, 0.94) !important;
+  box-shadow:
+    0 10px 22px rgba(124, 58, 237, 0.16),
+    0 1px 2px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-embedded-card .board-toolbar__button.is-active,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row .collab-code-toolbar button:first-child,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-aux-panel button[class*='violet'],
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-aux-panel [role='button'][class*='violet'] {
+  border-color: rgba(167, 139, 250, 0.72) !important;
+  background:
+    linear-gradient(135deg, #a855f7, #7c3aed) !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 10px 24px rgba(124, 58, 237, 0.3),
+    0 1px 2px rgba(15, 23, 42, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-top-actions .is-connected,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-top-actions [class*='emerald'] {
+  border-color: rgba(110, 231, 183, 0.78) !important;
+  background:
+    linear-gradient(180deg, #6ee7c6, #34d399) !important;
+  color: rgba(6, 78, 59, 0.96) !important;
+  box-shadow:
+    0 9px 20px rgba(16, 185, 129, 0.2),
+    0 1px 2px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.44) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board button:disabled,
+html[data-theme='dark'] .collab-workspace-card--glass-board [role='button'][aria-disabled='true'] {
+  border-color: rgba(226, 232, 240, 0.72) !important;
+  background:
+    linear-gradient(180deg, #f8fafc, #f1f5f9) !important;
+  color: rgba(100, 116, 139, 0.72) !important;
+  opacity: 0.74 !important;
+  box-shadow:
+    0 5px 12px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
 @media (max-width: 920px) {
   .collab-workspace-card {
     border-radius: 0.85rem !important;
