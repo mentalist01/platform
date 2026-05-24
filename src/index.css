@@ -24568,6 +24568,132 @@ html:not([data-theme='dark']) .collab-editor-surface::before {
   opacity: 0.72;
 }
 
+.collab-remote-cursor-indicator {
+  position: absolute;
+  z-index: 24;
+  display: inline-flex;
+  max-width: min(18rem, calc(100% - 1rem));
+  transform: translateX(-50%);
+  align-items: center;
+  gap: 0.42rem;
+  border: 1px solid color-mix(in srgb, var(--collab-remote-cursor-color, #8b5cf6) 64%, rgba(255, 255, 255, 0.44));
+  border-radius: 0.82rem;
+  background:
+    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--collab-remote-cursor-color, #8b5cf6) 22%, transparent), transparent 44%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(3, 7, 18, 0.94));
+  box-shadow:
+    0 13px 28px rgba(2, 6, 23, 0.34),
+    0 0 0 1px rgba(255, 255, 255, 0.055),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  color: rgba(248, 250, 252, 0.98);
+  cursor: pointer;
+  font-family: "Manrope", system-ui, sans-serif;
+  font-size: 0.69rem;
+  font-weight: 820;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  padding: 0.34rem 0.42rem 0.34rem 0.34rem;
+  pointer-events: auto;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.collab-remote-cursor-indicator:hover {
+  border-color: color-mix(in srgb, var(--collab-remote-cursor-color, #8b5cf6) 74%, rgba(255, 255, 255, 0.55));
+  background:
+    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--collab-remote-cursor-color, #8b5cf6) 31%, transparent), transparent 44%),
+    linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.94));
+  transform: translateX(-50%) translateY(-1px);
+}
+
+.collab-remote-cursor-indicator--down:hover {
+  transform: translateX(-50%) translateY(1px);
+}
+
+.collab-remote-cursor-indicator__direction {
+  display: inline-flex;
+  width: 1.18rem;
+  height: 1.18rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.42rem;
+  background:
+    radial-gradient(circle at 30% 18%, rgba(255, 255, 255, 0.28), transparent 38%),
+    var(--collab-remote-cursor-color, #8b5cf6);
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.1),
+    0 6px 12px color-mix(in srgb, var(--collab-remote-cursor-color, #8b5cf6) 30%, transparent);
+}
+
+.collab-remote-cursor-indicator__dot {
+  position: relative;
+  width: 0.46rem;
+  height: 0.46rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--collab-remote-cursor-color, #8b5cf6) 18%, transparent);
+}
+
+.collab-remote-cursor-indicator__dot::after {
+  content: '';
+  position: absolute;
+  inset: -0.2rem;
+  border-radius: inherit;
+  border: 1px solid color-mix(in srgb, var(--collab-remote-cursor-color, #8b5cf6) 45%, transparent);
+  animation: collabRemoteCursorTypingPulse 1.35s ease-out infinite;
+}
+
+.collab-remote-cursor-indicator__body {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.24rem;
+}
+
+.collab-remote-cursor-indicator__name,
+.collab-remote-cursor-indicator__action,
+.collab-remote-cursor-indicator__line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.collab-remote-cursor-indicator__name {
+  max-width: 7.5rem;
+  color: rgba(255, 255, 255, 0.98);
+  font-weight: 900;
+}
+
+.collab-remote-cursor-indicator__action {
+  color: rgba(203, 213, 225, 0.9);
+  font-weight: 760;
+}
+
+.collab-remote-cursor-indicator__line {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.2rem 0.4rem;
+  color: rgba(248, 250, 252, 0.98);
+  font-size: 0.65rem;
+  font-weight: 880;
+}
+
+@keyframes collabRemoteCursorTypingPulse {
+  0% {
+    opacity: 0.58;
+    transform: scale(0.72);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.72);
+  }
+}
+
 .collab-board-stage .board-minimap-shell {
   border-color: rgba(100, 116, 139, 0.38);
   background: rgba(248, 250, 252, 0.78);

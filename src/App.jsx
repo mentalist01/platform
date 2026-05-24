@@ -1526,8 +1526,8 @@ const COLLAB_TOP_PANE_MODE_PDF = 'pdf';
 const COLLAB_TOP_PANE_MODE_BOARD = 'board';
 const COLLAB_TEST_FILE_RUNTIME_NAME = 'test.txt';
 const COLLAB_TEST_FILE_DOC_KEY = 'collab-test-file';
-const COLLAB_EDITOR_CURSOR_ENABLED = false;
-const COLLAB_EDITOR_CURSOR_SYNC_MS = 45;
+const COLLAB_EDITOR_CURSOR_ENABLED = true;
+const COLLAB_EDITOR_CURSOR_SYNC_MS = 16;
 const COLLAB_EDITOR_CURSOR_STALE_MS = 6500;
 const COLLAB_EDITOR_CURSOR_IDLE_CLEAR_MS = 1200;
 
@@ -2733,6 +2733,8 @@ const CollabSection = ({
   const collabCursorBlurDisposableRef = useRef(null);
   const collabCursorLayoutDisposableRef = useRef(null);
   const collabCursorScrollDisposableRef = useRef(null);
+  const collabCursorPositionDisposableRef = useRef(null);
+  const collabCursorContentDisposableRef = useRef(null);
   const collabCursorDragMouseDownDisposableRef = useRef(null);
   const collabCursorWindowStopRef = useRef(null);
   const collabCursorClearTimerRef = useRef(null);
@@ -3466,6 +3468,40 @@ const CollabSection = ({
       queueCollabEditorCursorClear();
       return true;
     };
+    const publishCursorFromEditorPosition = (immediate = false) => {
+      if (!COLLAB_EDITOR_CURSOR_ENABLED) return false;
+      if (!collabAwarenessRef.current) return false;
+      if (typeof editor.hasTextFocus === 'function' && !editor.hasTextFocus()) return false;
+      const position = editor.getPosition?.();
+      const lineNumber = Number(position?.lineNumber);
+      const column = Number(position?.column);
+      if (!Number.isInteger(lineNumber) || lineNumber <= 0 || !Number.isInteger(column) || column <= 0) {
+        return false;
+      }
+      const node = editor.getDomNode?.();
+      const rect = node?.getBoundingClientRect?.();
+      const layout = editor.getLayoutInfo?.() || null;
+      const width = Number(layout?.width) || Number(rect?.width) || 0;
+      const height = Number(layout?.height) || Number(rect?.height) || 0;
+      const contentLeft = Number(layout?.contentLeft) || 0;
+      const contentWidth = Number(layout?.contentWidth) || Math.max(1, width - contentLeft);
+      const scrollTop = Number(editor.getScrollTop?.()) || 0;
+      const scrollLeft = Number(editor.getScrollLeft?.()) || 0;
+      const lineTop = Number(editor.getTopForLineNumber?.(lineNumber));
+      const columnLeft = Number(editor.getOffsetForColumn?.(lineNumber, column));
+      const hasGeometry = width > 0 && height > 0 && contentWidth > 0
+        && Number.isFinite(lineTop)
+        && Number.isFinite(columnLeft);
+      scheduleCollabEditorCursor({
+        x: hasGeometry ? ((columnLeft - scrollLeft) / contentWidth) : 0.5,
+        y: hasGeometry ? ((lineTop - scrollTop) / height) : 0.5,
+        ts: Date.now(),
+        lineNumber,
+        column,
+      }, immediate);
+      queueCollabEditorCursorClear();
+      return true;
+    };
     collabCursorWindowStopRef.current?.();
     collabCursorWindowStopRef.current = null;
     collabCursorMoveDisposableRef.current?.dispose?.();
@@ -3507,6 +3543,14 @@ const CollabSection = ({
       queueCollabEditorCursorClear(260);
       collabCursorWindowStopRef.current?.();
     });
+    collabCursorPositionDisposableRef.current?.dispose?.();
+    collabCursorPositionDisposableRef.current = editor.onDidChangeCursorPosition(() => {
+      publishCursorFromEditorPosition(true);
+    });
+    collabCursorContentDisposableRef.current?.dispose?.();
+    collabCursorContentDisposableRef.current = editor.onDidChangeModelContent(() => {
+      publishCursorFromEditorPosition(true);
+    });
     collabCursorLayoutDisposableRef.current?.dispose?.();
     collabCursorLayoutDisposableRef.current = editor.onDidLayoutChange(() => {
       setEditorViewportVersion((prev) => prev + 1);
@@ -3538,6 +3582,10 @@ const CollabSection = ({
     collabCursorLeaveDisposableRef.current = null;
     collabCursorBlurDisposableRef.current?.dispose?.();
     collabCursorBlurDisposableRef.current = null;
+    collabCursorPositionDisposableRef.current?.dispose?.();
+    collabCursorPositionDisposableRef.current = null;
+    collabCursorContentDisposableRef.current?.dispose?.();
+    collabCursorContentDisposableRef.current = null;
     collabCursorLayoutDisposableRef.current?.dispose?.();
     collabCursorLayoutDisposableRef.current = null;
     collabCursorScrollDisposableRef.current?.dispose?.();
@@ -5820,6 +5868,73 @@ const CollabSection = ({
       })
       .filter(Boolean);
   }, [remoteEditorCursors, editorViewportVersion]);
+  const remoteEditorOffscreenIndicators = useMemo(() => {
+    if (!COLLAB_EDITOR_CURSOR_ENABLED) return [];
+    const layoutVersion = editorViewportVersion;
+    if (layoutVersion < 0) return [];
+    const editor = editorRef.current;
+    if (!editor || !remoteEditorCursors.length) return [];
+    const visibleRanges = editor.getVisibleRanges?.() || [];
+    if (!visibleRanges.length) return [];
+    const visibleStartLine = Math.min(...visibleRanges.map((range) => Number(range?.startLineNumber) || Infinity));
+    const visibleEndLine = Math.max(...visibleRanges.map((range) => Number(range?.endLineNumber) || 0));
+    if (!Number.isFinite(visibleStartLine) || !Number.isFinite(visibleEndLine) || visibleEndLine <= 0) {
+      return [];
+    }
+    const layout = editor.getLayoutInfo?.() || null;
+    const width = Number(layout?.width) || Number(editor.getDomNode?.()?.clientWidth) || 0;
+    const contentLeft = Number(layout?.contentLeft) || 0;
+    const contentWidth = Number(layout?.contentWidth) || Math.max(1, width - contentLeft);
+    const scrollLeft = Number(editor.getScrollLeft?.()) || 0;
+    const counters = { up: 0, down: 0 };
+    return remoteEditorCursors
+      .map((cursor) => {
+        const lineNumber = Number(cursor?.lineNumber);
+        const column = Number(cursor?.column);
+        if (!Number.isInteger(lineNumber) || lineNumber <= 0) return null;
+        if (lineNumber >= visibleStartLine && lineNumber <= visibleEndLine) return null;
+        const direction = lineNumber < visibleStartLine ? 'up' : 'down';
+        const fallbackLeft = contentLeft + (Number(cursor?.x) * contentWidth);
+        let left = Number.isFinite(fallbackLeft) ? fallbackLeft : (contentLeft + contentWidth * 0.5);
+        if (Number.isInteger(column) && column > 0) {
+          const columnLeft = Number(editor.getOffsetForColumn?.(lineNumber, column));
+          if (Number.isFinite(columnLeft)) {
+            left = contentLeft + columnLeft - scrollLeft;
+          }
+        }
+        const minLeft = Math.min(Math.max(72, contentLeft + 32), Math.max(0, width - 72));
+        const maxLeft = Math.max(minLeft, width - 72);
+        const clampedLeft = Math.max(minLeft, Math.min(maxLeft, left));
+        const stackIndex = counters[direction];
+        counters[direction] += 1;
+        return {
+          ...cursor,
+          direction,
+          lineNumber,
+          column: Number.isInteger(column) && column > 0 ? column : null,
+          left: clampedLeft,
+          stackIndex,
+        };
+      })
+      .filter(Boolean);
+  }, [remoteEditorCursors, editorViewportVersion]);
+  const handleJumpToRemoteEditorCursor = useCallback((cursor) => {
+    const editor = editorRef.current;
+    const lineNumber = Number(cursor?.lineNumber);
+    if (!editor || !Number.isInteger(lineNumber) || lineNumber <= 0) return;
+    const column = Number(cursor?.column);
+    const position = {
+      lineNumber,
+      column: Number.isInteger(column) && column > 0 ? column : 1,
+    };
+    if (typeof editor.revealPositionInCenterIfOutsideViewport === 'function') {
+      editor.revealPositionInCenterIfOutsideViewport(position);
+    } else if (typeof editor.revealLineInCenterIfOutsideViewport === 'function') {
+      editor.revealLineInCenterIfOutsideViewport(lineNumber);
+    } else if (typeof editor.revealLineInCenter === 'function') {
+      editor.revealLineInCenter(lineNumber);
+    }
+  }, []);
   const visibleRemoteOutputSelections = useMemo(() => (
     (Array.isArray(remoteOutputSelections) ? remoteOutputSelections : [])
       .map((selection) => {
@@ -6212,6 +6327,41 @@ const CollabSection = ({
               />
             </svg>
           </div>
+        ))}
+        {remoteEditorOffscreenIndicators.map((cursor) => (
+          <button
+            key={`${cursor.id}-${cursor.direction}`}
+            type="button"
+            className={`collab-remote-cursor-indicator collab-remote-cursor-indicator--${cursor.direction}`}
+            style={{
+              left: `${cursor.left}px`,
+              [cursor.direction === 'up' ? 'top' : 'bottom']: `${0.45 + (cursor.stackIndex * 2.05)}rem`,
+              '--collab-remote-cursor-color': cursor.color,
+            }}
+            title={`${cursor.name || 'Участник'} печатает на строке ${cursor.lineNumber}`}
+            aria-label={`${cursor.name || 'Участник'} печатает на строке ${cursor.lineNumber}`}
+            onClick={() => handleJumpToRemoteEditorCursor(cursor)}
+          >
+            <span className="collab-remote-cursor-indicator__direction" aria-hidden>
+              {cursor.direction === 'up' ? '↑' : '↓'}
+            </span>
+            <span
+              className="collab-remote-cursor-indicator__dot"
+              aria-hidden
+              style={{ backgroundColor: cursor.color }}
+            />
+            <span className="collab-remote-cursor-indicator__body">
+              <span className="collab-remote-cursor-indicator__name">
+                {cursor.name || 'Участник'}
+              </span>
+              <span className="collab-remote-cursor-indicator__action">
+                печатает
+              </span>
+            </span>
+            <span className="collab-remote-cursor-indicator__line">
+              {`строка ${cursor.lineNumber}`}
+            </span>
+          </button>
         ))}
       </div>
     </div>
