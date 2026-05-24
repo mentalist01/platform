@@ -2859,6 +2859,7 @@ const CollabSection = ({
   const editorOptions = useMemo(() => ({
     minimap: { enabled: false },
     fontSize: editorFontSize,
+    fontWeight: '560',
     tabSize: 4,
     insertSpaces: true,
     wordWrap: 'on',
@@ -6445,17 +6446,17 @@ const CollabSection = ({
           </div>
         </div>
       )}
-      <div className={`rounded-2xl border p-2 ${isSplitCollabLayout ? 'space-y-1' : 'space-y-2'} ${
+      <div className={`collab-task-files-panel rounded-2xl border p-2 ${isSplitCollabLayout ? 'space-y-1' : 'space-y-2'} ${
         isFullscreenDark
           ? 'border-slate-700/80 bg-slate-900/70'
           : 'border-gray-200 bg-white'
       }`}>
         <div className="flex items-center justify-between gap-2">
-          <div className={`${isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>
+          <div className={`collab-task-files-title ${isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>
             Файлы задания для open()
           </div>
           <div className="flex items-center gap-1">
-            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+            <span className={`collab-task-files-count inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
               isFullscreenDark
                 ? 'border-slate-600 text-slate-200'
                 : 'border-purple-200 text-purple-700'
@@ -6466,7 +6467,7 @@ const CollabSection = ({
               type="button"
               onClick={() => setTaskFilesPanelOpen((prev) => !prev)}
               aria-expanded={taskFilesPanelOpen}
-              className={`inline-flex items-center rounded-xl border transition ${
+              className={`collab-task-files-toggle inline-flex items-center rounded-xl border transition ${
                 isSplitCollabLayout ? 'gap-0.5 px-2 py-0.5 text-[10px]' : 'gap-1 px-2 py-1 text-[11px]'
               } ${
                 isFullscreenDark
@@ -6484,12 +6485,12 @@ const CollabSection = ({
         </div>
         {taskFilesPanelOpen && (
           <>
-            <div className={`grid grid-cols-1 ${isSplitCollabLayout ? 'gap-1' : 'gap-2'} md:grid-cols-3`}>
+            <div className={`collab-task-files-controls grid grid-cols-1 ${isSplitCollabLayout ? 'gap-1' : 'gap-2'} md:grid-cols-3`}>
               <select
                 value={runTaskNumber}
                 onChange={(e) => setRunTaskNumber(e.target.value)}
                 disabled={!effectiveStudentId || taskFileUploadBusy}
-                className={`rounded-xl border outline-none ${
+                className={`collab-task-files-select rounded-xl border outline-none ${
                   isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
                 } ${
                   isFullscreenDark
@@ -6507,7 +6508,7 @@ const CollabSection = ({
                 value={runTaskCategory}
                 onChange={(e) => setRunTaskCategory(e.target.value)}
                 disabled={!effectiveStudentId || taskFileUploadBusy}
-                className={`rounded-xl border outline-none ${
+                className={`collab-task-files-select rounded-xl border outline-none ${
                   isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
                 } ${
                   isFullscreenDark
@@ -6530,7 +6531,7 @@ const CollabSection = ({
                   type="button"
                   onClick={() => taskFileInputRef.current?.click()}
                   disabled={!effectiveStudentId || taskFileUploadBusy}
-                  className={`inline-flex w-full items-center justify-center gap-1 rounded-xl border transition ${
+                  className={`collab-task-files-upload inline-flex w-full items-center justify-center gap-1 rounded-xl border transition ${
                     isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
                   } ${
                     !effectiveStudentId || taskFileUploadBusy
@@ -6551,7 +6552,7 @@ const CollabSection = ({
               </div>
             )}
             <div className={`flex flex-col ${isSplitCollabLayout ? 'gap-1' : 'gap-2'} md:flex-row md:items-center`}>
-              <label className="relative min-w-0 flex-1">
+              <label className="collab-task-files-search-wrap relative min-w-0 flex-1">
                 <Search
                   size={isSplitCollabLayout ? 12 : 13}
                   className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 ${
@@ -6564,7 +6565,7 @@ const CollabSection = ({
                   onChange={(e) => setTaskFilesSearch(e.target.value)}
                   placeholder="Поиск по названию файла"
                   aria-label="Поиск по названию файла"
-                  className={`w-full rounded-xl border outline-none ${
+                  className={`collab-task-files-search w-full rounded-xl border outline-none ${
                     isSplitCollabLayout ? 'py-1 pl-8 pr-8 text-[11px]' : 'py-1.5 pl-9 pr-9 text-xs'
                   } ${
                     isFullscreenDark
@@ -6588,7 +6589,7 @@ const CollabSection = ({
                 )}
               </label>
               <div className="flex items-center justify-between gap-1 md:justify-end">
-                <div className={`inline-flex items-center rounded-xl border ${
+                <div className={`collab-task-files-stepper inline-flex items-center rounded-xl border ${
                   isFullscreenDark
                     ? 'border-slate-700 bg-slate-950/80'
                     : 'border-gray-200 bg-gray-50'
@@ -6610,7 +6611,7 @@ const CollabSection = ({
                   >
                     <Minus size={isSplitCollabLayout ? 12 : 13} />
                   </button>
-                  <span className={`min-w-[3.25rem] text-center font-medium ${
+                  <span className={`collab-task-files-height-value min-w-[3.25rem] text-center font-medium ${
                     isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'
                   } ${isFullscreenDark ? 'text-slate-300' : 'text-gray-600'}`}>
                     {`${Math.round(taskFilesListHeight)} px`}
@@ -6637,7 +6638,7 @@ const CollabSection = ({
                   type="button"
                   onClick={handleToggleSelectAllTaskFiles}
                   disabled={taskFilesLoading || !visibleTaskFiles.length}
-                  className={`inline-flex items-center rounded-xl border transition ${
+                  className={`collab-task-files-select-all inline-flex items-center rounded-xl border transition ${
                     isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-[11px]'
                   } ${
                     taskFilesLoading || !visibleTaskFiles.length
@@ -6651,13 +6652,13 @@ const CollabSection = ({
                 </button>
               </div>
             </div>
-            <div className={`text-[10px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
+            <div className={`collab-task-files-meta text-[10px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
               {normalizedTaskFilesSearch
                 ? `Найдено: ${visibleTaskFiles.length}`
                 : `Файлов в списке: ${filteredTaskFiles.length}`}
             </div>
             <div
-              className={`rounded-xl border overflow-auto ${
+              className={`collab-task-files-list rounded-xl border overflow-auto ${
                 isFullscreenDark
                   ? 'border-slate-700/80 bg-slate-950/60'
                   : 'border-gray-200 bg-gray-50'
@@ -6665,13 +6666,13 @@ const CollabSection = ({
               style={{ maxHeight: `${taskFilesListHeight}px` }}
             >
               {taskFilesLoading ? (
-                <div className={`px-2 py-1.5 text-[11px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
+                <div className={`collab-task-files-empty px-2 py-1.5 text-[11px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
                   Загружаем файлы...
                 </div>
               ) : (
                 <>
                   {!visibleTaskFiles.length ? (
-                    <div className={`px-2 py-1.5 text-[11px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
+                    <div className={`collab-task-files-empty px-2 py-1.5 text-[11px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
                       {normalizedTaskFilesSearch
                         ? `По запросу "${taskFilesSearch.trim()}" ничего не найдено.`
                         : 'Файлы не найдены.'}
@@ -6683,7 +6684,7 @@ const CollabSection = ({
                       return (
                         <label
                           key={file.id}
-                          className={`flex cursor-pointer items-start gap-2 border-b px-2 py-1.5 text-[11px] last:border-b-0 ${
+                          className={`collab-task-files-row flex cursor-pointer items-start gap-2 border-b px-2 py-1.5 text-[11px] last:border-b-0 ${
                             isFullscreenDark
                               ? 'border-slate-800 text-slate-100'
                               : 'border-gray-200 text-gray-700'
@@ -6693,7 +6694,7 @@ const CollabSection = ({
                             type="checkbox"
                             checked={selectedTaskFileIds.includes(file.id)}
                             onChange={() => handleToggleTaskFile(file.id)}
-                            className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300"
+                            className="collab-task-files-checkbox mt-0.5 h-3.5 w-3.5 rounded border-gray-300"
                           />
                           <span className="min-w-0 flex-1 truncate" title={runtimePath}>{displayRuntimePath}</span>
                         </label>
@@ -6703,7 +6704,7 @@ const CollabSection = ({
                 </>
               )}
             </div>
-            <div className={`text-[10px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
+            <div className={`collab-task-files-note text-[10px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
               Выбранные файлы доступны по пути из списка. Если имя уникально, можно открыть просто файл, иначе используйте путь с подпапкой. <code>test.txt</code> доступен всегда и редактируется во вкладке выше.
             </div>
           </>
