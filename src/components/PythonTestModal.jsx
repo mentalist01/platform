@@ -34,6 +34,7 @@ import {
   PYTHON_DEFAULT_SUBSECTION_ID,
 } from '../utils/pythonSubsections';
 import {
+  formatRecordingDuration,
   normalizeTheoryRecording,
   THEORY_RECORDING_TYPE,
 } from '../utils/theoryRecording';
@@ -1489,7 +1490,7 @@ const PythonTestModal = ({
 
   if (testsLoading) {
     const loadingModal = (
-      <div className="python-runtime-modal-overlay fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
+      <div className="python-runtime-modal-overlay fixed inset-0 bg-slate-900/45 z-50 modal-backdrop flex items-center justify-center p-4">
         <div className="python-runtime-modal-shell surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
           <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
           <div className="mx-auto inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-sm font-semibold text-purple-700">
@@ -1505,7 +1506,7 @@ const PythonTestModal = ({
 
   if (!Array.isArray(questions) || questions.length === 0) {
     const emptyModal = (
-      <div className="python-runtime-modal-overlay fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
+      <div className="python-runtime-modal-overlay fixed inset-0 bg-slate-900/45 z-50 modal-backdrop flex items-center justify-center p-4">
         <div className="python-runtime-modal-shell surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
           <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
           <h2 className="text-2xl font-bold text-gray-900">Заданий пока нет</h2>
@@ -1621,6 +1622,9 @@ const PythonTestModal = ({
       recordingStamp,
     ].join(':');
   })();
+  const theoryRecordingDurationLabel = isRecordingTheory
+    ? formatRecordingDuration(Math.max(0, Number(theoryRecording?.durationMs) || 0))
+    : '';
   const editorOptions = {
     minimap: { enabled: false },
     fontSize: isMobileViewport ? 15 : 16,
@@ -1661,7 +1665,7 @@ const PythonTestModal = ({
                 ? 'border-emerald-400/30 bg-emerald-500/12 text-emerald-200'
                 : 'border-emerald-200 bg-emerald-50 text-emerald-700')
             : (isDarkTheme
-                ? 'border-slate-700 bg-slate-900/70 text-slate-300'
+                ? 'border-slate-700/70 bg-slate-800/55 text-slate-300'
                 : 'border-slate-200 bg-white text-slate-600')));
   const realtimeStateClass = realtimeStatus === 'connected'
     ? (isDarkTheme
@@ -1672,7 +1676,7 @@ const PythonTestModal = ({
             ? 'border-sky-400/30 bg-sky-500/12 text-sky-200'
             : 'border-sky-200 bg-sky-50 text-sky-700')
         : (isDarkTheme
-            ? 'border-slate-700 bg-slate-900/70 text-slate-300'
+            ? 'border-slate-700/70 bg-slate-800/55 text-slate-300'
             : 'border-slate-200 bg-white text-slate-600'));
   const solvedStateClass = isSolved
     ? (isDarkTheme
@@ -1694,36 +1698,36 @@ const PythonTestModal = ({
     }
     return '';
   })();
-  const primaryTextClass = isDarkTheme ? 'text-white' : 'text-slate-900';
+  const primaryTextClass = isDarkTheme ? 'text-slate-50' : 'text-slate-900';
   const secondaryTextClass = isDarkTheme ? 'text-slate-300' : 'text-slate-600';
   const mutedTextClass = isDarkTheme ? 'text-slate-400' : 'text-slate-500';
-  const overlineTextClass = isDarkTheme ? 'text-violet-300' : 'text-purple-600';
+  const overlineTextClass = isDarkTheme ? 'text-violet-200' : 'text-purple-600';
   const modalShellThemeClass = isDarkTheme
-    ? ''
-    : 'bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.98),rgba(248,250,252,0.95)_42%,rgba(237,233,254,0.62)_100%)]';
+    ? '!bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.10),transparent_30%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.10),transparent_34%),linear-gradient(180deg,rgba(18,27,44,0.98),rgba(11,18,32,0.98))]'
+    : '!bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.98),rgba(248,250,252,0.95)_42%,rgba(237,233,254,0.62)_100%)]';
   const elevatedCardClass = isDarkTheme
-    ? 'border-slate-800/90 bg-[linear-gradient(180deg,rgba(8,12,24,0.985),rgba(4,8,20,0.99))] shadow-[0_24px_56px_rgba(2,6,23,0.52)]'
+    ? 'border-slate-700/70 bg-[linear-gradient(180deg,rgba(25,34,52,0.92),rgba(18,27,44,0.92))] shadow-[0_18px_42px_rgba(2,6,23,0.30),inset_0_1px_0_rgba(255,255,255,0.06)]'
     : 'border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.99),rgba(244,247,255,0.97))] shadow-[0_18px_42px_rgba(148,163,184,0.14),inset_0_1px_0_rgba(255,255,255,0.88)]';
   const softCardClass = isDarkTheme
-    ? 'border-slate-800/85 bg-slate-950/80 shadow-[inset_0_1px_0_rgba(148,163,184,0.08)]'
+    ? 'border-slate-700/65 bg-slate-800/55 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]'
     : 'border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(244,247,255,0.90))] shadow-[0_10px_24px_rgba(148,163,184,0.08),inset_0_1px_0_rgba(255,255,255,0.82)]';
   const mutedStripClass = isDarkTheme
-    ? 'border-slate-800/80 bg-slate-950/72'
+    ? 'border-slate-700/55 bg-slate-800/45'
     : 'border-slate-200/90 bg-[linear-gradient(180deg,rgba(246,248,255,0.94),rgba(238,242,255,0.90))]';
   const subtleButtonClass = isDarkTheme
-    ? 'border-slate-800/80 bg-slate-950/60 text-slate-300 hover:border-violet-400/30 hover:bg-slate-900 hover:text-white'
+    ? 'border-slate-700/70 bg-slate-800/55 text-slate-200 hover:border-violet-300/40 hover:bg-slate-700/70 hover:text-slate-50'
     : 'border-slate-200/90 bg-white/92 text-slate-700 shadow-[0_8px_18px_rgba(148,163,184,0.10)] hover:border-violet-200 hover:bg-violet-50/90 hover:text-slate-900';
   const footerClass = isDarkTheme
-    ? 'border-slate-800/90 bg-[linear-gradient(90deg,rgba(8,12,24,0.98),rgba(35,30,72,0.96),rgba(8,12,24,0.98))] shadow-[0_-18px_38px_rgba(2,6,23,0.34)]'
+    ? 'border-slate-700/70 bg-[linear-gradient(90deg,rgba(20,29,48,0.96),rgba(38,34,72,0.92),rgba(18,28,45,0.96))] shadow-[0_-12px_28px_rgba(2,6,23,0.22),inset_0_1px_0_rgba(255,255,255,0.05)]'
     : 'border-violet-200/90 bg-[linear-gradient(90deg,rgba(245,243,255,0.96),rgba(250,245,255,0.96),rgba(240,249,255,0.96))] shadow-[0_-12px_28px_rgba(148,163,184,0.14),inset_0_1px_0_rgba(255,255,255,0.88)]';
   const questionCardClass = isDarkTheme
-    ? 'border-slate-800/90 bg-[radial-gradient(circle_at_top_left,rgba(139,92,246,0.14),transparent_24%),linear-gradient(180deg,rgba(10,14,30,0.99),rgba(4,8,20,0.99))] shadow-[0_24px_56px_rgba(2,6,23,0.52),inset_0_1px_0_rgba(148,163,184,0.04)]'
+    ? 'border-slate-700/70 bg-[radial-gradient(circle_at_top_left,rgba(139,92,246,0.12),transparent_28%),linear-gradient(180deg,rgba(24,33,52,0.94),rgba(15,25,42,0.94))] shadow-[0_18px_42px_rgba(2,6,23,0.30),inset_0_1px_0_rgba(255,255,255,0.06)]'
     : 'border-violet-200/90 bg-[radial-gradient(circle_at_top_left,rgba(196,181,253,0.42),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.99),rgba(245,247,255,0.97))] shadow-[0_18px_42px_rgba(139,92,246,0.12)]';
   const editorFrameClass = isDarkTheme
-    ? 'border-slate-800 bg-slate-950/80'
+    ? 'border-slate-700/70 bg-slate-900/55'
     : 'border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.99),rgba(244,247,255,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]';
   const editorHeaderClass = isDarkTheme
-    ? 'border-slate-800 bg-slate-950/70 text-slate-400'
+    ? 'border-slate-700/70 bg-slate-800/55 text-slate-300'
     : 'border-slate-200/90 bg-[linear-gradient(180deg,rgba(247,248,252,0.96),rgba(241,245,249,0.92))] text-slate-500';
   const hasSupportSidebarContent = Boolean(screenshots.length || extraFiles.length);
   const showPresenceChip = realtimePeerCount > 0;
@@ -1736,6 +1740,12 @@ const PythonTestModal = ({
   const isVeryCompactRuntimeViewport = viewportWidth < 1200 || viewportHeight < 760;
   const isDenseQuestionNav = visibleQuestionItems.length >= 10;
   const useDenseTaskChips = isDenseQuestionNav || isCompactRuntimeViewport;
+  const denseQuestionNavClass = isCompactRuntimeViewport
+    ? 'grid min-w-0 w-full max-w-[calc(100vw-1.5rem)] grid-cols-[repeat(auto-fit,minmax(92px,1fr))] gap-1 max-h-[88px] overflow-y-auto overflow-x-hidden pr-1 [scrollbar-width:thin]'
+    : 'grid min-w-0 w-full max-w-[calc(100vw-1.5rem)] grid-cols-[repeat(auto-fit,minmax(112px,1fr))] gap-1.5 max-h-[112px] overflow-y-auto overflow-x-hidden pr-1 [scrollbar-width:thin]';
+  const questionNavLayoutClass = isDenseQuestionNav
+    ? denseQuestionNavClass
+    : `flex min-w-0 max-w-[calc(100vw-1.5rem)] flex-nowrap ${isCompactRuntimeViewport ? 'gap-1 pb-1 pr-6' : 'gap-1 pb-1.5 pr-10'} overflow-x-auto overflow-y-visible [scrollbar-width:thin]`;
   const subsectionChipSizeClass = isCompactRuntimeViewport
     ? 'min-w-[178px] px-2.5 py-1.5'
     : 'min-w-[220px] px-3 py-2';
@@ -1792,7 +1802,7 @@ const PythonTestModal = ({
   };
 
   const modal = (
-    <div className="python-runtime-modal-overlay fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-stretch justify-stretch p-0">
+    <div className="python-runtime-modal-overlay fixed inset-0 bg-slate-900/45 z-50 modal-backdrop flex items-stretch justify-stretch p-0">
       <div className={`python-runtime-modal-shell surface-card modal-card modal-card--fullscreen rounded-none w-screen h-[100dvh] max-w-none max-h-none p-0 shadow-2xl relative overflow-hidden ${modalShellThemeClass}`}>
         <div className="h-full w-full overflow-hidden">
           <div
@@ -1853,7 +1863,7 @@ const PythonTestModal = ({
                   </div>
                   <div className={`text-lg font-semibold ${primaryTextClass}`}>{currentMastery}%</div>
                 </div>
-                <div className={`${isCompactRuntimeViewport ? 'mt-1 h-1' : 'mt-1.5 h-1.5'} overflow-hidden rounded-full ${isDarkTheme ? 'bg-slate-800/90' : 'bg-slate-200/80'}`}>
+                <div className={`${isCompactRuntimeViewport ? 'mt-1 h-1' : 'mt-1.5 h-1.5'} overflow-hidden rounded-full ${isDarkTheme ? 'bg-slate-700/70' : 'bg-slate-200/80'}`}>
                   <div
                     className="h-full rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-sky-400 transition-all duration-500"
                     style={{ width: `${Math.max(0, Math.min(100, currentMastery))}%` }}
@@ -1910,7 +1920,7 @@ const PythonTestModal = ({
                 </div>
               </div>
               <div
-                className={`flex min-w-0 flex-nowrap ${isCompactRuntimeViewport ? 'gap-1 pb-1 pr-6' : 'gap-1 pb-1.5 pr-10'} overflow-x-auto overflow-y-hidden [scrollbar-width:thin]`}
+                className={questionNavLayoutClass}
                 onWheel={handleHorizontalWheelScroll}
               >
                 {visibleQuestionItems.map((item) => {
@@ -1930,7 +1940,7 @@ const PythonTestModal = ({
                             ? 'border-emerald-500/25 bg-emerald-500/8 text-emerald-100 hover:border-emerald-400/40'
                             : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300')
                         : (isDarkTheme
-                            ? 'border-slate-800/80 bg-slate-950/65 text-slate-200 hover:border-violet-400/30 hover:bg-violet-500/10'
+                            ? 'border-slate-700/65 bg-slate-800/45 text-slate-200 hover:border-violet-300/35 hover:bg-violet-500/10'
                             : 'border-slate-200 bg-white text-slate-700 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700'));
                   const label = item.question?.title || `Вопрос ${item.localNumber}`;
                   return (
@@ -1938,8 +1948,8 @@ const PythonTestModal = ({
                       key={`py-question-${qId}`}
                       type="button"
                       onClick={() => setCurrentIndex(item.questionIndex)}
-                      className={`python-runtime-chip shrink-0 rounded-[16px] border text-left transition-all ${
-                        useDenseTaskChips ? 'min-w-[104px] px-1.5 py-1' : 'min-w-[136px] px-2 py-1.5'
+                      className={`python-runtime-chip rounded-[16px] border text-left transition-all ${
+                        isDenseQuestionNav ? 'w-full min-w-0 px-1.5 py-1' : 'shrink-0 min-w-[136px] px-2 py-1.5'
                       } ${buttonClass}`}
                       title={label}
                     >
@@ -1950,16 +1960,16 @@ const PythonTestModal = ({
                                 ? 'border-emerald-400/30 bg-emerald-500/14 text-emerald-100'
                                 : 'border-emerald-200 bg-emerald-100 text-emerald-700')
                             : (isDarkTheme
-                                ? 'border-slate-700 bg-slate-900/80 text-slate-300'
+                                ? 'border-slate-600/70 bg-slate-700/55 text-slate-300'
                                 : 'border-slate-200 bg-slate-50 text-slate-600')
                         } ${useDenseTaskChips ? 'h-6 w-6 rounded-[9px] text-[9px]' : 'mt-0.5 h-7 w-7 rounded-[10px] text-[10px]'}`}>
                           {solved ? <CheckCircle2 size={14} /> : item.localNumber}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-70">{`Задача ${item.localNumber}`}</div>
-                          <div className="mt-0.5 truncate text-[13px] font-semibold">{label}</div>
+                          <div className={`${isDenseQuestionNav ? 'text-[9px] tracking-[0.16em]' : 'text-[10px] tracking-[0.2em]'} font-bold uppercase opacity-70`}>{`Задача ${item.localNumber}`}</div>
+                          <div className={`${isDenseQuestionNav ? 'mt-0 text-[12px]' : 'mt-0.5 text-[13px]'} truncate font-semibold`}>{label}</div>
                         </div>
-                        <ChevronRight size={14} className="mt-0.5 shrink-0 opacity-55" />
+                        {!isDenseQuestionNav && <ChevronRight size={14} className="mt-0.5 shrink-0 opacity-55" />}
                       </div>
                     </button>
                   );
@@ -1990,17 +2000,29 @@ const PythonTestModal = ({
                           key={`python-theory-launcher-${type}`}
                           type="button"
                           onClick={() => openTheory(type)}
-                          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
-                            isActive
+                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold transition ${
+                            type === THEORY_RECORDING_TYPE
+                              ? (isDarkTheme
+                                  ? 'border-cyan-300/70 bg-[linear-gradient(135deg,rgba(34,211,238,0.24),rgba(168,85,247,0.20))] text-cyan-50 shadow-[0_0_0_1px_rgba(103,232,249,0.16),0_10px_24px_rgba(34,211,238,0.18)] hover:border-cyan-200 hover:bg-cyan-400/22'
+                                  : 'border-cyan-400 bg-cyan-50 text-cyan-800 shadow-[0_10px_22px_rgba(14,165,233,0.18)] hover:border-cyan-500 hover:bg-cyan-100')
+                              : isActive
                               ? (isDarkTheme
                                   ? 'border-violet-400/45 bg-violet-500/18 text-white shadow-[0_8px_22px_rgba(124,58,237,0.22)]'
                                   : 'border-violet-400 bg-violet-50 text-violet-700 shadow-[0_8px_18px_rgba(124,58,237,0.14)]')
                               : (isDarkTheme
-                                  ? 'border-slate-700 bg-slate-950/65 text-slate-300 hover:border-violet-400/35 hover:bg-violet-500/12 hover:text-violet-100'
+                                  ? 'border-slate-700/70 bg-slate-800/55 text-slate-300 hover:border-violet-300/40 hover:bg-violet-500/12 hover:text-violet-100'
                                   : 'border-slate-200 bg-white/90 text-slate-600 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700')
                           }`}
                         >
-                          <Icon size={12} />
+                          {type === THEORY_RECORDING_TYPE ? (
+                            <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full ${
+                              isDarkTheme ? 'bg-cyan-300 text-slate-950 shadow-[0_0_16px_rgba(103,232,249,0.42)]' : 'bg-cyan-600 text-white'
+                            }`}>
+                              <Icon size={13} />
+                            </span>
+                          ) : (
+                            <Icon size={12} />
+                          )}
                           {getTheoryLauncherLabel(type)}
                         </button>
                       );
@@ -2009,13 +2031,25 @@ const PythonTestModal = ({
                     <button
                       type="button"
                       onClick={() => openTheory()}
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
-                        isDarkTheme
-                          ? 'border-violet-400/35 bg-violet-500/12 text-violet-100 hover:bg-violet-500/20'
-                          : 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100'
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold transition ${
+                        isRecordingTheory
+                          ? (isDarkTheme
+                              ? 'border-cyan-300/70 bg-[linear-gradient(135deg,rgba(34,211,238,0.24),rgba(168,85,247,0.20))] text-cyan-50 shadow-[0_0_0_1px_rgba(103,232,249,0.16),0_10px_24px_rgba(34,211,238,0.18)] hover:border-cyan-200 hover:bg-cyan-400/22'
+                              : 'border-cyan-400 bg-cyan-50 text-cyan-800 shadow-[0_10px_22px_rgba(14,165,233,0.18)] hover:border-cyan-500 hover:bg-cyan-100')
+                          : (isDarkTheme
+                              ? 'border-violet-400/35 bg-violet-500/12 text-violet-100 hover:bg-violet-500/20'
+                              : 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100')
                       }`}
                     >
-                      {isRecordingTheory ? <PlayCircle size={12} /> : <BookOpen size={12} />}
+                      {isRecordingTheory ? (
+                        <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full ${
+                          isDarkTheme ? 'bg-cyan-300 text-slate-950 shadow-[0_0_16px_rgba(103,232,249,0.42)]' : 'bg-cyan-600 text-white'
+                        }`}>
+                          <PlayCircle size={13} />
+                        </span>
+                      ) : (
+                        <BookOpen size={12} />
+                      )}
                       {theoryLauncherLabel}
                     </button>
                   )}
@@ -2067,7 +2101,7 @@ const PythonTestModal = ({
           {hasSupportSidebarContent && (
             <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-1">
           {!canOpenTheory && theory?.content && !isRecordingTheory && (
-            <div className={`python-runtime-theory-card rounded-[28px] border p-3.5 md:p-4 ${isDarkTheme ? 'border-violet-400/20 bg-[linear-gradient(180deg,rgba(30,27,75,0.40),rgba(2,6,23,0.92))] shadow-[0_18px_40px_rgba(15,23,42,0.32)]' : 'border-violet-200/70 bg-gradient-to-br from-white via-violet-50/70 to-fuchsia-50/45 shadow-[0_14px_34px_rgba(124,58,237,0.12)]'}`}>
+            <div className={`python-runtime-theory-card rounded-[28px] border p-3.5 md:p-4 ${isDarkTheme ? 'border-violet-300/24 bg-[linear-gradient(180deg,rgba(45,42,82,0.42),rgba(20,29,48,0.86))] shadow-[0_14px_30px_rgba(15,23,42,0.24)]' : 'border-violet-200/70 bg-gradient-to-br from-white via-violet-50/70 to-fuchsia-50/45 shadow-[0_14px_34px_rgba(124,58,237,0.12)]'}`}>
               <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-col gap-1.5">
                   <div className={`text-xs font-bold uppercase tracking-widest ${overlineTextClass}`}>
@@ -2136,7 +2170,7 @@ const PythonTestModal = ({
                   </div>
                 ) : theoryType === 'gdoc' ? (
                   isGoogleDocEmbedUrl(theory.content) ? (
-                    <div className={`python-runtime-theory-body mt-3 overflow-hidden rounded-2xl border ${isDarkTheme ? 'border-slate-800 bg-slate-950/75' : 'border-purple-100 bg-white'}`}>
+                    <div className={`python-runtime-theory-body mt-3 overflow-hidden rounded-2xl border ${isDarkTheme ? 'border-slate-700/70 bg-slate-800/50' : 'border-purple-100 bg-white'}`}>
                       <iframe
                         title={`theory-${task.number}`}
                         src={theory.content}
@@ -2171,7 +2205,7 @@ const PythonTestModal = ({
               {screenshots.map((img) => (
                 <div
                   key={img.id || img.url}
-                  className={`overflow-hidden rounded-[24px] border ${isDarkTheme ? 'border-slate-800 bg-slate-950/70' : 'border-slate-200 bg-slate-50/80'}`}
+                  className={`overflow-hidden rounded-[24px] border ${isDarkTheme ? 'border-slate-700/70 bg-slate-800/50' : 'border-slate-200 bg-slate-50/80'}`}
                 >
                   <img
                     src={img.url}
@@ -2235,7 +2269,7 @@ const PythonTestModal = ({
                   } ${isResizingWorkspace ? (isDarkTheme ? 'bg-violet-300' : 'bg-violet-600') : ''}`} />
                   <span className={`absolute left-1/2 top-1/2 flex h-12 w-3 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border backdrop-blur-sm transition ${
                     isDarkTheme
-                      ? 'border-slate-700 bg-slate-950/92 text-slate-400 group-hover:border-violet-400/50 group-hover:text-violet-200'
+                      ? 'border-slate-700/80 bg-slate-800/85 text-slate-400 group-hover:border-violet-400/50 group-hover:text-violet-200'
                       : 'border-slate-200 bg-white/96 text-slate-400 group-hover:border-violet-300 group-hover:text-violet-600'
                   } ${isResizingWorkspace ? (isDarkTheme ? 'border-violet-400/60 text-violet-200' : 'border-violet-400 text-violet-600') : ''}`}>
                     <span className="h-5 w-[3px] rounded-full bg-current/80 shadow-[0_7px_0_currentColor,0_-7px_0_currentColor]" />
@@ -2358,7 +2392,7 @@ const PythonTestModal = ({
                   const result = testResults[idx];
                   const passed = result?.passed ?? (solvedAllTests ? true : undefined);
                   const testCardClass = passed === undefined
-                    ? (isDarkTheme ? 'border-slate-800/80 bg-slate-950/55' : 'border-slate-200 bg-slate-50')
+                    ? (isDarkTheme ? 'border-slate-700/60 bg-slate-800/35' : 'border-slate-200 bg-slate-50')
                     : (passed
                         ? (isDarkTheme ? 'border-emerald-400/25 bg-emerald-500/10' : 'border-emerald-200 bg-emerald-50')
                         : (isDarkTheme ? 'border-red-400/25 bg-red-500/10' : 'border-red-200 bg-red-50'));
@@ -2428,7 +2462,7 @@ const PythonTestModal = ({
               <Button
                 variant="secondary"
                 onClick={onClose}
-                className={`w-full sm:w-auto ${isDarkTheme ? '!border-slate-700 !bg-slate-950/70 !text-slate-200 hover:!bg-slate-900' : ''}`}
+                className={`w-full sm:w-auto ${isDarkTheme ? '!border-slate-700 !bg-slate-800/70 !text-slate-200 hover:!bg-slate-700' : ''}`}
               >
                 Закрыть
               </Button>
@@ -2453,7 +2487,7 @@ const PythonTestModal = ({
             <Button
               variant={isSolved ? 'success' : 'secondary'}
               onClick={handleNext}
-              className={`w-full sm:w-auto ${isDarkTheme && !isSolved ? '!border-slate-700 !bg-slate-950/70 !text-slate-200 hover:!bg-slate-900' : ''} ${isDarkTheme && isSolved ? '!shadow-none' : ''}`}
+              className={`w-full sm:w-auto ${isDarkTheme && !isSolved ? '!border-slate-700 !bg-slate-800/70 !text-slate-200 hover:!bg-slate-700' : ''} ${isDarkTheme && isSolved ? '!shadow-none' : ''}`}
             >
               <ChevronRight size={16} />
               {Number.isFinite(nextQuestionIndex) ? 'Дальше' : 'Готово'}
@@ -2465,16 +2499,20 @@ const PythonTestModal = ({
         </div>
       </div>
       {showTheory && canOpenTheory && theory && (
-        <div className="absolute inset-0 z-[55] flex items-center justify-center bg-slate-950/62 p-3 backdrop-blur-sm md:p-5">
-          <div className={`flex h-[min(82vh,860px)] w-full max-w-[min(1180px,96vw)] flex-col overflow-hidden rounded-[32px] border p-3 md:p-4 ${elevatedCardClass}`}>
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className={`text-[11px] font-bold uppercase tracking-[0.28em] ${overlineTextClass}`}>{theoryLauncherLabel}</div>
-                <div className={`mt-1 text-base font-semibold ${primaryTextClass}`}>Материал по текущей задаче</div>
-                <div className={`mt-1 text-sm ${secondaryTextClass}`}>
+        <div className="python-theory-modal-overlay absolute inset-0 z-[55] flex items-center justify-center bg-slate-900/50 p-3 backdrop-blur-sm md:p-5">
+          <div className={`python-theory-modal-shell flex h-[min(82vh,860px)] w-full max-w-[min(1180px,96vw)] flex-col overflow-hidden rounded-[32px] border p-3 md:p-4 ${elevatedCardClass}`}>
+            <div className="python-theory-modal-header mb-3 flex items-start justify-between gap-3">
+              <div className="python-theory-modal-copy min-w-0">
+                <div className={`python-theory-modal-kicker text-[11px] font-bold uppercase tracking-[0.28em] ${overlineTextClass}`}>{theoryLauncherLabel}</div>
+                <div className={`python-theory-modal-title mt-1 text-base font-semibold ${primaryTextClass}`}>Материал по текущей задаче</div>
+                <div className={`python-theory-modal-subtitle mt-1 text-sm ${secondaryTextClass}`}>
                   {isRecordingTheory
                     ? 'Открыта в широком режиме, чтобы плеер не сжимался в боковой колонке.'
                     : 'Открыта отдельно, чтобы условие, тесты и редактор оставались на месте.'}
+                </div>
+                <div className="python-theory-modal-meta">
+                  <span>{`Задача ${currentQuestionDisplayIndex}/${totalVisibleQuestions}`}</span>
+                  {theoryRecordingDurationLabel && <span>{theoryRecordingDurationLabel}</span>}
                 </div>
                 {availableTheoryTypes.length > 1 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
@@ -2506,20 +2544,20 @@ const PythonTestModal = ({
                 <X size={18} />
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-hidden">
+            <div className="python-theory-modal-player min-h-0 flex-1 overflow-hidden">
               {isRecordingTheory && theoryRecording ? (
                 <TheoryRecordingPlayer
                   recording={theoryRecording}
                   progressStorageKey={theoryProgressStorageKey}
                   theme={theme}
-                  className="mt-0 h-full"
+                  className="!mt-0 h-full"
                 />
               ) : theoryType === 'gdoc' ? (
                 isGoogleDocEmbedUrl(theory.content) ? (
                   <iframe
                     title={`theory-${task.number}`}
                     src={theory.content}
-                    className={`h-full w-full rounded-[24px] border ${isDarkTheme ? 'border-slate-800 bg-slate-950/75' : 'border-purple-100 bg-white'}`}
+                    className={`h-full w-full rounded-[24px] border ${isDarkTheme ? 'border-slate-700/70 bg-slate-800/50' : 'border-purple-100 bg-white'}`}
                   />
                 ) : (
                   <div className="rounded-2xl border border-red-200/80 bg-red-50 px-4 py-3 text-sm text-red-600">
