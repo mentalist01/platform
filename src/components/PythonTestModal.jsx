@@ -4,6 +4,7 @@ import Editor from '@monaco-editor/react';
 import {
   BookOpen,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   CircleDashed,
   Code2,
@@ -273,6 +274,7 @@ const PythonTestModal = ({
   const [isResizingWorkspace, setIsResizingWorkspace] = useState(false);
   const isMobileViewport = viewportWidth < 700;
   const [showTheory, setShowTheory] = useState(false);
+  const [questionScrollState, setQuestionScrollState] = useState({ hasOverflow: false, atEnd: true });
   const [activeTheoryType, setActiveTheoryType] = useState('');
   const [expandedTestIndex, setExpandedTestIndex] = useState(null);
   const [editorReady, setEditorReady] = useState(false);
@@ -310,6 +312,7 @@ const PythonTestModal = ({
   const pendingSaveQuestionIdRef = useRef('');
   const saveTimerRef = useRef(null);
   const workspaceGridRef = useRef(null);
+  const questionScrollBodyRef = useRef(null);
   const workspaceResizePointerIdRef = useRef(null);
   const runnerWarmupTimeoutMs = Math.max(PYODIDE_RUN_TIMEOUT_MS * 2, 20000);
 
@@ -327,7 +330,26 @@ const PythonTestModal = ({
     () => String(questions[currentIndex]?.id ?? '').trim(),
     [questions, currentIndex]
   );
+  const currentQuestionScrollText = typeof questions[currentIndex]?.question === 'string'
+    ? questions[currentIndex].question
+    : '';
   const activeQuestionCodeLoaded = Boolean(questionCodeById?.[activeQuestionId]?.loaded);
+  const refreshQuestionScrollState = useCallback(() => {
+    const node = questionScrollBodyRef.current;
+    if (!node) {
+      setQuestionScrollState((prev) => (
+        prev.hasOverflow || !prev.atEnd ? { hasOverflow: false, atEnd: true } : prev
+      ));
+      return;
+    }
+    const hasOverflow = node.scrollHeight - node.clientHeight > 8;
+    const atEnd = !hasOverflow || node.scrollTop + node.clientHeight >= node.scrollHeight - 10;
+    setQuestionScrollState((prev) => (
+      prev.hasOverflow === hasOverflow && prev.atEnd === atEnd
+        ? prev
+        : { hasOverflow, atEnd }
+    ));
+  }, []);
   const collabRoomId = useMemo(() => {
     if (!collabBaseRoomId || !task?.number || !activeQuestionId) return '';
     return `py-collab:${collabBaseRoomId}:${task.number}:${PYTHON_LEVEL_ID}:${activeQuestionId}`;
@@ -346,6 +368,33 @@ const PythonTestModal = ({
   useEffect(() => {
     setShowTheory(false);
   }, [task?.number, selectedSubsectionId]);
+
+  useEffect(() => {
+    refreshQuestionScrollState();
+    const node = questionScrollBodyRef.current;
+    if (!node) return undefined;
+    const frameId = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame(refreshQuestionScrollState)
+      : null;
+    let resizeObserver = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(refreshQuestionScrollState);
+      resizeObserver.observe(node);
+    }
+    return () => {
+      if (frameId !== null && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+        window.cancelAnimationFrame(frameId);
+      }
+      resizeObserver?.disconnect();
+    };
+  }, [
+    currentQuestionScrollText,
+    currentIndex,
+    refreshQuestionScrollState,
+    viewportHeight,
+    viewportWidth,
+    workspaceSplitRatio,
+  ]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -2067,8 +2116,33 @@ const PythonTestModal = ({
               </span>
             </div>
             {currentQuestion?.question ? (
-              <div className={`mt-2.5 min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap pr-1 text-[14px] font-medium leading-6 md:text-[16px] md:leading-6 ${primaryTextClass}`}>
-                {currentQuestion.question}
+              <div className="relative mt-2.5 min-h-0 flex-1 overflow-hidden">
+                <div
+                  ref={questionScrollBodyRef}
+                  onScroll={refreshQuestionScrollState}
+                  className={`h-full min-h-0 overflow-y-auto whitespace-pre-wrap pb-10 pr-1 text-[14px] font-medium leading-6 md:text-[16px] md:leading-6 ${primaryTextClass}`}
+                >
+                  {currentQuestion.question}
+                </div>
+                {questionScrollState.hasOverflow && !questionScrollState.atEnd && (
+                  <div
+                    className={`pointer-events-none absolute inset-x-0 bottom-0 flex justify-center pb-2 pt-12 ${
+                      isDarkTheme
+                        ? 'bg-gradient-to-t from-slate-900/95 via-slate-900/76 to-transparent'
+                        : 'bg-gradient-to-t from-white/96 via-white/74 to-transparent'
+                    }`}
+                    aria-hidden="true"
+                  >
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.16em] shadow-lg ${
+                      isDarkTheme
+                        ? 'border-cyan-300/45 bg-cyan-300/14 text-cyan-100 shadow-cyan-950/35'
+                        : 'border-cyan-300 bg-cyan-50 text-cyan-800 shadow-cyan-100/70'
+                    }`}>
+                      ниже
+                      <ChevronDown size={14} className="animate-bounce" />
+                    </span>
+                  </div>
+                )}
               </div>
             ) : (
               <div className={`mt-4 text-sm ${mutedTextClass}`}>Условие задачи пока пустое.</div>
