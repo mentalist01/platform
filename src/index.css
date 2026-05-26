@@ -27863,6 +27863,89 @@ html[data-theme='dark'] .python-learning-shell .python-learning-score-card__hint
   color: rgb(148, 163, 184);
 }
 
+.python-learning-shell .python-learning-task-card {
+  border-color: rgba(14, 165, 233, 0.28) !important;
+  background:
+    radial-gradient(circle at 94% -18%, rgba(14, 165, 233, 0.16), transparent 36%),
+    linear-gradient(158deg, rgba(240, 253, 250, 0.92), rgba(239, 246, 255, 0.88) 46%, rgba(245, 243, 255, 0.86)) !important;
+  box-shadow:
+    0 16px 34px rgba(14, 165, 233, 0.1),
+    0 8px 18px rgba(88, 28, 135, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72) !important;
+}
+
+.python-learning-shell .python-learning-task-card::before {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 34%),
+    radial-gradient(circle at 0% 100%, rgba(14, 165, 233, 0.08), transparent 42%);
+  opacity: 0.62 !important;
+}
+
+.python-learning-shell .python-learning-task-card:hover {
+  border-color: rgba(14, 165, 233, 0.42) !important;
+  box-shadow:
+    0 24px 48px rgba(14, 165, 233, 0.14),
+    0 12px 24px rgba(88, 28, 135, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78) !important;
+}
+
+.python-learning-shell .python-learning-task-card[data-selected='true'] {
+  border-color: rgba(6, 182, 212, 0.58) !important;
+  background:
+    radial-gradient(circle at 94% -18%, rgba(6, 182, 212, 0.2), transparent 36%),
+    linear-gradient(158deg, rgba(236, 254, 255, 0.96), rgba(239, 246, 255, 0.92) 46%, rgba(245, 243, 255, 0.88)) !important;
+  box-shadow:
+    0 28px 58px rgba(14, 165, 233, 0.16),
+    0 12px 26px rgba(88, 28, 135, 0.12),
+    inset 4px 0 0 rgba(6, 182, 212, 0.64),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82) !important;
+}
+
+.python-learning-shell .python-learning-task-card__accent {
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.94), rgba(14, 165, 233, 0.28)) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card {
+  border-color: rgba(34, 211, 238, 0.24) !important;
+  background:
+    radial-gradient(circle at 94% -18%, rgba(34, 211, 238, 0.15), transparent 36%),
+    linear-gradient(160deg, rgba(8, 33, 46, 0.96), rgba(10, 24, 38, 0.94) 48%, rgba(7, 14, 28, 0.97)) !important;
+  box-shadow:
+    0 20px 44px rgba(2, 6, 23, 0.48),
+    0 8px 20px rgba(34, 211, 238, 0.06),
+    inset 0 1px 0 rgba(125, 211, 252, 0.06),
+    inset 0 -1px 0 rgba(2, 6, 23, 0.7) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card::before {
+  background:
+    linear-gradient(180deg, rgba(125, 211, 252, 0.045), rgba(125, 211, 252, 0) 30%),
+    radial-gradient(circle at 0% 100%, rgba(34, 211, 238, 0.06), transparent 42%);
+  opacity: 0.46 !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card:hover {
+  border-color: rgba(34, 211, 238, 0.38) !important;
+  box-shadow:
+    0 28px 58px rgba(2, 6, 23, 0.58),
+    0 10px 24px rgba(34, 211, 238, 0.08),
+    inset 0 1px 0 rgba(125, 211, 252, 0.08),
+    inset 0 -1px 0 rgba(2, 6, 23, 0.76) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell .python-learning-task-card[data-selected='true'] {
+  border-color: rgba(34, 211, 238, 0.5) !important;
+  background:
+    radial-gradient(circle at 94% -18%, rgba(34, 211, 238, 0.2), transparent 36%),
+    linear-gradient(160deg, rgba(9, 42, 56, 0.98), rgba(12, 28, 44, 0.96) 48%, rgba(8, 16, 31, 0.98)) !important;
+  box-shadow:
+    0 30px 62px rgba(2, 6, 23, 0.62),
+    0 12px 28px rgba(34, 211, 238, 0.1),
+    inset 4px 0 0 rgba(34, 211, 238, 0.58),
+    inset 0 1px 0 rgba(125, 211, 252, 0.08),
+    inset 0 -1px 0 rgba(2, 6, 23, 0.78) !important;
+}
+
 /* Compact desktop sidebar pass. */
 .sidebar-shell {
   background: rgba(255, 255, 255, 0.92) !important;
