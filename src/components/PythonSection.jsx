@@ -1859,46 +1859,73 @@ const PythonSection = ({
 
   return (
     <div className="python-learning-shell space-y-4 md:space-y-5 animate-fadeIn">
-      <div className="python-learning-toolbar rounded-2xl border border-purple-200/80 bg-white/80 p-3 shadow-[0_10px_22px_rgba(88,28,135,0.09)] md:p-4">
-        <div className="space-y-3">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="min-w-0 space-y-2">
+      <div className="python-learning-toolbar python-learning-overview-panel relative overflow-hidden rounded-[28px] border border-purple-200/80 bg-white/80 p-4 shadow-[0_10px_22px_rgba(88,28,135,0.09)] md:p-5">
+        <div className="python-learning-toolbar__grid pointer-events-none absolute inset-0" aria-hidden="true" />
+        <div className="relative z-10 space-y-4">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(260px,340px)] xl:items-stretch">
+            <div className="min-w-0 space-y-3">
               <div className="python-learning-eyebrow inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50/80 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.13em] text-purple-700">
                 <Sparkles size={13} />
                 Персональный трек Python
               </div>
               <div>
-                <h2 className="python-learning-title text-xl md:text-2xl font-black tracking-tight text-slate-900">Изучение Python</h2>
+                <h2 className="python-learning-title text-xl md:text-2xl font-black tracking-normal text-slate-900">Изучение Python</h2>
                 <p className="python-learning-subtitle text-xs md:text-sm text-slate-600">
                   Два отдельных раздела: фундаментальные темы и подготовка к заданиям.
                 </p>
               </div>
-              <div className="python-learning-metrics flex flex-wrap gap-2 text-[11px] md:text-xs font-semibold">
-                <span className="python-learning-metric-chip inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-purple-50/80 px-2.5 py-1 text-purple-700">
-                  <BarChart2 size={13} />
-                  {`Общий прогресс: ${totalMasteryLabel}%`}
-                </span>
-                <span className="python-learning-metric-chip inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50/70 px-2.5 py-1 text-violet-700">
-                  <CheckCircle size={13} />
-                  {`Уверенно: ${masteredTopicsCount}/${taskList.length}`}
-                </span>
-                <span className="python-learning-metric-chip inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-purple-50/80 px-2.5 py-1 text-fuchsia-700">
-                  <RefreshCcw size={12} />
-                  {`Подтянуть: ${needsPracticeTopicsCount}`}
-                </span>
+              <div className="python-learning-metrics grid gap-2 text-[11px] font-semibold sm:grid-cols-3 md:text-xs">
+                <div className="python-learning-metric-card python-learning-metric-card--progress">
+                  <span className="python-learning-metric-card__icon"><BarChart2 size={14} /></span>
+                  <span className="python-learning-metric-card__body">
+                    <span className="python-learning-metric-card__label">Прогресс</span>
+                    <span className="python-learning-metric-card__value">{`${totalMasteryLabel}%`}</span>
+                  </span>
+                </div>
+                <div className="python-learning-metric-card python-learning-metric-card--mastered">
+                  <span className="python-learning-metric-card__icon"><CheckCircle size={14} /></span>
+                  <span className="python-learning-metric-card__body">
+                    <span className="python-learning-metric-card__label">Уверенно</span>
+                    <span className="python-learning-metric-card__value">{`${masteredTopicsCount}/${taskList.length}`}</span>
+                  </span>
+                </div>
+                <div className="python-learning-metric-card python-learning-metric-card--practice">
+                  <span className="python-learning-metric-card__icon"><RefreshCcw size={13} /></span>
+                  <span className="python-learning-metric-card__body">
+                    <span className="python-learning-metric-card__label">Подтянуть</span>
+                    <span className="python-learning-metric-card__value">{needsPracticeTopicsCount}</span>
+                  </span>
+                </div>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="python-learning-score-card">
+              <div
+                className="python-learning-score-ring"
+                style={{ '--python-score': `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
+                aria-hidden="true"
+              >
+                <div className="python-learning-score-ring__inner">
+                  <span>{totalMasteryLabel}</span>
+                  <small>%</small>
+                </div>
+              </div>
+              <div className="min-w-0">
+                <div className="python-learning-score-card__label">Общий прогресс</div>
+                <div className="python-learning-score-card__title">{`${masteredTopicsCount} из ${taskList.length}`}</div>
+                <div className="python-learning-score-card__hint">тем уже уверенно закрыты</div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 xl:col-span-2">
               {renderStudentPicker()}
             </div>
           </div>
 
-          <div className="python-learning-progress-strip rounded-xl border border-purple-200/70 bg-white/70 px-3 py-2.5">
+          <div className="python-learning-progress-strip python-learning-progress-strip--hero rounded-2xl border border-purple-200/70 bg-white/70 px-3 py-2.5 md:px-4">
             <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
               <span className="font-bold uppercase text-slate-500">Общий прогресс</span>
               <span className="font-black text-slate-900">{totalMasteryLabel}%</span>
             </div>
-            <div className="python-learning-progress-rail h-2.5 w-full overflow-hidden rounded-full border border-purple-100/80 bg-purple-50/80">
+            <div className="python-learning-progress-rail h-3 w-full overflow-hidden rounded-full border border-purple-100/80 bg-purple-50/80">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-purple-500 via-violet-500 to-fuchsia-500 transition-[width] duration-700 ease-out"
                 style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
@@ -1956,6 +1983,12 @@ const PythonSection = ({
                             {isActive ? <CheckCircle size={14} /> : <ArrowUpRight size={14} />}
                             <span>{isActive ? 'Выбрано' : 'Выбрать'}</span>
                           </span>
+                      </div>
+                      <div className="python-learning-overview-card__progress mt-3 h-1.5 overflow-hidden rounded-full border border-white/65 bg-white/50">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-violet-500 via-purple-500 to-cyan-400 transition-[width] duration-700"
+                          style={{ width: `${Math.max(0, Math.min(100, Number(sectionAvg) || 0))}%` }}
+                        />
                       </div>
                   </button>
                 );
