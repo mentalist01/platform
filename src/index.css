@@ -13835,6 +13835,113 @@ html[data-theme='dark'] .student-direct-thread-header p:last-child {
   color: rgba(203, 213, 225, 0.72) !important;
 }
 
+@media (min-width: 641px) and (max-width: 1280px) {
+  .student-chat-hero.surface-card {
+    margin-bottom: 0.75rem !important;
+    border-radius: 1.15rem !important;
+    padding: 0 !important;
+  }
+
+  .student-chat-hero::after {
+    display: none;
+  }
+
+  .student-chat-hero > .relative {
+    display: flex !important;
+    min-height: auto;
+    justify-content: center !important;
+    gap: 0 !important;
+    padding: 0.55rem !important;
+  }
+
+  .student-chat-hero-heading,
+  .student-chat-hero .student-chat-push-button {
+    display: none !important;
+  }
+
+  .student-chat-hero-controls {
+    width: min(100%, 34rem);
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0 !important;
+  }
+
+  .student-chat-tabs {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+    gap: 0.42rem;
+    overflow: visible !important;
+    border-radius: 1rem;
+    padding: 0.2rem !important;
+  }
+
+  .student-chat-tab {
+    min-width: 0 !important;
+    min-height: 2.42rem !important;
+    border-radius: 0.86rem !important;
+  }
+
+  .student-chat-tab::after {
+    left: 0.55rem;
+    right: 0.55rem;
+    bottom: 0.18rem;
+    height: 0.12rem;
+  }
+
+  .student-chat-tab-main {
+    justify-content: center;
+    gap: 0.38rem !important;
+    padding: 0.42rem 2rem 0.42rem 0.52rem !important;
+  }
+
+  .student-chat-tab-icon {
+    width: 1.58rem !important;
+    height: 1.58rem !important;
+    border-radius: 0.62rem !important;
+    flex: 0 0 auto;
+  }
+
+  .student-chat-tab-icon svg {
+    width: 0.82rem;
+    height: 0.82rem;
+  }
+
+  .student-chat-tab-label {
+    overflow: hidden;
+    font-size: 0.74rem;
+    line-height: 1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .student-chat-tab-caption {
+    display: none !important;
+  }
+
+  .student-chat-tab-notify {
+    position: absolute;
+    top: 50%;
+    right: 0.22rem;
+    width: 1.52rem !important;
+    height: 1.52rem !important;
+    margin: 0 !important;
+    transform: translateY(-50%);
+    border-radius: 0.58rem !important;
+  }
+
+  .student-chat-tab-notify svg {
+    width: 0.76rem;
+    height: 0.76rem;
+  }
+
+  .student-chat-tab-unread {
+    top: -0.3rem !important;
+    right: -0.14rem !important;
+  }
+}
+
 @media (max-width: 640px) {
   .top-stats-strip:has(+ .student-chat-shell) {
     margin-bottom: 0.5rem !important;
