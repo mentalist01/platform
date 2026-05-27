@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, BellOff, FileText, MessageSquare, Paperclip, SendHorizontal, UploadCloud, Users, X } from 'lucide-react';
+import { Bell, BellOff, Check, FileText, MessageSquare, Paperclip, Pencil, SendHorizontal, Trash2, UploadCloud, Users, X } from 'lucide-react';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
 import LinkifiedText from './LinkifiedText';
@@ -11,6 +11,7 @@ const CHAT_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const CHAT_ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 const CHAT_FILE_SIZE_LABEL = '10 МБ';
 const CHAT_MESSAGE_PAGE_SIZE = 15;
+const CHAT_DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const EMPTY_CHAT_MESSAGES_PAGINATION = Object.freeze({
   hasMoreBefore: false,
   nextBefore: '',
@@ -75,16 +76,26 @@ const getChatMessageKey = (message) => {
 
 const mergeChatMessages = (...groups) => {
   const seen = new Set();
+  const byKey = new Map();
   const merged = [];
   groups.forEach((group) => {
     (Array.isArray(group) ? group : []).forEach((message) => {
       const key = getChatMessageKey(message);
-      if (!key || seen.has(key)) return;
-      seen.add(key);
-      merged.push(message);
+      if (!key) return;
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(key);
+      }
+      byKey.set(key, message);
     });
   });
-  return merged;
+  return merged.map((key) => byKey.get(key)).filter(Boolean);
+};
+
+const isMessageDeleteAllowed = (message) => {
+  const createdAt = Date.parse(message?.createdAt || '');
+  if (!Number.isFinite(createdAt)) return false;
+  return Date.now() - createdAt <= CHAT_DELETE_WINDOW_MS;
 };
 
 const isChatScrolledNearBottom = (node) => (
@@ -264,6 +275,10 @@ const TeacherStudentChatsSection = ({
   const [messageFileMimeType, setMessageFileMimeType] = useState('');
   const [messageFileSize, setMessageFileSize] = useState(0);
   const [messageSending, setMessageSending] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState('');
+  const [editingMessageText, setEditingMessageText] = useState('');
+  const [messageActionBusy, setMessageActionBusy] = useState('');
+  const [confirmingDeleteMessageId, setConfirmingDeleteMessageId] = useState('');
   const [isDraggingChatFile, setIsDraggingChatFile] = useState(false);
   const [imageViewer, setImageViewer] = useState(null);
   const [socialSettings, setSocialSettings] = useState(null);
@@ -290,29 +305,6 @@ const TeacherStudentChatsSection = ({
     setMessageFileMimeType('');
     setMessageFileSize(0);
     if (messageImageInputRef.current) messageImageInputRef.current.value = '';
-  }, []);
-
-  const handleMessageImageSelect = useCallback(async (file) => {
-    if (!file) return;
-    const mimeType = String(file.type || '').toLowerCase();
-    if (!mimeType || !CHAT_ALLOWED_IMAGE_TYPES.has(mimeType)) {
-      setMessagesError('Можно отправлять только изображения: PNG, JPG, WEBP, GIF.');
-      return;
-    }
-    if (Number(file.size) > CHAT_IMAGE_MAX_BYTES) {
-      setMessagesError('Изображение должно быть не больше 5 МБ.');
-      return;
-    }
-    try {
-      const dataUrl = await readFileAsDataUrl(file);
-      setMessageImageDataUrl(dataUrl);
-      setMessageImageName(String(file.name || '').trim());
-      setMessagesError('');
-    } catch (err) {
-      setMessagesError(err?.message || String(err));
-    } finally {
-      if (messageImageInputRef.current) messageImageInputRef.current.value = '';
-    }
   }, []);
 
   const handleMessageAttachmentSelect = useCallback(async (file) => {
@@ -600,6 +592,10 @@ const TeacherStudentChatsSection = ({
 
   useEffect(() => {
     clearMessageImage();
+    setEditingMessageId('');
+    setEditingMessageText('');
+    setMessageActionBusy('');
+    setConfirmingDeleteMessageId('');
   }, [clearMessageImage, selectedChatId]);
 
   const handleSendMessage = async () => {
@@ -648,6 +644,88 @@ const TeacherStudentChatsSection = ({
       setMessageSending(false);
     }
   };
+
+  const startEditMessage = useCallback((message) => {
+    const messageId = String(message?.id || '').trim();
+    if (!messageId) return;
+    setConfirmingDeleteMessageId('');
+    setEditingMessageId(messageId);
+    setEditingMessageText(String(message?.text || ''));
+  }, []);
+
+  const cancelEditMessage = useCallback(() => {
+    setEditingMessageId('');
+    setEditingMessageText('');
+  }, []);
+
+  const handleEditMessage = useCallback(async (message) => {
+    const messageId = String(message?.id || '').trim();
+    const nextText = editingMessageText.trim();
+    if (!selectedChatId || !messageId || !nextText) return;
+    if (nextText === String(message?.text || '').trim()) {
+      cancelEditMessage();
+      return;
+    }
+    setMessageActionBusy(`edit:${messageId}`);
+    setMessagesError('');
+    try {
+      const payload = selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID
+        ? await api.updateTeacherSocialGroupChatMessage(messageId, nextText, normalizedTeacherId)
+        : await api.updateStudentChatMessageForTeacher(selectedChatId, messageId, nextText);
+      if (payload?.chat) {
+        if (selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID) setGroupChatSummary(payload.chat);
+        setChatDetails(payload.chat);
+      }
+      if (payload?.message) {
+        setMessages((prev) => prev.map((item) => (
+          item?.id === payload.message.id ? payload.message : item
+        )));
+      }
+      cancelEditMessage();
+      setConfirmingDeleteMessageId('');
+      if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) {
+        await refreshChats();
+      }
+    } catch (err) {
+      setMessagesError(err?.message || String(err));
+    } finally {
+      setMessageActionBusy('');
+    }
+  }, [cancelEditMessage, editingMessageText, normalizedTeacherId, refreshChats, selectedChatId]);
+
+  const handleDeleteMessage = useCallback(async (message) => {
+    const messageId = String(message?.id || '').trim();
+    if (!selectedChatId || !messageId || !isMessageDeleteAllowed(message)) return;
+    setMessageActionBusy(`delete:${messageId}`);
+    setMessagesError('');
+    try {
+      const payload = selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID
+        ? await api.deleteTeacherSocialGroupChatMessage(messageId, normalizedTeacherId)
+        : await api.deleteStudentChatMessageForTeacher(selectedChatId, messageId);
+      if (payload?.chat) {
+        if (selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID) setGroupChatSummary(payload.chat);
+        setChatDetails(payload.chat);
+      }
+      setMessages((prev) => prev.filter((item) => item?.id !== messageId));
+      if (editingMessageId === messageId) cancelEditMessage();
+      setConfirmingDeleteMessageId('');
+      if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) {
+        await refreshChats();
+      }
+    } catch (err) {
+      setMessagesError(err?.message || String(err));
+    } finally {
+      setMessageActionBusy('');
+    }
+  }, [cancelEditMessage, editingMessageId, normalizedTeacherId, refreshChats, selectedChatId]);
+
+  const requestDeleteMessage = useCallback((message) => {
+    const messageId = String(message?.id || '').trim();
+    if (!messageId || !isMessageDeleteAllowed(message)) return;
+    setEditingMessageId('');
+    setEditingMessageText('');
+    setConfirmingDeleteMessageId(messageId);
+  }, []);
 
   const selectedSummary = chats.find((chat) => chat.id === selectedChatId) || null;
   const selectedChat = selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID
@@ -728,7 +806,7 @@ const TeacherStudentChatsSection = ({
 
   const handleSocialSettingToggle = async (key) => {
     if (!canManageSocialChats || socialSettingsSaving) return;
-    const nextValue = !Boolean(resolvedSocialSettings?.[key]);
+    const nextValue = !resolvedSocialSettings?.[key];
     setSocialSettingsSaving(true);
     try {
       const payload = await api.updateStudentSocialChatSettings({ [key]: nextValue }, normalizedTeacherId);
@@ -1008,8 +1086,16 @@ const TeacherStudentChatsSection = ({
                     </div>
                   ) : (
                     messages.map((message) => {
+                      const messageId = String(message?.id || '').trim();
                       const isTeacherMessage = message?.senderRole === 'teacher';
+                      const isOwnTeacherMessage = Boolean(isTeacherMessage && role === 'teacher' && String(message?.senderId || '').trim() === normalizedTeacherId);
                       const messageText = String(message?.text || '');
+                      const canEditMessage = Boolean(isOwnTeacherMessage && messageId && messageText.trim());
+                      const canDeleteMessage = Boolean(isOwnTeacherMessage && messageId && isMessageDeleteAllowed(message));
+                      const isEditingMessage = editingMessageId === messageId;
+                      const editBusy = messageActionBusy === `edit:${messageId}`;
+                      const deleteBusy = messageActionBusy === `delete:${messageId}`;
+                      const isConfirmingDelete = confirmingDeleteMessageId === messageId;
                       const messageImageDataUrl = String(message?.imageDataUrl || '').trim();
                       const messageImageName = String(message?.imageName || '').trim();
                       const messageFileDataUrl = String(message?.fileDataUrl || '').trim();
@@ -1022,8 +1108,9 @@ const TeacherStudentChatsSection = ({
                       const senderLabel = message?.senderName || selectedChat?.studentName || 'Ученик';
                       return (
                         <div key={message.id} className={`teacher-chat-message-row flex ${isTeacherMessage ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`teacher-chat-message-stack flex max-w-[88%] flex-col ${isTeacherMessage ? 'items-end' : 'items-start'}`}>
                           <div
-                            className={`teacher-chat-bubble max-w-[88%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                            className={`teacher-chat-bubble max-w-full rounded-2xl px-3 py-2 text-sm shadow-sm ${isEditingMessage ? 'student-message-bubble--editing' : ''} ${
                               isTeacherMessage ? 'teacher-chat-bubble--teacher text-white' : 'teacher-chat-bubble--student'
                             }`}
                           >
@@ -1083,7 +1170,68 @@ const TeacherStudentChatsSection = ({
                                 </span>
                               </a>
                             )}
-                            {messageText && (
+                            {isEditingMessage ? (
+                              <form
+                                className="student-message-edit-form"
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  void handleEditMessage(message);
+                                }}
+                              >
+                                <div className="student-message-edit-header">
+                                  <span>Редактирование</span>
+                                  <button
+                                    type="button"
+                                    className="student-message-edit-close"
+                                    onClick={cancelEditMessage}
+                                    disabled={editBusy}
+                                    aria-label="Отменить"
+                                    title="Отменить"
+                                  >
+                                    <X size={13} />
+                                  </button>
+                                </div>
+                                <textarea
+                                  value={editingMessageText}
+                                  onChange={(event) => setEditingMessageText(event.target.value)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Escape') {
+                                      event.preventDefault();
+                                      cancelEditMessage();
+                                    }
+                                    if (event.key === 'Enter' && !event.shiftKey) {
+                                      event.preventDefault();
+                                      void handleEditMessage(message);
+                                    }
+                                  }}
+                                  className="student-message-edit-textarea"
+                                  rows={Math.min(5, Math.max(2, editingMessageText.split('\n').length))}
+                                  autoFocus
+                                />
+                                <div className="student-message-edit-actions">
+                                  <button
+                                    type="button"
+                                    className="student-message-edit-button student-message-edit-button--ghost"
+                                    onClick={cancelEditMessage}
+                                    disabled={editBusy}
+                                  >
+                                    <X size={14} />
+                                    <span>Отмена</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="student-message-edit-button student-message-edit-button--save"
+                                    onClick={() => {
+                                      void handleEditMessage(message);
+                                    }}
+                                    disabled={editBusy || !editingMessageText.trim()}
+                                  >
+                                    <Check size={14} />
+                                    <span>Сохранить</span>
+                                  </button>
+                                </div>
+                              </form>
+                            ) : messageText && (
                               <LinkifiedText
                                 text={messageText}
                                 className="whitespace-pre-wrap break-words"
@@ -1094,6 +1242,63 @@ const TeacherStudentChatsSection = ({
                               {formatDateTime(message?.createdAt)}
                             </div>
                           </div>
+                          {isTeacherMessage && (canEditMessage || canDeleteMessage) && !isEditingMessage && (
+                            <div className="student-message-toolbar student-message-toolbar--mine">
+                              {isConfirmingDelete ? (
+                                <div className="student-message-delete-confirm">
+                                  <span>Удалить?</span>
+                                  <button
+                                    type="button"
+                                    className="student-message-action-button student-message-action-button--confirm"
+                                    onClick={() => handleDeleteMessage(message)}
+                                    disabled={Boolean(messageActionBusy)}
+                                    aria-label="Да"
+                                    title="Да"
+                                  >
+                                    <Check size={12} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="student-message-action-button"
+                                    onClick={() => setConfirmingDeleteMessageId('')}
+                                    disabled={deleteBusy}
+                                    aria-label="Нет"
+                                    title="Нет"
+                                  >
+                                    <X size={12} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <>
+                                  {canEditMessage && (
+                                    <button
+                                      type="button"
+                                      className="student-message-action-button"
+                                      onClick={() => startEditMessage(message)}
+                                      disabled={Boolean(messageActionBusy)}
+                                      aria-label="Редактировать"
+                                      title="Редактировать"
+                                    >
+                                      <Pencil size={11} />
+                                    </button>
+                                  )}
+                                  {canDeleteMessage && (
+                                    <button
+                                      type="button"
+                                      className="student-message-action-button student-message-action-button--danger"
+                                      onClick={() => requestDeleteMessage(message)}
+                                      disabled={Boolean(messageActionBusy)}
+                                      aria-label="Удалить"
+                                      title="Удалить"
+                                    >
+                                      <Trash2 size={11} />
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
                         </div>
                       );
                     })

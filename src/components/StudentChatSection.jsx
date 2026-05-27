@@ -2,12 +2,15 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bell,
   BellOff,
+  Check,
   FileText,
   GraduationCap,
   Hash,
   MessageSquare,
   Paperclip,
+  Pencil,
   SendHorizontal,
+  Trash2,
   UploadCloud,
   UserRound,
   Users,
@@ -24,6 +27,7 @@ const CHAT_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const CHAT_ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 const CHAT_FILE_SIZE_LABEL = '10 МБ';
 const CHAT_MESSAGE_PAGE_SIZE = 15;
+const CHAT_DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const EMPTY_CHAT_MESSAGES_PAGINATION = Object.freeze({
   hasMoreBefore: false,
   nextBefore: '',
@@ -87,16 +91,26 @@ const getChatMessageKey = (message) => {
 
 const mergeChatMessages = (...groups) => {
   const seen = new Set();
+  const byKey = new Map();
   const merged = [];
   groups.forEach((group) => {
     (Array.isArray(group) ? group : []).forEach((message) => {
       const key = getChatMessageKey(message);
-      if (!key || seen.has(key)) return;
-      seen.add(key);
-      merged.push(message);
+      if (!key) return;
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(key);
+      }
+      byKey.set(key, message);
     });
   });
-  return merged;
+  return merged.map((key) => byKey.get(key)).filter(Boolean);
+};
+
+const isMessageDeleteAllowed = (message) => {
+  const createdAt = Date.parse(message?.createdAt || '');
+  if (!Number.isFinite(createdAt)) return false;
+  return Date.now() - createdAt <= CHAT_DELETE_WINDOW_MS;
 };
 
 const isChatScrolledNearBottom = (node) => (
@@ -149,23 +163,6 @@ const applyChatScrollBehavior = (listRef, behaviorRef) => {
   if (behavior.type === 'preserve') {
     node.scrollTop = node.scrollHeight - behavior.scrollHeight + behavior.scrollTop;
   }
-};
-
-const buildAttachmentPayload = (attachment) => {
-  const dataUrl = String(attachment?.dataUrl || '').trim();
-  if (!dataUrl) return {};
-  if (attachment?.isImage) {
-    return {
-      imageDataUrl: dataUrl,
-      imageName: String(attachment?.name || '').trim(),
-    };
-  }
-  return {
-    fileDataUrl: dataUrl,
-    fileName: String(attachment?.name || '').trim(),
-    fileMimeType: String(attachment?.mimeType || '').trim(),
-    fileSize: Number(attachment?.size) || 0,
-  };
 };
 
 const formatTime = (value) => {
@@ -278,12 +275,75 @@ const ChatMessages = ({
   fallbackSenderName,
   onOpenImage = null,
   onOpenSenderProfile = null,
+  onEditMessage = null,
+  onDeleteMessage = null,
 }) => {
+  const [editingMessageId, setEditingMessageId] = useState('');
+  const [editingText, setEditingText] = useState('');
+  const [busyMessageAction, setBusyMessageAction] = useState('');
+  const [confirmingDeleteMessageId, setConfirmingDeleteMessageId] = useState('');
+
   const handleScroll = (event) => {
     if (!hasMoreBefore || olderLoading || loading || typeof onLoadOlder !== 'function') return;
     if (event.currentTarget.scrollTop <= 96) {
       onLoadOlder();
     }
+  };
+
+  const startEditMessage = (message) => {
+    const id = String(message?.id || '').trim();
+    if (!id) return;
+    setConfirmingDeleteMessageId('');
+    setEditingMessageId(id);
+    setEditingText(String(message?.text || ''));
+  };
+
+  const cancelEditMessage = () => {
+    setEditingMessageId('');
+    setEditingText('');
+  };
+
+  const submitEditMessage = async (message) => {
+    const id = String(message?.id || '').trim();
+    const nextText = editingText.trim();
+    if (!id || !nextText || typeof onEditMessage !== 'function') return;
+    if (nextText === String(message?.text || '').trim()) {
+      cancelEditMessage();
+      return;
+    }
+    setBusyMessageAction(`edit:${id}`);
+    try {
+      await onEditMessage(message, nextText);
+      cancelEditMessage();
+      setConfirmingDeleteMessageId('');
+    } catch {
+      // Parent callbacks already expose the error in the chat panel.
+    } finally {
+      setBusyMessageAction('');
+    }
+  };
+
+  const deleteMessage = async (message) => {
+    const id = String(message?.id || '').trim();
+    if (!id || typeof onDeleteMessage !== 'function' || !isMessageDeleteAllowed(message)) return;
+    setBusyMessageAction(`delete:${id}`);
+    try {
+      await onDeleteMessage(message);
+      if (editingMessageId === id) cancelEditMessage();
+      setConfirmingDeleteMessageId('');
+    } catch {
+      // Parent callbacks already expose the error in the chat panel.
+    } finally {
+      setBusyMessageAction('');
+    }
+  };
+
+  const requestDeleteMessage = (message) => {
+    const id = String(message?.id || '').trim();
+    if (!id || !isMessageDeleteAllowed(message)) return;
+    setEditingMessageId('');
+    setEditingText('');
+    setConfirmingDeleteMessageId(id);
   };
 
   return (
@@ -328,7 +388,7 @@ const ChatMessages = ({
       <div className="flex h-full min-h-[160px] items-center justify-center">
         <div className="max-w-sm text-center">
           <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl border border-purple-200/70 bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-400 text-white shadow-lg shadow-purple-200/60">
-            <EmptyIcon size={24} />
+            {React.createElement(EmptyIcon, { size: 24 })}
           </div>
           <div className="mt-3 text-base font-extrabold text-slate-900">{emptyTitle}</div>
           <div className="mt-1 text-sm text-slate-500">{emptyText}</div>
@@ -336,8 +396,15 @@ const ChatMessages = ({
       </div>
     ) : (
       messages.map((message) => {
+        const messageId = String(message?.id || '').trim();
         const own = isMine(message);
         const messageText = String(message?.text || '');
+        const canEditMessage = Boolean(own && messageId && messageText.trim() && typeof onEditMessage === 'function');
+        const canDeleteMessage = Boolean(own && messageId && typeof onDeleteMessage === 'function' && isMessageDeleteAllowed(message));
+        const isEditingMessage = editingMessageId === messageId;
+        const editBusy = busyMessageAction === `edit:${messageId}`;
+        const deleteBusy = busyMessageAction === `delete:${messageId}`;
+        const isConfirmingDelete = confirmingDeleteMessageId === messageId;
         const messageImageDataUrl = String(message?.imageDataUrl || '').trim();
         const messageImageName = String(message?.imageName || '').trim();
         const messageFileDataUrl = String(message?.fileDataUrl || '').trim();
@@ -403,7 +470,7 @@ const ChatMessages = ({
                 </span>
               </div>
               <div
-                className={`student-message-bubble relative overflow-hidden rounded-[1.15rem] border px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${
+                className={`student-message-bubble relative overflow-hidden rounded-[1.15rem] border px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${isEditingMessage ? 'student-message-bubble--editing' : ''} ${
                   own
                     ? 'student-message-bubble--mine text-white'
                     : 'student-message-bubble--other text-slate-800'
@@ -460,7 +527,68 @@ const ChatMessages = ({
                     </span>
                   </a>
                 )}
-                {messageText && (
+                {isEditingMessage ? (
+                  <form
+                    className="student-message-edit-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void submitEditMessage(message);
+                    }}
+                  >
+                    <div className="student-message-edit-header">
+                      <span>Редактирование</span>
+                      <button
+                        type="button"
+                        className="student-message-edit-close"
+                        onClick={cancelEditMessage}
+                        disabled={editBusy}
+                        aria-label="Отменить"
+                        title="Отменить"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                    <textarea
+                      value={editingText}
+                      onChange={(event) => setEditingText(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape') {
+                          event.preventDefault();
+                          cancelEditMessage();
+                        }
+                        if (event.key === 'Enter' && !event.shiftKey) {
+                          event.preventDefault();
+                          void submitEditMessage(message);
+                        }
+                      }}
+                      className="student-message-edit-textarea"
+                      rows={Math.min(5, Math.max(2, editingText.split('\n').length))}
+                      autoFocus
+                    />
+                    <div className="student-message-edit-actions">
+                      <button
+                        type="button"
+                        className="student-message-edit-button student-message-edit-button--ghost"
+                        onClick={cancelEditMessage}
+                        disabled={editBusy}
+                      >
+                        <X size={14} />
+                        <span>Отмена</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="student-message-edit-button student-message-edit-button--save"
+                        onClick={() => {
+                          void submitEditMessage(message);
+                        }}
+                        disabled={editBusy || !editingText.trim()}
+                      >
+                        <Check size={14} />
+                        <span>Сохранить</span>
+                      </button>
+                    </div>
+                  </form>
+                ) : messageText && (
                   <LinkifiedText
                     text={messageText}
                     className="whitespace-pre-wrap break-words"
@@ -468,6 +596,62 @@ const ChatMessages = ({
                   />
                 )}
               </div>
+              {(canEditMessage || canDeleteMessage) && !isEditingMessage && (
+                <div className={`student-message-toolbar ${own ? 'student-message-toolbar--mine' : 'student-message-toolbar--other'}`}>
+                  {isConfirmingDelete ? (
+                    <div className="student-message-delete-confirm">
+                      <span>Удалить?</span>
+                      <button
+                        type="button"
+                        className="student-message-action-button student-message-action-button--confirm"
+                        onClick={() => deleteMessage(message)}
+                        disabled={Boolean(busyMessageAction)}
+                        aria-label="Да"
+                        title="Да"
+                      >
+                        <Check size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        className="student-message-action-button"
+                        onClick={() => setConfirmingDeleteMessageId('')}
+                        disabled={deleteBusy}
+                        aria-label="Нет"
+                        title="Нет"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      {canEditMessage && (
+                        <button
+                          type="button"
+                          className="student-message-action-button"
+                          onClick={() => startEditMessage(message)}
+                          disabled={Boolean(busyMessageAction)}
+                          title="Редактировать"
+                          aria-label="Редактировать"
+                        >
+                          <Pencil size={11} />
+                        </button>
+                      )}
+                      {canDeleteMessage && (
+                        <button
+                          type="button"
+                          className="student-message-action-button student-message-action-button--danger"
+                          onClick={() => requestDeleteMessage(message)}
+                          disabled={Boolean(busyMessageAction)}
+                          title="Удалить"
+                          aria-label="Удалить"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
             {own && avatar}
           </div>
@@ -675,7 +859,6 @@ const StudentChatSection = ({
   pushSyncing = false,
   pushBusy = false,
   pushReady = false,
-  pushError = '',
   onTogglePush = null,
   onOpenDirectChat = null,
   openDirectChatRequest = null,
@@ -735,7 +918,7 @@ const StudentChatSection = ({
   const [chatProfileDirectError, setChatProfileDirectError] = useState('');
   const [notificationSettings, setNotificationSettings] = useState(null);
   const [notificationSettingsSavingKey, setNotificationSettingsSavingKey] = useState('');
-  const [notificationSettingsError, setNotificationSettingsError] = useState('');
+  const [, setNotificationSettingsError] = useState('');
   const teacherListRef = useRef(null);
   const socialListRef = useRef(null);
   const teacherScrollBehaviorRef = useRef(null);
@@ -744,22 +927,6 @@ const StudentChatSection = ({
   const prevSocialMessageCountRef = useRef(0);
   const dragDepthRef = useRef(0);
   const chatProfileRequestIdRef = useRef(0);
-
-  const validateAndReadImage = useCallback(async (file) => {
-    if (!file) return null;
-    const mimeType = String(file.type || '').toLowerCase();
-    if (!mimeType || !CHAT_ALLOWED_IMAGE_TYPES.has(mimeType)) {
-      throw new Error('Можно отправлять только изображения: PNG, JPG, WEBP, GIF.');
-    }
-    if (Number(file.size) > CHAT_IMAGE_MAX_BYTES) {
-      throw new Error('Изображение должно быть не больше 5 МБ.');
-    }
-    const dataUrl = await readFileAsDataUrl(file);
-    return {
-      dataUrl,
-      name: String(file.name || '').trim(),
-    };
-  }, []);
 
   const validateAndReadAttachment = useCallback(async (file) => {
     if (!file) return null;
@@ -1287,6 +1454,76 @@ const StudentChatSection = ({
     }
   };
 
+  const handleEditTeacherMessage = useCallback(async (message, text) => {
+    const messageId = String(message?.id || '').trim();
+    const nextText = String(text || '').trim();
+    if (!messageId || !nextText) return;
+    setTeacherError('');
+    try {
+      const payload = await api.updateStudentChatMessage(messageId, nextText);
+      if (payload?.chat) setTeacherChat(payload.chat);
+      if (payload?.message) {
+        setTeacherMessages((prev) => prev.map((item) => (
+          item?.id === payload.message.id ? payload.message : item
+        )));
+      }
+    } catch (err) {
+      setTeacherError(err?.message || String(err));
+      throw err;
+    }
+  }, []);
+
+  const handleDeleteTeacherMessage = useCallback(async (message) => {
+    const messageId = String(message?.id || '').trim();
+    if (!messageId) return;
+    setTeacherError('');
+    try {
+      const payload = await api.deleteStudentChatMessage(messageId);
+      if (payload?.chat) setTeacherChat(payload.chat);
+      setTeacherMessages((prev) => prev.filter((item) => item?.id !== messageId));
+    } catch (err) {
+      setTeacherError(err?.message || String(err));
+      throw err;
+    }
+  }, []);
+
+  const handleEditSocialMessage = useCallback(async (message, text) => {
+    const chatId = String(activeSocialChatId || '').trim();
+    const messageId = String(message?.id || '').trim();
+    const nextText = String(text || '').trim();
+    if (!chatId || !messageId || !nextText) return;
+    setSocialMessagesError('');
+    try {
+      const payload = await api.updateStudentSocialChatMessage(chatId, messageId, nextText);
+      if (payload?.chat) setSocialChat(payload.chat);
+      if (payload?.message) {
+        setSocialMessages((prev) => prev.map((item) => (
+          item?.id === payload.message.id ? payload.message : item
+        )));
+      }
+      await loadSocialChats({ silent: true });
+    } catch (err) {
+      setSocialMessagesError(err?.message || String(err));
+      throw err;
+    }
+  }, [activeSocialChatId, loadSocialChats]);
+
+  const handleDeleteSocialMessage = useCallback(async (message) => {
+    const chatId = String(activeSocialChatId || '').trim();
+    const messageId = String(message?.id || '').trim();
+    if (!chatId || !messageId) return;
+    setSocialMessagesError('');
+    try {
+      const payload = await api.deleteStudentSocialChatMessage(chatId, messageId);
+      if (payload?.chat) setSocialChat(payload.chat);
+      setSocialMessages((prev) => prev.filter((item) => item?.id !== messageId));
+      await loadSocialChats({ silent: true });
+    } catch (err) {
+      setSocialMessagesError(err?.message || String(err));
+      throw err;
+    }
+  }, [activeSocialChatId, loadSocialChats]);
+
   const updateNotificationSettings = useCallback(async (patch, savingKey) => {
     if (notificationSettingsSavingKey) return;
     setNotificationSettingsSavingKey(savingKey);
@@ -1556,6 +1793,8 @@ const StudentChatSection = ({
             fallbackSenderName={teacherName}
             onOpenImage={setImageViewer}
             onOpenSenderProfile={handleOpenSenderProfile}
+            onEditMessage={handleEditTeacherMessage}
+            onDeleteMessage={handleDeleteTeacherMessage}
             isMine={(message) => message?.senderRole === 'student' || message?.senderId === user?.id}
           />
           <ChatComposer
@@ -1611,6 +1850,8 @@ const StudentChatSection = ({
                 fallbackSenderName="Ученик"
                 onOpenImage={setImageViewer}
                 onOpenSenderProfile={handleOpenSenderProfile}
+                onEditMessage={handleEditSocialMessage}
+                onDeleteMessage={handleDeleteSocialMessage}
                 isMine={(message) => message?.senderId === user?.id}
               />
               <ChatComposer
@@ -1765,6 +2006,8 @@ const StudentChatSection = ({
                   fallbackSenderName={selectedDirectChat?.peer?.displayName || 'Ученик'}
                   onOpenImage={setImageViewer}
                   onOpenSenderProfile={handleOpenSenderProfile}
+                  onEditMessage={handleEditSocialMessage}
+                  onDeleteMessage={handleDeleteSocialMessage}
                   isMine={(message) => message?.senderId === user?.id}
                 />
                 <ChatComposer

@@ -193,6 +193,7 @@ const STUDENT_CHAT_FILE_MIME_TYPE_MAX_LENGTH = 120;
 const STUDENT_CHAT_FILE_PREVIEW_TEXT = '[Файл]';
 const STUDENT_CHAT_MESSAGES_PAGE_SIZE = 15;
 const STUDENT_CHAT_MESSAGES_MAX_PAGE_SIZE = 50;
+const STUDENT_CHAT_DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const BROADCAST_NOTIFICATION_TEXT_MAX_LENGTH = 5000;
 const BROADCAST_NOTIFICATION_NAME_MAX_LENGTH = 180;
 const BROADCAST_NOTIFICATION_STORAGE_LIMIT = 200;
@@ -2674,6 +2675,7 @@ const normalizeStudentTeacherChatMessage = (value) => {
   const fileMimeType = normalizeStudentChatFileMimeType(value.fileMimeType) || getDataUrlMimeType(fileDataUrl);
   const fileSize = normalizeStudentChatFileSize(value.fileSize, fileDataUrl);
   const createdAt = normalizeIsoTimestamp(value.createdAt, '');
+  const editedAt = normalizeIsoTimestamp(value.editedAt, '');
   if (!id || !senderId || (!text && !imageDataUrl && !fileDataUrl) || !createdAt) return null;
   const senderName = senderNameRaw || (senderRole === 'teacher' ? 'Преподаватель' : 'Ученик');
   const message = {
@@ -2684,6 +2686,7 @@ const normalizeStudentTeacherChatMessage = (value) => {
     text,
     createdAt,
   };
+  if (editedAt) message.editedAt = editedAt;
   if (imageDataUrl) {
     message.imageDataUrl = imageDataUrl;
     if (imageName) message.imageName = imageName;
@@ -2892,6 +2895,42 @@ const appendStudentTeacherChatMessage = (chat, message) => {
     next.lastReadByStudentAt = message.createdAt;
   }
   return next;
+};
+
+const rebuildStudentTeacherChatAfterMessages = (chat, nextMessages, options = {}) => {
+  if (!chat) return chat;
+  const mutationAt = normalizeIsoTimestamp(options.mutationAt, new Date().toISOString());
+  const messages = Array.isArray(nextMessages)
+    ? nextMessages.map((item) => normalizeStudentTeacherChatMessage(item)).filter(Boolean)
+    : [];
+  const lastMessage = messages[messages.length - 1] || null;
+  return normalizeStudentTeacherChat({
+    ...chat,
+    messages,
+    updatedAt: mutationAt,
+    lastMessageAt: lastMessage?.createdAt || '',
+    lastMessagePreview: buildStudentTeacherChatMessagePreview(lastMessage),
+    lastMessageSenderRole: lastMessage?.senderRole || '',
+  }) || chat;
+};
+
+const isStudentChatMessageDeleteAllowed = (message, nowMs = Date.now()) => {
+  const createdAt = Date.parse(message?.createdAt || '');
+  if (!Number.isFinite(createdAt)) return false;
+  return nowMs - createdAt <= STUDENT_CHAT_DELETE_WINDOW_MS;
+};
+
+const canModifyStudentTeacherChatMessage = (auth, chat, message) => {
+  if (!auth || !chat || !message) return false;
+  const senderId = String(message.senderId || '').trim();
+  if (!senderId || senderId !== String(auth.id || '').trim()) return false;
+  if (isStudentRole(auth)) {
+    return message.senderRole === 'student' && chat.studentId === auth.id;
+  }
+  if (isTeacherRole(auth)) {
+    return message.senderRole === 'teacher' && chat.teacherId === auth.id;
+  }
+  return false;
 };
 
 const markStudentTeacherChatReadByTeacher = (chat) => {
@@ -3411,6 +3450,29 @@ const rebuildStudentSocialChatAfterMessages = (chat, messages) => {
     lastMessageSenderId: lastMessage?.senderId || '',
     lastMessageSenderName: lastMessage?.senderName || '',
   }) || chat;
+};
+
+const canModifyStudentSocialChatMessage = (auth, chat, message, actorStudent = null) => {
+  if (!auth || !chat || !message) return false;
+  const senderId = String(message.senderId || '').trim();
+  if (!senderId || senderId !== String(auth.id || '').trim()) return false;
+  if (isStudentRole(auth)) {
+    return Boolean(
+      actorStudent?.id
+      && actorStudent.id === auth.id
+      && message.senderRole === 'student'
+      && senderId === actorStudent.id
+      && (chat.type === 'group' || chat.studentIds.includes(actorStudent.id))
+    );
+  }
+  if (isTeacherRole(auth)) {
+    return Boolean(
+      chat.type === 'group'
+      && chat.teacherId === auth.id
+      && message.senderRole === 'teacher'
+    );
+  }
+  return false;
 };
 
 const purgeStudentSocialChatsForStudents = (studentIds = []) => {
@@ -12252,6 +12314,113 @@ app.post('/api/student-chat/messages', (req, res) => {
   });
 });
 
+app.patch('/api/student-chat/messages/:messageId', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const text = normalizeStudentChatMessageText(req.body?.text);
+  if (!text) return res.status(400).json({ error: 'Введите сообщение' });
+  const messageId = String(req.params?.messageId || '').trim();
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+
+  const chats = readStudentChatsDb();
+  const access = ensureStudentTeacherChatAccess(
+    req,
+    res,
+    buildStudentTeacherChatId(req.auth?.id),
+    { chats, createIfMissing: true }
+  );
+  if (!access) return;
+  const { index, student } = access;
+  const chat = access.chat;
+  const messages = Array.isArray(chat.messages) ? [...chat.messages] : [];
+  const messageIndex = messages.findIndex((message) => message?.id === messageId);
+  if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
+
+  const targetMessage = messages[messageIndex];
+  if (!canModifyStudentTeacherChatMessage(req.auth, chat, targetMessage)) {
+    return res.status(403).json({ error: 'Недостаточно прав' });
+  }
+
+  if (targetMessage.text === text) {
+    const teacherName = findTeacherById(chat.teacherId)?.name || 'Преподаватель';
+    return res.json({
+      ok: true,
+      message: targetMessage,
+      chat: {
+        ...buildStudentTeacherChatSummary(chat, student),
+        teacherName,
+        studentName: student?.name || 'Ученик',
+      },
+    });
+  }
+
+  const editedMessage = normalizeStudentTeacherChatMessage({
+    ...targetMessage,
+    text,
+    editedAt: new Date().toISOString(),
+  });
+  if (!editedMessage) return res.status(400).json({ error: 'Некорректное сообщение' });
+
+  messages[messageIndex] = editedMessage;
+  chats[index] = rebuildStudentTeacherChatAfterMessages(chat, messages) || chat;
+  writeStudentChatsDb(chats);
+
+  const updatedChat = chats[index];
+  const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
+  return res.json({
+    ok: true,
+    message: editedMessage,
+    chat: {
+      ...buildStudentTeacherChatSummary(updatedChat, student),
+      teacherName,
+      studentName: student?.name || 'Ученик',
+    },
+  });
+});
+
+app.delete('/api/student-chat/messages/:messageId', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const messageId = String(req.params?.messageId || '').trim();
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+
+  const chats = readStudentChatsDb();
+  const access = ensureStudentTeacherChatAccess(
+    req,
+    res,
+    buildStudentTeacherChatId(req.auth?.id),
+    { chats, createIfMissing: true }
+  );
+  if (!access) return;
+  const { index, student } = access;
+  const chat = access.chat;
+  const messages = Array.isArray(chat.messages) ? [...chat.messages] : [];
+  const messageIndex = messages.findIndex((message) => message?.id === messageId);
+  if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
+
+  const targetMessage = messages[messageIndex];
+  if (!canModifyStudentTeacherChatMessage(req.auth, chat, targetMessage)) {
+    return res.status(403).json({ error: 'Недостаточно прав' });
+  }
+  if (!isStudentChatMessageDeleteAllowed(targetMessage)) {
+    return res.status(403).json({ error: 'Удаление недоступно' });
+  }
+
+  messages.splice(messageIndex, 1);
+  chats[index] = rebuildStudentTeacherChatAfterMessages(chat, messages) || chat;
+  writeStudentChatsDb(chats);
+
+  const updatedChat = chats[index];
+  const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
+  return res.json({
+    ok: true,
+    messageId,
+    chat: {
+      ...buildStudentTeacherChatSummary(updatedChat, student),
+      teacherName,
+      studentName: student?.name || 'Ученик',
+    },
+  });
+});
+
 app.get('/api/student-chats', (req, res) => {
   if (!isStaffRole(req.auth)) return forbid(res);
   const students = readStudentsDb()
@@ -12417,6 +12586,103 @@ app.post('/api/student-chats/:chatId/messages', (req, res) => {
   });
 });
 
+app.patch('/api/student-chats/:chatId/messages/:messageId', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const text = normalizeStudentChatMessageText(req.body?.text);
+  if (!text) return res.status(400).json({ error: 'Введите сообщение' });
+  const messageId = String(req.params?.messageId || '').trim();
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+
+  const chats = readStudentChatsDb();
+  const access = ensureStudentTeacherChatAccess(req, res, req.params.chatId, { chats, createIfMissing: true });
+  if (!access) return;
+  const { index, student } = access;
+  const chat = access.chat;
+  const messages = Array.isArray(chat.messages) ? [...chat.messages] : [];
+  const messageIndex = messages.findIndex((message) => message?.id === messageId);
+  if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
+
+  const targetMessage = messages[messageIndex];
+  if (!canModifyStudentTeacherChatMessage(req.auth, chat, targetMessage)) {
+    return res.status(403).json({ error: 'Недостаточно прав' });
+  }
+
+  if (targetMessage.text === text) {
+    const teacherName = findTeacherById(chat.teacherId)?.name || 'Преподаватель';
+    return res.json({
+      ok: true,
+      message: targetMessage,
+      chat: {
+        ...buildStudentTeacherChatSummary(chat, student),
+        teacherName,
+        studentName: student?.name || 'Ученик',
+      },
+    });
+  }
+
+  const editedMessage = normalizeStudentTeacherChatMessage({
+    ...targetMessage,
+    text,
+    editedAt: new Date().toISOString(),
+  });
+  if (!editedMessage) return res.status(400).json({ error: 'Некорректное сообщение' });
+
+  messages[messageIndex] = editedMessage;
+  chats[index] = rebuildStudentTeacherChatAfterMessages(chat, messages) || chat;
+  writeStudentChatsDb(chats);
+
+  const updatedChat = chats[index];
+  const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
+  return res.json({
+    ok: true,
+    message: editedMessage,
+    chat: {
+      ...buildStudentTeacherChatSummary(updatedChat, student),
+      teacherName,
+      studentName: student?.name || 'Ученик',
+    },
+  });
+});
+
+app.delete('/api/student-chats/:chatId/messages/:messageId', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const messageId = String(req.params?.messageId || '').trim();
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+
+  const chats = readStudentChatsDb();
+  const access = ensureStudentTeacherChatAccess(req, res, req.params.chatId, { chats, createIfMissing: true });
+  if (!access) return;
+  const { index, student } = access;
+  const chat = access.chat;
+  const messages = Array.isArray(chat.messages) ? [...chat.messages] : [];
+  const messageIndex = messages.findIndex((message) => message?.id === messageId);
+  if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
+
+  const targetMessage = messages[messageIndex];
+  if (!canModifyStudentTeacherChatMessage(req.auth, chat, targetMessage)) {
+    return res.status(403).json({ error: 'Недостаточно прав' });
+  }
+  if (!isStudentChatMessageDeleteAllowed(targetMessage)) {
+    return res.status(403).json({ error: 'Удаление недоступно' });
+  }
+
+  messages.splice(messageIndex, 1);
+  chats[index] = rebuildStudentTeacherChatAfterMessages(chat, messages) || chat;
+  writeStudentChatsDb(chats);
+
+  const updatedChat = chats[index];
+  const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
+  return res.json({
+    ok: true,
+    messageId,
+    chat: {
+      ...buildStudentTeacherChatSummary(updatedChat, student),
+      teacherName,
+      studentName: student?.name || 'Ученик',
+    },
+  });
+});
+
 app.get('/api/student-social-chat-settings', (req, res) => {
   let teacherId = '';
   let teacher = null;
@@ -12566,6 +12832,104 @@ app.post('/api/teacher-social-group-chat/messages', (req, res) => {
   return res.json({
     ok: true,
     message,
+    chat: buildStudentSocialChatSummary(updatedChat, null, { settings }),
+  });
+});
+
+app.patch('/api/teacher-social-group-chat/messages/:messageId', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const text = normalizeStudentChatMessageText(req.body?.text);
+  if (!text) return res.status(400).json({ error: 'Введите сообщение' });
+  const messageId = String(req.params?.messageId || '').trim();
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+
+  const effectiveTeacherId = isTeacherRole(req.auth)
+    ? req.auth.id
+    : String(req.body?.teacherId || req.query?.teacherId || '').trim();
+  const db = readStudentSocialChatsDb();
+  const access = ensureTeacherSocialGroupChatAccess(req, res, effectiveTeacherId, {
+    db,
+    chats: db.chats,
+    persist: true,
+  });
+  if (!access) return;
+
+  const { index, settings } = access;
+  const chat = access.chat;
+  const messages = Array.isArray(chat.messages) ? [...chat.messages] : [];
+  const messageIndex = messages.findIndex((message) => message?.id === messageId);
+  if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
+
+  const targetMessage = messages[messageIndex];
+  if (!canModifyStudentSocialChatMessage(req.auth, chat, targetMessage)) {
+    return res.status(403).json({ error: 'Недостаточно прав' });
+  }
+
+  if (targetMessage.text === text) {
+    return res.json({
+      ok: true,
+      message: targetMessage,
+      chat: buildStudentSocialChatSummary(chat, null, { settings }),
+    });
+  }
+
+  const editedMessage = normalizeStudentTeacherChatMessage({
+    ...targetMessage,
+    text,
+    editedAt: new Date().toISOString(),
+  });
+  if (!editedMessage) return res.status(400).json({ error: 'Некорректное сообщение' });
+
+  messages[messageIndex] = editedMessage;
+  db.chats[index] = rebuildStudentSocialChatAfterMessages(chat, messages);
+  writeStudentSocialChatsDb(db);
+  const updatedChat = db.chats[index];
+
+  return res.json({
+    ok: true,
+    message: editedMessage,
+    chat: buildStudentSocialChatSummary(updatedChat, null, { settings }),
+  });
+});
+
+app.delete('/api/teacher-social-group-chat/messages/:messageId', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const messageId = String(req.params?.messageId || '').trim();
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+
+  const effectiveTeacherId = isTeacherRole(req.auth)
+    ? req.auth.id
+    : String(req.body?.teacherId || req.query?.teacherId || '').trim();
+  const db = readStudentSocialChatsDb();
+  const access = ensureTeacherSocialGroupChatAccess(req, res, effectiveTeacherId, {
+    db,
+    chats: db.chats,
+    persist: true,
+  });
+  if (!access) return;
+
+  const { index, settings } = access;
+  const chat = access.chat;
+  const messages = Array.isArray(chat.messages) ? [...chat.messages] : [];
+  const messageIndex = messages.findIndex((message) => message?.id === messageId);
+  if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
+
+  const targetMessage = messages[messageIndex];
+  if (!canModifyStudentSocialChatMessage(req.auth, chat, targetMessage)) {
+    return res.status(403).json({ error: 'Недостаточно прав' });
+  }
+  if (!isStudentChatMessageDeleteAllowed(targetMessage)) {
+    return res.status(403).json({ error: 'Удаление недоступно' });
+  }
+
+  messages.splice(messageIndex, 1);
+  db.chats[index] = rebuildStudentSocialChatAfterMessages(chat, messages);
+  writeStudentSocialChatsDb(db);
+  const updatedChat = db.chats[index];
+
+  return res.json({
+    ok: true,
+    messageId,
     chat: buildStudentSocialChatSummary(updatedChat, null, { settings }),
   });
 });
@@ -12736,6 +13100,113 @@ app.post('/api/student-social-chats/:chatId/messages', (req, res) => {
   return res.json({
     ok: true,
     message,
+    chat: buildStudentSocialChatSummary(updatedChat, student, {
+      peer: peer ? buildStudentPeerProfile(peer) : null,
+      settings,
+      notificationSettings,
+    }),
+  });
+});
+
+app.patch('/api/student-social-chats/:chatId/messages/:messageId', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const text = normalizeStudentChatMessageText(req.body?.text);
+  if (!text) return res.status(400).json({ error: 'Введите сообщение' });
+  const messageId = String(req.params?.messageId || '').trim();
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+
+  const db = readStudentSocialChatsDb();
+  const access = ensureStudentSocialChatAccess(req, res, req.params.chatId, {
+    db,
+    chats: db.chats,
+    createIfMissing: true,
+  });
+  if (!access) return;
+
+  const { index, student, peer, settings } = access;
+  const chat = access.chat;
+  const messages = Array.isArray(chat.messages) ? [...chat.messages] : [];
+  const messageIndex = messages.findIndex((message) => message?.id === messageId);
+  if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
+
+  const targetMessage = messages[messageIndex];
+  if (!canModifyStudentSocialChatMessage(req.auth, chat, targetMessage, student)) {
+    return res.status(403).json({ error: 'Недостаточно прав' });
+  }
+
+  if (targetMessage.text === text) {
+    const notificationSettings = getStudentChatNotificationSettings(student.id, db);
+    return res.json({
+      ok: true,
+      message: targetMessage,
+      chat: buildStudentSocialChatSummary(chat, student, {
+        peer: peer ? buildStudentPeerProfile(peer) : null,
+        settings,
+        notificationSettings,
+      }),
+    });
+  }
+
+  const editedMessage = normalizeStudentTeacherChatMessage({
+    ...targetMessage,
+    text,
+    editedAt: new Date().toISOString(),
+  });
+  if (!editedMessage) return res.status(400).json({ error: 'Некорректное сообщение' });
+
+  messages[messageIndex] = editedMessage;
+  db.chats[index] = rebuildStudentSocialChatAfterMessages(chat, messages);
+  writeStudentSocialChatsDb(db);
+  const updatedChat = db.chats[index];
+  const notificationSettings = getStudentChatNotificationSettings(student.id, db);
+
+  return res.json({
+    ok: true,
+    message: editedMessage,
+    chat: buildStudentSocialChatSummary(updatedChat, student, {
+      peer: peer ? buildStudentPeerProfile(peer) : null,
+      settings,
+      notificationSettings,
+    }),
+  });
+});
+
+app.delete('/api/student-social-chats/:chatId/messages/:messageId', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const messageId = String(req.params?.messageId || '').trim();
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+
+  const db = readStudentSocialChatsDb();
+  const access = ensureStudentSocialChatAccess(req, res, req.params.chatId, {
+    db,
+    chats: db.chats,
+    createIfMissing: true,
+  });
+  if (!access) return;
+
+  const { index, student, peer, settings } = access;
+  const chat = access.chat;
+  const messages = Array.isArray(chat.messages) ? [...chat.messages] : [];
+  const messageIndex = messages.findIndex((message) => message?.id === messageId);
+  if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
+
+  const targetMessage = messages[messageIndex];
+  if (!canModifyStudentSocialChatMessage(req.auth, chat, targetMessage, student)) {
+    return res.status(403).json({ error: 'Недостаточно прав' });
+  }
+  if (!isStudentChatMessageDeleteAllowed(targetMessage)) {
+    return res.status(403).json({ error: 'Удаление недоступно' });
+  }
+
+  messages.splice(messageIndex, 1);
+  db.chats[index] = rebuildStudentSocialChatAfterMessages(chat, messages);
+  writeStudentSocialChatsDb(db);
+  const updatedChat = db.chats[index];
+  const notificationSettings = getStudentChatNotificationSettings(student.id, db);
+
+  return res.json({
+    ok: true,
+    messageId,
     chat: buildStudentSocialChatSummary(updatedChat, student, {
       peer: peer ? buildStudentPeerProfile(peer) : null,
       settings,

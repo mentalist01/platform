@@ -380,6 +380,26 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  updateStudentChatMessage: async (messageId, text) => {
+    const id = typeof messageId === 'string' ? messageId.trim() : String(messageId || '').trim();
+    if (!id) throw new Error('messageId required');
+    const res = await apiFetch(`/api/student-chat/messages/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  deleteStudentChatMessage: async (messageId) => {
+    const id = typeof messageId === 'string' ? messageId.trim() : String(messageId || '').trim();
+    if (!id) throw new Error('messageId required');
+    const res = await apiFetch(`/api/student-chat/messages/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getStudentChats: async () => {
     const res = await apiFetch('/api/student-chats');
     if (!res.ok) throw new Error(await parseApiError(res));
@@ -400,6 +420,30 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updateStudentChatMessageForTeacher: async (chatId, messageId, text) => {
+    const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
+    const msgId = typeof messageId === 'string' ? messageId.trim() : String(messageId || '').trim();
+    if (!id) throw new Error('chatId required');
+    if (!msgId) throw new Error('messageId required');
+    const res = await apiFetch(`/api/student-chats/${encodeURIComponent(id)}/messages/${encodeURIComponent(msgId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  deleteStudentChatMessageForTeacher: async (chatId, messageId) => {
+    const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
+    const msgId = typeof messageId === 'string' ? messageId.trim() : String(messageId || '').trim();
+    if (!id) throw new Error('chatId required');
+    if (!msgId) throw new Error('messageId required');
+    const res = await apiFetch(`/api/student-chats/${encodeURIComponent(id)}/messages/${encodeURIComponent(msgId)}`, {
+      method: 'DELETE',
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
@@ -442,6 +486,29 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  updateTeacherSocialGroupChatMessage: async (messageId, text, teacherId = '') => {
+    const id = typeof messageId === 'string' ? messageId.trim() : String(messageId || '').trim();
+    if (!id) throw new Error('messageId required');
+    const payload = { text };
+    if (teacherId) payload.teacherId = String(teacherId);
+    const res = await apiFetch(`/api/teacher-social-group-chat/messages/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  deleteTeacherSocialGroupChatMessage: async (messageId, teacherId = '') => {
+    const id = typeof messageId === 'string' ? messageId.trim() : String(messageId || '').trim();
+    if (!id) throw new Error('messageId required');
+    const qs = teacherId ? `?teacherId=${encodeURIComponent(String(teacherId))}` : '';
+    const res = await apiFetch(`/api/teacher-social-group-chat/messages/${encodeURIComponent(id)}${qs}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getStudentSocialChats: async () => {
     const res = await apiFetch('/api/student-social-chats');
     if (!res.ok) throw new Error(await parseApiError(res));
@@ -473,6 +540,30 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updateStudentSocialChatMessage: async (chatId, messageId, text) => {
+    const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
+    const msgId = typeof messageId === 'string' ? messageId.trim() : String(messageId || '').trim();
+    if (!id) throw new Error('chatId required');
+    if (!msgId) throw new Error('messageId required');
+    const res = await apiFetch(`/api/student-social-chats/${encodeURIComponent(id)}/messages/${encodeURIComponent(msgId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  deleteStudentSocialChatMessage: async (chatId, messageId) => {
+    const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
+    const msgId = typeof messageId === 'string' ? messageId.trim() : String(messageId || '').trim();
+    if (!id) throw new Error('chatId required');
+    if (!msgId) throw new Error('messageId required');
+    const res = await apiFetch(`/api/student-social-chats/${encodeURIComponent(id)}/messages/${encodeURIComponent(msgId)}`, {
+      method: 'DELETE',
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
