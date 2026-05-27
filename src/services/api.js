@@ -400,6 +400,17 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  toggleStudentChatMessageReaction: async (messageId, emoji) => {
+    const id = typeof messageId === 'string' ? messageId.trim() : String(messageId || '').trim();
+    if (!id) throw new Error('messageId required');
+    const res = await apiFetch(`/api/student-chat/messages/${encodeURIComponent(id)}/reactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emoji }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getStudentChats: async () => {
     const res = await apiFetch('/api/student-chats');
     if (!res.ok) throw new Error(await parseApiError(res));
@@ -444,6 +455,19 @@ export const api = {
     if (!msgId) throw new Error('messageId required');
     const res = await apiFetch(`/api/student-chats/${encodeURIComponent(id)}/messages/${encodeURIComponent(msgId)}`, {
       method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  toggleStudentChatMessageReactionForTeacher: async (chatId, messageId, emoji) => {
+    const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
+    const msgId = typeof messageId === 'string' ? messageId.trim() : String(messageId || '').trim();
+    if (!id) throw new Error('chatId required');
+    if (!msgId) throw new Error('messageId required');
+    const res = await apiFetch(`/api/student-chats/${encodeURIComponent(id)}/messages/${encodeURIComponent(msgId)}/reactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emoji }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
@@ -509,6 +533,19 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  toggleTeacherSocialGroupChatMessageReaction: async (messageId, emoji, teacherId = '') => {
+    const id = typeof messageId === 'string' ? messageId.trim() : String(messageId || '').trim();
+    if (!id) throw new Error('messageId required');
+    const payload = { emoji };
+    if (teacherId) payload.teacherId = String(teacherId);
+    const res = await apiFetch(`/api/teacher-social-group-chat/messages/${encodeURIComponent(id)}/reactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getStudentSocialChats: async () => {
     const res = await apiFetch('/api/student-social-chats');
     if (!res.ok) throw new Error(await parseApiError(res));
@@ -564,6 +601,19 @@ export const api = {
     if (!msgId) throw new Error('messageId required');
     const res = await apiFetch(`/api/student-social-chats/${encodeURIComponent(id)}/messages/${encodeURIComponent(msgId)}`, {
       method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  toggleStudentSocialChatMessageReaction: async (chatId, messageId, emoji) => {
+    const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
+    const msgId = typeof messageId === 'string' ? messageId.trim() : String(messageId || '').trim();
+    if (!id) throw new Error('chatId required');
+    if (!msgId) throw new Error('messageId required');
+    const res = await apiFetch(`/api/student-social-chats/${encodeURIComponent(id)}/messages/${encodeURIComponent(msgId)}/reactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emoji }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);

@@ -2624,6 +2624,136 @@ const normalizeStudentChatAttachmentPayload = (value) => {
   };
 };
 
+const STUDENT_CHAT_REACTION_EMOJIS = Object.freeze(['👍', '❤️', '😂', '🔥', '👏', '😮', '😢', '🙏']);
+const STUDENT_CHAT_REACTION_EMOJI_SET = new Set(STUDENT_CHAT_REACTION_EMOJIS);
+
+const normalizeStudentChatReactionEmoji = (value) => {
+  const emoji = String(value || '').trim();
+  return STUDENT_CHAT_REACTION_EMOJI_SET.has(emoji) ? emoji : '';
+};
+
+const normalizeStudentChatReactionActor = (value) => {
+  if (!value || typeof value !== 'object') return null;
+  const actorRole = value.actorRole === 'teacher' || value.role === 'teacher' ? 'teacher' : 'student';
+  const actorId = String(value.actorId || value.id || '').trim();
+  const actorKey = String(value.actorKey || `${actorRole}:${actorId}`).trim();
+  if (!actorId || !actorKey) return null;
+  const actorName = String(value.actorName || value.name || '').trim();
+  const reactedAt = normalizeIsoTimestamp(value.reactedAt, '') || '';
+  return {
+    actorKey,
+    actorRole,
+    actorId,
+    actorName,
+    reactedAt,
+  };
+};
+
+const normalizeStudentChatMessageReactions = (value) => {
+  const reactionByActor = new Map();
+  (Array.isArray(value) ? value : []).forEach((group) => {
+    const emoji = normalizeStudentChatReactionEmoji(group?.emoji);
+    if (!emoji) return;
+    const actors = Array.isArray(group?.actors)
+      ? group.actors
+      : (Array.isArray(group?.users) ? group.users : []);
+    actors.forEach((entry) => {
+      const actor = normalizeStudentChatReactionActor(entry);
+      if (!actor) return;
+      reactionByActor.set(actor.actorKey, {
+        ...actor,
+        emoji,
+      });
+    });
+  });
+
+  return STUDENT_CHAT_REACTION_EMOJIS
+    .map((emoji) => ({
+      emoji,
+      actors: Array.from(reactionByActor.values())
+        .filter((actor) => actor.emoji === emoji)
+        .map((actor) => ({
+          actorKey: actor.actorKey,
+          actorRole: actor.actorRole,
+          actorId: actor.actorId,
+          actorName: actor.actorName,
+          reactedAt: actor.reactedAt,
+        })),
+    }))
+    .filter((group) => group.actors.length > 0);
+};
+
+const buildStudentChatReactionSummary = (message, actorKey = '') => (
+  normalizeStudentChatMessageReactions(message?.reactions).map((group) => ({
+    emoji: group.emoji,
+    count: group.actors.length,
+    reactedByMe: Boolean(actorKey && group.actors.some((actor) => actor.actorKey === actorKey)),
+    names: group.actors
+      .map((actor) => String(actor.actorName || '').trim())
+      .filter(Boolean)
+      .slice(0, 5),
+  }))
+);
+
+const applyStudentChatMessageReaction = (message, emoji, actor) => {
+  const normalizedEmoji = normalizeStudentChatReactionEmoji(emoji);
+  const normalizedActor = normalizeStudentChatReactionActor(actor);
+  if (!message || !normalizedEmoji || !normalizedActor) return message;
+
+  const actorKey = normalizedActor.actorKey;
+  const reactedAt = new Date().toISOString();
+  const previousGroups = normalizeStudentChatMessageReactions(message.reactions);
+  const alreadyReactedWithEmoji = previousGroups.some((group) => (
+    group.emoji === normalizedEmoji && group.actors.some((entry) => entry.actorKey === actorKey)
+  ));
+
+  const nextGroups = previousGroups
+    .map((group) => ({
+      ...group,
+      actors: group.actors.filter((entry) => entry.actorKey !== actorKey),
+    }))
+    .filter((group) => group.actors.length > 0);
+
+  if (!alreadyReactedWithEmoji) {
+    const nextActor = {
+      actorKey,
+      actorRole: normalizedActor.actorRole,
+      actorId: normalizedActor.actorId,
+      actorName: normalizedActor.actorName,
+      reactedAt,
+    };
+    const targetGroup = nextGroups.find((group) => group.emoji === normalizedEmoji);
+    if (targetGroup) {
+      targetGroup.actors.push(nextActor);
+    } else {
+      nextGroups.push({
+        emoji: normalizedEmoji,
+        actors: [nextActor],
+      });
+    }
+  }
+
+  const nextMessage = { ...message };
+  if (nextGroups.length > 0) {
+    nextMessage.reactions = normalizeStudentChatMessageReactions(nextGroups);
+  } else {
+    delete nextMessage.reactions;
+  }
+  return normalizeStudentTeacherChatMessage(nextMessage) || nextMessage;
+};
+
+const isStudentChatMessageAuthoredByActor = (message, actor) => {
+  const normalizedActor = normalizeStudentChatReactionActor(actor);
+  if (!message || !normalizedActor) return false;
+  const senderRole = message.senderRole === 'teacher' ? 'teacher' : 'student';
+  const senderId = String(message.senderId || '').trim();
+  return Boolean(
+    senderId
+    && senderRole === normalizedActor.actorRole
+    && senderId === normalizedActor.actorId
+  );
+};
+
 const hasStudentTeacherChatMessageContent = (message) => {
   if (!message || typeof message !== 'object') return false;
   const text = normalizeStudentChatMessageText(message.text);
@@ -2676,6 +2806,7 @@ const normalizeStudentTeacherChatMessage = (value) => {
   const fileSize = normalizeStudentChatFileSize(value.fileSize, fileDataUrl);
   const createdAt = normalizeIsoTimestamp(value.createdAt, '');
   const editedAt = normalizeIsoTimestamp(value.editedAt, '');
+  const reactions = normalizeStudentChatMessageReactions(value.reactions);
   if (!id || !senderId || (!text && !imageDataUrl && !fileDataUrl) || !createdAt) return null;
   const senderName = senderNameRaw || (senderRole === 'teacher' ? 'Преподаватель' : 'Ученик');
   const message = {
@@ -2687,6 +2818,7 @@ const normalizeStudentTeacherChatMessage = (value) => {
     createdAt,
   };
   if (editedAt) message.editedAt = editedAt;
+  if (reactions.length > 0) message.reactions = reactions;
   if (imageDataUrl) {
     message.imageDataUrl = imageDataUrl;
     if (imageName) message.imageName = imageName;
@@ -2919,6 +3051,35 @@ const isStudentChatMessageDeleteAllowed = (message, nowMs = Date.now()) => {
   if (!Number.isFinite(createdAt)) return false;
   return nowMs - createdAt <= STUDENT_CHAT_DELETE_WINDOW_MS;
 };
+
+const isChatReadAtOrAfterMessage = (readAt, message) => {
+  const readTimestamp = Date.parse(readAt || '');
+  const messageTimestamp = Date.parse(message?.createdAt || '');
+  return Number.isFinite(readTimestamp)
+    && Number.isFinite(messageTimestamp)
+    && readTimestamp >= messageTimestamp;
+};
+
+const getStudentTeacherMessageViewCount = (chat, message) => {
+  if (!chat || !message) return 0;
+  if (message.senderRole === 'student') {
+    return isChatReadAtOrAfterMessage(chat.lastReadByTeacherAt, message) ? 1 : 0;
+  }
+  if (message.senderRole === 'teacher') {
+    return isChatReadAtOrAfterMessage(chat.lastReadByStudentAt, message) ? 1 : 0;
+  }
+  return 0;
+};
+
+const enrichStudentTeacherMessageViewStats = (chat, message, options = {}) => ({
+  ...message,
+  reactions: buildStudentChatReactionSummary(message, options.actorKey),
+  viewCount: getStudentTeacherMessageViewCount(chat, message),
+});
+
+const enrichStudentTeacherMessagesViewStats = (chat, messages = [], options = {}) => (
+  (Array.isArray(messages) ? messages : []).map((message) => enrichStudentTeacherMessageViewStats(chat, message, options))
+);
 
 const canModifyStudentTeacherChatMessage = (auth, chat, message) => {
   if (!auth || !chat || !message) return false;
@@ -3268,6 +3429,52 @@ const getStudentDisplayName = (student) => (
   String(student?.nickname || student?.name || 'Ученик').trim() || 'Ученик'
 );
 
+const resolveStudentChatReactionActor = (auth, options = {}) => {
+  if (!auth) return null;
+  if (isStudentRole(auth)) {
+    const student = options.student || findStudentById(auth.id);
+    const actorId = String(student?.id || auth.id || '').trim();
+    if (!actorId) return null;
+    return normalizeStudentChatReactionActor({
+      actorRole: 'student',
+      actorId,
+      actorName: getStudentDisplayName(student || auth),
+    });
+  }
+
+  if (isTeacherRole(auth) || isAdminRole(auth)) {
+    const teacher = options.teacher
+      || findTeacherById(options.teacherId || options.chat?.teacherId || auth.id)
+      || findTeacherById(auth.id);
+    const actorId = String(teacher?.id || options.teacherId || options.chat?.teacherId || auth.id || '').trim();
+    if (!actorId) return null;
+    return normalizeStudentChatReactionActor({
+      actorRole: 'teacher',
+      actorId,
+      actorName: String(teacher?.name || auth.name || 'Преподаватель').trim() || 'Преподаватель',
+    });
+  }
+
+  return null;
+};
+
+const buildStudentChatMessageResponseOptions = (auth, options = {}) => {
+  const actor = resolveStudentChatReactionActor(auth, options);
+  return {
+    actor,
+    actorKey: actor?.actorKey || '',
+  };
+};
+
+const getActiveStudentIdsForTeacher = (teacherId) => {
+  const id = String(teacherId || '').trim();
+  if (!id) return [];
+  return readStudentsDb()
+    .filter((student) => isActiveStudent(student) && String(student.teacherId || '').trim() === id)
+    .map((student) => String(student.id || '').trim())
+    .filter(Boolean);
+};
+
 const buildStudentPeerProfile = (student) => ({
   id: String(student?.id || '').trim(),
   name: String(student?.name || '').trim(),
@@ -3451,6 +3658,50 @@ const rebuildStudentSocialChatAfterMessages = (chat, messages) => {
     lastMessageSenderName: lastMessage?.senderName || '',
   }) || chat;
 };
+
+const getStudentSocialMessageViewCount = (chat, message, options = {}) => {
+  if (!chat || !message) return 0;
+  const senderId = String(message.senderId || '').trim();
+  let count = 0;
+
+  if (chat.type === 'group') {
+    if (message.senderRole !== 'teacher' && isChatReadAtOrAfterMessage(chat.lastReadByTeacherAt, message)) {
+      count += 1;
+    }
+    const studentIds = Array.isArray(options.groupStudentIds)
+      ? options.groupStudentIds
+      : getActiveStudentIdsForTeacher(chat.teacherId);
+    studentIds.forEach((studentId) => {
+      const id = String(studentId || '').trim();
+      if (!id || id === senderId) return;
+      if (isChatReadAtOrAfterMessage(chat.lastReadByStudentId?.[id], message)) {
+        count += 1;
+      }
+    });
+    return count;
+  }
+
+  (Array.isArray(chat.studentIds) ? chat.studentIds : []).forEach((studentId) => {
+    const id = String(studentId || '').trim();
+    if (!id || id === senderId) return;
+    if (isChatReadAtOrAfterMessage(chat.lastReadByStudentId?.[id], message)) {
+      count += 1;
+    }
+  });
+  return count;
+};
+
+const enrichStudentSocialMessageViewStats = (chat, message, options = {}) => ({
+  ...message,
+  reactions: buildStudentChatReactionSummary(message, options.actorKey),
+  viewCount: getStudentSocialMessageViewCount(chat, message, options),
+});
+
+const enrichStudentSocialMessagesViewStats = (chat, messages = [], options = {}) => (
+  (Array.isArray(messages) ? messages : []).map((message) => (
+    enrichStudentSocialMessageViewStats(chat, message, options)
+  ))
+);
 
 const canModifyStudentSocialChatMessage = (auth, chat, message, actorStudent = null) => {
   if (!auth || !chat || !message) return false;
@@ -12117,13 +12368,14 @@ app.get('/api/student-chat/messages', (req, res) => {
 
   const teacherName = findTeacherById(chat.teacherId)?.name || 'Преподаватель';
   const page = buildStudentChatMessagesPage(chat.messages, req.query);
+  const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat, student });
   return res.json({
     chat: {
       ...buildStudentTeacherChatSummary(chat, student),
       teacherName,
       studentName: student?.name || 'Ученик',
     },
-    messages: page.messages,
+    messages: enrichStudentTeacherMessagesViewStats(chat, page.messages, responseOptions),
     pagination: page.pagination,
   });
 });
@@ -12303,9 +12555,10 @@ app.post('/api/student-chat/messages', (req, res) => {
   }
 
   const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
+  const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student });
   return res.json({
     ok: true,
-    message,
+    message: enrichStudentTeacherMessageViewStats(updatedChat, message, responseOptions),
     chat: {
       ...buildStudentTeacherChatSummary(updatedChat, student),
       teacherName,
@@ -12342,9 +12595,10 @@ app.patch('/api/student-chat/messages/:messageId', (req, res) => {
 
   if (targetMessage.text === text) {
     const teacherName = findTeacherById(chat.teacherId)?.name || 'Преподаватель';
+    const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat, student });
     return res.json({
       ok: true,
-      message: targetMessage,
+      message: enrichStudentTeacherMessageViewStats(chat, targetMessage, responseOptions),
       chat: {
         ...buildStudentTeacherChatSummary(chat, student),
         teacherName,
@@ -12366,9 +12620,56 @@ app.patch('/api/student-chat/messages/:messageId', (req, res) => {
 
   const updatedChat = chats[index];
   const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
+  const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student });
   return res.json({
     ok: true,
-    message: editedMessage,
+    message: enrichStudentTeacherMessageViewStats(updatedChat, editedMessage, responseOptions),
+    chat: {
+      ...buildStudentTeacherChatSummary(updatedChat, student),
+      teacherName,
+      studentName: student?.name || 'Ученик',
+    },
+  });
+});
+
+app.post('/api/student-chat/messages/:messageId/reactions', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const messageId = String(req.params?.messageId || '').trim();
+  const emoji = normalizeStudentChatReactionEmoji(req.body?.emoji);
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+  if (!emoji) return res.status(400).json({ error: 'Некорректная реакция' });
+
+  const chats = readStudentChatsDb();
+  const access = ensureStudentTeacherChatAccess(
+    req,
+    res,
+    buildStudentTeacherChatId(req.auth?.id),
+    { chats, createIfMissing: true }
+  );
+  if (!access) return;
+  const { index, student } = access;
+  const chat = access.chat;
+  const actor = resolveStudentChatReactionActor(req.auth, { chat, student });
+  if (!actor) return res.status(403).json({ error: 'Недостаточно прав' });
+
+  const messages = Array.isArray(chat.messages) ? [...chat.messages] : [];
+  const messageIndex = messages.findIndex((message) => message?.id === messageId);
+  if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
+  if (isStudentChatMessageAuthoredByActor(messages[messageIndex], actor)) {
+    return res.status(403).json({ error: 'Нельзя реагировать на своё сообщение' });
+  }
+
+  messages[messageIndex] = applyStudentChatMessageReaction(messages[messageIndex], emoji, actor);
+  chats[index] = rebuildStudentTeacherChatAfterMessages(chat, messages) || chat;
+  writeStudentChatsDb(chats);
+
+  const updatedChat = chats[index];
+  const updatedMessage = updatedChat.messages.find((message) => message?.id === messageId) || messages[messageIndex];
+  const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
+  const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student });
+  return res.json({
+    ok: true,
+    message: enrichStudentTeacherMessageViewStats(updatedChat, updatedMessage, responseOptions),
     chat: {
       ...buildStudentTeacherChatSummary(updatedChat, student),
       teacherName,
@@ -12511,13 +12812,14 @@ app.get('/api/student-chats/:chatId/messages', (req, res) => {
 
   const teacherName = findTeacherById(chat.teacherId)?.name || 'Преподаватель';
   const page = buildStudentChatMessagesPage(chat.messages, req.query);
+  const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat, student });
   return res.json({
     chat: {
       ...buildStudentTeacherChatSummary(chat, student),
       teacherName,
       studentName: student?.name || 'Ученик',
     },
-    messages: page.messages,
+    messages: enrichStudentTeacherMessagesViewStats(chat, page.messages, responseOptions),
     pagination: page.pagination,
   });
 });
@@ -12575,9 +12877,10 @@ app.post('/api/student-chats/:chatId/messages', (req, res) => {
   }
 
   const teacherName = findTeacherById(updatedChat.teacherId)?.name || senderName;
+  const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student, teacher });
   return res.json({
     ok: true,
-    message,
+    message: enrichStudentTeacherMessageViewStats(updatedChat, message, responseOptions),
     chat: {
       ...buildStudentTeacherChatSummary(updatedChat, student),
       teacherName,
@@ -12609,9 +12912,10 @@ app.patch('/api/student-chats/:chatId/messages/:messageId', (req, res) => {
 
   if (targetMessage.text === text) {
     const teacherName = findTeacherById(chat.teacherId)?.name || 'Преподаватель';
+    const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat, student });
     return res.json({
       ok: true,
-      message: targetMessage,
+      message: enrichStudentTeacherMessageViewStats(chat, targetMessage, responseOptions),
       chat: {
         ...buildStudentTeacherChatSummary(chat, student),
         teacherName,
@@ -12633,9 +12937,52 @@ app.patch('/api/student-chats/:chatId/messages/:messageId', (req, res) => {
 
   const updatedChat = chats[index];
   const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
+  const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student });
   return res.json({
     ok: true,
-    message: editedMessage,
+    message: enrichStudentTeacherMessageViewStats(updatedChat, editedMessage, responseOptions),
+    chat: {
+      ...buildStudentTeacherChatSummary(updatedChat, student),
+      teacherName,
+      studentName: student?.name || 'Ученик',
+    },
+  });
+});
+
+app.post('/api/student-chats/:chatId/messages/:messageId/reactions', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const messageId = String(req.params?.messageId || '').trim();
+  const emoji = normalizeStudentChatReactionEmoji(req.body?.emoji);
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+  if (!emoji) return res.status(400).json({ error: 'Некорректная реакция' });
+
+  const chats = readStudentChatsDb();
+  const access = ensureStudentTeacherChatAccess(req, res, req.params.chatId, { chats, createIfMissing: true });
+  if (!access) return;
+  const { index, student } = access;
+  const chat = access.chat;
+  const teacher = findTeacherById(chat.teacherId);
+  const actor = resolveStudentChatReactionActor(req.auth, { chat, student, teacher });
+  if (!actor) return res.status(403).json({ error: 'Недостаточно прав' });
+
+  const messages = Array.isArray(chat.messages) ? [...chat.messages] : [];
+  const messageIndex = messages.findIndex((message) => message?.id === messageId);
+  if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
+  if (isStudentChatMessageAuthoredByActor(messages[messageIndex], actor)) {
+    return res.status(403).json({ error: 'Нельзя реагировать на своё сообщение' });
+  }
+
+  messages[messageIndex] = applyStudentChatMessageReaction(messages[messageIndex], emoji, actor);
+  chats[index] = rebuildStudentTeacherChatAfterMessages(chat, messages) || chat;
+  writeStudentChatsDb(chats);
+
+  const updatedChat = chats[index];
+  const updatedMessage = updatedChat.messages.find((message) => message?.id === messageId) || messages[messageIndex];
+  const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
+  const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student, teacher });
+  return res.json({
+    ok: true,
+    message: enrichStudentTeacherMessageViewStats(updatedChat, updatedMessage, responseOptions),
     chat: {
       ...buildStudentTeacherChatSummary(updatedChat, student),
       teacherName,
@@ -12769,13 +13116,17 @@ app.get('/api/teacher-social-group-chat', (req, res) => {
     .sort((left, right) => getStudentDisplayName(left).localeCompare(getStudentDisplayName(right), 'ru'))
     .map(buildStudentPeerProfile);
   const page = buildStudentChatMessagesPage(chat.messages, req.query);
+  const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat, teacher });
 
   return res.json({
     teacherId: teacher.id,
     settings,
     students,
     groupChat: buildStudentSocialChatSummary(chat, null, { settings }),
-    messages: page.messages,
+    messages: enrichStudentSocialMessagesViewStats(chat, page.messages, {
+      ...responseOptions,
+      groupStudentIds: students.map((student) => student.id),
+    }),
     pagination: page.pagination,
   });
 });
@@ -12831,7 +13182,10 @@ app.post('/api/teacher-social-group-chat/messages', (req, res) => {
 
   return res.json({
     ok: true,
-    message,
+    message: enrichStudentSocialMessageViewStats(updatedChat, message, {
+      ...buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, teacher }),
+      groupStudentIds: getActiveStudentIdsForTeacher(updatedChat.teacherId),
+    }),
     chat: buildStudentSocialChatSummary(updatedChat, null, { settings }),
   });
 });
@@ -12854,7 +13208,7 @@ app.patch('/api/teacher-social-group-chat/messages/:messageId', (req, res) => {
   });
   if (!access) return;
 
-  const { index, settings } = access;
+  const { index, teacher, settings } = access;
   const chat = access.chat;
   const messages = Array.isArray(chat.messages) ? [...chat.messages] : [];
   const messageIndex = messages.findIndex((message) => message?.id === messageId);
@@ -12868,7 +13222,10 @@ app.patch('/api/teacher-social-group-chat/messages/:messageId', (req, res) => {
   if (targetMessage.text === text) {
     return res.json({
       ok: true,
-      message: targetMessage,
+      message: enrichStudentSocialMessageViewStats(chat, targetMessage, {
+        ...buildStudentChatMessageResponseOptions(req.auth, { chat, teacher }),
+        groupStudentIds: getActiveStudentIdsForTeacher(chat.teacherId),
+      }),
       chat: buildStudentSocialChatSummary(chat, null, { settings }),
     });
   }
@@ -12887,7 +13244,56 @@ app.patch('/api/teacher-social-group-chat/messages/:messageId', (req, res) => {
 
   return res.json({
     ok: true,
-    message: editedMessage,
+    message: enrichStudentSocialMessageViewStats(updatedChat, editedMessage, {
+      ...buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, teacher }),
+      groupStudentIds: getActiveStudentIdsForTeacher(updatedChat.teacherId),
+    }),
+    chat: buildStudentSocialChatSummary(updatedChat, null, { settings }),
+  });
+});
+
+app.post('/api/teacher-social-group-chat/messages/:messageId/reactions', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const messageId = String(req.params?.messageId || '').trim();
+  const emoji = normalizeStudentChatReactionEmoji(req.body?.emoji);
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+  if (!emoji) return res.status(400).json({ error: 'Некорректная реакция' });
+
+  const effectiveTeacherId = isTeacherRole(req.auth)
+    ? req.auth.id
+    : String(req.body?.teacherId || req.query?.teacherId || '').trim();
+  const db = readStudentSocialChatsDb();
+  const access = ensureTeacherSocialGroupChatAccess(req, res, effectiveTeacherId, {
+    db,
+    chats: db.chats,
+    persist: true,
+  });
+  if (!access) return;
+
+  const { index, teacher, settings } = access;
+  const chat = access.chat;
+  const actor = resolveStudentChatReactionActor(req.auth, { chat, teacher });
+  if (!actor) return res.status(403).json({ error: 'Недостаточно прав' });
+
+  const messages = Array.isArray(chat.messages) ? [...chat.messages] : [];
+  const messageIndex = messages.findIndex((message) => message?.id === messageId);
+  if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
+  if (isStudentChatMessageAuthoredByActor(messages[messageIndex], actor)) {
+    return res.status(403).json({ error: 'Нельзя реагировать на своё сообщение' });
+  }
+
+  messages[messageIndex] = applyStudentChatMessageReaction(messages[messageIndex], emoji, actor);
+  db.chats[index] = rebuildStudentSocialChatAfterMessages(chat, messages);
+  writeStudentSocialChatsDb(db);
+
+  const updatedChat = db.chats[index];
+  const updatedMessage = updatedChat.messages.find((message) => message?.id === messageId) || messages[messageIndex];
+  return res.json({
+    ok: true,
+    message: enrichStudentSocialMessageViewStats(updatedChat, updatedMessage, {
+      ...buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, teacher }),
+      groupStudentIds: getActiveStudentIdsForTeacher(updatedChat.teacherId),
+    }),
     chat: buildStudentSocialChatSummary(updatedChat, null, { settings }),
   });
 });
@@ -13011,13 +13417,16 @@ app.post('/api/student-social-chats/direct', (req, res) => {
 
   const { chat, student: currentStudent, peer, settings } = access;
   const notificationSettings = getStudentChatNotificationSettings(currentStudent.id, db);
+  const page = buildStudentChatMessagesPage(chat.messages, req.query);
+  const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat, student: currentStudent });
   return res.json({
     chat: buildStudentSocialChatSummary(chat, currentStudent, {
       peer: peer ? buildStudentPeerProfile(peer) : null,
       settings,
       notificationSettings,
     }),
-    ...buildStudentChatMessagesPage(chat.messages, req.query),
+    messages: enrichStudentSocialMessagesViewStats(chat, page.messages, responseOptions),
+    pagination: page.pagination,
   });
 });
 
@@ -13042,6 +13451,8 @@ app.get('/api/student-social-chats/:chatId/messages', (req, res) => {
   }
   if (changed) writeStudentSocialChatsDb(db);
   const notificationSettings = getStudentChatNotificationSettings(student.id, db);
+  const page = buildStudentChatMessagesPage(chat.messages, req.query);
+  const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat, student });
 
   return res.json({
     chat: buildStudentSocialChatSummary(chat, student, {
@@ -13049,7 +13460,8 @@ app.get('/api/student-social-chats/:chatId/messages', (req, res) => {
       settings,
       notificationSettings,
     }),
-    ...buildStudentChatMessagesPage(chat.messages, req.query),
+    messages: enrichStudentSocialMessagesViewStats(chat, page.messages, responseOptions),
+    pagination: page.pagination,
   });
 });
 
@@ -13099,7 +13511,11 @@ app.post('/api/student-social-chats/:chatId/messages', (req, res) => {
 
   return res.json({
     ok: true,
-    message,
+    message: enrichStudentSocialMessageViewStats(
+      updatedChat,
+      message,
+      buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student })
+    ),
     chat: buildStudentSocialChatSummary(updatedChat, student, {
       peer: peer ? buildStudentPeerProfile(peer) : null,
       settings,
@@ -13138,7 +13554,11 @@ app.patch('/api/student-social-chats/:chatId/messages/:messageId', (req, res) =>
     const notificationSettings = getStudentChatNotificationSettings(student.id, db);
     return res.json({
       ok: true,
-      message: targetMessage,
+      message: enrichStudentSocialMessageViewStats(
+        chat,
+        targetMessage,
+        buildStudentChatMessageResponseOptions(req.auth, { chat, student })
+      ),
       chat: buildStudentSocialChatSummary(chat, student, {
         peer: peer ? buildStudentPeerProfile(peer) : null,
         settings,
@@ -13162,7 +13582,60 @@ app.patch('/api/student-social-chats/:chatId/messages/:messageId', (req, res) =>
 
   return res.json({
     ok: true,
-    message: editedMessage,
+    message: enrichStudentSocialMessageViewStats(
+      updatedChat,
+      editedMessage,
+      buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student })
+    ),
+    chat: buildStudentSocialChatSummary(updatedChat, student, {
+      peer: peer ? buildStudentPeerProfile(peer) : null,
+      settings,
+      notificationSettings,
+    }),
+  });
+});
+
+app.post('/api/student-social-chats/:chatId/messages/:messageId/reactions', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const messageId = String(req.params?.messageId || '').trim();
+  const emoji = normalizeStudentChatReactionEmoji(req.body?.emoji);
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+  if (!emoji) return res.status(400).json({ error: 'Некорректная реакция' });
+
+  const db = readStudentSocialChatsDb();
+  const access = ensureStudentSocialChatAccess(req, res, req.params.chatId, {
+    db,
+    chats: db.chats,
+    createIfMissing: true,
+  });
+  if (!access) return;
+
+  const { index, student, peer, settings } = access;
+  const chat = access.chat;
+  const actor = resolveStudentChatReactionActor(req.auth, { chat, student });
+  if (!actor) return res.status(403).json({ error: 'Недостаточно прав' });
+
+  const messages = Array.isArray(chat.messages) ? [...chat.messages] : [];
+  const messageIndex = messages.findIndex((message) => message?.id === messageId);
+  if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
+  if (isStudentChatMessageAuthoredByActor(messages[messageIndex], actor)) {
+    return res.status(403).json({ error: 'Нельзя реагировать на своё сообщение' });
+  }
+
+  messages[messageIndex] = applyStudentChatMessageReaction(messages[messageIndex], emoji, actor);
+  db.chats[index] = rebuildStudentSocialChatAfterMessages(chat, messages);
+  writeStudentSocialChatsDb(db);
+
+  const updatedChat = db.chats[index];
+  const updatedMessage = updatedChat.messages.find((message) => message?.id === messageId) || messages[messageIndex];
+  const notificationSettings = getStudentChatNotificationSettings(student.id, db);
+  return res.json({
+    ok: true,
+    message: enrichStudentSocialMessageViewStats(
+      updatedChat,
+      updatedMessage,
+      buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student })
+    ),
     chat: buildStudentSocialChatSummary(updatedChat, student, {
       peer: peer ? buildStudentPeerProfile(peer) : null,
       settings,

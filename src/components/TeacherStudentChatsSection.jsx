@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, BellOff, Check, FileText, MessageSquare, Paperclip, Pencil, SendHorizontal, Trash2, UploadCloud, Users, X } from 'lucide-react';
+import { Bell, BellOff, Check, Eye, FileText, MessageSquare, Paperclip, Pencil, SendHorizontal, SmilePlus, Trash2, UploadCloud, Users, X } from 'lucide-react';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
 import LinkifiedText from './LinkifiedText';
@@ -12,6 +12,7 @@ const CHAT_ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg'
 const CHAT_FILE_SIZE_LABEL = '10 МБ';
 const CHAT_MESSAGE_PAGE_SIZE = 15;
 const CHAT_DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const CHAT_REACTION_EMOJIS = Object.freeze(['👍', '❤️', '😂', '🔥', '👏', '😮', '😢', '🙏']);
 const EMPTY_CHAT_MESSAGES_PAGINATION = Object.freeze({
   hasMoreBefore: false,
   nextBefore: '',
@@ -97,6 +98,17 @@ const isMessageDeleteAllowed = (message) => {
   if (!Number.isFinite(createdAt)) return false;
   return Date.now() - createdAt <= CHAT_DELETE_WINDOW_MS;
 };
+
+const normalizeMessageReactions = (message) => (
+  (Array.isArray(message?.reactions) ? message.reactions : [])
+    .map((reaction) => ({
+      emoji: String(reaction?.emoji || '').trim(),
+      count: Math.max(0, Math.trunc(Number(reaction?.count) || 0)),
+      reactedByMe: Boolean(reaction?.reactedByMe || reaction?.mine),
+      names: Array.isArray(reaction?.names) ? reaction.names : [],
+    }))
+    .filter((reaction) => reaction.emoji && reaction.count > 0)
+);
 
 const isChatScrolledNearBottom = (node) => (
   !node || (node.scrollHeight - node.scrollTop - node.clientHeight) < 160
@@ -279,6 +291,9 @@ const TeacherStudentChatsSection = ({
   const [editingMessageText, setEditingMessageText] = useState('');
   const [messageActionBusy, setMessageActionBusy] = useState('');
   const [confirmingDeleteMessageId, setConfirmingDeleteMessageId] = useState('');
+  const [viewStatsPopover, setViewStatsPopover] = useState(null);
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState('');
+  const [busyReactionKey, setBusyReactionKey] = useState('');
   const [isDraggingChatFile, setIsDraggingChatFile] = useState(false);
   const [imageViewer, setImageViewer] = useState(null);
   const [socialSettings, setSocialSettings] = useState(null);
@@ -596,7 +611,29 @@ const TeacherStudentChatsSection = ({
     setEditingMessageText('');
     setMessageActionBusy('');
     setConfirmingDeleteMessageId('');
+    setViewStatsPopover(null);
+    setReactionPickerMessageId('');
+    setBusyReactionKey('');
   }, [clearMessageImage, selectedChatId]);
+
+  useEffect(() => {
+    if (!viewStatsPopover && !reactionPickerMessageId) return undefined;
+    const close = () => {
+      setViewStatsPopover(null);
+      setReactionPickerMessageId('');
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') close();
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', close);
+    };
+  }, [reactionPickerMessageId, viewStatsPopover]);
 
   const handleSendMessage = async () => {
     const text = messageText.trim();
@@ -649,6 +686,8 @@ const TeacherStudentChatsSection = ({
     const messageId = String(message?.id || '').trim();
     if (!messageId) return;
     setConfirmingDeleteMessageId('');
+    setViewStatsPopover(null);
+    setReactionPickerMessageId('');
     setEditingMessageId(messageId);
     setEditingMessageText(String(message?.text || ''));
   }, []);
@@ -683,6 +722,7 @@ const TeacherStudentChatsSection = ({
       }
       cancelEditMessage();
       setConfirmingDeleteMessageId('');
+      setViewStatsPopover(null);
       if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) {
         await refreshChats();
       }
@@ -709,6 +749,7 @@ const TeacherStudentChatsSection = ({
       setMessages((prev) => prev.filter((item) => item?.id !== messageId));
       if (editingMessageId === messageId) cancelEditMessage();
       setConfirmingDeleteMessageId('');
+      setViewStatsPopover(null);
       if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) {
         await refreshChats();
       }
@@ -724,7 +765,71 @@ const TeacherStudentChatsSection = ({
     if (!messageId || !isMessageDeleteAllowed(message)) return;
     setEditingMessageId('');
     setEditingMessageText('');
+    setViewStatsPopover(null);
+    setReactionPickerMessageId('');
     setConfirmingDeleteMessageId(messageId);
+  }, []);
+
+  const handleReactMessage = useCallback(async (message, emoji) => {
+    const messageId = String(message?.id || '').trim();
+    const normalizedEmoji = String(emoji || '').trim();
+    if (message?.senderRole === 'teacher') return;
+    if (!selectedChatId || !messageId || !normalizedEmoji) return;
+    const busyKey = `${messageId}:${normalizedEmoji}`;
+    setBusyReactionKey(busyKey);
+    setMessagesError('');
+    setConfirmingDeleteMessageId('');
+    setEditingMessageId('');
+    setEditingMessageText('');
+    setViewStatsPopover(null);
+    try {
+      const payload = selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID
+        ? await api.toggleTeacherSocialGroupChatMessageReaction(messageId, normalizedEmoji, normalizedTeacherId)
+        : await api.toggleStudentChatMessageReactionForTeacher(selectedChatId, messageId, normalizedEmoji);
+      if (payload?.chat) {
+        if (selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID) setGroupChatSummary(payload.chat);
+        setChatDetails(payload.chat);
+      }
+      if (payload?.message) {
+        setMessages((prev) => prev.map((item) => (
+          item?.id === payload.message.id ? payload.message : item
+        )));
+      }
+      setReactionPickerMessageId('');
+      if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) {
+        await refreshChats();
+      }
+    } catch (err) {
+      setMessagesError(err?.message || String(err));
+    } finally {
+      setBusyReactionKey('');
+    }
+  }, [normalizedTeacherId, refreshChats, selectedChatId]);
+
+  const showMessageViewStats = useCallback((event, message) => {
+    event.preventDefault();
+    const messageId = String(message?.id || '').trim();
+    if (!messageId) return;
+    const width = 168;
+    const height = 74;
+    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 0;
+    const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 0;
+    const x = viewportWidth > 0
+      ? Math.max(12, Math.min(event.clientX, viewportWidth - width - 12))
+      : event.clientX;
+    const y = viewportHeight > 0
+      ? Math.max(12, Math.min(event.clientY, viewportHeight - height - 12))
+      : event.clientY;
+    setEditingMessageId('');
+    setEditingMessageText('');
+    setConfirmingDeleteMessageId('');
+    setReactionPickerMessageId('');
+    setViewStatsPopover({
+      messageId,
+      x,
+      y,
+      viewCount: Math.max(0, Math.trunc(Number(message?.viewCount) || 0)),
+    });
   }, []);
 
   const selectedSummary = chats.find((chat) => chat.id === selectedChatId) || null;
@@ -1068,6 +1173,8 @@ const TeacherStudentChatsSection = ({
                 <div
                   ref={messagesRef}
                   onScroll={(event) => {
+                    setViewStatsPopover(null);
+                    setReactionPickerMessageId('');
                     if (event.currentTarget.scrollTop <= 96) loadOlderMessages();
                   }}
                   className="teacher-chat-messages mt-3 max-h-[430px] min-h-[320px] space-y-2 overflow-y-auto rounded-xl border p-3"
@@ -1096,6 +1203,12 @@ const TeacherStudentChatsSection = ({
                       const editBusy = messageActionBusy === `edit:${messageId}`;
                       const deleteBusy = messageActionBusy === `delete:${messageId}`;
                       const isConfirmingDelete = confirmingDeleteMessageId === messageId;
+                      const reactions = normalizeMessageReactions(message);
+                      const canReactMessage = Boolean(!isTeacherMessage && messageId);
+                      const showMessageToolbar = Boolean(
+                        !isEditingMessage
+                        && (canEditMessage || canDeleteMessage || canReactMessage || reactions.length > 0)
+                      );
                       const messageImageDataUrl = String(message?.imageDataUrl || '').trim();
                       const messageImageName = String(message?.imageName || '').trim();
                       const messageFileDataUrl = String(message?.fileDataUrl || '').trim();
@@ -1113,6 +1226,7 @@ const TeacherStudentChatsSection = ({
                             className={`teacher-chat-bubble max-w-full rounded-2xl px-3 py-2 text-sm shadow-sm ${isEditingMessage ? 'student-message-bubble--editing' : ''} ${
                               isTeacherMessage ? 'teacher-chat-bubble--teacher text-white' : 'teacher-chat-bubble--student'
                             }`}
+                            onContextMenu={isOwnTeacherMessage ? (event) => showMessageViewStats(event, message) : undefined}
                           >
                             {!isTeacherMessage && (
                               <div className="teacher-chat-message-author mb-1 text-[11px] font-black">
@@ -1242,8 +1356,64 @@ const TeacherStudentChatsSection = ({
                               {formatDateTime(message?.createdAt)}
                             </div>
                           </div>
-                          {isTeacherMessage && (canEditMessage || canDeleteMessage) && !isEditingMessage && (
-                            <div className="student-message-toolbar student-message-toolbar--mine">
+                          {showMessageToolbar && (
+                            <div className={`student-message-toolbar ${isTeacherMessage ? 'student-message-toolbar--mine' : 'student-message-toolbar--other'}`}>
+                              <div className={`student-message-reaction-strip ${isTeacherMessage ? 'student-message-reaction-strip--mine' : 'student-message-reaction-strip--other'}`}>
+                                {reactions.map((reaction) => (
+                                  <button
+                                    key={reaction.emoji}
+                                    type="button"
+                                    className={`student-message-reaction-pill ${reaction.reactedByMe ? 'student-message-reaction-pill--mine' : ''}`}
+                                    onClick={canReactMessage ? () => handleReactMessage(message, reaction.emoji) : undefined}
+                                    disabled={!canReactMessage || Boolean(busyReactionKey)}
+                                    title={reaction.names.join(', ') || reaction.emoji}
+                                    aria-label={`Reaction ${reaction.emoji}`}
+                                  >
+                                    <span>{reaction.emoji}</span>
+                                    <strong>{reaction.count}</strong>
+                                  </button>
+                                ))}
+                                {canReactMessage && (
+                                  <span className={`student-message-reaction-wrap ${isTeacherMessage ? 'student-message-reaction-wrap--mine' : 'student-message-reaction-wrap--other'}`}>
+                                    <button
+                                      type="button"
+                                      className={`student-message-reaction-add ${reactionPickerMessageId === messageId ? 'student-message-reaction-add--active' : ''}`}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setViewStatsPopover(null);
+                                        setReactionPickerMessageId((current) => (current === messageId ? '' : messageId));
+                                      }}
+                                      disabled={Boolean(busyReactionKey)}
+                                      title="Reaction"
+                                      aria-label="Reaction"
+                                    >
+                                      <SmilePlus size={12} />
+                                    </button>
+                                    {reactionPickerMessageId === messageId && (
+                                      <span
+                                        className="student-message-reaction-picker"
+                                        onClick={(event) => event.stopPropagation()}
+                                      >
+                                        {CHAT_REACTION_EMOJIS.map((emoji) => {
+                                          const active = reactions.some((reaction) => reaction.emoji === emoji && reaction.reactedByMe);
+                                          return (
+                                            <button
+                                              key={emoji}
+                                              type="button"
+                                              className={`student-message-reaction-option ${active ? 'student-message-reaction-option--active' : ''}`}
+                                              onClick={() => handleReactMessage(message, emoji)}
+                                              disabled={Boolean(busyReactionKey)}
+                                              aria-label={`Reaction ${emoji}`}
+                                            >
+                                              {emoji}
+                                            </button>
+                                          );
+                                        })}
+                                      </span>
+                                    )}
+                                  </span>
+                                )}
+                              </div>
                               {isConfirmingDelete ? (
                                 <div className="student-message-delete-confirm">
                                   <span>Удалить?</span>
@@ -1302,6 +1472,25 @@ const TeacherStudentChatsSection = ({
                         </div>
                       );
                     })
+                  )}
+                  {viewStatsPopover && (
+                    <div
+                      className="student-message-view-popover"
+                      style={{
+                        left: viewStatsPopover.x,
+                        top: viewStatsPopover.y,
+                      }}
+                      onClick={(event) => event.stopPropagation()}
+                      role="status"
+                    >
+                      <span className="student-message-view-popover__icon" aria-hidden="true">
+                        <Eye size={15} />
+                      </span>
+                      <span className="student-message-view-popover__text">
+                        <span>Просмотрели</span>
+                        <strong>{viewStatsPopover.viewCount}</strong>
+                      </span>
+                    </div>
                   )}
                 </div>
 
