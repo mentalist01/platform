@@ -335,6 +335,7 @@ const MockExamModal = ({
     timerAttemptFinished
     || Object.keys(results || {}).length >= Math.max(1, totalTaskCount)
   );
+  const timerInputsLocked = isTimerMode && (timerResultsVisible || timerExpired);
   const visibleSolved = isTimerMode && !timerResultsVisible ? {} : solved;
   const isCurrentTaskAnswered = hasAnswerForTask(selectedTask);
   const isCurrentTaskSolved = Boolean(visibleSolved[taskKey]);
@@ -1246,7 +1247,7 @@ const MockExamModal = ({
                               key={idx}
                               type="text"
                               value={currentAnswers[idx] ?? ''}
-                              disabled={isTimerMode && timerResultsVisible}
+                              disabled={timerInputsLocked}
                               onKeyDown={handleAnswerKeyDown}
                               onChange={(e) => {
                                 const value = e.target.value;
@@ -1276,7 +1277,7 @@ const MockExamModal = ({
                         <input
                           type="text"
                           value={singleAnswer}
-                          disabled={isTimerMode && timerResultsVisible}
+                          disabled={timerInputsLocked}
                           onKeyDown={handleAnswerKeyDown}
                           onChange={(e) => {
                             hasLocalAttemptChangesRef.current = true;

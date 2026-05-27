@@ -321,6 +321,7 @@ const StudentLeaderboardSection = ({
   activeStudentId = '',
   onSelectStudent,
   studentsLoading = false,
+  onOpenDirectChat,
 }) => {
   const [leaderboard, setLeaderboard] = useState({
     items: [],
@@ -358,6 +359,8 @@ const StudentLeaderboardSection = ({
     loading: false,
     error: '',
   });
+  const [studentProfileChatOpening, setStudentProfileChatOpening] = useState(false);
+  const [studentProfileChatError, setStudentProfileChatError] = useState('');
   const mountedRef = useRef(true);
   const studentProfileRequestIdRef = useRef(0);
   const chestPressTimerRef = useRef(null);
@@ -1083,11 +1086,15 @@ const StudentLeaderboardSection = ({
     if (role !== 'student') return;
     const normalizedStudentId = String(row?.studentId || '').trim();
     if (!normalizedStudentId) return;
+    setStudentProfileChatOpening(false);
+    setStudentProfileChatError('');
     void loadStudentProfile(normalizedStudentId, row);
   }, [loadStudentProfile, role]);
 
   const handleCloseStudentProfile = useCallback(() => {
     studentProfileRequestIdRef.current += 1;
+    setStudentProfileChatOpening(false);
+    setStudentProfileChatError('');
     setStudentProfileState((prev) => ({
       ...prev,
       open: false,
@@ -1099,8 +1106,26 @@ const StudentLeaderboardSection = ({
   const handleRetryStudentProfile = useCallback(() => {
     const normalizedStudentId = String(studentProfileState.studentId || '').trim();
     if (!normalizedStudentId) return;
+    setStudentProfileChatError('');
     void loadStudentProfile(normalizedStudentId, studentProfileState.row);
   }, [loadStudentProfile, studentProfileState.row, studentProfileState.studentId]);
+
+  const handleOpenDirectChatFromProfile = useCallback(async (targetStudentId) => {
+    const normalizedStudentId = String(targetStudentId || '').trim();
+    if (!normalizedStudentId || normalizedStudentId === String(userId || '').trim()) return;
+    if (typeof onOpenDirectChat !== 'function') return;
+
+    setStudentProfileChatOpening(true);
+    setStudentProfileChatError('');
+    try {
+      await onOpenDirectChat(normalizedStudentId);
+      handleCloseStudentProfile();
+    } catch (err) {
+      setStudentProfileChatError(err?.message || 'Не удалось открыть чат.');
+    } finally {
+      setStudentProfileChatOpening(false);
+    }
+  }, [handleCloseStudentProfile, onOpenDirectChat, userId]);
 
   const renderTeacherStudentPicker = () => {
     if (role !== 'teacher') return null;
@@ -1260,7 +1285,7 @@ const StudentLeaderboardSection = ({
                   <span className="mock-timer-chest-panel__hint-title">Где получить</span>
                   <span className="mock-timer-chest-panel__hint-row">
                     <strong>Появляются</strong>
-                    <span>после таймерных пробников.</span>
+                    <span>после таймерных пробников и каждых 5 задач в бесконечной тренировке Python.</span>
                   </span>
                   <span className="mock-timer-chest-panel__hint-row">
                     <strong>Хранятся</strong>
@@ -1295,7 +1320,7 @@ const StudentLeaderboardSection = ({
               </div>
               <div>
                 <div className="mock-timer-chest-panel__empty-title">Слоты свободны</div>
-                <div className="mock-timer-chest-panel__empty-text">Сундуки появятся здесь после таймерных пробников.</div>
+                <div className="mock-timer-chest-panel__empty-text">Сундуки появятся здесь после таймерных пробников или бесконечной Python-тренировки.</div>
               </div>
             </div>
             <div className="mock-timer-chest-panel__empty-slots" aria-hidden="true">
@@ -2140,8 +2165,11 @@ const StudentLeaderboardSection = ({
         error={studentProfileState.error}
         levelPosition={activeProfileLevelPosition}
         weeklyPosition={activeProfileWeeklyPosition}
+        chatOpening={studentProfileChatOpening}
+        chatError={studentProfileChatError}
         onClose={handleCloseStudentProfile}
         onRetry={handleRetryStudentProfile}
+        onOpenDirectChat={handleOpenDirectChatFromProfile}
         getLeagueByXp={getLeagueByXp}
         getLeagueAuraStyle={getLeagueAuraStyle}
         isAbsoluteOrAboveLeague={isAbsoluteOrAboveLeague}

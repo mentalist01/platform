@@ -4,6 +4,7 @@ import {
   Award,
   CalendarDays,
   Flame,
+  MessageSquare,
   Package2,
   Shield,
   Sparkles,
@@ -136,7 +137,7 @@ const buildRingStyle = (percent, accent) => {
   const safePercent = clampPercent(percent);
   const safeAccent = String(accent || '#8b5cf6');
   return {
-    background: `conic-gradient(${safeAccent} 0deg ${safePercent * 3.6}deg, rgba(255,255,255,0.08) ${safePercent * 3.6}deg 360deg)`,
+    background: `conic-gradient(${safeAccent} 0deg ${safePercent * 3.6}deg, var(--student-profile-ring-track, rgba(255,255,255,0.08)) ${safePercent * 3.6}deg 360deg)`,
     boxShadow: `0 0 28px ${hexToRgba(safeAccent, 0.22)}`,
   };
 };
@@ -169,14 +170,14 @@ const getArtifactRankSummary = (collection = []) => (
 const MetricTile = ({ icon, label, value, tone = 'violet' }) => {
   const theme = TILE_THEME[tone] || TILE_THEME.violet;
   return (
-    <div className={`relative min-w-0 overflow-hidden rounded-[1.4rem] px-4 py-4 ${theme.borderClassName}`}>
+    <div className={`student-profile-metric-tile student-profile-metric-tile--${tone} relative min-w-0 overflow-hidden rounded-[1.4rem] px-4 py-4 ${theme.borderClassName}`}>
       <div className="min-w-0 pr-16">
-        <div className="truncate text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">{label}</div>
-        <div className="mt-2 text-[clamp(1.2rem,2.4vw,1.65rem)] font-black leading-none tracking-tight text-white">
+        <div className="student-profile-metric-label truncate text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">{label}</div>
+        <div className="student-profile-metric-value mt-2 text-[clamp(1.2rem,2.4vw,1.65rem)] font-black leading-none tracking-tight text-white">
           {value}
         </div>
       </div>
-      <div className={`absolute right-4 top-4 inline-flex h-11 w-11 items-center justify-center rounded-2xl ${theme.iconClassName}`}>
+      <div className={`student-profile-metric-icon absolute right-4 top-4 inline-flex h-11 w-11 items-center justify-center rounded-2xl ${theme.iconClassName}`}>
         {icon ? React.createElement(icon, { size: 19 }) : null}
       </div>
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/5 to-transparent" />
@@ -185,20 +186,20 @@ const MetricTile = ({ icon, label, value, tone = 'violet' }) => {
 };
 
 const GaugeCard = ({ label, value, percent, accent, meta = '', progressLabel = '' }) => (
-  <div className="min-w-0 rounded-[1.55rem] bg-white/[0.045] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">{label}</div>
+  <div className="student-profile-gauge-card min-w-0 rounded-[1.55rem] bg-white/[0.045] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+    <div className="student-profile-card-kicker text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">{label}</div>
     <div className="mt-4 flex items-center gap-4">
-      <div className="relative h-24 w-24 shrink-0 rounded-full p-[7px]" style={buildRingStyle(percent, accent)}>
-        <div className="flex h-full w-full flex-col items-center justify-center rounded-full bg-slate-950">
-          <div className="text-2xl font-black tracking-tight text-white">{value}</div>
-          <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">
+      <div className="student-profile-gauge-ring relative h-24 w-24 shrink-0 rounded-full p-[7px]" style={buildRingStyle(percent, accent)}>
+        <div className="student-profile-gauge-core flex h-full w-full flex-col items-center justify-center rounded-full bg-slate-950">
+          <div className="student-profile-gauge-value text-2xl font-black tracking-tight text-white">{value}</div>
+          <div className="student-profile-gauge-progress mt-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">
             {progressLabel || formatPercent(percent)}
           </div>
         </div>
       </div>
       <div className="min-w-0 flex-1">
-        <div className="break-words text-lg font-bold leading-tight text-white">{label}</div>
-        {meta && <div className="mt-1 break-words text-sm leading-snug text-slate-300">{meta}</div>}
+        <div className="student-profile-gauge-title break-words text-lg font-bold leading-tight text-white">{label}</div>
+        {meta && <div className="student-profile-gauge-meta mt-1 break-words text-sm leading-snug text-slate-300">{meta}</div>}
       </div>
     </div>
   </div>
@@ -212,25 +213,25 @@ const ArtifactSlot = ({ artifact, active = false, onSelect }) => {
       onClick={() => onSelect?.(artifact.id)}
       onMouseEnter={() => onSelect?.(artifact.id)}
       onFocus={() => onSelect?.(artifact.id)}
-      className={`group relative aspect-square w-full overflow-hidden rounded-[1rem] p-1.5 text-left transition duration-200 ${
+      className={`student-profile-artifact-slot group relative aspect-square w-full overflow-hidden rounded-[1rem] p-1.5 text-left transition duration-200 ${
         active
-          ? `${rankTheme.frameClassName} shadow-[0_14px_34px_rgba(15,23,42,0.4)]`
+          ? `student-profile-artifact-slot--active ${rankTheme.frameClassName} shadow-[0_14px_34px_rgba(15,23,42,0.4)]`
           : 'bg-slate-950/50 hover:bg-white/[0.05]'
       }`}
       aria-pressed={active}
       title={artifact.name}
     >
       <div className="absolute left-1.5 top-1.5 z-[1]">
-        <span className={`rounded-full px-1.5 py-0.5 text-[8px] font-black tracking-[0.14em] ${rankTheme.badgeClassName}`}>
+        <span className={`student-profile-artifact-rank rounded-full px-1.5 py-0.5 text-[8px] font-black tracking-[0.14em] ${rankTheme.badgeClassName}`}>
           {artifact.rank}
         </span>
       </div>
       <div className="absolute right-1.5 top-1.5 z-[1]">
-        <span className="rounded-full bg-slate-950/75 px-1.5 py-0.5 text-[9px] font-bold text-white">
+        <span className="student-profile-artifact-count rounded-full bg-slate-950/75 px-1.5 py-0.5 text-[9px] font-bold text-white">
           x{formatNumber(artifact.count)}
         </span>
       </div>
-      <div className="relative flex h-full items-center justify-center overflow-hidden rounded-[0.85rem] bg-slate-950/80">
+      <div className="student-profile-artifact-frame relative flex h-full items-center justify-center overflow-hidden rounded-[0.85rem] bg-slate-950/80">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.12),transparent_62%)]" />
         {artifact.src ? (
           <div className="flex h-full w-full items-center justify-center">
@@ -254,13 +255,13 @@ const ArtifactSlot = ({ artifact, active = false, onSelect }) => {
 const ArtifactPreview = ({ artifact }) => {
   const rankTheme = RANK_THEME[artifact.rank] || RANK_THEME.C;
   return (
-    <div className={`relative overflow-hidden rounded-[1.35rem] p-3 ${rankTheme.frameClassName}`}>
+    <div className={`student-profile-artifact-preview relative overflow-hidden rounded-[1.35rem] p-3 ${rankTheme.frameClassName}`}>
       <div
         className="pointer-events-none absolute -right-8 top-0 h-24 w-24 rounded-full blur-3xl"
         style={{ background: hexToRgba(rankTheme.accent, 0.18) }}
       />
       <div className="relative flex items-center gap-3">
-        <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-[1rem] bg-slate-950/75">
+        <div className="student-profile-artifact-preview-visual flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-[1rem] bg-slate-950/75">
           <div
             className="pointer-events-none absolute inset-0"
             style={{ background: `radial-gradient(circle at center, ${hexToRgba(rankTheme.accent, 0.18)}, transparent 68%)` }}
@@ -278,16 +279,16 @@ const ArtifactPreview = ({ artifact }) => {
         </div>
         <div className="min-w-0 flex-1">
           <div className="inline-flex items-center gap-2">
-            <span className={`rounded-full px-2.5 py-1 text-[10px] font-black tracking-[0.16em] ${rankTheme.badgeClassName}`}>
+            <span className={`student-profile-artifact-rank rounded-full px-2.5 py-1 text-[10px] font-black tracking-[0.16em] ${rankTheme.badgeClassName}`}>
               {artifact.rank}
             </span>
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">
+            <span className="student-profile-artifact-preview-kicker text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">
               Выбрано
             </span>
           </div>
-          <div className="mt-2 truncate text-base font-black text-white">{artifact.name}</div>
+          <div className="student-profile-artifact-preview-title mt-2 truncate text-base font-black text-white">{artifact.name}</div>
         </div>
-        <div className="shrink-0 rounded-full bg-slate-950/75 px-3 py-1 text-sm font-black text-white">
+        <div className="student-profile-artifact-preview-count shrink-0 rounded-full bg-slate-950/75 px-3 py-1 text-sm font-black text-white">
           x{formatNumber(artifact.count)}
         </div>
       </div>
@@ -302,19 +303,19 @@ const StrengthCard = ({ strength }) => {
     : `№${displayNumber || strength?.taskNumber || ''}`;
 
   return (
-    <div className="rounded-[1.35rem] bg-slate-950/55 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+    <div className="student-profile-strength-card rounded-[1.35rem] bg-slate-950/55 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
       <div className="flex items-start justify-between gap-3">
-        <div className="inline-flex h-11 min-w-[2.75rem] items-center justify-center rounded-2xl bg-emerald-500/12 px-3 text-lg font-black text-emerald-50">
+        <div className="student-profile-strength-badge inline-flex h-11 min-w-[2.75rem] items-center justify-center rounded-2xl bg-emerald-500/12 px-3 text-lg font-black text-emerald-50">
           {badgeLabel}
         </div>
-        <span className="rounded-full bg-white/5 px-2.5 py-1 text-[11px] font-black tracking-[0.14em] text-white">
+        <span className="student-profile-strength-percent rounded-full bg-white/5 px-2.5 py-1 text-[11px] font-black tracking-[0.14em] text-white">
           {formatPercent(strength.percent)}
         </span>
       </div>
-      <div className="mt-3 text-sm font-semibold leading-snug text-white">
+      <div className="student-profile-strength-title mt-3 text-sm font-semibold leading-snug text-white">
         {strength.title}
       </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/8">
+      <div className="student-profile-strength-track mt-3 h-2 overflow-hidden rounded-full bg-white/8">
         <div
           className="h-full rounded-full bg-gradient-to-r from-emerald-300 via-cyan-300 to-sky-400"
           style={{ width: `${clampPercent(strength.percent)}%` }}
@@ -332,8 +333,11 @@ const StudentLeaderboardProfileModal = ({
   error = '',
   levelPosition = null,
   weeklyPosition = null,
+  chatOpening = false,
+  chatError = '',
   onClose,
   onRetry,
+  onOpenDirectChat,
   getLeagueByXp,
   getLeagueAuraStyle,
   isAbsoluteOrAboveLeague,
@@ -482,6 +486,13 @@ const StudentLeaderboardProfileModal = ({
     { key: 'level', label: 'Топ XP', value: levelPosition ? `#${levelPosition}` : '—' },
     { key: 'week', label: 'Топ 7д', value: weeklyPosition ? `#${weeklyPosition}` : '—' },
   ];
+  const profileStudentId = String(profileData?.studentId || row?.studentId || '').trim();
+  const isCurrentProfile = Boolean(profileData?.isCurrent || row?.isCurrent);
+  const canOpenDirectChat = Boolean(
+    profileStudentId
+    && !isCurrentProfile
+    && typeof onOpenDirectChat === 'function'
+  );
 
   const renderLoadingState = () => (
     <div className="space-y-4 animate-pulse">
@@ -533,7 +544,7 @@ const StudentLeaderboardProfileModal = ({
 
   const modal = (
     <div
-      className="fixed inset-0 z-[1450] overflow-y-auto bg-slate-950/72 px-3 py-4 backdrop-blur-sm sm:px-4 sm:py-6"
+      className="student-profile-modal-overlay fixed inset-0 z-[1450] overflow-y-auto bg-slate-950/72 px-3 py-4 backdrop-blur-sm sm:px-4 sm:py-6"
       role="dialog"
       aria-modal="true"
       aria-label={`Профиль ученика ${displayName}`}
@@ -545,22 +556,22 @@ const StudentLeaderboardProfileModal = ({
         className="modal-card student-profile-modal-card relative mx-auto w-full max-w-6xl overflow-hidden rounded-[2rem] bg-slate-950 text-slate-100 shadow-[0_35px_120px_rgba(15,23,42,0.72)]"
         data-profile-theme={profileTheme?.id || undefined}
       >
-        <div className="absolute inset-0">
-          <div className="absolute inset-x-0 top-0 h-[24rem] sm:h-[26rem] lg:h-[28rem] bg-[radial-gradient(circle_at_top_left,rgba(168,85,247,0.34),transparent_48%),radial-gradient(circle_at_top_right,rgba(56,189,248,0.25),transparent_40%),linear-gradient(180deg,rgba(59,7,100,0.5)_0%,rgba(37,26,78,0.28)_58%,rgba(2,6,23,0)_100%)]" />
-          <div className="absolute -left-20 top-12 h-44 w-44 rounded-full bg-violet-500/10 blur-3xl" />
-          <div className="absolute -right-10 top-20 h-36 w-36 rounded-full bg-sky-400/10 blur-3xl" />
+        <div className="student-profile-modal-bg absolute inset-0">
+          <div className="student-profile-modal-bg-main absolute inset-x-0 top-0 h-[24rem] sm:h-[26rem] lg:h-[28rem] bg-[radial-gradient(circle_at_top_left,rgba(168,85,247,0.34),transparent_48%),radial-gradient(circle_at_top_right,rgba(56,189,248,0.25),transparent_40%),linear-gradient(180deg,rgba(59,7,100,0.5)_0%,rgba(37,26,78,0.28)_58%,rgba(2,6,23,0)_100%)]" />
+          <div className="student-profile-modal-glow student-profile-modal-glow--left absolute -left-20 top-12 h-44 w-44 rounded-full bg-violet-500/10 blur-3xl" />
+          <div className="student-profile-modal-glow student-profile-modal-glow--right absolute -right-10 top-20 h-36 w-36 rounded-full bg-sky-400/10 blur-3xl" />
         </div>
 
         <div className="relative z-[1] p-4 sm:p-5 lg:p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <div className="inline-flex items-center gap-2 rounded-full bg-violet-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-100/90">
+              <div className="student-profile-kicker inline-flex items-center gap-2 rounded-full bg-violet-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-100/90">
                 <Sparkles size={13} />
                 Игрок
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-4">
                 <div
-                  className={`relative flex h-24 w-24 shrink-0 items-center justify-center overflow-visible rounded-full ${
+                  className={`student-profile-league-avatar relative flex h-24 w-24 shrink-0 items-center justify-center overflow-visible rounded-full ${
                     league?.id === 'blank'
                       ? 'bg-slate-900/70'
                       : 'bg-white/95'
@@ -595,11 +606,11 @@ const StudentLeaderboardProfileModal = ({
 
                 <div className="min-w-0">
                   <div className="flex min-w-0 flex-wrap items-center gap-3">
-                    <div className="min-w-0 max-w-full truncate text-[clamp(1.7rem,4.2vw,2.7rem)] font-black tracking-tight text-white">
+                    <div className="student-profile-name min-w-0 max-w-full truncate text-[clamp(1.7rem,4.2vw,2.7rem)] font-black tracking-tight text-white">
                       {displayName}
                     </div>
                     <span
-                      className="relative inline-grid h-[3.7rem] w-[3.7rem] shrink-0 place-items-center text-white [filter:drop-shadow(0_14px_22px_rgba(37,99,235,0.24))_drop-shadow(0_8px_18px_rgba(88,28,135,0.32))]"
+                      className="student-profile-level-badge relative inline-grid h-[3.7rem] w-[3.7rem] shrink-0 place-items-center text-white [filter:drop-shadow(0_14px_22px_rgba(37,99,235,0.24))_drop-shadow(0_8px_18px_rgba(88,28,135,0.32))]"
                       title={`Уровень ${resolvedLevel}`}
                       aria-label={`Уровень ${resolvedLevel}`}
                     >
@@ -614,23 +625,39 @@ const StudentLeaderboardProfileModal = ({
                     </span>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-100">
+                    <span className="student-profile-info-chip inline-flex min-h-9 items-center justify-center rounded-full bg-white/5 px-3 text-xs font-semibold leading-none text-slate-100">
                       {league?.label || 'Без лиги'}
                     </span>
-                    <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-100">
+                    <span className="student-profile-info-chip inline-flex min-h-9 items-center justify-center rounded-full bg-white/5 px-3 text-xs font-semibold leading-none text-slate-100">
                       {`${formatNumber(resolvedXpTotal)} XP`}
                     </span>
+                    {canOpenDirectChat && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenDirectChat(profileStudentId)}
+                        disabled={chatOpening}
+                        className="student-profile-direct-button inline-flex min-h-9 items-center justify-center gap-2 rounded-2xl border border-cyan-200/70 bg-gradient-to-r from-cyan-400 via-sky-500 to-fuchsia-500 px-4 text-sm font-black leading-none text-white shadow-[0_16px_34px_rgba(14,165,233,0.28),0_0_0_1px_rgba(255,255,255,0.12)_inset] transition hover:-translate-y-0.5 hover:border-white/80 hover:shadow-[0_20px_42px_rgba(168,85,247,0.34),0_0_0_1px_rgba(255,255,255,0.18)_inset] disabled:cursor-wait disabled:translate-y-0 disabled:opacity-70"
+                      >
+                        <MessageSquare size={13} />
+                        {chatOpening ? 'Открываем...' : 'Личные сообщения'}
+                      </button>
+                    )}
                     {profileData?.isCurrent && (
-                      <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-100">
+                      <span className="student-profile-info-chip student-profile-info-chip--self inline-flex min-h-9 items-center justify-center rounded-full bg-emerald-500/10 px-3 text-xs font-semibold leading-none text-emerald-100">
                         Это вы
                       </span>
                     )}
                     {profileTheme && (
-                      <span className="student-profile-modal-card__theme-chip rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-100">
+                      <span className="student-profile-modal-card__theme-chip inline-flex min-h-9 items-center justify-center rounded-full bg-white/5 px-3 text-xs font-semibold leading-none text-slate-100">
                         {profileTheme.name || profileTheme.id}
                       </span>
                     )}
                   </div>
+                  {chatError && (
+                    <div className="mt-2 rounded-2xl border border-rose-300/25 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-100">
+                      {chatError}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -638,7 +665,7 @@ const StudentLeaderboardProfileModal = ({
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/5 text-slate-100 transition hover:bg-white/10"
+              className="student-profile-close-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/5 text-slate-100 transition hover:bg-white/10"
               aria-label="Закрыть профиль"
             >
               <X size={20} />
@@ -646,7 +673,7 @@ const StudentLeaderboardProfileModal = ({
           </div>
 
           {loading && profileData && (
-            <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-100">
+            <div className="student-profile-loading-pill mt-4 inline-flex items-center gap-2 rounded-full bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-100">
               <span className="h-2 w-2 rounded-full bg-sky-300 animate-pulse" />
               Обновляем...
             </div>
@@ -697,22 +724,22 @@ const StudentLeaderboardProfileModal = ({
                         />
                       </div>
 
-                      <div className="rounded-[1.6rem] bg-white/[0.045] p-4 sm:p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+                      <div className="student-profile-section-card rounded-[1.6rem] bg-white/[0.045] p-4 sm:p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                         <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div className="text-sm font-semibold text-white">Артефакты</div>
+                          <div className="student-profile-section-title text-sm font-semibold text-white">Артефакты</div>
                           <div className="flex flex-wrap gap-2">
                             {rankSummary.length > 0 ? rankSummary.map((item) => {
                               const theme = RANK_THEME[item.rank] || RANK_THEME.C;
                               return (
                                 <span
                                   key={`artifact-rank-${item.rank}`}
-                                  className={`rounded-full px-2.5 py-1 text-[11px] font-black tracking-[0.16em] ${theme.badgeClassName}`}
+                                  className={`student-profile-rank-summary-badge rounded-full px-2.5 py-1 text-[11px] font-black tracking-[0.16em] ${theme.badgeClassName}`}
                                 >
                                   {`${item.rank} x${formatNumber(item.totalOwned)}`}
                                 </span>
                               );
                             }) : (
-                              <span className="rounded-full bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
+                              <span className="student-profile-pill rounded-full bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
                                 Пусто
                               </span>
                             )}
@@ -725,12 +752,12 @@ const StudentLeaderboardProfileModal = ({
                               <ArtifactPreview
                                 artifact={featuredArtifact}
                               />
-                              <div className="rounded-[1.45rem] bg-slate-950/36 p-3 sm:p-4">
+                              <div className="student-profile-collection-card rounded-[1.45rem] bg-slate-950/36 p-3 sm:p-4">
                                 <div className="flex items-center justify-between gap-3">
-                                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/50">
+                                  <div className="student-profile-card-kicker text-[11px] font-semibold uppercase tracking-[0.18em] text-white/50">
                                     Коллекция
                                   </div>
-                                  <div className="text-xs text-slate-400">
+                                  <div className="student-profile-section-meta text-xs text-slate-400">
                                     {`${formatNumber(topCollection.length)} из ${formatNumber(collection.length)}`}
                                   </div>
                                 </div>
@@ -747,7 +774,7 @@ const StudentLeaderboardProfileModal = ({
                               </div>
                             </div>
                           ) : (
-                            <div className="w-full rounded-[1.35rem] bg-white/[0.03] px-4 py-10 text-center text-sm text-slate-400">
+                            <div className="student-profile-empty-state w-full rounded-[1.35rem] bg-white/[0.03] px-4 py-10 text-center text-sm text-slate-400">
                               Артефактов пока нет
                             </div>
                           )}
@@ -758,9 +785,9 @@ const StudentLeaderboardProfileModal = ({
                     <div className="min-w-0 space-y-4">
                       <div className="grid gap-3 sm:grid-cols-2">
                         {rankCards.map((item) => (
-                          <div key={item.key} className="rounded-[1.45rem] bg-white/[0.045] p-4 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/50">{item.label}</div>
-                            <div className="mt-2 text-[2rem] font-black tracking-tight text-white">{item.value}</div>
+                          <div key={item.key} className="student-profile-section-card student-profile-rank-card rounded-[1.45rem] bg-white/[0.045] p-4 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+                            <div className="student-profile-card-kicker text-[11px] font-semibold uppercase tracking-[0.18em] text-white/50">{item.label}</div>
+                            <div className="student-profile-rank-value mt-2 text-[2rem] font-black tracking-tight text-white">{item.value}</div>
                           </div>
                         ))}
                       </div>
@@ -792,48 +819,48 @@ const StudentLeaderboardProfileModal = ({
                         />
                       </div>
 
-                      <div className="rounded-[1.6rem] bg-white/[0.045] p-4 sm:p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+                      <div className="student-profile-section-card rounded-[1.6rem] bg-white/[0.045] p-4 sm:p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                         <div className="flex items-center justify-between gap-3">
-                          <div className="text-sm font-semibold text-white">Лучший пробник</div>
-                          <div className="text-xs text-slate-400">
+                          <div className="student-profile-section-title text-sm font-semibold text-white">Лучший пробник</div>
+                          <div className="student-profile-section-meta text-xs text-slate-400">
                             {bestMock?.updatedAt ? formatDateTime(bestMock.updatedAt) : `${formatNumber(mockSummary.solvedCount)} решено`}
                           </div>
                         </div>
                         <div className="mt-4">
                           {bestMock ? (
                             <div className="grid gap-4 sm:grid-cols-[auto,1fr] sm:items-center">
-                              <div className="inline-flex h-24 w-24 items-center justify-center rounded-[1.55rem] bg-amber-500/12 text-[1.9rem] font-black tracking-tight text-amber-50 shadow-[0_0_36px_rgba(245,158,11,0.16)]">
+                              <div className="student-profile-best-mock-score inline-flex h-24 w-24 items-center justify-center rounded-[1.55rem] bg-amber-500/12 text-[1.9rem] font-black tracking-tight text-amber-50 shadow-[0_0_36px_rgba(245,158,11,0.16)]">
                                 {formatMockScore(bestMock.score)}
                               </div>
                               <div className="min-w-0">
-                                <div className="text-lg font-bold leading-snug text-white">
+                                <div className="student-profile-best-mock-title text-lg font-bold leading-snug text-white">
                                   {bestMock.title}
                                 </div>
                                 <div className="mt-3 flex flex-wrap gap-2">
-                                  <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-100">
+                                  <span className="student-profile-pill rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-100">
                                     {`${formatNumber(bestMock.solvedTasks)} / ${formatNumber(bestMock.totalTasks)} задач`}
                                   </span>
-                                  <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-100">
+                                  <span className="student-profile-pill rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-100">
                                     {`Средний: ${formatMockScore(mockSummary.averageScore)}`}
                                   </span>
-                                  <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-100">
+                                  <span className="student-profile-pill rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-100">
                                     {`Всего решено: ${formatNumber(mockSummary.solvedCount)}`}
                                   </span>
                                 </div>
                               </div>
                             </div>
                           ) : (
-                            <div className="rounded-[1.35rem] bg-white/[0.03] px-4 py-8 text-center text-sm text-slate-400">
+                            <div className="student-profile-empty-state rounded-[1.35rem] bg-white/[0.03] px-4 py-8 text-center text-sm text-slate-400">
                               Пока нет решённых пробников
                             </div>
                           )}
                         </div>
                       </div>
 
-                      <div className="rounded-[1.6rem] bg-white/[0.045] p-4 sm:p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+                      <div className="student-profile-section-card rounded-[1.6rem] bg-white/[0.045] p-4 sm:p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                         <div className="flex items-center justify-between gap-3">
-                          <div className="text-sm font-semibold text-white">Сильные стороны</div>
-                          <div className="text-xs text-slate-400">{formatNumber(strongestTasks.length)}</div>
+                          <div className="student-profile-section-title text-sm font-semibold text-white">Сильные стороны</div>
+                          <div className="student-profile-section-meta text-xs text-slate-400">{formatNumber(strongestTasks.length)}</div>
                         </div>
                         <div className="mt-4 grid gap-3">
                           {strongestTasks.length > 0 ? strongestTasks.map((strength) => (
@@ -842,23 +869,23 @@ const StudentLeaderboardProfileModal = ({
                               strength={strength}
                             />
                           )) : (
-                            <div className="rounded-[1.35rem] bg-white/[0.03] px-4 py-8 text-center text-sm text-slate-400">
+                            <div className="student-profile-empty-state rounded-[1.35rem] bg-white/[0.03] px-4 py-8 text-center text-sm text-slate-400">
                               Сильные стороны пока собираются
                             </div>
                           )}
                         </div>
                       </div>
 
-                      <div className="rounded-[1.6rem] bg-white/[0.045] p-4 sm:p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+                      <div className="student-profile-section-card rounded-[1.6rem] bg-white/[0.045] p-4 sm:p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                         <div className="flex items-center justify-between gap-3">
-                          <div className="text-sm font-semibold text-white">Эффекты</div>
-                          <div className="text-xs text-slate-400">{formatNumber(bonusEntries.length)}</div>
+                          <div className="student-profile-section-title text-sm font-semibold text-white">Эффекты</div>
+                          <div className="student-profile-section-meta text-xs text-slate-400">{formatNumber(bonusEntries.length)}</div>
                         </div>
                         <div className="mt-4 grid gap-2">
                           {bonusEntries.length > 0 ? bonusEntries.map((entry) => (
                             <div
                               key={`bonus-${entry.id || entry.label}`}
-                              className={`rounded-2xl px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] ${BONUS_TONE_CLASSNAME[entry.tone] || 'bg-white/5 text-slate-100'}`}
+                              className={`student-profile-bonus-card rounded-2xl px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] ${BONUS_TONE_CLASSNAME[entry.tone] || 'bg-white/5 text-slate-100'}`}
                             >
                               <div className="flex items-center justify-between gap-3">
                                 <div className="min-w-0 truncate text-sm font-semibold">{entry.label || 'Бонус'}</div>
@@ -866,7 +893,7 @@ const StudentLeaderboardProfileModal = ({
                               </div>
                             </div>
                           )) : (
-                            <div className="rounded-[1.35rem] bg-white/[0.03] px-4 py-8 text-center text-sm text-slate-400">
+                            <div className="student-profile-empty-state rounded-[1.35rem] bg-white/[0.03] px-4 py-8 text-center text-sm text-slate-400">
                               Эффектов пока нет
                             </div>
                           )}

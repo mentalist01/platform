@@ -12,6 +12,11 @@ import { WebSocketServer } from 'ws';
 import yWsUtils from 'y-websocket/bin/utils';
 import { ARTIFACT_CATALOG_METADATA } from '../src/data/artifactCatalog.js';
 import { PROFILE_THEME_CATALOG, PROFILE_THEME_RARITY_ORDER } from '../src/data/profileThemeCatalog.js';
+import {
+  PYTHON_INFINITE_TRAINING_CHEST_INTERVAL,
+  PYTHON_INFINITE_TRAINING_TASK_NUMBER,
+  buildPythonInfiniteTrainingTaskEntry,
+} from '../src/data/pythonInfiniteTrainingTasks.js';
 import { getLevelFromXp } from '../src/utils/leveling.js';
 
 const { setupWSConnection } = yWsUtils;
@@ -131,6 +136,7 @@ const mockExamsFile = path.join(dataDir, 'mock-exams.json');
 const taskTitlesFile = path.join(dataDir, 'task-titles.json');
 const signupChatsFile = path.join(dataDir, 'signup-chats.json');
 const studentChatsFile = path.join(dataDir, 'student-chats.json');
+const studentSocialChatsFile = path.join(dataDir, 'student-social-chats.json');
 const broadcastNotificationsFile = path.join(dataDir, 'broadcast-notifications.json');
 const scheduleRequestsFile = path.join(dataDir, 'schedule-requests.json');
 const teacherCalendarSyncFile = path.join(dataDir, 'teacher-calendar-sync.json');
@@ -181,6 +187,12 @@ const STUDENT_CHAT_LAST_MESSAGE_PREVIEW_MAX_LENGTH = 160;
 const STUDENT_CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const STUDENT_CHAT_IMAGE_NAME_MAX_LENGTH = 180;
 const STUDENT_CHAT_IMAGE_PREVIEW_TEXT = '[Изображение]';
+const STUDENT_CHAT_FILE_MAX_BYTES = 10 * 1024 * 1024;
+const STUDENT_CHAT_FILE_NAME_MAX_LENGTH = 180;
+const STUDENT_CHAT_FILE_MIME_TYPE_MAX_LENGTH = 120;
+const STUDENT_CHAT_FILE_PREVIEW_TEXT = '[Файл]';
+const STUDENT_CHAT_MESSAGES_PAGE_SIZE = 15;
+const STUDENT_CHAT_MESSAGES_MAX_PAGE_SIZE = 50;
 const BROADCAST_NOTIFICATION_TEXT_MAX_LENGTH = 5000;
 const BROADCAST_NOTIFICATION_NAME_MAX_LENGTH = 180;
 const BROADCAST_NOTIFICATION_STORAGE_LIMIT = 200;
@@ -191,6 +203,14 @@ const STUDENT_CHAT_ALLOWED_IMAGE_MIME_TYPES = new Set([
   'image/jpg',
   'image/webp',
   'image/gif',
+]);
+const STUDENT_CHAT_BLOCKED_FILE_MIME_TYPES = new Set([
+  'application/javascript',
+  'application/x-javascript',
+  'application/xhtml+xml',
+  'image/svg+xml',
+  'text/html',
+  'text/javascript',
 ]);
 const STUDENT_TRAFFIC_LIMIT_BYTES = (() => {
   const bytesRaw = Number(process.env.STUDENT_TRAFFIC_LIMIT_BYTES);
@@ -221,6 +241,7 @@ const SOFT_DELETE_TTL_MS = SOFT_DELETE_DAYS * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const GAME_THEORY_TASK = 19;
 const PYTHON_LEVEL_ID = 'python';
+const PYTHON_INFINITE_TRAINING_TASK_KEY = String(PYTHON_INFINITE_TRAINING_TASK_NUMBER);
 const PYTHON_COIN_MIN_REWARD = 4;
 const PYTHON_COIN_MAX_REWARD = 17;
 const PYTHON_COIN_TASK_ORDER = [
@@ -2282,6 +2303,7 @@ const hardDeleteStudentData = (studentIds = []) => {
 
   purgePushDataForStudents(ids);
   purgeStudentTeacherChatsForStudents(ids);
+  purgeStudentSocialChatsForStudents(ids);
   purgeScheduleRequestsForStudents(ids);
 };
 
@@ -2316,6 +2338,11 @@ const readTestsDb = () => {
     return {};
   }
 };
+
+const getTestsDbWithPythonInfiniteTraining = (testsDb = readTestsDb()) => ({
+  ...(testsDb && typeof testsDb === 'object' && !Array.isArray(testsDb) ? testsDb : {}),
+  [PYTHON_INFINITE_TRAINING_TASK_KEY]: buildPythonInfiniteTrainingTaskEntry(PYTHON_LEVEL_ID),
+});
 
 const writeTestsDb = (data) => {
   fs.writeFileSync(testsFile, JSON.stringify(data, null, 2), 'utf8');
@@ -2505,6 +2532,21 @@ const normalizeStudentChatImageName = (value) => {
   return normalized.slice(0, STUDENT_CHAT_IMAGE_NAME_MAX_LENGTH);
 };
 
+const normalizeStudentChatFileName = (value) => {
+  if (typeof value !== 'string') return '';
+  const normalized = normalizeFileName(value).trim();
+  if (!normalized) return '';
+  return normalized.slice(0, STUDENT_CHAT_FILE_NAME_MAX_LENGTH);
+};
+
+const normalizeStudentChatFileMimeType = (value) => {
+  if (typeof value !== 'string') return '';
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized.length > STUDENT_CHAT_FILE_MIME_TYPE_MAX_LENGTH) return '';
+  if (normalized.includes('\n') || normalized.includes('\r') || normalized.includes(';')) return '';
+  return normalized === 'image/jpg' ? 'image/jpeg' : normalized;
+};
+
 const getBase64PayloadSizeBytes = (base64Value) => {
   const normalized = typeof base64Value === 'string'
     ? base64Value.replace(/\s+/g, '').trim()
@@ -2512,6 +2554,12 @@ const getBase64PayloadSizeBytes = (base64Value) => {
   if (!normalized) return 0;
   const padding = normalized.endsWith('==') ? 2 : (normalized.endsWith('=') ? 1 : 0);
   return Math.max(0, Math.floor((normalized.length * 3) / 4) - padding);
+};
+
+const getDataUrlMimeType = (dataUrl) => {
+  if (typeof dataUrl !== 'string') return '';
+  const match = dataUrl.trim().match(/^data:([^;,]+);base64,/i);
+  return normalizeStudentChatFileMimeType(match?.[1] || '');
 };
 
 const normalizeStudentChatImageDataUrl = (value) => {
@@ -2530,11 +2578,57 @@ const normalizeStudentChatImageDataUrl = (value) => {
   return `data:${mime};base64,${base64}`;
 };
 
+const normalizeStudentChatFileDataUrl = (value) => {
+  if (typeof value !== 'string') return '';
+  const normalized = value.trim();
+  if (!normalized) return '';
+  const match = normalized.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) return '';
+  const mime = normalizeStudentChatFileMimeType(match[1] || '');
+  if (!mime || STUDENT_CHAT_BLOCKED_FILE_MIME_TYPES.has(mime)) return '';
+  const base64 = String(match[2] || '').replace(/\s+/g, '');
+  if (!base64) return '';
+  const sizeBytes = getBase64PayloadSizeBytes(base64);
+  if (!sizeBytes || sizeBytes > STUDENT_CHAT_FILE_MAX_BYTES) return '';
+  return `data:${mime};base64,${base64}`;
+};
+
+const normalizeStudentChatFileSize = (value, fileDataUrl = '') => {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0 && numeric <= STUDENT_CHAT_FILE_MAX_BYTES) {
+    return Math.round(numeric);
+  }
+  const normalizedDataUrl = typeof fileDataUrl === 'string' ? fileDataUrl.trim() : '';
+  const match = normalizedDataUrl.match(/^data:[^;,]+;base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) return 0;
+  const sizeBytes = getBase64PayloadSizeBytes(match[1] || '');
+  return sizeBytes > 0 && sizeBytes <= STUDENT_CHAT_FILE_MAX_BYTES ? sizeBytes : 0;
+};
+
+const normalizeStudentChatAttachmentPayload = (value) => {
+  const payload = value && typeof value === 'object' ? value : {};
+  const imageDataUrl = normalizeStudentChatImageDataUrl(payload.imageDataUrl);
+  const imageName = normalizeStudentChatImageName(payload.imageName);
+  const fileDataUrl = normalizeStudentChatFileDataUrl(payload.fileDataUrl);
+  const fileName = normalizeStudentChatFileName(payload.fileName);
+  const fileMimeType = normalizeStudentChatFileMimeType(payload.fileMimeType) || getDataUrlMimeType(fileDataUrl);
+  const fileSize = normalizeStudentChatFileSize(payload.fileSize, fileDataUrl);
+  return {
+    imageDataUrl,
+    imageName,
+    fileDataUrl,
+    fileName,
+    fileMimeType,
+    fileSize,
+  };
+};
+
 const hasStudentTeacherChatMessageContent = (message) => {
   if (!message || typeof message !== 'object') return false;
   const text = normalizeStudentChatMessageText(message.text);
   const imageDataUrl = normalizeStudentChatImageDataUrl(message.imageDataUrl);
-  return Boolean(text || imageDataUrl);
+  const fileDataUrl = normalizeStudentChatFileDataUrl(message.fileDataUrl);
+  return Boolean(text || imageDataUrl || fileDataUrl);
 };
 
 const buildStudentTeacherChatMessagePreview = (message) => {
@@ -2545,6 +2639,11 @@ const buildStudentTeacherChatMessagePreview = (message) => {
   }
   const imageDataUrl = normalizeStudentChatImageDataUrl(message.imageDataUrl);
   if (imageDataUrl) return STUDENT_CHAT_IMAGE_PREVIEW_TEXT;
+  const fileDataUrl = normalizeStudentChatFileDataUrl(message.fileDataUrl);
+  if (fileDataUrl) {
+    const fileName = normalizeStudentChatFileName(message.fileName);
+    return fileName ? `${STUDENT_CHAT_FILE_PREVIEW_TEXT} ${fileName}` : STUDENT_CHAT_FILE_PREVIEW_TEXT;
+  }
   return '';
 };
 
@@ -2570,8 +2669,12 @@ const normalizeStudentTeacherChatMessage = (value) => {
   const text = normalizeStudentChatMessageText(value.text);
   const imageDataUrl = normalizeStudentChatImageDataUrl(value.imageDataUrl);
   const imageName = normalizeStudentChatImageName(value.imageName);
+  const fileDataUrl = normalizeStudentChatFileDataUrl(value.fileDataUrl);
+  const fileName = normalizeStudentChatFileName(value.fileName);
+  const fileMimeType = normalizeStudentChatFileMimeType(value.fileMimeType) || getDataUrlMimeType(fileDataUrl);
+  const fileSize = normalizeStudentChatFileSize(value.fileSize, fileDataUrl);
   const createdAt = normalizeIsoTimestamp(value.createdAt, '');
-  if (!id || !senderId || (!text && !imageDataUrl) || !createdAt) return null;
+  if (!id || !senderId || (!text && !imageDataUrl && !fileDataUrl) || !createdAt) return null;
   const senderName = senderNameRaw || (senderRole === 'teacher' ? 'Преподаватель' : 'Ученик');
   const message = {
     id,
@@ -2584,6 +2687,12 @@ const normalizeStudentTeacherChatMessage = (value) => {
   if (imageDataUrl) {
     message.imageDataUrl = imageDataUrl;
     if (imageName) message.imageName = imageName;
+  }
+  if (fileDataUrl) {
+    message.fileDataUrl = fileDataUrl;
+    if (fileName) message.fileName = fileName;
+    if (fileMimeType) message.fileMimeType = fileMimeType;
+    if (fileSize) message.fileSize = fileSize;
   }
   return message;
 };
@@ -2646,6 +2755,55 @@ const writeStudentChatsDb = (data) => {
     ? data.map((entry) => normalizeStudentTeacherChat(entry)).filter(Boolean)
     : [];
   fs.writeFileSync(studentChatsFile, JSON.stringify(safeData, null, 2), 'utf8');
+};
+
+const normalizeStudentChatMessagesPageLimit = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return STUDENT_CHAT_MESSAGES_PAGE_SIZE;
+  return Math.min(STUDENT_CHAT_MESSAGES_MAX_PAGE_SIZE, Math.max(1, Math.round(numeric)));
+};
+
+const buildStudentChatMessagesPage = (messages, query = {}) => {
+  const list = Array.isArray(messages) ? messages : [];
+  const limit = normalizeStudentChatMessagesPageLimit(query?.limit);
+  const before = String(query?.before || query?.beforeId || '').trim();
+  let endIndex = list.length;
+
+  if (before) {
+    const byIdIndex = list.findIndex((message) => String(message?.id || '').trim() === before);
+    if (byIdIndex >= 0) {
+      endIndex = byIdIndex;
+    } else {
+      const beforeTimestamp = Date.parse(before);
+      if (Number.isFinite(beforeTimestamp)) {
+        const byTimeIndex = list.findIndex((message) => {
+          const createdAtTimestamp = Date.parse(message?.createdAt || '');
+          return Number.isFinite(createdAtTimestamp) && createdAtTimestamp >= beforeTimestamp;
+        });
+        endIndex = byTimeIndex >= 0 ? byTimeIndex : list.length;
+      }
+    }
+  }
+
+  const safeEndIndex = Math.max(0, Math.min(endIndex, list.length));
+  const startIndex = Math.max(0, safeEndIndex - limit);
+  const pageMessages = list.slice(startIndex, safeEndIndex);
+  const oldestMessage = pageMessages[0] || null;
+  const newestMessage = pageMessages[pageMessages.length - 1] || null;
+
+  return {
+    messages: pageMessages,
+    pagination: {
+      limit,
+      count: pageMessages.length,
+      total: list.length,
+      hasMoreBefore: startIndex > 0,
+      before,
+      nextBefore: String(oldestMessage?.id || '').trim(),
+      oldestMessageId: String(oldestMessage?.id || '').trim(),
+      newestMessageId: String(newestMessage?.id || '').trim(),
+    },
+  };
 };
 
 const getStudentTeacherChatSortTimestamp = (chat) => {
@@ -2816,6 +2974,650 @@ const purgeStudentTeacherChatsForStudents = (studentIds = []) => {
   if (filtered.length !== chats.length) {
     writeStudentChatsDb(filtered);
   }
+};
+
+const STUDENT_SOCIAL_CHAT_DIRECT_PREFIX = 'direct-';
+const STUDENT_SOCIAL_CHAT_GROUP_PREFIX = 'group-';
+
+const normalizeStudentSocialChatSettings = (value = {}) => ({
+  directEnabled: value?.directEnabled !== false,
+  groupEnabled: value?.groupEnabled !== false,
+  updatedAt: normalizeIsoTimestamp(value?.updatedAt, '') || null,
+});
+
+const normalizeStudentChatNotificationSettings = (value = {}) => {
+  const directSource = value?.directByChatId && typeof value.directByChatId === 'object' && !Array.isArray(value.directByChatId)
+    ? value.directByChatId
+    : {};
+  const directByChatId = Object.entries(directSource).reduce((acc, [chatId, enabled]) => {
+    const id = String(chatId || '').trim();
+    if (!id || id === '__proto__' || id === 'constructor' || id === 'prototype') return acc;
+    acc[id] = enabled !== false;
+    return acc;
+  }, {});
+  return {
+    teacherEnabled: value?.teacherEnabled !== false,
+    groupEnabled: value?.groupEnabled !== false,
+    directByChatId,
+    updatedAt: normalizeIsoTimestamp(value?.updatedAt, '') || null,
+  };
+};
+
+const buildStudentGroupChatId = (teacherId) => {
+  const id = String(teacherId || '').trim();
+  if (!id) return '';
+  return `${STUDENT_SOCIAL_CHAT_GROUP_PREFIX}${id}`;
+};
+
+const getTeacherIdFromStudentGroupChatId = (chatId) => {
+  const id = String(chatId || '').trim();
+  if (!id.startsWith(STUDENT_SOCIAL_CHAT_GROUP_PREFIX)) return '';
+  return id.slice(STUDENT_SOCIAL_CHAT_GROUP_PREFIX.length).trim();
+};
+
+const normalizeDirectStudentIds = (studentIds = []) => {
+  const unique = Array.isArray(studentIds)
+    ? [...new Set(studentIds.map((id) => String(id || '').trim()).filter(Boolean))]
+    : [];
+  return unique.sort((left, right) => left.localeCompare(right, 'en'));
+};
+
+const buildStudentDirectChatId = (leftStudentId, rightStudentId) => {
+  const ids = normalizeDirectStudentIds([leftStudentId, rightStudentId]);
+  if (ids.length !== 2) return '';
+  return `${STUDENT_SOCIAL_CHAT_DIRECT_PREFIX}${ids[0]}--${ids[1]}`;
+};
+
+const getStudentIdsFromDirectChatId = (chatId) => {
+  const id = String(chatId || '').trim();
+  if (!id.startsWith(STUDENT_SOCIAL_CHAT_DIRECT_PREFIX)) return [];
+  const payload = id.slice(STUDENT_SOCIAL_CHAT_DIRECT_PREFIX.length).trim();
+  return normalizeDirectStudentIds(payload.split('--'));
+};
+
+const normalizeStudentSocialChatReadMap = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return Object.entries(source).reduce((acc, [studentId, timestamp]) => {
+    const id = String(studentId || '').trim();
+    if (!id || id === '__proto__' || id === 'constructor' || id === 'prototype') return acc;
+    const normalizedTimestamp = normalizeIsoTimestamp(timestamp, '');
+    if (normalizedTimestamp) acc[id] = normalizedTimestamp;
+    return acc;
+  }, {});
+};
+
+const normalizeStudentSocialChat = (value) => {
+  if (!value || typeof value !== 'object') return null;
+  const type = value.type === 'group' ? 'group' : 'direct';
+  const teacherId = typeof value.teacherId === 'string' ? value.teacherId.trim() : '';
+  if (!teacherId) return null;
+
+  const studentIds = type === 'direct'
+    ? normalizeDirectStudentIds(Array.isArray(value.studentIds) ? value.studentIds : getStudentIdsFromDirectChatId(value.id))
+    : [];
+  if (type === 'direct' && studentIds.length !== 2) return null;
+
+  const expectedId = type === 'group'
+    ? buildStudentGroupChatId(teacherId)
+    : buildStudentDirectChatId(studentIds[0], studentIds[1]);
+  const id = (typeof value.id === 'string' ? value.id.trim() : '') || expectedId;
+  if (!id || id !== expectedId) return null;
+
+  const messages = Array.isArray(value.messages)
+    ? value.messages.map((item) => normalizeStudentTeacherChatMessage(item)).filter(Boolean)
+    : [];
+  const lastMessage = messages[messages.length - 1] || null;
+  const createdAt = normalizeIsoTimestamp(value.createdAt, lastMessage?.createdAt || new Date().toISOString());
+  const updatedAt = normalizeIsoTimestamp(value.updatedAt, lastMessage?.createdAt || createdAt);
+  const lastMessageAt = normalizeIsoTimestamp(value.lastMessageAt, lastMessage?.createdAt || updatedAt);
+  const lastMessagePreviewRaw = typeof value.lastMessagePreview === 'string'
+    ? value.lastMessagePreview.replace(/\s+/g, ' ').trim()
+    : '';
+  const fallbackPreview = buildStudentTeacherChatMessagePreview(lastMessage);
+  const lastMessagePreview = (lastMessagePreviewRaw || fallbackPreview).slice(0, STUDENT_CHAT_LAST_MESSAGE_PREVIEW_MAX_LENGTH);
+  const lastMessageSenderRole = value.lastMessageSenderRole === 'teacher' || value.lastMessageSenderRole === 'student'
+    ? value.lastMessageSenderRole
+    : (lastMessage?.senderRole || '');
+  const lastMessageSenderId = typeof value.lastMessageSenderId === 'string'
+    ? value.lastMessageSenderId.trim()
+    : (lastMessage?.senderId || '');
+  const lastMessageSenderName = typeof value.lastMessageSenderName === 'string'
+    ? value.lastMessageSenderName.trim()
+    : (lastMessage?.senderName || '');
+  const lastReadByTeacherAt = type === 'group'
+    ? (normalizeIsoTimestamp(value.lastReadByTeacherAt, '') || null)
+    : null;
+
+  return {
+    id,
+    type,
+    teacherId,
+    studentIds,
+    createdAt,
+    updatedAt,
+    lastMessageAt,
+    lastMessagePreview,
+    lastMessageSenderRole,
+    lastMessageSenderId,
+    lastMessageSenderName,
+    lastReadByTeacherAt,
+    lastReadByStudentId: normalizeStudentSocialChatReadMap(value.lastReadByStudentId),
+    messages,
+  };
+};
+
+const normalizeStudentSocialChatsDb = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const settingsSource = source.settingsByTeacherId && typeof source.settingsByTeacherId === 'object'
+    && !Array.isArray(source.settingsByTeacherId)
+    ? source.settingsByTeacherId
+    : {};
+  const settingsByTeacherId = Object.entries(settingsSource).reduce((acc, [teacherId, settings]) => {
+    const id = String(teacherId || '').trim();
+    if (!id || id === '__proto__' || id === 'constructor' || id === 'prototype') return acc;
+    acc[id] = normalizeStudentSocialChatSettings(settings);
+    return acc;
+  }, {});
+  const notificationSettingsSource = source.notificationSettingsByStudentId
+    && typeof source.notificationSettingsByStudentId === 'object'
+    && !Array.isArray(source.notificationSettingsByStudentId)
+    ? source.notificationSettingsByStudentId
+    : {};
+  const notificationSettingsByStudentId = Object.entries(notificationSettingsSource).reduce((acc, [studentId, settings]) => {
+    const id = String(studentId || '').trim();
+    if (!id || id === '__proto__' || id === 'constructor' || id === 'prototype') return acc;
+    acc[id] = normalizeStudentChatNotificationSettings(settings);
+    return acc;
+  }, {});
+  const rawChats = Array.isArray(source.chats)
+    ? source.chats
+    : (Array.isArray(value) ? value : []);
+  const chats = rawChats.map((entry) => normalizeStudentSocialChat(entry)).filter(Boolean);
+  return { settingsByTeacherId, notificationSettingsByStudentId, chats };
+};
+
+const readStudentSocialChatsDb = () => {
+  try {
+    const raw = fs.readFileSync(studentSocialChatsFile, 'utf8');
+    return normalizeStudentSocialChatsDb(JSON.parse(raw));
+  } catch {
+    return { settingsByTeacherId: {}, notificationSettingsByStudentId: {}, chats: [] };
+  }
+};
+
+const writeStudentSocialChatsDb = (data) => {
+  fs.writeFileSync(studentSocialChatsFile, JSON.stringify(normalizeStudentSocialChatsDb(data), null, 2), 'utf8');
+};
+
+const getStudentSocialChatSettings = (teacherId, db = null) => {
+  const id = String(teacherId || '').trim();
+  const source = db || readStudentSocialChatsDb();
+  return normalizeStudentSocialChatSettings(source.settingsByTeacherId?.[id]);
+};
+
+const setStudentSocialChatSettings = (teacherId, patch = {}) => {
+  const id = String(teacherId || '').trim();
+  if (!id) return null;
+  const db = readStudentSocialChatsDb();
+  const current = getStudentSocialChatSettings(id, db);
+  const next = {
+    ...current,
+    ...(Object.prototype.hasOwnProperty.call(patch, 'directEnabled')
+      ? { directEnabled: Boolean(patch.directEnabled) }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, 'groupEnabled')
+      ? { groupEnabled: Boolean(patch.groupEnabled) }
+      : {}),
+    updatedAt: new Date().toISOString(),
+  };
+  db.settingsByTeacherId[id] = normalizeStudentSocialChatSettings(next);
+  writeStudentSocialChatsDb(db);
+  return db.settingsByTeacherId[id];
+};
+
+const getStudentChatNotificationSettings = (studentId, db = null) => {
+  const id = String(studentId || '').trim();
+  if (!id) return normalizeStudentChatNotificationSettings();
+  const source = db || readStudentSocialChatsDb();
+  return normalizeStudentChatNotificationSettings(source.notificationSettingsByStudentId?.[id]);
+};
+
+const setStudentChatNotificationSettings = (studentId, patch = {}) => {
+  const id = String(studentId || '').trim();
+  if (!id) return null;
+  const db = readStudentSocialChatsDb();
+  const current = getStudentChatNotificationSettings(id, db);
+  const directPatch = patch.directByChatId && typeof patch.directByChatId === 'object' && !Array.isArray(patch.directByChatId)
+    ? patch.directByChatId
+    : {};
+  const nextDirectByChatId = { ...(current.directByChatId || {}) };
+  Object.entries(directPatch).forEach(([chatId, enabled]) => {
+    const normalizedChatId = String(chatId || '').trim();
+    if (!normalizedChatId || normalizedChatId === '__proto__' || normalizedChatId === 'constructor' || normalizedChatId === 'prototype') return;
+    nextDirectByChatId[normalizedChatId] = enabled !== false;
+  });
+  const next = {
+    ...current,
+    ...(Object.prototype.hasOwnProperty.call(patch, 'teacherEnabled')
+      ? { teacherEnabled: Boolean(patch.teacherEnabled) }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, 'groupEnabled')
+      ? { groupEnabled: Boolean(patch.groupEnabled) }
+      : {}),
+    directByChatId: nextDirectByChatId,
+    updatedAt: new Date().toISOString(),
+  };
+  db.notificationSettingsByStudentId[id] = normalizeStudentChatNotificationSettings(next);
+  writeStudentSocialChatsDb(db);
+  return db.notificationSettingsByStudentId[id];
+};
+
+const isStudentTeacherChatNotificationEnabled = (studentId) => (
+  getStudentChatNotificationSettings(studentId).teacherEnabled !== false
+);
+
+const isStudentSocialChatNotificationEnabled = (studentId, chat) => {
+  const id = String(studentId || '').trim();
+  if (!id || !chat) return true;
+  const settings = getStudentChatNotificationSettings(id);
+  if (chat.type === 'group') return settings.groupEnabled !== false;
+  const chatId = String(chat.id || '').trim();
+  return settings.directByChatId?.[chatId] !== false;
+};
+
+const getStudentDisplayName = (student) => (
+  String(student?.nickname || student?.name || 'Ученик').trim() || 'Ученик'
+);
+
+const buildStudentPeerProfile = (student) => ({
+  id: String(student?.id || '').trim(),
+  name: String(student?.name || '').trim(),
+  nickname: String(student?.nickname || '').trim(),
+  displayName: getStudentDisplayName(student),
+});
+
+const createStudentSocialChat = ({ type, teacherId, studentIds = [] } = {}) => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  if (!normalizedTeacherId) return null;
+  const nowIso = new Date().toISOString();
+  if (type === 'group') {
+    return {
+      id: buildStudentGroupChatId(normalizedTeacherId),
+      type: 'group',
+      teacherId: normalizedTeacherId,
+      studentIds: [],
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      lastMessageAt: '',
+      lastMessagePreview: '',
+      lastMessageSenderRole: '',
+      lastMessageSenderId: '',
+      lastMessageSenderName: '',
+      lastReadByTeacherAt: nowIso,
+      lastReadByStudentId: {},
+      messages: [],
+    };
+  }
+
+  const ids = normalizeDirectStudentIds(studentIds);
+  if (ids.length !== 2) return null;
+  return {
+    id: buildStudentDirectChatId(ids[0], ids[1]),
+    type: 'direct',
+    teacherId: normalizedTeacherId,
+    studentIds: ids,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    lastMessageAt: '',
+    lastMessagePreview: '',
+    lastMessageSenderRole: '',
+    lastMessageSenderId: '',
+    lastMessageSenderName: '',
+    lastReadByTeacherAt: null,
+    lastReadByStudentId: ids.reduce((acc, id) => {
+      acc[id] = nowIso;
+      return acc;
+    }, {}),
+    messages: [],
+  };
+};
+
+const getStudentSocialChatUnreadForStudent = (chat, studentId) => {
+  const id = String(studentId || '').trim();
+  if (!id || !chat || !Array.isArray(chat.messages) || chat.messages.length === 0) return 0;
+  const lastReadAt = Date.parse(chat.lastReadByStudentId?.[id] || '');
+  return chat.messages.reduce((count, message) => {
+    if (!message || message.senderId === id) return count;
+    if (!Number.isFinite(lastReadAt)) return count + 1;
+    const messageAt = Date.parse(message.createdAt || '');
+    if (!Number.isFinite(messageAt)) return count + 1;
+    return messageAt > lastReadAt ? count + 1 : count;
+  }, 0);
+};
+
+const getStudentSocialChatUnreadForTeacher = (chat) => {
+  if (!chat || chat.type !== 'group' || !Array.isArray(chat.messages) || chat.messages.length === 0) return 0;
+  const lastReadAt = Date.parse(chat.lastReadByTeacherAt || '');
+  return chat.messages.reduce((count, message) => {
+    if (!message || message.senderRole !== 'student') return count;
+    if (!Number.isFinite(lastReadAt)) return count + 1;
+    const messageAt = Date.parse(message.createdAt || '');
+    if (!Number.isFinite(messageAt)) return count + 1;
+    return messageAt > lastReadAt ? count + 1 : count;
+  }, 0);
+};
+
+const buildStudentSocialChatSummary = (chat, currentStudent, options = {}) => {
+  const peer = options.peer || null;
+  const settings = options.settings || getStudentSocialChatSettings(chat?.teacherId);
+  const notificationSettings = options.notificationSettings
+    || (currentStudent?.id ? getStudentChatNotificationSettings(currentStudent.id) : null);
+  const isGroup = chat?.type === 'group';
+  return {
+    id: chat.id,
+    type: chat.type,
+    teacherId: chat.teacherId,
+    title: isGroup ? 'Общий чат группы' : (peer?.displayName || 'Личный чат'),
+    studentIds: Array.isArray(chat.studentIds) ? chat.studentIds : [],
+    peer,
+    createdAt: chat.createdAt,
+    updatedAt: chat.updatedAt,
+    lastMessageAt: chat.lastMessageAt,
+    lastMessagePreview: chat.lastMessagePreview || '',
+    lastMessageSenderRole: chat.lastMessageSenderRole || '',
+    lastMessageSenderId: chat.lastMessageSenderId || '',
+    lastMessageSenderName: chat.lastMessageSenderName || '',
+    unreadForTeacher: getStudentSocialChatUnreadForTeacher(chat),
+    unreadForStudent: getStudentSocialChatUnreadForStudent(chat, currentStudent?.id),
+    messageCount: Array.isArray(chat.messages) ? chat.messages.length : 0,
+    disabled: isGroup ? !settings.groupEnabled : !settings.directEnabled,
+    notificationsEnabled: !currentStudent?.id
+      ? true
+      : (isGroup
+        ? notificationSettings?.groupEnabled !== false
+        : notificationSettings?.directByChatId?.[chat.id] !== false),
+  };
+};
+
+const getStudentSocialChatSortTimestamp = (chat) => {
+  const raw = chat?.lastMessageAt || chat?.updatedAt || chat?.createdAt || '';
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const appendStudentSocialChatMessage = (chat, message) => {
+  if (!chat || !message || !hasStudentTeacherChatMessageContent(message) || !message.senderId) return chat;
+  const nextMessages = [...(Array.isArray(chat.messages) ? chat.messages : []), message];
+  const next = {
+    ...chat,
+    messages: nextMessages,
+    updatedAt: message.createdAt,
+    lastMessageAt: message.createdAt,
+    lastMessagePreview: buildStudentTeacherChatMessagePreview(message),
+    lastMessageSenderRole: message.senderRole,
+    lastMessageSenderId: message.senderId,
+    lastMessageSenderName: message.senderName || '',
+    lastReadByStudentId: {
+      ...(chat.lastReadByStudentId || {}),
+      [message.senderId]: message.createdAt,
+    },
+  };
+  if (message.senderRole === 'teacher') {
+    next.lastReadByTeacherAt = message.createdAt;
+  }
+  return next;
+};
+
+const markStudentSocialChatReadByStudent = (chat, studentId) => {
+  const id = String(studentId || '').trim();
+  if (!chat || !id) return { chat, changed: false };
+  if (getStudentSocialChatUnreadForStudent(chat, id) <= 0) return { chat, changed: false };
+  return {
+    changed: true,
+    chat: {
+      ...chat,
+      lastReadByStudentId: {
+        ...(chat.lastReadByStudentId || {}),
+        [id]: new Date().toISOString(),
+      },
+    },
+  };
+};
+
+const markStudentSocialChatReadByTeacher = (chat) => {
+  if (!chat || chat.type !== 'group') return { chat, changed: false };
+  if (getStudentSocialChatUnreadForTeacher(chat) <= 0) return { chat, changed: false };
+  return {
+    changed: true,
+    chat: {
+      ...chat,
+      lastReadByTeacherAt: new Date().toISOString(),
+    },
+  };
+};
+
+const rebuildStudentSocialChatAfterMessages = (chat, messages) => {
+  const safeMessages = Array.isArray(messages)
+    ? messages.map((item) => normalizeStudentTeacherChatMessage(item)).filter(Boolean)
+    : [];
+  const lastMessage = safeMessages[safeMessages.length - 1] || null;
+  return normalizeStudentSocialChat({
+    ...chat,
+    messages: safeMessages,
+    updatedAt: new Date().toISOString(),
+    lastMessageAt: lastMessage?.createdAt || '',
+    lastMessagePreview: buildStudentTeacherChatMessagePreview(lastMessage),
+    lastMessageSenderRole: lastMessage?.senderRole || '',
+    lastMessageSenderId: lastMessage?.senderId || '',
+    lastMessageSenderName: lastMessage?.senderName || '',
+  }) || chat;
+};
+
+const purgeStudentSocialChatsForStudents = (studentIds = []) => {
+  const ids = Array.isArray(studentIds) ? studentIds.map((id) => String(id || '').trim()).filter(Boolean) : [];
+  if (ids.length === 0) return;
+  const idSet = new Set(ids);
+  const db = readStudentSocialChatsDb();
+  let changed = false;
+  const chats = db.chats
+    .filter((chat) => {
+      const remove = chat.type === 'direct' && chat.studentIds.some((id) => idSet.has(id));
+      if (remove) changed = true;
+      return !remove;
+    })
+    .map((chat) => {
+      if (chat.type !== 'group') return chat;
+      const nextMessages = chat.messages.filter((message) => !idSet.has(String(message?.senderId || '').trim()));
+      const nextReadMap = { ...(chat.lastReadByStudentId || {}) };
+      ids.forEach((id) => {
+        if (Object.prototype.hasOwnProperty.call(nextReadMap, id)) {
+          delete nextReadMap[id];
+          changed = true;
+        }
+      });
+      if (nextMessages.length === chat.messages.length) return { ...chat, lastReadByStudentId: nextReadMap };
+      changed = true;
+      return rebuildStudentSocialChatAfterMessages({ ...chat, lastReadByStudentId: nextReadMap }, nextMessages);
+    });
+
+  if (changed) writeStudentSocialChatsDb({ ...db, chats });
+};
+
+const ensureStudentSocialChatAccess = (req, res, chatId, options = {}) => {
+  if (!isStudentRole(req.auth)) {
+    res.status(403).json({ error: 'Недостаточно прав' });
+    return null;
+  }
+
+  const createIfMissing = options.createIfMissing === true;
+  const persist = options.persist !== false;
+  const id = String(chatId || '').trim();
+  if (!id) {
+    res.status(400).json({ error: 'chatId required' });
+    return null;
+  }
+
+  const student = findStudentById(req.auth.id);
+  if (!student?.id || !student?.teacherId) {
+    res.status(404).json({ error: 'Ученик не найден' });
+    return null;
+  }
+
+  const teacherId = String(student.teacherId || '').trim();
+  const settings = getStudentSocialChatSettings(teacherId);
+  const db = options.db || readStudentSocialChatsDb();
+  const chats = Array.isArray(options.chats) ? options.chats : db.chats;
+  let type = '';
+  let expectedId = '';
+  let peer = null;
+  let studentIds = [];
+
+  const groupTeacherId = getTeacherIdFromStudentGroupChatId(id);
+  if (groupTeacherId) {
+    type = 'group';
+    if (groupTeacherId !== teacherId) {
+      res.status(403).json({ error: 'Недостаточно прав' });
+      return null;
+    }
+    if (!settings.groupEnabled) {
+      res.status(403).json({ error: 'Общий чат группы отключён' });
+      return null;
+    }
+    expectedId = buildStudentGroupChatId(teacherId);
+  } else {
+    studentIds = getStudentIdsFromDirectChatId(id);
+    type = 'direct';
+    if (studentIds.length !== 2 || !studentIds.includes(student.id)) {
+      res.status(403).json({ error: 'Недостаточно прав' });
+      return null;
+    }
+    if (!settings.directEnabled) {
+      res.status(403).json({ error: 'Личные чаты отключены' });
+      return null;
+    }
+    const peerId = studentIds.find((item) => item !== student.id);
+    peer = findStudentById(peerId);
+    if (!peer || String(peer.teacherId || '').trim() !== teacherId) {
+      res.status(404).json({ error: 'Ученик не найден' });
+      return null;
+    }
+    expectedId = buildStudentDirectChatId(studentIds[0], studentIds[1]);
+  }
+
+  let index = chats.findIndex((entry) => entry?.id === expectedId);
+  let chat = index >= 0 ? chats[index] : null;
+  let changed = false;
+  let created = false;
+
+  if (!chat) {
+    if (!createIfMissing) {
+      res.status(404).json({ error: 'Чат не найден' });
+      return null;
+    }
+    chat = createStudentSocialChat({ type, teacherId, studentIds });
+    if (!chat) {
+      res.status(400).json({ error: 'Не удалось создать чат' });
+      return null;
+    }
+    chats.unshift(chat);
+    index = 0;
+    changed = true;
+    created = true;
+  }
+
+  const normalized = normalizeStudentSocialChat(chat);
+  if (!normalized || normalized.type !== type || normalized.teacherId !== teacherId || normalized.id !== expectedId) {
+    res.status(403).json({ error: 'Недостаточно прав' });
+    return null;
+  }
+  if (type === 'direct' && !studentIds.every((studentId) => normalized.studentIds.includes(studentId))) {
+    res.status(403).json({ error: 'Недостаточно прав' });
+    return null;
+  }
+
+  if (JSON.stringify(chat) !== JSON.stringify(normalized)) {
+    chats[index] = normalized;
+    changed = true;
+  }
+
+  if (changed && persist) {
+    writeStudentSocialChatsDb({ ...db, chats });
+  }
+
+  return {
+    chat: normalized,
+    chats,
+    index,
+    student,
+    peer,
+    settings,
+    db,
+    changed,
+    created,
+  };
+};
+
+const ensureTeacherSocialGroupChatAccess = (req, res, teacherId, options = {}) => {
+  if (!isStaffRole(req.auth)) {
+    res.status(403).json({ error: 'Недостаточно прав' });
+    return null;
+  }
+
+  const effectiveTeacherId = isTeacherRole(req.auth)
+    ? String(req.auth.id || '').trim()
+    : String(teacherId || '').trim();
+  const teacher = ensureTeacherAccess(req, res, effectiveTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return null;
+
+  const db = options.db || readStudentSocialChatsDb();
+  const chats = Array.isArray(options.chats) ? options.chats : db.chats;
+  const settings = getStudentSocialChatSettings(teacher.id, db);
+  const expectedId = buildStudentGroupChatId(teacher.id);
+  let index = chats.findIndex((entry) => entry?.id === expectedId);
+  let chat = index >= 0 ? chats[index] : null;
+  let changed = false;
+  let created = false;
+
+  if (!chat) {
+    chat = createStudentSocialChat({ type: 'group', teacherId: teacher.id });
+    if (!chat) {
+      res.status(400).json({ error: 'Не удалось создать чат' });
+      return null;
+    }
+    chats.unshift(chat);
+    index = 0;
+    changed = true;
+    created = true;
+  }
+
+  const normalized = normalizeStudentSocialChat(chat);
+  if (!normalized || normalized.type !== 'group' || normalized.teacherId !== teacher.id || normalized.id !== expectedId) {
+    res.status(403).json({ error: 'Недостаточно прав' });
+    return null;
+  }
+
+  if (JSON.stringify(chat) !== JSON.stringify(normalized)) {
+    chats[index] = normalized;
+    chat = normalized;
+    changed = true;
+  } else {
+    chat = normalized;
+  }
+
+  if (changed && options.persist !== false) {
+    writeStudentSocialChatsDb({ ...db, chats });
+  }
+
+  return {
+    chat,
+    chats,
+    index,
+    teacher,
+    settings,
+    db,
+    changed,
+    created,
+  };
 };
 
 const normalizeMockExamAccess = (access, fallbackAll = true) => {
@@ -3682,10 +4484,25 @@ const ensureStudentTeacherChatAccess = (req, res, chatId, options = {}) => {
   };
 };
 
-const createStudentTeacherChatMessage = ({ senderRole, senderId, senderName, text, imageDataUrl, imageName }) => {
+const createStudentTeacherChatMessage = ({
+  senderRole,
+  senderId,
+  senderName,
+  text,
+  imageDataUrl,
+  imageName,
+  fileDataUrl,
+  fileName,
+  fileMimeType,
+  fileSize,
+}) => {
   const normalizedText = normalizeStudentChatMessageText(text);
   const normalizedImageDataUrl = normalizeStudentChatImageDataUrl(imageDataUrl);
   const normalizedImageName = normalizeStudentChatImageName(imageName);
+  const normalizedFileDataUrl = normalizeStudentChatFileDataUrl(fileDataUrl);
+  const normalizedFileName = normalizeStudentChatFileName(fileName);
+  const normalizedFileMimeType = normalizeStudentChatFileMimeType(fileMimeType) || getDataUrlMimeType(normalizedFileDataUrl);
+  const normalizedFileSize = normalizeStudentChatFileSize(fileSize, normalizedFileDataUrl);
   const message = {
     id: crypto.randomUUID(),
     senderRole: senderRole === 'teacher' ? 'teacher' : 'student',
@@ -3697,6 +4514,12 @@ const createStudentTeacherChatMessage = ({ senderRole, senderId, senderName, tex
   if (normalizedImageDataUrl) {
     message.imageDataUrl = normalizedImageDataUrl;
     if (normalizedImageName) message.imageName = normalizedImageName;
+  }
+  if (normalizedFileDataUrl) {
+    message.fileDataUrl = normalizedFileDataUrl;
+    if (normalizedFileName) message.fileName = normalizedFileName;
+    if (normalizedFileMimeType) message.fileMimeType = normalizedFileMimeType;
+    if (normalizedFileSize) message.fileSize = normalizedFileSize;
   }
   return message;
 };
@@ -6484,6 +7307,7 @@ const getLeaderboardProfileProgressSummary = (studentData, testsDb) => {
   Object.entries(progress || {}).forEach(([taskId, value]) => {
     const taskNum = Number(taskId);
     if (!Number.isFinite(taskNum)) return;
+    if (isPythonInfiniteTrainingTaskNumber(taskNum)) return;
     const normalizedTaskId = String(Math.trunc(taskNum));
     const normalizedValue = Math.max(0, Math.min(100, Number(value) || 0));
     progressByTaskId.set(normalizedTaskId, normalizedValue);
@@ -6493,6 +7317,7 @@ const getLeaderboardProfileProgressSummary = (studentData, testsDb) => {
   Object.entries(testsDb || {}).forEach(([taskId, taskValue]) => {
     const taskNum = Number(taskId);
     if (!Number.isFinite(taskNum)) return;
+    if (isPythonInfiniteTrainingTaskNumber(taskNum)) return;
     if (!taskValue || typeof taskValue !== 'object') return;
     taskIds.add(String(Math.trunc(taskNum)));
   });
@@ -6533,6 +7358,7 @@ const getLeaderboardProgressKindForTask = (taskNumber) => {
 
 const shouldIncludeLeaderboardProgressKind = (taskNumber, kind = 'all') => {
   const normalizedKind = String(kind || 'all').trim();
+  if (isPythonInfiniteTrainingTaskNumber(taskNumber)) return false;
   const taskKind = getLeaderboardProgressKindForTask(taskNumber);
   if (!taskKind) return false;
   if (normalizedKind === 'all') return true;
@@ -7149,6 +7975,33 @@ const buildMockTimerChestPanelState = (data, now = new Date()) => {
   };
 };
 
+const getPythonInfiniteTrainingChestGain = (previousSolvedCount, nextSolvedCount) => {
+  const previous = Math.max(0, Math.floor(Number(previousSolvedCount) || 0));
+  const next = Math.max(0, Math.floor(Number(nextSolvedCount) || 0));
+  const interval = Math.max(1, Math.floor(Number(PYTHON_INFINITE_TRAINING_CHEST_INTERVAL) || 5));
+  return Math.max(0, Math.floor(next / interval) - Math.floor(previous / interval));
+};
+
+const appendPythonInfiniteTrainingChests = (data, chestCount, solvedCount, createdAt = new Date().toISOString()) => {
+  const count = Math.max(0, Math.floor(Number(chestCount) || 0));
+  if (count <= 0) return normalizeMockTimerChestQueue(data?.mockTimerChests);
+  const queue = normalizeMockTimerChestQueue(data?.mockTimerChests);
+  for (let index = 0; index < count; index += 1) {
+    queue.push({
+      id: crypto.randomUUID(),
+      source: 'mock-timer-chest',
+      mockExamId: 'python-infinite-training',
+      mockExamTitle: 'Бесконечная тренировка Python',
+      milestoneScore: 0,
+      chestIndex: queue.length + 1,
+      createdAt,
+      coinsGained: 0,
+      trainingSolvedCount: Math.max(0, Math.floor(Number(solvedCount) || 0)),
+    });
+  }
+  return queue;
+};
+
 const createMockTimerChestPendingReward = (data, preparedAt = new Date().toISOString()) => {
   let artifactTotalPulls = normalizeArtifactTotalPulls(data?.artifactTotalPulls);
   const artifactIds = [];
@@ -7634,6 +8487,109 @@ const normalizeNotesByTaskMap = (value) => {
   return next;
 };
 
+const STUDENT_NAV_SEEN_SECTIONS = new Set(['schedule', 'progress']);
+
+const normalizeStudentNavSeenTimestamp = (value) => {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const parsed = Date.parse(trimmed);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : '';
+};
+
+const normalizeStudentNavSeen = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    scheduleHomeworkAt: normalizeStudentNavSeenTimestamp(source.scheduleHomeworkAt),
+    mockExamsAt: normalizeStudentNavSeenTimestamp(source.mockExamsAt),
+    initializedAt: normalizeStudentNavSeenTimestamp(source.initializedAt),
+  };
+};
+
+const getStudentNavTimestampMs = (...values) => {
+  for (const value of values) {
+    if (typeof value !== 'string' || !value.trim()) continue;
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+};
+
+const getStudentHomeworkActivityMs = (entry) => (
+  getStudentNavTimestampMs(entry?.updatedAt, entry?.issuedAt, entry?.createdAt)
+);
+
+const getStudentHomeworkNavItems = (studentData) => {
+  const homeworks = Array.isArray(studentData?.homeworks) ? studentData.homeworks : [];
+  if (homeworks.length > 0) return homeworks;
+  const nextLesson = studentData?.nextLesson && typeof studentData.nextLesson === 'object'
+    ? studentData.nextLesson
+    : null;
+  const hasLegacyContent = Boolean(
+    nextLesson?.homeWork ||
+    nextLesson?.lessonLink ||
+    nextLesson?.boardLink ||
+    (Array.isArray(nextLesson?.goals) && nextLesson.goals.length > 0)
+  );
+  return hasLegacyContent ? [nextLesson] : [];
+};
+
+const getStudentMockResultActivityMs = (entry) => (
+  getStudentNavTimestampMs(entry?.updatedAt, entry?.createdAt, entry?.date)
+);
+
+const getStudentVisibleMockExamActivityMs = (entry) => (
+  getStudentNavTimestampMs(entry?.updatedAt, entry?.createdAt)
+);
+
+const getStudentNavLatestIso = (items, getActivityMs) => {
+  const latestMs = (Array.isArray(items) ? items : []).reduce((max, item) => (
+    Math.max(max, getActivityMs(item))
+  ), 0);
+  return latestMs > 0 ? new Date(latestMs).toISOString() : '';
+};
+
+const getStudentVisibleMockExamNavItems = (studentId) => {
+  const list = readMockExamsDb();
+  return (Array.isArray(list) ? list : []).filter((exam) => (
+    isMockExamVisibleToStudent(exam, studentId)
+  ));
+};
+
+const buildStudentNavNewSummary = (studentId, studentData) => {
+  const navSeen = normalizeStudentNavSeen(studentData?.navSeen);
+  const homeworks = getStudentHomeworkNavItems(studentData);
+  const mockResults = Array.isArray(studentData?.mocks) ? studentData.mocks : [];
+  const mockExams = getStudentVisibleMockExamNavItems(studentId);
+  const homeworkSeenMs = getStudentNavTimestampMs(navSeen.scheduleHomeworkAt);
+  const mockSeenMs = getStudentNavTimestampMs(navSeen.mockExamsAt);
+  const homeworkLatestAt = getStudentNavLatestIso(homeworks, getStudentHomeworkActivityMs);
+  const mockResultLatestAt = getStudentNavLatestIso(mockResults, getStudentMockResultActivityMs);
+  const mockExamLatestAt = getStudentNavLatestIso(mockExams, getStudentVisibleMockExamActivityMs);
+  const mockLatestMs = Math.max(
+    getStudentNavTimestampMs(mockResultLatestAt),
+    getStudentNavTimestampMs(mockExamLatestAt)
+  );
+  const scheduleCount = homeworks.reduce((count, item) => (
+    count + (getStudentHomeworkActivityMs(item) > homeworkSeenMs ? 1 : 0)
+  ), 0);
+  const progressCount = mockResults.reduce((count, item) => (
+    count + (getStudentMockResultActivityMs(item) > mockSeenMs ? 1 : 0)
+  ), 0) + mockExams.reduce((count, item) => (
+    count + (getStudentVisibleMockExamActivityMs(item) > mockSeenMs ? 1 : 0)
+  ), 0);
+  return {
+    schedule: {
+      count: scheduleCount,
+      latestAt: homeworkLatestAt,
+    },
+    progress: {
+      count: progressCount,
+      latestAt: mockLatestMs > 0 ? new Date(mockLatestMs).toISOString() : '',
+    },
+  };
+};
+
 const getStudentData = (studentId) => {
   const db = readProgressDb();
   const raw = db[studentId];
@@ -7669,6 +8625,7 @@ const getStudentData = (studentId) => {
       activeProfileThemeId: '',
       leaderboardAlias: '',
       leaderboardAliasRewardClaimed: false,
+      navSeen: normalizeStudentNavSeen(null),
     };
   }
   if (
@@ -7698,6 +8655,7 @@ const getStudentData = (studentId) => {
     || Object.prototype.hasOwnProperty.call(raw, 'activeProfileThemeId')
     || Object.prototype.hasOwnProperty.call(raw, 'leaderboardAlias')
     || Object.prototype.hasOwnProperty.call(raw, 'leaderboardAliasRewardClaimed')
+    || Object.prototype.hasOwnProperty.call(raw, 'navSeen')
   ) {
     const progress = raw.progress && typeof raw.progress === 'object' && !Array.isArray(raw.progress) ? raw.progress : {};
     const solvedByTask = raw.solvedByTask && typeof raw.solvedByTask === 'object' ? raw.solvedByTask : {};
@@ -7769,6 +8727,7 @@ const getStudentData = (studentId) => {
       activeProfileThemeId,
       leaderboardAlias,
       leaderboardAliasRewardClaimed: Boolean(raw.leaderboardAliasRewardClaimed) || Boolean(leaderboardAlias),
+      navSeen: normalizeStudentNavSeen(raw.navSeen),
     };
   }
   const legacyProgress = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -7804,6 +8763,7 @@ const getStudentData = (studentId) => {
     activeProfileThemeId: '',
     leaderboardAlias: '',
     leaderboardAliasRewardClaimed: false,
+    navSeen: normalizeStudentNavSeen(null),
   };
 };
 
@@ -7841,10 +8801,46 @@ const setStudentData = (studentId, data) => {
     activeProfileThemeId: normalizeActiveProfileThemeId(data.activeProfileThemeId, data.profileThemeInventory),
     leaderboardAlias: normalizeLeaderboardAlias(data.leaderboardAlias),
     leaderboardAliasRewardClaimed: Boolean(data.leaderboardAliasRewardClaimed),
+    navSeen: normalizeStudentNavSeen(data.navSeen),
   };
   db[studentId] = payload;
   writeProgressDb(db);
   return payload;
+};
+
+const createStudentNavSeenBaseline = (studentId, studentData) => {
+  const summary = buildStudentNavNewSummary(studentId, studentData);
+  const now = new Date().toISOString();
+  return {
+    scheduleHomeworkAt: summary.schedule.latestAt || now,
+    mockExamsAt: summary.progress.latestAt || now,
+    initializedAt: now,
+  };
+};
+
+const ensureStudentNavSeenInitialized = (studentId, studentData) => {
+  const current = normalizeStudentNavSeen(studentData?.navSeen);
+  if (current.initializedAt) {
+    return {
+      data: {
+        ...studentData,
+        navSeen: current,
+      },
+      changed: false,
+    };
+  }
+  const navSeen = createStudentNavSeenBaseline(studentId, {
+    ...studentData,
+    navSeen: current,
+  });
+  const updated = setStudentData(studentId, {
+    ...studentData,
+    navSeen,
+  });
+  return {
+    data: updated,
+    changed: true,
+  };
 };
 
 const createProgressBackup = (label) => {
@@ -8198,6 +9194,10 @@ const filterTargetsByCount = (targets, count) => {
 };
 
 const isPythonTaskNumber = (taskNum) => Number.isFinite(taskNum) && taskNum >= 100;
+const isPythonInfiniteTrainingTaskNumber = (taskNum) => (
+  Number.isFinite(Number(taskNum))
+  && Math.trunc(Number(taskNum)) === PYTHON_INFINITE_TRAINING_TASK_NUMBER
+);
 const isClassicTaskNumber = (taskNum) => Number.isFinite(taskNum) && taskNum >= 1 && taskNum <= 27;
 const isKnownTaskNumber = (taskNum) => isClassicTaskNumber(taskNum) || isPythonTaskNumber(taskNum);
 const GOAL_TYPE_TASK = 'task';
@@ -9017,7 +10017,7 @@ const buildSignupLeadPushPayload = (chat, message) => {
 
 const buildStudentTeacherPushPayloadForTeacher = (chat, message, student) => {
   const studentName = String(student?.name || message?.senderName || 'Ученик').trim() || 'Ученик';
-  const text = trimPushBodyText(message?.text || (message?.imageDataUrl ? 'Изображение' : ''));
+  const text = trimPushBodyText(message?.text || (message?.imageDataUrl ? 'Изображение' : (message?.fileDataUrl ? 'Файл' : '')));
   return {
     title: `Новое сообщение от ${studentName}`,
     body: text || 'Откройте чаты учеников, чтобы прочитать сообщение.',
@@ -9038,7 +10038,7 @@ const buildStudentTeacherPushPayloadForTeacher = (chat, message, student) => {
 
 const buildStudentTeacherPushPayloadForStudent = (chat, message, teacher) => {
   const teacherName = String(teacher?.name || message?.senderName || 'Преподаватель').trim() || 'Преподаватель';
-  const text = trimPushBodyText(message?.text || (message?.imageDataUrl ? 'Изображение' : ''));
+  const text = trimPushBodyText(message?.text || (message?.imageDataUrl ? 'Изображение' : (message?.fileDataUrl ? 'Файл' : '')));
   return {
     title: `Ответ от ${teacherName}`,
     body: text || 'Откройте чат с преподавателем, чтобы прочитать сообщение.',
@@ -11054,22 +12054,149 @@ app.get('/api/student-chat/messages', (req, res) => {
   }
 
   const teacherName = findTeacherById(chat.teacherId)?.name || 'Преподаватель';
+  const page = buildStudentChatMessagesPage(chat.messages, req.query);
   return res.json({
     chat: {
       ...buildStudentTeacherChatSummary(chat, student),
       teacherName,
       studentName: student?.name || 'Ученик',
     },
-    messages: Array.isArray(chat.messages) ? chat.messages : [],
+    messages: page.messages,
+    pagination: page.pagination,
+  });
+});
+
+app.get('/api/student-chat/summary', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const chats = readStudentChatsDb();
+  const access = ensureStudentTeacherChatAccess(
+    req,
+    res,
+    buildStudentTeacherChatId(req.auth?.id),
+    { chats, createIfMissing: true }
+  );
+  if (!access) return;
+
+  const { chat, student } = access;
+  const teacherName = findTeacherById(chat.teacherId)?.name || 'Преподаватель';
+  return res.json({
+    chat: {
+      ...buildStudentTeacherChatSummary(chat, student),
+      teacherName,
+      studentName: student?.name || 'Ученик',
+    },
+  });
+});
+
+app.get('/api/student-nav-new-summary', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const studentId = req.auth.id;
+  const data = getStudentData(studentId);
+  const initialized = ensureStudentNavSeenInitialized(studentId, data);
+  return res.json(buildStudentNavNewSummary(studentId, initialized.data));
+});
+
+app.patch('/api/student-nav-new-summary/read', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const studentId = req.auth.id;
+  const rawSections = Array.isArray(req.body?.sections)
+    ? req.body.sections
+    : [req.body?.section];
+  const sections = rawSections
+    .map((section) => String(section || '').trim())
+    .filter((section) => STUDENT_NAV_SEEN_SECTIONS.has(section));
+  if (sections.length === 0) {
+    return res.status(400).json({ error: 'sections required' });
+  }
+
+  const data = getStudentData(studentId);
+  const initialized = ensureStudentNavSeenInitialized(studentId, data);
+  const summary = buildStudentNavNewSummary(studentId, initialized.data);
+  const currentSeen = normalizeStudentNavSeen(initialized.data.navSeen);
+  const now = new Date().toISOString();
+  const nextSeen = {
+    ...currentSeen,
+    initializedAt: currentSeen.initializedAt || now,
+  };
+  if (sections.includes('schedule')) {
+    nextSeen.scheduleHomeworkAt = summary.schedule.latestAt || now;
+  }
+  if (sections.includes('progress')) {
+    nextSeen.mockExamsAt = summary.progress.latestAt || now;
+  }
+
+  const updated = setStudentData(studentId, {
+    ...initialized.data,
+    navSeen: nextSeen,
+  });
+  return res.json(buildStudentNavNewSummary(studentId, updated));
+});
+
+app.get('/api/student-chat-notification-settings', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = findStudentById(req.auth.id);
+  if (!student?.id) return res.status(404).json({ error: 'Ученик не найден' });
+  return res.json({
+    studentId: student.id,
+    teacherId: student.teacherId || '',
+    settings: getStudentChatNotificationSettings(student.id),
+  });
+});
+
+app.patch('/api/student-chat-notification-settings', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = findStudentById(req.auth.id);
+  if (!student?.id) return res.status(404).json({ error: 'Ученик не найден' });
+
+  const patch = {};
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'teacherEnabled')) {
+    patch.teacherEnabled = Boolean(req.body.teacherEnabled);
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'groupEnabled')) {
+    patch.groupEnabled = Boolean(req.body.groupEnabled);
+  }
+  const directChatId = String(req.body?.directChatId || '').trim();
+  if (directChatId && Object.prototype.hasOwnProperty.call(req.body || {}, 'directEnabled')) {
+    const directStudentIds = getStudentIdsFromDirectChatId(directChatId);
+    if (directStudentIds.length !== 2 || !directStudentIds.includes(student.id)) {
+      return res.status(400).json({ error: 'Некорректный личный чат' });
+    }
+    const peerId = directStudentIds.find((id) => id !== student.id);
+    const peer = findStudentById(peerId);
+    if (!peer?.id || String(peer.teacherId || '').trim() !== String(student.teacherId || '').trim()) {
+      return res.status(403).json({ error: 'Личный чат недоступен' });
+    }
+    patch.directByChatId = {
+      [directChatId]: Boolean(req.body.directEnabled),
+    };
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(patch, 'teacherEnabled')
+    && !Object.prototype.hasOwnProperty.call(patch, 'groupEnabled')
+    && !patch.directByChatId) {
+    return res.status(400).json({ error: 'Нет изменений' });
+  }
+
+  const settings = setStudentChatNotificationSettings(student.id, patch);
+  return res.json({
+    ok: true,
+    studentId: student.id,
+    settings,
   });
 });
 
 app.post('/api/student-chat/messages', (req, res) => {
   if (!isStudentRole(req.auth)) return forbid(res);
   const text = normalizeStudentChatMessageText(req.body?.text);
-  const imageDataUrl = normalizeStudentChatImageDataUrl(req.body?.imageDataUrl);
-  const imageName = normalizeStudentChatImageName(req.body?.imageName);
-  if (!text && !imageDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте изображение' });
+  const {
+    imageDataUrl,
+    imageName,
+    fileDataUrl,
+    fileName,
+    fileMimeType,
+    fileSize,
+  } = normalizeStudentChatAttachmentPayload(req.body);
+  if (!text && !imageDataUrl && !fileDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
 
   const chats = readStudentChatsDb();
   const access = ensureStudentTeacherChatAccess(
@@ -11089,6 +12216,10 @@ app.post('/api/student-chat/messages', (req, res) => {
     text,
     imageDataUrl,
     imageName,
+    fileDataUrl,
+    fileName,
+    fileMimeType,
+    fileSize,
   });
   if (!hasStudentTeacherChatMessageContent(message) || !message.senderId) {
     return res.status(400).json({ error: 'Некорректное сообщение' });
@@ -11210,22 +12341,30 @@ app.get('/api/student-chats/:chatId/messages', (req, res) => {
   }
 
   const teacherName = findTeacherById(chat.teacherId)?.name || 'Преподаватель';
+  const page = buildStudentChatMessagesPage(chat.messages, req.query);
   return res.json({
     chat: {
       ...buildStudentTeacherChatSummary(chat, student),
       teacherName,
       studentName: student?.name || 'Ученик',
     },
-    messages: Array.isArray(chat.messages) ? chat.messages : [],
+    messages: page.messages,
+    pagination: page.pagination,
   });
 });
 
 app.post('/api/student-chats/:chatId/messages', (req, res) => {
   if (!isStaffRole(req.auth)) return forbid(res);
   const text = normalizeStudentChatMessageText(req.body?.text);
-  const imageDataUrl = normalizeStudentChatImageDataUrl(req.body?.imageDataUrl);
-  const imageName = normalizeStudentChatImageName(req.body?.imageName);
-  if (!text && !imageDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте изображение' });
+  const {
+    imageDataUrl,
+    imageName,
+    fileDataUrl,
+    fileName,
+    fileMimeType,
+    fileSize,
+  } = normalizeStudentChatAttachmentPayload(req.body);
+  if (!text && !imageDataUrl && !fileDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
 
   const chats = readStudentChatsDb();
   const access = ensureStudentTeacherChatAccess(req, res, req.params.chatId, { chats, createIfMissing: true });
@@ -11245,6 +12384,10 @@ app.post('/api/student-chats/:chatId/messages', (req, res) => {
     text,
     imageDataUrl,
     imageName,
+    fileDataUrl,
+    fileName,
+    fileMimeType,
+    fileSize,
   });
   if (!hasStudentTeacherChatMessageContent(message) || !message.senderId) {
     return res.status(400).json({ error: 'Некорректное сообщение' });
@@ -11255,10 +12398,12 @@ app.post('/api/student-chats/:chatId/messages', (req, res) => {
   const updatedChat = chats[index];
 
   const studentPushPayload = buildStudentTeacherPushPayloadForStudent(updatedChat, message, teacher);
-  sendPushNotificationToStudentId(student.id, studentPushPayload, { logTarget: `student:${student.id}` })
-    .catch((error) => {
-      console.error('[push] failed to send student chat message notification to student:', error);
-    });
+  if (isStudentTeacherChatNotificationEnabled(student.id)) {
+    sendPushNotificationToStudentId(student.id, studentPushPayload, { logTarget: `student:${student.id}` })
+      .catch((error) => {
+        console.error('[push] failed to send student chat message notification to student:', error);
+      });
+  }
 
   const teacherName = findTeacherById(updatedChat.teacherId)?.name || senderName;
   return res.json({
@@ -11269,6 +12414,333 @@ app.post('/api/student-chats/:chatId/messages', (req, res) => {
       teacherName,
       studentName: student?.name || 'Ученик',
     },
+  });
+});
+
+app.get('/api/student-social-chat-settings', (req, res) => {
+  let teacherId = '';
+  let teacher = null;
+  if (isStudentRole(req.auth)) {
+    const student = findStudentById(req.auth.id);
+    if (!student?.teacherId) return res.status(404).json({ error: 'Ученик не найден' });
+    teacherId = String(student.teacherId || '').trim();
+    teacher = findTeacherById(teacherId);
+    if (!teacher) return res.status(404).json({ error: 'Учитель не найден' });
+  } else if (isTeacherRole(req.auth)) {
+    teacherId = String(req.auth.id || '').trim();
+  } else if (isAdminRole(req.auth)) {
+    teacherId = String(req.query?.teacherId || '').trim();
+  } else {
+    return forbid(res);
+  }
+
+  if (!teacher) {
+    teacher = ensureTeacherAccess(req, res, teacherId, { missingError: 'teacherId required' });
+  }
+  if (!teacher) return;
+  return res.json({
+    teacherId: teacher.id,
+    settings: getStudentSocialChatSettings(teacher.id),
+  });
+});
+
+app.patch('/api/student-social-chat-settings', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const effectiveTeacherId = isTeacherRole(req.auth)
+    ? req.auth.id
+    : String(req.body?.teacherId || req.query?.teacherId || '').trim();
+  const teacher = ensureTeacherAccess(req, res, effectiveTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+
+  const patch = {};
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'directEnabled')) {
+    patch.directEnabled = Boolean(req.body.directEnabled);
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'groupEnabled')) {
+    patch.groupEnabled = Boolean(req.body.groupEnabled);
+  }
+  if (!Object.prototype.hasOwnProperty.call(patch, 'directEnabled')
+    && !Object.prototype.hasOwnProperty.call(patch, 'groupEnabled')) {
+    return res.status(400).json({ error: 'Нет изменений' });
+  }
+
+  const settings = setStudentSocialChatSettings(teacher.id, patch);
+  return res.json({
+    ok: true,
+    teacherId: teacher.id,
+    settings,
+  });
+});
+
+app.get('/api/teacher-social-group-chat', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const effectiveTeacherId = isTeacherRole(req.auth)
+    ? req.auth.id
+    : String(req.query?.teacherId || '').trim();
+  const db = readStudentSocialChatsDb();
+  const access = ensureTeacherSocialGroupChatAccess(req, res, effectiveTeacherId, {
+    db,
+    chats: db.chats,
+    persist: true,
+  });
+  if (!access) return;
+
+  const { index, teacher, settings } = access;
+  let chat = access.chat;
+  let changed = access.changed || access.created;
+  if (String(req.query?.markRead || '').trim() === '1') {
+    const markResult = markStudentSocialChatReadByTeacher(chat);
+    if (markResult.changed) {
+      chat = normalizeStudentSocialChat(markResult.chat) || markResult.chat;
+      db.chats[index] = chat;
+      changed = true;
+    }
+  }
+  if (changed) writeStudentSocialChatsDb(db);
+
+  const students = readStudentsDb()
+    .filter((entry) => isActiveStudent(entry) && String(entry.teacherId || '').trim() === teacher.id)
+    .sort((left, right) => getStudentDisplayName(left).localeCompare(getStudentDisplayName(right), 'ru'))
+    .map(buildStudentPeerProfile);
+  const page = buildStudentChatMessagesPage(chat.messages, req.query);
+
+  return res.json({
+    teacherId: teacher.id,
+    settings,
+    students,
+    groupChat: buildStudentSocialChatSummary(chat, null, { settings }),
+    messages: page.messages,
+    pagination: page.pagination,
+  });
+});
+
+app.post('/api/teacher-social-group-chat/messages', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const text = normalizeStudentChatMessageText(req.body?.text);
+  const {
+    imageDataUrl,
+    imageName,
+    fileDataUrl,
+    fileName,
+    fileMimeType,
+    fileSize,
+  } = normalizeStudentChatAttachmentPayload(req.body);
+  if (!text && !imageDataUrl && !fileDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
+
+  const effectiveTeacherId = isTeacherRole(req.auth)
+    ? req.auth.id
+    : String(req.body?.teacherId || req.query?.teacherId || '').trim();
+  const db = readStudentSocialChatsDb();
+  const access = ensureTeacherSocialGroupChatAccess(req, res, effectiveTeacherId, {
+    db,
+    chats: db.chats,
+    persist: true,
+  });
+  if (!access) return;
+  if (access.settings?.groupEnabled === false) {
+    return res.status(403).json({ error: 'Общий чат группы отключён' });
+  }
+
+  const { index, teacher, settings } = access;
+  const senderName = String(teacher?.name || req.auth?.name || 'Преподаватель').trim() || 'Преподаватель';
+  const message = createStudentTeacherChatMessage({
+    senderRole: 'teacher',
+    senderId: String(teacher?.id || req.auth?.id || '').trim(),
+    senderName,
+    text,
+    imageDataUrl,
+    imageName,
+    fileDataUrl,
+    fileName,
+    fileMimeType,
+    fileSize,
+  });
+  if (!hasStudentTeacherChatMessageContent(message) || !message.senderId) {
+    return res.status(400).json({ error: 'Некорректное сообщение' });
+  }
+
+  db.chats[index] = normalizeStudentSocialChat(appendStudentSocialChatMessage(access.chat, message)) || access.chat;
+  writeStudentSocialChatsDb(db);
+  const updatedChat = db.chats[index];
+
+  return res.json({
+    ok: true,
+    message,
+    chat: buildStudentSocialChatSummary(updatedChat, null, { settings }),
+  });
+});
+
+app.get('/api/student-social-chats', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = findStudentById(req.auth.id);
+  if (!student?.id || !student?.teacherId) return res.status(404).json({ error: 'Ученик не найден' });
+
+  const teacherId = String(student.teacherId || '').trim();
+  const db = readStudentSocialChatsDb();
+  const settings = getStudentSocialChatSettings(teacherId, db);
+  const notificationSettings = getStudentChatNotificationSettings(student.id, db);
+  const classmates = readStudentsDb()
+    .filter((entry) => isActiveStudent(entry) && String(entry.teacherId || '').trim() === teacherId)
+    .sort((left, right) => getStudentDisplayName(left).localeCompare(getStudentDisplayName(right), 'ru'));
+  const peers = classmates
+    .filter((entry) => entry.id !== student.id)
+    .map(buildStudentPeerProfile);
+  const chatsById = new Map(db.chats.map((chat) => [chat.id, chat]));
+  const peerById = new Map(peers.map((peer) => [peer.id, peer]));
+
+  const groupChat = chatsById.get(buildStudentGroupChatId(teacherId))
+    || createStudentSocialChat({ type: 'group', teacherId });
+  const directChats = db.chats
+    .filter((chat) => (
+      chat?.type === 'direct'
+      && String(chat.teacherId || '').trim() === teacherId
+      && Array.isArray(chat.studentIds)
+      && chat.studentIds.includes(student.id)
+      && Array.isArray(chat.messages)
+      && chat.messages.length > 0
+    ))
+    .map((chat) => {
+      const peerId = chat.studentIds.find((item) => item !== student.id);
+      const peer = peerById.get(peerId);
+      if (!peer) return null;
+      return buildStudentSocialChatSummary(chat, student, { peer, settings, notificationSettings });
+    })
+    .filter(Boolean);
+
+  const sortedDirectChats = directChats
+    .sort((left, right) => {
+      const diff = getStudentSocialChatSortTimestamp(right) - getStudentSocialChatSortTimestamp(left);
+      if (diff !== 0) return diff;
+      return String(left.title || '').localeCompare(String(right.title || ''), 'ru');
+    })
+    .map((chat) => chat);
+
+  return res.json({
+    settings,
+    notificationSettings,
+    currentStudent: buildStudentPeerProfile(student),
+    students: peers,
+    groupChat: buildStudentSocialChatSummary(groupChat, student, { settings, notificationSettings }),
+    directChats: sortedDirectChats,
+  });
+});
+
+app.post('/api/student-social-chats/direct', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = findStudentById(req.auth.id);
+  if (!student?.id || !student?.teacherId) return res.status(404).json({ error: 'Ученик не найден' });
+
+  const peerStudentId = String(req.body?.peerStudentId || '').trim();
+  if (!peerStudentId) return res.status(400).json({ error: 'peerStudentId required' });
+  if (peerStudentId === student.id) return res.status(400).json({ error: 'Нельзя открыть чат с собой' });
+
+  const chatId = buildStudentDirectChatId(student.id, peerStudentId);
+  if (!chatId) return res.status(400).json({ error: 'Некорректный ученик' });
+
+  const db = readStudentSocialChatsDb();
+  const access = ensureStudentSocialChatAccess(req, res, chatId, {
+    db,
+    chats: db.chats,
+    createIfMissing: true,
+  });
+  if (!access) return;
+
+  const { chat, student: currentStudent, peer, settings } = access;
+  const notificationSettings = getStudentChatNotificationSettings(currentStudent.id, db);
+  return res.json({
+    chat: buildStudentSocialChatSummary(chat, currentStudent, {
+      peer: peer ? buildStudentPeerProfile(peer) : null,
+      settings,
+      notificationSettings,
+    }),
+    ...buildStudentChatMessagesPage(chat.messages, req.query),
+  });
+});
+
+app.get('/api/student-social-chats/:chatId/messages', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const db = readStudentSocialChatsDb();
+  const access = ensureStudentSocialChatAccess(req, res, req.params.chatId, {
+    db,
+    chats: db.chats,
+    createIfMissing: true,
+  });
+  if (!access) return;
+
+  const { index, student, peer, settings } = access;
+  let chat = access.chat;
+  let changed = access.changed || access.created;
+  const markResult = markStudentSocialChatReadByStudent(chat, student.id);
+  if (markResult.changed) {
+    chat = normalizeStudentSocialChat(markResult.chat) || markResult.chat;
+    db.chats[index] = chat;
+    changed = true;
+  }
+  if (changed) writeStudentSocialChatsDb(db);
+  const notificationSettings = getStudentChatNotificationSettings(student.id, db);
+
+  return res.json({
+    chat: buildStudentSocialChatSummary(chat, student, {
+      peer: peer ? buildStudentPeerProfile(peer) : null,
+      settings,
+      notificationSettings,
+    }),
+    ...buildStudentChatMessagesPage(chat.messages, req.query),
+  });
+});
+
+app.post('/api/student-social-chats/:chatId/messages', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const text = normalizeStudentChatMessageText(req.body?.text);
+  const {
+    imageDataUrl,
+    imageName,
+    fileDataUrl,
+    fileName,
+    fileMimeType,
+    fileSize,
+  } = normalizeStudentChatAttachmentPayload(req.body);
+  if (!text && !imageDataUrl && !fileDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
+
+  const db = readStudentSocialChatsDb();
+  const access = ensureStudentSocialChatAccess(req, res, req.params.chatId, {
+    db,
+    chats: db.chats,
+    createIfMissing: true,
+  });
+  if (!access) return;
+
+  const { index, student, peer, settings } = access;
+  const chat = access.chat;
+  const message = createStudentTeacherChatMessage({
+    senderRole: 'student',
+    senderId: student.id,
+    senderName: getStudentDisplayName(student),
+    text,
+    imageDataUrl,
+    imageName,
+    fileDataUrl,
+    fileName,
+    fileMimeType,
+    fileSize,
+  });
+  if (!hasStudentTeacherChatMessageContent(message) || !message.senderId) {
+    return res.status(400).json({ error: 'Некорректное сообщение' });
+  }
+
+  db.chats[index] = normalizeStudentSocialChat(appendStudentSocialChatMessage(chat, message)) || chat;
+  writeStudentSocialChatsDb(db);
+  const updatedChat = db.chats[index];
+  const notificationSettings = getStudentChatNotificationSettings(student.id, db);
+
+  return res.json({
+    ok: true,
+    message,
+    chat: buildStudentSocialChatSummary(updatedChat, student, {
+      peer: peer ? buildStudentPeerProfile(peer) : null,
+      settings,
+      notificationSettings,
+    }),
   });
 });
 
@@ -12789,7 +14261,7 @@ app.post('/api/students/:id/reset-code', (req, res) => {
 app.get('/api/tests', (req, res) => {
   const data = readTestsDb();
   if (isStudentRole(req.auth)) {
-    return res.json(sanitizeTestsDbForStudent(data || {}));
+    return res.json(sanitizeTestsDbForStudent(getTestsDbWithPythonInfiniteTraining(data)));
   }
   return res.json(data || {});
 });
@@ -13558,7 +15030,7 @@ app.post('/api/progress/solve', async (req, res) => {
   if (!Number.isFinite(taskNum)) {
     return res.status(400).json({ error: 'Некорректный номер задания' });
   }
-  const testsDb = readTestsDb();
+  const testsDb = getTestsDbWithPythonInfiniteTraining();
   const taskKey = String(taskNum);
   const levelKey = String(levelId).trim();
   const qKey = String(questionId).trim();
@@ -13620,6 +15092,7 @@ app.post('/api/progress/solve', async (req, res) => {
   const solvedCode = levelEntry.solvedCode && typeof levelEntry.solvedCode === 'object'
     ? { ...levelEntry.solvedCode }
     : {};
+  const previousSolvedCount = new Set(solvedList.map((id) => String(id ?? '').trim()).filter(Boolean)).size;
   let solvedAdded = false;
   let xpGained = 0;
   let coinsGained = 0;
@@ -13640,6 +15113,7 @@ app.post('/api/progress/solve', async (req, res) => {
       localDay: resolvedDayKey,
       xpGained,
       coinsGained,
+      ...(isPythonInfiniteTrainingTaskNumber(taskNum) ? { source: 'python-infinite-training' } : {}),
     });
   }
   if (solvedAdded) {
@@ -13720,7 +15194,29 @@ app.post('/api/progress/solve', async (req, res) => {
     }
   }
 
-  const updated = setStudentData(student.id, { ...data, solvedByTask, solvedEvents, progress, streak, xpTotal, coinsTotal });
+  const nextSolvedCount = new Set(solvedList.map((id) => String(id ?? '').trim()).filter(Boolean)).size;
+  const timerChestsGained = solvedAdded && isPythonInfiniteTrainingTaskNumber(taskNum) && levelKey === PYTHON_LEVEL_ID
+    ? getPythonInfiniteTrainingChestGain(previousSolvedCount, nextSolvedCount)
+    : 0;
+  const nextStudentPayload = {
+    ...data,
+    solvedByTask,
+    solvedEvents,
+    progress,
+    streak,
+    xpTotal,
+    coinsTotal,
+  };
+  if (timerChestsGained > 0) {
+    nextStudentPayload.mockTimerChests = appendPythonInfiniteTrainingChests(
+      data,
+      timerChestsGained,
+      nextSolvedCount
+    );
+    nextStudentPayload.mockTimerChestsTotal = normalizeCoinsTotal(data?.mockTimerChestsTotal) + timerChestsGained;
+  }
+
+  const updated = setStudentData(student.id, nextStudentPayload);
   res.json({
     taskProgress,
     progress: updated.progress,
@@ -13729,6 +15225,8 @@ app.post('/api/progress/solve', async (req, res) => {
     xpGained,
     coinsTotal: updated.coinsTotal,
     coinsGained,
+    timerChestsGained,
+    ...(timerChestsGained > 0 ? { mockTimerChests: buildMockTimerChestPanelState(updated) } : {}),
   });
   } catch (error) {
     console.error(error);
@@ -13741,7 +15239,7 @@ app.get('/api/teacher-solved-events', (req, res) => {
   if (isStudentRole(req.auth)) return forbid(res);
   const teacher = ensureTeacherAccess(req, res, teacherId);
   if (!teacher) return;
-  const testsDb = readTestsDb();
+  const testsDb = getTestsDbWithPythonInfiniteTraining();
   const students = readStudentsDb().filter((s) => s.teacherId === teacher.id && !s.deletedAt);
   const readIds = getTeacherSolvedEventReadIdSet(teacher, students.length);
   const readBeforeMs = getTeacherSolvedEventsReadBeforeMs(teacher);
@@ -14080,7 +15578,7 @@ app.get('/api/progress/solved-answers', (req, res) => {
   if (!Number.isFinite(taskNum)) {
     return res.status(400).json({ error: 'Некорректный номер задания' });
   }
-  const testsDb = readTestsDb();
+  const testsDb = getTestsDbWithPythonInfiniteTraining();
   const taskKey = String(taskNum);
   const levelKey = String(levelId);
   const taskLevels = testsDb?.[taskKey];
@@ -14208,7 +15706,7 @@ app.get('/api/progress/question-code', (req, res) => {
   const taskKey = String(taskNum);
   const levelKey = String(levelId);
   const questionKey = String(questionId).trim();
-  const testsDb = readTestsDb();
+  const testsDb = getTestsDbWithPythonInfiniteTraining();
   const { taskLevels, questions, question } = getQuestionEntryFromTestsDb(testsDb, taskNum, levelKey, questionKey);
   if (!taskLevels) return res.status(400).json({ error: 'Задание не найдено' });
   if (!questions) return res.status(400).json({ error: 'Уровень не найден' });
@@ -14252,7 +15750,7 @@ app.patch('/api/progress/question-code', (req, res) => {
   const taskKey = String(taskNum);
   const levelKey = String(levelId);
   const questionKey = String(questionId).trim();
-  const testsDb = readTestsDb();
+  const testsDb = getTestsDbWithPythonInfiniteTraining();
   const { taskLevels, questions, question } = getQuestionEntryFromTestsDb(testsDb, taskNum, levelKey, questionKey);
   if (!taskLevels) return res.status(400).json({ error: 'Задание не найдено' });
   if (!questions) return res.status(400).json({ error: 'Уровень не найден' });
@@ -15163,6 +16661,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
   const newEntry = {
     id: crypto.randomUUID(),
     issuedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     daysToComplete: normalizedDays,
     homeWork: payloadHomeWork,
     lessonLink: payloadLessonLink,
@@ -15178,6 +16677,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
     lessonLink: newEntry.lessonLink,
     boardLink: newEntry.boardLink,
     issuedAt: newEntry.issuedAt,
+    updatedAt: newEntry.updatedAt,
     daysToComplete: newEntry.daysToComplete,
     taskNumber: newEntry.taskNumber,
     levelId: newEntry.levelId,
@@ -15276,6 +16776,7 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
     homeWork: payloadHomeWork,
     lessonLink: payloadLessonLink,
     boardLink: payloadBoardLink,
+    updatedAt: new Date().toISOString(),
     daysToComplete: normalizedDays,
     taskNumber: normalizedTaskNumber,
     levelId: normalizedLevelId,
@@ -15291,6 +16792,7 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
         lessonLink: latestEntry.lessonLink,
         boardLink: latestEntry.boardLink,
         issuedAt: latestEntry.issuedAt,
+        updatedAt: latestEntry.updatedAt,
         daysToComplete: latestEntry.daysToComplete,
         taskNumber: latestEntry.taskNumber ?? null,
         levelId: latestEntry.levelId ?? null,

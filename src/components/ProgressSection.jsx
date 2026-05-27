@@ -537,6 +537,7 @@ const ProgressSection = ({
   initialSection,
   sectionJumpToken,
   onSectionChange,
+  mockNavNewCount = 0,
   onTaskStateChange,
   onStreakSaved,
   onMockAttemptSaved,
@@ -3379,7 +3380,7 @@ const ProgressSection = ({
             <button
               key={item.id}
               onClick={() => setSection(item.id)}
-              className={`progress-section-tab progress-section-tab--${item.id} ${active ? 'is-active' : ''} inline-flex min-w-0 items-center justify-center gap-1.5 md:gap-2 rounded-xl border px-2 py-2 md:px-4 md:py-2 text-[11px] sm:text-xs md:text-sm font-semibold transition-all ${
+              className={`progress-section-tab progress-section-tab--${item.id} ${active ? 'is-active' : ''} relative inline-flex min-w-0 items-center justify-center gap-1.5 md:gap-2 rounded-xl border px-2 py-2 md:px-4 md:py-2 text-[11px] sm:text-xs md:text-sm font-semibold transition-all ${
                 active
                   ? 'border-purple-600 bg-purple-600 text-white shadow-md shadow-purple-200'
                   : 'border-transparent bg-white text-slate-600 hover:border-purple-200 hover:text-purple-700'
@@ -3388,6 +3389,11 @@ const ProgressSection = ({
               <Icon size={14} />
               <span className="truncate sm:hidden">{sectionShortLabels[item.id] || item.label}</span>
               <span className="hidden sm:inline truncate">{item.label}</span>
+              {role === 'student' && item.id === 'mocks' && Number(mockNavNewCount) > 0 && (
+                <span className="progress-section-tab-new-badge">
+                  {Number(mockNavNewCount) > 99 ? '99+' : mockNavNewCount}
+                </span>
+              )}
             </button>
           );
         })}
@@ -4645,7 +4651,7 @@ const ProgressSection = ({
             </div>
           ), document.body)}
 
-          {activeMockExam && (
+          {activeMockExam && activeMockAttempt !== null && (
             <MockExamModal
               exam={activeMockExam}
               studentId={effectiveStudentId}

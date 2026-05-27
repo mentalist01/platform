@@ -195,13 +195,36 @@ const normalizeStudentChatMessagePayload = (payloadOrText) => {
       text: typeof payloadOrText.text === 'string' ? payloadOrText.text : '',
       imageDataUrl: typeof payloadOrText.imageDataUrl === 'string' ? payloadOrText.imageDataUrl : '',
       imageName: typeof payloadOrText.imageName === 'string' ? payloadOrText.imageName : '',
+      fileDataUrl: typeof payloadOrText.fileDataUrl === 'string' ? payloadOrText.fileDataUrl : '',
+      fileName: typeof payloadOrText.fileName === 'string' ? payloadOrText.fileName : '',
+      fileMimeType: typeof payloadOrText.fileMimeType === 'string' ? payloadOrText.fileMimeType : '',
+      fileSize: Number.isFinite(Number(payloadOrText.fileSize)) ? Number(payloadOrText.fileSize) : 0,
     };
   }
   return {
     text: typeof payloadOrText === 'string' ? payloadOrText : '',
     imageDataUrl: '',
     imageName: '',
+    fileDataUrl: '',
+    fileName: '',
+    fileMimeType: '',
+    fileSize: 0,
   };
+};
+
+const buildChatMessagesQuery = (options = {}) => {
+  const params = new URLSearchParams();
+  const limit = Number(options?.limit);
+  if (Number.isFinite(limit) && limit > 0) {
+    params.set('limit', String(Math.round(limit)));
+  }
+  const before = String(options?.before || options?.beforeId || '').trim();
+  if (before) params.set('before', before);
+  if (options?.markRead) params.set('markRead', '1');
+  const teacherId = String(options?.teacherId || '').trim();
+  if (teacherId) params.set('teacherId', teacherId);
+  const query = params.toString();
+  return query ? `?${query}` : '';
 };
 
 export const api = {
@@ -308,8 +331,42 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  getStudentChatMessages: async () => {
-    const res = await apiFetch('/api/student-chat/messages');
+  getStudentChatMessages: async (options = {}) => {
+    const res = await apiFetch(`/api/student-chat/messages${buildChatMessagesQuery(options)}`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getStudentChatSummary: async () => {
+    const res = await apiFetch('/api/student-chat/summary');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getStudentChatNotificationSettings: async () => {
+    const res = await apiFetch('/api/student-chat-notification-settings');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updateStudentChatNotificationSettings: async (patch = {}) => {
+    const res = await apiFetch('/api/student-chat-notification-settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getStudentNavNewSummary: async () => {
+    const res = await apiFetch('/api/student-nav-new-summary');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  markStudentNavSectionsRead: async (sections) => {
+    const list = Array.isArray(sections) ? sections : [sections];
+    const res = await apiFetch('/api/student-nav-new-summary/read', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sections: list }),
+    });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
@@ -328,10 +385,10 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  getStudentChatMessagesForTeacher: async (chatId) => {
+  getStudentChatMessagesForTeacher: async (chatId, options = {}) => {
     const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
     if (!id) return { chat: null, messages: [] };
-    const res = await apiFetch(`/api/student-chats/${encodeURIComponent(id)}/messages`);
+    const res = await apiFetch(`/api/student-chats/${encodeURIComponent(id)}/messages${buildChatMessagesQuery(options)}`);
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
@@ -340,6 +397,79 @@ export const api = {
     if (!id) throw new Error('chatId required');
     const payload = normalizeStudentChatMessagePayload(payloadOrText);
     const res = await apiFetch(`/api/student-chats/${encodeURIComponent(id)}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getStudentSocialChatSettings: async (teacherId = '') => {
+    const params = new URLSearchParams();
+    if (teacherId) params.append('teacherId', String(teacherId));
+    const qs = params.toString();
+    const res = await apiFetch(`/api/student-social-chat-settings${qs ? `?${qs}` : ''}`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updateStudentSocialChatSettings: async (settings = {}, teacherId = '') => {
+    const payload = { ...settings };
+    if (teacherId) payload.teacherId = String(teacherId);
+    const res = await apiFetch('/api/student-social-chat-settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getTeacherSocialGroupChat: async (teacherId = '', options = {}) => {
+    const res = await apiFetch(`/api/teacher-social-group-chat${buildChatMessagesQuery({
+      ...options,
+      teacherId,
+    })}`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  sendTeacherSocialGroupChatMessage: async (payloadOrText, teacherId = '') => {
+    const payload = normalizeStudentChatMessagePayload(payloadOrText);
+    if (teacherId) payload.teacherId = String(teacherId);
+    const res = await apiFetch('/api/teacher-social-group-chat/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getStudentSocialChats: async () => {
+    const res = await apiFetch('/api/student-social-chats');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  openStudentSocialDirectChat: async (peerStudentId, options = {}) => {
+    const id = typeof peerStudentId === 'string' ? peerStudentId.trim() : String(peerStudentId || '').trim();
+    if (!id) throw new Error('peerStudentId required');
+    const res = await apiFetch(`/api/student-social-chats/direct${buildChatMessagesQuery(options)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ peerStudentId: id }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getStudentSocialChatMessages: async (chatId, options = {}) => {
+    const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
+    if (!id) return { chat: null, messages: [] };
+    const res = await apiFetch(`/api/student-social-chats/${encodeURIComponent(id)}/messages${buildChatMessagesQuery(options)}`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  sendStudentSocialChatMessage: async (chatId, payloadOrText) => {
+    const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
+    if (!id) throw new Error('chatId required');
+    const payload = normalizeStudentChatMessagePayload(payloadOrText);
+    const res = await apiFetch(`/api/student-social-chats/${encodeURIComponent(id)}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

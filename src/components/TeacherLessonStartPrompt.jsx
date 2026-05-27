@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { BookOpen, Clock3, FileText, Loader2, PhoneCall, X } from 'lucide-react';
 
 import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
@@ -565,7 +566,7 @@ const TeacherLessonStartPrompt = ({
   const subject = String(activePrompt.subject || '').trim();
   const leadLabel = getPromptLeadLabel(activePrompt);
 
-  return (
+  const promptOverlay = (
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm">
       <div className="max-h-[92vh] min-h-[52vh] w-[min(760px,calc(100vw-1.5rem))] overflow-hidden rounded-3xl border border-violet-400/70 bg-[radial-gradient(circle_at_top_left,rgba(124,58,237,0.30),transparent_36%),linear-gradient(145deg,#08111f,#11172d_48%,#090d1a)] text-white shadow-[0_28px_90px_rgba(2,6,23,0.55)]">
         <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-4">
@@ -728,6 +729,10 @@ const TeacherLessonStartPrompt = ({
       </div>
     </div>
   );
+
+  if (typeof document === 'undefined') return promptOverlay;
+
+  return createPortal(promptOverlay, document.body);
 };
 
 export default TeacherLessonStartPrompt;

@@ -113,6 +113,56 @@ const parseNativePushLaunchUrl = (value) => {
   }
 };
 
+const PLATFORM_DOCUMENT_TITLE = 'Платформа';
+
+const formatUnreadMessageTitle = (count) => {
+  const safeCount = Math.max(1, Math.floor(Number(count) || 1));
+  if (safeCount === 1) return '1 новое сообщение';
+  if (safeCount % 10 >= 2 && safeCount % 10 <= 4 && (safeCount % 100 < 10 || safeCount % 100 >= 20)) {
+    return `${safeCount} новых сообщения`;
+  }
+  return `${safeCount} новых сообщений`;
+};
+
+const playIncomingMessageSound = async (audioContextRef) => {
+  if (typeof window === 'undefined') return;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return;
+
+  try {
+    const context = audioContextRef.current || new AudioContextClass();
+    audioContextRef.current = context;
+    if (context.state === 'suspended') {
+      await context.resume();
+    }
+
+    const now = context.currentTime;
+    const master = context.createGain();
+    master.gain.setValueAtTime(0.0001, now);
+    master.gain.exponentialRampToValueAtTime(0.16, now + 0.018);
+    master.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
+    master.connect(context.destination);
+
+    const first = context.createOscillator();
+    first.type = 'sine';
+    first.frequency.setValueAtTime(740, now);
+    first.frequency.exponentialRampToValueAtTime(1040, now + 0.12);
+    first.connect(master);
+    first.start(now);
+    first.stop(now + 0.18);
+
+    const second = context.createOscillator();
+    second.type = 'triangle';
+    second.frequency.setValueAtTime(1320, now + 0.12);
+    second.frequency.exponentialRampToValueAtTime(1640, now + 0.28);
+    second.connect(master);
+    second.start(now + 0.11);
+    second.stop(now + 0.42);
+  } catch {
+    // Some browsers allow sound only after the first user interaction.
+  }
+};
+
 /**
  * CONSTANTS & CONFIG
  */
@@ -149,7 +199,8 @@ const LEAGUE_TIERS = [
 ];
 const BLANK_LEAGUE = { id: 'blank', label: 'Без лиги', minXp: 0, icon: leagueBlank };
 const COLLAB_COLORS = ['#7c3aed', '#2563eb', '#0ea5e9', '#10b981', '#f97316', '#ef4444'];
-const BOARD_COLORS = ['#0f172a', '#7c3aed', '#2563eb', '#0ea5e9', '#10b981', '#f97316', '#ef4444'];
+const BOARD_DEFAULT_COLOR = '#1e3a8a';
+const BOARD_COLORS = [BOARD_DEFAULT_COLOR, '#7c3aed', '#2563eb', '#0ea5e9', '#10b981', '#f97316', '#ef4444'];
 const BOARD_STROKE_WIDTH = 2.6;
 const BOARD_LINE_WIDTH = 2.6;
 const BOARD_MIN_WIDTH = 1;
@@ -294,7 +345,7 @@ const normalizeBoardStoredItem = (rawValue) => {
   const base = {
     id: String(source.id || '').trim(),
     type: String(source.type || '').trim(),
-    color: typeof source.color === 'string' ? source.color : '#0f172a',
+    color: typeof source.color === 'string' ? source.color : BOARD_DEFAULT_COLOR,
     authorId: typeof source.authorId === 'string' ? source.authorId : '',
   };
   if (!base.id || !base.type) return null;
@@ -1543,6 +1594,7 @@ const COLLAB_TEST_FILE_DOC_KEY = 'collab-test-file';
 const COLLAB_EDITOR_CURSOR_ENABLED = true;
 const COLLAB_EDITOR_CURSOR_SYNC_MS = 16;
 const COLLAB_EDITOR_CURSOR_STALE_MS = 6500;
+const COLLAB_EDITOR_TYPING_STALE_MS = 2600;
 const COLLAB_EDITOR_CURSOR_IDLE_CLEAR_MS = 1200;
 
 const mergeRuntimeErrorText = (base, next) => {
@@ -2749,6 +2801,7 @@ const CollabSection = ({
   const collabCursorScrollDisposableRef = useRef(null);
   const collabCursorPositionDisposableRef = useRef(null);
   const collabCursorContentDisposableRef = useRef(null);
+  const collabCursorTypeDisposableRef = useRef(null);
   const collabCursorDragMouseDownDisposableRef = useRef(null);
   const collabCursorWindowStopRef = useRef(null);
   const collabCursorClearTimerRef = useRef(null);
@@ -3335,6 +3388,12 @@ const CollabSection = ({
         x: Math.max(0, Math.min(1, Number(nextCursor.x))),
         y: Math.max(0, Math.min(1, Number(nextCursor.y))),
         ts: Number.isFinite(Number(nextCursor?.ts)) ? Number(nextCursor.ts) : Date.now(),
+        ...(nextCursor?.typing ? {
+          typing: true,
+          typingTs: Number.isFinite(Number(nextCursor?.typingTs))
+            ? Number(nextCursor.typingTs)
+            : Date.now(),
+        } : {}),
         ...(hasPosition ? { lineNumber, column } : {}),
       }
       : null;
@@ -3482,7 +3541,7 @@ const CollabSection = ({
       queueCollabEditorCursorClear();
       return true;
     };
-    const publishCursorFromEditorPosition = (immediate = false) => {
+    const publishCursorFromEditorPosition = (immediate = false, options = {}) => {
       if (!COLLAB_EDITOR_CURSOR_ENABLED) return false;
       if (!collabAwarenessRef.current) return false;
       if (typeof editor.hasTextFocus === 'function' && !editor.hasTextFocus()) return false;
@@ -3510,6 +3569,7 @@ const CollabSection = ({
         x: hasGeometry ? ((columnLeft - scrollLeft) / contentWidth) : 0.5,
         y: hasGeometry ? ((lineTop - scrollTop) / height) : 0.5,
         ts: Date.now(),
+        ...(options?.typing ? { typing: true, typingTs: Date.now() } : {}),
         lineNumber,
         column,
       }, immediate);
@@ -3561,8 +3621,15 @@ const CollabSection = ({
     collabCursorPositionDisposableRef.current = editor.onDidChangeCursorPosition(() => {
       publishCursorFromEditorPosition(true);
     });
+    collabCursorTypeDisposableRef.current?.dispose?.();
+    collabCursorTypeDisposableRef.current = typeof editor.onDidType === 'function'
+      ? editor.onDidType(() => {
+        publishCursorFromEditorPosition(true, { typing: true });
+      })
+      : null;
     collabCursorContentDisposableRef.current?.dispose?.();
     collabCursorContentDisposableRef.current = editor.onDidChangeModelContent(() => {
+      setEditorViewportVersion((prev) => prev + 1);
       publishCursorFromEditorPosition(true);
     });
     collabCursorLayoutDisposableRef.current?.dispose?.();
@@ -3600,6 +3667,8 @@ const CollabSection = ({
     collabCursorPositionDisposableRef.current = null;
     collabCursorContentDisposableRef.current?.dispose?.();
     collabCursorContentDisposableRef.current = null;
+    collabCursorTypeDisposableRef.current?.dispose?.();
+    collabCursorTypeDisposableRef.current = null;
     collabCursorLayoutDisposableRef.current?.dispose?.();
     collabCursorLayoutDisposableRef.current = null;
     collabCursorScrollDisposableRef.current?.dispose?.();
@@ -5742,6 +5811,10 @@ const CollabSection = ({
           const cursorTsRaw = Number(cursor?.ts);
           const cursorTs = Number.isFinite(cursorTsRaw) ? cursorTsRaw : now;
           if ((now - cursorTs) > COLLAB_EDITOR_CURSOR_STALE_MS) return;
+          const typingTsRaw = Number(cursor?.typingTs);
+          const typingTs = Number.isFinite(typingTsRaw) ? typingTsRaw : cursorTs;
+          const isTyping = cursor?.typing === true
+            && (now - typingTs) <= COLLAB_EDITOR_TYPING_STALE_MS;
           const cursorLineNumber = Number(cursor?.lineNumber);
           const cursorColumn = Number(cursor?.column);
           const hasCursorPosition = Number.isInteger(cursorLineNumber) && cursorLineNumber > 0
@@ -5751,6 +5824,8 @@ const CollabSection = ({
             x: Math.max(0, Math.min(1, cursorX)),
             y: Math.max(0, Math.min(1, cursorY)),
             ts: cursorTs,
+            typing: isTyping,
+            typingTs,
             ...(hasCursorPosition ? { lineNumber: cursorLineNumber, column: cursorColumn } : {}),
             name: remoteName,
             color: remoteColor,
@@ -5889,28 +5964,55 @@ const CollabSection = ({
     const editor = editorRef.current;
     if (!editor || !remoteEditorCursors.length) return [];
     const visibleRanges = editor.getVisibleRanges?.() || [];
-    if (!visibleRanges.length) return [];
-    const visibleStartLine = Math.min(...visibleRanges.map((range) => Number(range?.startLineNumber) || Infinity));
-    const visibleEndLine = Math.max(...visibleRanges.map((range) => Number(range?.endLineNumber) || 0));
-    if (!Number.isFinite(visibleStartLine) || !Number.isFinite(visibleEndLine) || visibleEndLine <= 0) {
-      return [];
-    }
+    const visibleStartLine = visibleRanges.length
+      ? Math.min(...visibleRanges.map((range) => Number(range?.startLineNumber) || Infinity))
+      : Infinity;
+    const visibleEndLine = visibleRanges.length
+      ? Math.max(...visibleRanges.map((range) => Number(range?.endLineNumber) || 0))
+      : 0;
     const layout = editor.getLayoutInfo?.() || null;
     const width = Number(layout?.width) || Number(editor.getDomNode?.()?.clientWidth) || 0;
+    const height = Number(layout?.height) || Number(editor.getDomNode?.()?.clientHeight) || 0;
     const contentLeft = Number(layout?.contentLeft) || 0;
     const contentWidth = Number(layout?.contentWidth) || Math.max(1, width - contentLeft);
+    const scrollTop = Number(editor.getScrollTop?.()) || 0;
     const scrollLeft = Number(editor.getScrollLeft?.()) || 0;
+    const monaco = monacoRef.current;
+    const lineHeightOption = monaco?.editor?.EditorOption?.lineHeight
+      ? Number(editor.getOption(monaco.editor.EditorOption.lineHeight))
+      : 0;
+    const lineHeight = Number.isFinite(lineHeightOption) && lineHeightOption > 0
+      ? lineHeightOption
+      : 20;
+    const model = editor.getModel?.();
+    const lineCount = Number(model?.getLineCount?.()) || 0;
     const counters = { up: 0, down: 0 };
     return remoteEditorCursors
       .map((cursor) => {
         const lineNumber = Number(cursor?.lineNumber);
         const column = Number(cursor?.column);
         if (!Number.isInteger(lineNumber) || lineNumber <= 0) return null;
-        if (lineNumber >= visibleStartLine && lineNumber <= visibleEndLine) return null;
-        const direction = lineNumber < visibleStartLine ? 'up' : 'down';
+        let direction = null;
+        const lineTop = Number(editor.getTopForLineNumber?.(lineNumber));
+        const canUseLineGeometry = height > 0
+          && (!lineCount || lineNumber <= lineCount)
+          && Number.isFinite(lineTop);
+        if (canUseLineGeometry) {
+          const topInViewport = lineTop - scrollTop;
+          const bottomInViewport = topInViewport + lineHeight;
+          if (bottomInViewport < 2) direction = 'up';
+          if (topInViewport > height - 2) direction = 'down';
+          if (!direction) return null;
+        } else {
+          if (!Number.isFinite(visibleStartLine) || !Number.isFinite(visibleEndLine) || visibleEndLine <= 0) {
+            return null;
+          }
+          if (lineNumber >= visibleStartLine && lineNumber <= visibleEndLine) return null;
+          direction = lineNumber < visibleStartLine ? 'up' : 'down';
+        }
         const fallbackLeft = contentLeft + (Number(cursor?.x) * contentWidth);
         let left = Number.isFinite(fallbackLeft) ? fallbackLeft : (contentLeft + contentWidth * 0.5);
-        if (Number.isInteger(column) && column > 0) {
+        if (Number.isInteger(column) && column > 0 && (!lineCount || lineNumber <= lineCount)) {
           const columnLeft = Number(editor.getOffsetForColumn?.(lineNumber, column));
           if (Number.isFinite(columnLeft)) {
             left = contentLeft + columnLeft - scrollLeft;
@@ -6346,14 +6448,16 @@ const CollabSection = ({
           <button
             key={`${cursor.id}-${cursor.direction}`}
             type="button"
-            className={`collab-remote-cursor-indicator collab-remote-cursor-indicator--${cursor.direction}`}
+            className={`collab-remote-cursor-indicator collab-remote-cursor-indicator--${cursor.direction} ${
+              cursor.typing ? 'collab-remote-cursor-indicator--typing' : ''
+            }`}
             style={{
               left: `${cursor.left}px`,
               [cursor.direction === 'up' ? 'top' : 'bottom']: `${0.45 + (cursor.stackIndex * 2.05)}rem`,
               '--collab-remote-cursor-color': cursor.color,
             }}
-            title={`${cursor.name || 'Участник'} печатает на строке ${cursor.lineNumber}`}
-            aria-label={`${cursor.name || 'Участник'} печатает на строке ${cursor.lineNumber}`}
+            title={`${cursor.name || 'Участник'} ${cursor.typing ? 'печатает' : 'находится'} на строке ${cursor.lineNumber}`}
+            aria-label={`${cursor.name || 'Участник'} ${cursor.typing ? 'печатает' : 'находится'} на строке ${cursor.lineNumber}`}
             onClick={() => handleJumpToRemoteEditorCursor(cursor)}
           >
             <span className="collab-remote-cursor-indicator__direction" aria-hidden>
@@ -6369,7 +6473,7 @@ const CollabSection = ({
                 {cursor.name || 'Участник'}
               </span>
               <span className="collab-remote-cursor-indicator__action">
-                печатает
+                {cursor.typing ? 'печатает' : 'курсор'}
               </span>
             </span>
             <span className="collab-remote-cursor-indicator__line">
@@ -7768,7 +7872,7 @@ const BoardSection = ({
   const [remotePreviews, setRemotePreviews] = useState([]);
   const [remoteCursors, setRemoteCursors] = useState([]);
   const [tool, setTool] = useState('pen');
-  const [color, setColor] = useState(BOARD_COLORS[0] || '#0f172a');
+  const [color, setColor] = useState(BOARD_COLORS[0] || BOARD_DEFAULT_COLOR);
   const [penWidth, setPenWidth] = useState(BOARD_STROKE_WIDTH);
   const [lineWidth, setLineWidth] = useState(BOARD_LINE_WIDTH);
   const [boardSize, setBoardSize] = useState({ width: 900, height: 520 });
@@ -9428,7 +9532,7 @@ const BoardSection = ({
     const rawPoints = Array.isArray(stroke?.points) ? stroke.points : [];
     const points = getSmoothedStrokePoints(rawPoints);
     const lineWidth = Number(stroke.width) || BOARD_STROKE_WIDTH;
-    const colorValue = stroke.color || '#0f172a';
+    const colorValue = stroke.color || BOARD_DEFAULT_COLOR;
     const hasPressure = points.some((point) => Number.isFinite(Number(point?.pressure)));
     if (points.length < 2) {
       if (points.length === 1) {
@@ -9457,7 +9561,7 @@ const BoardSection = ({
   const drawLine = (ctx, line) => {
     if (!line?.start || !line?.end) return;
     const lineWidth = line.width || BOARD_LINE_WIDTH;
-    ctx.strokeStyle = line.color || '#0f172a';
+    ctx.strokeStyle = line.color || BOARD_DEFAULT_COLOR;
     ctx.lineWidth = lineWidth;
     ctx.lineCap = 'round';
     ctx.beginPath();
@@ -11040,7 +11144,7 @@ const BoardSection = ({
                           type="button"
                           onClick={() => setColor(swatch)}
                           className={`h-7 w-7 rounded-full border-2 transition ${
-                            color === swatch ? 'border-gray-900 scale-110' : 'border-white/80'
+                            color === swatch ? 'border-blue-900 scale-110' : 'border-white/80'
                           }`}
                           style={{ backgroundColor: swatch }}
                           aria-label={`Цвет ${swatch}`}
@@ -11385,11 +11489,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     }
   });
   const [progressSectionJumpToken, setProgressSectionJumpToken] = useState(0);
+  const [activeProgressSection, setActiveProgressSection] = useState(initialProgressSection);
   const [collabSaveToNotesToken, setCollabSaveToNotesToken] = useState(0);
   const [pendingOpenTask, setPendingOpenTask] = useState(() => (user.role === 'student' ? restoredOpenTask : null));
   const [pendingOpenMockExamId, setPendingOpenMockExamId] = useState(
     () => (user.role === 'student' ? initialMockExamId : null)
   );
+  const [pendingDirectChatRequest, setPendingDirectChatRequest] = useState(null);
   const [goalState, setGoalState] = useState(null);
   const [goalTestsDb, setGoalTestsDb] = useState(null);
   const [goalRefreshTick, setGoalRefreshTick] = useState(0);
@@ -11446,12 +11552,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const goalFlyResetTimerRef = useRef(null);
   const goalFlyTargetNodeRef = useRef(null);
   const mainScrollRef = useRef(null);
+  const messageAudioContextRef = useRef(null);
+  const messageTitleBlinkTimerRef = useRef(null);
+  const previousUnreadMessageTotalRef = useRef(null);
   const prevGoalCollapsedRef = useRef(goalCollapsed);
   const [isDesktopWide, setIsDesktopWide] = useState(
     typeof window !== 'undefined' ? window.innerWidth > 1000 : true
   );
   const [teacherSolvedNotifs, setTeacherSolvedNotifs] = useState([]);
   const [teacherSignupNotifs, setTeacherSignupNotifs] = useState([]);
+  const [teacherStudentChatsUnreadTotal, setTeacherStudentChatsUnreadTotal] = useState(0);
+  const [studentChatNavUnreadTotal, setStudentChatNavUnreadTotal] = useState(0);
+  const [studentScheduleNavNewTotal, setStudentScheduleNavNewTotal] = useState(0);
+  const [studentProgressNavNewTotal, setStudentProgressNavNewTotal] = useState(0);
   const [teacherSolvedBulkReadBusy, setTeacherSolvedBulkReadBusy] = useState(false);
   const [teacherNotifHistory, setTeacherNotifHistory] = useState([]);
   const dismissedSignupNotifsRef = useRef(new Map());
@@ -11485,6 +11598,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const isBoardView = view === 'board';
   const isCallView = view === 'call';
   const isCollabView = view === 'collab';
+  const isStudentChatView = view === 'chat' && user?.role === 'student';
   const isTeacherCalendarView = view === 'teacher-calendar' && user?.role === 'teacher';
   const callUiMode = !isCallViewAvailable
     ? 'hidden'
@@ -11497,11 +11611,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ? 'flex-1 overflow-hidden p-0 md:p-0'
     : isBoardView
     ? 'flex-1 overflow-hidden px-0 pt-1 pb-[calc(env(safe-area-inset-bottom)+5.1rem)] sm:px-0.5 sm:pt-1.5 sm:pb-2.5 md:px-1 md:pt-2 md:pb-3 lg:px-1.5 lg:pb-3.5'
-    : ((isCallView || isCollabView)
+    : ((isCallView || isCollabView || isStudentChatView)
       ? 'flex-1 overflow-hidden px-3 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-3.5 sm:pt-3 sm:pb-4 md:px-5 md:pt-4 md:pb-4 lg:px-6 lg:pb-5'
       : 'flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8');
   const mainContentShellClass = `main-content-shell animate-soft${
-    (isBoardView || isCallView || isCollabView || isTeacherCalendarView) ? ' h-full min-h-0 flex flex-col overflow-hidden' : ''
+    (isBoardView || isCallView || isCollabView || isStudentChatView || isTeacherCalendarView) ? ' h-full min-h-0 flex flex-col overflow-hidden' : ''
   }${isTeacherCalendarView ? ' main-content-shell--calendar' : ''}`;
   const studentsWithNicknames = useMemo(
     () => students,
@@ -11635,7 +11749,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'collab', label: 'Совместный код', icon: Code2 },
         { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
         { id: 'board', label: 'Доска', icon: Brush },
-        { id: 'chat', label: 'Чат с учителем', icon: MessageSquare },
+        { id: 'chat', label: 'Чаты', icon: MessageSquare },
         { id: 'notes', label: 'Конспекты', icon: BookOpen }
       ];
   const visibleNav = (user.role === 'student' && !STUDENT_CALL_SECTION_ENABLED)
@@ -11645,7 +11759,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ? ['call', 'board', 'collab']
     : ['board', 'collab'];
   const teacherLessonNavIds = ['call', 'board', 'collab'];
-  const studentCoreNavIds = ['schedule', 'progress', 'notes'];
+  const studentCoreNavIds = ['schedule', 'progress', 'chat', 'notes'];
   const studentLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
   const teacherLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
   const studentPrimaryNav = user.role === 'student'
@@ -11654,7 +11768,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       studentLessonNavItem,
-      ...['notes']
+      ...['chat', 'notes']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean)
     ]
@@ -11716,6 +11830,145 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     admin: 'Админка',
     more: '\u0415\u0449\u0435',
   };
+  const teacherCommsNavNewCount = user.role === 'teacher'
+    ? (
+      (Array.isArray(teacherSolvedNotifs) ? teacherSolvedNotifs.length : 0)
+      + (Array.isArray(teacherSignupNotifs)
+        ? teacherSignupNotifs.reduce((sum, note) => (
+          sum + Math.max(1, Math.floor(Number(note?.unreadCount) || 0))
+        ), 0)
+        : 0)
+      + Math.max(0, Math.floor(Number(teacherStudentChatsUnreadTotal) || 0))
+    )
+    : 0;
+  const teacherSignupUnreadMessageTotal = user.role === 'teacher' && Array.isArray(teacherSignupNotifs)
+    ? teacherSignupNotifs.reduce((sum, note) => (
+      sum + Math.max(1, Math.floor(Number(note?.unreadCount) || 0))
+    ), 0)
+    : 0;
+  const unreadMessageAlertTotal = user.role === 'student'
+    ? Math.max(0, Math.floor(Number(studentChatNavUnreadTotal) || 0))
+    : (user.role === 'teacher'
+      ? (
+        Math.max(0, Math.floor(Number(teacherStudentChatsUnreadTotal) || 0))
+        + Math.max(0, Math.floor(Number(teacherSignupUnreadMessageTotal) || 0))
+      )
+      : 0);
+  const navBadgeCounts = useMemo(() => {
+    const counts = {};
+    if (user.role === 'student') {
+      counts.schedule = Math.max(0, Math.floor(Number(studentScheduleNavNewTotal) || 0));
+      counts.progress = Math.max(0, Math.floor(Number(studentProgressNavNewTotal) || 0));
+      counts.chat = Math.max(0, Math.floor(Number(studentChatNavUnreadTotal) || 0));
+      counts.more = studentExtraNav.reduce((sum, item) => (
+        sum + Math.max(0, Math.floor(Number(counts[item.id]) || 0))
+      ), 0);
+    }
+    if (user.role === 'teacher') {
+      counts[TEACHER_COMMS_VIEW] = Math.max(0, Math.floor(Number(teacherCommsNavNewCount) || 0));
+    }
+    return counts;
+  }, [
+    TEACHER_COMMS_VIEW,
+    studentChatNavUnreadTotal,
+    studentProgressNavNewTotal,
+    studentScheduleNavNewTotal,
+    studentExtraNav,
+    teacherCommsNavNewCount,
+    user.role,
+  ]);
+  useEffect(() => {
+    previousUnreadMessageTotalRef.current = null;
+  }, [user.id, user.role]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return undefined;
+
+    const unlockAudio = () => {
+      try {
+        if (!messageAudioContextRef.current) {
+          messageAudioContextRef.current = new AudioContextClass();
+        }
+        if (messageAudioContextRef.current?.state === 'suspended') {
+          messageAudioContextRef.current.resume().catch(() => {});
+        }
+      } catch {
+        // Audio will still be retried when a message arrives.
+      }
+    };
+
+    window.addEventListener('pointerdown', unlockAudio, { once: true, passive: true });
+    window.addEventListener('keydown', unlockAudio, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
+  }, []);
+
+  useEffect(() => {
+    const total = Math.max(0, Math.floor(Number(unreadMessageAlertTotal) || 0));
+    const previousTotal = previousUnreadMessageTotalRef.current;
+    if (previousTotal === null) {
+      previousUnreadMessageTotalRef.current = total;
+      return;
+    }
+    if (total > previousTotal && total > 0) {
+      void playIncomingMessageSound(messageAudioContextRef);
+    }
+    previousUnreadMessageTotalRef.current = total;
+  }, [unreadMessageAlertTotal]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const total = Math.max(0, Math.floor(Number(unreadMessageAlertTotal) || 0));
+    if (messageTitleBlinkTimerRef.current) {
+      clearInterval(messageTitleBlinkTimerRef.current);
+      messageTitleBlinkTimerRef.current = null;
+    }
+
+    if (total <= 0) {
+      document.title = PLATFORM_DOCUMENT_TITLE;
+      return undefined;
+    }
+
+    let showAlertTitle = true;
+    const alertTitle = formatUnreadMessageTitle(total);
+    const updateTitle = () => {
+      document.title = showAlertTitle ? alertTitle : PLATFORM_DOCUMENT_TITLE;
+      showAlertTitle = !showAlertTitle;
+    };
+    updateTitle();
+    const timerId = window.setInterval(updateTitle, 1200);
+    messageTitleBlinkTimerRef.current = timerId;
+
+    return () => {
+      if (messageTitleBlinkTimerRef.current === timerId) {
+        clearInterval(timerId);
+        messageTitleBlinkTimerRef.current = null;
+      }
+      document.title = PLATFORM_DOCUMENT_TITLE;
+    };
+  }, [unreadMessageAlertTotal]);
+
+  const getNavBadgeCount = useCallback((id) => (
+    Math.max(0, Math.floor(Number(navBadgeCounts?.[id]) || 0))
+  ), [navBadgeCounts]);
+  const renderNavBadge = useCallback((id, variant = 'sidebar') => {
+    const count = getNavBadgeCount(id);
+    if (count <= 0) return null;
+    const label = count > 99 ? '99+' : String(count);
+    return (
+      <span className={`nav-new-badge nav-new-badge--${variant}`} aria-label={`Нового: ${label}`}>
+        {label}
+      </span>
+    );
+  }, [getNavBadgeCount]);
+  const applyStudentNavNewSummary = useCallback((summary) => {
+    setStudentScheduleNavNewTotal(Math.max(0, Math.floor(Number(summary?.schedule?.count) || 0)));
+    setStudentProgressNavNewTotal(Math.max(0, Math.floor(Number(summary?.progress?.count) || 0)));
+  }, []);
   const syncTeacherSignupNotifyState = useCallback(async ({ silent = true } = {}) => {
     if (user.role !== 'teacher') return;
 
@@ -12733,6 +12986,24 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     captureGoalFlySource(resolvedView);
     setView(resolvedView);
   }, [captureGoalFlySource, stopGoalFlyAnimation, studentDefaultLessonView, user.role, view]);
+  const handleOpenStudentDirectChat = useCallback(async (targetStudentId) => {
+    if (user.role !== 'student') return;
+    const normalizedStudentId = String(targetStudentId || '').trim();
+    if (!normalizedStudentId || normalizedStudentId === String(user.id || '').trim()) return;
+
+    const payload = await api.openStudentSocialDirectChat(normalizedStudentId);
+    const chatId = String(payload?.chat?.id || '').trim();
+    if (!chatId) throw new Error('Не удалось открыть чат.');
+
+    setPendingDirectChatRequest({
+      token: `${chatId}:${Date.now()}`,
+      chatId,
+      chat: payload.chat,
+      messages: Array.isArray(payload?.messages) ? payload.messages : [],
+    });
+    setMenuOpen(false);
+    navigateToView('chat');
+  }, [navigateToView, user.id, user.role]);
   useEffect(() => {
     if (!useNativeAndroidPush) return undefined;
 
@@ -13419,6 +13690,150 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     };
   }, [user.role, user.id]);
 
+  useEffect(() => {
+    if (user.role !== 'teacher') {
+      setTeacherStudentChatsUnreadTotal(0);
+      return undefined;
+    }
+    let cancelled = false;
+
+    const fetchStudentChatUnread = async () => {
+      try {
+        const [studentChatsResult, groupChatResult] = await Promise.allSettled([
+          api.getStudentChats(),
+          api.getTeacherSocialGroupChat(user.id),
+        ]);
+        if (cancelled) return;
+        let total = 0;
+        if (studentChatsResult.status === 'fulfilled') {
+          total += (Array.isArray(studentChatsResult.value) ? studentChatsResult.value : []).reduce((sum, chat) => (
+            sum + Math.max(0, Math.floor(Number(chat?.unreadForTeacher) || 0))
+          ), 0);
+        }
+        if (groupChatResult.status === 'fulfilled') {
+          total += Math.max(0, Math.floor(Number(groupChatResult.value?.groupChat?.unreadForTeacher) || 0));
+        }
+        setTeacherStudentChatsUnreadTotal(total);
+      } catch {
+        if (!cancelled) setTeacherStudentChatsUnreadTotal(0);
+      }
+    };
+
+    fetchStudentChatUnread();
+    const interval = setInterval(fetchStudentChatUnread, 9000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [user.role, user.id]);
+
+  useEffect(() => {
+    if (user.role !== 'student') {
+      setStudentChatNavUnreadTotal(0);
+      return undefined;
+    }
+    let cancelled = false;
+
+    const fetchStudentNavUnread = async () => {
+      try {
+        const [teacherChatResult, socialChatsResult, notificationSettingsResult] = await Promise.allSettled([
+          api.getStudentChatSummary(),
+          api.getStudentSocialChats(),
+          api.getStudentChatNotificationSettings(),
+        ]);
+        if (cancelled) return;
+
+        const notificationSettings = notificationSettingsResult.status === 'fulfilled'
+          ? (notificationSettingsResult.value?.settings || {})
+          : {};
+        const directNotificationSettings = notificationSettings?.directByChatId || {};
+        let total = 0;
+        if (teacherChatResult.status === 'fulfilled' && notificationSettings.teacherEnabled !== false) {
+          total += Math.max(0, Math.floor(Number(teacherChatResult.value?.chat?.unreadForStudent) || 0));
+        }
+        if (socialChatsResult.status === 'fulfilled') {
+          const payload = socialChatsResult.value || {};
+          if (notificationSettings.groupEnabled !== false) {
+            total += Math.max(0, Math.floor(Number(payload?.groupChat?.unreadForStudent) || 0));
+          }
+          total += (Array.isArray(payload?.directChats) ? payload.directChats : []).reduce((sum, chat) => (
+            directNotificationSettings?.[chat?.id] === false
+              ? sum
+              : sum + Math.max(0, Math.floor(Number(chat?.unreadForStudent) || 0))
+          ), 0);
+        }
+        setStudentChatNavUnreadTotal(total);
+      } catch {
+        if (!cancelled) setStudentChatNavUnreadTotal(0);
+      }
+    };
+
+    fetchStudentNavUnread();
+    window.addEventListener('student-chat-notification-settings-updated', fetchStudentNavUnread);
+    const interval = setInterval(fetchStudentNavUnread, 8000);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('student-chat-notification-settings-updated', fetchStudentNavUnread);
+      clearInterval(interval);
+    };
+  }, [user.role, user.id, view]);
+
+  useEffect(() => {
+    if (user.role !== 'student') {
+      setStudentScheduleNavNewTotal(0);
+      setStudentProgressNavNewTotal(0);
+      return undefined;
+    }
+    let cancelled = false;
+
+    const fetchStudentNavNewSummary = async () => {
+      try {
+        const summary = await api.getStudentNavNewSummary();
+        if (!cancelled) applyStudentNavNewSummary(summary);
+      } catch {
+        if (!cancelled) {
+          setStudentScheduleNavNewTotal(0);
+          setStudentProgressNavNewTotal(0);
+        }
+      }
+    };
+
+    fetchStudentNavNewSummary();
+    const interval = setInterval(fetchStudentNavNewSummary, 12000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [applyStudentNavNewSummary, user.role, user.id]);
+
+  useEffect(() => {
+    if (user.role !== 'student') return undefined;
+    const sections = [];
+    if (view === 'schedule' && studentScheduleNavNewTotal > 0) sections.push('schedule');
+    if (view === 'progress' && activeProgressSection === 'mocks' && studentProgressNavNewTotal > 0) {
+      sections.push('progress');
+    }
+    if (sections.length === 0) return undefined;
+
+    let cancelled = false;
+    api.markStudentNavSectionsRead(sections)
+      .then((summary) => {
+        if (!cancelled) applyStudentNavNewSummary(summary);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeProgressSection,
+    applyStudentNavNewSummary,
+    studentProgressNavNewTotal,
+    studentScheduleNavNewTotal,
+    user.role,
+    user.id,
+    view,
+  ]);
+
   const handleStudentCreated = (student) => {
     if (!student) return;
     setStudents((prev) => [student, ...prev]);
@@ -13462,6 +13877,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   };
 
   const handleProgressSectionChange = (nextSection) => {
+    setActiveProgressSection(nextSection);
     updateUserLocation(user, { progressSection: nextSection });
   };
 
@@ -14701,6 +15117,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       >
                         <ChevronRight size={14} />
                       </span>
+                      {renderNavBadge(n.id, 'sidebar')}
                     </button>
                   );
                 })}
@@ -14709,7 +15126,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     <button
                       type="button"
                       onClick={() => setDesktopStudentMoreOpen((prev) => !prev)}
-                      className={`sidebar-more-toggle group flex w-full items-center justify-between gap-2 rounded-2xl border px-3.5 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.06em] transition-colors ${
+                      className={`sidebar-more-toggle group relative flex w-full items-center justify-between gap-2 rounded-2xl border px-3.5 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.06em] transition-colors ${
                         desktopExtraActive
                           ? 'border-purple-200/90 bg-purple-50 text-purple-700'
                           : 'border-purple-100/80 bg-white/80 text-slate-600 hover:border-purple-200 hover:bg-purple-50/80 hover:text-purple-700'
@@ -14724,6 +15141,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                         size={14}
                         className={`transition-transform duration-200 ${desktopStudentMoreOpen ? 'rotate-90' : ''}`}
                       />
+                      {renderNavBadge('more', 'sidebar')}
                     </button>
                     {desktopStudentMoreOpen && (
                       <div className="sidebar-extra-nav mt-2 space-y-2">
@@ -14766,6 +15184,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                               >
                                 <ChevronRight size={14} />
                               </span>
+                              {renderNavBadge(n.id, 'sidebar')}
                             </button>
                           );
                         })}
@@ -14839,6 +15258,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 title={n.label}
               >
                 <Icon size={24} />
+                {renderNavBadge(n.id, 'fab')}
               </button>
             );
           })}
@@ -15278,6 +15698,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               initialSection={initialProgressSection}
               sectionJumpToken={progressSectionJumpToken}
               onSectionChange={handleProgressSectionChange}
+              mockNavNewCount={studentProgressNavNewTotal}
               onTaskStateChange={handleTaskStateChange}
               onStreakSaved={handleStreakSaved}
               onXpGain={handleXpGain}
@@ -15363,6 +15784,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onSelectStudent={setActiveStudentId}
               studentsLoading={studentsLoading}
               getStudentLabel={getStudentLabel}
+              onOpenDirectChat={handleOpenStudentDirectChat}
             />
           )}
           {view === 'python' && (
@@ -15506,6 +15928,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               pushReady={pushReady}
               pushError={pushError}
               onTogglePush={handleTogglePush}
+              onOpenDirectChat={handleOpenStudentDirectChat}
+              openDirectChatRequest={pendingDirectChatRequest}
+              onOpenDirectChatHandled={() => setPendingDirectChatRequest(null)}
+              getLeagueByXp={getLeagueByXp}
+              getLeagueAuraStyle={getLeagueAuraStyle}
+              isAbsoluteOrAboveLeague={isAbsoluteOrAboveLeague}
+              ABSOLUTE_AURA_CROWN_STYLE={ABSOLUTE_AURA_CROWN_STYLE}
+              getLevelFromXp={getLevelFromXp}
+              getLevelProgressFromXp={getLevelProgressFromXp}
             />
           )}
           {view === 'teacher' && (
@@ -15609,6 +16040,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               {activeTeacherCommsTab === 'student-chats' && (
                 <TeacherStudentChatsSection
                   role={user.role}
+                  teacherId={user.role === 'teacher' ? user.id : null}
                   initialChatId={teacherStudentChatId}
                   notifySupported={teacherSignupNotifySupported}
                   notifyPermission={teacherSignupNotifyPermission}
@@ -15843,7 +16275,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                             navigateToView(item.id);
                             setMenuOpen(false);
                           }}
-                          className={`flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2 text-left text-xs font-semibold transition-colors ${
+                          className={`relative flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2 text-left text-xs font-semibold transition-colors ${
                             isActive
                               ? 'border-purple-600 bg-purple-600 text-white shadow-sm'
                               : 'border-purple-100 bg-white text-slate-700 hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700'
@@ -15851,6 +16283,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                         >
                           <Icon size={15} />
                           <span className="truncate leading-tight">{mobileNavLabels[item.id] || item.label}</span>
+                          {renderNavBadge(item.id, 'mobile-more')}
                         </button>
                       );
                     })}
@@ -15889,7 +16322,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       navigateToView(n.id);
                       setMenuOpen(false);
                     }}
-                    className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-[10px] font-semibold transition-colors ${
+                    className={`relative flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-[10px] font-semibold transition-colors ${
                       isActive
                         ? 'bg-purple-600 text-white shadow-sm'
                         : 'text-slate-600 hover:bg-purple-50 hover:text-purple-700'
@@ -15897,6 +16330,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   >
                     <Icon size={16} />
                     <span className="truncate leading-none">{mobileNavLabels[n.id] || n.label}</span>
+                    {renderNavBadge(n.id, 'mobile')}
                   </button>
                 );
               })}
