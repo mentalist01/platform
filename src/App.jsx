@@ -11616,7 +11616,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       : 'flex-1 overflow-y-auto px-3.5 pt-3 pb-[calc(env(safe-area-inset-bottom)+6.2rem)] sm:px-4 sm:pt-4 md:p-8 md:pb-8');
   const mainContentShellClass = `main-content-shell animate-soft${
     (isBoardView || isCallView || isCollabView || isStudentChatView || isTeacherCalendarView) ? ' h-full min-h-0 flex flex-col overflow-hidden' : ''
-  }${isTeacherCalendarView ? ' main-content-shell--calendar' : ''}`;
+  }${isTeacherCalendarView ? ' main-content-shell--calendar' : ''}${isStudentChatView ? ' main-content-shell--student-chat' : ''}`;
   const studentsWithNicknames = useMemo(
     () => students,
     [students]
@@ -15264,7 +15264,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           })}
         </div>
       </div>
-      <div className={`main-shell relative flex-1 flex flex-col app-h overflow-hidden ${desktopNavCollapsed ? 'desktop-main-shifted' : ''}`}>
+      <div className={`main-shell relative flex-1 flex flex-col app-h overflow-hidden ${desktopNavCollapsed ? 'desktop-main-shifted' : ''}${isStudentChatView ? ' main-shell--student-chat' : ''}`}>
         <header className="sticky top-0 z-20 md:hidden bg-white/85 backdrop-blur border-b border-slate-200/70 px-3.5 py-3 pt-[calc(env(safe-area-inset-top)+0.55rem)] flex justify-between items-center">
           <LogoMark className="text-lg" />
           <div className="flex items-center gap-2">
@@ -15441,7 +15441,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </div>
           )}
           {shouldShowGoalBlock && !studentTourActive && (
-            <div ref={goalSummaryFlyRef} className={goalCollapsed ? 'sticky top-0 z-30 mb-4' : 'mb-4'}>
+            <div ref={goalSummaryFlyRef} className={`goal-summary-strip ${goalCollapsed ? 'sticky top-0 z-30 mb-4' : 'mb-4'}`}>
               {goalCollapsed ? (
                 <div className={`surface-panel rounded-2xl border border-purple-200/80 bg-gradient-to-r from-violet-50 via-white to-fuchsia-50 px-3 py-2 text-sm text-gray-700 shadow-soft flex items-center justify-between gap-1.5 sm:gap-2 sm:px-4 sm:py-2.5 ${goalPanelAnimClass === 'goal-collapse' ? 'goal-collapse' : ''}`}>
                   <div className="min-w-0 flex-1 flex items-center gap-1.5 sm:gap-2">
