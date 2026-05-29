@@ -2581,6 +2581,7 @@ const normalizeStudentChatImageDataUrl = (value) => {
 };
 
 const normalizeStudentAvatarDataUrl = (value) => normalizeStudentChatImageDataUrl(value);
+const normalizeTeacherAvatarDataUrl = (value) => normalizeStudentChatImageDataUrl(value);
 
 const normalizeStudentChatFileDataUrl = (value) => {
   if (typeof value !== 'string') return '';
@@ -2781,6 +2782,12 @@ const getStudentChatMessageSenderRole = (value) => {
   return 'student';
 };
 
+const normalizeStudentChatSystemActorRole = (value) => {
+  const role = String(value || '').trim();
+  if (role === 'teacher' || role === 'student' || role === 'admin') return role;
+  return '';
+};
+
 const applyStudentChatMessageReaction = (message, emoji, actor) => {
   const normalizedEmoji = normalizeStudentChatReactionEmoji(emoji);
   const normalizedActor = normalizeStudentChatReactionActor(actor);
@@ -2897,6 +2904,8 @@ const normalizeStudentTeacherChatMessage = (value) => {
   const forwardFrom = normalizeStudentChatMessageReference(value.forwardFrom);
   const systemType = typeof value.systemType === 'string' ? value.systemType.trim().slice(0, 40) : '';
   const targetMessageId = typeof value.targetMessageId === 'string' ? value.targetMessageId.trim() : '';
+  const systemActorRole = normalizeStudentChatSystemActorRole(value.systemActorRole);
+  const systemActorId = typeof value.systemActorId === 'string' ? value.systemActorId.trim() : '';
   if (!id || !senderId || (!text && !imageDataUrl && !fileDataUrl) || !createdAt) return null;
   const senderName = senderNameRaw || (senderRole === 'teacher' ? 'Преподаватель' : (senderRole === 'system' ? 'Система' : 'Ученик'));
   const message = {
@@ -2913,6 +2922,10 @@ const normalizeStudentTeacherChatMessage = (value) => {
   if (forwardFrom) message.forwardFrom = forwardFrom;
   if (systemType) message.systemType = systemType;
   if (targetMessageId) message.targetMessageId = targetMessageId;
+  if (systemActorRole && systemActorId) {
+    message.systemActorRole = systemActorRole;
+    message.systemActorId = systemActorId;
+  }
   if (imageDataUrl) {
     message.imageDataUrl = imageDataUrl;
     if (imageName) message.imageName = imageName;
@@ -3182,6 +3195,9 @@ const enrichStudentTeacherMessageViewStats = (chat, message, options = {}) => {
     ...visibleMessage,
     ...(message?.senderRole === 'student'
       ? { senderAvatarDataUrl: normalizeStudentAvatarDataUrl(getStudentData(message.senderId)?.avatarDataUrl) }
+      : {}),
+    ...(message?.senderRole === 'teacher'
+      ? { senderAvatarDataUrl: normalizeTeacherAvatarDataUrl(findTeacherById(message.senderId)?.avatarDataUrl) }
       : {}),
     reactions: buildStudentChatReactionSummary(message, options.actorKey, options),
     viewCount: getStudentTeacherMessageViewCount(chat, message),
@@ -3878,6 +3894,9 @@ const enrichStudentSocialMessageViewStats = (chat, message, options = {}) => {
     ...(message?.senderRole === 'student'
       ? { senderAvatarDataUrl: normalizeStudentAvatarDataUrl(getStudentData(message.senderId)?.avatarDataUrl) }
       : {}),
+    ...(message?.senderRole === 'teacher'
+      ? { senderAvatarDataUrl: normalizeTeacherAvatarDataUrl(findTeacherById(message.senderId)?.avatarDataUrl) }
+      : {}),
     reactions: buildStudentChatReactionSummary(message, options.actorKey, options),
     viewCount: getStudentSocialMessageViewCount(chat, message, options),
   };
@@ -4308,6 +4327,12 @@ const buildSessionUser = (user) => {
   const payload = { id, name, role };
   if (role === 'student') {
     payload.teacherId = user.teacherId ? String(user.teacherId) : null;
+    const avatarDataUrl = normalizeStudentAvatarDataUrl(user.avatarDataUrl);
+    if (avatarDataUrl) payload.avatarDataUrl = avatarDataUrl;
+  }
+  if (role === 'teacher') {
+    const avatarDataUrl = normalizeTeacherAvatarDataUrl(user.avatarDataUrl);
+    if (avatarDataUrl) payload.avatarDataUrl = avatarDataUrl;
   }
   if (role === 'lead') {
     const chatId = typeof user.chatId === 'string' ? user.chatId.trim() : '';
@@ -4391,7 +4416,12 @@ const resolveSessionUser = (sessionUser) => {
   if (role === 'teacher') {
     const teacher = readTeachersDb().find((entry) => entry.id === String(sessionUser.id));
     if (!teacher) return null;
-    return { id: teacher.id, name: teacher.name, role: 'teacher' };
+    return {
+      id: teacher.id,
+      name: teacher.name,
+      role: 'teacher',
+      avatarDataUrl: normalizeTeacherAvatarDataUrl(teacher.avatarDataUrl),
+    };
   }
   if (role === 'student') {
     const student = readStudentsDb().find((entry) => entry.id === String(sessionUser.id) && !entry.deletedAt);
@@ -4999,6 +5029,8 @@ const createStudentTeacherChatMessage = ({
   forwardFrom,
   systemType,
   targetMessageId,
+  systemActorRole,
+  systemActorId,
 }) => {
   const normalizedText = normalizeStudentChatMessageText(text);
   const normalizedImageDataUrl = normalizeStudentChatImageDataUrl(imageDataUrl);
@@ -5032,8 +5064,14 @@ const createStudentTeacherChatMessage = ({
   if (normalizedForwardFrom) message.forwardFrom = normalizedForwardFrom;
   const normalizedSystemType = typeof systemType === 'string' ? systemType.trim().slice(0, 40) : '';
   const normalizedTargetMessageId = typeof targetMessageId === 'string' ? targetMessageId.trim() : '';
+  const normalizedSystemActorRole = normalizeStudentChatSystemActorRole(systemActorRole);
+  const normalizedSystemActorId = typeof systemActorId === 'string' ? systemActorId.trim() : '';
   if (normalizedSystemType) message.systemType = normalizedSystemType;
   if (normalizedTargetMessageId) message.targetMessageId = normalizedTargetMessageId;
+  if (normalizedSystemActorRole && normalizedSystemActorId) {
+    message.systemActorRole = normalizedSystemActorRole;
+    message.systemActorId = normalizedSystemActorId;
+  }
   return message;
 };
 
@@ -5056,6 +5094,55 @@ const getStudentChatPinActorName = (auth, options = {}) => {
   return 'Участник';
 };
 
+const resolveStudentChatSystemActor = (auth, options = {}) => {
+  if (isStudentRole(auth)) {
+    const student = options.student || findStudentById(auth.id);
+    const actorId = String(student?.id || auth.id || '').trim();
+    if (!actorId) return null;
+    return {
+      actorRole: 'student',
+      actorId,
+      actorName: getStudentPrimaryDisplayName(student || auth),
+    };
+  }
+
+  if (isTeacherRole(auth) || isAdminRole(auth)) {
+    const teacher = options.teacher
+      || findTeacherById(options.teacherId || options.chat?.teacherId || (isTeacherRole(auth) ? auth.id : ''))
+      || (isTeacherRole(auth) ? findTeacherById(auth.id) : null);
+    if (teacher?.id) {
+      return {
+        actorRole: 'teacher',
+        actorId: String(teacher.id || '').trim(),
+        actorName: String(teacher.name || auth?.name || 'Преподаватель').trim() || 'Преподаватель',
+      };
+    }
+    if (isAdminRole(auth)) {
+      return {
+        actorRole: 'admin',
+        actorId: String(auth.id || '').trim(),
+        actorName: String(auth.name || ADMIN_NAME || 'Администратор').trim() || 'Администратор',
+      };
+    }
+  }
+
+  return null;
+};
+
+const canDeleteStudentChatPinAnnouncement = (auth, chat, message, options = {}) => {
+  if (!auth || !chat || !message) return false;
+  if (message.senderRole !== 'system' || message.systemType !== 'pin') return false;
+  const actor = resolveStudentChatSystemActor(auth, { ...options, chat });
+  if (!actor?.actorId) return false;
+  const systemActorId = String(message.systemActorId || '').trim();
+  const systemActorRole = normalizeStudentChatSystemActorRole(message.systemActorRole);
+  if (systemActorId) {
+    return systemActorId === actor.actorId && (!systemActorRole || systemActorRole === actor.actorRole);
+  }
+  const senderName = String(message.senderName || '').trim();
+  return Boolean(senderName && senderName === actor.actorName);
+};
+
 const buildStudentChatPinAnnouncementPreview = (message) => {
   const preview = buildStudentTeacherChatMessagePreview(message)
     .replace(/\s+/g, ' ')
@@ -5067,7 +5154,8 @@ const buildStudentChatPinAnnouncementPreview = (message) => {
 const createStudentChatPinAnnouncementMessage = ({ auth, student, teacher, chat, targetMessage } = {}) => {
   const targetMessageId = String(targetMessage?.id || '').trim();
   if (!targetMessageId) return null;
-  const actorName = getStudentChatPinActorName(auth, { student, teacher, chat });
+  const actor = resolveStudentChatSystemActor(auth, { student, teacher, chat });
+  const actorName = actor?.actorName || getStudentChatPinActorName(auth, { student, teacher, chat });
   return createStudentTeacherChatMessage({
     senderRole: 'system',
     senderId: 'system',
@@ -5075,6 +5163,8 @@ const createStudentChatPinAnnouncementMessage = ({ auth, student, teacher, chat,
     text: `${actorName} pinned "${buildStudentChatPinAnnouncementPreview(targetMessage)}"`,
     systemType: 'pin',
     targetMessageId,
+    systemActorRole: actor?.actorRole || '',
+    systemActorId: actor?.actorId || '',
   });
 };
 
@@ -12174,7 +12264,12 @@ app.post('/api/login', (req, res) => {
   const teacher = teachers.find((entry) => entry?.codeHash && verifyCode(normalizedCode, entry.codeHash));
   if (teacher) {
     clearLoginFailures(clientKey);
-    const session = createAuthSession({ id: teacher.id, name: teacher.name, role: 'teacher' });
+    const session = createAuthSession({
+      id: teacher.id,
+      name: teacher.name,
+      role: 'teacher',
+      avatarDataUrl: normalizeTeacherAvatarDataUrl(teacher.avatarDataUrl),
+    });
     return respondWithSession(res, session);
   }
 
@@ -12357,6 +12452,49 @@ app.patch('/api/students/avatar', (req, res) => {
     };
     persistAuthSessions();
   }
+  return res.json({
+    ok: true,
+    user: {
+      ...req.auth,
+      avatarDataUrl: updated.avatarDataUrl || '',
+      token,
+    },
+    avatarDataUrl: updated.avatarDataUrl || '',
+  });
+});
+
+app.patch('/api/teachers/avatar', (req, res) => {
+  if (!isTeacherRole(req.auth)) return forbid(res);
+  const teacherId = String(req.auth?.id || '').trim();
+  const teachers = readTeachersDb();
+  const index = teachers.findIndex((teacher) => String(teacher?.id || '').trim() === teacherId);
+  if (index === -1) return res.status(404).json({ error: 'Учитель не найден' });
+  const hasAvatarField = Object.prototype.hasOwnProperty.call(req.body || {}, 'avatarDataUrl');
+  if (!hasAvatarField) return res.status(400).json({ error: 'avatarDataUrl required' });
+  const rawAvatar = typeof req.body?.avatarDataUrl === 'string' ? req.body.avatarDataUrl : '';
+  const avatarDataUrl = rawAvatar.trim() ? normalizeTeacherAvatarDataUrl(rawAvatar) : '';
+  if (rawAvatar.trim() && !avatarDataUrl) {
+    return res.status(400).json({ error: 'Аватарка должна быть изображением до 5 МБ' });
+  }
+
+  const updated = {
+    ...teachers[index],
+    avatarDataUrl,
+    updatedAt: new Date().toISOString(),
+  };
+  teachers[index] = updated;
+  writeTeachersDb(teachers);
+
+  const token = String(req.authToken || '').trim();
+  const session = token ? authSessions.get(token) : null;
+  if (session?.user) {
+    session.user = {
+      ...session.user,
+      avatarDataUrl: updated.avatarDataUrl || '',
+    };
+    persistAuthSessions();
+  }
+
   return res.json({
     ok: true,
     user: {
@@ -13124,10 +13262,14 @@ app.delete('/api/student-chat/messages/:messageId', (req, res) => {
   if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
 
   const targetMessage = messages[messageIndex];
-  if (!canModifyStudentTeacherChatMessage(req.auth, chat, targetMessage)) {
+  const canDeletePinAnnouncement = canDeleteStudentChatPinAnnouncement(req.auth, chat, targetMessage, {
+    student,
+    teacher: findTeacherById(chat.teacherId),
+  });
+  if (!canDeletePinAnnouncement && !canModifyStudentTeacherChatMessage(req.auth, chat, targetMessage)) {
     return res.status(403).json({ error: 'Недостаточно прав' });
   }
-  if (!isStudentChatMessageDeleteAllowed(targetMessage)) {
+  if (!canDeletePinAnnouncement && !isStudentChatMessageDeleteAllowed(targetMessage)) {
     return res.status(403).json({ error: 'Удаление недоступно' });
   }
 
@@ -13498,10 +13640,14 @@ app.delete('/api/student-chats/:chatId/messages/:messageId', (req, res) => {
   if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
 
   const targetMessage = messages[messageIndex];
-  if (!canModifyStudentTeacherChatMessage(req.auth, chat, targetMessage)) {
+  const canDeletePinAnnouncement = canDeleteStudentChatPinAnnouncement(req.auth, chat, targetMessage, {
+    student,
+    teacher: findTeacherById(chat.teacherId),
+  });
+  if (!canDeletePinAnnouncement && !canModifyStudentTeacherChatMessage(req.auth, chat, targetMessage)) {
     return res.status(403).json({ error: 'Недостаточно прав' });
   }
-  if (!isStudentChatMessageDeleteAllowed(targetMessage)) {
+  if (!canDeletePinAnnouncement && !isStudentChatMessageDeleteAllowed(targetMessage)) {
     return res.status(403).json({ error: 'Удаление недоступно' });
   }
 
@@ -13874,10 +14020,13 @@ app.delete('/api/teacher-social-group-chat/messages/:messageId', (req, res) => {
   if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
 
   const targetMessage = messages[messageIndex];
-  if (!canModifyStudentSocialChatMessage(req.auth, chat, targetMessage)) {
+  const canDeletePinAnnouncement = canDeleteStudentChatPinAnnouncement(req.auth, chat, targetMessage, {
+    teacher: findTeacherById(chat.teacherId),
+  });
+  if (!canDeletePinAnnouncement && !canModifyStudentSocialChatMessage(req.auth, chat, targetMessage)) {
     return res.status(403).json({ error: 'Недостаточно прав' });
   }
-  if (!isStudentChatMessageDeleteAllowed(targetMessage)) {
+  if (!canDeletePinAnnouncement && !isStudentChatMessageDeleteAllowed(targetMessage)) {
     return res.status(403).json({ error: 'Удаление недоступно' });
   }
 
@@ -14283,10 +14432,14 @@ app.delete('/api/student-social-chats/:chatId/messages/:messageId', (req, res) =
   if (messageIndex === -1) return res.status(404).json({ error: 'Сообщение не найдено' });
 
   const targetMessage = messages[messageIndex];
-  if (!canModifyStudentSocialChatMessage(req.auth, chat, targetMessage, student)) {
+  const canDeletePinAnnouncement = canDeleteStudentChatPinAnnouncement(req.auth, chat, targetMessage, {
+    student,
+    teacher: findTeacherById(chat.teacherId),
+  });
+  if (!canDeletePinAnnouncement && !canModifyStudentSocialChatMessage(req.auth, chat, targetMessage, student)) {
     return res.status(403).json({ error: 'Недостаточно прав' });
   }
-  if (!isStudentChatMessageDeleteAllowed(targetMessage)) {
+  if (!canDeletePinAnnouncement && !isStudentChatMessageDeleteAllowed(targetMessage)) {
     return res.status(403).json({ error: 'Удаление недоступно' });
   }
 

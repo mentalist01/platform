@@ -248,6 +248,15 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  updateTeacherAvatar: async (avatarDataUrl) => {
+    const res = await apiFetch('/api/teachers/avatar', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ avatarDataUrl }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   login: async (code) => {
     const res = await apiFetch('/api/login', {
       method: 'POST',

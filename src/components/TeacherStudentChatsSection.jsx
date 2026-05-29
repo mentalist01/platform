@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, BellOff, Check, Copy, FileText, Forward, Image as ImageIcon, Link, MessageSquare, MoreVertical, Paperclip, Pencil, Pin, Reply, Search, SendHorizontal, SmilePlus, Trash2, UploadCloud, Users, X } from 'lucide-react';
+import { Bell, BellOff, Check, ChevronDown, Copy, FileText, Forward, Image as ImageIcon, Link, MessageSquare, MoreVertical, Paperclip, Pencil, Pin, Reply, Search, SendHorizontal, SmilePlus, Trash2, UploadCloud, Users, X } from 'lucide-react';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
 import LinkifiedText from './LinkifiedText';
@@ -379,6 +379,27 @@ const isChatScrolledNearBottom = (node) => (
   !node || (node.scrollHeight - node.scrollTop - node.clientHeight) < 160
 );
 
+const shouldShowChatScrollBottomButton = (node) => (
+  Boolean(node && (node.scrollHeight - node.scrollTop - node.clientHeight) > 36)
+);
+
+const isPinAnnouncementMessage = (message) => (
+  message?.senderRole === 'system' && message?.systemType === 'pin'
+);
+
+const canDeletePinAnnouncementForActor = (message, actor = {}) => {
+  if (!isPinAnnouncementMessage(message)) return false;
+  const actorId = String(actor?.id || '').trim();
+  const actorRole = String(actor?.role || '').trim();
+  const actorName = String(actor?.name || '').trim();
+  const systemActorId = String(message?.systemActorId || '').trim();
+  const systemActorRole = String(message?.systemActorRole || '').trim();
+  if (systemActorId) {
+    return systemActorId === actorId && (!systemActorRole || systemActorRole === actorRole);
+  }
+  return Boolean(actorName && String(message?.senderName || '').trim() === actorName);
+};
+
 const ChatMessageTopTools = ({
   searchQuery,
   onSearchQueryChange,
@@ -389,6 +410,14 @@ const ChatMessageTopTools = ({
 }) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const searchInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    if (typeof window === 'undefined') return;
+    const frame = window.requestAnimationFrame(() => searchInputRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [searchOpen]);
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -406,15 +435,18 @@ const ChatMessageTopTools = ({
 
   return (
     <div className={`student-chat-message-tools student-chat-message-tools--compact teacher-chat-message-tools ${searchOpen ? 'student-chat-message-tools--search-open' : ''}`} data-message-menu-ignore="true">
-      {searchOpen && (
-        <label className="student-chat-message-search">
+      <label
+        className={`student-chat-message-search ${searchOpen ? 'student-chat-message-search--open' : ''}`}
+        aria-hidden={!searchOpen}
+      >
           <Search size={14} />
           <input
+            ref={searchInputRef}
             type="search"
             value={searchQuery}
             onChange={(event) => onSearchQueryChange(event.target.value)}
             placeholder="Поиск"
-            autoFocus
+            tabIndex={searchOpen ? 0 : -1}
           />
           <button
             type="button"
@@ -423,13 +455,13 @@ const ChatMessageTopTools = ({
               onSearchQueryChange('');
               setSearchOpen(false);
             }}
+            tabIndex={searchOpen ? 0 : -1}
             aria-label="Закрыть поиск"
             title="Закрыть"
           >
             <X size={14} />
           </button>
         </label>
-      )}
       <div className="student-chat-message-tool-actions">
         <button
           type="button"
@@ -694,6 +726,7 @@ const TeacherStudentChatsSection = ({
   const [selectionDeleteConfirm, setSelectionDeleteConfirm] = useState(false);
   const [selectionActionBusy, setSelectionActionBusy] = useState('');
   const [referenceRequest, setReferenceRequest] = useState(null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isDraggingChatFile, setIsDraggingChatFile] = useState(false);
   const [imageViewer, setImageViewer] = useState(null);
   const [socialSettings, setSocialSettings] = useState(null);
@@ -717,6 +750,26 @@ const TeacherStudentChatsSection = ({
   const highlightDelayTimerRef = useRef(null);
   const normalizedTeacherId = String(teacherId || '').trim();
   const canManageSocialChats = (role === 'teacher' || role === 'admin') && normalizedTeacherId;
+
+  const canDeleteSystemMessageForCurrentTeacher = useCallback((message) => (
+    canDeletePinAnnouncementForActor(message, {
+      id: normalizedTeacherId,
+      role: 'teacher',
+      name: chatDetails?.teacherName || '',
+    })
+  ), [chatDetails?.teacherName, normalizedTeacherId]);
+
+  const updateScrollToBottomButton = useCallback((node) => {
+    const nextVisible = shouldShowChatScrollBottomButton(node);
+    setShowScrollToBottom((current) => (current === nextVisible ? current : nextVisible));
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    const node = messagesRef.current;
+    if (!node) return;
+    scrollChatNodeToBottom(node);
+    setShowScrollToBottom(false);
+  }, []);
 
   const clearMessageImage = useCallback(() => {
     setMessageImageDataUrl('');
@@ -1024,7 +1077,18 @@ const TeacherStudentChatsSection = ({
 
   useEffect(() => {
     applyChatScrollBehavior(messagesRef, messagesScrollBehaviorRef);
-  }, [messages]);
+    const node = messagesRef.current;
+    if (!node) {
+      setShowScrollToBottom(false);
+      return undefined;
+    }
+    updateScrollToBottomButton(node);
+    if (typeof window === 'undefined' || !window.requestAnimationFrame) return undefined;
+    const frameId = window.requestAnimationFrame(() => updateScrollToBottomButton(node));
+    return () => {
+      if (window.cancelAnimationFrame) window.cancelAnimationFrame(frameId);
+    };
+  }, [messages, updateScrollToBottomButton]);
 
   useEffect(() => {
     clearMessageImage();
@@ -1267,7 +1331,8 @@ const TeacherStudentChatsSection = ({
 
   const handleDeleteMessage = useCallback(async (message) => {
     const messageId = String(message?.id || '').trim();
-    if (!selectedChatId || !messageId || !isMessageDeleteAllowed(message)) return;
+    const canDeleteSystem = canDeleteSystemMessageForCurrentTeacher(message);
+    if (!selectedChatId || !messageId || (!canDeleteSystem && !isMessageDeleteAllowed(message))) return;
     setMessageActionBusy(`delete:${messageId}`);
     setMessagesError('');
     try {
@@ -1290,7 +1355,7 @@ const TeacherStudentChatsSection = ({
     } finally {
       setMessageActionBusy('');
     }
-  }, [cancelEditMessage, editingMessageId, normalizedTeacherId, refreshChats, selectedChatId]);
+  }, [canDeleteSystemMessageForCurrentTeacher, cancelEditMessage, editingMessageId, normalizedTeacherId, refreshChats, selectedChatId]);
 
   const handlePinMessage = useCallback(async (message) => {
     const messageId = String(message?.id || '').trim();
@@ -1420,6 +1485,8 @@ const TeacherStudentChatsSection = ({
       && contextMenuMessage?.senderRole === 'teacher'
       && String(contextMenuMessage?.senderId || '').trim() === normalizedTeacherId
   );
+  const contextMenuSystemPin = Boolean(contextMenuMessage && isPinAnnouncementMessage(contextMenuMessage));
+  const contextMenuCanDeleteSystem = Boolean(contextMenuSystemPin && canDeleteSystemMessageForCurrentTeacher(contextMenuMessage));
   const selectedPinnedMessageId = String(
     selectedChat?.pinnedMessage?.messageId || selectedChat?.pinnedMessageId || ''
   ).trim();
@@ -2118,15 +2185,18 @@ const TeacherStudentChatsSection = ({
                   </div>
                 )}
 
-                <div
-                  ref={messagesRef}
-                  onScroll={(event) => {
-                    setMessageContextMenu(null);
-                    setReactionPickerMessageId('');
-                    if (event.currentTarget.scrollTop <= 96) loadOlderMessages();
-                  }}
-                  className="teacher-chat-messages mt-3 max-h-[430px] min-h-[320px] space-y-2 overflow-y-auto rounded-xl border p-3"
-                >
+                <div className="student-chat-messages-wrap teacher-chat-messages-wrap mt-3">
+                  <div
+                    ref={messagesRef}
+                    onScroll={(event) => {
+                      const node = event.currentTarget;
+                      setMessageContextMenu(null);
+                      setReactionPickerMessageId('');
+                      updateScrollToBottomButton(node);
+                      if (node.scrollTop <= 96) loadOlderMessages();
+                    }}
+                    className="teacher-chat-messages max-h-[430px] min-h-[320px] space-y-2 overflow-y-auto rounded-xl border p-3"
+                  >
                   {selectedChat?.pinnedMessage && (
                     <div className="student-chat-pinned-message-row" data-message-menu-ignore="true">
                       <MessageReferenceCard
@@ -2161,11 +2231,13 @@ const TeacherStudentChatsSection = ({
                     visibleMessages.map((message) => {
                       const messageId = String(message?.id || '').trim();
                       if (message?.senderRole === 'system' || message?.systemType) {
+                        const canDeleteSystem = canDeleteSystemMessageForCurrentTeacher(message);
                         return (
                           <div
                             key={message.id}
                             data-chat-message-id={messageId}
                             className="student-message-system-row teacher-chat-message-system-row"
+                            onContextMenu={canDeleteSystem ? (event) => openMessageContextMenu(event, message) : undefined}
                           >
                             <span className="student-message-system-pill">{String(message?.text || '')}</span>
                           </div>
@@ -2520,99 +2592,130 @@ const TeacherStudentChatsSection = ({
                       onClick={(event) => event.stopPropagation()}
                       role="menu"
                     >
-                      <button
-                        type="button"
-                        className="student-message-context-menu__button"
-                        onClick={() => {
-                          closeContextMenu();
-                          handleReplyMessage(contextMenuMessage);
-                        }}
-                        role="menuitem"
-                      >
-                        <Reply size={14} />
-                        <span>Ответить</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="student-message-context-menu__button"
-                        onClick={() => {
-                          closeContextMenu();
-                          void copyTextToClipboard(contextMenuMessage.text);
-                        }}
-                        disabled={!String(contextMenuMessage?.text || '').trim()}
-                        role="menuitem"
-                      >
-                        <Copy size={14} />
-                        <span>Копировать</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="student-message-context-menu__button"
-                        onClick={() => {
-                          closeContextMenu();
-                          handleForwardMessage(contextMenuMessage);
-                        }}
-                        role="menuitem"
-                      >
-                        <Forward size={14} />
-                        <span>Переслать</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="student-message-context-menu__button"
-                        onClick={() => {
-                          startMessageSelection(contextMenuMessage);
-                        }}
-                        role="menuitem"
-                      >
-                        <Check size={14} />
-                        <span>Выбрать</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="student-message-context-menu__button"
-                        onClick={() => {
-                          closeContextMenu();
-                          void handlePinMessage(contextMenuMessage);
-                        }}
-                        disabled={Boolean(messageActionBusy)}
-                        role="menuitem"
-                      >
-                        <Pin size={14} />
-                        <span>{selectedPinnedMessageId === String(contextMenuMessage?.id || '') ? 'Открепить' : 'Закрепить'}</span>
-                      </button>
-                      {contextMenuOwn && (
-                      <button
-                        type="button"
-                        className="student-message-context-menu__button"
-                        onClick={() => {
-                          closeContextMenu();
-                          startEditMessage(contextMenuMessage);
-                        }}
-                        disabled={!String(contextMenuMessage?.text || '').trim() || Boolean(messageActionBusy)}
-                        role="menuitem"
-                      >
-                        <Pencil size={14} />
-                        <span>Изменить</span>
-                      </button>
-                      )}
-                      {contextMenuOwn && (
-                      <button
-                        type="button"
-                        className="student-message-context-menu__button student-message-context-menu__button--danger"
-                        onClick={() => {
-                          closeContextMenu();
-                          requestDeleteMessage(contextMenuMessage);
-                        }}
-                        disabled={!isMessageDeleteAllowed(contextMenuMessage) || Boolean(messageActionBusy)}
-                        role="menuitem"
-                      >
-                        <Trash2 size={14} />
-                        <span>Удалить</span>
-                      </button>
+                      {contextMenuSystemPin ? (
+                        <button
+                          type="button"
+                          className="student-message-context-menu__button student-message-context-menu__button--danger"
+                          onClick={() => {
+                            closeContextMenu();
+                            void handleDeleteMessage(contextMenuMessage);
+                          }}
+                          disabled={!contextMenuCanDeleteSystem || Boolean(messageActionBusy)}
+                          role="menuitem"
+                        >
+                          <Trash2 size={14} />
+                          <span>Удалить</span>
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="student-message-context-menu__button"
+                            onClick={() => {
+                              closeContextMenu();
+                              handleReplyMessage(contextMenuMessage);
+                            }}
+                            role="menuitem"
+                          >
+                            <Reply size={14} />
+                            <span>Ответить</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="student-message-context-menu__button"
+                            onClick={() => {
+                              closeContextMenu();
+                              void copyTextToClipboard(contextMenuMessage.text);
+                            }}
+                            disabled={!String(contextMenuMessage?.text || '').trim()}
+                            role="menuitem"
+                          >
+                            <Copy size={14} />
+                            <span>Копировать</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="student-message-context-menu__button"
+                            onClick={() => {
+                              closeContextMenu();
+                              handleForwardMessage(contextMenuMessage);
+                            }}
+                            role="menuitem"
+                          >
+                            <Forward size={14} />
+                            <span>Переслать</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="student-message-context-menu__button"
+                            onClick={() => {
+                              startMessageSelection(contextMenuMessage);
+                            }}
+                            role="menuitem"
+                          >
+                            <Check size={14} />
+                            <span>Выбрать</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="student-message-context-menu__button"
+                            onClick={() => {
+                              closeContextMenu();
+                              void handlePinMessage(contextMenuMessage);
+                            }}
+                            disabled={Boolean(messageActionBusy)}
+                            role="menuitem"
+                          >
+                            <Pin size={14} />
+                            <span>{selectedPinnedMessageId === String(contextMenuMessage?.id || '') ? 'Открепить' : 'Закрепить'}</span>
+                          </button>
+                          {contextMenuOwn && (
+                          <button
+                            type="button"
+                            className="student-message-context-menu__button"
+                            onClick={() => {
+                              closeContextMenu();
+                              startEditMessage(contextMenuMessage);
+                            }}
+                            disabled={!String(contextMenuMessage?.text || '').trim() || Boolean(messageActionBusy)}
+                            role="menuitem"
+                          >
+                            <Pencil size={14} />
+                            <span>Изменить</span>
+                          </button>
+                          )}
+                          {contextMenuOwn && (
+                          <button
+                            type="button"
+                            className="student-message-context-menu__button student-message-context-menu__button--danger"
+                            onClick={() => {
+                              closeContextMenu();
+                              requestDeleteMessage(contextMenuMessage);
+                            }}
+                            disabled={!isMessageDeleteAllowed(contextMenuMessage) || Boolean(messageActionBusy)}
+                            role="menuitem"
+                          >
+                            <Trash2 size={14} />
+                            <span>Удалить</span>
+                          </button>
+                          )}
+                        </>
                       )}
                     </div>
                   ), document.body)}
+                  </div>
+                  {showScrollToBottom && (
+                    <button
+                      type="button"
+                      className="student-chat-scroll-bottom-button"
+                      onClick={scrollToBottom}
+                      aria-label="Вниз"
+                      title="Вниз"
+                      data-message-menu-ignore="true"
+                    >
+                      <ChevronDown size={23} strokeWidth={2.4} />
+                    </button>
+                  )}
                 </div>
 
                 <div className="teacher-chat-composer mt-3">

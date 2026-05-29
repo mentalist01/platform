@@ -12716,6 +12716,68 @@ html[data-theme='light'] .student-chat-push-button:hover:not(:disabled) {
   gap: 0.55rem;
 }
 
+.student-chat-messages-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.teacher-chat-messages-wrap {
+  width: 100%;
+}
+
+.student-chat-scroll-bottom-button {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 28;
+  display: grid;
+  width: 3rem;
+  height: 3rem;
+  place-items: center;
+  border: 1px solid rgba(125, 211, 252, 0.24);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 28% 0%, rgba(34, 211, 238, 0.2), transparent 44%),
+    linear-gradient(135deg, rgba(248, 250, 252, 0.96), rgba(226, 232, 240, 0.88));
+  color: rgb(71, 85, 105);
+  box-shadow:
+    0 16px 36px rgba(2, 6, 23, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  animation: student-chat-scroll-bottom-in 170ms ease-out both;
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease;
+}
+
+.student-chat-scroll-bottom-button:hover {
+  transform: translateY(-2px);
+  border-color: rgba(34, 211, 238, 0.46);
+  color: rgb(15, 23, 42);
+  box-shadow:
+    0 20px 42px rgba(14, 165, 233, 0.18),
+    0 12px 28px rgba(2, 6, 23, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.58),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.student-chat-scroll-bottom-button:active {
+  transform: translateY(0) scale(0.98);
+}
+
+@keyframes student-chat-scroll-bottom-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.45rem) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .student-chat-message-tools {
   display: flex;
   flex-wrap: wrap;
@@ -12726,17 +12788,50 @@ html[data-theme='light'] .student-chat-push-button:hover:not(:disabled) {
 
 .student-chat-message-search {
   display: flex;
-  min-width: min(15rem, 100%);
-  flex: 1 1 13rem;
+  min-width: 0;
+  max-width: 0;
+  width: 0;
+  flex: 0 1 0;
   align-items: center;
-  gap: 0.42rem;
-  border: 1px solid rgba(125, 211, 252, 0.2);
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid transparent;
   border-radius: 0.9rem;
+  background: transparent;
+  padding: 0;
+  color: rgba(226, 232, 240, 0.74);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(0.7rem) scaleX(0.9);
+  transform-origin: right center;
+  box-shadow: none;
+  transition:
+    max-width 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    flex-basis 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 180ms ease,
+    transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    padding 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    gap 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.student-chat-message-search--open {
+  min-width: 0;
+  max-width: min(24rem, calc(100vw - 7rem));
+  width: min(24rem, calc(100vw - 7rem));
+  flex: 1 1 13rem;
+  gap: 0.42rem;
+  border-color: rgba(125, 211, 252, 0.2);
   background:
     radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.14), transparent 42%),
     rgba(15, 23, 42, 0.42);
   padding: 0.48rem 0.65rem;
-  color: rgba(226, 232, 240, 0.74);
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0) scaleX(1);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
@@ -12812,15 +12907,11 @@ html[data-theme='light'] .student-chat-push-button:hover:not(:disabled) {
   align-items: center;
   gap: 0.55rem;
   margin: 0 0 0.32rem;
-  border: 1px solid rgba(125, 211, 252, 0.18);
+  border: 1px solid transparent;
   border-radius: 1.05rem;
-  background:
-    radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.11), transparent 38%),
-    linear-gradient(135deg, rgba(15, 23, 42, 0.5), rgba(30, 41, 59, 0.34));
+  background: transparent;
   padding: 0.48rem 0.55rem;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 10px 22px rgba(2, 6, 23, 0.09);
+  box-shadow: none;
 }
 
 .student-chat-message-top-main {
@@ -12870,8 +12961,8 @@ html[data-theme='light'] .student-chat-push-button:hover:not(:disabled) {
   flex: 1 1 22rem;
 }
 
-.student-chat-message-top-row .student-chat-message-tools--compact .student-chat-message-search {
-  min-width: min(18rem, 100%);
+.student-chat-message-top-row .student-chat-message-tools--compact .student-chat-message-search--open {
+  min-width: 0;
   flex: 1 1 14rem;
 }
 
@@ -12909,14 +13000,14 @@ html[data-theme='light'] .student-chat-push-button:hover:not(:disabled) {
     flex: 1 1 8.5rem;
   }
 
-  .student-chat-message-top-row .student-chat-message-tools--compact .student-chat-message-search {
+  .student-chat-message-top-row .student-chat-message-tools--compact .student-chat-message-search--open {
     min-width: 0;
     flex-basis: 7rem;
   }
 }
 
-.student-chat-message-tools--compact .student-chat-message-search {
-  min-width: min(20rem, calc(100% - 5.4rem));
+.student-chat-message-tools--compact .student-chat-message-search--open {
+  min-width: 0;
   flex: 0 1 22rem;
   border-radius: 999px;
   padding: 0.38rem 0.45rem 0.38rem 0.7rem;
@@ -12928,23 +13019,103 @@ html[data-theme='light'] .student-chat-push-button:hover:not(:disabled) {
   gap: 0.35rem;
 }
 
-.student-chat-tool-icon {
+.student-chat-message-top-row .student-chat-message-tool-actions {
+  align-self: center;
+}
+
+.student-chat-tools-menu-wrap {
   display: inline-grid;
-  width: 2.15rem;
-  height: 2.15rem;
+  inline-size: 2rem;
+  block-size: 2rem;
+  width: 2rem;
+  min-width: 2rem;
+  max-width: 2rem;
+  height: 2rem;
+  min-height: 2rem;
+  max-height: 2rem;
+  flex: 0 0 2rem;
+  align-self: center;
+  place-items: center;
+}
+
+.student-chat-tool-icon {
+  appearance: none;
+  display: inline-grid;
+  inline-size: 2rem;
+  block-size: 2rem;
+  width: 2rem;
+  min-width: 2rem;
+  max-width: 2rem;
+  height: 2rem;
+  min-height: 2rem;
+  max-height: 2rem;
+  flex: 0 0 2rem;
+  align-self: center;
+  aspect-ratio: 1 / 1;
+  box-sizing: border-box;
+  overflow: hidden;
   place-items: center;
   border: 1px solid rgba(125, 211, 252, 0.22);
   border-radius: 999px;
   background:
     radial-gradient(circle at 15% 0%, rgba(34, 211, 238, 0.16), transparent 46%),
     rgba(15, 23, 42, 0.42);
+  padding: 0;
   color: rgba(226, 232, 240, 0.82);
+  line-height: 1;
   transition:
     transform 150ms ease,
     border-color 150ms ease,
     background 150ms ease,
     color 150ms ease,
     box-shadow 150ms ease;
+}
+
+.student-chat-message-top-row .student-chat-tool-icon {
+  inline-size: 2rem !important;
+  block-size: 2rem !important;
+  width: 2rem !important;
+  min-width: 2rem !important;
+  max-width: 2rem !important;
+  height: 2rem !important;
+  min-height: 2rem !important;
+  max-height: 2rem !important;
+  flex: 0 0 2rem !important;
+  align-self: center !important;
+  border-color: transparent !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  color: rgba(203, 213, 225, 0.86);
+  line-height: 0;
+}
+
+.student-chat-message-top-row .student-chat-tool-icon:hover,
+.student-chat-message-top-row .student-chat-tool-icon--active {
+  transform: translateY(-1px);
+  border-color: transparent !important;
+  background: transparent !important;
+  color: rgb(255, 255, 255);
+  box-shadow: none !important;
+}
+
+.student-chat-message-top-row .student-chat-tools-menu-wrap {
+  inline-size: 2rem !important;
+  block-size: 2rem !important;
+  width: 2rem !important;
+  min-width: 2rem !important;
+  max-width: 2rem !important;
+  height: 2rem !important;
+  min-height: 2rem !important;
+  max-height: 2rem !important;
+  flex: 0 0 2rem !important;
+}
+
+.student-chat-tool-icon svg {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
 }
 
 .student-chat-tool-icon:hover,
@@ -14338,13 +14509,9 @@ html[data-theme='light'] .student-chat-panel.surface-card .text-xs.font-semibold
 }
 
 html[data-theme='light'] .student-chat-message-top-row {
-  border-color: rgba(14, 165, 233, 0.18);
-  background:
-    radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.1), transparent 38%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 249, 255, 0.86));
-  box-shadow:
-    0 10px 24px rgba(14, 116, 144, 0.07),
-    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 html[data-theme='light'] .student-chat-inline-title {
@@ -14431,7 +14598,7 @@ html[data-theme='light'] .student-message-reference {
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
-html[data-theme='light'] .student-chat-message-search {
+html[data-theme='light'] .student-chat-message-search--open {
   border-color: rgba(14, 165, 233, 0.18);
   background:
     radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.12), transparent 42%),
@@ -14486,6 +14653,21 @@ html[data-theme='light'] .student-chat-tool-icon--active {
     linear-gradient(135deg, rgba(236, 254, 255, 0.95), rgba(245, 243, 255, 0.92));
   color: rgb(15, 23, 42);
   box-shadow: 0 12px 24px rgba(14, 116, 144, 0.08);
+}
+
+html[data-theme='light'] .student-chat-message-top-row .student-chat-tool-icon {
+  border-color: transparent !important;
+  background: transparent !important;
+  color: rgba(51, 65, 85, 0.82);
+  box-shadow: none !important;
+}
+
+html[data-theme='light'] .student-chat-message-top-row .student-chat-tool-icon:hover,
+html[data-theme='light'] .student-chat-message-top-row .student-chat-tool-icon--active {
+  border-color: transparent !important;
+  background: transparent !important;
+  color: rgb(15, 23, 42);
+  box-shadow: none !important;
 }
 
 html[data-theme='light'] .student-chat-tools-menu {
@@ -15043,6 +15225,27 @@ html[data-theme='dark'] .student-chat-messages {
     linear-gradient(160deg, rgba(2, 6, 23, 0.42), rgba(15, 23, 42, 0.74) 58%, rgba(30, 27, 75, 0.45)) !important;
 }
 
+html[data-theme='dark'] .student-chat-scroll-bottom-button {
+  border-color: rgba(125, 211, 252, 0.26);
+  background:
+    radial-gradient(circle at 28% 0%, rgba(34, 211, 238, 0.22), transparent 46%),
+    linear-gradient(145deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.88));
+  color: rgba(226, 232, 240, 0.92);
+  box-shadow:
+    0 18px 38px rgba(2, 6, 23, 0.42),
+    0 0 0 1px rgba(125, 211, 252, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .student-chat-scroll-bottom-button:hover {
+  border-color: rgba(34, 211, 238, 0.48);
+  color: rgb(248, 250, 252);
+  box-shadow:
+    0 20px 42px rgba(2, 6, 23, 0.5),
+    0 0 26px rgba(34, 211, 238, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
 html[data-theme='dark'] .student-message-skeleton-avatar {
   background:
     radial-gradient(circle at 28% 20%, rgba(255, 255, 255, 0.16), transparent 34%),
@@ -15591,6 +15794,18 @@ html[data-theme='dark'] .student-direct-thread-header p:last-child {
   .student-chat-messages {
     border-radius: 0.78rem !important;
     padding: 0.4rem 0.42rem 0.48rem !important;
+  }
+
+  .student-chat-scroll-bottom-button {
+    right: 0.64rem;
+    bottom: 0.64rem;
+    width: 2.55rem;
+    height: 2.55rem;
+  }
+
+  .student-chat-scroll-bottom-button svg {
+    width: 1.22rem;
+    height: 1.22rem;
   }
 
   .student-message-row {

@@ -11572,7 +11572,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const avatarInputRef = useRef(null);
   const messageAudioContextRef = useRef(null);
   const messageTitleBlinkTimerRef = useRef(null);
-  const previousUnreadMessageTotalRef = useRef(null);
+  const incomingMessageSoundSeenRef = useRef(new Map());
+  const incomingMessageSoundReadyScopesRef = useRef(new Set());
   const prevGoalCollapsedRef = useRef(goalCollapsed);
   const [isDesktopWide, setIsDesktopWide] = useState(
     typeof window !== 'undefined' ? window.innerWidth > 1000 : true
@@ -11581,6 +11582,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [teacherSignupNotifs, setTeacherSignupNotifs] = useState([]);
   const [teacherStudentChatsUnreadTotal, setTeacherStudentChatsUnreadTotal] = useState(0);
   const [studentChatNavUnreadTotal, setStudentChatNavUnreadTotal] = useState(0);
+  const [incomingMessageSoundPulse, setIncomingMessageSoundPulse] = useState(0);
   const [studentScheduleNavNewTotal, setStudentScheduleNavNewTotal] = useState(0);
   const [studentProgressNavNewTotal, setStudentProgressNavNewTotal] = useState(0);
   const [teacherSolvedBulkReadBusy, setTeacherSolvedBulkReadBusy] = useState(false);
@@ -11872,6 +11874,45 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         + Math.max(0, Math.floor(Number(teacherSignupUnreadMessageTotal) || 0))
       )
       : 0);
+
+  const registerIncomingMessageSoundCandidates = useCallback((scope, candidates = []) => {
+    const scopeKey = String(scope || '').trim();
+    if (!scopeKey) return;
+
+    const readyScopes = incomingMessageSoundReadyScopesRef.current;
+    const seen = incomingMessageSoundSeenRef.current;
+    const scopeReady = readyScopes.has(scopeKey);
+    let shouldPlaySound = false;
+
+    (Array.isArray(candidates) ? candidates : []).forEach((candidate) => {
+      if (!candidate || candidate.incoming !== true) return;
+      const key = String(candidate.key || '').trim();
+      const unreadCount = Math.max(0, Math.floor(Number(candidate.unreadCount) || 0));
+      const lastMessageAt = String(candidate.lastMessageAt || '').trim();
+      const timestampMs = Date.parse(lastMessageAt);
+      if (!key || unreadCount <= 0 || !Number.isFinite(timestampMs)) return;
+
+      const fullKey = `${scopeKey}:${key}`;
+      const previous = seen.get(fullKey);
+      const audible = candidate.audible !== false;
+      if (
+        scopeReady
+        && audible
+        && (!previous || timestampMs > previous.timestampMs)
+      ) {
+        shouldPlaySound = true;
+      }
+      if (!previous || timestampMs >= previous.timestampMs) {
+        seen.set(fullKey, { timestampMs });
+      }
+    });
+
+    if (!scopeReady) readyScopes.add(scopeKey);
+    if (shouldPlaySound) {
+      setIncomingMessageSoundPulse((value) => value + 1);
+    }
+  }, []);
+
   const navBadgeCounts = useMemo(() => {
     const counts = {};
     if (user.role === 'student') {
@@ -11896,7 +11937,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     user.role,
   ]);
   useEffect(() => {
-    previousUnreadMessageTotalRef.current = null;
+    incomingMessageSoundSeenRef.current = new Map();
+    incomingMessageSoundReadyScopesRef.current = new Set();
+    setIncomingMessageSoundPulse(0);
   }, [user.id, user.role]);
 
   useEffect(() => {
@@ -11926,17 +11969,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, []);
 
   useEffect(() => {
-    const total = Math.max(0, Math.floor(Number(unreadMessageAlertTotal) || 0));
-    const previousTotal = previousUnreadMessageTotalRef.current;
-    if (previousTotal === null) {
-      previousUnreadMessageTotalRef.current = total;
-      return;
-    }
-    if (total > previousTotal && total > 0) {
-      void playIncomingMessageSound(messageAudioContextRef);
-    }
-    previousUnreadMessageTotalRef.current = total;
-  }, [unreadMessageAlertTotal]);
+    if (incomingMessageSoundPulse <= 0) return;
+    void playIncomingMessageSound(messageAudioContextRef);
+  }, [incomingMessageSoundPulse]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
@@ -12520,7 +12555,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const PushButtonIcon = pushSubscribed ? BellOff : Bell;
 
   const handleAvatarFile = useCallback(async (file) => {
-    if (!file || user.role !== 'student' || avatarSaving) return;
+    if (!file || !['student', 'teacher'].includes(user.role) || avatarSaving) return;
     if (!String(file.type || '').toLowerCase().startsWith('image/')) {
       setAvatarError('Нужна картинка');
       return;
@@ -12533,7 +12568,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     setAvatarError('');
     try {
       const avatarDataUrl = await readDashboardFileAsDataUrl(file);
-      const payload = await api.updateStudentAvatar(avatarDataUrl);
+      const payload = user.role === 'teacher'
+        ? await api.updateTeacherAvatar(avatarDataUrl)
+        : await api.updateStudentAvatar(avatarDataUrl);
       onUserUpdated?.(payload?.user || { ...user, avatarDataUrl: payload?.avatarDataUrl || avatarDataUrl });
     } catch (error) {
       setAvatarError(error?.message || String(error));
@@ -12545,7 +12582,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const renderUserAvatar = (className = 'h-9 w-9 rounded-lg', iconSize = 12) => {
     const avatarDataUrl = String(user?.avatarDataUrl || '').trim();
-    const canEditAvatar = user.role === 'student';
+    const canEditAvatar = user.role === 'student' || user.role === 'teacher';
     const content = avatarDataUrl ? (
       <img src={avatarDataUrl} alt={user.name} className="h-full w-full object-cover" />
     ) : (
@@ -13577,7 +13614,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const openPaceForecastPopup = useCallback(() => {
     if (user.role !== 'student') return;
     setPaceForecastPopupOpen(true);
-  }, [user.role, user.id]);
+  }, [user.role]);
   const handleOpenProgressFromForecast = useCallback(() => {
     closePaceForecastPopup();
     navigateToView('progress');
@@ -13711,11 +13748,23 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       try {
         const chats = await api.getSignupChats();
         if (cancelled) return;
+        const chatList = Array.isArray(chats) ? chats : [];
         const mutedByChat = dismissedSignupNotifsRef.current;
         const existingChatIds = new Set();
         const nextNotifs = [];
 
-        (Array.isArray(chats) ? chats : []).forEach((chat) => {
+        registerIncomingMessageSoundCandidates('teacher-signup', chatList.map((chat) => {
+          const chatId = typeof chat?.id === 'string' ? chat.id.trim() : '';
+          const unreadForTeacher = Math.max(0, Math.floor(Number(chat?.unreadForTeacher) || 0));
+          return {
+            key: chatId ? `signup:${chatId}` : '',
+            unreadCount: unreadForTeacher,
+            lastMessageAt: chat?.lastMessageAt || chat?.updatedAt || chat?.createdAt,
+            incoming: unreadForTeacher > 0 && chat?.lastMessageSenderRole === 'lead',
+          };
+        }));
+
+        chatList.forEach((chat) => {
           const chatId = typeof chat?.id === 'string' ? chat.id.trim() : '';
           if (!chatId) return;
           existingChatIds.add(chatId);
@@ -13763,7 +13812,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       cancelled = true;
       clearInterval(interval);
     };
-  }, [user.role, user.id]);
+  }, [registerIncomingMessageSoundCandidates, user.role, user.id]);
 
   useEffect(() => {
     if (user.role !== 'teacher') {
@@ -13780,14 +13829,32 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         ]);
         if (cancelled) return;
         let total = 0;
+        const soundCandidates = [];
         if (studentChatsResult.status === 'fulfilled') {
-          total += (Array.isArray(studentChatsResult.value) ? studentChatsResult.value : []).reduce((sum, chat) => (
-            sum + Math.max(0, Math.floor(Number(chat?.unreadForTeacher) || 0))
-          ), 0);
+          const studentChats = Array.isArray(studentChatsResult.value) ? studentChatsResult.value : [];
+          studentChats.forEach((chat) => {
+            const unreadForTeacher = Math.max(0, Math.floor(Number(chat?.unreadForTeacher) || 0));
+            total += unreadForTeacher;
+            soundCandidates.push({
+              key: chat?.id ? `student:${chat.id}` : '',
+              unreadCount: unreadForTeacher,
+              lastMessageAt: chat?.lastMessageAt || chat?.updatedAt || chat?.createdAt,
+              incoming: unreadForTeacher > 0 && chat?.lastMessageSenderRole === 'student',
+            });
+          });
         }
         if (groupChatResult.status === 'fulfilled') {
-          total += Math.max(0, Math.floor(Number(groupChatResult.value?.groupChat?.unreadForTeacher) || 0));
+          const groupChat = groupChatResult.value?.groupChat || null;
+          const groupUnread = Math.max(0, Math.floor(Number(groupChat?.unreadForTeacher) || 0));
+          total += groupUnread;
+          soundCandidates.push({
+            key: groupChat?.id ? `group:${groupChat.id}` : '',
+            unreadCount: groupUnread,
+            lastMessageAt: groupChat?.lastMessageAt || groupChat?.updatedAt || groupChat?.createdAt,
+            incoming: groupUnread > 0 && groupChat?.lastMessageSenderRole === 'student',
+          });
         }
+        registerIncomingMessageSoundCandidates('teacher-student-chats', soundCandidates);
         setTeacherStudentChatsUnreadTotal(total);
       } catch {
         if (!cancelled) setTeacherStudentChatsUnreadTotal(0);
@@ -13800,7 +13867,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       cancelled = true;
       clearInterval(interval);
     };
-  }, [user.role, user.id]);
+  }, [registerIncomingMessageSoundCandidates, user.role, user.id]);
 
   useEffect(() => {
     if (user.role !== 'student') {
@@ -13818,25 +13885,59 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         ]);
         if (cancelled) return;
 
-        const notificationSettings = notificationSettingsResult.status === 'fulfilled'
+        const notificationSettingsLoaded = notificationSettingsResult.status === 'fulfilled';
+        const notificationSettings = notificationSettingsLoaded
           ? (notificationSettingsResult.value?.settings || {})
           : {};
         const directNotificationSettings = notificationSettings?.directByChatId || {};
+        const soundCandidates = [];
         let total = 0;
-        if (teacherChatResult.status === 'fulfilled' && notificationSettings.teacherEnabled !== false) {
-          total += Math.max(0, Math.floor(Number(teacherChatResult.value?.chat?.unreadForStudent) || 0));
+        if (teacherChatResult.status === 'fulfilled') {
+          const teacherChat = teacherChatResult.value?.chat || null;
+          const teacherUnread = Math.max(0, Math.floor(Number(teacherChat?.unreadForStudent) || 0));
+          const teacherAudible = notificationSettingsLoaded && notificationSettings.teacherEnabled !== false;
+          if (teacherAudible) total += teacherUnread;
+          soundCandidates.push({
+            key: teacherChat?.id ? `teacher:${teacherChat.id}` : 'teacher:default',
+            unreadCount: teacherUnread,
+            lastMessageAt: teacherChat?.lastMessageAt || teacherChat?.updatedAt || teacherChat?.createdAt,
+            incoming: teacherUnread > 0 && teacherChat?.lastMessageSenderRole === 'teacher',
+            audible: teacherAudible,
+          });
         }
         if (socialChatsResult.status === 'fulfilled') {
           const payload = socialChatsResult.value || {};
-          if (notificationSettings.groupEnabled !== false) {
-            total += Math.max(0, Math.floor(Number(payload?.groupChat?.unreadForStudent) || 0));
+          const groupChat = payload?.groupChat || null;
+          const groupUnread = Math.max(0, Math.floor(Number(groupChat?.unreadForStudent) || 0));
+          const groupAudible = notificationSettingsLoaded && notificationSettings.groupEnabled !== false;
+          if (groupAudible) {
+            total += groupUnread;
           }
-          total += (Array.isArray(payload?.directChats) ? payload.directChats : []).reduce((sum, chat) => (
-            directNotificationSettings?.[chat?.id] === false
-              ? sum
-              : sum + Math.max(0, Math.floor(Number(chat?.unreadForStudent) || 0))
-          ), 0);
+          soundCandidates.push({
+            key: groupChat?.id ? `group:${groupChat.id}` : '',
+            unreadCount: groupUnread,
+            lastMessageAt: groupChat?.lastMessageAt || groupChat?.updatedAt || groupChat?.createdAt,
+            incoming: groupUnread > 0
+              && groupChat?.lastMessageSenderRole !== 'system'
+              && String(groupChat?.lastMessageSenderId || '').trim() !== String(user.id || '').trim(),
+            audible: groupAudible,
+          });
+          (Array.isArray(payload?.directChats) ? payload.directChats : []).forEach((chat) => {
+            const directUnread = Math.max(0, Math.floor(Number(chat?.unreadForStudent) || 0));
+            const directAudible = notificationSettingsLoaded && directNotificationSettings?.[chat?.id] !== false;
+            if (directAudible) total += directUnread;
+            soundCandidates.push({
+              key: chat?.id ? `direct:${chat.id}` : '',
+              unreadCount: directUnread,
+              lastMessageAt: chat?.lastMessageAt || chat?.updatedAt || chat?.createdAt,
+              incoming: directUnread > 0
+                && chat?.lastMessageSenderRole !== 'system'
+                && String(chat?.lastMessageSenderId || '').trim() !== String(user.id || '').trim(),
+              audible: directAudible,
+            });
+          });
         }
+        registerIncomingMessageSoundCandidates('student-chats', soundCandidates);
         setStudentChatNavUnreadTotal(total);
       } catch {
         if (!cancelled) setStudentChatNavUnreadTotal(0);
@@ -13851,7 +13952,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       window.removeEventListener('student-chat-notification-settings-updated', fetchStudentNavUnread);
       clearInterval(interval);
     };
-  }, [user.role, user.id, view]);
+  }, [registerIncomingMessageSoundCandidates, user.role, user.id, view]);
 
   useEffect(() => {
     if (user.role !== 'student') {

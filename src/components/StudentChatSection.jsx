@@ -4,6 +4,7 @@ import {
   Bell,
   BellOff,
   Check,
+  ChevronDown,
   Copy,
   FileText,
   Image as ImageIcon,
@@ -403,6 +404,27 @@ const isChatScrolledNearBottom = (node) => (
   !node || (node.scrollHeight - node.scrollTop - node.clientHeight) < 160
 );
 
+const shouldShowChatScrollBottomButton = (node) => (
+  Boolean(node && (node.scrollHeight - node.scrollTop - node.clientHeight) > 36)
+);
+
+const isPinAnnouncementMessage = (message) => (
+  message?.senderRole === 'system' && message?.systemType === 'pin'
+);
+
+const canDeletePinAnnouncementForActor = (message, actor = {}) => {
+  if (!isPinAnnouncementMessage(message)) return false;
+  const actorId = String(actor?.id || '').trim();
+  const actorRole = String(actor?.role || '').trim();
+  const actorName = String(actor?.name || '').trim();
+  const systemActorId = String(message?.systemActorId || '').trim();
+  const systemActorRole = String(message?.systemActorRole || '').trim();
+  if (systemActorId) {
+    return systemActorId === actorId && (!systemActorRole || systemActorRole === actorRole);
+  }
+  return Boolean(actorName && String(message?.senderName || '').trim() === actorName);
+};
+
 const ChatMessageTopTools = ({
   searchQuery,
   onSearchQueryChange,
@@ -413,6 +435,14 @@ const ChatMessageTopTools = ({
 }) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const searchInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    if (typeof window === 'undefined') return;
+    const frame = window.requestAnimationFrame(() => searchInputRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [searchOpen]);
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -430,15 +460,18 @@ const ChatMessageTopTools = ({
 
   return (
     <div className={`student-chat-message-tools student-chat-message-tools--compact ${searchOpen ? 'student-chat-message-tools--search-open' : ''}`} data-message-menu-ignore="true">
-      {searchOpen && (
-        <label className="student-chat-message-search">
+      <label
+        className={`student-chat-message-search ${searchOpen ? 'student-chat-message-search--open' : ''}`}
+        aria-hidden={!searchOpen}
+      >
           <Search size={14} />
           <input
+            ref={searchInputRef}
             type="search"
             value={searchQuery}
             onChange={(event) => onSearchQueryChange(event.target.value)}
             placeholder="Поиск"
-            autoFocus
+            tabIndex={searchOpen ? 0 : -1}
           />
           <button
             type="button"
@@ -447,13 +480,13 @@ const ChatMessageTopTools = ({
               onSearchQueryChange('');
               setSearchOpen(false);
             }}
+            tabIndex={searchOpen ? 0 : -1}
             aria-label="Закрыть поиск"
             title="Закрыть"
           >
             <X size={14} />
           </button>
         </label>
-      )}
       <div className="student-chat-message-tool-actions">
         <button
           type="button"
@@ -690,6 +723,7 @@ const ChatMessages = ({
   onReplyMessage = null,
   onForwardMessage = null,
   onPinMessage = null,
+  canDeleteSystemMessage = null,
   onEnsureMessageLoaded = null,
   openReferenceRequest = null,
   pinnedMessageId = '',
@@ -714,6 +748,7 @@ const ChatMessages = ({
   const [selectionActionBusy, setSelectionActionBusy] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [contentFilter, setContentFilter] = useState('all');
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const reactionBurstTimerRef = useRef(null);
   const highlightTimerRef = useRef(null);
   const highlightFrameRef = useRef(null);
@@ -739,6 +774,9 @@ const ChatMessages = ({
   const canForwardSelectedMessages = selectedMessages.length > 0
     && typeof onForwardMessage === 'function'
     && !selectionActionBusy;
+  const canDeleteSystemMessageNow = useCallback((message) => (
+    typeof canDeleteSystemMessage === 'function' && canDeleteSystemMessage(message)
+  ), [canDeleteSystemMessage]);
 
   const clearMessageSelection = useCallback(() => {
     setSelectionMode(false);
@@ -792,14 +830,42 @@ const ChatMessages = ({
     }
   }, [canDeleteSelectedMessages, clearMessageSelection, onDeleteMessage, selectedDeletableMessages]);
 
+  const updateScrollToBottomButton = useCallback((node) => {
+    const nextVisible = shouldShowChatScrollBottomButton(node);
+    setShowScrollToBottom((current) => (current === nextVisible ? current : nextVisible));
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    const node = listRef.current;
+    if (!node) return;
+    scrollChatNodeToBottom(node);
+    setShowScrollToBottom(false);
+  }, [listRef]);
+
   const handleScroll = (event) => {
+    const node = event.currentTarget;
     setMessageContextMenu(null);
     setReactionPickerMessageId('');
+    updateScrollToBottomButton(node);
     if (!hasMoreBefore || olderLoading || loading || typeof onLoadOlder !== 'function') return;
-    if (event.currentTarget.scrollTop <= 96) {
+    if (node.scrollTop <= 96) {
       onLoadOlder();
     }
   };
+
+  useEffect(() => {
+    const node = listRef.current;
+    if (!node) {
+      setShowScrollToBottom(false);
+      return undefined;
+    }
+    updateScrollToBottomButton(node);
+    if (typeof window === 'undefined' || !window.requestAnimationFrame) return undefined;
+    const frameId = window.requestAnimationFrame(() => updateScrollToBottomButton(node));
+    return () => {
+      if (window.cancelAnimationFrame) window.cancelAnimationFrame(frameId);
+    };
+  }, [listRef, loading, olderLoading, messages.length, updateScrollToBottomButton, visibleMessages.length]);
 
   useEffect(() => {
     if (!messageContextMenu && !reactionPickerMessageId) return undefined;
@@ -934,7 +1000,9 @@ const ChatMessages = ({
 
   const deleteMessage = async (message) => {
     const id = String(message?.id || '').trim();
-    if (!id || typeof onDeleteMessage !== 'function' || !isMessageDeleteAllowed(message)) return;
+    const canDeleteSystem = canDeleteSystemMessageNow(message);
+    if (!id || typeof onDeleteMessage !== 'function') return;
+    if (!canDeleteSystem && !isMessageDeleteAllowed(message)) return;
     setBusyMessageAction(`delete:${id}`);
     try {
       await onDeleteMessage(message);
@@ -949,7 +1017,7 @@ const ChatMessages = ({
 
   const requestDeleteMessage = (message) => {
     const id = String(message?.id || '').trim();
-    if (!id || !isMessageDeleteAllowed(message)) return;
+    if (!id || (!canDeleteSystemMessageNow(message) && !isMessageDeleteAllowed(message))) return;
     setEditingMessageId('');
     setEditingText('');
     setMessageContextMenu(null);
@@ -1000,6 +1068,8 @@ const ChatMessages = ({
     ? messages.find((message) => String(message?.id || '').trim() === messageContextMenu.messageId)
     : null;
   const contextMenuOwn = Boolean(contextMenuMessage && isMine(contextMenuMessage));
+  const contextMenuSystemPin = Boolean(contextMenuMessage && isPinAnnouncementMessage(contextMenuMessage));
+  const contextMenuCanDeleteSystem = Boolean(contextMenuSystemPin && canDeleteSystemMessageNow(contextMenuMessage));
   const closeContextMenu = () => setMessageContextMenu(null);
 
   useEffect(() => {
@@ -1102,11 +1172,12 @@ const ChatMessages = ({
           </div>
         </div>
       )}
-    <div
-      ref={listRef}
-      onScroll={handleScroll}
-      className="student-chat-messages min-h-0 flex-1 space-y-3.5 overflow-y-auto rounded-[1.35rem] border border-slate-200/80 p-3 pb-4"
-    >
+      <div className="student-chat-messages-wrap min-h-0 flex-1">
+        <div
+          ref={listRef}
+          onScroll={handleScroll}
+          className="student-chat-messages h-full min-h-0 space-y-3.5 overflow-y-auto rounded-[1.35rem] border border-slate-200/80 p-3 pb-4"
+        >
     {pinnedMessage && (
       <div className="student-chat-pinned-message-row" data-message-menu-ignore="true">
         <MessageReferenceCard
@@ -1173,11 +1244,13 @@ const ChatMessages = ({
       visibleMessages.map((message) => {
         const messageId = String(message?.id || '').trim();
         if (message?.senderRole === 'system' || message?.systemType) {
+          const canDeleteSystem = canDeleteSystemMessageNow(message);
           return (
             <div
               key={message.id}
               data-chat-message-id={messageId}
               className="student-message-system-row"
+              onContextMenu={canDeleteSystem ? (event) => openMessageContextMenu(event, message) : undefined}
             >
               <span className="student-message-system-pill">{String(message?.text || '')}</span>
             </div>
@@ -1587,102 +1660,133 @@ const ChatMessages = ({
         onClick={(event) => event.stopPropagation()}
         role="menu"
       >
-        <button
-          type="button"
-          className="student-message-context-menu__button"
-          onClick={() => {
-            closeContextMenu();
-            onReplyMessage?.(contextMenuMessage);
-          }}
-          disabled={typeof onReplyMessage !== 'function'}
-          role="menuitem"
-        >
-          <Reply size={14} />
-          <span>Ответить</span>
-        </button>
-        <button
-          type="button"
-          className="student-message-context-menu__button"
-          onClick={() => {
-            closeContextMenu();
-            void copyTextToClipboard(contextMenuMessage.text);
-          }}
-          disabled={!String(contextMenuMessage?.text || '').trim()}
-          role="menuitem"
-        >
-          <Copy size={14} />
-          <span>Копировать</span>
-        </button>
-        <button
-          type="button"
-          className="student-message-context-menu__button"
-          onClick={() => {
-            closeContextMenu();
-            onForwardMessage?.(contextMenuMessage);
-          }}
-          disabled={typeof onForwardMessage !== 'function'}
-          role="menuitem"
-        >
-          <Forward size={14} />
-          <span>Переслать</span>
-        </button>
-        <button
-          type="button"
-          className="student-message-context-menu__button"
-          onClick={() => {
-            startMessageSelection(contextMenuMessage);
-          }}
-          role="menuitem"
-        >
-          <Check size={14} />
-          <span>Выбрать</span>
-        </button>
-        <button
-          type="button"
-          className="student-message-context-menu__button"
-          onClick={() => {
-            closeContextMenu();
-            onPinMessage?.(contextMenuMessage);
-          }}
-          disabled={typeof onPinMessage !== 'function'}
-          role="menuitem"
-        >
-          <Pin size={14} />
-          <span>{String(pinnedMessageId || '') === String(contextMenuMessage?.id || '') ? 'Открепить' : 'Закрепить'}</span>
-        </button>
-        {contextMenuOwn && (
-        <button
-          type="button"
-          className="student-message-context-menu__button"
-          onClick={() => {
-            closeContextMenu();
-            startEditMessage(contextMenuMessage);
-          }}
-          disabled={!String(contextMenuMessage?.text || '').trim() || typeof onEditMessage !== 'function' || Boolean(busyMessageAction)}
-          role="menuitem"
-        >
-          <Pencil size={14} />
-          <span>Изменить</span>
-        </button>
-        )}
-        {contextMenuOwn && (
-        <button
-          type="button"
-          className="student-message-context-menu__button student-message-context-menu__button--danger"
-          onClick={() => {
-            closeContextMenu();
-            requestDeleteMessage(contextMenuMessage);
-          }}
-          disabled={typeof onDeleteMessage !== 'function' || !isMessageDeleteAllowed(contextMenuMessage) || Boolean(busyMessageAction)}
-          role="menuitem"
-        >
-          <Trash2 size={14} />
-          <span>Удалить</span>
-        </button>
+        {contextMenuSystemPin ? (
+          <button
+            type="button"
+            className="student-message-context-menu__button student-message-context-menu__button--danger"
+            onClick={() => {
+              closeContextMenu();
+              void deleteMessage(contextMenuMessage);
+            }}
+            disabled={!contextMenuCanDeleteSystem || typeof onDeleteMessage !== 'function' || Boolean(busyMessageAction)}
+            role="menuitem"
+          >
+            <Trash2 size={14} />
+            <span>Удалить</span>
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="student-message-context-menu__button"
+              onClick={() => {
+                closeContextMenu();
+                onReplyMessage?.(contextMenuMessage);
+              }}
+              disabled={typeof onReplyMessage !== 'function'}
+              role="menuitem"
+            >
+              <Reply size={14} />
+              <span>Ответить</span>
+            </button>
+            <button
+              type="button"
+              className="student-message-context-menu__button"
+              onClick={() => {
+                closeContextMenu();
+                void copyTextToClipboard(contextMenuMessage.text);
+              }}
+              disabled={!String(contextMenuMessage?.text || '').trim()}
+              role="menuitem"
+            >
+              <Copy size={14} />
+              <span>Копировать</span>
+            </button>
+            <button
+              type="button"
+              className="student-message-context-menu__button"
+              onClick={() => {
+                closeContextMenu();
+                onForwardMessage?.(contextMenuMessage);
+              }}
+              disabled={typeof onForwardMessage !== 'function'}
+              role="menuitem"
+            >
+              <Forward size={14} />
+              <span>Переслать</span>
+            </button>
+            <button
+              type="button"
+              className="student-message-context-menu__button"
+              onClick={() => {
+                startMessageSelection(contextMenuMessage);
+              }}
+              role="menuitem"
+            >
+              <Check size={14} />
+              <span>Выбрать</span>
+            </button>
+            <button
+              type="button"
+              className="student-message-context-menu__button"
+              onClick={() => {
+                closeContextMenu();
+                onPinMessage?.(contextMenuMessage);
+              }}
+              disabled={typeof onPinMessage !== 'function'}
+              role="menuitem"
+            >
+              <Pin size={14} />
+              <span>{String(pinnedMessageId || '') === String(contextMenuMessage?.id || '') ? 'Открепить' : 'Закрепить'}</span>
+            </button>
+            {contextMenuOwn && (
+            <button
+              type="button"
+              className="student-message-context-menu__button"
+              onClick={() => {
+                closeContextMenu();
+                startEditMessage(contextMenuMessage);
+              }}
+              disabled={!String(contextMenuMessage?.text || '').trim() || typeof onEditMessage !== 'function' || Boolean(busyMessageAction)}
+              role="menuitem"
+            >
+              <Pencil size={14} />
+              <span>Изменить</span>
+            </button>
+            )}
+            {contextMenuOwn && (
+            <button
+              type="button"
+              className="student-message-context-menu__button student-message-context-menu__button--danger"
+              onClick={() => {
+                closeContextMenu();
+                requestDeleteMessage(contextMenuMessage);
+              }}
+              disabled={typeof onDeleteMessage !== 'function' || !isMessageDeleteAllowed(contextMenuMessage) || Boolean(busyMessageAction)}
+              role="menuitem"
+            >
+              <Trash2 size={14} />
+              <span>Удалить</span>
+            </button>
+            )}
+          </>
         )}
       </div>
     ), document.body)}
-    </div>
+        </div>
+        {showScrollToBottom && (
+          <button
+            type="button"
+            className="student-chat-scroll-bottom-button"
+            onClick={scrollToBottom}
+            aria-label="Вниз"
+            title="Вниз"
+            data-message-menu-ignore="true"
+          >
+            <ChevronDown size={23} strokeWidth={2.4} />
+          </button>
+        )}
+      </div>
     </div>
   );
 };
@@ -3270,6 +3374,7 @@ const StudentChatSection = ({
             onReplyMessage={handleReplyMessage}
             onForwardMessage={handleForwardMessage}
             onPinMessage={handlePinTeacherMessage}
+            canDeleteSystemMessage={(message) => canDeletePinAnnouncementForActor(message, user)}
             onEnsureMessageLoaded={ensureTeacherMessageLoaded}
             openReferenceRequest={teacherReferenceRequest}
             pinnedMessageId={teacherChat?.pinnedMessage?.messageId || teacherChat?.pinnedMessageId || ''}
@@ -3343,6 +3448,7 @@ const StudentChatSection = ({
                 onReplyMessage={handleReplyMessage}
                 onForwardMessage={handleForwardMessage}
                 onPinMessage={handlePinSocialMessage}
+                canDeleteSystemMessage={(message) => canDeletePinAnnouncementForActor(message, user)}
                 onEnsureMessageLoaded={ensureSocialMessageLoaded}
                 openReferenceRequest={socialReferenceRequest}
                 pinnedMessageId={socialPinnedMessageId}
@@ -3520,6 +3626,7 @@ const StudentChatSection = ({
                   onReplyMessage={handleReplyMessage}
                   onForwardMessage={handleForwardMessage}
                   onPinMessage={handlePinSocialMessage}
+                  canDeleteSystemMessage={(message) => canDeletePinAnnouncementForActor(message, user)}
                   onEnsureMessageLoaded={ensureSocialMessageLoaded}
                   openReferenceRequest={socialReferenceRequest}
                   pinnedMessageId={socialPinnedMessageId}
