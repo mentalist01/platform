@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, BellOff, Check, Eye, FileText, MessageSquare, Paperclip, Pencil, SendHorizontal, SmilePlus, Trash2, UploadCloud, Users, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Bell, BellOff, Check, Copy, FileText, Forward, Image as ImageIcon, Link, MessageSquare, MoreVertical, Paperclip, Pencil, Pin, Reply, Search, SendHorizontal, SmilePlus, Trash2, UploadCloud, Users, X } from 'lucide-react';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
 import LinkifiedText from './LinkifiedText';
@@ -12,7 +13,16 @@ const CHAT_ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg'
 const CHAT_FILE_SIZE_LABEL = '10 МБ';
 const CHAT_MESSAGE_PAGE_SIZE = 15;
 const CHAT_DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const CHAT_TARGET_HIGHLIGHT_DELAY_MS = 320;
+const CHAT_TARGET_HIGHLIGHT_DURATION_MS = 2600;
 const CHAT_REACTION_EMOJIS = Object.freeze(['👍', '❤️', '😂', '🔥', '👏', '😮', '😢', '🙏']);
+const CHAT_CONTENT_FILTERS = Object.freeze([
+  { id: 'all', label: 'Все', Icon: MessageSquare },
+  { id: 'media', label: 'Медиа', Icon: ImageIcon },
+  { id: 'files', label: 'Файлы', Icon: FileText },
+  { id: 'links', label: 'Ссылки', Icon: Link },
+]);
+const CHAT_LINK_PATTERN = /https?:\/\/[^\s<>"']+|(?:^|\s)(?:www\.)[^\s<>"']+/i;
 const EMPTY_CHAT_MESSAGES_PAGINATION = Object.freeze({
   hasMoreBefore: false,
   nextBefore: '',
@@ -93,6 +103,14 @@ const mergeChatMessages = (...groups) => {
   return merged.map((key) => byKey.get(key)).filter(Boolean);
 };
 
+const getPinnedReferenceMessageId = (reference) => String(reference?.messageId || reference?.id || '').trim();
+
+const confirmUnpinMessage = () => (
+  typeof window === 'undefined'
+  || typeof window.confirm !== 'function'
+  || window.confirm('Убрать закреплённое сообщение?')
+);
+
 const isMessageDeleteAllowed = (message) => {
   const createdAt = Date.parse(message?.createdAt || '');
   if (!Number.isFinite(createdAt)) return false;
@@ -110,9 +128,379 @@ const normalizeMessageReactions = (message) => (
     .filter((reaction) => reaction.emoji && reaction.count > 0)
 );
 
+const hasMessageLink = (message) => CHAT_LINK_PATTERN.test(String(message?.text || ''));
+
+const getMessageSearchText = (message) => [
+  message?.text,
+  message?.senderName,
+  message?.imageName,
+  message?.fileName,
+  message?.replyTo?.text,
+  message?.replyTo?.senderName,
+  message?.forwardFrom?.text,
+  message?.forwardFrom?.senderName,
+].map((value) => String(value || '').toLowerCase()).join(' ');
+
+const messageMatchesContentFilter = (message, filter) => {
+  if (filter === 'media') return Boolean(message?.imageDataUrl);
+  if (filter === 'files') return Boolean(message?.fileDataUrl);
+  if (filter === 'links') return hasMessageLink(message);
+  return true;
+};
+
+const getChatContentCounts = (messages = []) => {
+  const list = Array.isArray(messages) ? messages : [];
+  return list.reduce((acc, message) => {
+    acc.all += 1;
+    if (message?.imageDataUrl) acc.media += 1;
+    if (message?.fileDataUrl) acc.files += 1;
+    if (hasMessageLink(message)) acc.links += 1;
+    return acc;
+  }, { all: 0, media: 0, files: 0, links: 0 });
+};
+
+const getVisibleChatMessages = (messages = [], query = '', filter = 'all') => {
+  const normalizedQuery = String(query || '').trim().toLowerCase();
+  return (Array.isArray(messages) ? messages : []).filter((message) => (
+    messageMatchesContentFilter(message, filter)
+    && (!normalizedQuery || getMessageSearchText(message).includes(normalizedQuery))
+  ));
+};
+
+const copyTextToClipboard = async (value) => {
+  const text = String(value || '');
+  if (!text.trim()) return false;
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  return false;
+};
+
+const getMessageContextMenuPosition = (event, width = 210, height = 266) => {
+  const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 0;
+  const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 0;
+  return {
+    x: viewportWidth > 0
+      ? Math.max(10, Math.min(event.clientX, viewportWidth - width - 10))
+      : event.clientX,
+    y: viewportHeight > 0
+      ? Math.max(10, Math.min(event.clientY, viewportHeight - height - 10))
+      : event.clientY,
+  };
+};
+
+const shouldIgnoreMessagePrimaryClick = (event) => {
+  if (event.defaultPrevented) return true;
+  if (event.button && event.button !== 0) return true;
+  const target = event.target;
+  if (target?.closest?.('button,a,input,textarea,select,label,[contenteditable="true"],[data-message-menu-ignore]')) {
+    return true;
+  }
+  const selectedText = typeof window !== 'undefined'
+    ? String(window.getSelection?.()?.toString() || '').trim()
+    : '';
+  return Boolean(selectedText);
+};
+
+const waitForChatPaint = () => new Promise((resolve) => {
+  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+    setTimeout(resolve, 0);
+    return;
+  }
+  window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+});
+
+const getChatMessageElement = (container, messageId) => {
+  const id = String(messageId || '').trim();
+  if (!container || !id) return null;
+  return Array.from(container.querySelectorAll('[data-chat-message-id]'))
+    .find((element) => element.dataset.chatMessageId === id) || null;
+};
+
+const scrollChatMessageIntoView = (element) => {
+  if (!element) return;
+  element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+};
+
+const getMessageReferencePreview = (reference) => {
+  const text = String(reference?.text || '').replace(/\s+/g, ' ').trim();
+  if (text) return text;
+  if (reference?.hasImage) return reference?.imageName || 'Изображение';
+  if (reference?.hasFile) return reference?.fileName || 'Файл';
+  return 'Сообщение';
+};
+
+const getMessageReferenceSender = (reference) => (
+  String(reference?.senderName || '').trim()
+  || (reference?.senderRole === 'teacher' ? 'Преподаватель' : 'Ученик')
+);
+
+const buildMessageReferencePayload = (message, options = {}) => {
+  const messageId = String(message?.id || '').trim();
+  const senderId = String(message?.senderId || '').trim();
+  const text = String(message?.text || '').replace(/\s+/g, ' ').trim();
+  const imageName = String(message?.imageName || '').trim();
+  const fileName = String(message?.fileName || '').trim();
+  const hasImage = Boolean(message?.imageDataUrl || imageName);
+  const hasFile = Boolean(message?.fileDataUrl || fileName);
+  if (!messageId || !senderId || (!text && !hasImage && !hasFile)) return null;
+  return {
+    messageId,
+    chatId: String(options.chatId || '').trim(),
+    chatKind: String(options.chatKind || '').trim(),
+    chatTitle: String(options.chatTitle || '').trim(),
+    senderRole: message?.senderRole === 'teacher' ? 'teacher' : 'student',
+    senderId,
+    senderName: String(message?.senderName || '').trim() || (message?.senderRole === 'teacher' ? 'Преподаватель' : String(options.fallbackSenderName || 'Ученик')),
+    text,
+    hasImage,
+    hasFile,
+    imageName,
+    fileName,
+    createdAt: String(message?.createdAt || '').trim(),
+  };
+};
+
+const MessageReferenceCard = ({
+  reference,
+  type = 'reply',
+  mine = false,
+  compact = false,
+  onCancel = null,
+  onOpenTarget = null,
+}) => {
+  if (!reference) return null;
+  const targetId = String(reference?.messageId || '').trim();
+  const canOpenTarget = Boolean(targetId && typeof onOpenTarget === 'function');
+  const className = `student-message-reference student-message-reference--${type} ${mine ? 'student-message-reference--mine' : ''} ${compact ? 'student-message-reference--compact' : ''} ${canOpenTarget ? 'student-message-reference--clickable' : ''}`;
+  const openTarget = () => {
+    if (canOpenTarget) onOpenTarget(reference);
+  };
+  const handleReferenceKeyDown = (event) => {
+    if (!canOpenTarget) return;
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    openTarget();
+  };
+  const content = (
+    <>
+      <span className="student-message-reference__rail" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        <span className="student-message-reference__label">
+          {type === 'forward' ? 'Переслано' : (type === 'pin' ? 'Закреплено' : 'Ответ')}
+          {type === 'forward' && reference.chatTitle ? ` · ${reference.chatTitle}` : ''}
+        </span>
+        <span className="student-message-reference__author">{getMessageReferenceSender(reference)}</span>
+        <span className="student-message-reference__text">{getMessageReferencePreview(reference)}</span>
+      </span>
+      {typeof onCancel === 'function' && (
+        <button
+          type="button"
+          className="student-message-reference__close"
+          onClick={(event) => {
+            event.stopPropagation();
+            onCancel();
+          }}
+          aria-label="Убрать"
+          title="Убрать"
+        >
+          <X size={13} />
+        </button>
+      )}
+    </>
+  );
+  if (canOpenTarget) {
+    return (
+      <div
+        className={className}
+        onClick={(event) => {
+          event.stopPropagation();
+          openTarget();
+        }}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          handleReferenceKeyDown(event);
+        }}
+        role="button"
+        tabIndex={0}
+      >
+        {content}
+      </div>
+    );
+  }
+  return (
+    <div className={className}>
+      {content}
+    </div>
+  );
+};
+
+const ChatMessageTools = ({
+  searchQuery,
+  onSearchQueryChange,
+  contentFilter,
+  onContentFilterChange,
+  counts,
+}) => (
+  <div className="student-chat-message-tools teacher-chat-message-tools">
+    <label className="student-chat-message-search">
+      <Search size={14} />
+      <input
+        type="search"
+        value={searchQuery}
+        onChange={(event) => onSearchQueryChange(event.target.value)}
+        placeholder="Поиск"
+      />
+    </label>
+    <div className="student-chat-content-tabs" role="tablist" aria-label="Материалы чата">
+      {CHAT_CONTENT_FILTERS.map(({ id, label, Icon: FilterIcon }) => {
+        const active = contentFilter === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            className={`student-chat-content-tab ${active ? 'student-chat-content-tab--active' : ''}`}
+            onClick={() => onContentFilterChange(id)}
+            role="tab"
+            aria-selected={active}
+          >
+            {React.createElement(FilterIcon, { size: 13 })}
+            <span>{label}</span>
+            <strong>{counts?.[id] || 0}</strong>
+          </button>
+        );
+      })}
+    </div>
+  </div>
+);
+
 const isChatScrolledNearBottom = (node) => (
   !node || (node.scrollHeight - node.scrollTop - node.clientHeight) < 160
 );
+
+const ChatMessageTopTools = ({
+  searchQuery,
+  onSearchQueryChange,
+  contentFilter,
+  onContentFilterChange,
+  counts,
+  menuActions = [],
+}) => {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const close = () => setMenuOpen(false);
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') close();
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [menuOpen]);
+
+  return (
+    <div className={`student-chat-message-tools student-chat-message-tools--compact teacher-chat-message-tools ${searchOpen ? 'student-chat-message-tools--search-open' : ''}`} data-message-menu-ignore="true">
+      {searchOpen && (
+        <label className="student-chat-message-search">
+          <Search size={14} />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(event) => onSearchQueryChange(event.target.value)}
+            placeholder="Поиск"
+            autoFocus
+          />
+          <button
+            type="button"
+            className="student-chat-tool-icon"
+            onClick={() => {
+              onSearchQueryChange('');
+              setSearchOpen(false);
+            }}
+            aria-label="Закрыть поиск"
+            title="Закрыть"
+          >
+            <X size={14} />
+          </button>
+        </label>
+      )}
+      <div className="student-chat-message-tool-actions">
+        <button
+          type="button"
+          className={`student-chat-tool-icon ${searchOpen ? 'student-chat-tool-icon--active' : ''}`}
+          onClick={() => setSearchOpen((value) => !value)}
+          aria-label="Поиск"
+          title="Поиск"
+        >
+          <Search size={16} />
+        </button>
+        <div className="student-chat-tools-menu-wrap">
+          <button
+            type="button"
+            className={`student-chat-tool-icon ${menuOpen ? 'student-chat-tool-icon--active' : ''}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              setMenuOpen((value) => !value);
+            }}
+            aria-label="Меню чата"
+            title="Меню"
+          >
+            <MoreVertical size={17} />
+          </button>
+          {menuOpen && (
+            <div className="student-chat-tools-menu" onClick={(event) => event.stopPropagation()}>
+              <div className="student-chat-tools-menu__section">
+                {CHAT_CONTENT_FILTERS.map(({ id, label, Icon: FilterIcon }) => {
+                  const active = contentFilter === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`student-chat-tools-menu__item ${active ? 'student-chat-tools-menu__item--active' : ''}`}
+                      onClick={() => {
+                        onContentFilterChange(id);
+                        setMenuOpen(false);
+                      }}
+                    >
+                      {React.createElement(FilterIcon, { size: 15 })}
+                      <span>{label}</span>
+                      <strong>{counts?.[id] || 0}</strong>
+                    </button>
+                  );
+                })}
+              </div>
+              {menuActions.length > 0 && (
+                <div className="student-chat-tools-menu__section student-chat-tools-menu__section--actions">
+                  {menuActions.map((action) => (
+                    <button
+                      key={action.id || action.label}
+                      type="button"
+                      className={`student-chat-tools-menu__item ${action.danger ? 'student-chat-tools-menu__item--danger' : ''}`}
+                      onClick={(event) => {
+                        action.onClick?.(event);
+                        setMenuOpen(false);
+                      }}
+                      disabled={action.disabled}
+                    >
+                      {action.Icon ? React.createElement(action.Icon, { size: 15 }) : null}
+                      <span>{action.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const markChatScrollToBottom = (listRef, behaviorRef, { force = false } = {}) => {
   const node = listRef.current;
@@ -287,13 +675,25 @@ const TeacherStudentChatsSection = ({
   const [messageFileMimeType, setMessageFileMimeType] = useState('');
   const [messageFileSize, setMessageFileSize] = useState(0);
   const [messageSending, setMessageSending] = useState(false);
+  const [replyToMessage, setReplyToMessage] = useState(null);
+  const [forwardModal, setForwardModal] = useState(null);
+  const [forwardBusyTarget, setForwardBusyTarget] = useState('');
   const [editingMessageId, setEditingMessageId] = useState('');
   const [editingMessageText, setEditingMessageText] = useState('');
   const [messageActionBusy, setMessageActionBusy] = useState('');
   const [confirmingDeleteMessageId, setConfirmingDeleteMessageId] = useState('');
-  const [viewStatsPopover, setViewStatsPopover] = useState(null);
+  const [messageContextMenu, setMessageContextMenu] = useState(null);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState('');
   const [busyReactionKey, setBusyReactionKey] = useState('');
+  const [reactionBurst, setReactionBurst] = useState(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [contentFilter, setContentFilter] = useState('all');
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedMessageIds, setSelectedMessageIds] = useState([]);
+  const [selectionDeleteConfirm, setSelectionDeleteConfirm] = useState(false);
+  const [selectionActionBusy, setSelectionActionBusy] = useState('');
+  const [referenceRequest, setReferenceRequest] = useState(null);
   const [isDraggingChatFile, setIsDraggingChatFile] = useState(false);
   const [imageViewer, setImageViewer] = useState(null);
   const [socialSettings, setSocialSettings] = useState(null);
@@ -306,9 +706,15 @@ const TeacherStudentChatsSection = ({
   const messagesRef = useRef(null);
   const messageImageInputRef = useRef(null);
   const dragDepthRef = useRef(0);
+  const reactionBurstTimerRef = useRef(null);
   const messagesScrollBehaviorRef = useRef(null);
   const prevChatsSnapshotRef = useRef(new Map());
   const chatOrderRef = useRef(new Map());
+  const messagesDataRef = useRef([]);
+  const messagesPaginationRef = useRef(EMPTY_CHAT_MESSAGES_PAGINATION);
+  const highlightTimerRef = useRef(null);
+  const highlightFrameRef = useRef(null);
+  const highlightDelayTimerRef = useRef(null);
   const normalizedTeacherId = String(teacherId || '').trim();
   const canManageSocialChats = (role === 'teacher' || role === 'admin') && normalizedTeacherId;
 
@@ -321,6 +727,21 @@ const TeacherStudentChatsSection = ({
     setMessageFileSize(0);
     if (messageImageInputRef.current) messageImageInputRef.current.value = '';
   }, []);
+
+  const contentCounts = useMemo(() => getChatContentCounts(messages), [messages]);
+  const visibleMessages = useMemo(
+    () => getVisibleChatMessages(messages, searchQuery, contentFilter),
+    [contentFilter, messages, searchQuery]
+  );
+  const selectedMessageIdSet = useMemo(() => new Set(selectedMessageIds), [selectedMessageIds]);
+
+  useEffect(() => {
+    messagesDataRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    messagesPaginationRef.current = messagesPagination;
+  }, [messagesPagination]);
 
   const handleMessageAttachmentSelect = useCallback(async (file) => {
     if (!file) return;
@@ -611,15 +1032,20 @@ const TeacherStudentChatsSection = ({
     setEditingMessageText('');
     setMessageActionBusy('');
     setConfirmingDeleteMessageId('');
-    setViewStatsPopover(null);
+    setMessageContextMenu(null);
     setReactionPickerMessageId('');
     setBusyReactionKey('');
+    setReplyToMessage(null);
+    setReferenceRequest(null);
+    setForwardModal(null);
+    setSearchQuery('');
+    setContentFilter('all');
   }, [clearMessageImage, selectedChatId]);
 
   useEffect(() => {
-    if (!viewStatsPopover && !reactionPickerMessageId) return undefined;
+    if (!messageContextMenu && !reactionPickerMessageId) return undefined;
     const close = () => {
-      setViewStatsPopover(null);
+      setMessageContextMenu(null);
       setReactionPickerMessageId('');
     };
     const handleKeyDown = (event) => {
@@ -633,7 +1059,110 @@ const TeacherStudentChatsSection = ({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('resize', close);
     };
-  }, [reactionPickerMessageId, viewStatsPopover]);
+  }, [messageContextMenu, reactionPickerMessageId]);
+
+  useEffect(() => () => {
+    if (reactionBurstTimerRef.current) clearTimeout(reactionBurstTimerRef.current);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    if (highlightDelayTimerRef.current) clearTimeout(highlightDelayTimerRef.current);
+    if (highlightFrameRef.current && typeof window !== 'undefined' && window.cancelAnimationFrame) {
+      window.cancelAnimationFrame(highlightFrameRef.current);
+    }
+  }, []);
+
+  const highlightMessage = useCallback((messageId) => {
+    const id = String(messageId || '').trim();
+    if (!id) return;
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    if (highlightFrameRef.current && typeof window !== 'undefined' && window.cancelAnimationFrame) {
+      window.cancelAnimationFrame(highlightFrameRef.current);
+      highlightFrameRef.current = null;
+    }
+    const playHighlight = () => {
+      setHighlightedMessageId(id);
+      highlightTimerRef.current = setTimeout(() => setHighlightedMessageId(''), CHAT_TARGET_HIGHLIGHT_DURATION_MS);
+    };
+    setHighlightedMessageId('');
+    if (typeof window !== 'undefined' && window.requestAnimationFrame) {
+      highlightFrameRef.current = window.requestAnimationFrame(() => {
+        highlightFrameRef.current = null;
+        playHighlight();
+      });
+      return;
+    }
+    setTimeout(playHighlight, 0);
+  }, []);
+
+  const highlightMessageAfterScroll = useCallback((messageId) => {
+    const id = String(messageId || '').trim();
+    if (!id) return;
+    if (highlightDelayTimerRef.current) clearTimeout(highlightDelayTimerRef.current);
+    highlightDelayTimerRef.current = setTimeout(() => {
+      highlightDelayTimerRef.current = null;
+      highlightMessage(id);
+    }, CHAT_TARGET_HIGHLIGHT_DELAY_MS);
+  }, [highlightMessage]);
+
+  const ensureMessageLoaded = useCallback(async (messageId) => {
+    const targetId = String(messageId || '').trim();
+    if (!targetId || !selectedChatId) return false;
+    let currentMessages = Array.isArray(messagesDataRef.current) ? messagesDataRef.current : [];
+    if (currentMessages.some((message) => String(message?.id || '').trim() === targetId)) return true;
+    let pagination = messagesPaginationRef.current || EMPTY_CHAT_MESSAGES_PAGINATION;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (!pagination.hasMoreBefore || !pagination.nextBefore) break;
+      const payload = await fetchMessages(selectedChatId, {
+        silent: true,
+        prepend: true,
+        before: pagination.nextBefore,
+      });
+      if (!payload) break;
+      const olderMessages = Array.isArray(payload?.messages) ? payload.messages : [];
+      currentMessages = mergeChatMessages(olderMessages, currentMessages);
+      pagination = getChatMessagesPagination(payload);
+      messagesDataRef.current = currentMessages;
+      messagesPaginationRef.current = pagination;
+      if (currentMessages.some((message) => String(message?.id || '').trim() === targetId)) return true;
+      if (olderMessages.length === 0) break;
+    }
+    return currentMessages.some((message) => String(message?.id || '').trim() === targetId);
+  }, [fetchMessages, selectedChatId]);
+
+  const openReferencedMessage = useCallback(async (reference) => {
+    const targetId = String(reference?.messageId || reference?.id || '').trim();
+    if (!targetId) return;
+    setMessageContextMenu(null);
+    setReactionPickerMessageId('');
+    setConfirmingDeleteMessageId('');
+    setSearchQuery('');
+    setContentFilter('all');
+
+    await waitForChatPaint();
+    let element = getChatMessageElement(messagesRef.current, targetId);
+    if (!element) {
+      await ensureMessageLoaded(targetId);
+      await waitForChatPaint();
+      element = getChatMessageElement(messagesRef.current, targetId);
+    }
+    if (!element) {
+      await waitForChatPaint();
+      element = getChatMessageElement(messagesRef.current, targetId);
+    }
+    if (!element) return;
+    scrollChatMessageIntoView(element);
+    highlightMessageAfterScroll(targetId);
+  }, [ensureMessageLoaded, highlightMessageAfterScroll]);
+
+  useEffect(() => {
+    if (!referenceRequest?.messageId) return;
+    void openReferencedMessage(referenceRequest);
+  }, [openReferencedMessage, referenceRequest]);
+
+  const triggerReactionBurst = useCallback((messageId, emoji) => {
+    if (reactionBurstTimerRef.current) clearTimeout(reactionBurstTimerRef.current);
+    setReactionBurst({ messageId, emoji, key: `${messageId}:${emoji}:${Date.now()}` });
+    reactionBurstTimerRef.current = setTimeout(() => setReactionBurst(null), 900);
+  }, []);
 
   const handleSendMessage = async () => {
     const text = messageText.trim();
@@ -656,6 +1185,7 @@ const TeacherStudentChatsSection = ({
           fileName: messageFileName,
           fileMimeType: messageFileMimeType,
           fileSize: messageFileSize,
+          replyToMessageId: replyToMessage?.messageId || '',
         }, normalizedTeacherId);
       } else {
         await api.sendStudentChatMessageForTeacher(selectedChatId, {
@@ -666,9 +1196,11 @@ const TeacherStudentChatsSection = ({
           fileName: messageFileName,
           fileMimeType: messageFileMimeType,
           fileSize: messageFileSize,
+          replyToMessageId: replyToMessage?.messageId || '',
         });
       }
       setMessageText('');
+      setReplyToMessage(null);
       clearMessageImage();
       await fetchMessages(selectedChatId, { silent: true, forceScroll: true });
       if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) {
@@ -686,7 +1218,7 @@ const TeacherStudentChatsSection = ({
     const messageId = String(message?.id || '').trim();
     if (!messageId) return;
     setConfirmingDeleteMessageId('');
-    setViewStatsPopover(null);
+    setMessageContextMenu(null);
     setReactionPickerMessageId('');
     setEditingMessageId(messageId);
     setEditingMessageText(String(message?.text || ''));
@@ -722,7 +1254,7 @@ const TeacherStudentChatsSection = ({
       }
       cancelEditMessage();
       setConfirmingDeleteMessageId('');
-      setViewStatsPopover(null);
+      setMessageContextMenu(null);
       if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) {
         await refreshChats();
       }
@@ -749,7 +1281,7 @@ const TeacherStudentChatsSection = ({
       setMessages((prev) => prev.filter((item) => item?.id !== messageId));
       if (editingMessageId === messageId) cancelEditMessage();
       setConfirmingDeleteMessageId('');
-      setViewStatsPopover(null);
+      setMessageContextMenu(null);
       if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) {
         await refreshChats();
       }
@@ -760,12 +1292,50 @@ const TeacherStudentChatsSection = ({
     }
   }, [cancelEditMessage, editingMessageId, normalizedTeacherId, refreshChats, selectedChatId]);
 
+  const handlePinMessage = useCallback(async (message) => {
+    const messageId = String(message?.id || '').trim();
+    if (!selectedChatId || !messageId) return;
+    setMessageActionBusy(`pin:${messageId}`);
+    setMessagesError('');
+    try {
+      const payload = selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID
+        ? await api.pinTeacherSocialGroupChatMessage(messageId, normalizedTeacherId)
+        : await api.pinStudentChatMessageForTeacher(selectedChatId, messageId);
+      if (payload?.chat) {
+        if (selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID) setGroupChatSummary(payload.chat);
+        setChatDetails(payload.chat);
+      }
+      if (payload?.message) {
+        setMessages((prev) => prev.map((item) => (
+          item?.id === payload.message.id ? payload.message : item
+        )));
+      }
+      if (payload?.announcement) {
+        setMessages((prev) => mergeChatMessages(prev, [payload.announcement]));
+      }
+      if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) {
+        await refreshChats();
+      }
+    } catch (err) {
+      setMessagesError(err?.message || String(err));
+      throw err;
+    } finally {
+      setMessageActionBusy('');
+    }
+  }, [normalizedTeacherId, refreshChats, selectedChatId]);
+
+  const handleUnpinPinnedMessage = useCallback((reference) => {
+    const messageId = getPinnedReferenceMessageId(reference);
+    if (!messageId || !confirmUnpinMessage()) return;
+    void handlePinMessage({ id: messageId }).catch(() => {});
+  }, [handlePinMessage]);
+
   const requestDeleteMessage = useCallback((message) => {
     const messageId = String(message?.id || '').trim();
     if (!messageId || !isMessageDeleteAllowed(message)) return;
     setEditingMessageId('');
     setEditingMessageText('');
-    setViewStatsPopover(null);
+    setMessageContextMenu(null);
     setReactionPickerMessageId('');
     setConfirmingDeleteMessageId(messageId);
   }, []);
@@ -781,7 +1351,7 @@ const TeacherStudentChatsSection = ({
     setConfirmingDeleteMessageId('');
     setEditingMessageId('');
     setEditingMessageText('');
-    setViewStatsPopover(null);
+    setMessageContextMenu(null);
     try {
       const payload = selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID
         ? await api.toggleTeacherSocialGroupChatMessageReaction(messageId, normalizedEmoji, normalizedTeacherId)
@@ -795,6 +1365,7 @@ const TeacherStudentChatsSection = ({
           item?.id === payload.message.id ? payload.message : item
         )));
       }
+      triggerReactionBurst(messageId, normalizedEmoji);
       setReactionPickerMessageId('');
       if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) {
         await refreshChats();
@@ -804,31 +1375,22 @@ const TeacherStudentChatsSection = ({
     } finally {
       setBusyReactionKey('');
     }
-  }, [normalizedTeacherId, refreshChats, selectedChatId]);
+  }, [normalizedTeacherId, refreshChats, selectedChatId, triggerReactionBurst]);
 
-  const showMessageViewStats = useCallback((event, message) => {
+  const openMessageContextMenu = useCallback((event, message) => {
     event.preventDefault();
+    event.stopPropagation();
     const messageId = String(message?.id || '').trim();
     if (!messageId) return;
-    const width = 168;
-    const height = 74;
-    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 0;
-    const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 0;
-    const x = viewportWidth > 0
-      ? Math.max(12, Math.min(event.clientX, viewportWidth - width - 12))
-      : event.clientX;
-    const y = viewportHeight > 0
-      ? Math.max(12, Math.min(event.clientY, viewportHeight - height - 12))
-      : event.clientY;
+    const position = getMessageContextMenuPosition(event);
     setEditingMessageId('');
     setEditingMessageText('');
     setConfirmingDeleteMessageId('');
     setReactionPickerMessageId('');
-    setViewStatsPopover({
+    setMessageContextMenu({
       messageId,
-      x,
-      y,
-      viewCount: Math.max(0, Math.trunc(Number(message?.viewCount) || 0)),
+      x: position.x,
+      y: position.y,
     });
   }, []);
 
@@ -849,6 +1411,89 @@ const TeacherStudentChatsSection = ({
   const isGroupChatSelected = selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID;
   const isGroupChatDisabled = isGroupChatSelected && resolvedSocialSettings.groupEnabled === false;
   const canAttachToSelectedChat = Boolean(selectedChatId) && !isGroupChatDisabled;
+  const contextMenuMessage = messageContextMenu
+    ? messages.find((message) => String(message?.id || '').trim() === messageContextMenu.messageId)
+    : null;
+  const contextMenuOwn = Boolean(
+    contextMenuMessage
+      && role === 'teacher'
+      && contextMenuMessage?.senderRole === 'teacher'
+      && String(contextMenuMessage?.senderId || '').trim() === normalizedTeacherId
+  );
+  const selectedPinnedMessageId = String(
+    selectedChat?.pinnedMessage?.messageId || selectedChat?.pinnedMessageId || ''
+  ).trim();
+  const closeContextMenu = () => setMessageContextMenu(null);
+  const selectedMessages = selectedMessageIds
+    .map((id) => messages.find((message) => String(message?.id || '').trim() === id))
+    .filter(Boolean);
+  const selectedDeletableMessages = selectedMessages.filter((message) => (
+    role === 'teacher'
+      && message?.senderRole === 'teacher'
+      && String(message?.senderId || '').trim() === normalizedTeacherId
+      && isMessageDeleteAllowed(message)
+  ));
+  const canDeleteSelectedMessages = selectedMessages.length > 0
+    && selectedDeletableMessages.length === selectedMessages.length
+    && !selectionActionBusy;
+  const canForwardSelectedMessages = selectedMessages.length > 0 && !selectionActionBusy;
+
+  const clearMessageSelection = useCallback(() => {
+    setSelectionMode(false);
+    setSelectedMessageIds([]);
+    setSelectionDeleteConfirm(false);
+    setSelectionActionBusy('');
+  }, []);
+
+  const toggleMessageSelected = useCallback((message) => {
+    const id = String(message?.id || '').trim();
+    if (!id) return;
+    setSelectionMode(true);
+    setSelectionDeleteConfirm(false);
+    setSelectedMessageIds((current) => {
+      const exists = current.includes(id);
+      const next = exists ? current.filter((item) => item !== id) : [...current, id];
+      if (next.length === 0) setSelectionMode(false);
+      return next;
+    });
+  }, []);
+
+  const startMessageSelection = useCallback((message) => {
+    const id = String(message?.id || '').trim();
+    if (!id) return;
+    setMessageContextMenu(null);
+    setReactionPickerMessageId('');
+    setConfirmingDeleteMessageId('');
+    setEditingMessageId('');
+    setEditingMessageText('');
+    setSelectionMode(true);
+    setSelectionDeleteConfirm(false);
+    setSelectedMessageIds([id]);
+  }, []);
+
+  const deleteSelectedMessages = useCallback(async () => {
+    if (!canDeleteSelectedMessages) return;
+    setSelectionActionBusy('delete');
+    try {
+      for (const message of selectedDeletableMessages) {
+        await handleDeleteMessage(message);
+      }
+      clearMessageSelection();
+    } catch {
+      setSelectionActionBusy('');
+    }
+  }, [canDeleteSelectedMessages, clearMessageSelection, handleDeleteMessage, selectedDeletableMessages]);
+
+  useEffect(() => {
+    if (!selectionMode) return;
+    const liveIds = new Set(messages.map((message) => String(message?.id || '').trim()).filter(Boolean));
+    setSelectedMessageIds((current) => {
+      const next = current.filter((id) => liveIds.has(id));
+      if (next.length === current.length) return current;
+      if (next.length === 0) setSelectionMode(false);
+      return next;
+    });
+  }, [messages, selectionMode]);
 
   const handleChatDragEnter = useCallback((event) => {
     if (!hasDraggedFiles(event)) return;
@@ -937,6 +1582,168 @@ const TeacherStudentChatsSection = ({
     ? 'Написать в общий чат группы...'
     : 'Ответить ученику...';
 
+  const selectedChatMenuActions = useMemo(() => {
+    const actions = [];
+    if (canToggleNotify) {
+      actions.push({
+        id: 'teacher-chat-push',
+        label: notifyEnabled ? 'Заглушить push' : 'Включить push',
+        Icon: NotifyIcon,
+        onClick: onToggleNotify,
+        disabled: !canToggleNotify,
+      });
+    }
+    if (canManageSocialChats) {
+      if (isGroupChatSelected) {
+        actions.push({
+          id: 'teacher-chat-group-lock',
+          label: resolvedSocialSettings.groupEnabled ? 'Заблокировать группу' : 'Включить группу',
+          Icon: Users,
+          onClick: () => {
+            void handleSocialSettingToggle('groupEnabled');
+          },
+          disabled: socialSettingsSaving,
+          danger: resolvedSocialSettings.groupEnabled,
+        });
+      } else {
+        actions.push({
+          id: 'teacher-chat-direct-lock',
+          label: resolvedSocialSettings.directEnabled ? 'Заблокировать личные' : 'Включить личные',
+          Icon: Users,
+          onClick: () => {
+            void handleSocialSettingToggle('directEnabled');
+          },
+          disabled: socialSettingsSaving,
+          danger: resolvedSocialSettings.directEnabled,
+        });
+      }
+    }
+    return actions;
+  }, [
+    NotifyIcon,
+    canManageSocialChats,
+    canToggleNotify,
+    handleSocialSettingToggle,
+    isGroupChatSelected,
+    notifyEnabled,
+    onToggleNotify,
+    resolvedSocialSettings.directEnabled,
+    resolvedSocialSettings.groupEnabled,
+    socialSettingsSaving,
+  ]);
+
+  const forwardDestinations = [
+    canManageSocialChats && resolvedSocialSettings.groupEnabled !== false && groupChatSummary?.id ? {
+      key: `group:${groupChatSummary.id}`,
+      scope: 'social',
+      chatId: groupChatSummary.id,
+      title: 'Общий чат группы',
+      caption: `${groupParticipantsCount} учеников`,
+      Icon: Users,
+    } : null,
+    ...chats
+      .filter((chat) => chat?.id)
+      .map((chat) => ({
+        key: `teacher:${chat.id}`,
+        scope: 'teacher',
+        chatId: chat.id,
+        title: chat.studentName || 'Ученик',
+        caption: '1:1',
+        Icon: MessageSquare,
+      })),
+  ].filter(Boolean);
+
+  const getTeacherMessageSourceDescriptor = (message) => {
+    const messageId = String(message?.id || '').trim();
+    if (!messageId) return null;
+    if (isGroupChatSelected) {
+      const chatId = String((selectedChat?.type === 'group' ? selectedChat?.id : '') || groupChatSummary?.id || '').trim();
+      return chatId ? { scope: 'social', chatId, messageId } : null;
+    }
+    const chatId = String(selectedChatId || '').trim();
+    return chatId ? { scope: 'teacher', chatId, messageId } : null;
+  };
+
+  const buildTeacherMessageReference = (message) => {
+    const source = getTeacherMessageSourceDescriptor(message);
+    if (!source) return null;
+    return buildMessageReferencePayload(message, {
+      chatId: source.chatId,
+      chatKind: isGroupChatSelected ? 'group' : 'teacher',
+      chatTitle: selectedTitle,
+      fallbackSenderName: selectedTitle,
+    });
+  };
+
+  const handleReplyMessage = (message) => {
+    const reference = buildTeacherMessageReference(message);
+    if (!reference) return;
+    setReplyToMessage(reference);
+    setEditingMessageId('');
+    setEditingMessageText('');
+    setConfirmingDeleteMessageId('');
+    setReactionPickerMessageId('');
+    setMessageContextMenu(null);
+  };
+
+  const handleForwardMessage = (messageOrMessages) => {
+    const items = (Array.isArray(messageOrMessages) ? messageOrMessages : [messageOrMessages]).filter(Boolean);
+    const entries = items
+      .map((message) => ({
+        source: getTeacherMessageSourceDescriptor(message),
+        preview: buildTeacherMessageReference(message),
+      }))
+      .filter((entry) => entry.source && entry.preview);
+    if (entries.length === 0) return;
+    setForwardModal({
+      source: entries[0].source,
+      preview: entries[0].preview,
+      sources: entries.map((entry) => entry.source),
+      previews: entries.map((entry) => entry.preview),
+    });
+    setConfirmingDeleteMessageId('');
+    setReactionPickerMessageId('');
+    setMessageContextMenu(null);
+  };
+
+  const handleForwardToDestination = async (destination) => {
+    const forwardSources = Array.isArray(forwardModal?.sources) && forwardModal.sources.length > 0
+      ? forwardModal.sources
+      : (forwardModal?.source ? [forwardModal.source] : []);
+    if (forwardSources.length === 0 || !destination?.chatId || forwardBusyTarget) return;
+    setForwardBusyTarget(destination.key);
+    setMessagesError('');
+    try {
+      if (destination.scope === 'social') {
+        for (const source of forwardSources) {
+          await api.sendTeacherSocialGroupChatMessage({ forwardFrom: source }, normalizedTeacherId);
+        }
+        if (isGroupChatSelected) {
+          await fetchMessages(TEACHER_GROUP_CHAT_ITEM_ID, { silent: true, forceScroll: true });
+        }
+      } else {
+        for (const source of forwardSources) {
+          await api.sendStudentChatMessageForTeacher(destination.chatId, { forwardFrom: source });
+        }
+        if (selectedChatId === destination.chatId) {
+          await fetchMessages(destination.chatId, { silent: true, forceScroll: true });
+        }
+        await refreshChats();
+      }
+      setForwardModal(null);
+    } catch (err) {
+      setMessagesError(err?.message || String(err));
+    } finally {
+      setForwardBusyTarget('');
+    }
+  };
+
+  const forwardSelectedMessages = () => {
+    if (!canForwardSelectedMessages) return;
+    handleForwardMessage(selectedMessages);
+    clearMessageSelection();
+  };
+
   return (
     <div
       className={`teacher-chat-section relative animate-fadeIn pb-10 ${isDraggingChatFile ? 'student-chat-shell--dragging-file' : ''}`}
@@ -959,6 +1766,69 @@ const TeacherStudentChatsSection = ({
         </div>
       )}
       <ChatImageViewer image={imageViewer} onClose={() => setImageViewer(null)} />
+      {forwardModal && (
+        <div className="student-chat-forward-modal" role="dialog" aria-modal="true">
+          <div className="student-chat-forward-modal__panel">
+            <div className="student-chat-forward-modal__head">
+              <div className="min-w-0">
+                <p className="student-chat-forward-modal__kicker">Переслать</p>
+                <h3 className="student-chat-forward-modal__title">Выберите чат</h3>
+              </div>
+              <button
+                type="button"
+                className="student-chat-forward-modal__close"
+                onClick={() => setForwardModal(null)}
+                aria-label="Закрыть"
+                title="Закрыть"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            {(Array.isArray(forwardModal.previews) && forwardModal.previews.length > 0
+              ? forwardModal.previews
+              : [forwardModal.preview]
+            ).filter(Boolean).slice(0, 3).map((preview, index) => (
+              <MessageReferenceCard
+                key={`${preview.messageId || preview.id || index}`}
+                reference={preview}
+                type="forward"
+                compact
+              />
+            ))}
+            {Array.isArray(forwardModal.previews) && forwardModal.previews.length > 3 && (
+              <div className="student-chat-forward-more">
+                +{forwardModal.previews.length - 3}
+              </div>
+            )}
+            <div className="student-chat-forward-modal__targets">
+              {forwardDestinations.map((destination) => {
+                const Icon = destination.Icon;
+                const busy = forwardBusyTarget === destination.key;
+                return (
+                  <button
+                    key={destination.key}
+                    type="button"
+                    className="student-chat-forward-target"
+                    onClick={() => {
+                      void handleForwardToDestination(destination);
+                    }}
+                    disabled={Boolean(forwardBusyTarget)}
+                  >
+                    <span className="student-chat-forward-target__icon">
+                      <Icon size={16} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="student-chat-forward-target__title">{destination.title}</span>
+                      <span className="student-chat-forward-target__caption">{busy ? 'Отправляем...' : destination.caption}</span>
+                    </span>
+                    <Forward size={15} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="teacher-chat-heading mb-5 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <div className="teacher-chat-kicker">центр сообщений</div>
@@ -1169,16 +2039,108 @@ const TeacherStudentChatsSection = ({
                     </span>
                   )}
                 </div>
+                <ChatMessageTopTools
+                  searchQuery={searchQuery}
+                  onSearchQueryChange={setSearchQuery}
+                  contentFilter={contentFilter}
+                  onContentFilterChange={setContentFilter}
+                  counts={contentCounts}
+                  menuActions={selectedChatMenuActions}
+                />
+                {selectionMode && (
+                  <div className="student-message-selection-bar" data-message-menu-ignore="true">
+                    <div className="student-message-selection-count">
+                      <span>{selectedMessages.length}</span>
+                      <strong>Выбрано</strong>
+                    </div>
+                    <div className="student-message-selection-actions">
+                      {selectionDeleteConfirm ? (
+                        <>
+                          <span className="student-message-selection-confirm">Удалить?</span>
+                          <button
+                            type="button"
+                            className="student-message-selection-action student-message-selection-action--danger"
+                            onClick={() => {
+                              void deleteSelectedMessages();
+                            }}
+                            disabled={!canDeleteSelectedMessages}
+                            aria-label="Удалить"
+                            title="Удалить"
+                          >
+                            <Check size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            className="student-message-selection-action"
+                            onClick={() => setSelectionDeleteConfirm(false)}
+                            disabled={Boolean(selectionActionBusy)}
+                            aria-label="Отмена"
+                            title="Отмена"
+                          >
+                            <X size={15} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="student-message-selection-action"
+                            onClick={forwardSelectedMessages}
+                            disabled={!canForwardSelectedMessages}
+                            aria-label="Переслать"
+                            title="Переслать"
+                          >
+                            <Forward size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            className="student-message-selection-action student-message-selection-action--danger"
+                            onClick={() => setSelectionDeleteConfirm(true)}
+                            disabled={!canDeleteSelectedMessages}
+                            aria-label="Удалить"
+                            title="Удалить"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            className="student-message-selection-action"
+                            onClick={clearMessageSelection}
+                            disabled={Boolean(selectionActionBusy)}
+                            aria-label="Сбросить"
+                            title="Сбросить"
+                          >
+                            <X size={15} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <div
                   ref={messagesRef}
                   onScroll={(event) => {
-                    setViewStatsPopover(null);
+                    setMessageContextMenu(null);
                     setReactionPickerMessageId('');
                     if (event.currentTarget.scrollTop <= 96) loadOlderMessages();
                   }}
                   className="teacher-chat-messages mt-3 max-h-[430px] min-h-[320px] space-y-2 overflow-y-auto rounded-xl border p-3"
                 >
+                  {selectedChat?.pinnedMessage && (
+                    <div className="student-chat-pinned-message-row" data-message-menu-ignore="true">
+                      <MessageReferenceCard
+                        reference={selectedChat.pinnedMessage}
+                        type="pin"
+                        compact
+                        onCancel={() => handleUnpinPinnedMessage(selectedChat.pinnedMessage)}
+                        onOpenTarget={(reference) => {
+                          const messageId = String(reference?.messageId || reference?.id || '').trim();
+                          if (messageId) setReferenceRequest({ ...reference, messageId, nonce: Date.now() });
+                        }}
+                      />
+                    </div>
+                  )}
                   {olderMessagesLoading && !messagesLoading && (
                     <div className="teacher-chat-loading-pill mx-auto flex w-fit items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-black">
                       <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-500" />
@@ -1191,9 +2153,24 @@ const TeacherStudentChatsSection = ({
                     <div className="teacher-chat-empty-state flex min-h-[260px] items-center justify-center text-sm">
                       {isGroupChatSelected ? 'В общем чате пока сообщений нет.' : 'Пока сообщений нет.'}
                     </div>
+                  ) : visibleMessages.length === 0 ? (
+                    <div className="teacher-chat-empty-state flex min-h-[260px] items-center justify-center text-sm">
+                      Ничего не найдено
+                    </div>
                   ) : (
-                    messages.map((message) => {
+                    visibleMessages.map((message) => {
                       const messageId = String(message?.id || '').trim();
+                      if (message?.senderRole === 'system' || message?.systemType) {
+                        return (
+                          <div
+                            key={message.id}
+                            data-chat-message-id={messageId}
+                            className="student-message-system-row teacher-chat-message-system-row"
+                          >
+                            <span className="student-message-system-pill">{String(message?.text || '')}</span>
+                          </div>
+                        );
+                      }
                       const isTeacherMessage = message?.senderRole === 'teacher';
                       const isOwnTeacherMessage = Boolean(isTeacherMessage && role === 'teacher' && String(message?.senderId || '').trim() === normalizedTeacherId);
                       const messageText = String(message?.text || '');
@@ -1205,9 +2182,12 @@ const TeacherStudentChatsSection = ({
                       const isConfirmingDelete = confirmingDeleteMessageId === messageId;
                       const reactions = normalizeMessageReactions(message);
                       const canReactMessage = Boolean(!isTeacherMessage && messageId);
+                      const canReplyMessage = Boolean(messageId);
+                      const canForwardMessage = Boolean(messageId);
+                      const selected = selectedMessageIdSet.has(messageId);
                       const showMessageToolbar = Boolean(
                         !isEditingMessage
-                        && (canEditMessage || canDeleteMessage || canReactMessage || reactions.length > 0)
+                        && (canEditMessage || canDeleteMessage || canReactMessage || canReplyMessage || canForwardMessage || reactions.length > 0)
                       );
                       const messageImageDataUrl = String(message?.imageDataUrl || '').trim();
                       const messageImageName = String(message?.imageName || '').trim();
@@ -1218,20 +2198,41 @@ const TeacherStudentChatsSection = ({
                       const renderedImageDataUrl = messageImageDataUrl || (messageFileMimeType.startsWith('image/') ? messageFileDataUrl : '');
                       const renderedImageName = messageImageDataUrl ? messageImageName : messageFileName;
                       const renderedFileDataUrl = renderedImageDataUrl === messageFileDataUrl ? '' : messageFileDataUrl;
+                      const isTextOnlyForward = Boolean(message?.forwardFrom && messageText.trim() && !renderedImageDataUrl && !renderedFileDataUrl);
+                      const shouldRenderMessageText = Boolean(messageText && !isTextOnlyForward);
                       const senderLabel = message?.senderName || selectedChat?.studentName || 'Ученик';
                       return (
-                        <div key={message.id} className={`teacher-chat-message-row flex ${isTeacherMessage ? 'justify-end' : 'justify-start'}`}>
+                        <div
+                          key={message.id}
+                          data-chat-message-id={messageId}
+                          className={`teacher-chat-message-row flex items-start gap-2 ${isTeacherMessage ? 'justify-end' : 'justify-start'} ${highlightedMessageId === messageId ? 'teacher-chat-message-row--highlighted' : ''} ${selectionMode ? 'student-message-row--selecting' : ''} ${selected ? 'student-message-row--selected' : ''}`}
+                          onContextMenu={(event) => openMessageContextMenu(event, message)}
+                        >
                           <div className={`teacher-chat-message-stack flex max-w-[88%] flex-col ${isTeacherMessage ? 'items-end' : 'items-start'}`}>
                           <div
-                            className={`teacher-chat-bubble max-w-full rounded-2xl px-3 py-2 text-sm shadow-sm ${isEditingMessage ? 'student-message-bubble--editing' : ''} ${
+                            className={`teacher-chat-bubble max-w-full rounded-2xl px-3 py-2 text-sm shadow-sm ${isEditingMessage ? 'student-message-bubble--editing' : ''} ${selected ? 'student-message-bubble--selected' : ''} ${
                               isTeacherMessage ? 'teacher-chat-bubble--teacher text-white' : 'teacher-chat-bubble--student'
                             }`}
-                            onContextMenu={isOwnTeacherMessage ? (event) => showMessageViewStats(event, message) : undefined}
+                            onClick={(event) => {
+                              if (selectionMode) {
+                                if (isEditingMessage || shouldIgnoreMessagePrimaryClick(event)) return;
+                                toggleMessageSelected(message);
+                                return;
+                              }
+                              if (isEditingMessage || shouldIgnoreMessagePrimaryClick(event)) return;
+                              openMessageContextMenu(event, message);
+                            }}
                           >
                             {!isTeacherMessage && (
                               <div className="teacher-chat-message-author mb-1 text-[11px] font-black">
                                 {senderLabel}
                               </div>
+                            )}
+                            {message?.forwardFrom && (
+                              <MessageReferenceCard reference={message.forwardFrom} type="forward" mine={isTeacherMessage} />
+                            )}
+                            {message?.replyTo && (
+                              <MessageReferenceCard reference={message.replyTo} type="reply" mine={isTeacherMessage} onOpenTarget={openReferencedMessage} />
                             )}
                             {renderedImageDataUrl && (
                               <button
@@ -1292,19 +2293,6 @@ const TeacherStudentChatsSection = ({
                                   void handleEditMessage(message);
                                 }}
                               >
-                                <div className="student-message-edit-header">
-                                  <span>Редактирование</span>
-                                  <button
-                                    type="button"
-                                    className="student-message-edit-close"
-                                    onClick={cancelEditMessage}
-                                    disabled={editBusy}
-                                    aria-label="Отменить"
-                                    title="Отменить"
-                                  >
-                                    <X size={13} />
-                                  </button>
-                                </div>
                                 <textarea
                                   value={editingMessageText}
                                   onChange={(event) => setEditingMessageText(event.target.value)}
@@ -1328,9 +2316,10 @@ const TeacherStudentChatsSection = ({
                                     className="student-message-edit-button student-message-edit-button--ghost"
                                     onClick={cancelEditMessage}
                                     disabled={editBusy}
+                                    aria-label="Отменить"
+                                    title="Отменить"
                                   >
                                     <X size={14} />
-                                    <span>Отмена</span>
                                   </button>
                                   <button
                                     type="button"
@@ -1339,13 +2328,14 @@ const TeacherStudentChatsSection = ({
                                       void handleEditMessage(message);
                                     }}
                                     disabled={editBusy || !editingMessageText.trim()}
+                                    aria-label="Сохранить"
+                                    title="Сохранить"
                                   >
                                     <Check size={14} />
-                                    <span>Сохранить</span>
                                   </button>
                                 </div>
                               </form>
-                            ) : messageText && (
+                            ) : shouldRenderMessageText && (
                               <LinkifiedText
                                 text={messageText}
                                 className="whitespace-pre-wrap break-words"
@@ -1359,6 +2349,15 @@ const TeacherStudentChatsSection = ({
                           {showMessageToolbar && (
                             <div className={`student-message-toolbar ${isTeacherMessage ? 'student-message-toolbar--mine' : 'student-message-toolbar--other'}`}>
                               <div className={`student-message-reaction-strip ${isTeacherMessage ? 'student-message-reaction-strip--mine' : 'student-message-reaction-strip--other'}`}>
+                                {reactionBurst?.messageId === messageId && (
+                                  <span key={reactionBurst.key} className="student-message-reaction-burst" aria-hidden="true">
+                                    <span className="student-message-reaction-burst__halo" />
+                                    <span className="student-message-reaction-burst__emoji">{reactionBurst.emoji}</span>
+                                    {[0, 1, 2, 3, 4, 5].map((index) => (
+                                      <span key={index} className={`student-message-reaction-burst__spark student-message-reaction-burst__spark--${index}`} />
+                                    ))}
+                                  </span>
+                                )}
                                 {reactions.map((reaction) => (
                                   <button
                                     key={reaction.emoji}
@@ -1380,7 +2379,7 @@ const TeacherStudentChatsSection = ({
                                       className={`student-message-reaction-add ${reactionPickerMessageId === messageId ? 'student-message-reaction-add--active' : ''}`}
                                       onClick={(event) => {
                                         event.stopPropagation();
-                                        setViewStatsPopover(null);
+                                        setMessageContextMenu(null);
                                         setReactionPickerMessageId((current) => (current === messageId ? '' : messageId));
                                       }}
                                       disabled={Boolean(busyReactionKey)}
@@ -1440,6 +2439,30 @@ const TeacherStudentChatsSection = ({
                                 </div>
                               ) : (
                                 <>
+                                  {canReplyMessage && (
+                                    <button
+                                      type="button"
+                                      className="student-message-action-button"
+                                      onClick={() => handleReplyMessage(message)}
+                                      disabled={Boolean(messageActionBusy)}
+                                      aria-label="Ответить"
+                                      title="Ответить"
+                                    >
+                                      <Reply size={11} />
+                                    </button>
+                                  )}
+                                  {canForwardMessage && (
+                                    <button
+                                      type="button"
+                                      className="student-message-action-button"
+                                      onClick={() => handleForwardMessage(message)}
+                                      disabled={Boolean(messageActionBusy)}
+                                      aria-label="Переслать"
+                                      title="Переслать"
+                                    >
+                                      <Forward size={11} />
+                                    </button>
+                                  )}
                                   {canEditMessage && (
                                     <button
                                       type="button"
@@ -1469,29 +2492,127 @@ const TeacherStudentChatsSection = ({
                             </div>
                           )}
                         </div>
+                        {selectionMode && (
+                          <button
+                            type="button"
+                            className={`student-message-select-button ${selected ? 'student-message-select-button--active' : ''}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleMessageSelected(message);
+                            }}
+                            aria-label={selected ? 'Снять выбор' : 'Выбрать'}
+                            title={selected ? 'Снять выбор' : 'Выбрать'}
+                          >
+                            {selected && <Check size={13} />}
+                          </button>
+                        )}
                         </div>
                       );
                     })
                   )}
-                  {viewStatsPopover && (
+                  {messageContextMenu && contextMenuMessage && typeof document !== 'undefined' && createPortal((
                     <div
-                      className="student-message-view-popover"
+                      className="student-message-context-menu"
                       style={{
-                        left: viewStatsPopover.x,
-                        top: viewStatsPopover.y,
+                        left: messageContextMenu.x,
+                        top: messageContextMenu.y,
                       }}
                       onClick={(event) => event.stopPropagation()}
-                      role="status"
+                      role="menu"
                     >
-                      <span className="student-message-view-popover__icon" aria-hidden="true">
-                        <Eye size={15} />
-                      </span>
-                      <span className="student-message-view-popover__text">
-                        <span>Просмотрели</span>
-                        <strong>{viewStatsPopover.viewCount}</strong>
-                      </span>
+                      <button
+                        type="button"
+                        className="student-message-context-menu__button"
+                        onClick={() => {
+                          closeContextMenu();
+                          handleReplyMessage(contextMenuMessage);
+                        }}
+                        role="menuitem"
+                      >
+                        <Reply size={14} />
+                        <span>Ответить</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="student-message-context-menu__button"
+                        onClick={() => {
+                          closeContextMenu();
+                          void copyTextToClipboard(contextMenuMessage.text);
+                        }}
+                        disabled={!String(contextMenuMessage?.text || '').trim()}
+                        role="menuitem"
+                      >
+                        <Copy size={14} />
+                        <span>Копировать</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="student-message-context-menu__button"
+                        onClick={() => {
+                          closeContextMenu();
+                          handleForwardMessage(contextMenuMessage);
+                        }}
+                        role="menuitem"
+                      >
+                        <Forward size={14} />
+                        <span>Переслать</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="student-message-context-menu__button"
+                        onClick={() => {
+                          startMessageSelection(contextMenuMessage);
+                        }}
+                        role="menuitem"
+                      >
+                        <Check size={14} />
+                        <span>Выбрать</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="student-message-context-menu__button"
+                        onClick={() => {
+                          closeContextMenu();
+                          void handlePinMessage(contextMenuMessage);
+                        }}
+                        disabled={Boolean(messageActionBusy)}
+                        role="menuitem"
+                      >
+                        <Pin size={14} />
+                        <span>{selectedPinnedMessageId === String(contextMenuMessage?.id || '') ? 'Открепить' : 'Закрепить'}</span>
+                      </button>
+                      {contextMenuOwn && (
+                      <button
+                        type="button"
+                        className="student-message-context-menu__button"
+                        onClick={() => {
+                          closeContextMenu();
+                          startEditMessage(contextMenuMessage);
+                        }}
+                        disabled={!String(contextMenuMessage?.text || '').trim() || Boolean(messageActionBusy)}
+                        role="menuitem"
+                      >
+                        <Pencil size={14} />
+                        <span>Изменить</span>
+                      </button>
+                      )}
+                      {contextMenuOwn && (
+                      <button
+                        type="button"
+                        className="student-message-context-menu__button student-message-context-menu__button--danger"
+                        onClick={() => {
+                          closeContextMenu();
+                          requestDeleteMessage(contextMenuMessage);
+                        }}
+                        disabled={!isMessageDeleteAllowed(contextMenuMessage) || Boolean(messageActionBusy)}
+                        role="menuitem"
+                      >
+                        <Trash2 size={14} />
+                        <span>Удалить</span>
+                      </button>
+                      )}
                     </div>
-                  )}
+                  ), document.body)}
                 </div>
 
                 <div className="teacher-chat-composer mt-3">
@@ -1504,6 +2625,14 @@ const TeacherStudentChatsSection = ({
                       if (file) handleMessageAttachmentSelect(file);
                     }}
                   />
+                  {replyToMessage && (
+                    <MessageReferenceCard
+                      reference={replyToMessage}
+                      type="reply"
+                      compact
+                      onCancel={() => setReplyToMessage(null)}
+                    />
+                  )}
                   {messageImageDataUrl && (
                     <div className="teacher-chat-attachment-preview mb-2 flex items-start gap-2 rounded-xl border px-2 py-2">
                       <img

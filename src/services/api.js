@@ -199,6 +199,10 @@ const normalizeStudentChatMessagePayload = (payloadOrText) => {
       fileName: typeof payloadOrText.fileName === 'string' ? payloadOrText.fileName : '',
       fileMimeType: typeof payloadOrText.fileMimeType === 'string' ? payloadOrText.fileMimeType : '',
       fileSize: Number.isFinite(Number(payloadOrText.fileSize)) ? Number(payloadOrText.fileSize) : 0,
+      replyToMessageId: typeof payloadOrText.replyToMessageId === 'string' ? payloadOrText.replyToMessageId : '',
+      forwardFrom: payloadOrText.forwardFrom && typeof payloadOrText.forwardFrom === 'object' && !Array.isArray(payloadOrText.forwardFrom)
+        ? payloadOrText.forwardFrom
+        : null,
     };
   }
   return {
@@ -209,6 +213,8 @@ const normalizeStudentChatMessagePayload = (payloadOrText) => {
     fileName: '',
     fileMimeType: '',
     fileSize: 0,
+    replyToMessageId: '',
+    forwardFrom: null,
   };
 };
 
@@ -230,6 +236,15 @@ const buildChatMessagesQuery = (options = {}) => {
 export const api = {
   getCurrentSession: async () => {
     const res = await apiFetch('/api/session');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updateStudentAvatar: async (avatarDataUrl) => {
+    const res = await apiFetch('/api/students/avatar', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ avatarDataUrl }),
+    });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
@@ -411,6 +426,17 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  pinStudentChatMessage: async (messageId) => {
+    const id = typeof messageId === 'string' ? messageId.trim() : String(messageId || '').trim();
+    if (!id) throw new Error('messageId required');
+    const res = await apiFetch(`/api/student-chat/messages/${encodeURIComponent(id)}/pin`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getStudentChats: async () => {
     const res = await apiFetch('/api/student-chats');
     if (!res.ok) throw new Error(await parseApiError(res));
@@ -468,6 +494,19 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ emoji }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  pinStudentChatMessageForTeacher: async (chatId, messageId) => {
+    const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
+    const msgId = typeof messageId === 'string' ? messageId.trim() : String(messageId || '').trim();
+    if (!id) throw new Error('chatId required');
+    if (!msgId) throw new Error('messageId required');
+    const res = await apiFetch(`/api/student-chats/${encodeURIComponent(id)}/messages/${encodeURIComponent(msgId)}/pin`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
@@ -546,6 +585,19 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  pinTeacherSocialGroupChatMessage: async (messageId, teacherId = '') => {
+    const id = typeof messageId === 'string' ? messageId.trim() : String(messageId || '').trim();
+    if (!id) throw new Error('messageId required');
+    const payload = {};
+    if (teacherId) payload.teacherId = String(teacherId);
+    const res = await apiFetch(`/api/teacher-social-group-chat/messages/${encodeURIComponent(id)}/pin`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getStudentSocialChats: async () => {
     const res = await apiFetch('/api/student-social-chats');
     if (!res.ok) throw new Error(await parseApiError(res));
@@ -614,6 +666,19 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ emoji }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  pinStudentSocialChatMessage: async (chatId, messageId) => {
+    const id = typeof chatId === 'string' ? chatId.trim() : String(chatId || '').trim();
+    const msgId = typeof messageId === 'string' ? messageId.trim() : String(messageId || '').trim();
+    if (!id) throw new Error('chatId required');
+    if (!msgId) throw new Error('messageId required');
+    const res = await apiFetch(`/api/student-social-chats/${encodeURIComponent(id)}/messages/${encodeURIComponent(msgId)}/pin`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);

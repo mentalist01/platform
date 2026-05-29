@@ -194,6 +194,7 @@ const STUDENT_CHAT_FILE_PREVIEW_TEXT = '[Файл]';
 const STUDENT_CHAT_MESSAGES_PAGE_SIZE = 15;
 const STUDENT_CHAT_MESSAGES_MAX_PAGE_SIZE = 50;
 const STUDENT_CHAT_DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const STUDENT_CHAT_REFERENCE_TEXT_MAX_LENGTH = 220;
 const BROADCAST_NOTIFICATION_TEXT_MAX_LENGTH = 5000;
 const BROADCAST_NOTIFICATION_NAME_MAX_LENGTH = 180;
 const BROADCAST_NOTIFICATION_STORAGE_LIMIT = 200;
@@ -2579,6 +2580,8 @@ const normalizeStudentChatImageDataUrl = (value) => {
   return `data:${mime};base64,${base64}`;
 };
 
+const normalizeStudentAvatarDataUrl = (value) => normalizeStudentChatImageDataUrl(value);
+
 const normalizeStudentChatFileDataUrl = (value) => {
   if (typeof value !== 'string') return '';
   const normalized = value.trim();
@@ -2621,6 +2624,83 @@ const normalizeStudentChatAttachmentPayload = (value) => {
     fileName,
     fileMimeType,
     fileSize,
+  };
+};
+
+const normalizeStudentChatReferenceText = (value) => {
+  const text = normalizeStudentChatMessageText(value);
+  if (!text) return '';
+  return text.replace(/\s+/g, ' ').trim().slice(0, STUDENT_CHAT_REFERENCE_TEXT_MAX_LENGTH);
+};
+
+const normalizeStudentChatReferenceKind = (value) => {
+  const kind = String(value || '').trim().toLowerCase();
+  if (kind === 'teacher' || kind === 'social' || kind === 'group' || kind === 'direct') return kind;
+  return '';
+};
+
+const normalizeStudentChatMessageReference = (value) => {
+  if (!value || typeof value !== 'object') return null;
+  const messageId = String(value.messageId || value.id || '').trim();
+  const chatId = String(value.chatId || '').trim();
+  const chatKind = normalizeStudentChatReferenceKind(value.chatKind || value.scope || value.type);
+  const senderRole = value.senderRole === 'teacher' ? 'teacher' : 'student';
+  const senderId = String(value.senderId || '').trim();
+  const senderName = String(value.senderName || '').trim().slice(0, 120);
+  const text = normalizeStudentChatReferenceText(value.text);
+  const imageName = normalizeStudentChatImageName(value.imageName);
+  const fileName = normalizeStudentChatFileName(value.fileName);
+  const createdAt = normalizeIsoTimestamp(value.createdAt, '') || '';
+  const chatTitle = String(value.chatTitle || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+  const hasImage = Boolean(value.hasImage || imageName);
+  const hasFile = Boolean(value.hasFile || fileName);
+  if (!messageId || !senderId || (!text && !hasImage && !hasFile)) return null;
+  return {
+    messageId,
+    ...(chatId ? { chatId } : {}),
+    ...(chatKind ? { chatKind } : {}),
+    ...(chatTitle ? { chatTitle } : {}),
+    senderRole,
+    senderId,
+    senderName: senderName || (senderRole === 'teacher' ? 'Преподаватель' : 'Ученик'),
+    text,
+    hasImage,
+    hasFile,
+    ...(imageName ? { imageName } : {}),
+    ...(fileName ? { fileName } : {}),
+    ...(createdAt ? { createdAt } : {}),
+  };
+};
+
+const buildStudentChatMessageReference = (message, options = {}) => normalizeStudentChatMessageReference({
+  messageId: message?.id,
+  chatId: options.chatId,
+  chatKind: options.chatKind,
+  chatTitle: options.chatTitle,
+  senderRole: message?.senderRole,
+  senderId: message?.senderId,
+  senderName: message?.senderRole === 'student'
+    ? getStudentChatVisibleNameById(message?.senderId, message?.senderName, options)
+    : message?.senderName,
+  text: message?.text,
+  hasImage: Boolean(message?.imageDataUrl),
+  imageName: message?.imageName,
+  hasFile: Boolean(message?.fileDataUrl),
+  fileName: message?.fileName,
+  createdAt: message?.createdAt,
+});
+
+const normalizeStudentChatSourceDescriptor = (value) => {
+  const source = value && typeof value === 'object' ? value : {};
+  const scope = String(source.scope || source.chatKind || source.type || '').trim().toLowerCase();
+  const normalizedScope = scope === 'teacher' ? 'teacher' : (scope === 'social' || scope === 'group' || scope === 'direct' ? 'social' : '');
+  const chatId = String(source.chatId || '').trim();
+  const messageId = String(source.messageId || source.id || '').trim();
+  if (!normalizedScope || !chatId || !messageId) return null;
+  return {
+    scope: normalizedScope,
+    chatId,
+    messageId,
   };
 };
 
@@ -2683,17 +2763,23 @@ const normalizeStudentChatMessageReactions = (value) => {
     .filter((group) => group.actors.length > 0);
 };
 
-const buildStudentChatReactionSummary = (message, actorKey = '') => (
+const buildStudentChatReactionSummary = (message, actorKey = '', options = {}) => (
   normalizeStudentChatMessageReactions(message?.reactions).map((group) => ({
     emoji: group.emoji,
     count: group.actors.length,
     reactedByMe: Boolean(actorKey && group.actors.some((actor) => actor.actorKey === actorKey)),
     names: group.actors
-      .map((actor) => String(actor.actorName || '').trim())
+      .map((actor) => getStudentChatActorVisibleName(actor, options))
       .filter(Boolean)
       .slice(0, 5),
   }))
 );
+
+const getStudentChatMessageSenderRole = (value) => {
+  const role = String(value || '').trim();
+  if (role === 'teacher' || role === 'system') return role;
+  return 'student';
+};
 
 const applyStudentChatMessageReaction = (message, emoji, actor) => {
   const normalizedEmoji = normalizeStudentChatReactionEmoji(emoji);
@@ -2745,7 +2831,7 @@ const applyStudentChatMessageReaction = (message, emoji, actor) => {
 const isStudentChatMessageAuthoredByActor = (message, actor) => {
   const normalizedActor = normalizeStudentChatReactionActor(actor);
   if (!message || !normalizedActor) return false;
-  const senderRole = message.senderRole === 'teacher' ? 'teacher' : 'student';
+  const senderRole = getStudentChatMessageSenderRole(message.senderRole);
   const senderId = String(message.senderId || '').trim();
   return Boolean(
     senderId
@@ -2794,7 +2880,7 @@ const getStudentIdFromStudentTeacherChatId = (chatId) => {
 const normalizeStudentTeacherChatMessage = (value) => {
   if (!value || typeof value !== 'object') return null;
   const id = typeof value.id === 'string' ? value.id.trim() : '';
-  const senderRole = value.senderRole === 'teacher' ? 'teacher' : 'student';
+  const senderRole = getStudentChatMessageSenderRole(value.senderRole);
   const senderId = typeof value.senderId === 'string' ? value.senderId.trim() : '';
   const senderNameRaw = typeof value.senderName === 'string' ? value.senderName.trim() : '';
   const text = normalizeStudentChatMessageText(value.text);
@@ -2807,8 +2893,12 @@ const normalizeStudentTeacherChatMessage = (value) => {
   const createdAt = normalizeIsoTimestamp(value.createdAt, '');
   const editedAt = normalizeIsoTimestamp(value.editedAt, '');
   const reactions = normalizeStudentChatMessageReactions(value.reactions);
+  const replyTo = normalizeStudentChatMessageReference(value.replyTo);
+  const forwardFrom = normalizeStudentChatMessageReference(value.forwardFrom);
+  const systemType = typeof value.systemType === 'string' ? value.systemType.trim().slice(0, 40) : '';
+  const targetMessageId = typeof value.targetMessageId === 'string' ? value.targetMessageId.trim() : '';
   if (!id || !senderId || (!text && !imageDataUrl && !fileDataUrl) || !createdAt) return null;
-  const senderName = senderNameRaw || (senderRole === 'teacher' ? 'Преподаватель' : 'Ученик');
+  const senderName = senderNameRaw || (senderRole === 'teacher' ? 'Преподаватель' : (senderRole === 'system' ? 'Система' : 'Ученик'));
   const message = {
     id,
     senderRole,
@@ -2819,6 +2909,10 @@ const normalizeStudentTeacherChatMessage = (value) => {
   };
   if (editedAt) message.editedAt = editedAt;
   if (reactions.length > 0) message.reactions = reactions;
+  if (replyTo) message.replyTo = replyTo;
+  if (forwardFrom) message.forwardFrom = forwardFrom;
+  if (systemType) message.systemType = systemType;
+  if (targetMessageId) message.targetMessageId = targetMessageId;
   if (imageDataUrl) {
     message.imageDataUrl = imageDataUrl;
     if (imageName) message.imageName = imageName;
@@ -2858,6 +2952,10 @@ const normalizeStudentTeacherChat = (value) => {
     : (lastMessage?.senderRole || '');
   const lastReadByTeacherAt = normalizeIsoTimestamp(value.lastReadByTeacherAt, '') || null;
   const lastReadByStudentAt = normalizeIsoTimestamp(value.lastReadByStudentAt, '') || null;
+  const pinnedMessageIdRaw = typeof value.pinnedMessageId === 'string' ? value.pinnedMessageId.trim() : '';
+  const pinnedMessageId = pinnedMessageIdRaw && messages.some((message) => message.id === pinnedMessageIdRaw)
+    ? pinnedMessageIdRaw
+    : '';
 
   return {
     id,
@@ -2870,6 +2968,7 @@ const normalizeStudentTeacherChat = (value) => {
     lastMessageSenderRole,
     lastReadByTeacherAt,
     lastReadByStudentAt,
+    ...(pinnedMessageId ? { pinnedMessageId } : {}),
     messages,
   };
 };
@@ -2986,6 +3085,11 @@ const buildStudentTeacherChatSummary = (chat, student = null) => ({
   unreadForTeacher: getStudentTeacherChatUnreadForTeacher(chat),
   unreadForStudent: getStudentTeacherChatUnreadForStudent(chat),
   messageCount: Array.isArray(chat.messages) ? chat.messages.length : 0,
+  pinnedMessage: buildStudentChatPinnedReference(chat, {
+    chatKind: 'teacher',
+    chatTitle: getStudentTeacherChatReferenceTitle(chat, student),
+  }),
+  ...(chat.pinnedMessageId ? { pinnedMessageId: chat.pinnedMessageId } : {}),
 });
 
 const createStudentTeacherChatForStudent = (student) => {
@@ -3039,6 +3143,7 @@ const rebuildStudentTeacherChatAfterMessages = (chat, nextMessages, options = {}
   return normalizeStudentTeacherChat({
     ...chat,
     messages,
+    pinnedMessageId: messages.some((message) => message.id === chat.pinnedMessageId) ? chat.pinnedMessageId : '',
     updatedAt: mutationAt,
     lastMessageAt: lastMessage?.createdAt || '',
     lastMessagePreview: buildStudentTeacherChatMessagePreview(lastMessage),
@@ -3071,11 +3176,17 @@ const getStudentTeacherMessageViewCount = (chat, message) => {
   return 0;
 };
 
-const enrichStudentTeacherMessageViewStats = (chat, message, options = {}) => ({
-  ...message,
-  reactions: buildStudentChatReactionSummary(message, options.actorKey),
-  viewCount: getStudentTeacherMessageViewCount(chat, message),
-});
+const enrichStudentTeacherMessageViewStats = (chat, message, options = {}) => {
+  const visibleMessage = sanitizeStudentChatMessageForViewer(message, options);
+  return {
+    ...visibleMessage,
+    ...(message?.senderRole === 'student'
+      ? { senderAvatarDataUrl: normalizeStudentAvatarDataUrl(getStudentData(message.senderId)?.avatarDataUrl) }
+      : {}),
+    reactions: buildStudentChatReactionSummary(message, options.actorKey, options),
+    viewCount: getStudentTeacherMessageViewCount(chat, message),
+  };
+};
 
 const enrichStudentTeacherMessagesViewStats = (chat, messages = [], options = {}) => (
   (Array.isArray(messages) ? messages : []).map((message) => enrichStudentTeacherMessageViewStats(chat, message, options))
@@ -3266,6 +3377,10 @@ const normalizeStudentSocialChat = (value) => {
   const messages = Array.isArray(value.messages)
     ? value.messages.map((item) => normalizeStudentTeacherChatMessage(item)).filter(Boolean)
     : [];
+  const pinnedMessageIdRaw = typeof value.pinnedMessageId === 'string' ? value.pinnedMessageId.trim() : '';
+  const pinnedMessageId = pinnedMessageIdRaw && messages.some((message) => message.id === pinnedMessageIdRaw)
+    ? pinnedMessageIdRaw
+    : '';
   const lastMessage = messages[messages.length - 1] || null;
   const createdAt = normalizeIsoTimestamp(value.createdAt, lastMessage?.createdAt || new Date().toISOString());
   const updatedAt = normalizeIsoTimestamp(value.updatedAt, lastMessage?.createdAt || createdAt);
@@ -3302,6 +3417,7 @@ const normalizeStudentSocialChat = (value) => {
     lastMessageSenderName,
     lastReadByTeacherAt,
     lastReadByStudentId: normalizeStudentSocialChatReadMap(value.lastReadByStudentId),
+    ...(pinnedMessageId ? { pinnedMessageId } : {}),
     messages,
   };
 };
@@ -3429,6 +3545,54 @@ const getStudentDisplayName = (student) => (
   String(student?.nickname || student?.name || 'Ученик').trim() || 'Ученик'
 );
 
+const getStudentPrimaryDisplayName = (student) => (
+  String(student?.name || 'Ученик').trim() || 'Ученик'
+);
+
+const shouldExposeStudentNicknames = (options = {}) => options.exposeStudentNicknames === true;
+
+const getStudentChatVisibleName = (student, options = {}) => (
+  shouldExposeStudentNicknames(options) ? getStudentDisplayName(student) : getStudentPrimaryDisplayName(student)
+);
+
+const getStudentChatVisibleNameById = (studentId, fallback = '', options = {}) => {
+  const id = String(studentId || '').trim();
+  const student = id ? findStudentById(id) : null;
+  if (student?.id) return getStudentChatVisibleName(student, options);
+  const fallbackText = String(fallback || '').trim();
+  return fallbackText || 'Ученик';
+};
+
+const getStudentChatActorVisibleName = (actor, options = {}) => {
+  const role = String(actor?.actorRole || '').trim();
+  if (role === 'student') {
+    return getStudentChatVisibleNameById(actor?.actorId, actor?.actorName, options);
+  }
+  return String(actor?.actorName || '').trim();
+};
+
+const sanitizeStudentChatReferenceForViewer = (reference, options = {}) => {
+  if (!reference || typeof reference !== 'object') return reference || null;
+  if (reference.senderRole !== 'student' || shouldExposeStudentNicknames(options)) return reference;
+  return {
+    ...reference,
+    senderName: getStudentChatVisibleNameById(reference.senderId, reference.senderName, options),
+  };
+};
+
+const sanitizeStudentChatMessageForViewer = (message, options = {}) => {
+  if (!message || typeof message !== 'object') return message;
+  const sanitized = {
+    ...message,
+    replyTo: sanitizeStudentChatReferenceForViewer(message.replyTo, options),
+    forwardFrom: sanitizeStudentChatReferenceForViewer(message.forwardFrom, options),
+  };
+  if (message.senderRole === 'student' && !shouldExposeStudentNicknames(options)) {
+    sanitized.senderName = getStudentChatVisibleNameById(message.senderId, message.senderName, options);
+  }
+  return sanitized;
+};
+
 const resolveStudentChatReactionActor = (auth, options = {}) => {
   if (!auth) return null;
   if (isStudentRole(auth)) {
@@ -3438,7 +3602,7 @@ const resolveStudentChatReactionActor = (auth, options = {}) => {
     return normalizeStudentChatReactionActor({
       actorRole: 'student',
       actorId,
-      actorName: getStudentDisplayName(student || auth),
+      actorName: getStudentPrimaryDisplayName(student || auth),
     });
   }
 
@@ -3463,6 +3627,7 @@ const buildStudentChatMessageResponseOptions = (auth, options = {}) => {
   return {
     actor,
     actorKey: actor?.actorKey || '',
+    exposeStudentNicknames: !isStudentRole(auth),
   };
 };
 
@@ -3475,12 +3640,16 @@ const getActiveStudentIdsForTeacher = (teacherId) => {
     .filter(Boolean);
 };
 
-const buildStudentPeerProfile = (student) => ({
-  id: String(student?.id || '').trim(),
-  name: String(student?.name || '').trim(),
-  nickname: String(student?.nickname || '').trim(),
-  displayName: getStudentDisplayName(student),
-});
+const buildStudentPeerProfile = (student, options = {}) => {
+  const exposeStudentNicknames = shouldExposeStudentNicknames(options);
+  return {
+    id: String(student?.id || '').trim(),
+    name: String(student?.name || '').trim(),
+    nickname: exposeStudentNicknames ? String(student?.nickname || '').trim() : '',
+    displayName: getStudentChatVisibleName(student, options),
+    avatarDataUrl: normalizeStudentAvatarDataUrl(getStudentData(student?.id)?.avatarDataUrl),
+  };
+};
 
 const createStudentSocialChat = ({ type, teacherId, studentIds = [] } = {}) => {
   const normalizedTeacherId = String(teacherId || '').trim();
@@ -3533,6 +3702,7 @@ const getStudentSocialChatUnreadForStudent = (chat, studentId) => {
   if (!id || !chat || !Array.isArray(chat.messages) || chat.messages.length === 0) return 0;
   const lastReadAt = Date.parse(chat.lastReadByStudentId?.[id] || '');
   return chat.messages.reduce((count, message) => {
+    if (!message || message.senderRole === 'system') return count;
     if (!message || message.senderId === id) return count;
     if (!Number.isFinite(lastReadAt)) return count + 1;
     const messageAt = Date.parse(message.createdAt || '');
@@ -3559,6 +3729,9 @@ const buildStudentSocialChatSummary = (chat, currentStudent, options = {}) => {
   const notificationSettings = options.notificationSettings
     || (currentStudent?.id ? getStudentChatNotificationSettings(currentStudent.id) : null);
   const isGroup = chat?.type === 'group';
+  const lastMessageSenderName = chat.lastMessageSenderRole === 'student'
+    ? getStudentChatVisibleNameById(chat.lastMessageSenderId, chat.lastMessageSenderName, options)
+    : (chat.lastMessageSenderName || '');
   return {
     id: chat.id,
     type: chat.type,
@@ -3572,7 +3745,7 @@ const buildStudentSocialChatSummary = (chat, currentStudent, options = {}) => {
     lastMessagePreview: chat.lastMessagePreview || '',
     lastMessageSenderRole: chat.lastMessageSenderRole || '',
     lastMessageSenderId: chat.lastMessageSenderId || '',
-    lastMessageSenderName: chat.lastMessageSenderName || '',
+    lastMessageSenderName,
     unreadForTeacher: getStudentSocialChatUnreadForTeacher(chat),
     unreadForStudent: getStudentSocialChatUnreadForStudent(chat, currentStudent?.id),
     messageCount: Array.isArray(chat.messages) ? chat.messages.length : 0,
@@ -3582,6 +3755,11 @@ const buildStudentSocialChatSummary = (chat, currentStudent, options = {}) => {
       : (isGroup
         ? notificationSettings?.groupEnabled !== false
         : notificationSettings?.directByChatId?.[chat.id] !== false),
+    pinnedMessage: buildStudentChatPinnedReference(chat, {
+      chatKind: chat.type,
+      chatTitle: getStudentSocialChatReferenceTitle(chat, { currentStudentId: currentStudent?.id, peer, ...options }),
+    }),
+    ...(chat.pinnedMessageId ? { pinnedMessageId: chat.pinnedMessageId } : {}),
   };
 };
 
@@ -3650,6 +3828,7 @@ const rebuildStudentSocialChatAfterMessages = (chat, messages) => {
   return normalizeStudentSocialChat({
     ...chat,
     messages: safeMessages,
+    pinnedMessageId: safeMessages.some((message) => message.id === chat.pinnedMessageId) ? chat.pinnedMessageId : '',
     updatedAt: new Date().toISOString(),
     lastMessageAt: lastMessage?.createdAt || '',
     lastMessagePreview: buildStudentTeacherChatMessagePreview(lastMessage),
@@ -3661,6 +3840,7 @@ const rebuildStudentSocialChatAfterMessages = (chat, messages) => {
 
 const getStudentSocialMessageViewCount = (chat, message, options = {}) => {
   if (!chat || !message) return 0;
+  if (message.senderRole === 'system') return 0;
   const senderId = String(message.senderId || '').trim();
   let count = 0;
 
@@ -3691,11 +3871,17 @@ const getStudentSocialMessageViewCount = (chat, message, options = {}) => {
   return count;
 };
 
-const enrichStudentSocialMessageViewStats = (chat, message, options = {}) => ({
-  ...message,
-  reactions: buildStudentChatReactionSummary(message, options.actorKey),
-  viewCount: getStudentSocialMessageViewCount(chat, message, options),
-});
+const enrichStudentSocialMessageViewStats = (chat, message, options = {}) => {
+  const visibleMessage = sanitizeStudentChatMessageForViewer(message, options);
+  return {
+    ...visibleMessage,
+    ...(message?.senderRole === 'student'
+      ? { senderAvatarDataUrl: normalizeStudentAvatarDataUrl(getStudentData(message.senderId)?.avatarDataUrl) }
+      : {}),
+    reactions: buildStudentChatReactionSummary(message, options.actorKey, options),
+    viewCount: getStudentSocialMessageViewCount(chat, message, options),
+  };
+};
 
 const enrichStudentSocialMessagesViewStats = (chat, messages = [], options = {}) => (
   (Array.isArray(messages) ? messages : []).map((message) => (
@@ -4215,6 +4401,7 @@ const resolveSessionUser = (sessionUser) => {
       name: student.name,
       role: 'student',
       teacherId: student.teacherId || null,
+      avatarDataUrl: normalizeStudentAvatarDataUrl(getStudentData(student.id)?.avatarDataUrl),
     };
   }
   if (role === 'lead') {
@@ -4808,6 +4995,10 @@ const createStudentTeacherChatMessage = ({
   fileName,
   fileMimeType,
   fileSize,
+  replyTo,
+  forwardFrom,
+  systemType,
+  targetMessageId,
 }) => {
   const normalizedText = normalizeStudentChatMessageText(text);
   const normalizedImageDataUrl = normalizeStudentChatImageDataUrl(imageDataUrl);
@@ -4816,9 +5007,10 @@ const createStudentTeacherChatMessage = ({
   const normalizedFileName = normalizeStudentChatFileName(fileName);
   const normalizedFileMimeType = normalizeStudentChatFileMimeType(fileMimeType) || getDataUrlMimeType(normalizedFileDataUrl);
   const normalizedFileSize = normalizeStudentChatFileSize(fileSize, normalizedFileDataUrl);
+  const normalizedSenderRole = getStudentChatMessageSenderRole(senderRole);
   const message = {
     id: crypto.randomUUID(),
-    senderRole: senderRole === 'teacher' ? 'teacher' : 'student',
+    senderRole: normalizedSenderRole,
     senderId: String(senderId || '').trim(),
     senderName: String(senderName || '').trim(),
     text: normalizedText,
@@ -4834,7 +5026,180 @@ const createStudentTeacherChatMessage = ({
     if (normalizedFileMimeType) message.fileMimeType = normalizedFileMimeType;
     if (normalizedFileSize) message.fileSize = normalizedFileSize;
   }
+  const normalizedReplyTo = normalizeStudentChatMessageReference(replyTo);
+  const normalizedForwardFrom = normalizeStudentChatMessageReference(forwardFrom);
+  if (normalizedReplyTo) message.replyTo = normalizedReplyTo;
+  if (normalizedForwardFrom) message.forwardFrom = normalizedForwardFrom;
+  const normalizedSystemType = typeof systemType === 'string' ? systemType.trim().slice(0, 40) : '';
+  const normalizedTargetMessageId = typeof targetMessageId === 'string' ? targetMessageId.trim() : '';
+  if (normalizedSystemType) message.systemType = normalizedSystemType;
+  if (normalizedTargetMessageId) message.targetMessageId = normalizedTargetMessageId;
   return message;
+};
+
+const findStudentChatMessageById = (chat, messageId) => {
+  const id = String(messageId || '').trim();
+  if (!id || !Array.isArray(chat?.messages)) return null;
+  return chat.messages.find((message) => String(message?.id || '').trim() === id) || null;
+};
+
+const getStudentChatPinActorName = (auth, options = {}) => {
+  if (isStudentRole(auth)) {
+    return getStudentPrimaryDisplayName(options.student || findStudentById(auth.id));
+  }
+  if (isTeacherRole(auth) || isAdminRole(auth)) {
+    const teacher = options.teacher
+      || findTeacherById(options.teacherId || options.chat?.teacherId || auth.id)
+      || findTeacherById(auth.id);
+    return String(teacher?.name || auth?.name || 'Преподаватель').trim() || 'Преподаватель';
+  }
+  return 'Участник';
+};
+
+const buildStudentChatPinAnnouncementPreview = (message) => {
+  const preview = buildStudentTeacherChatMessagePreview(message)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/"/g, '“');
+  return (preview || 'сообщение').slice(0, 72);
+};
+
+const createStudentChatPinAnnouncementMessage = ({ auth, student, teacher, chat, targetMessage } = {}) => {
+  const targetMessageId = String(targetMessage?.id || '').trim();
+  if (!targetMessageId) return null;
+  const actorName = getStudentChatPinActorName(auth, { student, teacher, chat });
+  return createStudentTeacherChatMessage({
+    senderRole: 'system',
+    senderId: 'system',
+    senderName: actorName,
+    text: `${actorName} pinned "${buildStudentChatPinAnnouncementPreview(targetMessage)}"`,
+    systemType: 'pin',
+    targetMessageId,
+  });
+};
+
+const getStudentTeacherChatReferenceTitle = (chat, student = null) => {
+  const studentName = String(student?.name || '').trim();
+  const teacherName = String(findTeacherById(chat?.teacherId)?.name || '').trim();
+  if (studentName && teacherName) return `${studentName} · ${teacherName}`;
+  return studentName || teacherName || 'Диалог';
+};
+
+const getStudentSocialChatReferenceTitle = (chat, options = {}) => {
+  if (chat?.type === 'group') return 'Общий чат группы';
+  const currentStudentId = String(options.currentStudentId || '').trim();
+  const peerId = Array.isArray(chat?.studentIds)
+    ? chat.studentIds.find((id) => String(id || '').trim() && String(id || '').trim() !== currentStudentId)
+    : '';
+  const peer = options.peer || findStudentById(peerId);
+  return getStudentChatVisibleName(peer, options) || 'Личный чат';
+};
+
+const buildStudentChatReplyReference = (chat, messageId, options = {}) => {
+  const message = findStudentChatMessageById(chat, messageId);
+  if (!message) return null;
+  return buildStudentChatMessageReference(message, {
+    chatId: chat?.id,
+    chatKind: options.chatKind || (chat?.type === 'group' || chat?.type === 'direct' ? chat.type : 'teacher'),
+    chatTitle: options.chatTitle,
+  });
+};
+
+const buildStudentChatPinnedReference = (chat, options = {}) => {
+  const pinnedMessageId = String(chat?.pinnedMessageId || '').trim();
+  if (!pinnedMessageId) return null;
+  return buildStudentChatReplyReference(chat, pinnedMessageId, options);
+};
+
+const resolveStudentChatForwardSource = (req, res, rawDescriptor) => {
+  const descriptor = normalizeStudentChatSourceDescriptor(rawDescriptor);
+  if (!descriptor) return null;
+
+  if (descriptor.scope === 'teacher') {
+    const chats = readStudentChatsDb();
+    const access = ensureStudentTeacherChatAccess(req, res, descriptor.chatId, {
+      chats,
+      createIfMissing: false,
+      persist: false,
+    });
+    if (!access) return null;
+    const message = findStudentChatMessageById(access.chat, descriptor.messageId);
+    if (!message) {
+      res.status(404).json({ error: 'Сообщение для пересылки не найдено' });
+      return null;
+    }
+    return {
+      message,
+      chat: access.chat,
+      reference: buildStudentChatMessageReference(message, {
+        chatId: access.chat.id,
+        chatKind: 'teacher',
+        chatTitle: getStudentTeacherChatReferenceTitle(access.chat, access.student),
+        exposeStudentNicknames: !isStudentRole(req.auth),
+      }),
+    };
+  }
+
+  const db = readStudentSocialChatsDb();
+  let access = null;
+  if (isStudentRole(req.auth)) {
+    access = ensureStudentSocialChatAccess(req, res, descriptor.chatId, {
+      db,
+      chats: db.chats,
+      createIfMissing: false,
+      persist: false,
+    });
+  } else if (isStaffRole(req.auth)) {
+    const teacherId = getTeacherIdFromStudentGroupChatId(descriptor.chatId);
+    if (!teacherId) {
+      res.status(403).json({ error: 'Недостаточно прав' });
+      return null;
+    }
+    access = ensureTeacherSocialGroupChatAccess(req, res, teacherId, {
+      db,
+      chats: db.chats,
+      persist: false,
+    });
+  }
+  if (!access) return null;
+  const message = findStudentChatMessageById(access.chat, descriptor.messageId);
+  if (!message) {
+    res.status(404).json({ error: 'Сообщение для пересылки не найдено' });
+    return null;
+  }
+  return {
+    message,
+    chat: access.chat,
+    reference: buildStudentChatMessageReference(message, {
+      chatId: access.chat.id,
+      chatKind: access.chat.type,
+      chatTitle: getStudentSocialChatReferenceTitle(access.chat, {
+        currentStudentId: access.student?.id,
+        peer: access.peer,
+        exposeStudentNicknames: !isStudentRole(req.auth),
+      }),
+      exposeStudentNicknames: !isStudentRole(req.auth),
+    }),
+  };
+};
+
+const mergeStudentChatForwardContent = (payload, forwardSource) => {
+  if (!forwardSource?.message) return payload;
+  const source = forwardSource.message;
+  const next = { ...payload };
+  if (!next.text) next.text = normalizeStudentChatMessageText(source.text);
+  if (!next.imageDataUrl && source.imageDataUrl) {
+    next.imageDataUrl = source.imageDataUrl;
+    next.imageName = source.imageName || '';
+  }
+  if (!next.fileDataUrl && source.fileDataUrl) {
+    next.fileDataUrl = source.fileDataUrl;
+    next.fileName = source.fileName || '';
+    next.fileMimeType = source.fileMimeType || getDataUrlMimeType(source.fileDataUrl);
+    next.fileSize = source.fileSize || 0;
+  }
+  next.forwardFrom = forwardSource.reference;
+  return next;
 };
 
 const isLeadAllowedApiRequest = (req) => {
@@ -8938,6 +9303,7 @@ const getStudentData = (studentId) => {
       activeProfileThemeId: '',
       leaderboardAlias: '',
       leaderboardAliasRewardClaimed: false,
+      avatarDataUrl: '',
       navSeen: normalizeStudentNavSeen(null),
     };
   }
@@ -8968,6 +9334,7 @@ const getStudentData = (studentId) => {
     || Object.prototype.hasOwnProperty.call(raw, 'activeProfileThemeId')
     || Object.prototype.hasOwnProperty.call(raw, 'leaderboardAlias')
     || Object.prototype.hasOwnProperty.call(raw, 'leaderboardAliasRewardClaimed')
+    || Object.prototype.hasOwnProperty.call(raw, 'avatarDataUrl')
     || Object.prototype.hasOwnProperty.call(raw, 'navSeen')
   ) {
     const progress = raw.progress && typeof raw.progress === 'object' && !Array.isArray(raw.progress) ? raw.progress : {};
@@ -9040,6 +9407,7 @@ const getStudentData = (studentId) => {
       activeProfileThemeId,
       leaderboardAlias,
       leaderboardAliasRewardClaimed: Boolean(raw.leaderboardAliasRewardClaimed) || Boolean(leaderboardAlias),
+      avatarDataUrl: normalizeStudentAvatarDataUrl(raw.avatarDataUrl),
       navSeen: normalizeStudentNavSeen(raw.navSeen),
     };
   }
@@ -9076,6 +9444,7 @@ const getStudentData = (studentId) => {
     activeProfileThemeId: '',
     leaderboardAlias: '',
     leaderboardAliasRewardClaimed: false,
+    avatarDataUrl: '',
     navSeen: normalizeStudentNavSeen(null),
   };
 };
@@ -9114,6 +9483,7 @@ const setStudentData = (studentId, data) => {
     activeProfileThemeId: normalizeActiveProfileThemeId(data.activeProfileThemeId, data.profileThemeInventory),
     leaderboardAlias: normalizeLeaderboardAlias(data.leaderboardAlias),
     leaderboardAliasRewardClaimed: Boolean(data.leaderboardAliasRewardClaimed),
+    avatarDataUrl: normalizeStudentAvatarDataUrl(data.avatarDataUrl),
     navSeen: normalizeStudentNavSeen(data.navSeen),
   };
   db[studentId] = payload;
@@ -11841,6 +12211,7 @@ app.post('/api/login', (req, res) => {
     name: student.name,
     role: 'student',
     teacherId: student.teacherId || null,
+    avatarDataUrl: normalizeStudentAvatarDataUrl(getStudentData(student.id)?.avatarDataUrl),
   });
   return respondWithSession(res, session);
 });
@@ -11957,6 +12328,43 @@ app.get('/api/session', (req, res) => {
   return res.json({
     ...req.auth,
     token: String(req.authToken || '').trim(),
+  });
+});
+
+app.patch('/api/students/avatar', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.auth.id);
+  if (!student) return;
+  const hasAvatarField = Object.prototype.hasOwnProperty.call(req.body || {}, 'avatarDataUrl');
+  if (!hasAvatarField) return res.status(400).json({ error: 'avatarDataUrl required' });
+  const rawAvatar = typeof req.body?.avatarDataUrl === 'string' ? req.body.avatarDataUrl : '';
+  const avatarDataUrl = rawAvatar.trim() ? normalizeStudentAvatarDataUrl(rawAvatar) : '';
+  if (rawAvatar.trim() && !avatarDataUrl) {
+    return res.status(400).json({ error: 'Аватарка должна быть изображением до 5 МБ' });
+  }
+
+  const data = getStudentData(student.id);
+  const updated = setStudentData(student.id, {
+    ...data,
+    avatarDataUrl,
+  });
+  const token = String(req.authToken || '').trim();
+  const session = token ? authSessions.get(token) : null;
+  if (session?.user) {
+    session.user = {
+      ...session.user,
+      avatarDataUrl: updated.avatarDataUrl || '',
+    };
+    persistAuthSessions();
+  }
+  return res.json({
+    ok: true,
+    user: {
+      ...req.auth,
+      avatarDataUrl: updated.avatarDataUrl || '',
+      token,
+    },
+    avatarDataUrl: updated.avatarDataUrl || '',
   });
 });
 
@@ -12502,15 +12910,23 @@ app.patch('/api/student-chat-notification-settings', (req, res) => {
 app.post('/api/student-chat/messages', (req, res) => {
   if (!isStudentRole(req.auth)) return forbid(res);
   const text = normalizeStudentChatMessageText(req.body?.text);
+  const attachmentPayload = normalizeStudentChatAttachmentPayload(req.body);
+  const forwardSource = req.body?.forwardFrom
+    ? resolveStudentChatForwardSource(req, res, req.body.forwardFrom)
+    : null;
+  if (res.headersSent) return;
+
+  const messagePayload = mergeStudentChatForwardContent({ text, ...attachmentPayload }, forwardSource);
   const {
+    text: messageText,
     imageDataUrl,
     imageName,
     fileDataUrl,
     fileName,
     fileMimeType,
     fileSize,
-  } = normalizeStudentChatAttachmentPayload(req.body);
-  if (!text && !imageDataUrl && !fileDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
+  } = messagePayload;
+  if (!messageText && !imageDataUrl && !fileDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
 
   const chats = readStudentChatsDb();
   const access = ensureStudentTeacherChatAccess(
@@ -12522,18 +12938,28 @@ app.post('/api/student-chat/messages', (req, res) => {
   if (!access) return;
   const { index, student } = access;
   const chat = access.chat;
+  const replyToMessageId = String(req.body?.replyToMessageId || '').trim();
+  const replyTo = replyToMessageId
+    ? buildStudentChatReplyReference(chat, replyToMessageId, {
+      chatKind: 'teacher',
+      chatTitle: getStudentTeacherChatReferenceTitle(chat, student),
+    })
+    : null;
+  if (replyToMessageId && !replyTo) return res.status(404).json({ error: 'Сообщение для ответа не найдено' });
 
   const message = createStudentTeacherChatMessage({
     senderRole: 'student',
     senderId: req.auth.id,
     senderName: student?.name || req.auth.name || 'Ученик',
-    text,
+    text: messageText,
     imageDataUrl,
     imageName,
     fileDataUrl,
     fileName,
     fileMimeType,
     fileSize,
+    replyTo,
+    forwardFrom: forwardSource?.reference,
   });
   if (!hasStudentTeacherChatMessageContent(message) || !message.senderId) {
     return res.status(400).json({ error: 'Некорректное сообщение' });
@@ -12722,6 +13148,54 @@ app.delete('/api/student-chat/messages/:messageId', (req, res) => {
   });
 });
 
+app.patch('/api/student-chat/messages/:messageId/pin', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const messageId = String(req.params?.messageId || '').trim();
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+
+  const chats = readStudentChatsDb();
+  const access = ensureStudentTeacherChatAccess(
+    req,
+    res,
+    buildStudentTeacherChatId(req.auth?.id),
+    { chats, createIfMissing: true }
+  );
+  if (!access) return;
+  const { index, student } = access;
+  const chat = access.chat;
+  const targetMessage = findStudentChatMessageById(chat, messageId);
+  if (!targetMessage) return res.status(404).json({ error: 'Сообщение не найдено' });
+
+  const pinned = chat.pinnedMessageId !== messageId;
+  const teacher = findTeacherById(chat.teacherId);
+  const announcement = pinned
+    ? createStudentChatPinAnnouncementMessage({ auth: req.auth, student, teacher, chat, targetMessage })
+    : null;
+  const messages = announcement
+    ? [...(Array.isArray(chat.messages) ? chat.messages : []), announcement]
+    : chat.messages;
+  chats[index] = rebuildStudentTeacherChatAfterMessages({
+    ...chat,
+    pinnedMessageId: pinned ? messageId : '',
+  }, messages, { mutationAt: announcement?.createdAt || new Date().toISOString() }) || chat;
+  writeStudentChatsDb(chats);
+
+  const updatedChat = chats[index];
+  const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
+  const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student });
+  return res.json({
+    ok: true,
+    pinned,
+    message: enrichStudentTeacherMessageViewStats(updatedChat, targetMessage, responseOptions),
+    ...(announcement ? { announcement: enrichStudentTeacherMessageViewStats(updatedChat, announcement, responseOptions) } : {}),
+    chat: {
+      ...buildStudentTeacherChatSummary(updatedChat, student),
+      teacherName,
+      studentName: student?.name || 'Ученик',
+    },
+  });
+});
+
 app.get('/api/student-chats', (req, res) => {
   if (!isStaffRole(req.auth)) return forbid(res);
   const students = readStudentsDb()
@@ -12827,21 +13301,37 @@ app.get('/api/student-chats/:chatId/messages', (req, res) => {
 app.post('/api/student-chats/:chatId/messages', (req, res) => {
   if (!isStaffRole(req.auth)) return forbid(res);
   const text = normalizeStudentChatMessageText(req.body?.text);
+  const attachmentPayload = normalizeStudentChatAttachmentPayload(req.body);
+  const forwardSource = req.body?.forwardFrom
+    ? resolveStudentChatForwardSource(req, res, req.body.forwardFrom)
+    : null;
+  if (res.headersSent) return;
+
+  const messagePayload = mergeStudentChatForwardContent({ text, ...attachmentPayload }, forwardSource);
   const {
+    text: messageText,
     imageDataUrl,
     imageName,
     fileDataUrl,
     fileName,
     fileMimeType,
     fileSize,
-  } = normalizeStudentChatAttachmentPayload(req.body);
-  if (!text && !imageDataUrl && !fileDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
+  } = messagePayload;
+  if (!messageText && !imageDataUrl && !fileDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
 
   const chats = readStudentChatsDb();
   const access = ensureStudentTeacherChatAccess(req, res, req.params.chatId, { chats, createIfMissing: true });
   if (!access) return;
   const { index, student } = access;
   const chat = access.chat;
+  const replyToMessageId = String(req.body?.replyToMessageId || '').trim();
+  const replyTo = replyToMessageId
+    ? buildStudentChatReplyReference(chat, replyToMessageId, {
+      chatKind: 'teacher',
+      chatTitle: getStudentTeacherChatReferenceTitle(chat, student),
+    })
+    : null;
+  if (replyToMessageId && !replyTo) return res.status(404).json({ error: 'Сообщение для ответа не найдено' });
 
   const teacher = findTeacherById(chat.teacherId);
   const senderId = isTeacherRole(req.auth)
@@ -12852,13 +13342,15 @@ app.post('/api/student-chats/:chatId/messages', (req, res) => {
     senderRole: 'teacher',
     senderId,
     senderName,
-    text,
+    text: messageText,
     imageDataUrl,
     imageName,
     fileDataUrl,
     fileName,
     fileMimeType,
     fileSize,
+    replyTo,
+    forwardFrom: forwardSource?.reference,
   });
   if (!hasStudentTeacherChatMessageContent(message) || !message.senderId) {
     return res.status(400).json({ error: 'Некорректное сообщение' });
@@ -13030,6 +13522,49 @@ app.delete('/api/student-chats/:chatId/messages/:messageId', (req, res) => {
   });
 });
 
+app.patch('/api/student-chats/:chatId/messages/:messageId/pin', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const messageId = String(req.params?.messageId || '').trim();
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+
+  const chats = readStudentChatsDb();
+  const access = ensureStudentTeacherChatAccess(req, res, req.params.chatId, { chats, createIfMissing: true });
+  if (!access) return;
+  const { index, student } = access;
+  const chat = access.chat;
+  const targetMessage = findStudentChatMessageById(chat, messageId);
+  if (!targetMessage) return res.status(404).json({ error: 'Сообщение не найдено' });
+
+  const pinned = chat.pinnedMessageId !== messageId;
+  const teacher = findTeacherById(chat.teacherId);
+  const announcement = pinned
+    ? createStudentChatPinAnnouncementMessage({ auth: req.auth, student, teacher, chat, targetMessage })
+    : null;
+  const messages = announcement
+    ? [...(Array.isArray(chat.messages) ? chat.messages : []), announcement]
+    : chat.messages;
+  chats[index] = rebuildStudentTeacherChatAfterMessages({
+    ...chat,
+    pinnedMessageId: pinned ? messageId : '',
+  }, messages, { mutationAt: announcement?.createdAt || new Date().toISOString() }) || chat;
+  writeStudentChatsDb(chats);
+
+  const updatedChat = chats[index];
+  const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
+  const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student });
+  return res.json({
+    ok: true,
+    pinned,
+    message: enrichStudentTeacherMessageViewStats(updatedChat, targetMessage, responseOptions),
+    ...(announcement ? { announcement: enrichStudentTeacherMessageViewStats(updatedChat, announcement, responseOptions) } : {}),
+    chat: {
+      ...buildStudentTeacherChatSummary(updatedChat, student),
+      teacherName,
+      studentName: student?.name || 'Ученик',
+    },
+  });
+});
+
 app.get('/api/student-social-chat-settings', (req, res) => {
   let teacherId = '';
   let teacher = null;
@@ -13114,7 +13649,7 @@ app.get('/api/teacher-social-group-chat', (req, res) => {
   const students = readStudentsDb()
     .filter((entry) => isActiveStudent(entry) && String(entry.teacherId || '').trim() === teacher.id)
     .sort((left, right) => getStudentDisplayName(left).localeCompare(getStudentDisplayName(right), 'ru'))
-    .map(buildStudentPeerProfile);
+    .map((student) => buildStudentPeerProfile(student, { exposeStudentNicknames: true }));
   const page = buildStudentChatMessagesPage(chat.messages, req.query);
   const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat, teacher });
 
@@ -13122,7 +13657,7 @@ app.get('/api/teacher-social-group-chat', (req, res) => {
     teacherId: teacher.id,
     settings,
     students,
-    groupChat: buildStudentSocialChatSummary(chat, null, { settings }),
+    groupChat: buildStudentSocialChatSummary(chat, null, { settings, exposeStudentNicknames: true }),
     messages: enrichStudentSocialMessagesViewStats(chat, page.messages, {
       ...responseOptions,
       groupStudentIds: students.map((student) => student.id),
@@ -13134,15 +13669,23 @@ app.get('/api/teacher-social-group-chat', (req, res) => {
 app.post('/api/teacher-social-group-chat/messages', (req, res) => {
   if (!isStaffRole(req.auth)) return forbid(res);
   const text = normalizeStudentChatMessageText(req.body?.text);
+  const attachmentPayload = normalizeStudentChatAttachmentPayload(req.body);
+  const forwardSource = req.body?.forwardFrom
+    ? resolveStudentChatForwardSource(req, res, req.body.forwardFrom)
+    : null;
+  if (res.headersSent) return;
+
+  const messagePayload = mergeStudentChatForwardContent({ text, ...attachmentPayload }, forwardSource);
   const {
+    text: messageText,
     imageDataUrl,
     imageName,
     fileDataUrl,
     fileName,
     fileMimeType,
     fileSize,
-  } = normalizeStudentChatAttachmentPayload(req.body);
-  if (!text && !imageDataUrl && !fileDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
+  } = messagePayload;
+  if (!messageText && !imageDataUrl && !fileDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
 
   const effectiveTeacherId = isTeacherRole(req.auth)
     ? req.auth.id
@@ -13159,18 +13702,28 @@ app.post('/api/teacher-social-group-chat/messages', (req, res) => {
   }
 
   const { index, teacher, settings } = access;
+  const replyToMessageId = String(req.body?.replyToMessageId || '').trim();
+  const replyTo = replyToMessageId
+    ? buildStudentChatReplyReference(access.chat, replyToMessageId, {
+      chatKind: 'group',
+      chatTitle: getStudentSocialChatReferenceTitle(access.chat),
+    })
+    : null;
+  if (replyToMessageId && !replyTo) return res.status(404).json({ error: 'Сообщение для ответа не найдено' });
   const senderName = String(teacher?.name || req.auth?.name || 'Преподаватель').trim() || 'Преподаватель';
   const message = createStudentTeacherChatMessage({
     senderRole: 'teacher',
     senderId: String(teacher?.id || req.auth?.id || '').trim(),
     senderName,
-    text,
+    text: messageText,
     imageDataUrl,
     imageName,
     fileDataUrl,
     fileName,
     fileMimeType,
     fileSize,
+    replyTo,
+    forwardFrom: forwardSource?.reference,
   });
   if (!hasStudentTeacherChatMessageContent(message) || !message.senderId) {
     return res.status(400).json({ error: 'Некорректное сообщение' });
@@ -13340,6 +13893,54 @@ app.delete('/api/teacher-social-group-chat/messages/:messageId', (req, res) => {
   });
 });
 
+app.patch('/api/teacher-social-group-chat/messages/:messageId/pin', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const messageId = String(req.params?.messageId || '').trim();
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+
+  const effectiveTeacherId = isTeacherRole(req.auth)
+    ? req.auth.id
+    : String(req.body?.teacherId || req.query?.teacherId || '').trim();
+  const db = readStudentSocialChatsDb();
+  const access = ensureTeacherSocialGroupChatAccess(req, res, effectiveTeacherId, {
+    db,
+    chats: db.chats,
+    persist: true,
+  });
+  if (!access) return;
+
+  const { index, teacher, settings } = access;
+  const chat = access.chat;
+  const targetMessage = findStudentChatMessageById(chat, messageId);
+  if (!targetMessage) return res.status(404).json({ error: 'Сообщение не найдено' });
+
+  const pinned = chat.pinnedMessageId !== messageId;
+  const announcement = pinned
+    ? createStudentChatPinAnnouncementMessage({ auth: req.auth, teacher, chat, targetMessage })
+    : null;
+  const messages = announcement
+    ? [...(Array.isArray(chat.messages) ? chat.messages : []), announcement]
+    : chat.messages;
+  db.chats[index] = rebuildStudentSocialChatAfterMessages({
+    ...chat,
+    pinnedMessageId: pinned ? messageId : '',
+  }, messages);
+  writeStudentSocialChatsDb(db);
+  const updatedChat = db.chats[index];
+  const responseOptions = {
+    ...buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, teacher }),
+    groupStudentIds: getActiveStudentIdsForTeacher(updatedChat.teacherId),
+  };
+
+  return res.json({
+    ok: true,
+    pinned,
+    message: enrichStudentSocialMessageViewStats(updatedChat, targetMessage, responseOptions),
+    ...(announcement ? { announcement: enrichStudentSocialMessageViewStats(updatedChat, announcement, responseOptions) } : {}),
+    chat: buildStudentSocialChatSummary(updatedChat, null, { settings }),
+  });
+});
+
 app.get('/api/student-social-chats', (req, res) => {
   if (!isStudentRole(req.auth)) return forbid(res);
   const student = findStudentById(req.auth.id);
@@ -13351,7 +13952,7 @@ app.get('/api/student-social-chats', (req, res) => {
   const notificationSettings = getStudentChatNotificationSettings(student.id, db);
   const classmates = readStudentsDb()
     .filter((entry) => isActiveStudent(entry) && String(entry.teacherId || '').trim() === teacherId)
-    .sort((left, right) => getStudentDisplayName(left).localeCompare(getStudentDisplayName(right), 'ru'));
+    .sort((left, right) => getStudentPrimaryDisplayName(left).localeCompare(getStudentPrimaryDisplayName(right), 'ru'));
   const peers = classmates
     .filter((entry) => entry.id !== student.id)
     .map(buildStudentPeerProfile);
@@ -13468,15 +14069,23 @@ app.get('/api/student-social-chats/:chatId/messages', (req, res) => {
 app.post('/api/student-social-chats/:chatId/messages', (req, res) => {
   if (!isStudentRole(req.auth)) return forbid(res);
   const text = normalizeStudentChatMessageText(req.body?.text);
+  const attachmentPayload = normalizeStudentChatAttachmentPayload(req.body);
+  const forwardSource = req.body?.forwardFrom
+    ? resolveStudentChatForwardSource(req, res, req.body.forwardFrom)
+    : null;
+  if (res.headersSent) return;
+
+  const messagePayload = mergeStudentChatForwardContent({ text, ...attachmentPayload }, forwardSource);
   const {
+    text: messageText,
     imageDataUrl,
     imageName,
     fileDataUrl,
     fileName,
     fileMimeType,
     fileSize,
-  } = normalizeStudentChatAttachmentPayload(req.body);
-  if (!text && !imageDataUrl && !fileDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
+  } = messagePayload;
+  if (!messageText && !imageDataUrl && !fileDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
 
   const db = readStudentSocialChatsDb();
   const access = ensureStudentSocialChatAccess(req, res, req.params.chatId, {
@@ -13488,17 +14097,27 @@ app.post('/api/student-social-chats/:chatId/messages', (req, res) => {
 
   const { index, student, peer, settings } = access;
   const chat = access.chat;
+  const replyToMessageId = String(req.body?.replyToMessageId || '').trim();
+  const replyTo = replyToMessageId
+    ? buildStudentChatReplyReference(chat, replyToMessageId, {
+      chatKind: chat.type,
+      chatTitle: getStudentSocialChatReferenceTitle(chat, { currentStudentId: student.id, peer }),
+    })
+    : null;
+  if (replyToMessageId && !replyTo) return res.status(404).json({ error: 'Сообщение для ответа не найдено' });
   const message = createStudentTeacherChatMessage({
     senderRole: 'student',
     senderId: student.id,
-    senderName: getStudentDisplayName(student),
-    text,
+    senderName: getStudentPrimaryDisplayName(student),
+    text: messageText,
     imageDataUrl,
     imageName,
     fileDataUrl,
     fileName,
     fileMimeType,
     fileSize,
+    replyTo,
+    forwardFrom: forwardSource?.reference,
   });
   if (!hasStudentTeacherChatMessageContent(message) || !message.senderId) {
     return res.status(400).json({ error: 'Некорректное сообщение' });
@@ -13680,6 +14299,57 @@ app.delete('/api/student-social-chats/:chatId/messages/:messageId', (req, res) =
   return res.json({
     ok: true,
     messageId,
+    chat: buildStudentSocialChatSummary(updatedChat, student, {
+      peer: peer ? buildStudentPeerProfile(peer) : null,
+      settings,
+      notificationSettings,
+    }),
+  });
+});
+
+app.patch('/api/student-social-chats/:chatId/messages/:messageId/pin', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const messageId = String(req.params?.messageId || '').trim();
+  if (!messageId) return res.status(400).json({ error: 'messageId required' });
+
+  const db = readStudentSocialChatsDb();
+  const access = ensureStudentSocialChatAccess(req, res, req.params.chatId, {
+    db,
+    chats: db.chats,
+    createIfMissing: true,
+  });
+  if (!access) return;
+
+  const { index, student, peer, settings } = access;
+  const chat = access.chat;
+  const targetMessage = findStudentChatMessageById(chat, messageId);
+  if (!targetMessage) return res.status(404).json({ error: 'Сообщение не найдено' });
+
+  const pinned = chat.pinnedMessageId !== messageId;
+  const announcement = pinned
+    ? createStudentChatPinAnnouncementMessage({ auth: req.auth, student, chat, targetMessage })
+    : null;
+  const messages = announcement
+    ? [...(Array.isArray(chat.messages) ? chat.messages : []), announcement]
+    : chat.messages;
+  db.chats[index] = rebuildStudentSocialChatAfterMessages({
+    ...chat,
+    pinnedMessageId: pinned ? messageId : '',
+  }, messages);
+  writeStudentSocialChatsDb(db);
+  const updatedChat = db.chats[index];
+  const notificationSettings = getStudentChatNotificationSettings(student.id, db);
+  const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student });
+
+  return res.json({
+    ok: true,
+    pinned,
+    message: enrichStudentSocialMessageViewStats(
+      updatedChat,
+      targetMessage,
+      responseOptions
+    ),
+    ...(announcement ? { announcement: enrichStudentSocialMessageViewStats(updatedChat, announcement, responseOptions) } : {}),
     chat: buildStudentSocialChatSummary(updatedChat, student, {
       peer: peer ? buildStudentPeerProfile(peer) : null,
       settings,
@@ -14228,6 +14898,7 @@ app.get('/api/students', (req, res) => {
       xpTotal,
       coinsTotal,
       level,
+      avatarDataUrl: normalizeStudentAvatarDataUrl(data?.avatarDataUrl),
       notesUsageBytes: notesUsageByStudentId.get(rest.id) || 0,
     };
   });
@@ -14332,6 +15003,7 @@ app.get('/api/students/leaderboard', (req, res) => {
       },
       platformDays,
       profileTheme: profileThemeState.active,
+      avatarDataUrl: normalizeStudentAvatarDataUrl(data?.avatarDataUrl),
       hasAlias: Boolean(alias),
       mainName,
       nickname,
@@ -14386,7 +15058,7 @@ app.get('/api/students/leaderboard', (req, res) => {
           publicName: selectedStudentItem.publicName,
           hasAlias: selectedStudentItem.hasAlias,
           mainName: normalizeStudentName(selectedStudentEntry?.name || ''),
-          nickname: normalizeStudentNickname(selectedStudentEntry?.nickname || ''),
+          nickname: includeTeacherIdentity ? normalizeStudentNickname(selectedStudentEntry?.nickname || '') : '',
           coinsTotal: normalizeCoinsTotal(selectedStudentData?.coinsTotal),
           mockTimerChests: buildMockTimerChestPanelState(selectedStudentData),
           profileThemes: buildProfileThemeCollectionPayload(
@@ -14622,6 +15294,7 @@ app.get('/api/students/leaderboard-profile', (req, res) => {
     weeklyXp: getRecentXpFromSolvedEvents(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS, data?.artifactLevels),
     profileTheme: profileThemeState.active,
     profileThemes: profileThemeState,
+    avatarDataUrl: normalizeStudentAvatarDataUrl(data?.avatarDataUrl),
     streak: normalizeStreak(data?.streak),
     preparation: getLeaderboardProfilePreparationSummary(targetStudent),
     progress: getLeaderboardProfileProgressSummary(data, testsDb),

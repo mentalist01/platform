@@ -13,7 +13,7 @@ import {
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   ChevronsLeft, ChevronsRight, ChevronsUpDown, Search,
-  Bell, BellOff, MousePointer2, Code2, MoreHorizontal, MessageSquare, Users, Wallet
+  Bell, BellOff, Camera, MousePointer2, Code2, MoreHorizontal, MessageSquare, Users, Wallet
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
 import mascotDisapproval from './assets/mascot/disapproval.png';
@@ -2343,6 +2343,8 @@ const sanitizeAuthUserPayload = (value) => {
   if (role === 'student') {
     const teacherId = value.teacherId;
     safe.teacherId = teacherId ? String(teacherId) : null;
+    const avatarDataUrl = typeof value.avatarDataUrl === 'string' ? value.avatarDataUrl.trim() : '';
+    if (avatarDataUrl) safe.avatarDataUrl = avatarDataUrl;
   }
   if (role === 'lead') {
     const chatId = typeof value.chatId === 'string' ? value.chatId.trim() : '';
@@ -11389,7 +11391,20 @@ const BoardSection = ({
   );
 };
 
-const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, onThemeToggle }) => {
+const STUDENT_AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+
+const readDashboardFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+  if (!file) {
+    reject(new Error('Файл не выбран'));
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+  reader.onerror = () => reject(new Error('Не удалось прочитать файл'));
+  reader.readAsDataURL(file);
+});
+
+const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, onThemeToggle, onUserUpdated }) => {
   const STUDENT_CALL_SECTION_ENABLED = true;
   const TEACHER_COMMS_VIEW = 'teacher-comms';
   const TEACHER_COMMS_TABS = ['signup-chats', 'student-chats', 'notifications'];
@@ -11479,6 +11494,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [callAutoStartToken, setCallAutoStartToken] = useState(0);
   const [callPanelExpanded, setCallPanelExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const [avatarError, setAvatarError] = useState('');
   const [desktopStudentMoreOpen, setDesktopStudentMoreOpen] = useState(false);
   const [desktopNavCollapsed, setDesktopNavCollapsed] = useState(() => {
     if (typeof localStorage === 'undefined') return false;
@@ -11552,6 +11569,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const goalFlyResetTimerRef = useRef(null);
   const goalFlyTargetNodeRef = useRef(null);
   const mainScrollRef = useRef(null);
+  const avatarInputRef = useRef(null);
   const messageAudioContextRef = useRef(null);
   const messageTitleBlinkTimerRef = useRef(null);
   const previousUnreadMessageTotalRef = useRef(null);
@@ -12500,6 +12518,63 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ? 'Сохраняем...'
     : (pushSubscribed ? 'Отключить push' : 'Включить push');
   const PushButtonIcon = pushSubscribed ? BellOff : Bell;
+
+  const handleAvatarFile = useCallback(async (file) => {
+    if (!file || user.role !== 'student' || avatarSaving) return;
+    if (!String(file.type || '').toLowerCase().startsWith('image/')) {
+      setAvatarError('Нужна картинка');
+      return;
+    }
+    if (Number(file.size) > STUDENT_AVATAR_MAX_BYTES) {
+      setAvatarError('До 5 МБ');
+      return;
+    }
+    setAvatarSaving(true);
+    setAvatarError('');
+    try {
+      const avatarDataUrl = await readDashboardFileAsDataUrl(file);
+      const payload = await api.updateStudentAvatar(avatarDataUrl);
+      onUserUpdated?.(payload?.user || { ...user, avatarDataUrl: payload?.avatarDataUrl || avatarDataUrl });
+    } catch (error) {
+      setAvatarError(error?.message || String(error));
+    } finally {
+      setAvatarSaving(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+    }
+  }, [avatarSaving, onUserUpdated, user]);
+
+  const renderUserAvatar = (className = 'h-9 w-9 rounded-lg', iconSize = 12) => {
+    const avatarDataUrl = String(user?.avatarDataUrl || '').trim();
+    const canEditAvatar = user.role === 'student';
+    const content = avatarDataUrl ? (
+      <img src={avatarDataUrl} alt={user.name} className="h-full w-full object-cover" />
+    ) : (
+      <span>{String(user.name || '?').slice(0, 1).toUpperCase()}</span>
+    );
+    if (!canEditAvatar) {
+      return (
+        <div className={`${className} overflow-hidden bg-gradient-to-br from-violet-500 to-purple-600 text-white flex items-center justify-center font-bold shadow-md shadow-purple-300/40 ring-1 ring-white/70`}>
+          {content}
+        </div>
+      );
+    }
+    return (
+      <button
+        type="button"
+        className={`${className} relative overflow-hidden bg-gradient-to-br from-violet-500 to-purple-600 text-white flex items-center justify-center font-bold shadow-md shadow-purple-300/40 ring-1 ring-white/70 transition hover:-translate-y-0.5`}
+        onClick={() => avatarInputRef.current?.click()}
+        disabled={avatarSaving}
+        aria-label="Сменить аватарку"
+        title="Сменить аватарку"
+      >
+        {content}
+        <span className="absolute bottom-0 right-0 grid h-4 w-4 place-items-center rounded-tl-md bg-slate-950/72 text-white">
+          <Camera size={iconSize} />
+        </span>
+      </button>
+    );
+  };
+
   const renderPushControl = ({ mobile = false } = {}) => {
     if (user.role !== 'student') return null;
     return (
@@ -15035,6 +15110,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           />
         )}
       */}
+      <input
+        ref={avatarInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void handleAvatarFile(file);
+        }}
+      />
       <div
         className={`sidebar-frame hidden md:block md:sticky md:top-0 z-40 app-h shrink-0 overflow-hidden transition-all duration-300 ease-out ${
           desktopNavCollapsed ? 'w-0' : 'sidebar-frame--open w-64 lg:w-72'
@@ -15197,9 +15282,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             <div className="sidebar-footer p-3 border-t border-white/70 bg-white/55 backdrop-blur-xl shrink-0">
               <div className="sidebar-profile-card rounded-2xl border border-white/70 bg-gradient-to-br from-white to-purple-50/75 p-3 shadow-[0_8px_18px_rgba(148,163,184,0.2)]">
                 <div className="flex items-center gap-2.5">
-                  <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 text-white text-sm flex items-center justify-center font-bold shadow-md shadow-purple-300/40 ring-1 ring-white/70">
-                    {user.name[0]}
-                  </div>
+                  {renderUserAvatar('h-9 w-9 rounded-lg text-sm', 10)}
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-900 truncate">{user.name}</p>
                     <div className="mt-0.5 inline-flex items-center rounded-md border border-purple-100 bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2 py-0.5 text-[10px] font-semibold text-purple-700">
@@ -15207,6 +15290,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     </div>
                   </div>
                 </div>
+                {avatarError && (
+                  <div className="mt-2 text-[10px] font-semibold text-rose-600">{avatarError}</div>
+                )}
               </div>
               {renderPushControl()}
               <button
@@ -15279,9 +15365,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               className="flex h-10 min-w-[40px] items-center gap-2 rounded-xl border border-purple-200/70 bg-white px-2 text-purple-700 shadow-sm"
               aria-label="Открыть профиль"
             >
-              <span className="grid h-6 w-6 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 text-[11px] font-bold text-white">
-                {String(user?.name || '?').slice(0, 1).toUpperCase()}
-              </span>
+              {user?.avatarDataUrl ? (
+                <img src={user.avatarDataUrl} alt={user.name} className="h-6 w-6 rounded-lg object-cover" />
+              ) : (
+                <span className="grid h-6 w-6 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 text-[11px] font-bold text-white">
+                  {String(user?.name || '?').slice(0, 1).toUpperCase()}
+                </span>
+              )}
               <span className="text-xs font-semibold">Профиль</span>
             </button>
           </div>
@@ -15292,7 +15382,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           data-tour="main"
         >
           <div className={mainContentShellClass}>
-          {user.role === 'student' && view !== 'collab' && view !== 'board' && view !== 'call' && (
+          {user.role === 'student' && !isStudentChatView && view !== 'collab' && view !== 'board' && view !== 'call' && (
             <div className="top-stats-strip mb-3 rounded-2xl border border-slate-200/80 bg-gradient-to-r from-white to-slate-50/85 px-2.5 py-1.5 shadow-sm sm:px-3 sm:py-2">
               <div className="flex items-center gap-1.5 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-2">
                 <div
@@ -16245,9 +16335,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200" />
               <div className="rounded-2xl border border-white/70 bg-gradient-to-br from-white to-purple-50/70 p-4 shadow-[0_8px_20px_rgba(148,163,184,0.2)]">
                 <div className="flex items-center gap-3">
-                  <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white flex items-center justify-center font-bold shadow-md shadow-purple-300/40 ring-1 ring-white/70">
-                    {user.name[0]}
-                  </div>
+                  {renderUserAvatar('h-11 w-11 rounded-xl', 12)}
                   <div className="min-w-0">
                     <p className="text-base font-semibold text-slate-900 truncate">{user.name}</p>
                     <div className="mt-1 inline-flex items-center rounded-md bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2.5 py-1 text-xs font-semibold text-purple-700">
@@ -16255,6 +16343,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     </div>
                   </div>
                 </div>
+                {avatarError && (
+                  <div className="mt-2 text-xs font-semibold text-rose-600">{avatarError}</div>
+                )}
               </div>
               {renderPushControl({ mobile: true })}
               {user.role === 'student' && studentExtraNav.length > 0 && (
@@ -16402,6 +16493,7 @@ const MainApp = () => {
         && current.name === normalized.name
         && current.teacherId === normalized.teacherId
         && current.chatId === normalized.chatId
+        && current.avatarDataUrl === normalized.avatarDataUrl
         && current.authToken === normalized.authToken
       ) {
         return current;
@@ -16551,6 +16643,16 @@ const MainApp = () => {
     setProgress({});
   };
 
+  const handleUserUpdated = useCallback((value) => {
+    const normalized = sanitizeAuthUserPayload(value);
+    if (!normalized) return null;
+    setUser(normalized);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(USER_SESSION_KEY, JSON.stringify(normalized));
+    }
+    return normalized;
+  }, []);
+
   const updateProgress = async (taskId, val, options = {}) => {
     if (!user || user.role !== 'student') return;
     setProgress((prev) => ({ ...prev, [taskId]: val }));
@@ -16584,6 +16686,7 @@ const MainApp = () => {
         onUpdateProgress={updateProgress}
         theme={theme}
         onThemeToggle={handleThemeToggle}
+        onUserUpdated={handleUserUpdated}
       />
       <ThemeToggleButton theme={theme} onToggle={handleThemeToggle} className="theme-toggle--desktop" />
     </>

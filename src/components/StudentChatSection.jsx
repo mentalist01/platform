@@ -1,15 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Bell,
   BellOff,
   Check,
-  Eye,
+  Copy,
   FileText,
+  Image as ImageIcon,
+  Link,
+  Pin,
   GraduationCap,
   Hash,
   MessageSquare,
+  MoreVertical,
   Paperclip,
   Pencil,
+  Forward,
+  Reply,
+  Search,
   SendHorizontal,
   SmilePlus,
   Trash2,
@@ -30,7 +38,16 @@ const CHAT_ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg'
 const CHAT_FILE_SIZE_LABEL = '10 МБ';
 const CHAT_MESSAGE_PAGE_SIZE = 15;
 const CHAT_DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const CHAT_TARGET_HIGHLIGHT_DELAY_MS = 320;
+const CHAT_TARGET_HIGHLIGHT_DURATION_MS = 2600;
 const CHAT_REACTION_EMOJIS = Object.freeze(['👍', '❤️', '😂', '🔥', '👏', '😮', '😢', '🙏']);
+const CHAT_CONTENT_FILTERS = Object.freeze([
+  { id: 'all', label: 'Все', Icon: MessageSquare },
+  { id: 'media', label: 'Медиа', Icon: ImageIcon },
+  { id: 'files', label: 'Файлы', Icon: FileText },
+  { id: 'links', label: 'Ссылки', Icon: Link },
+]);
+const CHAT_LINK_PATTERN = /https?:\/\/[^\s<>"']+|(?:^|\s)(?:www\.)[^\s<>"']+/i;
 const EMPTY_CHAT_MESSAGES_PAGINATION = Object.freeze({
   hasMoreBefore: false,
   nextBefore: '',
@@ -110,6 +127,14 @@ const mergeChatMessages = (...groups) => {
   return merged.map((key) => byKey.get(key)).filter(Boolean);
 };
 
+const getPinnedReferenceMessageId = (reference) => String(reference?.messageId || reference?.id || '').trim();
+
+const confirmUnpinMessage = () => (
+  typeof window === 'undefined'
+  || typeof window.confirm !== 'function'
+  || window.confirm('Убрать закреплённое сообщение?')
+);
+
 const isMessageDeleteAllowed = (message) => {
   const createdAt = Date.parse(message?.createdAt || '');
   if (!Number.isFinite(createdAt)) return false;
@@ -127,9 +152,379 @@ const normalizeMessageReactions = (message) => (
     .filter((reaction) => reaction.emoji && reaction.count > 0)
 );
 
+const hasMessageLink = (message) => CHAT_LINK_PATTERN.test(String(message?.text || ''));
+
+const getMessageSearchText = (message) => [
+  message?.text,
+  message?.senderName,
+  message?.imageName,
+  message?.fileName,
+  message?.replyTo?.text,
+  message?.replyTo?.senderName,
+  message?.forwardFrom?.text,
+  message?.forwardFrom?.senderName,
+].map((value) => String(value || '').toLowerCase()).join(' ');
+
+const messageMatchesContentFilter = (message, filter) => {
+  if (filter === 'media') return Boolean(message?.imageDataUrl);
+  if (filter === 'files') return Boolean(message?.fileDataUrl);
+  if (filter === 'links') return hasMessageLink(message);
+  return true;
+};
+
+const getChatContentCounts = (messages = []) => {
+  const list = Array.isArray(messages) ? messages : [];
+  return list.reduce((acc, message) => {
+    acc.all += 1;
+    if (message?.imageDataUrl) acc.media += 1;
+    if (message?.fileDataUrl) acc.files += 1;
+    if (hasMessageLink(message)) acc.links += 1;
+    return acc;
+  }, { all: 0, media: 0, files: 0, links: 0 });
+};
+
+const getVisibleChatMessages = (messages = [], query = '', filter = 'all') => {
+  const normalizedQuery = String(query || '').trim().toLowerCase();
+  return (Array.isArray(messages) ? messages : []).filter((message) => (
+    messageMatchesContentFilter(message, filter)
+    && (!normalizedQuery || getMessageSearchText(message).includes(normalizedQuery))
+  ));
+};
+
+const copyTextToClipboard = async (value) => {
+  const text = String(value || '');
+  if (!text.trim()) return false;
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  return false;
+};
+
+const getMessageContextMenuPosition = (event, width = 210, height = 266) => {
+  const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 0;
+  const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 0;
+  return {
+    x: viewportWidth > 0
+      ? Math.max(10, Math.min(event.clientX, viewportWidth - width - 10))
+      : event.clientX,
+    y: viewportHeight > 0
+      ? Math.max(10, Math.min(event.clientY, viewportHeight - height - 10))
+      : event.clientY,
+  };
+};
+
+const shouldIgnoreMessagePrimaryClick = (event) => {
+  if (event.defaultPrevented) return true;
+  if (event.button && event.button !== 0) return true;
+  const target = event.target;
+  if (target?.closest?.('button,a,input,textarea,select,label,[contenteditable="true"],[data-message-menu-ignore]')) {
+    return true;
+  }
+  const selectedText = typeof window !== 'undefined'
+    ? String(window.getSelection?.()?.toString() || '').trim()
+    : '';
+  return Boolean(selectedText);
+};
+
+const waitForChatPaint = () => new Promise((resolve) => {
+  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+    setTimeout(resolve, 0);
+    return;
+  }
+  window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+});
+
+const getChatMessageElement = (container, messageId) => {
+  const id = String(messageId || '').trim();
+  if (!container || !id) return null;
+  return Array.from(container.querySelectorAll('[data-chat-message-id]'))
+    .find((element) => element.dataset.chatMessageId === id) || null;
+};
+
+const scrollChatMessageIntoView = (element) => {
+  if (!element) return;
+  element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+};
+
+const getMessageReferencePreview = (reference) => {
+  const text = String(reference?.text || '').replace(/\s+/g, ' ').trim();
+  if (text) return text;
+  if (reference?.hasImage) return reference?.imageName || 'Изображение';
+  if (reference?.hasFile) return reference?.fileName || 'Файл';
+  return 'Сообщение';
+};
+
+const getMessageReferenceSender = (reference) => (
+  String(reference?.senderName || '').trim()
+  || (reference?.senderRole === 'teacher' ? 'Преподаватель' : 'Ученик')
+);
+
+const buildMessageReferencePayload = (message, options = {}) => {
+  const messageId = String(message?.id || '').trim();
+  const senderId = String(message?.senderId || '').trim();
+  const text = String(message?.text || '').replace(/\s+/g, ' ').trim();
+  const imageName = String(message?.imageName || '').trim();
+  const fileName = String(message?.fileName || '').trim();
+  const hasImage = Boolean(message?.imageDataUrl || imageName);
+  const hasFile = Boolean(message?.fileDataUrl || fileName);
+  if (!messageId || !senderId || (!text && !hasImage && !hasFile)) return null;
+  return {
+    messageId,
+    chatId: String(options.chatId || '').trim(),
+    chatKind: String(options.chatKind || '').trim(),
+    chatTitle: String(options.chatTitle || '').trim(),
+    senderRole: message?.senderRole === 'teacher' ? 'teacher' : 'student',
+    senderId,
+    senderName: String(message?.senderName || '').trim() || getMessageSenderName(message, options.fallbackSenderName || ''),
+    text,
+    hasImage,
+    hasFile,
+    imageName,
+    fileName,
+    createdAt: String(message?.createdAt || '').trim(),
+  };
+};
+
+const MessageReferenceCard = ({
+  reference,
+  type = 'reply',
+  mine = false,
+  compact = false,
+  onCancel = null,
+  onOpenTarget = null,
+}) => {
+  if (!reference) return null;
+  const targetId = String(reference?.messageId || '').trim();
+  const canOpenTarget = Boolean(targetId && typeof onOpenTarget === 'function');
+  const className = `student-message-reference student-message-reference--${type} ${mine ? 'student-message-reference--mine' : ''} ${compact ? 'student-message-reference--compact' : ''} ${canOpenTarget ? 'student-message-reference--clickable' : ''}`;
+  const openTarget = () => {
+    if (canOpenTarget) onOpenTarget(reference);
+  };
+  const handleReferenceKeyDown = (event) => {
+    if (!canOpenTarget) return;
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    openTarget();
+  };
+  const content = (
+    <>
+      <span className="student-message-reference__rail" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        <span className="student-message-reference__label">
+          {type === 'forward' ? 'Переслано' : (type === 'pin' ? 'Закреплено' : 'Ответ')}
+          {type === 'forward' && reference.chatTitle ? ` · ${reference.chatTitle}` : ''}
+        </span>
+        <span className="student-message-reference__author">{getMessageReferenceSender(reference)}</span>
+        <span className="student-message-reference__text">{getMessageReferencePreview(reference)}</span>
+      </span>
+      {typeof onCancel === 'function' && (
+        <button
+          type="button"
+          className="student-message-reference__close"
+          onClick={(event) => {
+            event.stopPropagation();
+            onCancel();
+          }}
+          aria-label="Убрать"
+          title="Убрать"
+        >
+          <X size={13} />
+        </button>
+      )}
+    </>
+  );
+  if (canOpenTarget) {
+    return (
+      <div
+        className={className}
+        onClick={(event) => {
+          event.stopPropagation();
+          openTarget();
+        }}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          handleReferenceKeyDown(event);
+        }}
+        role="button"
+        tabIndex={0}
+      >
+        {content}
+      </div>
+    );
+  }
+  return (
+    <div className={className}>
+      {content}
+    </div>
+  );
+};
+
+const ChatMessageTools = ({
+  searchQuery,
+  onSearchQueryChange,
+  contentFilter,
+  onContentFilterChange,
+  counts,
+}) => (
+  <div className="student-chat-message-tools">
+    <label className="student-chat-message-search">
+      <Search size={14} />
+      <input
+        type="search"
+        value={searchQuery}
+        onChange={(event) => onSearchQueryChange(event.target.value)}
+        placeholder="Поиск"
+      />
+    </label>
+    <div className="student-chat-content-tabs" role="tablist" aria-label="Материалы чата">
+      {CHAT_CONTENT_FILTERS.map(({ id, label, Icon: FilterIcon }) => {
+        const active = contentFilter === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            className={`student-chat-content-tab ${active ? 'student-chat-content-tab--active' : ''}`}
+            onClick={() => onContentFilterChange(id)}
+            role="tab"
+            aria-selected={active}
+          >
+            {React.createElement(FilterIcon, { size: 13 })}
+            <span>{label}</span>
+            <strong>{counts?.[id] || 0}</strong>
+          </button>
+        );
+      })}
+    </div>
+  </div>
+);
+
 const isChatScrolledNearBottom = (node) => (
   !node || (node.scrollHeight - node.scrollTop - node.clientHeight) < 160
 );
+
+const ChatMessageTopTools = ({
+  searchQuery,
+  onSearchQueryChange,
+  contentFilter,
+  onContentFilterChange,
+  counts,
+  menuActions = [],
+}) => {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const close = () => setMenuOpen(false);
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') close();
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [menuOpen]);
+
+  return (
+    <div className={`student-chat-message-tools student-chat-message-tools--compact ${searchOpen ? 'student-chat-message-tools--search-open' : ''}`} data-message-menu-ignore="true">
+      {searchOpen && (
+        <label className="student-chat-message-search">
+          <Search size={14} />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(event) => onSearchQueryChange(event.target.value)}
+            placeholder="Поиск"
+            autoFocus
+          />
+          <button
+            type="button"
+            className="student-chat-tool-icon"
+            onClick={() => {
+              onSearchQueryChange('');
+              setSearchOpen(false);
+            }}
+            aria-label="Закрыть поиск"
+            title="Закрыть"
+          >
+            <X size={14} />
+          </button>
+        </label>
+      )}
+      <div className="student-chat-message-tool-actions">
+        <button
+          type="button"
+          className={`student-chat-tool-icon ${searchOpen ? 'student-chat-tool-icon--active' : ''}`}
+          onClick={() => setSearchOpen((value) => !value)}
+          aria-label="Поиск"
+          title="Поиск"
+        >
+          <Search size={16} />
+        </button>
+        <div className="student-chat-tools-menu-wrap">
+          <button
+            type="button"
+            className={`student-chat-tool-icon ${menuOpen ? 'student-chat-tool-icon--active' : ''}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              setMenuOpen((value) => !value);
+            }}
+            aria-label="Меню чата"
+            title="Меню"
+          >
+            <MoreVertical size={17} />
+          </button>
+          {menuOpen && (
+            <div className="student-chat-tools-menu" onClick={(event) => event.stopPropagation()}>
+              <div className="student-chat-tools-menu__section">
+                {CHAT_CONTENT_FILTERS.map(({ id, label, Icon: FilterIcon }) => {
+                  const active = contentFilter === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`student-chat-tools-menu__item ${active ? 'student-chat-tools-menu__item--active' : ''}`}
+                      onClick={() => {
+                        onContentFilterChange(id);
+                        setMenuOpen(false);
+                      }}
+                    >
+                      {React.createElement(FilterIcon, { size: 15 })}
+                      <span>{label}</span>
+                      <strong>{counts?.[id] || 0}</strong>
+                    </button>
+                  );
+                })}
+              </div>
+              {menuActions.length > 0 && (
+                <div className="student-chat-tools-menu__section student-chat-tools-menu__section--actions">
+                  {menuActions.map((action) => (
+                    <button
+                      key={action.id || action.label}
+                      type="button"
+                      className={`student-chat-tools-menu__item ${action.danger ? 'student-chat-tools-menu__item--danger' : ''}`}
+                      onClick={(event) => {
+                        action.onClick?.(event);
+                        setMenuOpen(false);
+                      }}
+                      disabled={action.disabled}
+                    >
+                      {action.Icon ? React.createElement(action.Icon, { size: 15 }) : null}
+                      <span>{action.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const markChatScrollToBottom = (listRef, behaviorRef, { force = false } = {}) => {
   const node = listRef.current;
@@ -292,17 +687,113 @@ const ChatMessages = ({
   onEditMessage = null,
   onDeleteMessage = null,
   onReactMessage = null,
+  onReplyMessage = null,
+  onForwardMessage = null,
+  onPinMessage = null,
+  onEnsureMessageLoaded = null,
+  openReferenceRequest = null,
+  pinnedMessageId = '',
+  pinnedMessage = null,
+  onPinnedCancel = null,
+  onPinnedOpen = null,
+  menuActions = [],
+  headerContent = null,
 }) => {
   const [editingMessageId, setEditingMessageId] = useState('');
   const [editingText, setEditingText] = useState('');
   const [busyMessageAction, setBusyMessageAction] = useState('');
   const [confirmingDeleteMessageId, setConfirmingDeleteMessageId] = useState('');
-  const [viewStatsPopover, setViewStatsPopover] = useState(null);
+  const [messageContextMenu, setMessageContextMenu] = useState(null);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState('');
   const [busyReactionKey, setBusyReactionKey] = useState('');
+  const [reactionBurst, setReactionBurst] = useState(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState('');
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedMessageIds, setSelectedMessageIds] = useState([]);
+  const [selectionDeleteConfirm, setSelectionDeleteConfirm] = useState(false);
+  const [selectionActionBusy, setSelectionActionBusy] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [contentFilter, setContentFilter] = useState('all');
+  const reactionBurstTimerRef = useRef(null);
+  const highlightTimerRef = useRef(null);
+  const highlightFrameRef = useRef(null);
+  const highlightDelayTimerRef = useRef(null);
+
+  const contentCounts = useMemo(() => getChatContentCounts(messages), [messages]);
+  const visibleMessages = useMemo(
+    () => getVisibleChatMessages(messages, searchQuery, contentFilter),
+    [contentFilter, messages, searchQuery]
+  );
+  const selectedMessageIdSet = useMemo(() => new Set(selectedMessageIds), [selectedMessageIds]);
+  const selectedMessages = useMemo(() => (
+    selectedMessageIds
+      .map((id) => messages.find((message) => String(message?.id || '').trim() === id))
+      .filter(Boolean)
+  ), [messages, selectedMessageIds]);
+  const selectedDeletableMessages = useMemo(() => selectedMessages.filter((message) => (
+    isMine(message) && typeof onDeleteMessage === 'function' && isMessageDeleteAllowed(message)
+  )), [isMine, onDeleteMessage, selectedMessages]);
+  const canDeleteSelectedMessages = selectedMessages.length > 0
+    && selectedDeletableMessages.length === selectedMessages.length
+    && !selectionActionBusy;
+  const canForwardSelectedMessages = selectedMessages.length > 0
+    && typeof onForwardMessage === 'function'
+    && !selectionActionBusy;
+
+  const clearMessageSelection = useCallback(() => {
+    setSelectionMode(false);
+    setSelectedMessageIds([]);
+    setSelectionDeleteConfirm(false);
+    setSelectionActionBusy('');
+  }, []);
+
+  const toggleMessageSelected = useCallback((message) => {
+    const id = String(message?.id || '').trim();
+    if (!id) return;
+    setSelectionMode(true);
+    setSelectionDeleteConfirm(false);
+    setSelectedMessageIds((current) => {
+      const exists = current.includes(id);
+      const next = exists ? current.filter((item) => item !== id) : [...current, id];
+      if (next.length === 0) setSelectionMode(false);
+      return next;
+    });
+  }, []);
+
+  const startMessageSelection = useCallback((message) => {
+    const id = String(message?.id || '').trim();
+    if (!id) return;
+    setMessageContextMenu(null);
+    setReactionPickerMessageId('');
+    setConfirmingDeleteMessageId('');
+    setEditingMessageId('');
+    setEditingText('');
+    setSelectionMode(true);
+    setSelectionDeleteConfirm(false);
+    setSelectedMessageIds([id]);
+  }, []);
+
+  const forwardSelectedMessages = useCallback(() => {
+    if (!canForwardSelectedMessages) return;
+    onForwardMessage(selectedMessages);
+    clearMessageSelection();
+  }, [canForwardSelectedMessages, clearMessageSelection, onForwardMessage, selectedMessages]);
+
+  const deleteSelectedMessages = useCallback(async () => {
+    if (!canDeleteSelectedMessages) return;
+    setSelectionActionBusy('delete');
+    try {
+      for (const message of selectedDeletableMessages) {
+        await onDeleteMessage(message);
+      }
+      clearMessageSelection();
+    } catch {
+      setSelectionActionBusy('');
+    }
+  }, [canDeleteSelectedMessages, clearMessageSelection, onDeleteMessage, selectedDeletableMessages]);
 
   const handleScroll = (event) => {
-    setViewStatsPopover(null);
+    setMessageContextMenu(null);
     setReactionPickerMessageId('');
     if (!hasMoreBefore || olderLoading || loading || typeof onLoadOlder !== 'function') return;
     if (event.currentTarget.scrollTop <= 96) {
@@ -311,9 +802,9 @@ const ChatMessages = ({
   };
 
   useEffect(() => {
-    if (!viewStatsPopover && !reactionPickerMessageId) return undefined;
+    if (!messageContextMenu && !reactionPickerMessageId) return undefined;
     const close = () => {
-      setViewStatsPopover(null);
+      setMessageContextMenu(null);
       setReactionPickerMessageId('');
     };
     const handleKeyDown = (event) => {
@@ -327,7 +818,85 @@ const ChatMessages = ({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('resize', close);
     };
-  }, [reactionPickerMessageId, viewStatsPopover]);
+  }, [messageContextMenu, reactionPickerMessageId]);
+
+  useEffect(() => () => {
+    if (reactionBurstTimerRef.current) clearTimeout(reactionBurstTimerRef.current);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    if (highlightDelayTimerRef.current) clearTimeout(highlightDelayTimerRef.current);
+    if (highlightFrameRef.current && typeof window !== 'undefined' && window.cancelAnimationFrame) {
+      window.cancelAnimationFrame(highlightFrameRef.current);
+    }
+  }, []);
+
+  const highlightMessage = useCallback((messageId) => {
+    const id = String(messageId || '').trim();
+    if (!id) return;
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    if (highlightFrameRef.current && typeof window !== 'undefined' && window.cancelAnimationFrame) {
+      window.cancelAnimationFrame(highlightFrameRef.current);
+      highlightFrameRef.current = null;
+    }
+    const playHighlight = () => {
+      setHighlightedMessageId(id);
+      highlightTimerRef.current = setTimeout(() => setHighlightedMessageId(''), CHAT_TARGET_HIGHLIGHT_DURATION_MS);
+    };
+    setHighlightedMessageId('');
+    if (typeof window !== 'undefined' && window.requestAnimationFrame) {
+      highlightFrameRef.current = window.requestAnimationFrame(() => {
+        highlightFrameRef.current = null;
+        playHighlight();
+      });
+      return;
+    }
+    setTimeout(playHighlight, 0);
+  }, []);
+
+  const highlightMessageAfterScroll = useCallback((messageId) => {
+    const id = String(messageId || '').trim();
+    if (!id) return;
+    if (highlightDelayTimerRef.current) clearTimeout(highlightDelayTimerRef.current);
+    highlightDelayTimerRef.current = setTimeout(() => {
+      highlightDelayTimerRef.current = null;
+      highlightMessage(id);
+    }, CHAT_TARGET_HIGHLIGHT_DELAY_MS);
+  }, [highlightMessage]);
+
+  const openReferencedMessage = useCallback(async (reference) => {
+    const targetId = String(reference?.messageId || reference?.id || '').trim();
+    if (!targetId) return;
+    setMessageContextMenu(null);
+    setReactionPickerMessageId('');
+    setConfirmingDeleteMessageId('');
+    setSearchQuery('');
+    setContentFilter('all');
+
+    await waitForChatPaint();
+    let element = getChatMessageElement(listRef.current, targetId);
+    if (!element && typeof onEnsureMessageLoaded === 'function') {
+      await onEnsureMessageLoaded(targetId);
+      await waitForChatPaint();
+      element = getChatMessageElement(listRef.current, targetId);
+    }
+    if (!element) {
+      await waitForChatPaint();
+      element = getChatMessageElement(listRef.current, targetId);
+    }
+    if (!element) return;
+    scrollChatMessageIntoView(element);
+    highlightMessageAfterScroll(targetId);
+  }, [highlightMessageAfterScroll, listRef, onEnsureMessageLoaded]);
+
+  useEffect(() => {
+    if (!openReferenceRequest?.messageId) return;
+    void openReferencedMessage(openReferenceRequest);
+  }, [openReferenceRequest, openReferencedMessage]);
+
+  const triggerReactionBurst = (messageId, emoji) => {
+    if (reactionBurstTimerRef.current) clearTimeout(reactionBurstTimerRef.current);
+    setReactionBurst({ messageId, emoji, key: `${messageId}:${emoji}:${Date.now()}` });
+    reactionBurstTimerRef.current = setTimeout(() => setReactionBurst(null), 900);
+  };
 
   const startEditMessage = (message) => {
     const id = String(message?.id || '').trim();
@@ -383,7 +952,7 @@ const ChatMessages = ({
     if (!id || !isMessageDeleteAllowed(message)) return;
     setEditingMessageId('');
     setEditingText('');
-    setViewStatsPopover(null);
+    setMessageContextMenu(null);
     setReactionPickerMessageId('');
     setConfirmingDeleteMessageId(id);
   };
@@ -398,9 +967,10 @@ const ChatMessages = ({
     setConfirmingDeleteMessageId('');
     setEditingMessageId('');
     setEditingText('');
-    setViewStatsPopover(null);
+    setMessageContextMenu(null);
     try {
       await onReactMessage(message, normalizedEmoji);
+      triggerReactionBurst(id, normalizedEmoji);
       setReactionPickerMessageId('');
     } catch {
       // Parent callbacks already expose the error in the chat panel.
@@ -409,38 +979,145 @@ const ChatMessages = ({
     }
   };
 
-  const showMessageViewStats = (event, message) => {
+  const openMessageContextMenu = (event, message) => {
     event.preventDefault();
+    event.stopPropagation();
     const id = String(message?.id || '').trim();
     if (!id) return;
-    const width = 168;
-    const height = 74;
-    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 0;
-    const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 0;
-    const x = viewportWidth > 0
-      ? Math.max(12, Math.min(event.clientX, viewportWidth - width - 12))
-      : event.clientX;
-    const y = viewportHeight > 0
-      ? Math.max(12, Math.min(event.clientY, viewportHeight - height - 12))
-      : event.clientY;
+    const position = getMessageContextMenuPosition(event);
     setEditingMessageId('');
     setEditingText('');
     setConfirmingDeleteMessageId('');
     setReactionPickerMessageId('');
-    setViewStatsPopover({
+    setMessageContextMenu({
       messageId: id,
-      x,
-      y,
-      viewCount: Math.max(0, Math.trunc(Number(message?.viewCount) || 0)),
+      x: position.x,
+      y: position.y,
     });
   };
 
+  const contextMenuMessage = messageContextMenu
+    ? messages.find((message) => String(message?.id || '').trim() === messageContextMenu.messageId)
+    : null;
+  const contextMenuOwn = Boolean(contextMenuMessage && isMine(contextMenuMessage));
+  const closeContextMenu = () => setMessageContextMenu(null);
+
+  useEffect(() => {
+    if (!selectionMode) return;
+    const liveIds = new Set(messages.map((message) => String(message?.id || '').trim()).filter(Boolean));
+    setSelectedMessageIds((current) => {
+      const next = current.filter((id) => liveIds.has(id));
+      if (next.length === current.length) return current;
+      if (next.length === 0) setSelectionMode(false);
+      return next;
+    });
+  }, [messages, selectionMode]);
+
+  const topTools = (
+    <ChatMessageTopTools
+      searchQuery={searchQuery}
+      onSearchQueryChange={setSearchQuery}
+      contentFilter={contentFilter}
+      onContentFilterChange={setContentFilter}
+      counts={contentCounts}
+      menuActions={menuActions}
+    />
+  );
+
   return (
+    <div className="student-chat-messages-shell flex min-h-0 flex-1 flex-col">
+      {headerContent ? (
+        <div className="student-chat-message-top-row">
+          <div className="student-chat-message-top-main">{headerContent}</div>
+          {topTools}
+        </div>
+      ) : topTools}
+      {selectionMode && (
+        <div className="student-message-selection-bar" data-message-menu-ignore="true">
+          <div className="student-message-selection-count">
+            <span>{selectedMessages.length}</span>
+            <strong>Выбрано</strong>
+          </div>
+          <div className="student-message-selection-actions">
+            {selectionDeleteConfirm ? (
+              <>
+                <span className="student-message-selection-confirm">Удалить?</span>
+                <button
+                  type="button"
+                  className="student-message-selection-action student-message-selection-action--danger"
+                  onClick={() => {
+                    void deleteSelectedMessages();
+                  }}
+                  disabled={!canDeleteSelectedMessages}
+                  aria-label="Удалить"
+                  title="Удалить"
+                >
+                  <Check size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="student-message-selection-action"
+                  onClick={() => setSelectionDeleteConfirm(false)}
+                  disabled={Boolean(selectionActionBusy)}
+                  aria-label="Отмена"
+                  title="Отмена"
+                >
+                  <X size={15} />
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="student-message-selection-action"
+                  onClick={forwardSelectedMessages}
+                  disabled={!canForwardSelectedMessages}
+                  aria-label="Переслать"
+                  title="Переслать"
+                >
+                  <Forward size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="student-message-selection-action student-message-selection-action--danger"
+                  onClick={() => setSelectionDeleteConfirm(true)}
+                  disabled={!canDeleteSelectedMessages}
+                  aria-label="Удалить"
+                  title="Удалить"
+                >
+                  <Trash2 size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="student-message-selection-action"
+                  onClick={clearMessageSelection}
+                  disabled={Boolean(selectionActionBusy)}
+                  aria-label="Сбросить"
+                  title="Сбросить"
+                >
+                  <X size={15} />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     <div
       ref={listRef}
       onScroll={handleScroll}
       className="student-chat-messages min-h-0 flex-1 space-y-3.5 overflow-y-auto rounded-[1.35rem] border border-slate-200/80 p-3 pb-4"
     >
+    {pinnedMessage && (
+      <div className="student-chat-pinned-message-row" data-message-menu-ignore="true">
+        <MessageReferenceCard
+          reference={pinnedMessage}
+          type="pin"
+          compact
+          onCancel={typeof onPinnedCancel === 'function' ? () => onPinnedCancel(pinnedMessage) : null}
+          onOpenTarget={typeof onPinnedOpen === 'function' ? onPinnedOpen : null}
+        />
+      </div>
+    )}
     {olderLoading && !loading && (
       <div className="mx-auto flex w-fit items-center gap-2 rounded-full border border-cyan-200/70 bg-cyan-50/90 px-3 py-1.5 text-[11px] font-black text-cyan-700 shadow-sm">
         <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-500" />
@@ -483,14 +1160,37 @@ const ChatMessages = ({
           <div className="mt-1 text-sm text-slate-500">{emptyText}</div>
         </div>
       </div>
+    ) : visibleMessages.length === 0 ? (
+      <div className="flex h-full min-h-[160px] items-center justify-center">
+        <div className="max-w-sm text-center">
+          <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-cyan-200/70 bg-cyan-50/90 text-cyan-600 shadow-sm">
+            <Search size={20} />
+          </div>
+          <div className="mt-3 text-base font-extrabold text-slate-900">Ничего не найдено</div>
+        </div>
+      </div>
     ) : (
-      messages.map((message) => {
+      visibleMessages.map((message) => {
         const messageId = String(message?.id || '').trim();
+        if (message?.senderRole === 'system' || message?.systemType) {
+          return (
+            <div
+              key={message.id}
+              data-chat-message-id={messageId}
+              className="student-message-system-row"
+            >
+              <span className="student-message-system-pill">{String(message?.text || '')}</span>
+            </div>
+          );
+        }
         const own = isMine(message);
         const messageText = String(message?.text || '');
         const canEditMessage = Boolean(own && messageId && messageText.trim() && typeof onEditMessage === 'function');
         const canDeleteMessage = Boolean(own && messageId && typeof onDeleteMessage === 'function' && isMessageDeleteAllowed(message));
+        const canReplyMessage = Boolean(messageId && typeof onReplyMessage === 'function');
+        const canForwardMessage = Boolean(messageId && typeof onForwardMessage === 'function');
         const isEditingMessage = editingMessageId === messageId;
+        const selected = selectedMessageIdSet.has(messageId);
         const editBusy = busyMessageAction === `edit:${messageId}`;
         const deleteBusy = busyMessageAction === `delete:${messageId}`;
         const isConfirmingDelete = confirmingDeleteMessageId === messageId;
@@ -498,7 +1198,7 @@ const ChatMessages = ({
         const canReactMessage = Boolean(!own && messageId && typeof onReactMessage === 'function');
         const showMessageToolbar = Boolean(
           !isEditingMessage
-          && (canEditMessage || canDeleteMessage || canReactMessage || reactions.length > 0)
+          && (canEditMessage || canDeleteMessage || canReactMessage || canReplyMessage || canForwardMessage || reactions.length > 0)
         );
         const messageImageDataUrl = String(message?.imageDataUrl || '').trim();
         const messageImageName = String(message?.imageName || '').trim();
@@ -509,8 +1209,11 @@ const ChatMessages = ({
         const renderedImageDataUrl = messageImageDataUrl || (messageFileMimeType.startsWith('image/') ? messageFileDataUrl : '');
         const renderedImageName = messageImageDataUrl ? messageImageName : messageFileName;
         const renderedFileDataUrl = renderedImageDataUrl === messageFileDataUrl ? '' : messageFileDataUrl;
+        const isTextOnlyForward = Boolean(message?.forwardFrom && messageText.trim() && !renderedImageDataUrl && !renderedFileDataUrl);
+        const shouldRenderMessageText = Boolean(messageText && !isTextOnlyForward);
         const senderName = getMessageSenderName(message, fallbackSenderName, own);
         const avatarName = getMessageAvatarName(message, fallbackSenderName, own);
+        const avatarDataUrl = String(message?.senderAvatarDataUrl || '').trim();
         const accent = getChatAccent(message?.senderId || avatarName);
         const senderOnline = message?.senderOnline === true || message?.isOnline === true;
         const senderStudentId = String(message?.senderId || '').trim();
@@ -536,20 +1239,26 @@ const ChatMessages = ({
             title={`Открыть профиль: ${avatarName}`}
             aria-label={`Открыть профиль: ${avatarName}`}
           >
-            {getInitials(avatarName)}
+            {avatarDataUrl ? (
+              <img src={avatarDataUrl} alt={avatarName} className="h-full w-full rounded-[inherit] object-cover" />
+            ) : getInitials(avatarName)}
           </button>
         ) : (
           <div
             className={avatarClassName}
             aria-hidden="true"
           >
-            {getInitials(avatarName)}
+            {avatarDataUrl ? (
+              <img src={avatarDataUrl} alt={avatarName} className="h-full w-full rounded-[inherit] object-cover" />
+            ) : getInitials(avatarName)}
           </div>
         );
         return (
           <div
             key={message.id}
-            className={`student-message-row flex items-start gap-2.5 ${own ? 'justify-end' : 'justify-start'}`}
+            data-chat-message-id={messageId}
+            className={`student-message-row flex items-start gap-2.5 ${own ? 'justify-end' : 'justify-start'} ${highlightedMessageId === messageId ? 'student-message-row--highlighted' : ''} ${selectionMode ? 'student-message-row--selecting' : ''} ${selected ? 'student-message-row--selected' : ''}`}
+            onContextMenu={(event) => openMessageContextMenu(event, message)}
           >
             {!own && avatar}
             <div
@@ -565,13 +1274,27 @@ const ChatMessages = ({
                 </span>
               </div>
               <div
-                className={`student-message-bubble relative overflow-hidden rounded-[1.15rem] border px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${isEditingMessage ? 'student-message-bubble--editing' : ''} ${
+                className={`student-message-bubble relative overflow-hidden rounded-[1.15rem] border px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${isEditingMessage ? 'student-message-bubble--editing' : ''} ${selected ? 'student-message-bubble--selected' : ''} ${
                   own
                     ? 'student-message-bubble--mine text-white'
                     : 'student-message-bubble--other text-slate-800'
                 }`}
-                onContextMenu={own ? (event) => showMessageViewStats(event, message) : undefined}
+                onClick={(event) => {
+                  if (selectionMode) {
+                    if (isEditingMessage || shouldIgnoreMessagePrimaryClick(event)) return;
+                    toggleMessageSelected(message);
+                    return;
+                  }
+                  if (isEditingMessage || shouldIgnoreMessagePrimaryClick(event)) return;
+                  openMessageContextMenu(event, message);
+                }}
               >
+                {message?.forwardFrom && (
+                  <MessageReferenceCard reference={message.forwardFrom} type="forward" mine={own} />
+                )}
+                {message?.replyTo && (
+                  <MessageReferenceCard reference={message.replyTo} type="reply" mine={own} onOpenTarget={openReferencedMessage} />
+                )}
                 {renderedImageDataUrl && (
                   <button
                     type="button"
@@ -631,19 +1354,6 @@ const ChatMessages = ({
                       void submitEditMessage(message);
                     }}
                   >
-                    <div className="student-message-edit-header">
-                      <span>Редактирование</span>
-                      <button
-                        type="button"
-                        className="student-message-edit-close"
-                        onClick={cancelEditMessage}
-                        disabled={editBusy}
-                        aria-label="Отменить"
-                        title="Отменить"
-                      >
-                        <X size={13} />
-                      </button>
-                    </div>
                     <textarea
                       value={editingText}
                       onChange={(event) => setEditingText(event.target.value)}
@@ -667,9 +1377,10 @@ const ChatMessages = ({
                         className="student-message-edit-button student-message-edit-button--ghost"
                         onClick={cancelEditMessage}
                         disabled={editBusy}
+                        aria-label="Отменить"
+                        title="Отменить"
                       >
                         <X size={14} />
-                        <span>Отмена</span>
                       </button>
                       <button
                         type="button"
@@ -678,13 +1389,14 @@ const ChatMessages = ({
                           void submitEditMessage(message);
                         }}
                         disabled={editBusy || !editingText.trim()}
+                        aria-label="Сохранить"
+                        title="Сохранить"
                       >
                         <Check size={14} />
-                        <span>Сохранить</span>
                       </button>
                     </div>
                   </form>
-                ) : messageText && (
+                ) : shouldRenderMessageText && (
                   <LinkifiedText
                     text={messageText}
                     className="whitespace-pre-wrap break-words"
@@ -695,6 +1407,15 @@ const ChatMessages = ({
               {showMessageToolbar && (
                 <div className={`student-message-toolbar ${own ? 'student-message-toolbar--mine' : 'student-message-toolbar--other'}`}>
                   <div className={`student-message-reaction-strip ${own ? 'student-message-reaction-strip--mine' : 'student-message-reaction-strip--other'}`}>
+                    {reactionBurst?.messageId === messageId && (
+                      <span key={reactionBurst.key} className="student-message-reaction-burst" aria-hidden="true">
+                        <span className="student-message-reaction-burst__halo" />
+                        <span className="student-message-reaction-burst__emoji">{reactionBurst.emoji}</span>
+                        {[0, 1, 2, 3, 4, 5].map((index) => (
+                          <span key={index} className={`student-message-reaction-burst__spark student-message-reaction-burst__spark--${index}`} />
+                        ))}
+                      </span>
+                    )}
                     {reactions.map((reaction) => (
                       <button
                         key={reaction.emoji}
@@ -702,7 +1423,7 @@ const ChatMessages = ({
                         className={`student-message-reaction-pill ${reaction.reactedByMe ? 'student-message-reaction-pill--mine' : ''}`}
                         onClick={canReactMessage ? () => toggleReaction(message, reaction.emoji) : undefined}
                         disabled={!canReactMessage || Boolean(busyReactionKey)}
-                        title={reaction.names.join(', ') || reaction.emoji}
+                        title={`${reaction.emoji} ${reaction.count}`}
                         aria-label={`Reaction ${reaction.emoji}`}
                       >
                         <span>{reaction.emoji}</span>
@@ -716,7 +1437,7 @@ const ChatMessages = ({
                           className={`student-message-reaction-add ${reactionPickerMessageId === messageId ? 'student-message-reaction-add--active' : ''}`}
                           onClick={(event) => {
                             event.stopPropagation();
-                            setViewStatsPopover(null);
+                            setMessageContextMenu(null);
                             setReactionPickerMessageId((current) => (current === messageId ? '' : messageId));
                           }}
                           disabled={Boolean(busyReactionKey)}
@@ -776,6 +1497,38 @@ const ChatMessages = ({
                     </div>
                   ) : (
                     <>
+                      {canReplyMessage && (
+                        <button
+                          type="button"
+                          className="student-message-action-button"
+                          onClick={() => {
+                            setConfirmingDeleteMessageId('');
+                            setReactionPickerMessageId('');
+                            onReplyMessage(message);
+                          }}
+                          disabled={Boolean(busyMessageAction)}
+                          title="Ответить"
+                          aria-label="Ответить"
+                        >
+                          <Reply size={11} />
+                        </button>
+                      )}
+                      {canForwardMessage && (
+                        <button
+                          type="button"
+                          className="student-message-action-button"
+                          onClick={() => {
+                            setConfirmingDeleteMessageId('');
+                            setReactionPickerMessageId('');
+                            onForwardMessage(message);
+                          }}
+                          disabled={Boolean(busyMessageAction)}
+                          title="Переслать"
+                          aria-label="Переслать"
+                        >
+                          <Forward size={11} />
+                        </button>
+                      )}
                       {canEditMessage && (
                         <button
                           type="button"
@@ -806,29 +1559,130 @@ const ChatMessages = ({
               )}
             </div>
             {own && avatar}
+            {selectionMode && (
+              <button
+                type="button"
+                className={`student-message-select-button ${selected ? 'student-message-select-button--active' : ''}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  toggleMessageSelected(message);
+                }}
+                aria-label={selected ? 'Снять выбор' : 'Выбрать'}
+                title={selected ? 'Снять выбор' : 'Выбрать'}
+              >
+                {selected && <Check size={13} />}
+              </button>
+            )}
           </div>
         );
       })
     )}
-    {viewStatsPopover && (
+    {messageContextMenu && contextMenuMessage && typeof document !== 'undefined' && createPortal((
       <div
-        className="student-message-view-popover"
+        className="student-message-context-menu"
         style={{
-          left: viewStatsPopover.x,
-          top: viewStatsPopover.y,
+          left: messageContextMenu.x,
+          top: messageContextMenu.y,
         }}
         onClick={(event) => event.stopPropagation()}
-        role="status"
+        role="menu"
       >
-        <span className="student-message-view-popover__icon" aria-hidden="true">
-          <Eye size={15} />
-        </span>
-        <span className="student-message-view-popover__text">
-          <span>Просмотрели</span>
-          <strong>{viewStatsPopover.viewCount}</strong>
-        </span>
+        <button
+          type="button"
+          className="student-message-context-menu__button"
+          onClick={() => {
+            closeContextMenu();
+            onReplyMessage?.(contextMenuMessage);
+          }}
+          disabled={typeof onReplyMessage !== 'function'}
+          role="menuitem"
+        >
+          <Reply size={14} />
+          <span>Ответить</span>
+        </button>
+        <button
+          type="button"
+          className="student-message-context-menu__button"
+          onClick={() => {
+            closeContextMenu();
+            void copyTextToClipboard(contextMenuMessage.text);
+          }}
+          disabled={!String(contextMenuMessage?.text || '').trim()}
+          role="menuitem"
+        >
+          <Copy size={14} />
+          <span>Копировать</span>
+        </button>
+        <button
+          type="button"
+          className="student-message-context-menu__button"
+          onClick={() => {
+            closeContextMenu();
+            onForwardMessage?.(contextMenuMessage);
+          }}
+          disabled={typeof onForwardMessage !== 'function'}
+          role="menuitem"
+        >
+          <Forward size={14} />
+          <span>Переслать</span>
+        </button>
+        <button
+          type="button"
+          className="student-message-context-menu__button"
+          onClick={() => {
+            startMessageSelection(contextMenuMessage);
+          }}
+          role="menuitem"
+        >
+          <Check size={14} />
+          <span>Выбрать</span>
+        </button>
+        <button
+          type="button"
+          className="student-message-context-menu__button"
+          onClick={() => {
+            closeContextMenu();
+            onPinMessage?.(contextMenuMessage);
+          }}
+          disabled={typeof onPinMessage !== 'function'}
+          role="menuitem"
+        >
+          <Pin size={14} />
+          <span>{String(pinnedMessageId || '') === String(contextMenuMessage?.id || '') ? 'Открепить' : 'Закрепить'}</span>
+        </button>
+        {contextMenuOwn && (
+        <button
+          type="button"
+          className="student-message-context-menu__button"
+          onClick={() => {
+            closeContextMenu();
+            startEditMessage(contextMenuMessage);
+          }}
+          disabled={!String(contextMenuMessage?.text || '').trim() || typeof onEditMessage !== 'function' || Boolean(busyMessageAction)}
+          role="menuitem"
+        >
+          <Pencil size={14} />
+          <span>Изменить</span>
+        </button>
+        )}
+        {contextMenuOwn && (
+        <button
+          type="button"
+          className="student-message-context-menu__button student-message-context-menu__button--danger"
+          onClick={() => {
+            closeContextMenu();
+            requestDeleteMessage(contextMenuMessage);
+          }}
+          disabled={typeof onDeleteMessage !== 'function' || !isMessageDeleteAllowed(contextMenuMessage) || Boolean(busyMessageAction)}
+          role="menuitem"
+        >
+          <Trash2 size={14} />
+          <span>Удалить</span>
+        </button>
+        )}
       </div>
-    )}
+    ), document.body)}
+    </div>
     </div>
   );
 };
@@ -915,6 +1769,8 @@ const ChatComposer = ({
   disabledText = '',
   placeholder = 'Напишите сообщение...',
   error = '',
+  replyTo = null,
+  onCancelReply = null,
 }) => {
   const imageInputRef = useRef(null);
   const hasAttachment = Boolean(imageDataUrl || fileDataUrl);
@@ -936,6 +1792,14 @@ const ChatComposer = ({
         <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
           {disabledText}
         </div>
+      )}
+      {replyTo && (
+        <MessageReferenceCard
+          reference={replyTo}
+          type="reply"
+          compact
+          onCancel={onCancelReply}
+        />
       )}
       {hasAttachment && (
         <div className="student-chat-attachment-preview mb-2 flex items-start gap-2 rounded-xl border border-gray-200 bg-white px-2 py-2">
@@ -1056,6 +1920,8 @@ const StudentChatSection = ({
   const [teacherFileMimeType, setTeacherFileMimeType] = useState('');
   const [teacherFileSize, setTeacherFileSize] = useState(0);
   const [teacherSending, setTeacherSending] = useState(false);
+  const [teacherReplyTo, setTeacherReplyTo] = useState(null);
+  const [teacherReferenceRequest, setTeacherReferenceRequest] = useState(null);
   const [socialPayload, setSocialPayload] = useState(null);
   const [socialLoading, setSocialLoading] = useState(true);
   const [socialError, setSocialError] = useState('');
@@ -1075,6 +1941,10 @@ const StudentChatSection = ({
   const [socialFileMimeType, setSocialFileMimeType] = useState('');
   const [socialFileSize, setSocialFileSize] = useState(0);
   const [socialSending, setSocialSending] = useState(false);
+  const [socialReplyTo, setSocialReplyTo] = useState(null);
+  const [socialReferenceRequest, setSocialReferenceRequest] = useState(null);
+  const [forwardModal, setForwardModal] = useState(null);
+  const [forwardBusyTarget, setForwardBusyTarget] = useState('');
   const [isDraggingChatFile, setIsDraggingChatFile] = useState(false);
   const [imageViewer, setImageViewer] = useState(null);
   const [chatProfileState, setChatProfileState] = useState({
@@ -1094,10 +1964,30 @@ const StudentChatSection = ({
   const socialListRef = useRef(null);
   const teacherScrollBehaviorRef = useRef(null);
   const socialScrollBehaviorRef = useRef(null);
+  const teacherMessagesRef = useRef([]);
+  const socialMessagesRef = useRef([]);
+  const teacherMessagesPaginationRef = useRef(EMPTY_CHAT_MESSAGES_PAGINATION);
+  const socialMessagesPaginationRef = useRef(EMPTY_CHAT_MESSAGES_PAGINATION);
   const prevTeacherMessageCountRef = useRef(0);
   const prevSocialMessageCountRef = useRef(0);
   const dragDepthRef = useRef(0);
   const chatProfileRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    teacherMessagesRef.current = teacherMessages;
+  }, [teacherMessages]);
+
+  useEffect(() => {
+    socialMessagesRef.current = socialMessages;
+  }, [socialMessages]);
+
+  useEffect(() => {
+    teacherMessagesPaginationRef.current = teacherMessagesPagination;
+  }, [teacherMessagesPagination]);
+
+  useEffect(() => {
+    socialMessagesPaginationRef.current = socialMessagesPagination;
+  }, [socialMessagesPagination]);
 
   const validateAndReadAttachment = useCallback(async (file) => {
     if (!file) return null;
@@ -1396,6 +2286,89 @@ const StudentChatSection = ({
     }
   }, [activeSocialChatId, socialMessagesLoading, socialMessagesPagination, socialOlderMessagesLoading]);
 
+  const ensureTeacherMessageLoaded = useCallback(async (messageId) => {
+    const targetId = String(messageId || '').trim();
+    if (!targetId) return false;
+    let currentMessages = Array.isArray(teacherMessagesRef.current) ? teacherMessagesRef.current : [];
+    if (currentMessages.some((message) => String(message?.id || '').trim() === targetId)) return true;
+    let pagination = teacherMessagesPaginationRef.current || EMPTY_CHAT_MESSAGES_PAGINATION;
+    setTeacherOlderLoading(true);
+    try {
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        if (!pagination.hasMoreBefore || !pagination.nextBefore) break;
+        const payload = await api.getStudentChatMessages({
+          limit: CHAT_MESSAGE_PAGE_SIZE,
+          before: pagination.nextBefore,
+        });
+        const olderMessages = Array.isArray(payload?.messages) ? payload.messages : [];
+        currentMessages = mergeChatMessages(olderMessages, currentMessages);
+        pagination = getChatMessagesPagination(payload);
+        teacherMessagesRef.current = currentMessages;
+        teacherMessagesPaginationRef.current = pagination;
+        markChatScrollPreserve(teacherListRef, teacherScrollBehaviorRef);
+        setTeacherChat(payload?.chat || null);
+        setTeacherMessages(currentMessages);
+        setTeacherMessagesPagination(pagination);
+        setTeacherError('');
+        if (currentMessages.some((message) => String(message?.id || '').trim() === targetId)) return true;
+        if (olderMessages.length === 0) break;
+      }
+    } catch (err) {
+      setTeacherError(err?.message || String(err));
+    } finally {
+      setTeacherOlderLoading(false);
+    }
+    return currentMessages.some((message) => String(message?.id || '').trim() === targetId);
+  }, []);
+
+  const ensureSocialMessageLoaded = useCallback(async (messageId) => {
+    const targetId = String(messageId || '').trim();
+    const chatId = String(activeSocialChatId || '').trim();
+    if (!targetId || !chatId) return false;
+    let currentMessages = Array.isArray(socialMessagesRef.current) ? socialMessagesRef.current : [];
+    if (currentMessages.some((message) => String(message?.id || '').trim() === targetId)) return true;
+    let pagination = socialMessagesPaginationRef.current || EMPTY_CHAT_MESSAGES_PAGINATION;
+    setSocialOlderMessagesLoading(true);
+    try {
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        if (!pagination.hasMoreBefore || !pagination.nextBefore) break;
+        const payload = await api.getStudentSocialChatMessages(chatId, {
+          limit: CHAT_MESSAGE_PAGE_SIZE,
+          before: pagination.nextBefore,
+        });
+        const olderMessages = Array.isArray(payload?.messages) ? payload.messages : [];
+        currentMessages = mergeChatMessages(olderMessages, currentMessages);
+        pagination = getChatMessagesPagination(payload);
+        socialMessagesRef.current = currentMessages;
+        socialMessagesPaginationRef.current = pagination;
+        markChatScrollPreserve(socialListRef, socialScrollBehaviorRef);
+        setSocialChat(payload?.chat || null);
+        setSocialMessages(currentMessages);
+        setSocialMessagesPagination(pagination);
+        setSocialMessagesError('');
+        if (currentMessages.some((message) => String(message?.id || '').trim() === targetId)) return true;
+        if (olderMessages.length === 0) break;
+      }
+    } catch (err) {
+      setSocialMessagesError(err?.message || String(err));
+    } finally {
+      setSocialOlderMessagesLoading(false);
+    }
+    return currentMessages.some((message) => String(message?.id || '').trim() === targetId);
+  }, [activeSocialChatId]);
+
+  const requestTeacherReferenceOpen = useCallback((reference) => {
+    const messageId = String(reference?.messageId || reference?.id || '').trim();
+    if (!messageId) return;
+    setTeacherReferenceRequest({ ...reference, messageId, nonce: Date.now() });
+  }, []);
+
+  const requestSocialReferenceOpen = useCallback((reference) => {
+    const messageId = String(reference?.messageId || reference?.id || '').trim();
+    if (!messageId) return;
+    setSocialReferenceRequest({ ...reference, messageId, nonce: Date.now() });
+  }, []);
+
   useEffect(() => {
     const request = openDirectChatRequest && typeof openDirectChatRequest === 'object'
       ? openDirectChatRequest
@@ -1468,9 +2441,22 @@ const StudentChatSection = ({
   useEffect(() => {
     clearSocialImage();
     setSocialText('');
+    setSocialReplyTo(null);
+    setSocialReferenceRequest(null);
     setSocialMessagesPagination(EMPTY_CHAT_MESSAGES_PAGINATION);
     prevSocialMessageCountRef.current = 0;
   }, [activeSocialChatId, clearSocialImage]);
+
+  useEffect(() => {
+    if (activeTab === 'teacher') setSocialReferenceRequest(null);
+    else setTeacherReferenceRequest(null);
+  }, [activeTab]);
+
+  useEffect(() => {
+    setTeacherReplyTo(null);
+    setSocialReplyTo(null);
+    setForwardModal(null);
+  }, [activeTab]);
 
   const handleTeacherImageSelect = useCallback(async (file) => {
     try {
@@ -1584,8 +2570,10 @@ const StudentChatSection = ({
         fileName: teacherFileName,
         fileMimeType: teacherFileMimeType,
         fileSize: teacherFileSize,
+        replyToMessageId: teacherReplyTo?.messageId || '',
       });
       setTeacherText('');
+      setTeacherReplyTo(null);
       clearTeacherImage();
       await loadTeacherMessages({ silent: true, forceScroll: true });
     } catch (err) {
@@ -1613,8 +2601,10 @@ const StudentChatSection = ({
         fileName: socialFileName,
         fileMimeType: socialFileMimeType,
         fileSize: socialFileSize,
+        replyToMessageId: socialReplyTo?.messageId || '',
       });
       setSocialText('');
+      setSocialReplyTo(null);
       clearSocialImage();
       await loadSocialMessages(chatId, { silent: true, forceScroll: true });
       await loadSocialChats({ silent: true });
@@ -1637,6 +2627,9 @@ const StudentChatSection = ({
         setTeacherMessages((prev) => prev.map((item) => (
           item?.id === payload.message.id ? payload.message : item
         )));
+      }
+      if (payload?.announcement) {
+        setTeacherMessages((prev) => mergeChatMessages(prev, [payload.announcement]));
       }
     } catch (err) {
       setTeacherError(err?.message || String(err));
@@ -1677,6 +2670,33 @@ const StudentChatSection = ({
     }
   }, []);
 
+  const handlePinTeacherMessage = useCallback(async (message) => {
+    const messageId = String(message?.id || '').trim();
+    if (!messageId) return;
+    setTeacherError('');
+    try {
+      const payload = await api.pinStudentChatMessage(messageId);
+      if (payload?.chat) setTeacherChat(payload.chat);
+      if (payload?.message) {
+        setTeacherMessages((prev) => prev.map((item) => (
+          item?.id === payload.message.id ? payload.message : item
+        )));
+      }
+      if (payload?.announcement) {
+        setTeacherMessages((prev) => mergeChatMessages(prev, [payload.announcement]));
+      }
+    } catch (err) {
+      setTeacherError(err?.message || String(err));
+      throw err;
+    }
+  }, []);
+
+  const handleUnpinTeacherMessage = useCallback((reference) => {
+    const messageId = getPinnedReferenceMessageId(reference);
+    if (!messageId || !confirmUnpinMessage()) return;
+    void handlePinTeacherMessage({ id: messageId }).catch(() => {});
+  }, [handlePinTeacherMessage]);
+
   const handleEditSocialMessage = useCallback(async (message, text) => {
     const chatId = String(activeSocialChatId || '').trim();
     const messageId = String(message?.id || '').trim();
@@ -1690,6 +2710,9 @@ const StudentChatSection = ({
         setSocialMessages((prev) => prev.map((item) => (
           item?.id === payload.message.id ? payload.message : item
         )));
+      }
+      if (payload?.announcement) {
+        setSocialMessages((prev) => mergeChatMessages(prev, [payload.announcement]));
       }
       await loadSocialChats({ silent: true });
     } catch (err) {
@@ -1713,6 +2736,35 @@ const StudentChatSection = ({
       throw err;
     }
   }, [activeSocialChatId, loadSocialChats]);
+
+  const handlePinSocialMessage = useCallback(async (message) => {
+    const chatId = String(activeSocialChatId || '').trim();
+    const messageId = String(message?.id || '').trim();
+    if (!chatId || !messageId) return;
+    setSocialMessagesError('');
+    try {
+      const payload = await api.pinStudentSocialChatMessage(chatId, messageId);
+      if (payload?.chat) setSocialChat(payload.chat);
+      if (payload?.message) {
+        setSocialMessages((prev) => prev.map((item) => (
+          item?.id === payload.message.id ? payload.message : item
+        )));
+      }
+      if (payload?.announcement) {
+        setSocialMessages((prev) => mergeChatMessages(prev, [payload.announcement]));
+      }
+      await loadSocialChats({ silent: true });
+    } catch (err) {
+      setSocialMessagesError(err?.message || String(err));
+      throw err;
+    }
+  }, [activeSocialChatId, loadSocialChats]);
+
+  const handleUnpinSocialMessage = useCallback((reference) => {
+    const messageId = getPinnedReferenceMessageId(reference);
+    if (!messageId || !confirmUnpinMessage()) return;
+    void handlePinSocialMessage({ id: messageId }).catch(() => {});
+  }, [handlePinSocialMessage]);
 
   const handleReactSocialMessage = useCallback(async (message, emoji) => {
     const chatId = String(activeSocialChatId || '').trim();
@@ -1836,10 +2888,152 @@ const StudentChatSection = ({
   const socialTitle = activeTab === 'group'
     ? (socialChat?.title || groupChat?.title || 'Общий чат группы')
     : (selectedDirectChat?.title || (socialChat?.type === 'direct' ? socialChat.title : '') || 'Личный чат');
+  const socialPinnedMessage = activeTab === 'group'
+    ? (socialChat?.pinnedMessage || groupChat?.pinnedMessage || null)
+    : (socialChat?.pinnedMessage || selectedDirectChat?.pinnedMessage || null);
+  const socialPinnedMessageId = String(
+    socialPinnedMessage?.messageId
+      || socialChat?.pinnedMessageId
+      || (activeTab === 'group' ? groupChat?.pinnedMessageId : selectedDirectChat?.pinnedMessageId)
+      || ''
+  ).trim();
   const directDisabled = activeTab === 'direct' && !socialSettings.directEnabled;
   const groupDisabled = activeTab === 'group' && !socialSettings.groupEnabled;
   const selectedDirectNotificationsEnabled = isDirectNotificationsEnabled(selectedDirectChatId);
   const selectedDirectNotificationSaving = notificationSettingsSavingKey === `direct:${selectedDirectChatId}`;
+  const forwardDestinations = [
+    teacherChat?.id ? {
+      key: `teacher:${teacherChat.id}`,
+      scope: 'teacher',
+      chatId: teacherChat.id,
+      title: 'Преподаватель',
+      caption: '1:1',
+      Icon: GraduationCap,
+    } : null,
+    groupChat?.id && socialSettings.groupEnabled ? {
+      key: `social:${groupChat.id}`,
+      scope: 'social',
+      chatId: groupChat.id,
+      title: socialPayload?.groupChat?.title || 'Общий чат группы',
+      caption: `${groupParticipantsCount} чел.`,
+      Icon: Users,
+    } : null,
+    ...directChats
+      .filter((chat) => chat?.id)
+      .map((chat) => ({
+        key: `social:${chat.id}`,
+        scope: 'social',
+        chatId: chat.id,
+        title: chat?.peer?.displayName || chat.title || 'Личный чат',
+        caption: 'Личные',
+        Icon: UserRound,
+      })),
+  ].filter(Boolean);
+  const teacherChatMenuActions = useMemo(() => [{
+    id: 'teacher-mute',
+    label: teacherNotificationsEnabled ? 'Заглушить' : 'Включить звук',
+    Icon: teacherNotificationsEnabled ? BellOff : Bell,
+    onClick: handleToggleTeacherNotifications,
+    disabled: notificationSettingsSavingKey === 'teacher',
+  }], [handleToggleTeacherNotifications, notificationSettingsSavingKey, teacherNotificationsEnabled]);
+  const groupChatMenuActions = useMemo(() => [{
+    id: 'group-mute',
+    label: groupNotificationsEnabled ? 'Заглушить' : 'Включить звук',
+    Icon: groupNotificationsEnabled ? BellOff : Bell,
+    onClick: handleToggleGroupNotifications,
+    disabled: notificationSettingsSavingKey === 'group',
+  }], [groupNotificationsEnabled, handleToggleGroupNotifications, notificationSettingsSavingKey]);
+  const directChatMenuActions = useMemo(() => (selectedDirectChatId ? [{
+    id: 'direct-mute',
+    label: selectedDirectNotificationsEnabled ? 'Заглушить' : 'Включить звук',
+    Icon: selectedDirectNotificationsEnabled ? BellOff : Bell,
+    onClick: (event) => handleToggleDirectNotifications(selectedDirectChatId, event),
+    disabled: selectedDirectNotificationSaving,
+  }] : []), [handleToggleDirectNotifications, selectedDirectChatId, selectedDirectNotificationSaving, selectedDirectNotificationsEnabled]);
+
+  const getStudentMessageSourceDescriptor = (message) => {
+    const messageId = String(message?.id || '').trim();
+    if (!messageId) return null;
+    if (activeTab === 'teacher') {
+      const chatId = String(teacherChat?.id || '').trim();
+      return chatId ? { scope: 'teacher', chatId, messageId } : null;
+    }
+    const chatId = String(activeSocialChatId || '').trim();
+    return chatId ? { scope: 'social', chatId, messageId } : null;
+  };
+
+  const buildStudentMessageReference = (message) => {
+    const source = getStudentMessageSourceDescriptor(message);
+    if (!source) return null;
+    const isGroup = activeTab === 'group';
+    return buildMessageReferencePayload(message, {
+      chatId: source.chatId,
+      chatKind: activeTab === 'teacher' ? 'teacher' : (isGroup ? 'group' : 'direct'),
+      chatTitle: activeTab === 'teacher'
+        ? teacherName
+        : (isGroup ? (groupChat?.title || 'Общий чат группы') : socialTitle),
+      fallbackSenderName: activeTab === 'teacher' ? teacherName : socialTitle,
+    });
+  };
+
+  const handleReplyMessage = (message) => {
+    const reference = buildStudentMessageReference(message);
+    if (!reference) return;
+    if (activeTab === 'teacher') setTeacherReplyTo(reference);
+    else setSocialReplyTo(reference);
+  };
+
+  const handleForwardMessage = (messageOrMessages) => {
+    const items = (Array.isArray(messageOrMessages) ? messageOrMessages : [messageOrMessages]).filter(Boolean);
+    const entries = items
+      .map((message) => ({
+        source: getStudentMessageSourceDescriptor(message),
+        preview: buildStudentMessageReference(message),
+      }))
+      .filter((entry) => entry.source && entry.preview);
+    if (entries.length === 0) return;
+    setForwardModal({
+      source: entries[0].source,
+      preview: entries[0].preview,
+      sources: entries.map((entry) => entry.source),
+      previews: entries.map((entry) => entry.preview),
+    });
+  };
+
+  const handleForwardToDestination = async (destination) => {
+    const forwardSources = Array.isArray(forwardModal?.sources) && forwardModal.sources.length > 0
+      ? forwardModal.sources
+      : (forwardModal?.source ? [forwardModal.source] : []);
+    if (forwardSources.length === 0 || !destination?.chatId || forwardBusyTarget) return;
+    setForwardBusyTarget(destination.key);
+    setTeacherError('');
+    setSocialMessagesError('');
+    try {
+      if (destination.scope === 'teacher') {
+        for (const source of forwardSources) {
+          await api.sendStudentChatMessage({ forwardFrom: source });
+        }
+        if (activeTab === 'teacher') {
+          await loadTeacherMessages({ silent: true, forceScroll: true });
+        }
+      } else {
+        for (const source of forwardSources) {
+          await api.sendStudentSocialChatMessage(destination.chatId, { forwardFrom: source });
+        }
+        if (activeSocialChatId === destination.chatId) {
+          await loadSocialMessages(destination.chatId, { silent: true, forceScroll: true });
+        }
+        await loadSocialChats({ silent: true });
+      }
+      setForwardModal(null);
+    } catch (err) {
+      const text = err?.message || String(err);
+      if (destination.scope === 'teacher') setTeacherError(text);
+      else setSocialMessagesError(text);
+    } finally {
+      setForwardBusyTarget('');
+    }
+  };
 
   return (
     <div
@@ -1863,6 +3057,69 @@ const StudentChatSection = ({
         </div>
       )}
       <ChatImageViewer image={imageViewer} onClose={() => setImageViewer(null)} />
+      {forwardModal && (
+        <div className="student-chat-forward-modal" role="dialog" aria-modal="true">
+          <div className="student-chat-forward-modal__panel">
+            <div className="student-chat-forward-modal__head">
+              <div className="min-w-0">
+                <p className="student-chat-forward-modal__kicker">Переслать</p>
+                <h3 className="student-chat-forward-modal__title">Выберите чат</h3>
+              </div>
+              <button
+                type="button"
+                className="student-chat-forward-modal__close"
+                onClick={() => setForwardModal(null)}
+                aria-label="Закрыть"
+                title="Закрыть"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            {(Array.isArray(forwardModal.previews) && forwardModal.previews.length > 0
+              ? forwardModal.previews
+              : [forwardModal.preview]
+            ).filter(Boolean).slice(0, 3).map((preview, index) => (
+              <MessageReferenceCard
+                key={`${preview.messageId || preview.id || index}`}
+                reference={preview}
+                type="forward"
+                compact
+              />
+            ))}
+            {Array.isArray(forwardModal.previews) && forwardModal.previews.length > 3 && (
+              <div className="student-chat-forward-more">
+                +{forwardModal.previews.length - 3}
+              </div>
+            )}
+            <div className="student-chat-forward-modal__targets">
+              {forwardDestinations.map((destination) => {
+                const Icon = destination.Icon;
+                const busy = forwardBusyTarget === destination.key;
+                return (
+                  <button
+                    key={destination.key}
+                    type="button"
+                    className="student-chat-forward-target"
+                    onClick={() => {
+                      void handleForwardToDestination(destination);
+                    }}
+                    disabled={Boolean(forwardBusyTarget)}
+                  >
+                    <span className="student-chat-forward-target__icon">
+                      <Icon size={16} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="student-chat-forward-target__title">{destination.title}</span>
+                      <span className="student-chat-forward-target__caption">{busy ? 'Отправляем...' : destination.caption}</span>
+                    </span>
+                    <Forward size={15} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
       <StudentLeaderboardProfileModal
         open={chatProfileState.open}
         row={chatProfileState.row}
@@ -1982,16 +3239,19 @@ const StudentChatSection = ({
 
       {activeTab === 'teacher' && (
         <Card className="student-chat-panel flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="student-chat-panel-header mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-purple-600">Диалог</div>
-              <h3 className="text-lg font-bold text-slate-900">Чат с преподавателем</h3>
-            </div>
-            <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
-              {teacherName}
-            </span>
-          </div>
           <ChatMessages
+            key="teacher-chat"
+            headerContent={(
+              <div className="student-chat-inline-header">
+                <div className="min-w-0">
+                  <div className="student-chat-inline-kicker text-xs font-semibold uppercase tracking-[0.12em] text-purple-600">Диалог</div>
+                  <h3 className="student-chat-inline-title text-lg font-bold text-slate-900">Чат с преподавателем</h3>
+                </div>
+                <span className="student-chat-inline-pill rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                  {teacherName}
+                </span>
+              </div>
+            )}
             listRef={teacherListRef}
             messages={teacherMessages}
             loading={teacherLoading}
@@ -2007,6 +3267,16 @@ const StudentChatSection = ({
             onEditMessage={handleEditTeacherMessage}
             onDeleteMessage={handleDeleteTeacherMessage}
             onReactMessage={handleReactTeacherMessage}
+            onReplyMessage={handleReplyMessage}
+            onForwardMessage={handleForwardMessage}
+            onPinMessage={handlePinTeacherMessage}
+            onEnsureMessageLoaded={ensureTeacherMessageLoaded}
+            openReferenceRequest={teacherReferenceRequest}
+            pinnedMessageId={teacherChat?.pinnedMessage?.messageId || teacherChat?.pinnedMessageId || ''}
+            pinnedMessage={teacherChat?.pinnedMessage || null}
+            onPinnedCancel={handleUnpinTeacherMessage}
+            onPinnedOpen={requestTeacherReferenceOpen}
+            menuActions={teacherChatMenuActions}
             isMine={(message) => message?.senderRole === 'student' || message?.senderId === user?.id}
           />
           <ChatComposer
@@ -2023,21 +3293,14 @@ const StudentChatSection = ({
             onSend={handleSendTeacher}
             sending={teacherSending}
             error={teacherError}
+            replyTo={teacherReplyTo}
+            onCancelReply={() => setTeacherReplyTo(null)}
           />
         </Card>
       )}
 
       {activeTab === 'group' && (
         <Card className="student-chat-panel flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="student-chat-panel-header mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-sky-600">Группа</div>
-              <h3 className="text-lg font-bold text-slate-900">{socialTitle}</h3>
-            </div>
-            <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
-              {groupChat?.messageCount || socialChat?.messageCount || 0} сообщений
-            </span>
-          </div>
           {socialError && <div className="mb-2 text-xs text-red-500">{socialError}</div>}
           {socialLoading && !socialPayload ? (
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm text-gray-500">
@@ -2050,6 +3313,18 @@ const StudentChatSection = ({
           ) : (
             <>
               <ChatMessages
+                key={`social-chat:${activeSocialChatId || 'group'}`}
+                headerContent={(
+                  <div className="student-chat-inline-header">
+                    <div className="min-w-0">
+                      <div className="student-chat-inline-kicker text-xs font-semibold uppercase tracking-[0.12em] text-sky-600">Группа</div>
+                      <h3 className="student-chat-inline-title text-lg font-bold text-slate-900">{socialTitle}</h3>
+                    </div>
+                    <span className="student-chat-inline-pill rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                      {groupChat?.messageCount || socialChat?.messageCount || 0} сообщений
+                    </span>
+                  </div>
+                )}
                 listRef={socialListRef}
                 messages={socialMessages}
                 loading={socialMessagesLoading}
@@ -2065,6 +3340,16 @@ const StudentChatSection = ({
                 onEditMessage={handleEditSocialMessage}
                 onDeleteMessage={handleDeleteSocialMessage}
                 onReactMessage={handleReactSocialMessage}
+                onReplyMessage={handleReplyMessage}
+                onForwardMessage={handleForwardMessage}
+                onPinMessage={handlePinSocialMessage}
+                onEnsureMessageLoaded={ensureSocialMessageLoaded}
+                openReferenceRequest={socialReferenceRequest}
+                pinnedMessageId={socialPinnedMessageId}
+                pinnedMessage={socialPinnedMessage}
+                onPinnedCancel={handleUnpinSocialMessage}
+                onPinnedOpen={requestSocialReferenceOpen}
+                menuActions={groupChatMenuActions}
                 isMine={(message) => message?.senderId === user?.id}
               />
               <ChatComposer
@@ -2081,6 +3366,8 @@ const StudentChatSection = ({
                 onSend={handleSendSocial}
                 sending={socialSending}
                 error={socialMessagesError}
+                replyTo={socialReplyTo}
+                onCancelReply={() => setSocialReplyTo(null)}
                 placeholder="Написать в группу..."
               />
             </>
@@ -2126,6 +3413,7 @@ const StudentChatSection = ({
                   const hasMessages = Number(chat?.messageCount) > 0;
                   const notificationsEnabled = isDirectNotificationsEnabled(chat.id);
                   const peerName = chat?.peer?.displayName || chat.title || 'Ученик';
+                  const peerAvatarDataUrl = String(chat?.peer?.avatarDataUrl || '').trim();
                   const accent = getChatAccent(chat.id || peerName);
                   const directCardStyle = {
                     '--student-direct-accent': accent.rgb || '34 211 238',
@@ -2142,8 +3430,10 @@ const StudentChatSection = ({
                       }`}
                     >
                       <div className="flex items-start gap-3">
-                        <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br ${accent.avatar} text-sm font-black text-white shadow-md shadow-slate-300/40`}>
-                          {getInitials(peerName)}
+                        <span className={`grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br ${accent.avatar} text-sm font-black text-white shadow-md shadow-slate-300/40`}>
+                          {peerAvatarDataUrl ? (
+                            <img src={peerAvatarDataUrl} alt={peerName} className="h-full w-full object-cover" />
+                          ) : getInitials(peerName)}
                         </span>
                         <div className="min-w-0">
                           <p className="student-direct-chat-title truncate text-sm font-semibold">
@@ -2179,34 +3469,39 @@ const StudentChatSection = ({
                 })}
               </div>
               <div className="student-direct-thread flex min-h-0 flex-col rounded-[1.35rem] border p-3">
-                <div className="student-direct-thread-header mb-2 flex shrink-0 items-center gap-3 rounded-2xl border px-3 py-2.5">
-                  <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br ${getChatAccent(selectedDirectChatId || socialTitle).avatar} text-sm font-black text-white shadow-md shadow-slate-300/40`}>
-                    {getInitials(socialTitle)}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-extrabold text-slate-800">
-                      {socialTitle}
-                    </p>
-                    <p className="text-[11px] font-semibold text-gray-500">
-                      {(socialChat?.type === 'direct' ? socialChat.messageCount : 0) || selectedDirectChat?.messageCount || 0} сообщений
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className={`student-chat-inline-notify ml-auto grid h-10 w-10 shrink-0 place-items-center rounded-2xl border transition-all ${
-                      selectedDirectNotificationsEnabled
-                        ? 'border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100'
-                        : 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100'
-                    }`}
-                    onClick={(event) => handleToggleDirectNotifications(selectedDirectChatId, event)}
-                    disabled={!selectedDirectChatId || selectedDirectNotificationSaving}
-                    title={selectedDirectNotificationsEnabled ? 'Уведомления включены' : 'Уведомления выключены'}
-                    aria-label={selectedDirectNotificationsEnabled ? 'Отключить уведомления этого диалога' : 'Включить уведомления этого диалога'}
-                  >
-                    {selectedDirectNotificationsEnabled ? <Bell size={16} /> : <BellOff size={16} />}
-                  </button>
-                </div>
                 <ChatMessages
+                  key={`social-chat:${activeSocialChatId || selectedDirectChatId || 'direct'}`}
+                  headerContent={(
+                    <div className="student-chat-inline-header student-chat-inline-header--direct">
+                      <span className={`grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br ${getChatAccent(selectedDirectChatId || socialTitle).avatar} text-sm font-black text-white shadow-md shadow-slate-300/40`}>
+                        {String(selectedDirectChat?.peer?.avatarDataUrl || '').trim() ? (
+                          <img src={selectedDirectChat.peer.avatarDataUrl} alt={socialTitle} className="h-full w-full object-cover" />
+                        ) : getInitials(socialTitle)}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="student-chat-inline-title truncate text-sm font-extrabold text-slate-800">
+                          {socialTitle}
+                        </p>
+                        <p className="student-chat-inline-subtitle text-[11px] font-semibold text-gray-500">
+                          {(socialChat?.type === 'direct' ? socialChat.messageCount : 0) || selectedDirectChat?.messageCount || 0} сообщений
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className={`student-chat-inline-notify ml-auto grid h-10 w-10 shrink-0 place-items-center rounded-2xl border transition-all ${
+                          selectedDirectNotificationsEnabled
+                            ? 'border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100'
+                            : 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100'
+                        }`}
+                        onClick={(event) => handleToggleDirectNotifications(selectedDirectChatId, event)}
+                        disabled={!selectedDirectChatId || selectedDirectNotificationSaving}
+                        title={selectedDirectNotificationsEnabled ? 'Уведомления включены' : 'Уведомления выключены'}
+                        aria-label={selectedDirectNotificationsEnabled ? 'Отключить уведомления этого диалога' : 'Включить уведомления этого диалога'}
+                      >
+                        {selectedDirectNotificationsEnabled ? <Bell size={16} /> : <BellOff size={16} />}
+                      </button>
+                    </div>
+                  )}
                   listRef={socialListRef}
                   messages={socialMessages}
                   loading={socialMessagesLoading}
@@ -2218,12 +3513,22 @@ const StudentChatSection = ({
                   EmptyIcon={UserRound}
                   fallbackSenderName={selectedDirectChat?.peer?.displayName || 'Ученик'}
                   onOpenImage={setImageViewer}
-                onOpenSenderProfile={handleOpenSenderProfile}
-                onEditMessage={handleEditSocialMessage}
-                onDeleteMessage={handleDeleteSocialMessage}
-                onReactMessage={handleReactSocialMessage}
-                isMine={(message) => message?.senderId === user?.id}
-              />
+                  onOpenSenderProfile={handleOpenSenderProfile}
+                  onEditMessage={handleEditSocialMessage}
+                  onDeleteMessage={handleDeleteSocialMessage}
+                  onReactMessage={handleReactSocialMessage}
+                  onReplyMessage={handleReplyMessage}
+                  onForwardMessage={handleForwardMessage}
+                  onPinMessage={handlePinSocialMessage}
+                  onEnsureMessageLoaded={ensureSocialMessageLoaded}
+                  openReferenceRequest={socialReferenceRequest}
+                  pinnedMessageId={socialPinnedMessageId}
+                  pinnedMessage={socialPinnedMessage}
+                  onPinnedCancel={handleUnpinSocialMessage}
+                  onPinnedOpen={requestSocialReferenceOpen}
+                  menuActions={directChatMenuActions}
+                  isMine={(message) => message?.senderId === user?.id}
+                />
                 <ChatComposer
                   text={socialText}
                   setText={setSocialText}
@@ -2238,6 +3543,8 @@ const StudentChatSection = ({
                   onSend={handleSendSocial}
                   sending={socialSending}
                   error={socialMessagesError}
+                  replyTo={socialReplyTo}
+                  onCancelReply={() => setSocialReplyTo(null)}
                   placeholder="Написать ученику..."
                 />
               </div>
