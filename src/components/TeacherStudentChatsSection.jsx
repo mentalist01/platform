@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, BellOff, Check, ChevronDown, Copy, FileText, Forward, Image as ImageIcon, Link, MessageSquare, MoreVertical, Paperclip, Pencil, Pin, Reply, Search, SendHorizontal, SmilePlus, Trash2, UploadCloud, Users, X } from 'lucide-react';
+import { Bell, BellOff, Check, ChevronDown, Copy, FileText, Forward, Image as ImageIcon, Link, MessageSquare, MoreVertical, PanelRight, Paperclip, Pencil, Pin, Reply, Search, SendHorizontal, SmilePlus, Trash2, UploadCloud, Users, X } from 'lucide-react';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
+import ChatInfoDrawer from './ChatInfoDrawer';
 import LinkifiedText from './LinkifiedText';
 
 const CHATS_POLL_MS = 6000;
@@ -407,9 +408,13 @@ const ChatMessageTopTools = ({
   onContentFilterChange,
   counts,
   menuActions = [],
+  drawerInfo = null,
+  pinnedMessage = null,
+  onPinnedOpen = null,
 }) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const searchInputRef = useRef(null);
 
   useEffect(() => {
@@ -472,6 +477,18 @@ const ChatMessageTopTools = ({
         >
           <Search size={16} />
         </button>
+        <button
+          type="button"
+          className={`student-chat-tool-icon ${infoOpen ? 'student-chat-tool-icon--active' : ''}`}
+          onClick={() => {
+            setMenuOpen(false);
+            setInfoOpen(true);
+          }}
+          aria-label="Информация о чате"
+          title="Информация"
+        >
+          <PanelRight size={17} />
+        </button>
         <div className="student-chat-tools-menu-wrap">
           <button
             type="button"
@@ -530,6 +547,17 @@ const ChatMessageTopTools = ({
           )}
         </div>
       </div>
+      <ChatInfoDrawer
+        open={infoOpen}
+        onClose={() => setInfoOpen(false)}
+        info={drawerInfo}
+        counts={counts}
+        pinnedMessage={pinnedMessage}
+        menuActions={menuActions}
+        onFilterSelect={onContentFilterChange}
+        onPinnedOpen={onPinnedOpen}
+        onOpenSearch={() => setSearchOpen(true)}
+      />
     </div>
   );
 };
@@ -2113,6 +2141,19 @@ const TeacherStudentChatsSection = ({
                   onContentFilterChange={setContentFilter}
                   counts={contentCounts}
                   menuActions={selectedChatMenuActions}
+                  drawerInfo={{
+                    title: selectedTitle,
+                    subtitle: selectedSubtitle,
+                    status: isGroupChatSelected ? 'Общий чат курса' : 'Диалог с учеником',
+                    avatarLabel: selectedTitle,
+                    avatarIcon: isGroupChatSelected ? Users : null,
+                    kind: isGroupChatSelected ? 'group' : 'direct',
+                  }}
+                  pinnedMessage={selectedChat?.pinnedMessage || null}
+                  onPinnedOpen={(reference) => {
+                    const messageId = String(reference?.messageId || reference?.id || '').trim();
+                    if (messageId) setReferenceRequest({ ...reference, messageId, nonce: Date.now() });
+                  }}
                 />
                 {selectionMode && (
                   <div className="student-message-selection-bar" data-message-menu-ignore="true">

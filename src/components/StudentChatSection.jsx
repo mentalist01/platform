@@ -14,6 +14,7 @@ import {
   Hash,
   MessageSquare,
   MoreVertical,
+  PanelRight,
   Paperclip,
   Pencil,
   Forward,
@@ -29,6 +30,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
+import ChatInfoDrawer from './ChatInfoDrawer';
 import LinkifiedText from './LinkifiedText';
 import StudentLeaderboardProfileModal from './StudentLeaderboardProfileModal';
 
@@ -432,9 +434,13 @@ const ChatMessageTopTools = ({
   onContentFilterChange,
   counts,
   menuActions = [],
+  drawerInfo = null,
+  pinnedMessage = null,
+  onPinnedOpen = null,
 }) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const searchInputRef = useRef(null);
 
   useEffect(() => {
@@ -497,6 +503,18 @@ const ChatMessageTopTools = ({
         >
           <Search size={16} />
         </button>
+        <button
+          type="button"
+          className={`student-chat-tool-icon ${infoOpen ? 'student-chat-tool-icon--active' : ''}`}
+          onClick={() => {
+            setMenuOpen(false);
+            setInfoOpen(true);
+          }}
+          aria-label="Информация о чате"
+          title="Информация"
+        >
+          <PanelRight size={17} />
+        </button>
         <div className="student-chat-tools-menu-wrap">
           <button
             type="button"
@@ -555,6 +573,17 @@ const ChatMessageTopTools = ({
           )}
         </div>
       </div>
+      <ChatInfoDrawer
+        open={infoOpen}
+        onClose={() => setInfoOpen(false)}
+        info={drawerInfo}
+        counts={counts}
+        pinnedMessage={pinnedMessage}
+        menuActions={menuActions}
+        onFilterSelect={onContentFilterChange}
+        onPinnedOpen={onPinnedOpen}
+        onOpenSearch={() => setSearchOpen(true)}
+      />
     </div>
   );
 };
@@ -731,6 +760,7 @@ const ChatMessages = ({
   onPinnedCancel = null,
   onPinnedOpen = null,
   menuActions = [],
+  drawerInfo = null,
   headerContent = null,
 }) => {
   const [editingMessageId, setEditingMessageId] = useState('');
@@ -1091,6 +1121,9 @@ const ChatMessages = ({
       onContentFilterChange={setContentFilter}
       counts={contentCounts}
       menuActions={menuActions}
+      drawerInfo={drawerInfo}
+      pinnedMessage={pinnedMessage}
+      onPinnedOpen={onPinnedOpen}
     />
   );
 
@@ -3382,6 +3415,14 @@ const StudentChatSection = ({
             onPinnedCancel={handleUnpinTeacherMessage}
             onPinnedOpen={requestTeacherReferenceOpen}
             menuActions={teacherChatMenuActions}
+            drawerInfo={{
+              title: teacherName,
+              subtitle: 'Преподаватель',
+              status: 'Диалог с преподавателем',
+              avatarLabel: teacherName,
+              avatarIcon: GraduationCap,
+              kind: 'teacher',
+            }}
             isMine={(message) => message?.senderRole === 'student' || message?.senderId === user?.id}
           />
           <ChatComposer
@@ -3456,6 +3497,14 @@ const StudentChatSection = ({
                 onPinnedCancel={handleUnpinSocialMessage}
                 onPinnedOpen={requestSocialReferenceOpen}
                 menuActions={groupChatMenuActions}
+                drawerInfo={{
+                  title: socialTitle,
+                  subtitle: `${groupParticipantsCount} чел.`,
+                  status: `${groupChat?.messageCount || socialChat?.messageCount || 0} сообщений`,
+                  avatarLabel: socialTitle,
+                  avatarIcon: Users,
+                  kind: 'group',
+                }}
                 isMine={(message) => message?.senderId === user?.id}
               />
               <ChatComposer
@@ -3634,6 +3683,14 @@ const StudentChatSection = ({
                   onPinnedCancel={handleUnpinSocialMessage}
                   onPinnedOpen={requestSocialReferenceOpen}
                   menuActions={directChatMenuActions}
+                  drawerInfo={{
+                    title: socialTitle,
+                    subtitle: `${(socialChat?.type === 'direct' ? socialChat.messageCount : 0) || selectedDirectChat?.messageCount || 0} сообщений`,
+                    status: 'Личный диалог',
+                    avatarLabel: socialTitle,
+                    avatarDataUrl: selectedDirectChat?.peer?.avatarDataUrl || '',
+                    kind: 'direct',
+                  }}
                   isMine={(message) => message?.senderId === user?.id}
                 />
                 <ChatComposer

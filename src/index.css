@@ -12611,6 +12611,7 @@ html[data-theme='light'] .student-chat-push-button:hover:not(:disabled) {
 }
 
 .student-chat-panel.surface-card {
+  position: relative;
   border-color: rgba(125, 211, 252, 0.22) !important;
   background:
     linear-gradient(155deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.92) 48%, rgba(236, 254, 255, 0.84)) !important;
@@ -13151,6 +13152,228 @@ html[data-theme='light'] .student-chat-push-button:hover:not(:disabled) {
     0 22px 58px rgba(2, 6, 23, 0.38),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
   animation: student-chat-tools-menu-in 150ms ease-out;
+}
+
+.student-chat-info-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 64;
+  display: flex;
+  justify-content: flex-end;
+  overflow: hidden;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(34, 211, 238, 0.16), transparent 34%),
+    rgba(2, 6, 23, 0.48);
+  backdrop-filter: blur(8px);
+  animation: student-chat-info-fade-in 180ms ease-out;
+}
+
+.student-chat-info-drawer {
+  position: relative;
+  display: flex;
+  width: min(24rem, calc(100% - 0.75rem));
+  height: 100%;
+  flex-direction: column;
+  overflow-y: auto;
+  border-left: 1px solid rgba(125, 211, 252, 0.22);
+  background:
+    radial-gradient(circle at 70% 0%, rgba(34, 211, 238, 0.18), transparent 34%),
+    radial-gradient(circle at 0% 22%, rgba(168, 85, 247, 0.16), transparent 34%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98));
+  color: rgb(226, 232, 240);
+  box-shadow:
+    -28px 0 64px rgba(2, 6, 23, 0.36),
+    inset 1px 0 0 rgba(255, 255, 255, 0.06);
+  animation: student-chat-info-drawer-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.student-chat-info-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 2;
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.82);
+}
+
+.student-chat-info-close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.student-chat-info-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 2rem 1.25rem 1.1rem;
+  text-align: center;
+}
+
+.student-chat-info-avatar {
+  display: grid;
+  width: 5.1rem;
+  height: 5.1rem;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 2rem;
+  background:
+    radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.35), transparent 34%),
+    linear-gradient(135deg, #22d3ee, #8b5cf6 54%, #ec4899);
+  color: #fff;
+  font-size: 1.35rem;
+  font-weight: 950;
+  box-shadow:
+    0 22px 46px rgba(14, 165, 233, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.student-chat-info-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.student-chat-info-profile h3 {
+  margin: 0.4rem 0 0;
+  color: #fff;
+  font-size: 1.15rem;
+  font-weight: 950;
+  line-height: 1.15;
+}
+
+.student-chat-info-profile p,
+.student-chat-info-profile span {
+  color: rgba(203, 213, 225, 0.72);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.student-chat-info-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  padding: 0 1rem 1rem;
+}
+
+.student-chat-info-action {
+  display: grid;
+  min-height: 4.15rem;
+  place-items: center;
+  gap: 0.32rem;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  border-radius: 0.92rem;
+  background: rgba(15, 23, 42, 0.52);
+  color: rgba(226, 232, 240, 0.9);
+  font-size: 0.72rem;
+  font-weight: 850;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.student-chat-info-action:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(34, 211, 238, 0.34);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.18), transparent 42%),
+    rgba(15, 23, 42, 0.72);
+  color: #fff;
+}
+
+.student-chat-info-action:disabled {
+  cursor: default;
+  opacity: 0.52;
+}
+
+.student-chat-info-action--danger {
+  color: rgb(251, 113, 133);
+}
+
+.student-chat-info-section {
+  display: grid;
+  gap: 0.12rem;
+  border-top: 1px solid rgba(125, 211, 252, 0.16);
+  padding: 0.55rem 0;
+}
+
+.student-chat-info-row {
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2.85rem;
+  border: 0;
+  background: transparent;
+  padding: 0.42rem 1.15rem;
+  color: rgba(226, 232, 240, 0.9);
+  text-align: left;
+}
+
+.student-chat-info-row svg {
+  justify-self: center;
+  color: rgba(125, 211, 252, 0.86);
+}
+
+.student-chat-info-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.86rem;
+  font-weight: 820;
+}
+
+.student-chat-info-row strong {
+  color: rgba(203, 213, 225, 0.72);
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.student-chat-info-row:hover:not(:disabled) {
+  background:
+    linear-gradient(90deg, rgba(34, 211, 238, 0.12), rgba(168, 85, 247, 0.08), transparent);
+  color: #fff;
+}
+
+.student-chat-info-row--danger,
+.student-chat-info-row--danger svg {
+  color: rgb(251, 113, 133);
+}
+
+.student-chat-info-row:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+@keyframes student-chat-info-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes student-chat-info-drawer-in {
+  from {
+    opacity: 0.72;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 640px) {
+  .student-chat-info-drawer {
+    width: min(100%, 22rem);
+  }
+
+  .student-chat-info-overlay {
+    background: rgba(2, 6, 23, 0.42);
+  }
 }
 
 @keyframes student-chat-tools-menu-in {
@@ -14679,6 +14902,86 @@ html[data-theme='light'] .student-chat-tools-menu {
   box-shadow:
     0 22px 52px rgba(15, 23, 42, 0.14),
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+html[data-theme='light'] .student-chat-info-overlay {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.14), transparent 34%),
+    rgba(15, 23, 42, 0.18);
+}
+
+html[data-theme='light'] .student-chat-info-drawer {
+  border-left-color: rgba(14, 165, 233, 0.18);
+  background:
+    radial-gradient(circle at 70% 0%, rgba(14, 165, 233, 0.12), transparent 35%),
+    radial-gradient(circle at 0% 22%, rgba(168, 85, 247, 0.1), transparent 35%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.97));
+  color: rgb(30, 41, 59);
+  box-shadow:
+    -24px 0 58px rgba(15, 23, 42, 0.14),
+    inset 1px 0 0 rgba(255, 255, 255, 0.9);
+}
+
+html[data-theme='light'] .student-chat-info-close {
+  color: rgba(51, 65, 85, 0.82);
+}
+
+html[data-theme='light'] .student-chat-info-close:hover {
+  background: rgba(14, 165, 233, 0.08);
+  color: rgb(15, 23, 42);
+}
+
+html[data-theme='light'] .student-chat-info-profile h3 {
+  color: rgb(15, 23, 42);
+}
+
+html[data-theme='light'] .student-chat-info-profile p,
+html[data-theme='light'] .student-chat-info-profile span {
+  color: rgb(100, 116, 139);
+}
+
+html[data-theme='light'] .student-chat-info-action {
+  border-color: rgba(14, 165, 233, 0.15);
+  background: rgba(255, 255, 255, 0.78);
+  color: rgb(51, 65, 85);
+  box-shadow:
+    0 10px 22px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.94);
+}
+
+html[data-theme='light'] .student-chat-info-action:hover:not(:disabled) {
+  border-color: rgba(14, 165, 233, 0.32);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.12), transparent 42%),
+    rgba(255, 255, 255, 0.94);
+  color: rgb(15, 23, 42);
+}
+
+html[data-theme='light'] .student-chat-info-section {
+  border-top-color: rgba(14, 165, 233, 0.14);
+}
+
+html[data-theme='light'] .student-chat-info-row {
+  color: rgb(30, 41, 59);
+}
+
+html[data-theme='light'] .student-chat-info-row svg {
+  color: rgb(14, 165, 233);
+}
+
+html[data-theme='light'] .student-chat-info-row strong {
+  color: rgb(100, 116, 139);
+}
+
+html[data-theme='light'] .student-chat-info-row:hover:not(:disabled) {
+  background:
+    linear-gradient(90deg, rgba(34, 211, 238, 0.12), rgba(168, 85, 247, 0.08), transparent);
+  color: rgb(15, 23, 42);
+}
+
+html[data-theme='light'] .student-chat-info-row--danger,
+html[data-theme='light'] .student-chat-info-row--danger svg {
+  color: rgb(225, 29, 72);
 }
 
 html[data-theme='light'] .student-chat-tools-menu__section + .student-chat-tools-menu__section {
@@ -16224,6 +16527,8 @@ html[data-theme='dark'] .student-direct-thread-header p:last-child {
 }
 
 .teacher-chat-thread {
+  position: relative;
+  overflow: hidden;
   border-color: rgba(14, 165, 233, 0.2);
   background:
     radial-gradient(circle at 0% 0%, rgba(168, 85, 247, 0.08), transparent 34%),
