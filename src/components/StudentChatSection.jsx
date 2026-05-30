@@ -41,8 +41,8 @@ const CHAT_ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg'
 const CHAT_FILE_SIZE_LABEL = '10 МБ';
 const CHAT_MESSAGE_PAGE_SIZE = 15;
 const CHAT_DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
-const CHAT_TARGET_HIGHLIGHT_DELAY_MS = 320;
-const CHAT_TARGET_HIGHLIGHT_DURATION_MS = 2600;
+const CHAT_TARGET_HIGHLIGHT_DELAY_MS = 180;
+const CHAT_TARGET_HIGHLIGHT_DURATION_MS = 2400;
 const CHAT_REACTION_EMOJIS = Object.freeze(['👍', '❤️', '😂', '🔥', '👏', '😮', '😢', '🙏']);
 const CHAT_CONTENT_FILTERS = Object.freeze([
   { id: 'all', label: 'Все', Icon: MessageSquare },
@@ -245,9 +245,24 @@ const getChatMessageElement = (container, messageId) => {
     .find((element) => element.dataset.chatMessageId === id) || null;
 };
 
-const scrollChatMessageIntoView = (element) => {
-  if (!element) return;
+const getChatMessageFocusDelay = (element, container = null) => {
+  if (!element) return CHAT_TARGET_HIGHLIGHT_DELAY_MS;
+  const elementRect = element.getBoundingClientRect?.();
+  const containerRect = container?.getBoundingClientRect?.();
+  if (!elementRect) return CHAT_TARGET_HIGHLIGHT_DELAY_MS;
+  const viewportCenter = containerRect
+    ? containerRect.top + (containerRect.height / 2)
+    : (typeof window !== 'undefined' ? window.innerHeight / 2 : elementRect.top);
+  const elementCenter = elementRect.top + (elementRect.height / 2);
+  const distance = Math.abs(elementCenter - viewportCenter);
+  return Math.min(760, Math.max(CHAT_TARGET_HIGHLIGHT_DELAY_MS, Math.round(distance * 0.42)));
+};
+
+const scrollChatMessageIntoView = (element, container = null) => {
+  if (!element) return CHAT_TARGET_HIGHLIGHT_DELAY_MS;
+  const highlightDelay = getChatMessageFocusDelay(element, container);
   element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  return highlightDelay;
 };
 
 const getMessageReferencePreview = (reference) => {
@@ -934,8 +949,18 @@ const ChatMessages = ({
       highlightFrameRef.current = null;
     }
     const playHighlight = () => {
+      const element = getChatMessageElement(listRef.current, id);
+      if (element) {
+        element.classList.remove('chat-message-target--active');
+        // Restart the CSS animation even when the same referenced message is opened twice.
+        void element.offsetWidth;
+        element.classList.add('chat-message-target--active');
+      }
       setHighlightedMessageId(id);
-      highlightTimerRef.current = setTimeout(() => setHighlightedMessageId(''), CHAT_TARGET_HIGHLIGHT_DURATION_MS);
+      highlightTimerRef.current = setTimeout(() => {
+        setHighlightedMessageId('');
+        element?.classList.remove('chat-message-target--active');
+      }, CHAT_TARGET_HIGHLIGHT_DURATION_MS);
     };
     setHighlightedMessageId('');
     if (typeof window !== 'undefined' && window.requestAnimationFrame) {
@@ -946,16 +971,17 @@ const ChatMessages = ({
       return;
     }
     setTimeout(playHighlight, 0);
-  }, []);
+  }, [listRef]);
 
-  const highlightMessageAfterScroll = useCallback((messageId) => {
+  const highlightMessageAfterScroll = useCallback((messageId, delayMs = CHAT_TARGET_HIGHLIGHT_DELAY_MS) => {
     const id = String(messageId || '').trim();
     if (!id) return;
     if (highlightDelayTimerRef.current) clearTimeout(highlightDelayTimerRef.current);
+    const normalizedDelay = Math.min(820, Math.max(0, Number(delayMs) || CHAT_TARGET_HIGHLIGHT_DELAY_MS));
     highlightDelayTimerRef.current = setTimeout(() => {
       highlightDelayTimerRef.current = null;
       highlightMessage(id);
-    }, CHAT_TARGET_HIGHLIGHT_DELAY_MS);
+    }, normalizedDelay);
   }, [highlightMessage]);
 
   const openReferencedMessage = useCallback(async (reference) => {
@@ -979,8 +1005,8 @@ const ChatMessages = ({
       element = getChatMessageElement(listRef.current, targetId);
     }
     if (!element) return;
-    scrollChatMessageIntoView(element);
-    highlightMessageAfterScroll(targetId);
+    const highlightDelay = scrollChatMessageIntoView(element, listRef.current);
+    highlightMessageAfterScroll(targetId, highlightDelay);
   }, [highlightMessageAfterScroll, listRef, onEnsureMessageLoaded]);
 
   useEffect(() => {
@@ -1100,6 +1126,20 @@ const ChatMessages = ({
   const contextMenuOwn = Boolean(contextMenuMessage && isMine(contextMenuMessage));
   const contextMenuSystemPin = Boolean(contextMenuMessage && isPinAnnouncementMessage(contextMenuMessage));
   const contextMenuCanDeleteSystem = Boolean(contextMenuSystemPin && canDeleteSystemMessageNow(contextMenuMessage));
+  const contextMenuCanReact = Boolean(
+    contextMenuMessage
+      && !contextMenuOwn
+      && !contextMenuSystemPin
+      && typeof onReactMessage === 'function'
+      && String(contextMenuMessage?.id || '').trim()
+  );
+  const contextMenuReactedEmojis = new Set(
+    contextMenuCanReact
+      ? normalizeMessageReactions(contextMenuMessage)
+        .filter((reaction) => reaction.reactedByMe)
+        .map((reaction) => reaction.emoji)
+      : []
+  );
   const closeContextMenu = () => setMessageContextMenu(null);
 
   useEffect(() => {
@@ -1709,6 +1749,25 @@ const ChatMessages = ({
           </button>
         ) : (
           <>
+            {contextMenuCanReact && (
+              <div className="student-message-context-menu__reactions" role="group" aria-label="Reactions">
+                {CHAT_REACTION_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    className={`student-message-context-menu__reaction ${contextMenuReactedEmojis.has(emoji) ? 'student-message-context-menu__reaction--active' : ''}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void toggleReaction(contextMenuMessage, emoji);
+                    }}
+                    disabled={Boolean(busyReactionKey)}
+                    aria-label={`Reaction ${emoji}`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
             <button
               type="button"
               className="student-message-context-menu__button"
