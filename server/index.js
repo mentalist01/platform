@@ -151,9 +151,9 @@ const RTC_PRESENCE_FS_ENABLED = parseEnabledEnv(process.env.RTC_PRESENCE_FS_ENAB
 const BOARD_COLLAB_PERSISTENCE_RAW = process.env.BOARD_COLLAB_PERSISTENCE || process.env.COLLAB_PERSIST_BOARD;
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
 const MAX_LESSON_SHARED_TASK_BYTES = 500 * 1024 * 1024;
-const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_UPLOAD_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_LESSON_SHARED_UPLOAD_FILE_BYTES = 500 * 1024 * 1024;
-const MAX_FOLDER_BYTES = 50 * 1024 * 1024;
+const MAX_FOLDER_BYTES = 96 * 1024 * 1024;
 const MAX_SHARED_FOLDER_BYTES = 500 * 1024 * 1024;
 const LESSON_SHARED_SCOPE = 'lesson-files';
 const LESSON_SHARED_FOLDER_NAME = 'файлы к уроку';
@@ -13155,6 +13155,7 @@ app.post('/api/student-chat/messages', (req, res) => {
   chats[index] = normalizeStudentTeacherChat(appendStudentTeacherChatMessage(chat, message)) || chat;
   writeStudentChatsDb(chats);
   const updatedChat = chats[index];
+  broadcastStudentTeacherChatMessageCreated(updatedChat, message);
 
   const teacherPushKey = String(updatedChat?.teacherId || '').trim()
     ? `teacher:${String(updatedChat.teacherId).trim()}`
@@ -13550,6 +13551,7 @@ app.post('/api/student-chats/:chatId/messages', (req, res) => {
   chats[index] = normalizeStudentTeacherChat(appendStudentTeacherChatMessage(chat, message)) || chat;
   writeStudentChatsDb(chats);
   const updatedChat = chats[index];
+  broadcastStudentTeacherChatMessageCreated(updatedChat, message);
 
   const studentPushPayload = buildStudentTeacherPushPayloadForStudent(updatedChat, message, teacher);
   if (isStudentTeacherChatNotificationEnabled(student.id)) {
@@ -13927,6 +13929,7 @@ app.post('/api/teacher-social-group-chat/messages', (req, res) => {
   db.chats[index] = normalizeStudentSocialChat(appendStudentSocialChatMessage(access.chat, message)) || access.chat;
   writeStudentSocialChatsDb(db);
   const updatedChat = db.chats[index];
+  broadcastStudentSocialChatMessageCreated(updatedChat, message);
 
   return res.json({
     ok: true,
@@ -14324,6 +14327,7 @@ app.post('/api/student-social-chats/:chatId/messages', (req, res) => {
   db.chats[index] = normalizeStudentSocialChat(appendStudentSocialChatMessage(chat, message)) || chat;
   writeStudentSocialChatsDb(db);
   const updatedChat = db.chats[index];
+  broadcastStudentSocialChatMessageCreated(updatedChat, message);
   const notificationSettings = getStudentChatNotificationSettings(student.id, db);
 
   return res.json({
@@ -19481,6 +19485,86 @@ const broadcastNotificationDeleted = (entry) => {
       type: 'broadcast-notification-deleted',
       notificationId: entry.id,
     });
+  });
+};
+
+const buildStudentChatLiveMessageForClient = (client, chat, message, chatKind) => {
+  const auth = client?.auth;
+  if (!auth || !chat || !message) return null;
+  if (chatKind === 'student-teacher') {
+    const student = findStudentById(chat.studentId, { allowDeleted: true });
+    return enrichStudentTeacherMessageViewStats(
+      chat,
+      message,
+      buildStudentChatMessageResponseOptions(auth, { chat, student })
+    );
+  }
+  const student = isStudentRole(auth) ? findStudentById(auth.id, { allowDeleted: true }) : null;
+  const teacher = isTeacherRole(auth) ? findTeacherById(auth.id) : null;
+  return enrichStudentSocialMessageViewStats(
+    chat,
+    message,
+    buildStudentChatMessageResponseOptions(auth, { chat, student, teacher })
+  );
+};
+
+const sendStudentChatLiveMessageCreated = (client, chat, message, chatKind, options = {}) => {
+  if (!client?.auth || !chat || !message) return;
+  sendNotificationPayload(client.ws, {
+    type: 'student-chat-message-created',
+    chatKind,
+    chatId: String(chat.id || '').trim(),
+    teacherId: String(chat.teacherId || '').trim(),
+    studentId: String(chat.studentId || '').trim(),
+    studentIds: Array.isArray(chat.studentIds) ? chat.studentIds : [],
+    messageId: String(message.id || '').trim(),
+    senderRole: String(message.senderRole || '').trim(),
+    senderId: String(message.senderId || '').trim(),
+    createdAt: String(message.createdAt || '').trim(),
+    audible: options.audible !== false,
+    message: buildStudentChatLiveMessageForClient(client, chat, message, chatKind),
+  });
+};
+
+const broadcastStudentTeacherChatMessageCreated = (chat, message) => {
+  if (!chat || !message) return;
+  const teacherId = String(chat.teacherId || '').trim();
+  const studentId = String(chat.studentId || '').trim();
+  notificationClientsBySocket.forEach((client) => {
+    const auth = client?.auth;
+    if (!auth) return;
+    if (isTeacherRole(auth) && teacherId && auth.id === teacherId) {
+      sendStudentChatLiveMessageCreated(client, chat, message, 'student-teacher');
+      return;
+    }
+    if (isStudentRole(auth) && studentId && auth.id === studentId) {
+      sendStudentChatLiveMessageCreated(client, chat, message, 'student-teacher', {
+        audible: isStudentTeacherChatNotificationEnabled(auth.id),
+      });
+    }
+  });
+};
+
+const broadcastStudentSocialChatMessageCreated = (chat, message) => {
+  if (!chat || !message) return;
+  const chatKind = chat.type === 'group' ? 'social-group' : 'social-direct';
+  const teacherId = String(chat.teacherId || '').trim();
+  const studentIds = chat.type === 'group'
+    ? new Set(getActiveStudentIdsForTeacher(teacherId))
+    : new Set(Array.isArray(chat.studentIds) ? chat.studentIds : []);
+
+  notificationClientsBySocket.forEach((client) => {
+    const auth = client?.auth;
+    if (!auth) return;
+    if (chat.type === 'group' && isTeacherRole(auth) && teacherId && auth.id === teacherId) {
+      sendStudentChatLiveMessageCreated(client, chat, message, chatKind);
+      return;
+    }
+    if (isStudentRole(auth) && studentIds.has(String(auth.id || '').trim())) {
+      sendStudentChatLiveMessageCreated(client, chat, message, chatKind, {
+        audible: isStudentSocialChatNotificationEnabled(auth.id, chat),
+      });
+    }
   });
 };
 

@@ -35,7 +35,7 @@ import ChatInfoDrawer from './ChatInfoDrawer';
 import LinkifiedText from './LinkifiedText';
 import StudentLeaderboardProfileModal from './StudentLeaderboardProfileModal';
 
-const POLL_INTERVAL_MS = 5000;
+const POLL_INTERVAL_MS = 3000;
 const CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const CHAT_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const CHAT_ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
@@ -129,6 +129,16 @@ const mergeChatMessages = (...groups) => {
     });
   });
   return merged.map((key) => byKey.get(key)).filter(Boolean);
+};
+
+const upsertChatSummary = (list = [], chat = null) => {
+  const chatId = String(chat?.id || '').trim();
+  if (!chatId) return Array.isArray(list) ? list : [];
+  const source = Array.isArray(list) ? list : [];
+  return [
+    chat,
+    ...source.filter((item) => String(item?.id || '').trim() !== chatId),
+  ];
 };
 
 const getPinnedReferenceMessageId = (reference) => String(reference?.messageId || reference?.id || '').trim();
@@ -2676,6 +2686,50 @@ const StudentChatSection = ({
   }, [activeSocialChatId, isActiveSocialEnabled, isSocialTab, loadSocialMessages]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleLiveChatEvent = (event) => {
+      const detail = event?.detail || {};
+      if (detail?.type !== 'student-chat-message-created') return;
+      if (String(detail.senderId || '').trim() === String(user?.id || '').trim()) return;
+      if (detail.chatKind === 'student-teacher') {
+        if (activeTab === 'teacher') {
+          if (detail.message) {
+            markChatScrollToBottom(teacherListRef, teacherScrollBehaviorRef);
+            setTeacherMessages((prev) => mergeChatMessages(prev, [detail.message]));
+          }
+          void loadTeacherMessages({ silent: true });
+        }
+        return;
+      }
+      if ((detail.chatKind === 'social-group' || detail.chatKind === 'social-direct')) {
+        void loadSocialChats({ silent: true });
+        if (
+          isSocialTab
+          && isActiveSocialEnabled
+          && String(detail.chatId || '').trim() === String(activeSocialChatId || '').trim()
+        ) {
+          if (detail.message) {
+            markChatScrollToBottom(socialListRef, socialScrollBehaviorRef);
+            setSocialMessages((prev) => mergeChatMessages(prev, [detail.message]));
+          }
+          void loadSocialMessages(activeSocialChatId, { silent: true });
+        }
+      }
+    };
+    window.addEventListener('student-chat-live-event', handleLiveChatEvent);
+    return () => window.removeEventListener('student-chat-live-event', handleLiveChatEvent);
+  }, [
+    activeSocialChatId,
+    activeTab,
+    isActiveSocialEnabled,
+    isSocialTab,
+    loadSocialChats,
+    loadSocialMessages,
+    loadTeacherMessages,
+    user?.id,
+  ]);
+
+  useEffect(() => {
     applyChatScrollBehavior(teacherListRef, teacherScrollBehaviorRef);
     prevTeacherMessageCountRef.current = teacherMessages.length;
   }, [teacherMessages]);
@@ -2832,7 +2886,7 @@ const StudentChatSection = ({
     setTeacherSending(true);
     setTeacherError('');
     try {
-      await api.sendStudentChatMessage({
+      const payload = await api.sendStudentChatMessage({
         text: nextText,
         imageDataUrl: nextImageDataUrl,
         imageName: nextImageName,
@@ -2845,7 +2899,16 @@ const StudentChatSection = ({
       setTeacherText('');
       setTeacherReplyTo(null);
       clearTeacherImage();
-      await loadTeacherMessages({ silent: true, forceScroll: true });
+      if (payload?.chat) setTeacherChat(payload.chat);
+      if (payload?.message) {
+        markChatScrollToBottom(teacherListRef, teacherScrollBehaviorRef, { force: true });
+        setTeacherMessages((prev) => mergeChatMessages(prev, [payload.message]));
+      } else {
+        void loadTeacherMessages({ silent: true, forceScroll: true });
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('student-chat-local-change'));
+      }
     } catch (err) {
       setTeacherError(err?.message || String(err));
     } finally {
@@ -2863,7 +2926,7 @@ const StudentChatSection = ({
     setSocialSending(true);
     setSocialMessagesError('');
     try {
-      await api.sendStudentSocialChatMessage(chatId, {
+      const payload = await api.sendStudentSocialChatMessage(chatId, {
         text: nextText,
         imageDataUrl: nextImageDataUrl,
         imageName: nextImageName,
@@ -2876,8 +2939,29 @@ const StudentChatSection = ({
       setSocialText('');
       setSocialReplyTo(null);
       clearSocialImage();
-      await loadSocialMessages(chatId, { silent: true, forceScroll: true });
-      await loadSocialChats({ silent: true });
+      if (payload?.chat) {
+        setSocialChat(payload.chat);
+        setSocialPayload((prev) => {
+          const current = prev || {};
+          if (payload.chat.type === 'group') {
+            return { ...current, groupChat: payload.chat };
+          }
+          if (payload.chat.type === 'direct') {
+            return { ...current, directChats: upsertChatSummary(current.directChats, payload.chat) };
+          }
+          return current;
+        });
+      }
+      if (payload?.message) {
+        markChatScrollToBottom(socialListRef, socialScrollBehaviorRef, { force: true });
+        setSocialMessages((prev) => mergeChatMessages(prev, [payload.message]));
+      } else {
+        void loadSocialMessages(chatId, { silent: true, forceScroll: true });
+      }
+      void loadSocialChats({ silent: true });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('student-chat-local-change'));
+      }
     } catch (err) {
       setSocialMessagesError(err?.message || String(err));
     } finally {

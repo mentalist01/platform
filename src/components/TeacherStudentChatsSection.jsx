@@ -6,8 +6,8 @@ import { Button, Card } from './ui';
 import ChatInfoDrawer from './ChatInfoDrawer';
 import LinkifiedText from './LinkifiedText';
 
-const CHATS_POLL_MS = 6000;
-const MESSAGES_POLL_MS = 5000;
+const CHATS_POLL_MS = 4000;
+const MESSAGES_POLL_MS = 3000;
 const CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const CHAT_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const CHAT_ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
@@ -102,6 +102,16 @@ const mergeChatMessages = (...groups) => {
     });
   });
   return merged.map((key) => byKey.get(key)).filter(Boolean);
+};
+
+const upsertChatSummary = (list = [], chat = null) => {
+  const chatId = String(chat?.id || '').trim();
+  if (!chatId) return Array.isArray(list) ? list : [];
+  const source = Array.isArray(list) ? list : [];
+  return [
+    chat,
+    ...source.filter((item) => String(item?.id || '').trim() !== chatId),
+  ];
 };
 
 const getPinnedReferenceMessageId = (reference) => String(reference?.messageId || reference?.id || '').trim();
@@ -1172,6 +1182,52 @@ const TeacherStudentChatsSection = ({
     };
   }, [fetchMessages, selectedChatId]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleLiveChatEvent = (event) => {
+      const detail = event?.detail || {};
+      if (detail?.type !== 'student-chat-message-created') return;
+      if (String(detail.senderId || '').trim() === String(normalizedTeacherId || '').trim()) return;
+
+      if (detail.chatKind === 'student-teacher') {
+        void refreshChats();
+        if (String(detail.chatId || '').trim() === String(selectedChatId || '').trim()) {
+          if (detail.message) {
+            markChatScrollToBottom(messagesRef, messagesScrollBehaviorRef);
+            setMessages((prev) => mergeChatMessages(prev, [detail.message]));
+          }
+          void fetchMessages(selectedChatId, { silent: true });
+        }
+        return;
+      }
+
+      if (detail.chatKind === 'social-group') {
+        if (selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID) {
+          if (detail.message) {
+            markChatScrollToBottom(messagesRef, messagesScrollBehaviorRef);
+            setMessages((prev) => mergeChatMessages(prev, [detail.message]));
+          }
+          void fetchMessages(selectedChatId, { silent: true });
+        } else if (canManageSocialChats) {
+          api.getTeacherSocialGroupChat(normalizedTeacherId)
+            .then((payload) => {
+              setGroupChatSummary(payload?.groupChat || null);
+              setGroupParticipantsCount(Array.isArray(payload?.students) ? payload.students.length : 0);
+            })
+            .catch(() => {});
+        }
+      }
+    };
+    window.addEventListener('student-chat-live-event', handleLiveChatEvent);
+    return () => window.removeEventListener('student-chat-live-event', handleLiveChatEvent);
+  }, [
+    canManageSocialChats,
+    fetchMessages,
+    normalizedTeacherId,
+    refreshChats,
+    selectedChatId,
+  ]);
+
   const loadOlderMessages = useCallback(() => {
     if (!selectedChatId || messagesLoading || olderMessagesLoading || !messagesPagination.hasMoreBefore || !messagesPagination.nextBefore) return;
     void fetchMessages(selectedChatId, {
@@ -1357,8 +1413,9 @@ const TeacherStudentChatsSection = ({
     }
     setMessageSending(true);
     try {
+      let payload = null;
       if (selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID) {
-        await api.sendTeacherSocialGroupChatMessage({
+        payload = await api.sendTeacherSocialGroupChatMessage({
           text,
           imageDataUrl,
           imageName,
@@ -1369,7 +1426,7 @@ const TeacherStudentChatsSection = ({
           replyToMessageId: replyToMessage?.messageId || '',
         }, normalizedTeacherId);
       } else {
-        await api.sendStudentChatMessageForTeacher(selectedChatId, {
+        payload = await api.sendStudentChatMessageForTeacher(selectedChatId, {
           text,
           imageDataUrl,
           imageName,
@@ -1383,9 +1440,23 @@ const TeacherStudentChatsSection = ({
       setMessageText('');
       setReplyToMessage(null);
       clearMessageImage();
-      await fetchMessages(selectedChatId, { silent: true, forceScroll: true });
-      if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) {
-        await refreshChats();
+      if (payload?.chat) {
+        setChatDetails(payload.chat);
+        if (selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID) {
+          setGroupChatSummary(payload.chat);
+        } else {
+          setChats((prev) => prioritizeIncomingStudentMessages(sortChats(upsertChatSummary(prev, payload.chat))));
+        }
+      }
+      if (payload?.message) {
+        markChatScrollToBottom(messagesRef, messagesScrollBehaviorRef, { force: true });
+        setMessages((prev) => mergeChatMessages(prev, [payload.message]));
+      } else {
+        void fetchMessages(selectedChatId, { silent: true, forceScroll: true });
+      }
+      if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) void refreshChats();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('student-chat-local-change'));
       }
       setMessagesError('');
     } catch (err) {

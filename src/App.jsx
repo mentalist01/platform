@@ -77,13 +77,14 @@ import {
   consumeNativePushLaunchUrl,
   normalizePushErrorMessage,
 } from './utils/push';
-import { getCollabWsUrl, isNativeAppRuntime, resolveApiUrl } from './utils/runtimeUrls';
+import { getCollabWsUrl, getNotificationsWsUrl, isNativeAppRuntime, resolveApiUrl } from './utils/runtimeUrls';
 import { getLevelFromXp, getLevelProgressFromXp } from './utils/leveling';
 import {
   api,
   authenticatedUploadsFetch,
   resolveAuthenticatedUploadsUrl,
   setUnauthorizedHandler,
+  withStoredAuthToken,
 } from './services/api';
 
 const optionalLeagueIcons = import.meta.glob('./assets/leagues/blank.png', { eager: true, import: 'default' });
@@ -114,6 +115,7 @@ const parseNativePushLaunchUrl = (value) => {
 };
 
 const PLATFORM_DOCUMENT_TITLE = 'Платформа';
+const CHAT_LIVE_RECONNECT_DELAY_MS = 2500;
 
 const formatUnreadMessageTitle = (count) => {
   const safeCount = Math.max(1, Math.floor(Number(count) || 1));
@@ -211,10 +213,11 @@ const BOARD_IMAGE_MIN_SIZE = 40;
 const BOARD_IMAGE_MAX_SIZE = 2800;
 const BOARD_IMAGE_SCALE_STEP = 0.12;
 const BOARD_EXPORT_PADDING = 24;
-const BOARD_EXPORT_BASE_SCALE = 4;
-const BOARD_EXPORT_VECTOR_BASE_SCALE = 5;
-const BOARD_EXPORT_MAX_SIZE = 9216;
-const BOARD_EXPORT_MAX_PIXELS = 64 * 1024 * 1024;
+const BOARD_EXPORT_BASE_SCALE = 4.5;
+const BOARD_EXPORT_VECTOR_BASE_SCALE = 5.5;
+const BOARD_EXPORT_MAX_SIZE = 11264;
+const BOARD_EXPORT_MAX_PIXELS = 72 * 1024 * 1024;
+const BOARD_EXPORT_MAX_FILE_BYTES = 64 * 1024 * 1024;
 const BOARD_SELECTION_HIT_RADIUS = 6;
 const BOARD_MIN_ZOOM = 0.25;
 const BOARD_MAX_ZOOM = 2.5;
@@ -8951,8 +8954,8 @@ const BoardSection = ({
     setSaveBusy(true);
     try {
       const blob = await renderBoardToBlob();
-      if (blob.size > 50 * 1024 * 1024) {
-        throw new Error('Файл слишком большой (максимум 50 МБ). Уменьшите размер доски.');
+      if (blob.size > BOARD_EXPORT_MAX_FILE_BYTES) {
+        throw new Error(`Файл слишком большой (максимум ${formatBoardBytes(BOARD_EXPORT_MAX_FILE_BYTES)}). Уменьшите размер доски.`);
       }
       const baseName = normalizeFileName(saveFileName);
       if (!baseName) {
@@ -11574,6 +11577,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const messageTitleBlinkTimerRef = useRef(null);
   const incomingMessageSoundSeenRef = useRef(new Map());
   const incomingMessageSoundReadyScopesRef = useRef(new Set());
+  const chatLiveSocketRef = useRef(null);
+  const chatLiveReconnectTimerRef = useRef(null);
+  const chatLiveSocketClosedManuallyRef = useRef(false);
   const prevGoalCollapsedRef = useRef(goalCollapsed);
   const [isDesktopWide, setIsDesktopWide] = useState(
     typeof window !== 'undefined' ? window.innerWidth > 1000 : true
@@ -11874,6 +11880,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         + Math.max(0, Math.floor(Number(teacherSignupUnreadMessageTotal) || 0))
       )
       : 0);
+  const chatLiveWsUrl = useMemo(() => (
+    user?.role ? withStoredAuthToken(getNotificationsWsUrl()) : ''
+  ), [user?.id, user?.role]);
 
   const registerIncomingMessageSoundCandidates = useCallback((scope, candidates = []) => {
     const scopeKey = String(scope || '').trim();
@@ -11895,8 +11904,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       const fullKey = `${scopeKey}:${key}`;
       const previous = seen.get(fullKey);
       const audible = candidate.audible !== false;
+      const isLiveEvent = candidate.live === true;
       if (
-        scopeReady
+        (scopeReady || isLiveEvent)
         && audible
         && (!previous || timestampMs > previous.timestampMs)
       ) {
@@ -11941,6 +11951,122 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     incomingMessageSoundReadyScopesRef.current = new Set();
     setIncomingMessageSoundPulse(0);
   }, [user.id, user.role]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof WebSocket === 'undefined' || !chatLiveWsUrl || !user?.role) {
+      return undefined;
+    }
+
+    chatLiveSocketClosedManuallyRef.current = false;
+    let disposed = false;
+
+    const clearReconnectTimer = () => {
+      if (!chatLiveReconnectTimerRef.current) return;
+      window.clearTimeout(chatLiveReconnectTimerRef.current);
+      chatLiveReconnectTimerRef.current = null;
+    };
+
+    const closeCurrentSocket = () => {
+      const socket = chatLiveSocketRef.current;
+      chatLiveSocketRef.current = null;
+      if (!socket) return;
+      try {
+        socket.close();
+      } catch {
+        // Ignore close errors; reconnect logic is best-effort.
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (disposed || chatLiveSocketClosedManuallyRef.current) return;
+      clearReconnectTimer();
+      chatLiveReconnectTimerRef.current = window.setTimeout(() => {
+        chatLiveReconnectTimerRef.current = null;
+        connect();
+      }, CHAT_LIVE_RECONNECT_DELAY_MS);
+    };
+
+    const connect = () => {
+      if (disposed) return;
+      const existing = chatLiveSocketRef.current;
+      if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+
+      try {
+        const socket = new WebSocket(chatLiveWsUrl);
+        chatLiveSocketRef.current = socket;
+
+        socket.onmessage = (event) => {
+          if (chatLiveSocketRef.current !== socket) return;
+          let payload = null;
+          try {
+            payload = JSON.parse(String(event.data || ''));
+          } catch {
+            return;
+          }
+          if (payload?.type !== 'student-chat-message-created') return;
+
+          const senderId = String(payload.senderId || '').trim();
+          const currentUserId = String(user?.id || '').trim();
+          const chatId = String(payload.chatId || '').trim();
+          if (senderId && currentUserId && senderId !== currentUserId && chatId) {
+            if (user?.role === 'student') {
+              const keyPrefix = payload.chatKind === 'student-teacher'
+                ? 'teacher'
+                : (payload.chatKind === 'social-group' ? 'group' : 'direct');
+              registerIncomingMessageSoundCandidates('student-chats', [{
+                key: `${keyPrefix}:${chatId}`,
+                unreadCount: 1,
+                lastMessageAt: payload.createdAt,
+                incoming: true,
+                audible: payload.audible !== false,
+                live: true,
+              }]);
+            } else if (user?.role === 'teacher') {
+              const keyPrefix = payload.chatKind === 'social-group' ? 'group' : 'student';
+              registerIncomingMessageSoundCandidates('teacher-student-chats', [{
+                key: `${keyPrefix}:${chatId}`,
+                unreadCount: 1,
+                lastMessageAt: payload.createdAt,
+                incoming: true,
+                audible: payload.audible !== false,
+                live: true,
+              }]);
+            }
+          }
+          window.dispatchEvent(new CustomEvent('student-chat-live-event', { detail: payload }));
+        };
+
+        socket.onerror = () => {
+          if (chatLiveSocketRef.current !== socket) return;
+          try {
+            socket.close();
+          } catch {
+            // Ignore close errors.
+          }
+        };
+
+        socket.onclose = () => {
+          if (chatLiveSocketRef.current === socket) {
+            chatLiveSocketRef.current = null;
+          }
+          scheduleReconnect();
+        };
+      } catch {
+        scheduleReconnect();
+      }
+    };
+
+    connect();
+
+    return () => {
+      disposed = true;
+      chatLiveSocketClosedManuallyRef.current = true;
+      clearReconnectTimer();
+      closeCurrentSocket();
+    };
+  }, [chatLiveWsUrl, registerIncomingMessageSoundCandidates, user?.id, user?.role]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -13862,9 +13988,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     };
 
     fetchStudentChatUnread();
-    const interval = setInterval(fetchStudentChatUnread, 9000);
+    const handleChatWake = () => {
+      void fetchStudentChatUnread();
+    };
+    window.addEventListener('student-chat-live-event', handleChatWake);
+    window.addEventListener('student-chat-local-change', handleChatWake);
+    const interval = setInterval(fetchStudentChatUnread, 4000);
     return () => {
       cancelled = true;
+      window.removeEventListener('student-chat-live-event', handleChatWake);
+      window.removeEventListener('student-chat-local-change', handleChatWake);
       clearInterval(interval);
     };
   }, [registerIncomingMessageSoundCandidates, user.role, user.id]);
@@ -13945,11 +14078,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     };
 
     fetchStudentNavUnread();
+    const handleChatWake = () => {
+      void fetchStudentNavUnread();
+    };
     window.addEventListener('student-chat-notification-settings-updated', fetchStudentNavUnread);
-    const interval = setInterval(fetchStudentNavUnread, 8000);
+    window.addEventListener('student-chat-live-event', handleChatWake);
+    window.addEventListener('student-chat-local-change', handleChatWake);
+    const interval = setInterval(fetchStudentNavUnread, 4000);
     return () => {
       cancelled = true;
       window.removeEventListener('student-chat-notification-settings-updated', fetchStudentNavUnread);
+      window.removeEventListener('student-chat-live-event', handleChatWake);
+      window.removeEventListener('student-chat-local-change', handleChatWake);
       clearInterval(interval);
     };
   }, [registerIncomingMessageSoundCandidates, user.role, user.id, view]);
