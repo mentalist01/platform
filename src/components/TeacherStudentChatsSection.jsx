@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, BellOff, Check, ChevronDown, Copy, FileText, Forward, Image as ImageIcon, Link, MessageSquare, MoreVertical, PanelRight, Paperclip, Pencil, Pin, Reply, Search, SendHorizontal, SmilePlus, Trash2, UploadCloud, Users, X } from 'lucide-react';
+import { Bell, BellOff, Check, CheckCheck, ChevronDown, Copy, FileText, Forward, Image as ImageIcon, Link, MessageSquare, MoreVertical, PanelRight, Paperclip, Pencil, Pin, Reply, Search, SendHorizontal, SmilePlus, Trash2, UploadCloud, Users, X } from 'lucide-react';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
 import ChatInfoDrawer from './ChatInfoDrawer';
@@ -128,6 +128,69 @@ const normalizeMessageReactions = (message) => (
     }))
     .filter((reaction) => reaction.emoji && reaction.count > 0)
 );
+
+const normalizeMessageReadReceipts = (message) => (
+  (Array.isArray(message?.readBy) ? message.readBy : [])
+    .map((reader) => ({
+      id: String(reader?.id || '').trim(),
+      role: String(reader?.role || '').trim(),
+      name: String(reader?.name || '').trim(),
+      readAt: String(reader?.readAt || '').trim(),
+    }))
+    .filter((reader) => reader.id && reader.name)
+);
+
+const getMessageReceiptState = (message) => {
+  const id = String(message?.id || '').trim();
+  if (!id || message?.pending || message?.sending || message?.localOnly || message?.status === 'pending') return 'pending';
+  if (normalizeMessageReadReceipts(message).length > 0 || Number(message?.viewCount) > 0 || message?.read === true) return 'read';
+  return 'sent';
+};
+
+const MessageDeliveryStatus = ({ message }) => {
+  const state = getMessageReceiptState(message);
+  const Icon = state === 'pending' ? Check : CheckCheck;
+  return (
+    <span
+      className={`student-message-read-status student-message-read-status--${state}`}
+      aria-label={state === 'read' ? 'Прочитано' : (state === 'sent' ? 'Отправлено' : 'Отправляется')}
+      title={state === 'read' ? 'Прочитано' : (state === 'sent' ? 'Отправлено' : 'Отправляется')}
+    >
+      <Icon size={15} strokeWidth={2.7} />
+    </span>
+  );
+};
+
+const MessageReadReceiptSummary = ({ readers = [] }) => {
+  const visibleReaders = (Array.isArray(readers) ? readers : []).slice(0, 8);
+  const restCount = Math.max(0, (Array.isArray(readers) ? readers.length : 0) - visibleReaders.length);
+  return (
+    <div className="student-message-context-menu__readers" role="group" aria-label="Кто прочитал">
+      <div className="student-message-context-menu__readers-head">
+        <CheckCheck size={15} />
+        <span>Прочитали</span>
+        <strong>{readers.length}</strong>
+      </div>
+      {visibleReaders.length > 0 ? (
+        <div className="student-message-context-menu__reader-list">
+          {visibleReaders.map((reader) => (
+            <span key={`${reader.role}:${reader.id}`} className="student-message-context-menu__reader">
+              <span className="student-message-context-menu__reader-avatar">{getTeacherChatInitials(reader.name)}</span>
+              <span className="student-message-context-menu__reader-name">{reader.name}</span>
+            </span>
+          ))}
+          {restCount > 0 && (
+            <span className="student-message-context-menu__reader student-message-context-menu__reader--more">
+              +{restCount}
+            </span>
+          )}
+        </div>
+      ) : (
+        <div className="student-message-context-menu__reader-empty">Еще не прочитали</div>
+      )}
+    </div>
+  );
+};
 
 const hasMessageLink = (message) => CHAT_LINK_PATTERN.test(String(message?.text || ''));
 
@@ -1554,6 +1617,12 @@ const TeacherStudentChatsSection = ({
         .map((reaction) => reaction.emoji)
       : []
   );
+  const contextMenuReadReceipts = contextMenuMessage ? normalizeMessageReadReceipts(contextMenuMessage) : [];
+  const contextMenuShowReadReceipts = Boolean(
+    contextMenuOwn
+      && isGroupChatSelected
+      && !contextMenuSystemPin
+  );
   const selectedPinnedMessageId = String(
     selectedChat?.pinnedMessage?.messageId || selectedChat?.pinnedMessageId || ''
   ).trim();
@@ -2363,7 +2432,7 @@ const TeacherStudentChatsSection = ({
                           <div className={`teacher-chat-message-stack flex max-w-[88%] flex-col ${isTeacherMessage ? 'items-end' : 'items-start'}`}>
                           <div
                             className={`teacher-chat-bubble max-w-full rounded-2xl px-3 py-2 text-sm shadow-sm ${isEditingMessage ? 'student-message-bubble--editing' : ''} ${selected ? 'student-message-bubble--selected' : ''} ${
-                              isTeacherMessage ? 'teacher-chat-bubble--teacher text-white' : 'teacher-chat-bubble--student'
+                              isTeacherMessage ? 'teacher-chat-bubble--teacher teacher-chat-bubble--with-status text-white' : 'teacher-chat-bubble--student'
                             }`}
                             onClick={(event) => {
                               if (selectionMode) {
@@ -2497,6 +2566,7 @@ const TeacherStudentChatsSection = ({
                             <div className={`teacher-chat-message-time mt-1 text-[10px] ${isTeacherMessage ? 'teacher-chat-message-time--teacher' : 'teacher-chat-message-time--student'}`}>
                               {formatDateTime(message?.createdAt)}
                             </div>
+                            {isTeacherMessage && <MessageDeliveryStatus message={message} />}
                           </div>
                           {showMessageToolbar && (
                             <div className={`student-message-toolbar ${isTeacherMessage ? 'student-message-toolbar--mine' : 'student-message-toolbar--other'}`}>
@@ -2688,7 +2758,9 @@ const TeacherStudentChatsSection = ({
                         </button>
                       ) : (
                         <>
-                          {contextMenuCanReact && (
+                          {contextMenuShowReadReceipts ? (
+                            <MessageReadReceiptSummary readers={contextMenuReadReceipts} />
+                          ) : contextMenuCanReact && (
                             <div className="student-message-context-menu__reactions" role="group" aria-label="Reactions">
                               {CHAT_REACTION_EMOJIS.map((emoji) => (
                                 <button

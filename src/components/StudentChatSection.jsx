@@ -4,6 +4,7 @@ import {
   Bell,
   BellOff,
   Check,
+  CheckCheck,
   ChevronDown,
   Copy,
   FileText,
@@ -154,6 +155,69 @@ const normalizeMessageReactions = (message) => (
     }))
     .filter((reaction) => reaction.emoji && reaction.count > 0)
 );
+
+const normalizeMessageReadReceipts = (message) => (
+  (Array.isArray(message?.readBy) ? message.readBy : [])
+    .map((reader) => ({
+      id: String(reader?.id || '').trim(),
+      role: String(reader?.role || '').trim(),
+      name: String(reader?.name || '').trim(),
+      readAt: String(reader?.readAt || '').trim(),
+    }))
+    .filter((reader) => reader.id && reader.name)
+);
+
+const getMessageReceiptState = (message) => {
+  const id = String(message?.id || '').trim();
+  if (!id || message?.pending || message?.sending || message?.localOnly || message?.status === 'pending') return 'pending';
+  if (normalizeMessageReadReceipts(message).length > 0 || Number(message?.viewCount) > 0 || message?.read === true) return 'read';
+  return 'sent';
+};
+
+const MessageDeliveryStatus = ({ message }) => {
+  const state = getMessageReceiptState(message);
+  const Icon = state === 'pending' ? Check : CheckCheck;
+  return (
+    <span
+      className={`student-message-read-status student-message-read-status--${state}`}
+      aria-label={state === 'read' ? 'Прочитано' : (state === 'sent' ? 'Отправлено' : 'Отправляется')}
+      title={state === 'read' ? 'Прочитано' : (state === 'sent' ? 'Отправлено' : 'Отправляется')}
+    >
+      <Icon size={15} strokeWidth={2.7} />
+    </span>
+  );
+};
+
+const MessageReadReceiptSummary = ({ readers = [] }) => {
+  const visibleReaders = (Array.isArray(readers) ? readers : []).slice(0, 8);
+  const restCount = Math.max(0, (Array.isArray(readers) ? readers.length : 0) - visibleReaders.length);
+  return (
+    <div className="student-message-context-menu__readers" role="group" aria-label="Кто прочитал">
+      <div className="student-message-context-menu__readers-head">
+        <CheckCheck size={15} />
+        <span>Прочитали</span>
+        <strong>{readers.length}</strong>
+      </div>
+      {visibleReaders.length > 0 ? (
+        <div className="student-message-context-menu__reader-list">
+          {visibleReaders.map((reader) => (
+            <span key={`${reader.role}:${reader.id}`} className="student-message-context-menu__reader">
+              <span className="student-message-context-menu__reader-avatar">{getInitials(reader.name)}</span>
+              <span className="student-message-context-menu__reader-name">{reader.name}</span>
+            </span>
+          ))}
+          {restCount > 0 && (
+            <span className="student-message-context-menu__reader student-message-context-menu__reader--more">
+              +{restCount}
+            </span>
+          )}
+        </div>
+      ) : (
+        <div className="student-message-context-menu__reader-empty">Еще не прочитали</div>
+      )}
+    </div>
+  );
+};
 
 const hasMessageLink = (message) => CHAT_LINK_PATTERN.test(String(message?.text || ''));
 
@@ -774,6 +838,7 @@ const ChatMessages = ({
   pinnedMessage = null,
   onPinnedCancel = null,
   onPinnedOpen = null,
+  chatKind = '',
   menuActions = [],
   drawerInfo = null,
   headerContent = null,
@@ -1140,6 +1205,12 @@ const ChatMessages = ({
         .map((reaction) => reaction.emoji)
       : []
   );
+  const contextMenuReadReceipts = contextMenuMessage ? normalizeMessageReadReceipts(contextMenuMessage) : [];
+  const contextMenuShowReadReceipts = Boolean(
+    contextMenuOwn
+      && chatKind === 'group'
+      && !contextMenuSystemPin
+  );
   const closeContextMenu = () => setMessageContextMenu(null);
 
   useEffect(() => {
@@ -1422,7 +1493,7 @@ const ChatMessages = ({
               <div
                 className={`student-message-bubble relative overflow-hidden rounded-[1.15rem] border px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${isEditingMessage ? 'student-message-bubble--editing' : ''} ${selected ? 'student-message-bubble--selected' : ''} ${
                   own
-                    ? 'student-message-bubble--mine text-white'
+                    ? 'student-message-bubble--mine student-message-bubble--with-status text-white'
                     : 'student-message-bubble--other text-slate-800'
                 }`}
                 onClick={(event) => {
@@ -1549,6 +1620,7 @@ const ChatMessages = ({
                     linkClassName={own ? 'underline decoration-white/70 underline-offset-2' : 'text-cyan-600 underline decoration-cyan-300 underline-offset-2'}
                   />
                 )}
+                {own && <MessageDeliveryStatus message={message} />}
               </div>
               {showMessageToolbar && (
                 <div className={`student-message-toolbar ${own ? 'student-message-toolbar--mine' : 'student-message-toolbar--other'}`}>
@@ -1749,7 +1821,9 @@ const ChatMessages = ({
           </button>
         ) : (
           <>
-            {contextMenuCanReact && (
+            {contextMenuShowReadReceipts ? (
+              <MessageReadReceiptSummary readers={contextMenuReadReceipts} />
+            ) : contextMenuCanReact && (
               <div className="student-message-context-menu__reactions" role="group" aria-label="Reactions">
                 {CHAT_REACTION_EMOJIS.map((emoji) => (
                   <button
@@ -3473,6 +3547,7 @@ const StudentChatSection = ({
             pinnedMessage={teacherChat?.pinnedMessage || null}
             onPinnedCancel={handleUnpinTeacherMessage}
             onPinnedOpen={requestTeacherReferenceOpen}
+            chatKind="teacher"
             menuActions={teacherChatMenuActions}
             drawerInfo={{
               title: teacherName,
@@ -3555,6 +3630,7 @@ const StudentChatSection = ({
                 pinnedMessage={socialPinnedMessage}
                 onPinnedCancel={handleUnpinSocialMessage}
                 onPinnedOpen={requestSocialReferenceOpen}
+                chatKind="group"
                 menuActions={groupChatMenuActions}
                 drawerInfo={{
                   title: socialTitle,
@@ -3741,6 +3817,7 @@ const StudentChatSection = ({
                   pinnedMessage={socialPinnedMessage}
                   onPinnedCancel={handleUnpinSocialMessage}
                   onPinnedOpen={requestSocialReferenceOpen}
+                  chatKind="direct"
                   menuActions={directChatMenuActions}
                   drawerInfo={{
                     title: socialTitle,

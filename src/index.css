@@ -12713,6 +12713,39 @@ html[data-theme='light'] .student-chat-push-button:hover:not(:disabled) {
   --student-message-accent-2: 168 85 247;
 }
 
+.student-message-bubble--with-status,
+.teacher-chat-bubble--with-status {
+  min-width: 3.9rem;
+  padding-right: 2.25rem !important;
+  padding-bottom: 1.28rem !important;
+}
+
+.student-message-read-status {
+  position: absolute;
+  right: 0.58rem;
+  bottom: 0.42rem;
+  z-index: 3;
+  display: inline-flex;
+  width: 1.12rem;
+  height: 0.9rem;
+  align-items: center;
+  justify-content: center;
+  color: rgba(226, 232, 240, 0.72);
+  filter: drop-shadow(0 1px 1px rgba(2, 6, 23, 0.18));
+  pointer-events: none;
+}
+
+.student-message-read-status--read {
+  color: #38bdf8;
+  filter:
+    drop-shadow(0 0 6px rgba(56, 189, 248, 0.34))
+    drop-shadow(0 1px 1px rgba(2, 6, 23, 0.16));
+}
+
+.student-message-read-status--pending {
+  color: rgba(226, 232, 240, 0.58);
+}
+
 .student-chat-messages-shell {
   gap: 0.55rem;
 }
@@ -14585,6 +14618,100 @@ html[data-theme='light'] .student-chat-push-button:hover:not(:disabled) {
     0 12px 26px rgba(20, 184, 166, 0.16);
 }
 
+.student-message-context-menu__readers {
+  display: grid;
+  gap: 0.42rem;
+  margin: -0.04rem -0.02rem 0.22rem;
+  padding: 0.16rem 0.08rem 0.48rem;
+  border-bottom: 1px solid rgba(125, 211, 252, 0.18);
+}
+
+.student-message-context-menu__readers-head {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+  color: rgba(226, 232, 240, 0.88);
+  font-size: 0.72rem;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.student-message-context-menu__readers-head svg {
+  color: #38bdf8;
+  filter: drop-shadow(0 0 7px rgba(56, 189, 248, 0.38));
+}
+
+.student-message-context-menu__readers-head strong {
+  margin-left: auto;
+  min-width: 1.25rem;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.38);
+  padding: 0.18rem 0.38rem;
+  color: #67e8f9;
+  text-align: center;
+}
+
+.student-message-context-menu__reader-list {
+  display: grid;
+  gap: 0.3rem;
+  max-height: 9.5rem;
+  overflow-y: auto;
+  padding-right: 0.12rem;
+}
+
+.student-message-context-menu__reader {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.42rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.07);
+  padding: 0.32rem 0.42rem;
+}
+
+.student-message-context-menu__reader-avatar {
+  display: grid;
+  width: 1.55rem;
+  height: 1.55rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 0.58rem;
+  background:
+    radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.32), transparent 42%),
+    linear-gradient(135deg, #22d3ee, #8b5cf6);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 950;
+  box-shadow: 0 7px 16px rgba(14, 165, 233, 0.16);
+}
+
+.student-message-context-menu__reader-name {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(248, 250, 252, 0.9);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-message-context-menu__reader--more,
+.student-message-context-menu__reader-empty {
+  justify-content: center;
+  color: rgba(203, 213, 225, 0.72);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+.student-message-context-menu__reader-empty {
+  border: 1px dashed rgba(125, 211, 252, 0.2);
+  border-radius: 0.85rem;
+  padding: 0.58rem 0.5rem;
+}
+
 @keyframes student-message-context-menu-in {
   from {
     opacity: 0;
@@ -15411,6 +15538,16 @@ html[data-theme='light'] .student-message-context-menu__reactions {
   border-bottom-color: rgba(14, 165, 233, 0.16);
 }
 
+html[data-theme='light'] .student-message-read-status {
+  color: rgba(71, 85, 105, 0.66);
+  filter: drop-shadow(0 1px 1px rgba(255, 255, 255, 0.34));
+}
+
+html[data-theme='light'] .student-message-read-status--read {
+  color: #0ea5e9;
+  filter: drop-shadow(0 0 6px rgba(14, 165, 233, 0.26));
+}
+
 html[data-theme='light'] .student-message-context-menu__reaction {
   border-color: rgba(14, 165, 233, 0.14);
   background:
@@ -15438,6 +15575,38 @@ html[data-theme='light'] .student-message-context-menu__reaction--active {
   box-shadow:
     0 0 0 1px rgba(20, 184, 166, 0.12) inset,
     0 12px 24px rgba(20, 184, 166, 0.12);
+}
+
+html[data-theme='light'] .student-message-context-menu__readers {
+  border-bottom-color: rgba(14, 165, 233, 0.16);
+}
+
+html[data-theme='light'] .student-message-context-menu__readers-head {
+  color: rgb(51, 65, 85);
+}
+
+html[data-theme='light'] .student-message-context-menu__readers-head strong {
+  border-color: rgba(14, 165, 233, 0.16);
+  background: rgba(240, 249, 255, 0.8);
+  color: rgb(14, 116, 144);
+}
+
+html[data-theme='light'] .student-message-context-menu__reader {
+  border-color: rgba(14, 165, 233, 0.14);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+html[data-theme='light'] .student-message-context-menu__reader-name {
+  color: rgb(30, 41, 59);
+}
+
+html[data-theme='light'] .student-message-context-menu__reader--more,
+html[data-theme='light'] .student-message-context-menu__reader-empty {
+  color: rgb(100, 116, 139);
+}
+
+html[data-theme='light'] .student-message-context-menu__reader-empty {
+  border-color: rgba(14, 165, 233, 0.18);
 }
 
 html[data-theme='light'] .student-message-context-menu__button {
@@ -16762,6 +16931,8 @@ html[data-theme='dark'] .student-direct-thread-header p:last-child {
 }
 
 .teacher-chat-bubble {
+  position: relative;
+  overflow: hidden;
   line-height: 1.45;
 }
 

@@ -3178,19 +3178,48 @@ const isChatReadAtOrAfterMessage = (readAt, message) => {
     && readTimestamp >= messageTimestamp;
 };
 
-const getStudentTeacherMessageViewCount = (chat, message) => {
-  if (!chat || !message) return 0;
+const buildStudentChatReadReceipt = ({ id = '', role = '', name = '', readAt = '' } = {}) => {
+  const normalizedId = String(id || '').trim();
+  const normalizedRole = String(role || '').trim();
+  const normalizedName = String(name || '').trim();
+  const normalizedReadAt = normalizeIsoTimestamp(readAt, '');
+  if (!normalizedId || !normalizedRole || !normalizedName || !normalizedReadAt) return null;
+  return {
+    id: normalizedId,
+    role: normalizedRole,
+    name: normalizedName,
+    readAt: normalizedReadAt,
+  };
+};
+
+const getStudentTeacherMessageReadBy = (chat, message, options = {}) => {
+  if (!chat || !message) return [];
   if (message.senderRole === 'student') {
-    return isChatReadAtOrAfterMessage(chat.lastReadByTeacherAt, message) ? 1 : 0;
+    if (!isChatReadAtOrAfterMessage(chat.lastReadByTeacherAt, message)) return [];
+    const teacher = findTeacherById(chat.teacherId);
+    return [buildStudentChatReadReceipt({
+      id: chat.teacherId,
+      role: 'teacher',
+      name: String(teacher?.name || 'Преподаватель').trim() || 'Преподаватель',
+      readAt: chat.lastReadByTeacherAt,
+    })].filter(Boolean);
   }
   if (message.senderRole === 'teacher') {
-    return isChatReadAtOrAfterMessage(chat.lastReadByStudentAt, message) ? 1 : 0;
+    if (!isChatReadAtOrAfterMessage(chat.lastReadByStudentAt, message)) return [];
+    const student = findStudentById(chat.studentId);
+    return [buildStudentChatReadReceipt({
+      id: chat.studentId,
+      role: 'student',
+      name: getStudentChatVisibleName(student, options),
+      readAt: chat.lastReadByStudentAt,
+    })].filter(Boolean);
   }
-  return 0;
+  return [];
 };
 
 const enrichStudentTeacherMessageViewStats = (chat, message, options = {}) => {
   const visibleMessage = sanitizeStudentChatMessageForViewer(message, options);
+  const readBy = getStudentTeacherMessageReadBy(chat, message, options);
   return {
     ...visibleMessage,
     ...(message?.senderRole === 'student'
@@ -3200,7 +3229,8 @@ const enrichStudentTeacherMessageViewStats = (chat, message, options = {}) => {
       ? { senderAvatarDataUrl: normalizeTeacherAvatarDataUrl(findTeacherById(message.senderId)?.avatarDataUrl) }
       : {}),
     reactions: buildStudentChatReactionSummary(message, options.actorKey, options),
-    viewCount: getStudentTeacherMessageViewCount(chat, message),
+    viewCount: readBy.length,
+    readBy,
   };
 };
 
@@ -3854,15 +3884,20 @@ const rebuildStudentSocialChatAfterMessages = (chat, messages) => {
   }) || chat;
 };
 
-const getStudentSocialMessageViewCount = (chat, message, options = {}) => {
-  if (!chat || !message) return 0;
-  if (message.senderRole === 'system') return 0;
+const getStudentSocialMessageReadBy = (chat, message, options = {}) => {
+  if (!chat || !message || message.senderRole === 'system') return [];
   const senderId = String(message.senderId || '').trim();
-  let count = 0;
+  const receipts = [];
 
   if (chat.type === 'group') {
     if (message.senderRole !== 'teacher' && isChatReadAtOrAfterMessage(chat.lastReadByTeacherAt, message)) {
-      count += 1;
+      const teacher = findTeacherById(chat.teacherId);
+      receipts.push(buildStudentChatReadReceipt({
+        id: chat.teacherId,
+        role: 'teacher',
+        name: String(teacher?.name || 'Преподаватель').trim() || 'Преподаватель',
+        readAt: chat.lastReadByTeacherAt,
+      }));
     }
     const studentIds = Array.isArray(options.groupStudentIds)
       ? options.groupStudentIds
@@ -3870,25 +3905,38 @@ const getStudentSocialMessageViewCount = (chat, message, options = {}) => {
     studentIds.forEach((studentId) => {
       const id = String(studentId || '').trim();
       if (!id || id === senderId) return;
-      if (isChatReadAtOrAfterMessage(chat.lastReadByStudentId?.[id], message)) {
-        count += 1;
-      }
+      const readAt = chat.lastReadByStudentId?.[id];
+      if (!isChatReadAtOrAfterMessage(readAt, message)) return;
+      const student = findStudentById(id);
+      receipts.push(buildStudentChatReadReceipt({
+        id,
+        role: 'student',
+        name: getStudentChatVisibleName(student, options),
+        readAt,
+      }));
     });
-    return count;
+    return receipts.filter(Boolean);
   }
 
   (Array.isArray(chat.studentIds) ? chat.studentIds : []).forEach((studentId) => {
     const id = String(studentId || '').trim();
     if (!id || id === senderId) return;
-    if (isChatReadAtOrAfterMessage(chat.lastReadByStudentId?.[id], message)) {
-      count += 1;
-    }
+    const readAt = chat.lastReadByStudentId?.[id];
+    if (!isChatReadAtOrAfterMessage(readAt, message)) return;
+    const student = findStudentById(id);
+    receipts.push(buildStudentChatReadReceipt({
+      id,
+      role: 'student',
+      name: getStudentChatVisibleName(student, options),
+      readAt,
+    }));
   });
-  return count;
+  return receipts.filter(Boolean);
 };
 
 const enrichStudentSocialMessageViewStats = (chat, message, options = {}) => {
   const visibleMessage = sanitizeStudentChatMessageForViewer(message, options);
+  const readBy = getStudentSocialMessageReadBy(chat, message, options);
   return {
     ...visibleMessage,
     ...(message?.senderRole === 'student'
@@ -3898,7 +3946,8 @@ const enrichStudentSocialMessageViewStats = (chat, message, options = {}) => {
       ? { senderAvatarDataUrl: normalizeTeacherAvatarDataUrl(findTeacherById(message.senderId)?.avatarDataUrl) }
       : {}),
     reactions: buildStudentChatReactionSummary(message, options.actorKey, options),
-    viewCount: getStudentSocialMessageViewCount(chat, message, options),
+    viewCount: readBy.length,
+    readBy,
   };
 };
 
