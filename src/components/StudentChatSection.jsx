@@ -166,6 +166,45 @@ const normalizeMessageReactions = (message) => (
     .filter((reaction) => reaction.emoji && reaction.count > 0)
 );
 
+const getOptimisticMessageReactions = (message, emoji) => {
+  const normalizedEmoji = String(emoji || '').trim();
+  if (!normalizedEmoji || !CHAT_REACTION_EMOJIS.includes(normalizedEmoji)) {
+    return normalizeMessageReactions(message);
+  }
+  const currentReactions = normalizeMessageReactions(message);
+  const alreadyReacted = currentReactions.some((reaction) => (
+    reaction.emoji === normalizedEmoji && reaction.reactedByMe
+  ));
+  const byEmoji = new Map();
+  currentReactions.forEach((reaction) => {
+    const nextReaction = {
+      ...reaction,
+      count: reaction.count,
+      reactedByMe: Boolean(reaction.reactedByMe),
+    };
+    if (nextReaction.reactedByMe) {
+      nextReaction.count = Math.max(0, nextReaction.count - 1);
+      nextReaction.reactedByMe = false;
+    }
+    if (nextReaction.count > 0) byEmoji.set(nextReaction.emoji, nextReaction);
+  });
+  if (!alreadyReacted) {
+    const current = byEmoji.get(normalizedEmoji);
+    byEmoji.set(normalizedEmoji, {
+      emoji: normalizedEmoji,
+      count: (current?.count || 0) + 1,
+      reactedByMe: true,
+      names: Array.isArray(current?.names) ? current.names : [],
+    });
+  }
+  return CHAT_REACTION_EMOJIS.map((reactionEmoji) => byEmoji.get(reactionEmoji)).filter(Boolean);
+};
+
+const applyOptimisticMessageReaction = (message, emoji) => ({
+  ...message,
+  reactions: getOptimisticMessageReactions(message, emoji),
+});
+
 const normalizeMessageReadReceipts = (message) => (
   (Array.isArray(message?.readBy) ? message.readBy : [])
     .map((reader) => ({
@@ -1167,10 +1206,10 @@ const ChatMessages = ({
     setEditingMessageId('');
     setEditingText('');
     setMessageContextMenu(null);
+    triggerReactionBurst(id, normalizedEmoji);
+    setReactionPickerMessageId('');
     try {
       await onReactMessage(message, normalizedEmoji);
-      triggerReactionBurst(id, normalizedEmoji);
-      setReactionPickerMessageId('');
     } catch {
       // Parent callbacks already expose the error in the chat panel.
     } finally {
@@ -3009,7 +3048,11 @@ const StudentChatSection = ({
     const messageId = String(message?.id || '').trim();
     const normalizedEmoji = String(emoji || '').trim();
     if (!messageId || !normalizedEmoji) return;
+    const previousMessage = message;
     setTeacherError('');
+    setTeacherMessages((prev) => prev.map((item) => (
+      item?.id === messageId ? applyOptimisticMessageReaction(item, normalizedEmoji) : item
+    )));
     try {
       const payload = await api.toggleStudentChatMessageReaction(messageId, normalizedEmoji);
       if (payload?.chat) setTeacherChat(payload.chat);
@@ -3019,6 +3062,9 @@ const StudentChatSection = ({
         )));
       }
     } catch (err) {
+      setTeacherMessages((prev) => prev.map((item) => (
+        item?.id === messageId ? previousMessage : item
+      )));
       setTeacherError(err?.message || String(err));
       throw err;
     }
@@ -3125,7 +3171,11 @@ const StudentChatSection = ({
     const messageId = String(message?.id || '').trim();
     const normalizedEmoji = String(emoji || '').trim();
     if (!chatId || !messageId || !normalizedEmoji) return;
+    const previousMessage = message;
     setSocialMessagesError('');
+    setSocialMessages((prev) => prev.map((item) => (
+      item?.id === messageId ? applyOptimisticMessageReaction(item, normalizedEmoji) : item
+    )));
     try {
       const payload = await api.toggleStudentSocialChatMessageReaction(chatId, messageId, normalizedEmoji);
       if (payload?.chat) setSocialChat(payload.chat);
@@ -3136,6 +3186,9 @@ const StudentChatSection = ({
       }
       await loadSocialChats({ silent: true });
     } catch (err) {
+      setSocialMessages((prev) => prev.map((item) => (
+        item?.id === messageId ? previousMessage : item
+      )));
       setSocialMessagesError(err?.message || String(err));
       throw err;
     }

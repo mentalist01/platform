@@ -139,6 +139,45 @@ const normalizeMessageReactions = (message) => (
     .filter((reaction) => reaction.emoji && reaction.count > 0)
 );
 
+const getOptimisticMessageReactions = (message, emoji) => {
+  const normalizedEmoji = String(emoji || '').trim();
+  if (!normalizedEmoji || !CHAT_REACTION_EMOJIS.includes(normalizedEmoji)) {
+    return normalizeMessageReactions(message);
+  }
+  const currentReactions = normalizeMessageReactions(message);
+  const alreadyReacted = currentReactions.some((reaction) => (
+    reaction.emoji === normalizedEmoji && reaction.reactedByMe
+  ));
+  const byEmoji = new Map();
+  currentReactions.forEach((reaction) => {
+    const nextReaction = {
+      ...reaction,
+      count: reaction.count,
+      reactedByMe: Boolean(reaction.reactedByMe),
+    };
+    if (nextReaction.reactedByMe) {
+      nextReaction.count = Math.max(0, nextReaction.count - 1);
+      nextReaction.reactedByMe = false;
+    }
+    if (nextReaction.count > 0) byEmoji.set(nextReaction.emoji, nextReaction);
+  });
+  if (!alreadyReacted) {
+    const current = byEmoji.get(normalizedEmoji);
+    byEmoji.set(normalizedEmoji, {
+      emoji: normalizedEmoji,
+      count: (current?.count || 0) + 1,
+      reactedByMe: true,
+      names: Array.isArray(current?.names) ? current.names : [],
+    });
+  }
+  return CHAT_REACTION_EMOJIS.map((reactionEmoji) => byEmoji.get(reactionEmoji)).filter(Boolean);
+};
+
+const applyOptimisticMessageReaction = (message, emoji) => ({
+  ...message,
+  reactions: getOptimisticMessageReactions(message, emoji),
+});
+
 const normalizeMessageReadReceipts = (message) => (
   (Array.isArray(message?.readBy) ? message.readBy : [])
     .map((reader) => ({
@@ -1605,7 +1644,13 @@ const TeacherStudentChatsSection = ({
     setEditingMessageId('');
     setEditingMessageText('');
     setMessageContextMenu(null);
+    const previousMessage = message;
     try {
+      setMessages((prev) => prev.map((item) => (
+        item?.id === messageId ? applyOptimisticMessageReaction(item, normalizedEmoji) : item
+      )));
+      triggerReactionBurst(messageId, normalizedEmoji);
+      setReactionPickerMessageId('');
       const payload = selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID
         ? await api.toggleTeacherSocialGroupChatMessageReaction(messageId, normalizedEmoji, normalizedTeacherId)
         : await api.toggleStudentChatMessageReactionForTeacher(selectedChatId, messageId, normalizedEmoji);
@@ -1618,12 +1663,13 @@ const TeacherStudentChatsSection = ({
           item?.id === payload.message.id ? payload.message : item
         )));
       }
-      triggerReactionBurst(messageId, normalizedEmoji);
-      setReactionPickerMessageId('');
       if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) {
         await refreshChats();
       }
     } catch (err) {
+      setMessages((prev) => prev.map((item) => (
+        item?.id === messageId ? previousMessage : item
+      )));
       setMessagesError(err?.message || String(err));
     } finally {
       setBusyReactionKey('');
