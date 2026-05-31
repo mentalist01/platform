@@ -14294,8 +14294,8 @@ html[data-theme='light'] .student-chat-push-button:hover:not(:disabled) {
 }
 
 .student-message-toolbar .student-message-reaction-pill {
-  cursor: default;
-  pointer-events: none;
+  cursor: pointer;
+  pointer-events: auto;
 }
 
 .student-message-reaction-pill strong {
