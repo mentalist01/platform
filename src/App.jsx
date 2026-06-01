@@ -13,7 +13,7 @@ import {
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   ChevronsLeft, ChevronsRight, ChevronsUpDown, Search,
-  Bell, BellOff, Camera, MousePointer2, Code2, MoreHorizontal, MessageSquare, Users, Wallet
+  Bell, BellOff, Camera, MousePointer2, Code2, MoreHorizontal, Users, Wallet
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
 import mascotDisapproval from './assets/mascot/disapproval.png';
@@ -41,7 +41,6 @@ import PythonSection from './components/PythonSection';
 import ScheduleSection from './components/ScheduleSection';
 import StudentLeaderboardSection from './components/StudentLeaderboardSection';
 import StudentSearchSelect from './components/StudentSearchSelect';
-import StudentChatSection from './components/StudentChatSection';
 import StudentTour from './components/StudentTour';
 import StudentNotificationsCenter from './components/StudentNotificationsCenter';
 import SignupGuestChat from './components/SignupGuestChat';
@@ -49,7 +48,6 @@ import TeacherCalendarSection from './components/TeacherCalendarSection';
 import TeacherFinanceSection from './components/TeacherFinanceSection';
 import TeacherLessonStartPrompt from './components/TeacherLessonStartPrompt';
 import TeacherPanel from './components/TeacherPanel';
-import TeacherStudentChatsSection from './components/TeacherStudentChatsSection';
 import ThemeToggleButton from './components/ThemeToggleButton';
 import CoinGuideIcon from './components/CoinGuideTooltip';
 import { Button, Card, ProgressBar } from './components/ui';
@@ -116,6 +114,7 @@ const parseNativePushLaunchUrl = (value) => {
 
 const PLATFORM_DOCUMENT_TITLE = 'Платформа';
 const CHAT_LIVE_RECONNECT_DELAY_MS = 2500;
+const PLATFORM_CHATS_ENABLED = false;
 
 const formatUnreadMessageTitle = (count) => {
   const safeCount = Math.max(1, Math.floor(Number(count) || 1));
@@ -11410,14 +11409,14 @@ const readDashboardFileAsDataUrl = (file) => new Promise((resolve, reject) => {
 const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, onThemeToggle, onUserUpdated }) => {
   const STUDENT_CALL_SECTION_ENABLED = true;
   const TEACHER_COMMS_VIEW = 'teacher-comms';
-  const TEACHER_COMMS_TABS = ['signup-chats', 'student-chats', 'notifications'];
+  const TEACHER_COMMS_TABS = PLATFORM_CHATS_ENABLED ? ['signup-chats', 'student-chats', 'notifications'] : [];
   const resolveTeacherCommsTab = (value) => {
     const normalized = String(value || '').trim();
     return TEACHER_COMMS_TABS.includes(normalized) ? normalized : 'signup-chats';
   };
   const normalizeTeacherView = (value) => {
     const normalized = String(value || '').trim();
-    if (user.role === 'teacher' && TEACHER_COMMS_TABS.includes(normalized)) {
+    if (PLATFORM_CHATS_ENABLED && user.role === 'teacher' && TEACHER_COMMS_TABS.includes(normalized)) {
       return TEACHER_COMMS_VIEW;
     }
     return normalized;
@@ -11425,7 +11424,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const allowedViews = user.role === 'admin'
     ? ['admin']
     : user.role === 'teacher'
-      ? ['schedule', 'teacher-calendar', 'progress', 'python', 'rating', 'collab', 'call', 'board', 'teacher', TEACHER_COMMS_VIEW, 'notes']
+      ? [
+        'schedule',
+        'teacher-calendar',
+        'progress',
+        'python',
+        'rating',
+        'collab',
+        'call',
+        'board',
+        'teacher',
+        ...(PLATFORM_CHATS_ENABLED ? [TEACHER_COMMS_VIEW] : []),
+        'notes'
+      ]
       : [
         'schedule',
         'progress',
@@ -11434,7 +11445,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         'collab',
         ...(STUDENT_CALL_SECTION_ENABLED ? ['call'] : []),
         'board',
-        'chat',
+        ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []),
         'notes'
       ];
   const allowedViewsKey = allowedViews.join('|');
@@ -11475,9 +11486,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const initialTeacherChatId = (user.role === 'teacher' || user.role === 'admin')
     ? urlRequestedChatId
     : '';
-  const initialTeacherStudentChatId = user.role === 'teacher' && initialTeacherCommsTab === 'student-chats'
-    ? initialTeacherChatId
-    : '';
   const initialTeacherSignupChatId = user.role === 'teacher' && initialTeacherCommsTab === 'signup-chats'
     ? initialTeacherChatId
     : '';
@@ -11491,7 +11499,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const [view, setView] = useState(initialView);
   const [teacherCommsTab, setTeacherCommsTab] = useState(initialTeacherCommsTab);
-  const [teacherStudentChatId, setTeacherStudentChatId] = useState(initialTeacherStudentChatId);
   const [teacherSignupChatId, setTeacherSignupChatId] = useState(initialTeacherSignupChatId);
   const [callSessionStatus, setCallSessionStatus] = useState('idle');
   const [callAutoStartToken, setCallAutoStartToken] = useState(0);
@@ -11515,7 +11522,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [pendingOpenMockExamId, setPendingOpenMockExamId] = useState(
     () => (user.role === 'student' ? initialMockExamId : null)
   );
-  const [pendingDirectChatRequest, setPendingDirectChatRequest] = useState(null);
   const [goalState, setGoalState] = useState(null);
   const [goalTestsDb, setGoalTestsDb] = useState(null);
   const [goalRefreshTick, setGoalRefreshTick] = useState(0);
@@ -11624,7 +11630,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const isBoardView = view === 'board';
   const isCallView = view === 'call';
   const isCollabView = view === 'collab';
-  const isStudentChatView = view === 'chat' && user?.role === 'student';
+  const isStudentChatView = PLATFORM_CHATS_ENABLED && view === 'chat' && user?.role === 'student';
   const isTeacherCalendarView = view === 'teacher-calendar' && user?.role === 'teacher';
   const callUiMode = !isCallViewAvailable
     ? 'hidden'
@@ -11764,7 +11770,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
         { id: 'board', label: 'Доска', icon: Brush },
         { id: 'teacher', label: 'Управление тестами', icon: Settings },
-        { id: TEACHER_COMMS_VIEW, label: 'Чаты и уведомления', icon: MessageSquare },
+        ...(PLATFORM_CHATS_ENABLED ? [{ id: TEACHER_COMMS_VIEW, label: 'Чаты и уведомления', icon: Bell }] : []),
         { id: 'notes', label: 'Конспекты', icon: Folder }
       ]
       : [
@@ -11775,7 +11781,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'collab', label: 'Совместный код', icon: Code2 },
         { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
         { id: 'board', label: 'Доска', icon: Brush },
-        { id: 'chat', label: 'Чаты', icon: MessageSquare },
+        ...(PLATFORM_CHATS_ENABLED ? [{ id: 'chat', label: 'Чаты', icon: Bell }] : []),
         { id: 'notes', label: 'Конспекты', icon: BookOpen }
       ];
   const visibleNav = (user.role === 'student' && !STUDENT_CALL_SECTION_ENABLED)
@@ -11785,7 +11791,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ? ['call', 'board', 'collab']
     : ['board', 'collab'];
   const teacherLessonNavIds = ['call', 'board', 'collab'];
-  const studentCoreNavIds = ['schedule', 'progress', 'chat', 'notes'];
+  const studentCoreNavIds = ['schedule', 'progress', ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'notes'];
   const studentLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
   const teacherLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
   const studentPrimaryNav = user.role === 'student'
@@ -11794,7 +11800,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       studentLessonNavItem,
-      ...['chat', 'notes']
+      ...[...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'notes']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean)
     ]
@@ -11824,7 +11830,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       teacherLessonNavItem,
-      ...['teacher', TEACHER_COMMS_VIEW, 'notes']
+      ...['teacher', ...(PLATFORM_CHATS_ENABLED ? [TEACHER_COMMS_VIEW] : []), 'notes']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean)
     ]
@@ -11856,7 +11862,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     admin: 'Админка',
     more: '\u0415\u0449\u0435',
   };
-  const teacherCommsNavNewCount = user.role === 'teacher'
+  const teacherCommsNavNewCount = PLATFORM_CHATS_ENABLED && user.role === 'teacher'
     ? (
       (Array.isArray(teacherSolvedNotifs) ? teacherSolvedNotifs.length : 0)
       + (Array.isArray(teacherSignupNotifs)
@@ -11872,16 +11878,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       sum + Math.max(1, Math.floor(Number(note?.unreadCount) || 0))
     ), 0)
     : 0;
-  const unreadMessageAlertTotal = user.role === 'student'
-    ? Math.max(0, Math.floor(Number(studentChatNavUnreadTotal) || 0))
-    : (user.role === 'teacher'
-      ? (
-        Math.max(0, Math.floor(Number(teacherStudentChatsUnreadTotal) || 0))
-        + Math.max(0, Math.floor(Number(teacherSignupUnreadMessageTotal) || 0))
-      )
-      : 0);
+  const unreadMessageAlertTotal = PLATFORM_CHATS_ENABLED
+    ? (user.role === 'student'
+      ? Math.max(0, Math.floor(Number(studentChatNavUnreadTotal) || 0))
+      : (user.role === 'teacher'
+        ? (
+          Math.max(0, Math.floor(Number(teacherStudentChatsUnreadTotal) || 0))
+          + Math.max(0, Math.floor(Number(teacherSignupUnreadMessageTotal) || 0))
+        )
+        : 0))
+    : 0;
   const chatLiveWsUrl = useMemo(() => (
-    user?.role ? withStoredAuthToken(getNotificationsWsUrl()) : ''
+    PLATFORM_CHATS_ENABLED && user?.role ? withStoredAuthToken(getNotificationsWsUrl()) : ''
   ), [user?.id, user?.role]);
 
   const registerIncomingMessageSoundCandidates = useCallback((scope, candidates = []) => {
@@ -11928,12 +11936,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     if (user.role === 'student') {
       counts.schedule = Math.max(0, Math.floor(Number(studentScheduleNavNewTotal) || 0));
       counts.progress = Math.max(0, Math.floor(Number(studentProgressNavNewTotal) || 0));
-      counts.chat = Math.max(0, Math.floor(Number(studentChatNavUnreadTotal) || 0));
+      if (PLATFORM_CHATS_ENABLED) {
+        counts.chat = Math.max(0, Math.floor(Number(studentChatNavUnreadTotal) || 0));
+      }
       counts.more = studentExtraNav.reduce((sum, item) => (
         sum + Math.max(0, Math.floor(Number(counts[item.id]) || 0))
       ), 0);
     }
-    if (user.role === 'teacher') {
+    if (PLATFORM_CHATS_ENABLED && user.role === 'teacher') {
       counts[TEACHER_COMMS_VIEW] = Math.max(0, Math.floor(Number(teacherCommsNavNewCount) || 0));
     }
     return counts;
@@ -13225,7 +13235,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     setView(resolvedView);
   }, [captureGoalFlySource, stopGoalFlyAnimation, studentDefaultLessonView, user.role, view]);
   const handleOpenStudentDirectChat = useCallback(async (targetStudentId) => {
-    if (user.role !== 'student') return;
+    if (!PLATFORM_CHATS_ENABLED || user.role !== 'student') return;
     const normalizedStudentId = String(targetStudentId || '').trim();
     if (!normalizedStudentId || normalizedStudentId === String(user.id || '').trim()) return;
 
@@ -13233,12 +13243,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const chatId = String(payload?.chat?.id || '').trim();
     if (!chatId) throw new Error('Не удалось открыть чат.');
 
-    setPendingDirectChatRequest({
-      token: `${chatId}:${Date.now()}`,
-      chatId,
-      chat: payload.chat,
-      messages: Array.isArray(payload?.messages) ? payload.messages : [],
-    });
     setMenuOpen(false);
     navigateToView('chat');
   }, [navigateToView, user.id, user.role]);
@@ -13261,12 +13265,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       const isTeacherCommsPushView = requestedView === 'signup-chats'
         || requestedView === 'student-chats'
         || requestedView === 'notifications';
-      if (user.role === 'teacher' && isTeacherCommsPushView) {
+      if (PLATFORM_CHATS_ENABLED && user.role === 'teacher' && isTeacherCommsPushView) {
         const nextTab = isTeacherCommsPushView ? requestedView : 'signup-chats';
         setTeacherCommsTab(nextTab);
-        if (nextTab === 'student-chats' && payload.chatId) {
-          setTeacherStudentChatId(payload.chatId);
-        }
         if (nextTab === 'signup-chats' && payload.chatId) {
           setTeacherSignupChatId(payload.chatId);
         }
@@ -13867,7 +13868,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [user.role, user.id]);
 
   useEffect(() => {
-    if (user.role !== 'teacher') return;
+    if (!PLATFORM_CHATS_ENABLED || user.role !== 'teacher') {
+      setTeacherSignupNotifs([]);
+      return undefined;
+    }
     let cancelled = false;
 
     const fetchSignupUnread = async () => {
@@ -13941,7 +13945,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [registerIncomingMessageSoundCandidates, user.role, user.id]);
 
   useEffect(() => {
-    if (user.role !== 'teacher') {
+    if (!PLATFORM_CHATS_ENABLED || user.role !== 'teacher') {
       setTeacherStudentChatsUnreadTotal(0);
       return undefined;
     }
@@ -14003,7 +14007,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [registerIncomingMessageSoundCandidates, user.role, user.id]);
 
   useEffect(() => {
-    if (user.role !== 'student') {
+    if (!PLATFORM_CHATS_ENABLED || user.role !== 'student') {
       setStudentChatNavUnreadTotal(0);
       return undefined;
     }
@@ -14860,7 +14864,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setTeacherSolvedBulkReadBusy(false);
     }
   };
-  const isTeacherCommsView = user.role === 'teacher'
+  const isTeacherCommsView = PLATFORM_CHATS_ENABLED && user.role === 'teacher'
     && (view === TEACHER_COMMS_VIEW || TEACHER_COMMS_TABS.includes(view));
   const activeTeacherCommsTab = isTeacherCommsView
     ? (view === TEACHER_COMMS_VIEW ? resolveTeacherCommsTab(teacherCommsTab) : resolveTeacherCommsTab(view))
@@ -16115,7 +16119,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onSelectStudent={setActiveStudentId}
               studentsLoading={studentsLoading}
               getStudentLabel={getStudentLabel}
-              onOpenDirectChat={handleOpenStudentDirectChat}
+              onOpenDirectChat={PLATFORM_CHATS_ENABLED ? handleOpenStudentDirectChat : undefined}
             />
           )}
           {view === 'python' && (
@@ -16248,28 +16252,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               highlightPython={highlightPython}
             />
           )}
-          {view === 'chat' && (
-            <StudentChatSection
-              user={user}
-              pushSupported={pushSupported}
-              pushPermission={pushPermission}
-              pushEnabled={pushSubscribed}
-              pushSyncing={pushSyncing}
-              pushBusy={pushBusy}
-              pushReady={pushReady}
-              pushError={pushError}
-              onTogglePush={handleTogglePush}
-              onOpenDirectChat={handleOpenStudentDirectChat}
-              openDirectChatRequest={pendingDirectChatRequest}
-              onOpenDirectChatHandled={() => setPendingDirectChatRequest(null)}
-              getLeagueByXp={getLeagueByXp}
-              getLeagueAuraStyle={getLeagueAuraStyle}
-              isAbsoluteOrAboveLeague={isAbsoluteOrAboveLeague}
-              ABSOLUTE_AURA_CROWN_STYLE={ABSOLUTE_AURA_CROWN_STYLE}
-              getLevelFromXp={getLevelFromXp}
-              getLevelProgressFromXp={getLevelProgressFromXp}
-            />
-          )}
           {view === 'teacher' && (
             <TeacherPanel
               mode="tests"
@@ -16367,23 +16349,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   </button>
                 </div>
               </div>
-
-              {activeTeacherCommsTab === 'student-chats' && (
-                <TeacherStudentChatsSection
-                  role={user.role}
-                  teacherId={user.role === 'teacher' ? user.id : null}
-                  initialChatId={teacherStudentChatId}
-                  notifySupported={teacherSignupNotifySupported}
-                  notifyPermission={teacherSignupNotifyPermission}
-                  notifyEnabled={teacherSignupNotifyEnabled}
-                  notifyBusy={teacherSignupNotifyBusy}
-                  notifySyncing={teacherSignupNotifySyncing}
-                  notifyReady={teacherSignupNotifyReady}
-                  notifyStatusText={teacherSignupNotifyStatusText}
-                  notifyError={teacherSignupNotifyError}
-                  onToggleNotify={handleToggleTeacherSignupNotify}
-                />
-              )}
 
               {activeTeacherCommsTab === 'signup-chats' && (
                 <TeacherPanel
