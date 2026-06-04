@@ -120,6 +120,10 @@ const uploadsDir = resolveStoragePath(
   process.env.PLATFORM_UPLOADS_DIR || process.env.APP_UPLOADS_DIR || process.env.UPLOADS_DIR,
   defaultUploadsDir
 );
+const jsonBackupsDir = resolveStoragePath(
+  process.env.PLATFORM_JSON_BACKUPS_DIR || process.env.APP_JSON_BACKUPS_DIR,
+  path.join(dataDir, 'json-backups')
+);
 const distDir = path.join(__dirname, '..', 'dist');
 const collabDir = resolveStoragePath(
   process.env.PLATFORM_COLLAB_DIR || process.env.APP_COLLAB_DIR,
@@ -136,7 +140,9 @@ const mockExamsFile = path.join(dataDir, 'mock-exams.json');
 const taskTitlesFile = path.join(dataDir, 'task-titles.json');
 const signupChatsFile = path.join(dataDir, 'signup-chats.json');
 const studentChatsFile = path.join(dataDir, 'student-chats.json');
+const studentChatsDir = path.join(dataDir, 'student-chats');
 const studentSocialChatsFile = path.join(dataDir, 'student-social-chats.json');
+const studentSocialChatsDir = path.join(dataDir, 'student-social-chats');
 const broadcastNotificationsFile = path.join(dataDir, 'broadcast-notifications.json');
 const scheduleRequestsFile = path.join(dataDir, 'schedule-requests.json');
 const teacherCalendarSyncFile = path.join(dataDir, 'teacher-calendar-sync.json');
@@ -148,6 +154,8 @@ const usageFile = path.join(dataDir, 'usage.json');
 const pushFile = path.join(dataDir, 'push.json');
 const rtcPresenceDir = path.join(dataDir, 'rtc-presence');
 const RTC_PRESENCE_FS_ENABLED = parseEnabledEnv(process.env.RTC_PRESENCE_FS_ENABLED, false);
+const JSON_STORAGE_BACKUPS_ENABLED = parseEnabledEnv(process.env.JSON_STORAGE_BACKUPS_ENABLED, true);
+const JSON_STORAGE_SPLIT_CHATS_ENABLED = parseEnabledEnv(process.env.JSON_STORAGE_SPLIT_CHATS_ENABLED, true);
 const BOARD_COLLAB_PERSISTENCE_RAW = process.env.BOARD_COLLAB_PERSISTENCE || process.env.COLLAB_PERSIST_BOARD;
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
 const MAX_LESSON_SHARED_TASK_BYTES = 500 * 1024 * 1024;
@@ -191,6 +199,7 @@ const STUDENT_CHAT_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const STUDENT_CHAT_FILE_NAME_MAX_LENGTH = 180;
 const STUDENT_CHAT_FILE_MIME_TYPE_MAX_LENGTH = 120;
 const STUDENT_CHAT_FILE_PREVIEW_TEXT = '[Файл]';
+const STUDENT_CHAT_UPLOAD_STORAGE_PREFIX = 'student-chat';
 const STUDENT_CHAT_MESSAGES_PAGE_SIZE = 15;
 const STUDENT_CHAT_MESSAGES_MAX_PAGE_SIZE = 50;
 const STUDENT_CHAT_DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -690,6 +699,9 @@ fs.mkdirSync(uploadsDir, { recursive: true });
 fs.mkdirSync(dataDir, { recursive: true });
 fs.mkdirSync(collabDir, { recursive: true });
 fs.mkdirSync(boardSnapshotsDir, { recursive: true });
+fs.mkdirSync(jsonBackupsDir, { recursive: true });
+fs.mkdirSync(studentChatsDir, { recursive: true });
+fs.mkdirSync(studentSocialChatsDir, { recursive: true });
 if (RTC_PRESENCE_FS_ENABLED) {
   fs.mkdirSync(rtcPresenceDir, { recursive: true });
 }
@@ -818,10 +830,18 @@ const clearBoardSnapshotWriteTimer = (docName) => {
   clearTimeout(timerId);
   boardSnapshotWriteTimers.delete(normalized);
 };
-const writeFileAtomic = (filePath, contents) => {
-  const tempPath = `${filePath}.${process.pid}.tmp`;
+const ensureDirectoryForFile = (filePath) => {
+  const directory = path.dirname(filePath);
+  if (directory) fs.mkdirSync(directory, { recursive: true });
+};
+const writeFileAtomic = (filePath, contents, encoding) => {
+  ensureDirectoryForFile(filePath);
+  const tempPath = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${crypto.randomBytes(6).toString('hex')}.tmp`
+  );
   try {
-    fs.writeFileSync(tempPath, contents);
+    fs.writeFileSync(tempPath, contents, encoding);
     fs.renameSync(tempPath, filePath);
     return true;
   } catch (error) {
@@ -830,6 +850,169 @@ const writeFileAtomic = (filePath, contents) => {
     } catch {}
     throw error;
   }
+};
+const jsonBackupKeys = new Set();
+const getJsonBackupDateKey = () => new Date().toISOString().slice(0, 10);
+const getJsonBackupFilePath = (filePath, dateKey) => {
+  const relative = path.relative(dataDir, filePath);
+  const safeName = relative && !relative.startsWith('..')
+    ? relative.replace(/[\\/]+/g, '__').replace(/[^a-zA-Z0-9._-]+/g, '_')
+    : path.basename(filePath).replace(/[^a-zA-Z0-9._-]+/g, '_');
+  return path.join(jsonBackupsDir, dateKey, safeName || 'data.json');
+};
+const backupJsonFileBeforeWrite = (filePath) => {
+  if (!JSON_STORAGE_BACKUPS_ENABLED) return;
+  try {
+    if (!fs.existsSync(filePath)) return;
+    const dateKey = getJsonBackupDateKey();
+    const backupKey = `${dateKey}:${path.resolve(filePath)}`;
+    if (jsonBackupKeys.has(backupKey)) return;
+    const backupPath = getJsonBackupFilePath(filePath, dateKey);
+    if (!fs.existsSync(backupPath)) {
+      ensureDirectoryForFile(backupPath);
+      fs.copyFileSync(filePath, backupPath);
+    }
+    jsonBackupKeys.add(backupKey);
+  } catch (error) {
+    console.warn('[json-storage] backup failed:', error?.message || error);
+  }
+};
+const stringifyJsonForStorage = (data) => `${JSON.stringify(data, null, 2)}\n`;
+const writeJsonFileAtomic = (filePath, data) => {
+  backupJsonFileBeforeWrite(filePath);
+  writeFileAtomic(filePath, stringifyJsonForStorage(data), 'utf8');
+};
+const getJsonStorageHash = (serialized) => crypto
+  .createHash('sha1')
+  .update(serialized)
+  .digest('hex');
+const getSplitJsonEntryFilePath = (directory, entryId) => {
+  const id = String(entryId || '').trim();
+  if (!id) return '';
+  const safeId = id.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80) || 'entry';
+  const hash = crypto.createHash('sha1').update(id).digest('hex').slice(0, 12);
+  return path.join(directory, `${safeId}-${hash}.json`);
+};
+const splitJsonManifestFileName = '.manifest.json';
+const getSplitJsonManifestFilePath = (directory) => path.join(directory, splitJsonManifestFileName);
+const readSplitJsonManifest = (directory) => {
+  try {
+    const raw = fs.readFileSync(getSplitJsonManifestFilePath(directory), 'utf8');
+    const data = JSON.parse(raw);
+    return data && typeof data === 'object' && data.complete === true ? data : null;
+  } catch {
+    return null;
+  }
+};
+const getSplitJsonIdsHash = (ids = []) => crypto
+  .createHash('sha1')
+  .update(ids.map((id) => String(id || '').trim()).filter(Boolean).sort().join('\n'))
+  .digest('hex');
+const clearIncompleteSplitJsonCollection = (directory) => {
+  try {
+    if (!fs.existsSync(directory)) return;
+    fs.readdirSync(directory)
+      .filter((fileName) => fileName.endsWith('.json') && fileName !== splitJsonManifestFileName)
+      .forEach((fileName) => {
+        const filePath = path.join(directory, fileName);
+        try {
+          backupJsonFileBeforeWrite(filePath);
+          fs.unlinkSync(filePath);
+        } catch (error) {
+          console.warn('[json-storage] failed to clear incomplete split entry:', error?.message || error);
+        }
+      });
+  } catch (error) {
+    console.warn('[json-storage] failed to clear incomplete split collection:', error?.message || error);
+  }
+};
+const readSplitJsonCollection = (directory, normalizeEntry, options = {}) => {
+  const entries = [];
+  const hashesById = new Map();
+  const filesById = new Map();
+  const manifest = readSplitJsonManifest(directory);
+  if (options.requireManifest !== false && !manifest) {
+    return { entries, hashesById, filesById, isComplete: false };
+  }
+  try {
+    if (!fs.existsSync(directory)) return { entries, hashesById, filesById, isComplete: Boolean(manifest) };
+    const files = fs.readdirSync(directory)
+      .filter((fileName) => fileName.endsWith('.json') && fileName !== splitJsonManifestFileName)
+      .sort((left, right) => left.localeCompare(right));
+    files.forEach((fileName) => {
+      const filePath = path.join(directory, fileName);
+      try {
+        const raw = fs.readFileSync(filePath, 'utf8');
+        const normalized = normalizeEntry(JSON.parse(raw));
+        if (!normalized?.id) return;
+        const serialized = stringifyJsonForStorage(normalized);
+        entries.push(normalized);
+        hashesById.set(normalized.id, getJsonStorageHash(serialized));
+        filesById.set(normalized.id, filePath);
+      } catch (error) {
+        console.warn('[json-storage] failed to read split entry:', filePath, error?.message || error);
+      }
+    });
+  } catch (error) {
+    console.warn('[json-storage] failed to scan split collection:', directory, error?.message || error);
+  }
+  return { entries, hashesById, filesById, isComplete: Boolean(manifest) };
+};
+const writeSplitJsonCollection = (directory, entries, normalizeEntry, cache) => {
+  fs.mkdirSync(directory, { recursive: true });
+  if (cache && cache.isComplete === false) {
+    clearIncompleteSplitJsonCollection(directory);
+  }
+  const normalizedEntries = Array.isArray(entries)
+    ? entries.map((entry) => normalizeEntry(entry)).filter(Boolean)
+    : [];
+  const nextHashesById = new Map();
+  const nextFilesById = new Map();
+  const seenIds = new Set();
+  const storedEntries = [];
+  normalizedEntries.forEach((entry) => {
+    const id = String(entry?.id || '').trim();
+    if (!id || seenIds.has(id)) return;
+    seenIds.add(id);
+    storedEntries.push(entry);
+    const filePath = getSplitJsonEntryFilePath(directory, id);
+    const serialized = stringifyJsonForStorage(entry);
+    const hash = getJsonStorageHash(serialized);
+    if (!filePath) return;
+    if (cache?.hashesById?.get(id) !== hash || !fs.existsSync(filePath)) {
+      backupJsonFileBeforeWrite(filePath);
+      writeFileAtomic(filePath, serialized, 'utf8');
+    }
+    nextHashesById.set(id, hash);
+    nextFilesById.set(id, filePath);
+  });
+  if (cache?.filesById) {
+    cache.filesById.forEach((filePath, id) => {
+      if (seenIds.has(id)) return;
+      const resolvedDirectory = path.resolve(directory);
+      const resolvedFile = path.resolve(filePath);
+      if (!resolvedFile.startsWith(`${resolvedDirectory}${path.sep}`)) return;
+      try {
+        backupJsonFileBeforeWrite(resolvedFile);
+        if (fs.existsSync(resolvedFile)) fs.unlinkSync(resolvedFile);
+      } catch (error) {
+        console.warn('[json-storage] failed to remove stale split entry:', error?.message || error);
+      }
+    });
+  }
+  writeJsonFileAtomic(getSplitJsonManifestFilePath(directory), {
+    version: 1,
+    complete: true,
+    updatedAt: new Date().toISOString(),
+    count: storedEntries.length,
+    idsHash: getSplitJsonIdsHash(storedEntries.map((entry) => entry.id)),
+  });
+  return {
+    entries: storedEntries,
+    hashesById: nextHashesById,
+    filesById: nextFilesById,
+    isComplete: true,
+  };
 };
 const loadBoardDocSnapshot = (docName, ydoc) => {
   if (!isBoardSnapshotPersistenceActive(docName)) return false;
@@ -1258,39 +1441,39 @@ const readTeacherCalendarMarksDb = () => {
 };
 
 const writeFilesDb = (data) => {
-  fs.writeFileSync(dataFile, JSON.stringify(data, null, 2), 'utf8');
+  writeJsonFileAtomic(dataFile, data);
 };
 
 const writeFoldersDb = (data) => {
-  fs.writeFileSync(foldersFile, JSON.stringify(data, null, 2), 'utf8');
+  writeJsonFileAtomic(foldersFile, data);
 };
 
 const writeStudentsDb = (data) => {
-  fs.writeFileSync(studentsFile, JSON.stringify(data, null, 2), 'utf8');
+  writeJsonFileAtomic(studentsFile, data);
 };
 
 const writeTeachersDb = (data) => {
-  fs.writeFileSync(teachersFile, JSON.stringify(data, null, 2), 'utf8');
+  writeJsonFileAtomic(teachersFile, data);
 };
 
 const writeTaskTitlesDb = (data) => {
-  fs.writeFileSync(taskTitlesFile, JSON.stringify(data, null, 2), 'utf8');
+  writeJsonFileAtomic(taskTitlesFile, data);
 };
 
 const writeProgressDb = (data) => {
-  fs.writeFileSync(progressFile, JSON.stringify(data, null, 2), 'utf8');
+  writeJsonFileAtomic(progressFile, data);
 };
 
 const writeBroadcastNotificationsDb = (data) => {
-  fs.writeFileSync(broadcastNotificationsFile, JSON.stringify(data, null, 2), 'utf8');
+  writeJsonFileAtomic(broadcastNotificationsFile, data);
 };
 
 const writeTeacherCalendarSyncDb = (data) => {
-  fs.writeFileSync(teacherCalendarSyncFile, JSON.stringify(data || {}, null, 2), 'utf8');
+  writeJsonFileAtomic(teacherCalendarSyncFile, data || {});
 };
 
 const writeTeacherCalendarMarksDb = (data) => {
-  fs.writeFileSync(teacherCalendarMarksFile, JSON.stringify(normalizeTeacherCalendarMarksDb(data), null, 2), 'utf8');
+  writeJsonFileAtomic(teacherCalendarMarksFile, normalizeTeacherCalendarMarksDb(data));
 };
 
 const TEACHER_FINANCE_PRICING_MODES = new Set(['perLesson', 'monthly']);
@@ -1486,7 +1669,7 @@ const readTeacherFinanceDb = () => {
 
 const writeTeacherFinanceDb = (data) => {
   const normalized = normalizeTeacherFinanceDb(data);
-  fs.writeFileSync(teacherFinanceFile, JSON.stringify(normalized, null, 2), 'utf8');
+  writeJsonFileAtomic(teacherFinanceFile, normalized);
 };
 
 const getTeacherFinanceTeacherEntry = (db, teacherId) => {
@@ -1780,7 +1963,7 @@ const readScheduleRequestsDb = () => {
 
 const writeScheduleRequestsDb = (data) => {
   const normalized = normalizeScheduleChangeRequestList(data);
-  fs.writeFileSync(scheduleRequestsFile, JSON.stringify(normalized, null, 2), 'utf8');
+  writeJsonFileAtomic(scheduleRequestsFile, normalized);
 };
 
 const purgeScheduleRequestsForStudents = (studentIds = []) => {
@@ -1820,7 +2003,7 @@ const readUsageDb = () => {
 };
 
 const writeUsageDb = (data) => {
-  fs.writeFileSync(usageFile, JSON.stringify(data, null, 2), 'utf8');
+  writeJsonFileAtomic(usageFile, data);
 };
 
 const normalizePushSubscription = (value) => {
@@ -2195,7 +2378,7 @@ const writePushDb = (data) => {
     teacherCalendarReminderSettingsByTeacher: normalizePushTeacherCalendarReminderSettingsByTeacher(data?.teacherCalendarReminderSettingsByTeacher),
     teacherCalendarReminderStateByTeacher: normalizePushTeacherCalendarReminderStateByTeacher(data?.teacherCalendarReminderStateByTeacher),
   };
-  fs.writeFileSync(pushFile, JSON.stringify(normalized, null, 2), 'utf8');
+  writeJsonFileAtomic(pushFile, normalized);
 };
 
 const purgePushDataForStudents = (studentIds = []) => {
@@ -2347,7 +2530,7 @@ const getTestsDbWithPythonInfiniteTraining = (testsDb = readTestsDb()) => ({
 });
 
 const writeTestsDb = (data) => {
-  fs.writeFileSync(testsFile, JSON.stringify(data, null, 2), 'utf8');
+  writeJsonFileAtomic(testsFile, data);
 };
 
 const readMockExamsDb = () => {
@@ -2361,7 +2544,7 @@ const readMockExamsDb = () => {
 };
 
 const writeMockExamsDb = (data) => {
-  fs.writeFileSync(mockExamsFile, JSON.stringify(data, null, 2), 'utf8');
+  writeJsonFileAtomic(mockExamsFile, data);
 };
 
 const normalizeSignupGuestName = (name) => {
@@ -2471,7 +2654,7 @@ const writeSignupChatsDb = (data) => {
   const safeData = Array.isArray(data)
     ? data.map((entry) => normalizeSignupChat(entry)).filter(Boolean)
     : [];
-  fs.writeFileSync(signupChatsFile, JSON.stringify(safeData, null, 2), 'utf8');
+  writeJsonFileAtomic(signupChatsFile, safeData);
 };
 
 const getSignupChatSortTimestamp = (chat) => {
@@ -2564,10 +2747,65 @@ const getDataUrlMimeType = (dataUrl) => {
   return normalizeStudentChatFileMimeType(match?.[1] || '');
 };
 
+const normalizeStudentChatStoredUploadUrl = (value) => {
+  if (typeof value !== 'string') return '';
+  const normalized = value.trim();
+  if (!normalized) return '';
+  return /^\/uploads\/[A-Za-z0-9._-]{1,220}$/.test(normalized) ? normalized : '';
+};
+
+const getStudentChatDataUrlParts = (dataUrl) => {
+  if (typeof dataUrl !== 'string') return null;
+  const match = dataUrl.trim().match(/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) return null;
+  const mime = normalizeStudentChatFileMimeType(match[1] || '');
+  const base64 = String(match[2] || '').replace(/\s+/g, '');
+  if (!mime || !base64) return null;
+  return {
+    mime,
+    base64,
+    sizeBytes: getBase64PayloadSizeBytes(base64),
+  };
+};
+
+const getStudentChatUploadExtension = (mime, fallbackName = '') => {
+  const normalizedMime = normalizeStudentChatFileMimeType(mime);
+  const fallbackExt = String(path.extname(String(fallbackName || '').trim()) || '')
+    .toLowerCase()
+    .replace(/[^.a-z0-9]+/g, '')
+    .slice(0, 16);
+  if (normalizedMime === 'image/png') return '.png';
+  if (normalizedMime === 'image/jpeg' || normalizedMime === 'image/jpg') return '.jpg';
+  if (normalizedMime === 'image/webp') return '.webp';
+  if (normalizedMime === 'image/gif') return '.gif';
+  if (normalizedMime === 'application/pdf') return '.pdf';
+  if (normalizedMime === 'text/plain') return '.txt';
+  return fallbackExt || '.bin';
+};
+
+const persistStudentChatDataUrlAttachment = (dataUrl, options = {}) => {
+  const normalizedUrl = normalizeStudentChatStoredUploadUrl(dataUrl);
+  if (normalizedUrl) return { url: normalizedUrl, mime: normalizeStudentChatFileMimeType(options.mime), sizeBytes: 0 };
+  const parts = getStudentChatDataUrlParts(dataUrl);
+  if (!parts || !parts.sizeBytes) return { url: '', mime: '', sizeBytes: 0 };
+  const kind = String(options.kind || 'file').replace(/[^a-z0-9_-]+/gi, '').toLowerCase() || 'file';
+  const extension = getStudentChatUploadExtension(parts.mime, options.name);
+  const storageName = `${STUDENT_CHAT_UPLOAD_STORAGE_PREFIX}-${kind}-${Date.now()}-${crypto.randomUUID()}${extension}`;
+  const filePath = path.join(uploadsDir, storageName);
+  writeFileAtomic(filePath, Buffer.from(parts.base64, 'base64'));
+  return {
+    url: `/uploads/${storageName}`,
+    mime: parts.mime,
+    sizeBytes: parts.sizeBytes,
+  };
+};
+
 const normalizeStudentChatImageDataUrl = (value) => {
   if (typeof value !== 'string') return '';
   const normalized = value.trim();
   if (!normalized) return '';
+  const storedUrl = normalizeStudentChatStoredUploadUrl(normalized);
+  if (storedUrl) return storedUrl;
   const match = normalized.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/i);
   if (!match) return '';
   const mimeRaw = String(match[1] || '').trim().toLowerCase();
@@ -2587,6 +2825,8 @@ const normalizeStudentChatFileDataUrl = (value) => {
   if (typeof value !== 'string') return '';
   const normalized = value.trim();
   if (!normalized) return '';
+  const storedUrl = normalizeStudentChatStoredUploadUrl(normalized);
+  if (storedUrl) return storedUrl;
   const match = normalized.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/i);
   if (!match) return '';
   const mime = normalizeStudentChatFileMimeType(match[1] || '');
@@ -2939,6 +3179,53 @@ const normalizeStudentTeacherChatMessage = (value) => {
   return message;
 };
 
+const persistStudentChatMessageAttachmentsForStorage = (message) => {
+  const normalized = normalizeStudentTeacherChatMessage(message);
+  if (!normalized) return null;
+  const next = { ...normalized };
+  if (typeof next.imageDataUrl === 'string' && next.imageDataUrl.startsWith('data:')) {
+    try {
+      const stored = persistStudentChatDataUrlAttachment(next.imageDataUrl, {
+        kind: 'image',
+        name: next.imageName,
+      });
+      if (stored.url) next.imageDataUrl = stored.url;
+    } catch (error) {
+      console.warn('[json-storage] failed to externalize chat image:', error?.message || error);
+    }
+  }
+  if (typeof next.fileDataUrl === 'string' && next.fileDataUrl.startsWith('data:')) {
+    try {
+      const stored = persistStudentChatDataUrlAttachment(next.fileDataUrl, {
+        kind: 'file',
+        name: next.fileName,
+        mime: next.fileMimeType,
+      });
+      if (stored.url) {
+        next.fileDataUrl = stored.url;
+        next.fileMimeType = next.fileMimeType || stored.mime;
+        next.fileSize = next.fileSize || stored.sizeBytes;
+      }
+    } catch (error) {
+      console.warn('[json-storage] failed to externalize chat file:', error?.message || error);
+    }
+  }
+  return normalizeStudentTeacherChatMessage(next);
+};
+
+const prepareStudentChatMessagesForStorage = (messages) => (Array.isArray(messages)
+  ? messages.map((message) => persistStudentChatMessageAttachmentsForStorage(message)).filter(Boolean)
+  : []);
+
+const prepareStudentTeacherChatForStorage = (chat) => {
+  const normalized = normalizeStudentTeacherChat(chat);
+  if (!normalized) return null;
+  return normalizeStudentTeacherChat({
+    ...normalized,
+    messages: prepareStudentChatMessagesForStorage(normalized.messages),
+  });
+};
+
 const normalizeStudentTeacherChat = (value) => {
   if (!value || typeof value !== 'object') return null;
   const rawStudentId = typeof value.studentId === 'string' ? value.studentId.trim() : '';
@@ -2986,22 +3273,67 @@ const normalizeStudentTeacherChat = (value) => {
   };
 };
 
-const readStudentChatsDb = () => {
+let studentTeacherChatsStorageCache = null;
+
+const cloneStudentTeacherChats = (chats) => (Array.isArray(chats)
+  ? chats.map((entry) => normalizeStudentTeacherChat(entry)).filter(Boolean)
+  : []);
+
+const loadStudentTeacherChatsFromLegacyFile = () => {
   try {
     const raw = fs.readFileSync(studentChatsFile, 'utf8');
     const data = JSON.parse(raw);
-    if (!Array.isArray(data)) return [];
-    return data.map((entry) => normalizeStudentTeacherChat(entry)).filter(Boolean);
+    return Array.isArray(data)
+      ? data.map((entry) => normalizeStudentTeacherChat(entry)).filter(Boolean)
+      : [];
   } catch {
     return [];
   }
 };
 
+const getStudentTeacherChatsStorageCache = () => {
+  if (studentTeacherChatsStorageCache) return studentTeacherChatsStorageCache;
+  if (JSON_STORAGE_SPLIT_CHATS_ENABLED) {
+    const split = readSplitJsonCollection(studentChatsDir, normalizeStudentTeacherChat);
+    if (split.entries.length > 0) {
+      studentTeacherChatsStorageCache = split;
+      return studentTeacherChatsStorageCache;
+    }
+  }
+  const entries = loadStudentTeacherChatsFromLegacyFile();
+  studentTeacherChatsStorageCache = {
+    entries,
+    hashesById: new Map(),
+    filesById: new Map(),
+    isComplete: false,
+  };
+  return studentTeacherChatsStorageCache;
+};
+
+const readStudentChatsDb = () => {
+  const cache = getStudentTeacherChatsStorageCache();
+  return cloneStudentTeacherChats(cache.entries);
+};
+
 const writeStudentChatsDb = (data) => {
   const safeData = Array.isArray(data)
-    ? data.map((entry) => normalizeStudentTeacherChat(entry)).filter(Boolean)
+    ? data.map((entry) => prepareStudentTeacherChatForStorage(entry)).filter(Boolean)
     : [];
-  fs.writeFileSync(studentChatsFile, JSON.stringify(safeData, null, 2), 'utf8');
+  if (JSON_STORAGE_SPLIT_CHATS_ENABLED) {
+    studentTeacherChatsStorageCache = writeSplitJsonCollection(
+      studentChatsDir,
+      safeData,
+      normalizeStudentTeacherChat,
+      getStudentTeacherChatsStorageCache()
+    );
+    return;
+  }
+  writeJsonFileAtomic(studentChatsFile, safeData);
+  studentTeacherChatsStorageCache = {
+    entries: safeData,
+    hashesById: new Map(),
+    filesById: new Map(),
+  };
 };
 
 const normalizeStudentChatMessagesPageLimit = (value) => {
@@ -3468,6 +3800,15 @@ const normalizeStudentSocialChat = (value) => {
   };
 };
 
+const prepareStudentSocialChatForStorage = (chat) => {
+  const normalized = normalizeStudentSocialChat(chat);
+  if (!normalized) return null;
+  return normalizeStudentSocialChat({
+    ...normalized,
+    messages: prepareStudentChatMessagesForStorage(normalized.messages),
+  });
+};
+
 const normalizeStudentSocialChatsDb = (value) => {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const settingsSource = source.settingsByTeacherId && typeof source.settingsByTeacherId === 'object'
@@ -3498,7 +3839,15 @@ const normalizeStudentSocialChatsDb = (value) => {
   return { settingsByTeacherId, notificationSettingsByStudentId, chats };
 };
 
-const readStudentSocialChatsDb = () => {
+let studentSocialChatsStorageCache = null;
+
+const cloneStudentSocialChatsDb = (db) => normalizeStudentSocialChatsDb({
+  settingsByTeacherId: db?.settingsByTeacherId || {},
+  notificationSettingsByStudentId: db?.notificationSettingsByStudentId || {},
+  chats: Array.isArray(db?.chats) ? db.chats : [],
+});
+
+const loadStudentSocialChatsFromLegacyFile = () => {
   try {
     const raw = fs.readFileSync(studentSocialChatsFile, 'utf8');
     return normalizeStudentSocialChatsDb(JSON.parse(raw));
@@ -3507,8 +3856,74 @@ const readStudentSocialChatsDb = () => {
   }
 };
 
+const getStudentSocialChatsStorageCache = () => {
+  if (studentSocialChatsStorageCache) return studentSocialChatsStorageCache;
+  const legacyDb = loadStudentSocialChatsFromLegacyFile();
+  if (JSON_STORAGE_SPLIT_CHATS_ENABLED) {
+    const split = readSplitJsonCollection(studentSocialChatsDir, normalizeStudentSocialChat);
+    if (split.entries.length > 0) {
+      studentSocialChatsStorageCache = {
+        db: {
+          settingsByTeacherId: legacyDb.settingsByTeacherId,
+          notificationSettingsByStudentId: legacyDb.notificationSettingsByStudentId,
+          chats: split.entries,
+        },
+        chatStorage: split,
+      };
+      return studentSocialChatsStorageCache;
+    }
+  }
+  studentSocialChatsStorageCache = {
+    db: legacyDb,
+    chatStorage: {
+      entries: legacyDb.chats,
+      hashesById: new Map(),
+      filesById: new Map(),
+      isComplete: false,
+    },
+  };
+  return studentSocialChatsStorageCache;
+};
+
+const readStudentSocialChatsDb = () => {
+  const cache = getStudentSocialChatsStorageCache();
+  return cloneStudentSocialChatsDb(cache.db);
+};
+
 const writeStudentSocialChatsDb = (data) => {
-  fs.writeFileSync(studentSocialChatsFile, JSON.stringify(normalizeStudentSocialChatsDb(data), null, 2), 'utf8');
+  const normalizedSource = normalizeStudentSocialChatsDb(data);
+  const normalized = {
+    ...normalizedSource,
+    chats: normalizedSource.chats.map((entry) => prepareStudentSocialChatForStorage(entry)).filter(Boolean),
+  };
+  if (JSON_STORAGE_SPLIT_CHATS_ENABLED) {
+    const chatStorage = writeSplitJsonCollection(
+      studentSocialChatsDir,
+      normalized.chats,
+      normalizeStudentSocialChat,
+      getStudentSocialChatsStorageCache().chatStorage
+    );
+    const meta = {
+      settingsByTeacherId: normalized.settingsByTeacherId,
+      notificationSettingsByStudentId: normalized.notificationSettingsByStudentId,
+      chats: [],
+    };
+    writeJsonFileAtomic(studentSocialChatsFile, meta);
+    studentSocialChatsStorageCache = {
+      db: { ...normalized, chats: chatStorage.entries },
+      chatStorage,
+    };
+    return;
+  }
+  writeJsonFileAtomic(studentSocialChatsFile, normalized);
+  studentSocialChatsStorageCache = {
+    db: normalized,
+    chatStorage: {
+      entries: normalized.chats,
+      hashesById: new Map(),
+      filesById: new Map(),
+    },
+  };
 };
 
 const getStudentSocialChatSettings = (teacherId, db = null) => {
@@ -4282,7 +4697,7 @@ const readAuthDb = () => {
 };
 
 const writeAuthDb = (data) => {
-  fs.writeFileSync(authFile, JSON.stringify(data, null, 2), 'utf8');
+  writeJsonFileAtomic(authFile, data);
 };
 
 const normalizeAccessCode = (value) => (typeof value === 'string' ? value.trim() : '');
@@ -4337,7 +4752,7 @@ const readAuthSessionsDb = () => {
 };
 
 const writeAuthSessionsDb = (sessions) => {
-  fs.writeFileSync(authSessionsFile, JSON.stringify(sessions, null, 2), 'utf8');
+  writeJsonFileAtomic(authSessionsFile, sessions);
 };
 
 const serializeAuthSessionForStorage = (session) => ({
@@ -5082,12 +5497,29 @@ const createStudentTeacherChatMessage = ({
   systemActorId,
 }) => {
   const normalizedText = normalizeStudentChatMessageText(text);
-  const normalizedImageDataUrl = normalizeStudentChatImageDataUrl(imageDataUrl);
   const normalizedImageName = normalizeStudentChatImageName(imageName);
-  const normalizedFileDataUrl = normalizeStudentChatFileDataUrl(fileDataUrl);
+  let normalizedImageDataUrl = normalizeStudentChatImageDataUrl(imageDataUrl);
+  if (normalizedImageDataUrl.startsWith('data:')) {
+    const stored = persistStudentChatDataUrlAttachment(normalizedImageDataUrl, {
+      kind: 'image',
+      name: normalizedImageName,
+    });
+    normalizedImageDataUrl = stored.url || '';
+  }
   const normalizedFileName = normalizeStudentChatFileName(fileName);
-  const normalizedFileMimeType = normalizeStudentChatFileMimeType(fileMimeType) || getDataUrlMimeType(normalizedFileDataUrl);
-  const normalizedFileSize = normalizeStudentChatFileSize(fileSize, normalizedFileDataUrl);
+  let normalizedFileDataUrl = normalizeStudentChatFileDataUrl(fileDataUrl);
+  let normalizedFileMimeType = normalizeStudentChatFileMimeType(fileMimeType) || getDataUrlMimeType(normalizedFileDataUrl);
+  let normalizedFileSize = normalizeStudentChatFileSize(fileSize, normalizedFileDataUrl);
+  if (normalizedFileDataUrl.startsWith('data:')) {
+    const stored = persistStudentChatDataUrlAttachment(normalizedFileDataUrl, {
+      kind: 'file',
+      name: normalizedFileName,
+      mime: normalizedFileMimeType,
+    });
+    normalizedFileDataUrl = stored.url || '';
+    normalizedFileMimeType = normalizedFileMimeType || stored.mime;
+    normalizedFileSize = normalizedFileSize || stored.sizeBytes;
+  }
   const normalizedSenderRole = getStudentChatMessageSenderRole(senderRole);
   const message = {
     id: crypto.randomUUID(),
@@ -19817,14 +20249,10 @@ const upsertRtcPresenceFileFromClient = (client) => {
     joinedAt,
     heartbeatAt,
   };
-  const tempPath = `${filePath}.${process.pid}.tmp`;
   try {
-    fs.writeFileSync(tempPath, JSON.stringify(payload), 'utf8');
-    fs.renameSync(tempPath, filePath);
-  } catch {
-    try {
-      fs.unlinkSync(tempPath);
-    } catch {}
+    writeFileAtomic(filePath, JSON.stringify(payload), 'utf8');
+  } catch (error) {
+    console.warn('[rtc] presence write failed:', error?.message || error);
   }
 };
 

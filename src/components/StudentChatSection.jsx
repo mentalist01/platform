@@ -739,14 +739,17 @@ const scrollChatNodeToBottom = (node) => {
     node.scrollTop = node.scrollHeight;
   };
   scroll();
-  window.requestAnimationFrame(scroll);
-  window.requestAnimationFrame(() => {
-    scroll();
+  if (typeof window === 'undefined') return;
+  if (typeof window.requestAnimationFrame === 'function') {
     window.requestAnimationFrame(scroll);
+    window.requestAnimationFrame(() => {
+      scroll();
+      window.requestAnimationFrame(scroll);
+    });
+  }
+  [80, 220, 480, 900, 1400, 2200].forEach((delay) => {
+    window.setTimeout(scroll, delay);
   });
-  window.setTimeout(scroll, 80);
-  window.setTimeout(scroll, 220);
-  window.setTimeout(scroll, 480);
 };
 
 const applyChatScrollBehavior = (listRef, behaviorRef) => {
@@ -2817,6 +2820,7 @@ const StudentChatSection = ({
 
   useEffect(() => {
     if (activeTab !== 'teacher') return;
+    markChatScrollToBottom(teacherListRef, teacherScrollBehaviorRef, { force: true });
     scrollChatNodeToBottom(teacherListRef.current);
   }, [activeTab]);
 
@@ -2824,6 +2828,12 @@ const StudentChatSection = ({
     applyChatScrollBehavior(socialListRef, socialScrollBehaviorRef);
     prevSocialMessageCountRef.current = socialMessages.length;
   }, [socialMessages]);
+
+  useEffect(() => {
+    if (!isSocialTab || !activeSocialChatId) return;
+    markChatScrollToBottom(socialListRef, socialScrollBehaviorRef, { force: true });
+    scrollChatNodeToBottom(socialListRef.current);
+  }, [activeSocialChatId, isSocialTab]);
 
   const clearTeacherImage = useCallback(() => {
     setTeacherImageDataUrl('');

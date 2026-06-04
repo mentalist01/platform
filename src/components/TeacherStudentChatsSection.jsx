@@ -711,14 +711,17 @@ const scrollChatNodeToBottom = (node) => {
     node.scrollTop = node.scrollHeight;
   };
   scroll();
-  window.requestAnimationFrame(scroll);
-  window.requestAnimationFrame(() => {
-    scroll();
+  if (typeof window === 'undefined') return;
+  if (typeof window.requestAnimationFrame === 'function') {
     window.requestAnimationFrame(scroll);
+    window.requestAnimationFrame(() => {
+      scroll();
+      window.requestAnimationFrame(scroll);
+    });
+  }
+  [80, 220, 480, 900, 1400, 2200].forEach((delay) => {
+    window.setTimeout(scroll, delay);
   });
-  window.setTimeout(scroll, 80);
-  window.setTimeout(scroll, 220);
-  window.setTimeout(scroll, 480);
 };
 
 const applyChatScrollBehavior = (listRef, behaviorRef) => {
@@ -1319,6 +1322,12 @@ const TeacherStudentChatsSection = ({
       if (window.cancelAnimationFrame) window.cancelAnimationFrame(frameId);
     };
   }, [messages, updateScrollToBottomButton]);
+
+  useEffect(() => {
+    if (!selectedChatId) return;
+    markChatScrollToBottom(messagesRef, messagesScrollBehaviorRef, { force: true });
+    scrollChatNodeToBottom(messagesRef.current);
+  }, [selectedChatId]);
 
   useEffect(() => {
     clearMessageImage();
