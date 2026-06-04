@@ -6,8 +6,6 @@ import { Button, Card } from './ui';
 import ChatInfoDrawer from './ChatInfoDrawer';
 import LinkifiedText from './LinkifiedText';
 
-const CHATS_POLL_MS = 4000;
-const MESSAGES_POLL_MS = 3000;
 const CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const CHAT_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const CHAT_ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
@@ -1165,12 +1163,8 @@ const TeacherStudentChatsSection = ({
     };
 
     loadChats();
-    const timerId = setInterval(() => {
-      loadChats({ silent: true });
-    }, CHATS_POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(timerId);
     };
   }, [canManageSocialChats, prioritizeIncomingStudentMessages, role, sortChats]);
 
@@ -1189,10 +1183,8 @@ const TeacherStudentChatsSection = ({
       }
     };
     loadGroupSummary();
-    const timerId = setInterval(loadGroupSummary, CHATS_POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(timerId);
     };
   }, [canManageSocialChats, normalizedTeacherId]);
 
@@ -1212,12 +1204,8 @@ const TeacherStudentChatsSection = ({
       await fetchMessages(selectedChatId, { silent });
     };
     loadMessages();
-    const timerId = setInterval(() => {
-      loadMessages({ silent: true });
-    }, MESSAGES_POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(timerId);
     };
   }, [fetchMessages, selectedChatId]);
 
@@ -1225,46 +1213,87 @@ const TeacherStudentChatsSection = ({
     if (typeof window === 'undefined') return undefined;
     const handleLiveChatEvent = (event) => {
       const detail = event?.detail || {};
-      if (detail?.type !== 'student-chat-message-created') return;
-      if (String(detail.senderId || '').trim() === String(normalizedTeacherId || '').trim()) return;
+      const liveType = String(detail?.type || '').trim();
+      if (!liveType.startsWith('student-chat-')) return;
+      const chatId = String(detail.chatId || '').trim();
+      const messageId = String(detail.messageId || '').trim();
+      const senderId = String(detail.senderId || '').trim();
+      const isOwnEvent = senderId && senderId === String(normalizedTeacherId || '').trim();
 
       if (detail.chatKind === 'student-teacher') {
-        void refreshChats();
-        if (String(detail.chatId || '').trim() === String(selectedChatId || '').trim()) {
-          if (detail.message) {
+        if (detail.chat) {
+          setChats((prev) => prioritizeIncomingStudentMessages(sortChats(upsertChatSummary(prev, detail.chat))));
+          if (String(detail.chat.id || '').trim() === String(selectedChatId || '').trim()) {
+            setChatDetails(detail.chat);
+          }
+        } else {
+          void refreshChats();
+        }
+        if (chatId === String(selectedChatId || '').trim()) {
+          if (liveType === 'student-chat-message-created' && detail.message) {
             markChatScrollToBottom(messagesRef, messagesScrollBehaviorRef);
             setMessages((prev) => mergeChatMessages(prev, [detail.message]));
+            if (!isOwnEvent) void fetchMessages(selectedChatId, { silent: true });
+          } else if ((liveType === 'student-chat-message-updated' || liveType === 'student-chat-message-pinned') && detail.message) {
+            setMessages((prev) => prev.map((message) => (
+              String(message?.id || '').trim() === String(detail.message.id || '').trim()
+                ? detail.message
+                : message
+            )));
+            if (detail.announcement) {
+              setMessages((prev) => mergeChatMessages(prev, [detail.announcement]));
+            }
+          } else if (liveType === 'student-chat-message-deleted' && messageId) {
+            setMessages((prev) => prev.filter((message) => (
+              String(message?.id || '').trim() !== messageId
+            )));
+          } else if (liveType === 'student-chat-read') {
+            void fetchMessages(selectedChatId, { silent: true });
           }
-          void fetchMessages(selectedChatId, { silent: true });
         }
         return;
       }
 
       if (detail.chatKind === 'social-group') {
+        if (detail.chat) {
+          setGroupChatSummary(detail.chat);
+          if (selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID) {
+            setChatDetails(detail.chat);
+          }
+        }
         if (selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID) {
-          if (detail.message) {
+          if (liveType === 'student-chat-message-created' && detail.message) {
             markChatScrollToBottom(messagesRef, messagesScrollBehaviorRef);
             setMessages((prev) => mergeChatMessages(prev, [detail.message]));
+            if (!isOwnEvent) void fetchMessages(selectedChatId, { silent: true });
+          } else if ((liveType === 'student-chat-message-updated' || liveType === 'student-chat-message-pinned') && detail.message) {
+            setMessages((prev) => prev.map((message) => (
+              String(message?.id || '').trim() === String(detail.message.id || '').trim()
+                ? detail.message
+                : message
+            )));
+            if (detail.announcement) {
+              setMessages((prev) => mergeChatMessages(prev, [detail.announcement]));
+            }
+          } else if (liveType === 'student-chat-message-deleted' && messageId) {
+            setMessages((prev) => prev.filter((message) => (
+              String(message?.id || '').trim() !== messageId
+            )));
+          } else if (liveType === 'student-chat-read') {
+            void fetchMessages(selectedChatId, { silent: true });
           }
-          void fetchMessages(selectedChatId, { silent: true });
-        } else if (canManageSocialChats) {
-          api.getTeacherSocialGroupChat(normalizedTeacherId)
-            .then((payload) => {
-              setGroupChatSummary(payload?.groupChat || null);
-              setGroupParticipantsCount(Array.isArray(payload?.students) ? payload.students.length : 0);
-            })
-            .catch(() => {});
         }
       }
     };
     window.addEventListener('student-chat-live-event', handleLiveChatEvent);
     return () => window.removeEventListener('student-chat-live-event', handleLiveChatEvent);
   }, [
-    canManageSocialChats,
     fetchMessages,
     normalizedTeacherId,
+    prioritizeIncomingStudentMessages,
     refreshChats,
     selectedChatId,
+    sortChats,
   ]);
 
   const loadOlderMessages = useCallback(() => {
@@ -1493,7 +1522,6 @@ const TeacherStudentChatsSection = ({
       } else {
         void fetchMessages(selectedChatId, { silent: true, forceScroll: true });
       }
-      if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) void refreshChats();
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('student-chat-local-change'));
       }
@@ -1536,6 +1564,7 @@ const TeacherStudentChatsSection = ({
         : await api.updateStudentChatMessageForTeacher(selectedChatId, messageId, nextText);
       if (payload?.chat) {
         if (selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID) setGroupChatSummary(payload.chat);
+        else setChats((prev) => prioritizeIncomingStudentMessages(sortChats(upsertChatSummary(prev, payload.chat))));
         setChatDetails(payload.chat);
       }
       if (payload?.message) {
@@ -1546,15 +1575,12 @@ const TeacherStudentChatsSection = ({
       cancelEditMessage();
       setConfirmingDeleteMessageId('');
       setMessageContextMenu(null);
-      if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) {
-        await refreshChats();
-      }
     } catch (err) {
       setMessagesError(err?.message || String(err));
     } finally {
       setMessageActionBusy('');
     }
-  }, [cancelEditMessage, editingMessageText, normalizedTeacherId, refreshChats, selectedChatId]);
+  }, [cancelEditMessage, editingMessageText, normalizedTeacherId, prioritizeIncomingStudentMessages, selectedChatId, sortChats]);
 
   const handleDeleteMessage = useCallback(async (message) => {
     const messageId = String(message?.id || '').trim();
@@ -1568,21 +1594,19 @@ const TeacherStudentChatsSection = ({
         : await api.deleteStudentChatMessageForTeacher(selectedChatId, messageId);
       if (payload?.chat) {
         if (selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID) setGroupChatSummary(payload.chat);
+        else setChats((prev) => prioritizeIncomingStudentMessages(sortChats(upsertChatSummary(prev, payload.chat))));
         setChatDetails(payload.chat);
       }
       setMessages((prev) => prev.filter((item) => item?.id !== messageId));
       if (editingMessageId === messageId) cancelEditMessage();
       setConfirmingDeleteMessageId('');
       setMessageContextMenu(null);
-      if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) {
-        await refreshChats();
-      }
     } catch (err) {
       setMessagesError(err?.message || String(err));
     } finally {
       setMessageActionBusy('');
     }
-  }, [canDeleteSystemMessageForCurrentTeacher, cancelEditMessage, editingMessageId, normalizedTeacherId, refreshChats, selectedChatId]);
+  }, [canDeleteSystemMessageForCurrentTeacher, cancelEditMessage, editingMessageId, normalizedTeacherId, prioritizeIncomingStudentMessages, selectedChatId, sortChats]);
 
   const handlePinMessage = useCallback(async (message) => {
     const messageId = String(message?.id || '').trim();
@@ -1595,6 +1619,7 @@ const TeacherStudentChatsSection = ({
         : await api.pinStudentChatMessageForTeacher(selectedChatId, messageId);
       if (payload?.chat) {
         if (selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID) setGroupChatSummary(payload.chat);
+        else setChats((prev) => prioritizeIncomingStudentMessages(sortChats(upsertChatSummary(prev, payload.chat))));
         setChatDetails(payload.chat);
       }
       if (payload?.message) {
@@ -1605,16 +1630,13 @@ const TeacherStudentChatsSection = ({
       if (payload?.announcement) {
         setMessages((prev) => mergeChatMessages(prev, [payload.announcement]));
       }
-      if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) {
-        await refreshChats();
-      }
     } catch (err) {
       setMessagesError(err?.message || String(err));
       throw err;
     } finally {
       setMessageActionBusy('');
     }
-  }, [normalizedTeacherId, refreshChats, selectedChatId]);
+  }, [normalizedTeacherId, prioritizeIncomingStudentMessages, selectedChatId, sortChats]);
 
   const handleUnpinPinnedMessage = useCallback((reference) => {
     const messageId = getPinnedReferenceMessageId(reference);
@@ -1656,15 +1678,13 @@ const TeacherStudentChatsSection = ({
         : await api.toggleStudentChatMessageReactionForTeacher(selectedChatId, messageId, normalizedEmoji);
       if (payload?.chat) {
         if (selectedChatId === TEACHER_GROUP_CHAT_ITEM_ID) setGroupChatSummary(payload.chat);
+        else setChats((prev) => prioritizeIncomingStudentMessages(sortChats(upsertChatSummary(prev, payload.chat))));
         setChatDetails(payload.chat);
       }
       if (payload?.message) {
         setMessages((prev) => prev.map((item) => (
           item?.id === payload.message.id ? payload.message : item
         )));
-      }
-      if (selectedChatId !== TEACHER_GROUP_CHAT_ITEM_ID) {
-        await refreshChats();
       }
     } catch (err) {
       setMessages((prev) => prev.map((item) => (
@@ -1674,7 +1694,7 @@ const TeacherStudentChatsSection = ({
     } finally {
       setBusyReactionKey('');
     }
-  }, [normalizedTeacherId, refreshChats, selectedChatId, triggerReactionBurst]);
+  }, [normalizedTeacherId, prioritizeIncomingStudentMessages, selectedChatId, sortChats, triggerReactionBurst]);
 
   const openMessageContextMenu = useCallback((event, message) => {
     event.preventDefault();

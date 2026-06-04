@@ -12959,6 +12959,11 @@ app.get('/api/student-chat/messages', (req, res) => {
     chats[index] = normalizeStudentTeacherChat(markResult.chat) || markResult.chat;
     writeStudentChatsDb(chats);
     chat = chats[index];
+    broadcastStudentChatRead(chat, 'student-teacher', {
+      role: 'student',
+      id: req.auth.id,
+      readAt: chat.lastReadByStudentAt,
+    });
   }
 
   const teacherName = findTeacherById(chat.teacherId)?.name || 'Преподаватель';
@@ -13233,6 +13238,7 @@ app.patch('/api/student-chat/messages/:messageId', (req, res) => {
   writeStudentChatsDb(chats);
 
   const updatedChat = chats[index];
+  broadcastStudentChatMessageUpdated(updatedChat, editedMessage, 'student-teacher');
   const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
   const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student });
   return res.json({
@@ -13279,6 +13285,7 @@ app.post('/api/student-chat/messages/:messageId/reactions', (req, res) => {
 
   const updatedChat = chats[index];
   const updatedMessage = updatedChat.messages.find((message) => message?.id === messageId) || messages[messageIndex];
+  broadcastStudentChatMessageUpdated(updatedChat, updatedMessage, 'student-teacher');
   const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
   const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student });
   return res.json({
@@ -13328,6 +13335,7 @@ app.delete('/api/student-chat/messages/:messageId', (req, res) => {
   writeStudentChatsDb(chats);
 
   const updatedChat = chats[index];
+  broadcastStudentChatMessageDeleted(updatedChat, messageId, 'student-teacher');
   const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
   return res.json({
     ok: true,
@@ -13373,6 +13381,7 @@ app.patch('/api/student-chat/messages/:messageId/pin', (req, res) => {
   writeStudentChatsDb(chats);
 
   const updatedChat = chats[index];
+  broadcastStudentChatMessagePinned(updatedChat, targetMessage, announcement, 'student-teacher', pinned);
   const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
   const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student });
   return res.json({
@@ -13473,6 +13482,11 @@ app.get('/api/student-chats/:chatId/messages', (req, res) => {
       chats[index] = normalizeStudentTeacherChat(markResult.chat) || markResult.chat;
       writeStudentChatsDb(chats);
       chat = chats[index];
+      broadcastStudentChatRead(chat, 'student-teacher', {
+        role: 'teacher',
+        id: req.auth.id,
+        readAt: chat.lastReadByTeacherAt,
+      });
     }
   }
 
@@ -13621,6 +13635,7 @@ app.patch('/api/student-chats/:chatId/messages/:messageId', (req, res) => {
   writeStudentChatsDb(chats);
 
   const updatedChat = chats[index];
+  broadcastStudentChatMessageUpdated(updatedChat, editedMessage, 'student-teacher');
   const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
   const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student });
   return res.json({
@@ -13663,6 +13678,7 @@ app.post('/api/student-chats/:chatId/messages/:messageId/reactions', (req, res) 
 
   const updatedChat = chats[index];
   const updatedMessage = updatedChat.messages.find((message) => message?.id === messageId) || messages[messageIndex];
+  broadcastStudentChatMessageUpdated(updatedChat, updatedMessage, 'student-teacher');
   const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
   const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student, teacher });
   return res.json({
@@ -13707,6 +13723,7 @@ app.delete('/api/student-chats/:chatId/messages/:messageId', (req, res) => {
   writeStudentChatsDb(chats);
 
   const updatedChat = chats[index];
+  broadcastStudentChatMessageDeleted(updatedChat, messageId, 'student-teacher');
   const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
   return res.json({
     ok: true,
@@ -13747,6 +13764,7 @@ app.patch('/api/student-chats/:chatId/messages/:messageId/pin', (req, res) => {
   writeStudentChatsDb(chats);
 
   const updatedChat = chats[index];
+  broadcastStudentChatMessagePinned(updatedChat, targetMessage, announcement, 'student-teacher', pinned);
   const teacherName = findTeacherById(updatedChat.teacherId)?.name || 'Преподаватель';
   const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student });
   return res.json({
@@ -13839,6 +13857,11 @@ app.get('/api/teacher-social-group-chat', (req, res) => {
       chat = normalizeStudentSocialChat(markResult.chat) || markResult.chat;
       db.chats[index] = chat;
       changed = true;
+      broadcastStudentChatRead(chat, 'social-group', {
+        role: 'teacher',
+        id: req.auth.id,
+        readAt: chat.lastReadByTeacherAt,
+      });
     }
   }
   if (changed) writeStudentSocialChatsDb(db);
@@ -13992,6 +14015,7 @@ app.patch('/api/teacher-social-group-chat/messages/:messageId', (req, res) => {
   db.chats[index] = rebuildStudentSocialChatAfterMessages(chat, messages);
   writeStudentSocialChatsDb(db);
   const updatedChat = db.chats[index];
+  broadcastStudentChatMessageUpdated(updatedChat, editedMessage, 'social-group');
 
   return res.json({
     ok: true,
@@ -14039,6 +14063,7 @@ app.post('/api/teacher-social-group-chat/messages/:messageId/reactions', (req, r
 
   const updatedChat = db.chats[index];
   const updatedMessage = updatedChat.messages.find((message) => message?.id === messageId) || messages[messageIndex];
+  broadcastStudentChatMessageUpdated(updatedChat, updatedMessage, 'social-group');
   return res.json({
     ok: true,
     message: enrichStudentSocialMessageViewStats(updatedChat, updatedMessage, {
@@ -14086,6 +14111,7 @@ app.delete('/api/teacher-social-group-chat/messages/:messageId', (req, res) => {
   db.chats[index] = rebuildStudentSocialChatAfterMessages(chat, messages);
   writeStudentSocialChatsDb(db);
   const updatedChat = db.chats[index];
+  broadcastStudentChatMessageDeleted(updatedChat, messageId, 'social-group');
 
   return res.json({
     ok: true,
@@ -14128,6 +14154,7 @@ app.patch('/api/teacher-social-group-chat/messages/:messageId/pin', (req, res) =
   }, messages);
   writeStudentSocialChatsDb(db);
   const updatedChat = db.chats[index];
+  broadcastStudentChatMessagePinned(updatedChat, targetMessage, announcement, 'social-group', pinned);
   const responseOptions = {
     ...buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, teacher }),
     groupStudentIds: getActiveStudentIdsForTeacher(updatedChat.teacherId),
@@ -14250,6 +14277,11 @@ app.get('/api/student-social-chats/:chatId/messages', (req, res) => {
     chat = normalizeStudentSocialChat(markResult.chat) || markResult.chat;
     db.chats[index] = chat;
     changed = true;
+    broadcastStudentChatRead(chat, chat.type === 'group' ? 'social-group' : 'social-direct', {
+      role: 'student',
+      id: student.id,
+      readAt: chat.lastReadByStudentId?.[student.id] || new Date().toISOString(),
+    });
   }
   if (changed) writeStudentSocialChatsDb(db);
   const notificationSettings = getStudentChatNotificationSettings(student.id, db);
@@ -14399,6 +14431,7 @@ app.patch('/api/student-social-chats/:chatId/messages/:messageId', (req, res) =>
   db.chats[index] = rebuildStudentSocialChatAfterMessages(chat, messages);
   writeStudentSocialChatsDb(db);
   const updatedChat = db.chats[index];
+  broadcastStudentChatMessageUpdated(updatedChat, editedMessage, updatedChat.type === 'group' ? 'social-group' : 'social-direct');
   const notificationSettings = getStudentChatNotificationSettings(student.id, db);
 
   return res.json({
@@ -14449,6 +14482,7 @@ app.post('/api/student-social-chats/:chatId/messages/:messageId/reactions', (req
 
   const updatedChat = db.chats[index];
   const updatedMessage = updatedChat.messages.find((message) => message?.id === messageId) || messages[messageIndex];
+  broadcastStudentChatMessageUpdated(updatedChat, updatedMessage, updatedChat.type === 'group' ? 'social-group' : 'social-direct');
   const notificationSettings = getStudentChatNotificationSettings(student.id, db);
   return res.json({
     ok: true,
@@ -14500,6 +14534,7 @@ app.delete('/api/student-social-chats/:chatId/messages/:messageId', (req, res) =
   db.chats[index] = rebuildStudentSocialChatAfterMessages(chat, messages);
   writeStudentSocialChatsDb(db);
   const updatedChat = db.chats[index];
+  broadcastStudentChatMessageDeleted(updatedChat, messageId, updatedChat.type === 'group' ? 'social-group' : 'social-direct');
   const notificationSettings = getStudentChatNotificationSettings(student.id, db);
 
   return res.json({
@@ -14544,6 +14579,7 @@ app.patch('/api/student-social-chats/:chatId/messages/:messageId/pin', (req, res
   }, messages);
   writeStudentSocialChatsDb(db);
   const updatedChat = db.chats[index];
+  broadcastStudentChatMessagePinned(updatedChat, targetMessage, announcement, updatedChat.type === 'group' ? 'social-group' : 'social-direct', pinned);
   const notificationSettings = getStudentChatNotificationSettings(student.id, db);
   const responseOptions = buildStudentChatMessageResponseOptions(req.auth, { chat: updatedChat, student });
 
@@ -19508,64 +19544,176 @@ const buildStudentChatLiveMessageForClient = (client, chat, message, chatKind) =
   );
 };
 
-const sendStudentChatLiveMessageCreated = (client, chat, message, chatKind, options = {}) => {
-  if (!client?.auth || !chat || !message) return;
+const buildStudentChatLiveSummaryForClient = (client, chat, chatKind) => {
+  const auth = client?.auth;
+  if (!auth || !chat) return null;
+
+  if (chatKind === 'student-teacher') {
+    const student = findStudentById(chat.studentId, { allowDeleted: true });
+    const teacherName = findTeacherById(chat.teacherId)?.name || 'Преподаватель';
+    return {
+      ...buildStudentTeacherChatSummary(chat, student),
+      teacherName,
+      studentName: student?.name || 'Ученик',
+    };
+  }
+
+  const settings = getStudentSocialChatSettings(chat.teacherId);
+  if (isTeacherRole(auth)) {
+    return buildStudentSocialChatSummary(chat, null, {
+      settings,
+      exposeStudentNicknames: true,
+    });
+  }
+
+  if (isStudentRole(auth)) {
+    const student = findStudentById(auth.id, { allowDeleted: true });
+    const notificationSettings = getStudentChatNotificationSettings(auth.id);
+    const peerId = chat.type === 'direct' && Array.isArray(chat.studentIds)
+      ? chat.studentIds.find((studentId) => studentId !== auth.id)
+      : '';
+    const peer = peerId ? findStudentById(peerId, { allowDeleted: true }) : null;
+    return buildStudentSocialChatSummary(chat, student, {
+      peer: peer ? buildStudentPeerProfile(peer) : null,
+      settings,
+      notificationSettings,
+    });
+  }
+
+  return null;
+};
+
+const getStudentChatLiveRecipients = (chat, chatKind) => {
+  if (!chat) return [];
+  if (chatKind === 'student-teacher') {
+    return [
+      { role: 'teacher', id: String(chat.teacherId || '').trim() },
+      { role: 'student', id: String(chat.studentId || '').trim() },
+    ].filter((entry) => entry.id);
+  }
+
+  if (chatKind === 'social-group') {
+    const teacherId = String(chat.teacherId || '').trim();
+    return [
+      { role: 'teacher', id: teacherId },
+      ...getActiveStudentIdsForTeacher(teacherId).map((id) => ({ role: 'student', id })),
+    ].filter((entry) => entry.id);
+  }
+
+  return (Array.isArray(chat.studentIds) ? chat.studentIds : [])
+    .map((id) => ({ role: 'student', id: String(id || '').trim() }))
+    .filter((entry) => entry.id);
+};
+
+const isStudentChatLiveRecipient = (auth, recipients = []) => {
+  const role = String(auth?.role || '').trim();
+  const id = String(auth?.id || '').trim();
+  if (!role || !id) return false;
+  return recipients.some((recipient) => (
+    recipient.role === role && recipient.id === id
+  ));
+};
+
+const sendStudentChatLiveEvent = (client, payload) => {
+  if (!client?.auth || !payload?.type || !payload?.chat) return;
+  const { chat, chatKind, message, announcement, ...rest } = payload;
   sendNotificationPayload(client.ws, {
-    type: 'student-chat-message-created',
+    ...rest,
+    type: payload.type,
     chatKind,
     chatId: String(chat.id || '').trim(),
     teacherId: String(chat.teacherId || '').trim(),
     studentId: String(chat.studentId || '').trim(),
     studentIds: Array.isArray(chat.studentIds) ? chat.studentIds : [],
-    messageId: String(message.id || '').trim(),
-    senderRole: String(message.senderRole || '').trim(),
-    senderId: String(message.senderId || '').trim(),
-    createdAt: String(message.createdAt || '').trim(),
-    audible: options.audible !== false,
-    message: buildStudentChatLiveMessageForClient(client, chat, message, chatKind),
+    messageId: String(rest.messageId || message?.id || '').trim(),
+    senderRole: String(message?.senderRole || rest.senderRole || '').trim(),
+    senderId: String(message?.senderId || rest.senderId || '').trim(),
+    createdAt: String(message?.createdAt || rest.createdAt || '').trim(),
+    chat: buildStudentChatLiveSummaryForClient(client, chat, chatKind),
+    ...(message ? { message: buildStudentChatLiveMessageForClient(client, chat, message, chatKind) } : {}),
+    ...(announcement ? { announcement: buildStudentChatLiveMessageForClient(client, chat, announcement, chatKind) } : {}),
+  });
+};
+
+const broadcastStudentChatLiveEvent = (chat, chatKind, payload = {}, options = {}) => {
+  if (!chat || !chatKind || !payload?.type) return;
+  const recipients = getStudentChatLiveRecipients(chat, chatKind);
+  notificationClientsBySocket.forEach((client) => {
+    const auth = client?.auth;
+    if (!isStudentChatLiveRecipient(auth, recipients)) return;
+    let audible = options.audible !== false;
+    if (payload.type === 'student-chat-message-created' && isStudentRole(auth)) {
+      if (chatKind === 'student-teacher') {
+        audible = isStudentTeacherChatNotificationEnabled(auth.id);
+      } else {
+        audible = isStudentSocialChatNotificationEnabled(auth.id, chat);
+      }
+    }
+    sendStudentChatLiveEvent(client, {
+      ...payload,
+      chat,
+      chatKind,
+      audible,
+    });
   });
 };
 
 const broadcastStudentTeacherChatMessageCreated = (chat, message) => {
   if (!chat || !message) return;
-  const teacherId = String(chat.teacherId || '').trim();
-  const studentId = String(chat.studentId || '').trim();
-  notificationClientsBySocket.forEach((client) => {
-    const auth = client?.auth;
-    if (!auth) return;
-    if (isTeacherRole(auth) && teacherId && auth.id === teacherId) {
-      sendStudentChatLiveMessageCreated(client, chat, message, 'student-teacher');
-      return;
-    }
-    if (isStudentRole(auth) && studentId && auth.id === studentId) {
-      sendStudentChatLiveMessageCreated(client, chat, message, 'student-teacher', {
-        audible: isStudentTeacherChatNotificationEnabled(auth.id),
-      });
-    }
+  broadcastStudentChatLiveEvent(chat, 'student-teacher', {
+    type: 'student-chat-message-created',
+    message,
   });
 };
 
 const broadcastStudentSocialChatMessageCreated = (chat, message) => {
   if (!chat || !message) return;
   const chatKind = chat.type === 'group' ? 'social-group' : 'social-direct';
-  const teacherId = String(chat.teacherId || '').trim();
-  const studentIds = chat.type === 'group'
-    ? new Set(getActiveStudentIdsForTeacher(teacherId))
-    : new Set(Array.isArray(chat.studentIds) ? chat.studentIds : []);
-
-  notificationClientsBySocket.forEach((client) => {
-    const auth = client?.auth;
-    if (!auth) return;
-    if (chat.type === 'group' && isTeacherRole(auth) && teacherId && auth.id === teacherId) {
-      sendStudentChatLiveMessageCreated(client, chat, message, chatKind);
-      return;
-    }
-    if (isStudentRole(auth) && studentIds.has(String(auth.id || '').trim())) {
-      sendStudentChatLiveMessageCreated(client, chat, message, chatKind, {
-        audible: isStudentSocialChatNotificationEnabled(auth.id, chat),
-      });
-    }
+  broadcastStudentChatLiveEvent(chat, chatKind, {
+    type: 'student-chat-message-created',
+    message,
   });
+};
+
+const broadcastStudentChatMessageUpdated = (chat, message, chatKind) => {
+  if (!chat || !message || !chatKind) return;
+  broadcastStudentChatLiveEvent(chat, chatKind, {
+    type: 'student-chat-message-updated',
+    message,
+    audible: false,
+  }, { audible: false });
+};
+
+const broadcastStudentChatMessageDeleted = (chat, messageId, chatKind) => {
+  const id = String(messageId || '').trim();
+  if (!chat || !id || !chatKind) return;
+  broadcastStudentChatLiveEvent(chat, chatKind, {
+    type: 'student-chat-message-deleted',
+    messageId: id,
+    audible: false,
+  }, { audible: false });
+};
+
+const broadcastStudentChatMessagePinned = (chat, message, announcement, chatKind, pinned) => {
+  if (!chat || !message || !chatKind) return;
+  broadcastStudentChatLiveEvent(chat, chatKind, {
+    type: 'student-chat-message-pinned',
+    message,
+    announcement,
+    pinned: Boolean(pinned),
+    audible: false,
+  }, { audible: false });
+};
+
+const broadcastStudentChatRead = (chat, chatKind, reader = {}) => {
+  if (!chat || !chatKind) return;
+  broadcastStudentChatLiveEvent(chat, chatKind, {
+    type: 'student-chat-read',
+    readerRole: String(reader.role || '').trim(),
+    readerId: String(reader.id || '').trim(),
+    readAt: String(reader.readAt || new Date().toISOString()).trim(),
+    audible: false,
+  }, { audible: false });
 };
 
 const normalizeRtcRoomPart = (value) => {

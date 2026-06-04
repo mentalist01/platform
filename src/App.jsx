@@ -85,6 +85,9 @@ import {
   withStoredAuthToken,
 } from './services/api';
 
+const StudentChatSection = React.lazy(() => import('./components/StudentChatSection'));
+const TeacherStudentChatsSection = React.lazy(() => import('./components/TeacherStudentChatsSection'));
+
 const optionalLeagueIcons = import.meta.glob('./assets/leagues/blank.png', { eager: true, import: 'default' });
 const leagueBlank = optionalLeagueIcons['./assets/leagues/blank.png'] || null;
 
@@ -114,7 +117,7 @@ const parseNativePushLaunchUrl = (value) => {
 
 const PLATFORM_DOCUMENT_TITLE = 'Платформа';
 const CHAT_LIVE_RECONNECT_DELAY_MS = 2500;
-const PLATFORM_CHATS_ENABLED = false;
+const PLATFORM_CHATS_ENABLED = true;
 
 const formatUnreadMessageTitle = (count) => {
   const safeCount = Math.max(1, Math.floor(Number(count) || 1));
@@ -11486,6 +11489,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const initialTeacherChatId = (user.role === 'teacher' || user.role === 'admin')
     ? urlRequestedChatId
     : '';
+  const initialTeacherStudentChatId = user.role === 'teacher' && initialTeacherCommsTab === 'student-chats'
+    ? initialTeacherChatId
+    : '';
   const initialTeacherSignupChatId = user.role === 'teacher' && initialTeacherCommsTab === 'signup-chats'
     ? initialTeacherChatId
     : '';
@@ -11499,6 +11505,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const [view, setView] = useState(initialView);
   const [teacherCommsTab, setTeacherCommsTab] = useState(initialTeacherCommsTab);
+  const [teacherStudentChatId, setTeacherStudentChatId] = useState(initialTeacherStudentChatId);
   const [teacherSignupChatId, setTeacherSignupChatId] = useState(initialTeacherSignupChatId);
   const [callSessionStatus, setCallSessionStatus] = useState('idle');
   const [callAutoStartToken, setCallAutoStartToken] = useState(0);
@@ -11522,6 +11529,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [pendingOpenMockExamId, setPendingOpenMockExamId] = useState(
     () => (user.role === 'student' ? initialMockExamId : null)
   );
+  const [pendingDirectChatRequest, setPendingDirectChatRequest] = useState(null);
   const [goalState, setGoalState] = useState(null);
   const [goalTestsDb, setGoalTestsDb] = useState(null);
   const [goalRefreshTick, setGoalRefreshTick] = useState(0);
@@ -12015,12 +12023,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           } catch {
             return;
           }
-          if (payload?.type !== 'student-chat-message-created') return;
+          const liveType = String(payload?.type || '').trim();
+          if (!liveType.startsWith('student-chat-')) return;
 
           const senderId = String(payload.senderId || '').trim();
           const currentUserId = String(user?.id || '').trim();
           const chatId = String(payload.chatId || '').trim();
-          if (senderId && currentUserId && senderId !== currentUserId && chatId) {
+          if (liveType === 'student-chat-message-created' && senderId && currentUserId && senderId !== currentUserId && chatId) {
             if (user?.role === 'student') {
               const keyPrefix = payload.chatKind === 'student-teacher'
                 ? 'teacher'
@@ -13243,6 +13252,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const chatId = String(payload?.chat?.id || '').trim();
     if (!chatId) throw new Error('Не удалось открыть чат.');
 
+    setPendingDirectChatRequest({
+      token: `${chatId}:${Date.now()}`,
+      chatId,
+      chat: payload.chat,
+      messages: Array.isArray(payload?.messages) ? payload.messages : [],
+    });
     setMenuOpen(false);
     navigateToView('chat');
   }, [navigateToView, user.id, user.role]);
@@ -13268,6 +13283,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       if (PLATFORM_CHATS_ENABLED && user.role === 'teacher' && isTeacherCommsPushView) {
         const nextTab = isTeacherCommsPushView ? requestedView : 'signup-chats';
         setTeacherCommsTab(nextTab);
+        if (nextTab === 'student-chats' && payload.chatId) {
+          setTeacherStudentChatId(payload.chatId);
+        }
         if (nextTab === 'signup-chats' && payload.chatId) {
           setTeacherSignupChatId(payload.chatId);
         }
@@ -13997,12 +14015,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     };
     window.addEventListener('student-chat-live-event', handleChatWake);
     window.addEventListener('student-chat-local-change', handleChatWake);
-    const interval = setInterval(fetchStudentChatUnread, 4000);
     return () => {
       cancelled = true;
       window.removeEventListener('student-chat-live-event', handleChatWake);
       window.removeEventListener('student-chat-local-change', handleChatWake);
-      clearInterval(interval);
     };
   }, [registerIncomingMessageSoundCandidates, user.role, user.id]);
 
@@ -14088,13 +14104,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     window.addEventListener('student-chat-notification-settings-updated', fetchStudentNavUnread);
     window.addEventListener('student-chat-live-event', handleChatWake);
     window.addEventListener('student-chat-local-change', handleChatWake);
-    const interval = setInterval(fetchStudentNavUnread, 4000);
     return () => {
       cancelled = true;
       window.removeEventListener('student-chat-notification-settings-updated', fetchStudentNavUnread);
       window.removeEventListener('student-chat-live-event', handleChatWake);
       window.removeEventListener('student-chat-local-change', handleChatWake);
-      clearInterval(interval);
     };
   }, [registerIncomingMessageSoundCandidates, user.role, user.id, view]);
 
@@ -16252,6 +16266,30 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               highlightPython={highlightPython}
             />
           )}
+          {view === 'chat' && (
+            <React.Suspense fallback={<div className="surface-panel rounded-2xl p-6 text-sm font-semibold text-slate-500">Загружаем чаты...</div>}>
+              <StudentChatSection
+                user={user}
+                pushSupported={pushSupported}
+                pushPermission={pushPermission}
+                pushEnabled={pushSubscribed}
+                pushSyncing={pushSyncing}
+                pushBusy={pushBusy}
+                pushReady={pushReady}
+                pushError={pushError}
+                onTogglePush={handleTogglePush}
+                onOpenDirectChat={handleOpenStudentDirectChat}
+                openDirectChatRequest={pendingDirectChatRequest}
+                onOpenDirectChatHandled={() => setPendingDirectChatRequest(null)}
+                getLeagueByXp={getLeagueByXp}
+                getLeagueAuraStyle={getLeagueAuraStyle}
+                isAbsoluteOrAboveLeague={isAbsoluteOrAboveLeague}
+                ABSOLUTE_AURA_CROWN_STYLE={ABSOLUTE_AURA_CROWN_STYLE}
+                getLevelFromXp={getLevelFromXp}
+                getLevelProgressFromXp={getLevelProgressFromXp}
+              />
+            </React.Suspense>
+          )}
           {view === 'teacher' && (
             <TeacherPanel
               mode="tests"
@@ -16349,6 +16387,25 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   </button>
                 </div>
               </div>
+
+              {activeTeacherCommsTab === 'student-chats' && (
+                <React.Suspense fallback={<div className="surface-panel rounded-2xl p-6 text-sm font-semibold text-slate-500">Загружаем чаты...</div>}>
+                  <TeacherStudentChatsSection
+                    role={user.role}
+                    teacherId={user.role === 'teacher' ? user.id : null}
+                    initialChatId={teacherStudentChatId}
+                    notifySupported={teacherSignupNotifySupported}
+                    notifyPermission={teacherSignupNotifyPermission}
+                    notifyEnabled={teacherSignupNotifyEnabled}
+                    notifyBusy={teacherSignupNotifyBusy}
+                    notifySyncing={teacherSignupNotifySyncing}
+                    notifyReady={teacherSignupNotifyReady}
+                    notifyStatusText={teacherSignupNotifyStatusText}
+                    notifyError={teacherSignupNotifyError}
+                    onToggleNotify={handleToggleTeacherSignupNotify}
+                  />
+                </React.Suspense>
+              )}
 
               {activeTeacherCommsTab === 'signup-chats' && (
                 <TeacherPanel
