@@ -12423,11 +12423,18 @@ html[data-theme='dark'] .surface-card {
     0 0 0 1px rgba(255, 255, 255, 0.12) inset;
 }
 
+.student-chat-tab-unread--tab {
+  z-index: 8;
+  top: -0.42rem;
+  right: -0.36rem;
+}
+
 .student-chat-tabs {
   padding: 0.16rem;
   border: 1px solid rgba(255, 255, 255, 0.13);
   border-radius: 1.05rem;
   background: rgba(255, 255, 255, 0.075);
+  overflow: visible !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
     0 14px 30px rgba(15, 23, 42, 0.12);
@@ -12436,6 +12443,7 @@ html[data-theme='dark'] .surface-card {
 .student-chat-tab {
   min-height: 2.55rem;
   border-radius: 0.95rem !important;
+  overflow: visible !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
     0 10px 24px rgba(2, 6, 23, 0.12);
@@ -16219,7 +16227,7 @@ html[data-theme='dark'] .student-direct-thread-header p:last-child {
     height: 0.76rem;
   }
 
-  .student-chat-tab-unread {
+  .student-chat-tab-unread--tab {
     top: -0.3rem !important;
     right: -0.14rem !important;
   }
@@ -16429,7 +16437,7 @@ html[data-theme='dark'] .student-direct-thread-header p:last-child {
     height: 0.62rem;
   }
 
-  .student-chat-tab-unread {
+  .student-chat-tab-unread--tab {
     top: -0.34rem !important;
     right: -0.2rem !important;
   }

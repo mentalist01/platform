@@ -3329,10 +3329,9 @@ const StudentChatSection = ({
   const canTogglePush = typeof onTogglePush === 'function' && !pushBusy && !pushSyncing && pushReady;
   const PushIcon = pushEnabled ? BellOff : Bell;
   const groupParticipantsCount = socialPeers.length + 1;
+  const teacherUnread = Number(teacherChat?.unreadForStudent) || 0;
   const directUnreadTotal = directChats.reduce((sum, chat) => (
-    isDirectNotificationsEnabled(chat?.id)
-      ? sum + (Number(chat?.unreadForStudent) || 0)
-      : sum
+    sum + (Number(chat?.unreadForStudent) || 0)
   ), 0);
   const groupUnread = Number(groupChat?.unreadForStudent) || 0;
   const tabs = [
@@ -3341,6 +3340,7 @@ const StudentChatSection = ({
       label: 'Учитель',
       caption: '1:1',
       icon: GraduationCap,
+      badge: teacherUnread,
       notificationsEnabled: teacherNotificationsEnabled,
       notificationSaving: notificationSettingsSavingKey === 'teacher',
       onToggleNotifications: handleToggleTeacherNotifications,
@@ -3352,7 +3352,7 @@ const StudentChatSection = ({
       caption: `${groupParticipantsCount} чел.`,
       icon: Users,
       disabled: !socialSettings.groupEnabled,
-      badge: groupNotificationsEnabled ? groupUnread : 0,
+      badge: groupUnread,
       notificationsEnabled: groupNotificationsEnabled,
       notificationSaving: notificationSettingsSavingKey === 'group',
       onToggleNotifications: handleToggleGroupNotifications,
@@ -3648,7 +3648,7 @@ const StudentChatSection = ({
                 return (
                   <div
                     key={tab.id}
-                    className={`student-chat-tab group relative inline-flex min-w-[124px] shrink-0 items-stretch overflow-hidden rounded-2xl border text-left text-sm font-black transition-all ${
+                    className={`student-chat-tab group relative inline-flex min-w-[124px] shrink-0 items-stretch overflow-visible rounded-2xl border text-left text-sm font-black transition-all ${
                       active
                         ? tab.activeClass
                         : 'border-white/14 bg-white/10 text-white/82 hover:border-white/26 hover:bg-white/16 hover:text-white'
@@ -3674,7 +3674,7 @@ const StudentChatSection = ({
                     </span>
                     </button>
                     {Number(tab.badge) > 0 && (
-                      <span className="student-chat-tab-unread pointer-events-none absolute right-1.5 top-1.5">
+                      <span className="student-chat-tab-unread student-chat-tab-unread--tab pointer-events-none absolute">
                         {Number(tab.badge) > 99 ? '99+' : tab.badge}
                       </span>
                     )}
