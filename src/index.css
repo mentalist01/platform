@@ -13532,28 +13532,50 @@ html[data-theme='light'] .student-chat-push-button:hover:not(:disabled) {
 
 .student-chat-pinned-message-row {
   position: sticky;
-  top: -0.1rem;
+  top: -0.32rem;
   z-index: 24;
-  margin: -0.15rem -0.15rem 0.2rem;
-  padding: 0.15rem 0.15rem 0.35rem;
+  margin: -0.35rem -0.35rem 0.32rem;
+  padding: 0.35rem 0.35rem 0.24rem;
   background:
-    linear-gradient(180deg, rgba(8, 16, 32, 0.92), rgba(8, 16, 32, 0.76) 68%, transparent);
-  backdrop-filter: blur(12px);
+    linear-gradient(180deg, rgba(8, 16, 32, 0.9), rgba(8, 16, 32, 0.52) 62%, transparent);
+  backdrop-filter: blur(14px);
 }
 
 .student-chat-pinned-message-row .student-message-reference--compact.student-message-reference--pin {
   margin: 0;
-  border-radius: 0.95rem;
+  min-height: 3.05rem;
+  align-items: center;
+  gap: 0.58rem;
+  border-radius: 1.05rem;
   background:
-    radial-gradient(circle at 0% 0%, rgba(250, 204, 21, 0.13), transparent 42%),
-    linear-gradient(135deg, rgba(15, 23, 42, 0.82), rgba(15, 23, 42, 0.62));
+    radial-gradient(circle at 2% 12%, rgba(34, 211, 238, 0.22), transparent 42%),
+    linear-gradient(135deg, rgba(8, 47, 73, 0.78), rgba(15, 23, 42, 0.78) 44%, rgba(30, 41, 59, 0.58));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 12px 26px rgba(2, 6, 23, 0.22);
+    0 14px 32px rgba(2, 6, 23, 0.26),
+    0 0 0 1px rgba(103, 232, 249, 0.08) inset,
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .student-message-reference--pin {
-  border-color: rgba(250, 204, 21, 0.28);
+  border-color: rgba(34, 211, 238, 0.28);
+  color: rgb(226, 232, 240);
+}
+
+.student-message-reference__pin-icon {
+  display: grid;
+  width: 1.85rem;
+  height: 1.85rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(103, 232, 249, 0.2);
+  border-radius: 0.78rem;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.26), transparent 35%),
+    linear-gradient(135deg, rgba(14, 165, 233, 0.34), rgba(124, 58, 237, 0.2));
+  color: rgb(165, 243, 252);
+  box-shadow:
+    0 10px 20px rgba(14, 165, 233, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
 .student-message-reference--forward {
@@ -13569,8 +13591,18 @@ html[data-theme='light'] .student-chat-push-button:hover:not(:disabled) {
 }
 
 .student-message-reference--pin .student-message-reference__rail {
-  background: linear-gradient(180deg, #facc15, #a855f7);
-  box-shadow: 0 0 16px rgba(250, 204, 21, 0.28);
+  width: 0.18rem;
+  align-self: stretch;
+  background: linear-gradient(180deg, #22d3ee, #60a5fa 52%, #a855f7);
+  box-shadow: 0 0 16px rgba(34, 211, 238, 0.28);
+}
+
+.student-message-reference--pin .student-message-reference__label {
+  color: rgb(103, 232, 249);
+}
+
+.student-message-reference--pin .student-message-reference__text {
+  color: rgba(226, 232, 240, 0.82);
 }
 
 .student-message-reference__label,
@@ -13649,6 +13681,18 @@ html[data-theme='light'] .student-chat-push-button:hover:not(:disabled) {
   transform: translateY(-1px);
   border-color: rgba(125, 211, 252, 0.42);
   background: rgba(255, 255, 255, 0.16);
+}
+
+.student-message-reference--pin .student-message-reference__close {
+  border-color: rgba(103, 232, 249, 0.14);
+  background: rgba(15, 23, 42, 0.18);
+  color: rgba(226, 232, 240, 0.82);
+}
+
+.student-message-reference--pin .student-message-reference__close:hover {
+  border-color: rgba(103, 232, 249, 0.3);
+  background: rgba(14, 165, 233, 0.14);
+  color: #fff;
 }
 
 .student-message-system-row {
@@ -15338,24 +15382,53 @@ html[data-theme='light'] .student-message-reference--mine .student-message-refer
 }
 
 html[data-theme='light'] .student-message-reference--pin {
-  border-color: rgba(245, 158, 11, 0.26);
+  border-color: rgba(14, 165, 233, 0.22);
   background:
-    radial-gradient(circle at 0% 0%, rgba(250, 204, 21, 0.18), transparent 44%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(254, 249, 195, 0.54), rgba(236, 254, 255, 0.72));
+    radial-gradient(circle at 0% 0%, rgba(14, 165, 233, 0.16), transparent 44%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.97), rgba(240, 249, 255, 0.86), rgba(245, 243, 255, 0.76));
+  color: rgb(15, 23, 42);
 }
 
 html[data-theme='light'] .student-chat-pinned-message-row {
   background:
-    linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(239, 246, 255, 0.76) 68%, transparent);
+    linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(239, 246, 255, 0.48) 64%, transparent);
 }
 
 html[data-theme='light'] .student-chat-pinned-message-row .student-message-reference--compact.student-message-reference--pin {
   background:
-    radial-gradient(circle at 0% 0%, rgba(250, 204, 21, 0.16), transparent 44%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(254, 249, 195, 0.4), rgba(236, 254, 255, 0.68));
+    radial-gradient(circle at 0% 0%, rgba(14, 165, 233, 0.17), transparent 44%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(240, 249, 255, 0.86), rgba(245, 243, 255, 0.78));
   box-shadow:
-    0 8px 18px rgba(15, 23, 42, 0.05),
+    0 12px 24px rgba(14, 116, 144, 0.08),
+    0 0 0 1px rgba(14, 165, 233, 0.08) inset,
     inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+html[data-theme='light'] .student-message-reference__pin-icon {
+  border-color: rgba(14, 165, 233, 0.2);
+  background:
+    radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.9), transparent 42%),
+    linear-gradient(135deg, rgba(224, 242, 254, 0.94), rgba(221, 214, 254, 0.78));
+  color: rgb(2, 132, 199);
+  box-shadow:
+    0 10px 20px rgba(14, 116, 144, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+html[data-theme='light'] .student-message-reference--pin .student-message-reference__text {
+  color: rgba(51, 65, 85, 0.78);
+}
+
+html[data-theme='light'] .student-message-reference--pin .student-message-reference__close {
+  border-color: rgba(14, 165, 233, 0.16);
+  background: rgba(255, 255, 255, 0.72);
+  color: rgba(51, 65, 85, 0.78);
+}
+
+html[data-theme='light'] .student-message-reference--pin .student-message-reference__close:hover {
+  border-color: rgba(14, 165, 233, 0.28);
+  background: rgba(224, 242, 254, 0.9);
+  color: rgb(15, 23, 42);
 }
 
 html[data-theme='light'] .student-message-system-pill {

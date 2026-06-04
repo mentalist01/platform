@@ -439,6 +439,11 @@ const MessageReferenceCard = ({
   };
   const content = (
     <>
+      {type === 'pin' && (
+        <span className="student-message-reference__pin-icon" aria-hidden="true">
+          <Pin size={14} />
+        </span>
+      )}
       <span className="student-message-reference__rail" aria-hidden="true" />
       <span className="min-w-0 flex-1">
         <span className="student-message-reference__label">
