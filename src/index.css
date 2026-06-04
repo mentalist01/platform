@@ -13534,11 +13534,10 @@ html[data-theme='light'] .student-chat-push-button:hover:not(:disabled) {
   position: sticky;
   top: -0.32rem;
   z-index: 24;
-  margin: -0.35rem -0.35rem 0.32rem;
-  padding: 0.35rem 0.35rem 0.24rem;
-  background:
-    linear-gradient(180deg, rgba(8, 16, 32, 0.9), rgba(8, 16, 32, 0.52) 62%, transparent);
-  backdrop-filter: blur(14px);
+  margin: 0 0 0.32rem;
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
 }
 
 .student-chat-pinned-message-row .student-message-reference--compact.student-message-reference--pin {
@@ -13546,14 +13545,12 @@ html[data-theme='light'] .student-chat-push-button:hover:not(:disabled) {
   min-height: 3.05rem;
   align-items: center;
   gap: 0.58rem;
+  border: 0;
   border-radius: 1.05rem;
   background:
     radial-gradient(circle at 2% 12%, rgba(34, 211, 238, 0.22), transparent 42%),
     linear-gradient(135deg, rgba(8, 47, 73, 0.78), rgba(15, 23, 42, 0.78) 44%, rgba(30, 41, 59, 0.58));
-  box-shadow:
-    0 14px 32px rgba(2, 6, 23, 0.26),
-    0 0 0 1px rgba(103, 232, 249, 0.08) inset,
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow: 0 14px 32px rgba(2, 6, 23, 0.26);
 }
 
 .student-message-reference--pin {
@@ -15390,18 +15387,15 @@ html[data-theme='light'] .student-message-reference--pin {
 }
 
 html[data-theme='light'] .student-chat-pinned-message-row {
-  background:
-    linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(239, 246, 255, 0.48) 64%, transparent);
+  background: transparent;
 }
 
 html[data-theme='light'] .student-chat-pinned-message-row .student-message-reference--compact.student-message-reference--pin {
+  border: 0;
   background:
     radial-gradient(circle at 0% 0%, rgba(14, 165, 233, 0.17), transparent 44%),
     linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(240, 249, 255, 0.86), rgba(245, 243, 255, 0.78));
-  box-shadow:
-    0 12px 24px rgba(14, 116, 144, 0.08),
-    0 0 0 1px rgba(14, 165, 233, 0.08) inset,
-    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 24px rgba(14, 116, 144, 0.08);
 }
 
 html[data-theme='light'] .student-message-reference__pin-icon {
