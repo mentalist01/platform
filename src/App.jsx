@@ -13,7 +13,7 @@ import {
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   ChevronsLeft, ChevronsRight, ChevronsUpDown, Search,
-  Bell, BellOff, Camera, MousePointer2, Code2, MoreHorizontal, Users, Wallet
+  Bell, BellOff, Camera, MousePointer2, Code2, MoreHorizontal, MessageSquare, Users, Wallet
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
 import mascotDisapproval from './assets/mascot/disapproval.png';
@@ -11778,7 +11778,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
         { id: 'board', label: 'Доска', icon: Brush },
         { id: 'teacher', label: 'Управление тестами', icon: Settings },
-        ...(PLATFORM_CHATS_ENABLED ? [{ id: TEACHER_COMMS_VIEW, label: 'Чаты и уведомления', icon: Bell }] : []),
+        ...(PLATFORM_CHATS_ENABLED ? [{ id: TEACHER_COMMS_VIEW, label: 'Чаты и уведомления', icon: MessageSquare }] : []),
         { id: 'notes', label: 'Конспекты', icon: Folder }
       ]
       : [
@@ -11789,7 +11789,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'collab', label: 'Совместный код', icon: Code2 },
         { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
         { id: 'board', label: 'Доска', icon: Brush },
-        ...(PLATFORM_CHATS_ENABLED ? [{ id: 'chat', label: 'Чаты', icon: Bell }] : []),
+        ...(PLATFORM_CHATS_ENABLED ? [{ id: 'chat', label: 'Чаты', icon: MessageSquare }] : []),
         { id: 'notes', label: 'Конспекты', icon: BookOpen }
       ];
   const visibleNav = (user.role === 'student' && !STUDENT_CALL_SECTION_ENABLED)
