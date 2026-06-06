@@ -2716,6 +2716,15 @@ const ProgressSection = ({
       : formatMockTimerDuration(MOCK_EXAM_TIMER_DURATION_MS);
     const actionLabel = canRestartTimerAttempt ? 'Открыть' : examStats.actionLabel;
     const isStartingThisMock = String(startingMockExamId || '') === String(exam.id || '');
+    const actionButtonStateClass = !hasExamTasks
+      ? 'mock-start-button--soon'
+      : canRestartTimerAttempt
+        ? 'mock-start-button--open'
+        : examStats.isCompleted
+          ? 'mock-start-button--repeat'
+          : examStats.hasStarted
+            ? 'mock-start-button--continue'
+            : 'mock-start-button--start';
     const attemptHasTimerMarkers = Boolean(
       normalizeMockAttemptMode(attempt?.mode) === MOCK_ATTEMPT_MODE_TIMER
       || String(attempt?.timerStartedAt || '').trim()
@@ -3008,7 +3017,8 @@ const ProgressSection = ({
                 variant={examStats.isCompleted ? 'secondary' : 'primary'}
                 onClick={openStudentMockExam}
                 disabled={!hasExamTasks || isStartingThisMock}
-                className="mock-start-button w-full py-1.5 sm:py-2"
+                aria-busy={isStartingThisMock || undefined}
+                className={`mock-start-button ${actionButtonStateClass} ${isStartingThisMock ? 'mock-start-button--loading' : ''} w-full py-1.5 sm:py-2`}
               >
                 <span className="mock-start-button__icon">
                   <PlayCircle size={16} />

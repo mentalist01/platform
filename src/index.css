@@ -39478,41 +39478,138 @@ html[data-theme='dark'] .progress-section--mocks .mock-score-stat--reward {
 
 .progress-section--mocks .mock-start-button {
   position: relative;
-  min-height: 4rem !important;
+  isolation: isolate;
+  min-height: 4.35rem !important;
   overflow: hidden;
-  border: 2px solid rgba(255, 255, 255, 0.42) !important;
-  border-radius: 0.95rem !important;
-  background: linear-gradient(180deg, #60a5fa 0%, #2563eb 48%, #4f46e5 100%) !important;
+  justify-content: center !important;
+  gap: 0.72rem !important;
+  border: 1px solid rgba(255, 255, 255, 0.66) !important;
+  border-radius: 1.18rem !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0) 46%),
+    linear-gradient(135deg, #38bdf8 0%, #2563eb 42%, #4f46e5 76%, #7c3aed 100%) !important;
   color: rgb(255, 255, 255) !important;
-  font-size: 1rem !important;
+  font-size: 1.08rem !important;
   font-weight: 950 !important;
-  text-shadow: 0 2px 0 rgba(30, 41, 59, 0.28);
+  letter-spacing: 0 !important;
+  text-shadow: 0 2px 0 rgba(30, 41, 59, 0.24);
   box-shadow:
-    0 6px 0 rgba(30, 64, 175, 0.58),
-    0 18px 30px rgba(37, 99, 235, 0.28),
-    inset 0 2px 0 rgba(255, 255, 255, 0.34),
+    0 7px 0 rgba(30, 64, 175, 0.52),
+    0 19px 38px rgba(37, 99, 235, 0.34),
+    0 0 0 5px rgba(56, 189, 248, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.48),
     inset 0 -2px 0 rgba(30, 64, 175, 0.32) !important;
+  transform: translateY(0);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    filter 180ms ease !important;
 }
 
 .progress-section--mocks .mock-start-button::before {
   content: '';
   position: absolute;
-  inset: 0;
-  background: linear-gradient(115deg, transparent 0 34%, rgba(255, 255, 255, 0.28) 45%, transparent 58%);
-  transform: translateX(-55%);
-  transition: transform 0.32s ease;
+  z-index: 0;
+  inset: -35% -42%;
+  background:
+    linear-gradient(110deg, transparent 0 32%, rgba(255, 255, 255, 0.52) 44%, rgba(255, 255, 255, 0.16) 51%, transparent 64%);
+  mix-blend-mode: screen;
+  opacity: 0.78;
+  transform: translateX(-78%) rotate(8deg);
+  pointer-events: none;
+  animation: mockStartButtonSheen 4.2s cubic-bezier(0.2, 0.9, 0.25, 1) infinite;
+}
+
+.progress-section--mocks .mock-start-button::after {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  inset: 1px;
+  border-radius: calc(1.18rem - 1px);
+  background:
+    radial-gradient(circle at 20% 18%, rgba(255, 255, 255, 0.38), transparent 27%),
+    radial-gradient(circle at 86% 78%, rgba(45, 212, 191, 0.22), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 56%);
+  opacity: 0.92;
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 180ms ease;
+  animation: mockStartButtonGlow 3.6s ease-in-out infinite;
 }
 
 .progress-section--mocks .mock-start-button:hover:not(:disabled)::before {
-  transform: translateX(55%);
+  animation-duration: 1.45s;
+}
+
+.progress-section--mocks .mock-start-button:hover:not(:disabled) {
+  filter: saturate(1.08);
+  transform: translateY(-2px) scale(1.01) !important;
+  box-shadow:
+    0 9px 0 rgba(30, 64, 175, 0.5),
+    0 25px 48px rgba(37, 99, 235, 0.4),
+    0 0 0 6px rgba(56, 189, 248, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.56),
+    inset 0 -2px 0 rgba(30, 64, 175, 0.28) !important;
+}
+
+.progress-section--mocks .mock-start-button:hover:not(:disabled)::after {
+  opacity: 1;
+  transform: scale(1.02);
 }
 
 .progress-section--mocks .mock-start-button:active:not(:disabled) {
-  transform: translateY(3px) !important;
+  animation-play-state: paused;
+  transform: translateY(5px) scale(0.99) !important;
   box-shadow:
-    0 3px 0 rgba(30, 64, 175, 0.62),
-    0 12px 20px rgba(37, 99, 235, 0.22),
-    inset 0 2px 0 rgba(255, 255, 255, 0.26) !important;
+    0 2px 0 rgba(30, 64, 175, 0.58),
+    0 12px 22px rgba(37, 99, 235, 0.26),
+    0 0 0 4px rgba(56, 189, 248, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32) !important;
+}
+
+.progress-section--mocks .mock-start-button:disabled:not(.mock-start-button--loading) {
+  filter: grayscale(0.18);
+  opacity: 0.68;
+  animation: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0) 48%),
+    linear-gradient(135deg, rgba(148, 163, 184, 0.92), rgba(71, 85, 105, 0.88)) !important;
+  box-shadow:
+    0 4px 0 rgba(100, 116, 139, 0.38),
+    0 12px 24px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.34) !important;
+}
+
+.progress-section--mocks .mock-start-button:disabled:not(.mock-start-button--loading)::before,
+.progress-section--mocks .mock-start-button:disabled:not(.mock-start-button--loading)::after {
+  animation: none;
+  opacity: 0.28;
+}
+
+.progress-section--mocks .mock-start-button--repeat {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0) 46%),
+    linear-gradient(135deg, #14b8a6 0%, #2563eb 48%, #4f46e5 100%) !important;
+  box-shadow:
+    0 7px 0 rgba(15, 118, 110, 0.42),
+    0 19px 38px rgba(20, 184, 166, 0.22),
+    0 0 0 5px rgba(20, 184, 166, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.48),
+    inset 0 -2px 0 rgba(15, 118, 110, 0.3) !important;
+}
+
+.progress-section--mocks .mock-start-button--loading {
+  cursor: wait;
+}
+
+.progress-section--mocks .mock-start-button--loading:disabled {
+  cursor: wait;
+  filter: saturate(1.06);
+  opacity: 0.96;
+}
+
+.progress-section--mocks .mock-start-button--loading::before {
+  opacity: 0.92;
+  animation-duration: 1.05s;
 }
 
 .progress-section--mocks .mock-start-button__icon,
@@ -39526,10 +39623,82 @@ html[data-theme='dark'] .progress-section--mocks .mock-score-stat--reward {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.36),
+    0 4px 10px rgba(15, 23, 42, 0.14);
+}
+
+.progress-section--mocks .mock-start-button__icon svg {
+  width: 1.08rem;
+  height: 1.08rem;
+}
+
+.progress-section--mocks .mock-start-button--loading .mock-start-button__icon {
+  animation: mockStartIconPulse 820ms ease-in-out infinite alternate;
 }
 
 .progress-section--mocks .mock-start-button__arrow {
-  opacity: 0.82;
+  opacity: 0.86;
+  animation: mockStartArrowNudge 1.7s ease-in-out infinite;
+}
+
+.progress-section--mocks .mock-start-button:hover:not(:disabled) .mock-start-button__arrow {
+  animation-duration: 950ms;
+}
+
+@keyframes mockStartButtonSheen {
+  0%,
+  58% {
+    transform: translateX(-86%) rotate(8deg);
+  }
+  100% {
+    transform: translateX(86%) rotate(8deg);
+  }
+}
+
+@keyframes mockStartButtonGlow {
+  0%,
+  100% {
+    opacity: 0.78;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes mockStartIconPulse {
+  from {
+    transform: scale(0.95);
+    opacity: 0.76;
+  }
+  to {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+
+@keyframes mockStartArrowNudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-section--mocks .mock-start-button,
+  .progress-section--mocks .mock-start-button::before,
+  .progress-section--mocks .mock-start-button::after,
+  .progress-section--mocks .mock-start-button__icon,
+  .progress-section--mocks .mock-start-button__arrow {
+    animation: none !important;
+  }
 }
 
 .progress-section--mocks .mock-score-panel {
