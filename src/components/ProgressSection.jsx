@@ -105,6 +105,34 @@ const MOCK_CHEST_TEST_ARTIFACTS = ARTIFACT_CATALOG_METADATA
   })
   .filter(Boolean);
 
+const handleMockPremiumCardPointerMove = (event) => {
+  const element = event.currentTarget;
+  const rect = element.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+
+  const pointerX = ((event.clientX - rect.left) / rect.width) * 100;
+  const pointerY = ((event.clientY - rect.top) / rect.height) * 100;
+  const tiltX = ((50 - pointerY) / 50) * 0.28;
+  const tiltY = ((pointerX - 50) / 50) * 0.38;
+
+  element.classList.add('mock-premium-card--interactive');
+  element.style.setProperty('--mock-card-pointer-x', `${pointerX.toFixed(2)}%`);
+  element.style.setProperty('--mock-card-pointer-y', `${pointerY.toFixed(2)}%`);
+  element.style.setProperty('--mock-card-tilt-x', `${tiltX.toFixed(2)}deg`);
+  element.style.setProperty('--mock-card-tilt-y', `${tiltY.toFixed(2)}deg`);
+  element.style.setProperty('--mock-card-lift', '-0.65px');
+};
+
+const handleMockPremiumCardPointerLeave = (event) => {
+  const element = event.currentTarget;
+  element.classList.remove('mock-premium-card--interactive');
+  element.style.setProperty('--mock-card-pointer-x', '50%');
+  element.style.setProperty('--mock-card-pointer-y', '42%');
+  element.style.setProperty('--mock-card-tilt-x', '0deg');
+  element.style.setProperty('--mock-card-tilt-y', '0deg');
+  element.style.setProperty('--mock-card-lift', '0px');
+};
+
 const createMockChestTestRewards = () => {
   const usedArtifactIds = new Set();
   const pickArtifact = () => {
@@ -2775,19 +2803,17 @@ const ProgressSection = ({
             handleOpenMockExam(exam, { mode: selectedMode });
           }
         }}
-        className={`mock-student-card mock-student-card--compact group relative overflow-hidden rounded-[26px] border p-0 text-left transition-all duration-300 ${hasExamTasks ? 'cursor-pointer hover:-translate-y-0.5' : 'mock-student-card--empty cursor-default'} ${cardStateClass} ${isTimerMode ? 'mock-student-card--timer-mode' : ''} ${timerRewardsDisabled ? 'mock-student-card--timer-rewards-disabled' : ''}`}
+        onPointerMove={handleMockPremiumCardPointerMove}
+        onPointerLeave={handleMockPremiumCardPointerLeave}
+        style={{
+          '--mock-card-pointer-x': '50%',
+          '--mock-card-pointer-y': '42%',
+          '--mock-card-tilt-x': '0deg',
+          '--mock-card-tilt-y': '0deg',
+          '--mock-card-lift': '0px',
+        }}
+        className={`mock-student-card mock-student-card--compact mock-premium-card group relative overflow-hidden rounded-[26px] border p-0 text-left transition-all duration-300 ${hasExamTasks ? 'cursor-pointer hover:-translate-y-0.5' : 'mock-student-card--empty cursor-default'} ${cardStateClass} ${isTimerMode ? 'mock-student-card--timer-mode' : ''} ${timerRewardsDisabled ? 'mock-student-card--timer-rewards-disabled' : ''}`}
       >
-        <div className="mock-student-card__shine" />
-        <div className="mock-game-card__aura" aria-hidden="true" />
-        <div className="mock-game-card__runes" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-        </div>
-        <div className="mock-game-card__corner mock-game-card__corner--tl" aria-hidden="true" />
-        <div className="mock-game-card__corner mock-game-card__corner--tr" aria-hidden="true" />
-        <div className="mock-game-card__corner mock-game-card__corner--bl" aria-hidden="true" />
-        <div className="mock-game-card__corner mock-game-card__corner--br" aria-hidden="true" />
         <div className="mock-quest-grid relative grid gap-0 lg:grid-cols-[minmax(0,1fr)_300px]">
           <div className="mock-quest-body p-3.5 md:p-4">
             <div className="mock-quest-heading flex flex-col gap-3 md:flex-row md:items-start">
@@ -2862,7 +2888,7 @@ const ProgressSection = ({
                       ) : (
                         <span>
                           <Sparkles size={12} />
-                          Подготовка арены
+                          Задания готовятся
                         </span>
                       )}
                     </div>
@@ -2898,7 +2924,7 @@ const ProgressSection = ({
                         className={`mock-mode-switch__option ${!isTimerMode ? 'mock-mode-switch__option--active' : ''}`}
                       >
                         <BookOpen size={14} />
-                        <span>Обычный режим</span>
+                        <span>Обычный</span>
                       </button>
                       <button
                         type="button"
@@ -2911,7 +2937,7 @@ const ProgressSection = ({
                         className={`mock-mode-switch__option mock-mode-switch__option--timer ${isTimerMode ? 'mock-mode-switch__option--active' : ''}`}
                       >
                         <Clock3 size={14} />
-                        <span>Режим таймера</span>
+                        <span>Таймер</span>
                       </button>
                     </div>
                   </div>
@@ -2921,8 +2947,8 @@ const ProgressSection = ({
                       <span className="mock-reward-title inline-flex items-center gap-1.5 font-semibold">
                         {isTimerMode ? <Flame size={13} /> : <Crown size={13} />}
                         {isTimerMode
-                          ? (timerResultsHidden ? 'Испытание: ответы сохранены' : `Испытание: ${scoreValue}/100`)
-                          : `Трофейная дорога: ${scoreValue}/100`}
+                          ? (timerResultsHidden ? 'Таймер: ответы сохранены' : `Таймер: ${scoreValue}/100`)
+                          : `Награды: ${scoreValue}/100`}
                       </span>
                       <span className="mock-reward-next">
                         {isTimerMode && modeLocked ? `${examStats.isTimerPaused ? 'Пауза: ' : ''}${timerRemainingLabel} · ` : ''}
@@ -2940,6 +2966,12 @@ const ProgressSection = ({
                         const rewardDisabled = timerRewardsDisabled && isTimerMode;
                         const achieved = !rewardDisabled && achievedCoinMilestones.has(milestone.score);
                         const awarded = !rewardDisabled && awardedMilestoneSet.has(milestone.score);
+                        const isNextRewardMilestone = Boolean(
+                          !timerResultsHidden
+                          && !rewardDisabled
+                          && nextRewardMilestone
+                          && milestone.score === nextRewardMilestone.score
+                        );
                         const edgeClass = milestone.score >= 100
                           ? 'mock-reward-milestone--edge-end'
                           : milestone.score <= 30
@@ -2962,7 +2994,7 @@ const ProgressSection = ({
                         return (
                           <div
                             key={milestone.score}
-                            className={`mock-reward-milestone ${achieved ? 'mock-reward-milestone--achieved' : ''} ${awarded ? 'mock-reward-milestone--awarded' : ''} ${rewardDisabled ? 'mock-reward-milestone--disabled' : ''} ${edgeClass}`}
+                            className={`mock-reward-milestone ${achieved ? 'mock-reward-milestone--achieved' : ''} ${awarded ? 'mock-reward-milestone--awarded' : ''} ${isNextRewardMilestone ? 'mock-reward-milestone--next' : ''} ${rewardDisabled ? 'mock-reward-milestone--disabled' : ''} ${edgeClass}`}
                             style={{ left: `${milestone.score}%` }}
                           >
                             <div

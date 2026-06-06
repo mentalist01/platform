@@ -40556,3 +40556,1585 @@ html[data-theme='light'] .student-chat-drop-overlay {
     radial-gradient(circle at 50% 42%, rgba(14, 165, 233, 0.18), transparent 34%),
     linear-gradient(135deg, rgba(248, 250, 252, 0.68), rgba(224, 242, 254, 0.48));
 }
+
+/* Premium mock exam ticket. Kept as a final layer because earlier mock styles are highly thematic. */
+.progress-section--mocks .mock-student-card.mock-student-card--compact.mock-premium-card {
+  --mock-premium-accent: #0ea5e9;
+  --mock-premium-accent-2: #14b8a6;
+  --mock-premium-accent-3: #6366f1;
+  min-height: 0 !important;
+  border: 1px solid rgba(148, 163, 184, 0.34) !important;
+  border-radius: 1.25rem !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 250, 252, 0.96)) !important;
+  color: rgb(15, 23, 42) !important;
+  box-shadow:
+    0 18px 42px rgba(15, 23, 42, 0.08),
+    0 1px 0 rgba(255, 255, 255, 0.94) inset !important;
+  transform: translateY(0);
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact.mock-premium-card:hover {
+  transform: translateY(-2px) !important;
+  border-color: rgba(14, 165, 233, 0.36) !important;
+  box-shadow:
+    0 24px 52px rgba(15, 23, 42, 0.12),
+    0 1px 0 rgba(255, 255, 255, 0.94) inset !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact.mock-premium-card::before {
+  inset-block: 0 !important;
+  left: 0 !important;
+  width: 0.22rem !important;
+  border-radius: 999px 0 0 999px !important;
+  background: linear-gradient(180deg, var(--mock-premium-accent), var(--mock-premium-accent-2) 52%, var(--mock-premium-accent-3)) !important;
+  opacity: 0.92 !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-grid {
+  z-index: 1;
+  min-height: 0 !important;
+  grid-template-columns: minmax(0, 1fr) minmax(15.5rem, 17.25rem) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-body {
+  padding: 1.05rem 1.15rem 1.05rem 1.35rem !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-heading {
+  flex-direction: row !important;
+  gap: 0.85rem !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-emblem,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-ticket-mark {
+  width: 2.55rem !important;
+  height: 2.55rem !important;
+  border: 1px solid rgba(14, 165, 233, 0.2) !important;
+  border-radius: 0.9rem !important;
+  background:
+    linear-gradient(145deg, rgba(240, 249, 255, 0.98), rgba(236, 253, 245, 0.92)) !important;
+  color: rgb(3, 105, 161) !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-emblem svg {
+  filter: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-emblem__ring {
+  display: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-badges {
+  gap: 0.4rem !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-badges .mock-state-chip,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-state-chip {
+  min-height: 1.35rem !important;
+  border: 1px solid rgba(203, 213, 225, 0.86) !important;
+  border-radius: 999px !important;
+  background: rgba(248, 250, 252, 0.88) !important;
+  color: rgb(71, 85, 105) !important;
+  padding: 0.24rem 0.58rem !important;
+  font-size: 0.64rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+  text-transform: uppercase;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-badges .mock-state-chip--focus,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-state-chip--focus {
+  border-color: rgba(14, 165, 233, 0.22) !important;
+  background: rgba(240, 249, 255, 0.92) !important;
+  color: rgb(3, 105, 161) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-badges .mock-state-chip--best,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-state-chip--best {
+  border-color: rgba(245, 158, 11, 0.24) !important;
+  background: rgba(255, 251, 235, 0.92) !important;
+  color: rgb(146, 64, 14) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-badges .mock-state-chip--done,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-state-chip--done {
+  border-color: rgba(16, 185, 129, 0.22) !important;
+  background: rgba(236, 253, 245, 0.92) !important;
+  color: rgb(4, 120, 87) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-badges .mock-state-chip--progress,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-state-chip--progress {
+  border-color: rgba(20, 184, 166, 0.22) !important;
+  background: rgba(240, 253, 250, 0.92) !important;
+  color: rgb(15, 118, 110) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-title {
+  color: rgb(15, 23, 42) !important;
+  font-size: 1.34rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  line-height: 1.08 !important;
+  text-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-stats {
+  gap: 0.45rem !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-stats span {
+  min-height: 1.55rem !important;
+  border: 1px solid rgba(203, 213, 225, 0.72) !important;
+  border-radius: 999px !important;
+  background: rgba(255, 255, 255, 0.76) !important;
+  color: rgb(51, 65, 85) !important;
+  padding: 0.28rem 0.58rem !important;
+  font-size: 0.7rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-stats svg {
+  color: rgb(14, 116, 144);
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-sticker .mock-card-sticker {
+  opacity: 0.9 !important;
+  min-width: 6.75rem !important;
+  max-width: 7.6rem !important;
+  min-height: 3.45rem !important;
+  transform: rotate(-2deg) scale(0.86) !important;
+  filter: drop-shadow(0 10px 16px rgba(15, 23, 42, 0.12)) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-sticker .mock-card-sticker > div {
+  padding: 0.78rem 1rem !important;
+  font-size: 0.68rem !important;
+  letter-spacing: 0 !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-mode-choice {
+  border: 1px solid rgba(203, 213, 225, 0.72) !important;
+  border-radius: 0.95rem !important;
+  background: rgba(248, 250, 252, 0.9) !important;
+  padding: 0.28rem !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-mode-choice::before {
+  display: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-mode-choice .mock-mode-switch {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem !important;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-mode-choice .mock-mode-switch__option {
+  min-height: 2.25rem !important;
+  border: 1px solid transparent !important;
+  border-radius: 0.72rem !important;
+  background: transparent !important;
+  color: rgb(71, 85, 105) !important;
+  gap: 0.4rem !important;
+  font-size: 0.78rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0 !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-mode-choice .mock-mode-switch__option--active {
+  border-color: rgba(14, 165, 233, 0.18) !important;
+  background: rgb(255, 255, 255) !important;
+  color: rgb(3, 105, 161) !important;
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.07) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-mode-choice .mock-mode-switch__option--timer.mock-mode-switch__option--active {
+  border-color: rgba(251, 146, 60, 0.2) !important;
+  background: rgb(255, 247, 237) !important;
+  color: rgb(194, 65, 12) !important;
+  box-shadow: 0 8px 16px rgba(249, 115, 22, 0.09) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-reward,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-shell {
+  border: 1px solid rgba(14, 165, 233, 0.16) !important;
+  border-radius: 0.95rem !important;
+  background: rgba(255, 255, 255, 0.7) !important;
+  padding: 0.78rem 0.88rem !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-title {
+  color: rgb(15, 23, 42) !important;
+  font-size: 0.74rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0 !important;
+  text-transform: none;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-title svg {
+  color: var(--mock-premium-accent);
+  filter: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-next {
+  color: rgb(100, 116, 139) !important;
+  font-size: 0.72rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-track {
+  height: 2.2rem !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-track__bar {
+  top: 1.45rem !important;
+  height: 0.38rem !important;
+  border: 0 !important;
+  background: rgba(203, 213, 225, 0.78) !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-track__fill,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-track__fill {
+  background: linear-gradient(90deg, var(--mock-premium-accent), var(--mock-premium-accent-2)) !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-milestone__label {
+  min-height: 1.22rem !important;
+  border: 1px solid rgba(203, 213, 225, 0.82) !important;
+  border-radius: 999px !important;
+  background: rgb(255, 255, 255) !important;
+  color: rgb(71, 85, 105) !important;
+  font-size: 0.64rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0 !important;
+  padding: 0.18rem 0.45rem !important;
+  box-shadow: 0 6px 12px rgba(15, 23, 42, 0.08) !important;
+  text-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-milestone__tick {
+  height: 0.95rem !important;
+  width: 1px !important;
+  background: rgba(148, 163, 184, 0.6) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-milestone--achieved .mock-reward-milestone__label {
+  border-color: rgba(16, 185, 129, 0.24) !important;
+  background: rgb(236, 253, 245) !important;
+  color: rgb(4, 120, 87) !important;
+  box-shadow: 0 6px 12px rgba(16, 185, 129, 0.1) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-milestone--achieved .mock-reward-milestone__tick {
+  background: rgba(16, 185, 129, 0.6) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-card-command {
+  justify-content: center !important;
+  gap: 0.9rem !important;
+  border-color: rgba(203, 213, 225, 0.62) !important;
+  background: rgba(248, 250, 252, 0.7) !important;
+  padding: 1rem !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-command-cta,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-card-command > .space-y-1\.5 {
+  order: 2 !important;
+  display: block !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-panel {
+  order: 1 !important;
+  min-height: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-panel::before {
+  display: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-panel__hero {
+  align-items: flex-start !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-label {
+  color: rgb(100, 116, 139) !important;
+  font-size: 0.64rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0 !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-value {
+  color: rgb(15, 23, 42) !important;
+  font-size: 3.4rem !important;
+  font-weight: 900 !important;
+  line-height: 0.92 !important;
+  letter-spacing: 0 !important;
+  text-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-crown {
+  width: 2.15rem !important;
+  height: 2.15rem !important;
+  border: 1px solid rgba(14, 165, 233, 0.18) !important;
+  border-radius: 0.8rem !important;
+  background: rgba(240, 249, 255, 0.9) !important;
+  color: rgb(3, 105, 161) !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-stats {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0.5rem !important;
+  margin-top: 0.85rem !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-stat,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-stat--reward {
+  min-height: 3.05rem !important;
+  align-items: center !important;
+  border: 1px solid rgba(203, 213, 225, 0.72) !important;
+  border-radius: 0.82rem !important;
+  background: rgba(255, 255, 255, 0.68) !important;
+  color: rgb(14, 116, 144) !important;
+  padding: 0.52rem 0.58rem !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-stat strong {
+  color: rgb(15, 23, 42) !important;
+  font-size: 0.8rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  line-height: 1.05 !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-stat span {
+  color: rgb(100, 116, 139) !important;
+  font-size: 0.66rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+  line-height: 1.05 !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-panel .mock-score-track {
+  margin-top: 0.85rem !important;
+  height: 0.34rem !important;
+  border-radius: 999px !important;
+  background: rgba(203, 213, 225, 0.78) !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button {
+  --mock-button-shadow: rgba(37, 99, 235, 0.28);
+  --mock-button-shadow-strong: rgba(37, 99, 235, 0.36);
+  --mock-button-ring: rgba(56, 189, 248, 0.18);
+  min-height: 3.15rem !important;
+  justify-content: center !important;
+  gap: 0.55rem !important;
+  border: 0 !important;
+  border-radius: 0.92rem !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0) 48%),
+    linear-gradient(135deg, #0ea5e9 0%, #2563eb 48%, #4f46e5 76%, #5b21b6 100%) !important;
+  background-position: 0 0, 18% 50% !important;
+  background-size: 100% 100%, 170% 170% !important;
+  color: rgb(255, 255, 255) !important;
+  font-size: 0.94rem !important;
+  font-weight: 850 !important;
+  letter-spacing: 0 !important;
+  text-shadow: none !important;
+  box-shadow:
+    0 13px 24px var(--mock-button-shadow),
+    0 0 0 1px rgba(255, 255, 255, 0.2) inset,
+    0 1px 0 rgba(255, 255, 255, 0.38) inset !important;
+  transform: translate3d(0, 0, 0) scale(1) !important;
+  transition:
+    background-position 520ms cubic-bezier(0.18, 0.82, 0.25, 1),
+    box-shadow 220ms ease,
+    filter 220ms ease,
+    transform 220ms cubic-bezier(0.18, 0.82, 0.25, 1) !important;
+  will-change: transform, background-position, box-shadow;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button::before,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button::after {
+  display: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button:hover:not(:disabled) {
+  filter: none !important;
+  background-position: 0 0, 86% 48% !important;
+  transform: translate3d(0, -1.5px, 0) scale(1.012) !important;
+  box-shadow:
+    0 17px 34px var(--mock-button-shadow-strong),
+    0 0 0 4px var(--mock-button-ring),
+    0 0 0 1px rgba(255, 255, 255, 0.22) inset,
+    0 1px 0 rgba(255, 255, 255, 0.5) inset !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button:active:not(:disabled) {
+  transform: translate3d(0, 0.5px, 0) scale(0.992) !important;
+  transition-duration: 90ms !important;
+  box-shadow:
+    0 8px 18px rgba(37, 99, 235, 0.22),
+    0 0 0 1px rgba(255, 255, 255, 0.16) inset,
+    0 1px 0 rgba(255, 255, 255, 0.3) inset !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button:disabled:not(.mock-start-button--loading) {
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.92), rgba(100, 116, 139, 0.88)) !important;
+  box-shadow: none !important;
+  opacity: 0.68;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button__icon,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button__label,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button__arrow {
+  position: relative;
+  z-index: 1;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button__icon {
+  display: inline-flex;
+  width: 1.62rem !important;
+  height: 1.62rem !important;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: 999px !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+  box-shadow: none !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button__icon svg {
+  width: 1rem !important;
+  height: 1rem !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button__arrow {
+  opacity: 0.82;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card.mock-student-card--timer-mode {
+  --mock-premium-accent: #f97316;
+  --mock-premium-accent-2: #fb7185;
+  --mock-premium-accent-3: #0ea5e9;
+  border-color: rgba(251, 146, 60, 0.3) !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(255, 247, 237, 0.8)) !important;
+  box-shadow:
+    0 18px 42px rgba(15, 23, 42, 0.08),
+    0 1px 0 rgba(255, 255, 255, 0.94) inset !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card.mock-student-card--timer-mode .mock-quest-emblem,
+.progress-section--mocks .mock-student-card.mock-premium-card.mock-student-card--timer-mode .mock-ticket-mark {
+  border-color: rgba(251, 146, 60, 0.22) !important;
+  background: rgba(255, 247, 237, 0.92) !important;
+  color: rgb(194, 65, 12) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card.mock-student-card--timer-mode .mock-quest-badges .mock-state-chip--timer,
+.progress-section--mocks .mock-student-card.mock-premium-card.mock-student-card--timer-mode .mock-quest-stat--timer {
+  border-color: rgba(251, 146, 60, 0.24) !important;
+  background: rgba(255, 247, 237, 0.92) !important;
+  color: rgb(194, 65, 12) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card.mock-student-card--timer-mode .mock-start-button {
+  --mock-button-shadow: rgba(239, 68, 68, 0.28);
+  --mock-button-shadow-strong: rgba(239, 68, 68, 0.36);
+  --mock-button-ring: rgba(249, 115, 22, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 48%),
+    linear-gradient(135deg, #f97316 0%, #ef4444 52%, #e11d48 78%, #be123c 100%) !important;
+  background-position: 0 0, 18% 50% !important;
+  background-size: 100% 100%, 170% 170% !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card.mock-student-card--timer-mode .mock-score-crown {
+  border-color: rgba(251, 146, 60, 0.2) !important;
+  background: rgba(255, 247, 237, 0.92) !important;
+  color: rgb(194, 65, 12) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-milestone--disabled .mock-reward-milestone__label,
+.progress-section--mocks .mock-student-card.mock-premium-card.mock-student-card--timer-mode.mock-student-card--timer-rewards-disabled .mock-reward-milestone--disabled .mock-reward-milestone__label {
+  border-color: rgba(148, 163, 184, 0.36) !important;
+  background: rgba(248, 250, 252, 0.92) !important;
+  color: rgba(71, 85, 105, 0.72) !important;
+  box-shadow: 0 6px 12px rgba(15, 23, 42, 0.06) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-milestone--disabled .mock-reward-milestone__label::after {
+  background: rgba(148, 163, 184, 0.7) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact.mock-premium-card {
+  border-color: rgba(71, 85, 105, 0.72) !important;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(2, 6, 23, 0.84)) !important;
+  color: rgb(248, 250, 252) !important;
+  box-shadow:
+    0 22px 54px rgba(2, 6, 23, 0.36),
+    0 1px 0 rgba(148, 163, 184, 0.08) inset !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-student-card--compact.mock-premium-card:hover {
+  border-color: rgba(56, 189, 248, 0.42) !important;
+  box-shadow:
+    0 28px 64px rgba(2, 6, 23, 0.46),
+    0 1px 0 rgba(148, 163, 184, 0.08) inset !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-title,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-score-value,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-score-stat strong,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .text-gray-900,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .text-gray-800 {
+  color: rgb(248, 250, 252) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-emblem,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-ticket-mark,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-score-crown {
+  border-color: rgba(56, 189, 248, 0.22) !important;
+  background: rgba(8, 47, 73, 0.58) !important;
+  color: rgb(125, 211, 252) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-badges .mock-state-chip,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-state-chip,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-stats span,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-score-stat {
+  border-color: rgba(71, 85, 105, 0.58) !important;
+  background: rgba(15, 23, 42, 0.58) !important;
+  color: rgb(203, 213, 225) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-stats svg,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-score-stat > svg {
+  color: rgb(125, 211, 252) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-mode-choice,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-reward,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-shell {
+  border-color: rgba(71, 85, 105, 0.58) !important;
+  background: rgba(15, 23, 42, 0.46) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-mode-choice .mock-mode-switch__option {
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-mode-choice .mock-mode-switch__option--active {
+  border-color: rgba(56, 189, 248, 0.22) !important;
+  background: rgba(30, 41, 59, 0.9) !important;
+  color: rgb(224, 242, 254) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-title {
+  color: rgb(226, 232, 240) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-next,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-score-label,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-score-stat span,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .text-gray-500,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .text-gray-600 {
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-track__bar,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-score-panel .mock-score-track {
+  background: rgba(51, 65, 85, 0.9) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-milestone__label {
+  border-color: rgba(71, 85, 105, 0.68) !important;
+  background: rgb(15, 23, 42) !important;
+  color: rgb(203, 213, 225) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-milestone--achieved .mock-reward-milestone__label {
+  border-color: rgba(52, 211, 153, 0.24) !important;
+  background: rgba(6, 78, 59, 0.5) !important;
+  color: rgb(167, 243, 208) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-card-command {
+  border-color: rgba(71, 85, 105, 0.58) !important;
+  background: rgba(2, 6, 23, 0.28) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card.mock-student-card--timer-mode {
+  border-color: rgba(251, 146, 60, 0.34) !important;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.88)) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card.mock-student-card--timer-mode .mock-quest-emblem,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card.mock-student-card--timer-mode .mock-ticket-mark,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card.mock-student-card--timer-mode .mock-score-crown {
+  border-color: rgba(251, 146, 60, 0.24) !important;
+  background: rgba(69, 26, 3, 0.42) !important;
+  color: rgb(253, 186, 116) !important;
+}
+
+@media (max-width: 1023px) {
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-card-command {
+    border-left: 0 !important;
+    border-top: 1px solid rgba(203, 213, 225, 0.62) !important;
+  }
+
+  html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-card-command {
+    border-top-color: rgba(71, 85, 105, 0.58) !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .progress-section--mocks .mock-student-card.mock-student-card--compact.mock-premium-card {
+    border-radius: 1rem !important;
+  }
+
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-body {
+    padding: 0.95rem 0.85rem 0.95rem 1.08rem !important;
+  }
+
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-heading {
+    gap: 0.7rem !important;
+  }
+
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-emblem,
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-ticket-mark {
+    width: 2.35rem !important;
+    height: 2.35rem !important;
+    border-radius: 0.78rem !important;
+  }
+
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-title {
+    font-size: 1.12rem !important;
+  }
+
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-stats span {
+    font-size: 0.66rem !important;
+  }
+
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-card-command {
+    padding: 0.9rem !important;
+  }
+
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-score-value {
+    font-size: 2.9rem !important;
+  }
+
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-score-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button {
+    min-height: 3rem !important;
+    font-size: 0.9rem !important;
+  }
+}
+
+/* Premium mock exam motion layer. */
+.progress-section--mocks .mock-student-card.mock-student-card--compact.mock-premium-card {
+  transform-style: preserve-3d;
+  transform:
+    perspective(1800px)
+    rotateX(var(--mock-card-tilt-x, 0deg))
+    rotateY(var(--mock-card-tilt-y, 0deg))
+    translateY(var(--mock-card-lift, 0px)) !important;
+  transition:
+    border-color 220ms ease,
+    box-shadow 220ms ease,
+    filter 220ms ease,
+    transform 280ms cubic-bezier(0.18, 0.82, 0.25, 1) !important;
+  will-change: transform;
+}
+
+.progress-section--mocks .mock-student-card.mock-student-card--compact.mock-premium-card:hover,
+.progress-section--mocks .mock-student-card.mock-student-card--compact.mock-premium-card.mock-premium-card--interactive,
+.progress-section--mocks .mock-student-card.mock-student-card--compact.mock-premium-card:focus-visible {
+  transform:
+    perspective(1800px)
+    rotateX(var(--mock-card-tilt-x, 0deg))
+    rotateY(var(--mock-card-tilt-y, 0deg))
+    translateY(var(--mock-card-lift, 0px)) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card::before {
+  z-index: 2;
+  pointer-events: none;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(
+      circle at var(--mock-card-pointer-x, 50%) var(--mock-card-pointer-y, 42%),
+      rgba(14, 165, 233, 0.18),
+      rgba(20, 184, 166, 0.08) 18%,
+      transparent 42%
+    ),
+    linear-gradient(112deg, transparent 0 34%, rgba(255, 255, 255, 0.28) 48%, transparent 62%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card:hover::after,
+.progress-section--mocks .mock-student-card.mock-premium-card.mock-premium-card--interactive::after,
+.progress-section--mocks .mock-student-card.mock-premium-card:focus-visible::after,
+.progress-section--mocks .mock-student-card.mock-premium-card:focus-within::after {
+  opacity: 1;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card.mock-student-card--timer-mode::after {
+  background:
+    radial-gradient(
+      circle at var(--mock-card-pointer-x, 50%) var(--mock-card-pointer-y, 42%),
+      rgba(249, 115, 22, 0.18),
+      rgba(251, 113, 133, 0.1) 20%,
+      transparent 44%
+    ),
+    linear-gradient(112deg, transparent 0 34%, rgba(255, 255, 255, 0.22) 48%, transparent 62%);
+}
+
+.progress-section--mocks .mock-ticket-list > .mock-premium-card {
+  animation: mockPremiumCardEnter 520ms cubic-bezier(0.2, 0.85, 0.25, 1) both;
+}
+
+.progress-section--mocks .mock-ticket-list > .mock-premium-card:nth-child(2) {
+  animation-delay: 70ms;
+}
+
+.progress-section--mocks .mock-ticket-list > .mock-premium-card:nth-child(3) {
+  animation-delay: 120ms;
+}
+
+.progress-section--mocks .mock-ticket-list > .mock-premium-card:nth-child(4) {
+  animation-delay: 160ms;
+}
+
+.progress-section--mocks .mock-ticket-list > .mock-premium-card:nth-child(n + 5) {
+  animation-delay: 190ms;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-emblem,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-state-chip,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-stats span,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-stat,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-milestone__label,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-mode-switch__option {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    color 180ms ease,
+    transform 180ms ease;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card:hover .mock-quest-emblem {
+  transform: translateY(-1px) scale(1.03);
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card:hover .mock-state-chip {
+  transform: translateY(-1px);
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-stats span:hover,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-stat:hover {
+  border-color: rgba(14, 165, 233, 0.32) !important;
+  background: rgba(255, 255, 255, 0.92) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.08) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-mode-choice .mock-mode-switch__option:not(:disabled):hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.74) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-mode-choice .mock-mode-switch__option--active:not(:disabled):hover {
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.1) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-track__fill,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-track__fill {
+  position: relative;
+  overflow: hidden;
+  transform-origin: left center;
+  animation: mockPremiumProgressFill 760ms cubic-bezier(0.18, 0.78, 0.28, 1) both;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-track__fill::after,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-track__fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.44), transparent);
+  transform: translateX(-130%);
+  animation: mockPremiumProgressSheen 2.8s ease-in-out infinite;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-milestone__label:hover {
+  transform: translateY(-2px) scale(1.04);
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-milestone--next .mock-reward-milestone__label {
+  border-color: rgba(14, 165, 233, 0.34) !important;
+  color: rgb(3, 105, 161) !important;
+  animation: mockPremiumMilestonePulse 1.85s ease-in-out infinite;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card.mock-student-card--timer-mode .mock-reward-milestone--next .mock-reward-milestone__label {
+  border-color: rgba(251, 146, 60, 0.36) !important;
+  color: rgb(194, 65, 12) !important;
+  animation-name: mockPremiumTimerMilestonePulse;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-score-value {
+  animation: mockPremiumScorePop 520ms cubic-bezier(0.18, 0.8, 0.24, 1) both;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button::before {
+  content: '';
+  position: absolute;
+  inset: -45% -55%;
+  display: block !important;
+  z-index: 0;
+  background:
+    linear-gradient(112deg, transparent 0 34%, rgba(255, 255, 255, 0.44) 48%, rgba(255, 255, 255, 0.14) 53%, transparent 66%);
+  opacity: 0.68;
+  pointer-events: none;
+  transform: translate3d(-86%, 0, 0) rotate(5deg);
+  animation: mockPremiumButtonIdleSheen 4.2s cubic-bezier(0.2, 0.85, 0.25, 1) infinite;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  display: block !important;
+  border-radius: calc(0.92rem - 1px);
+  background:
+    radial-gradient(circle at 24% 20%, rgba(255, 255, 255, 0.28), transparent 30%),
+    radial-gradient(circle at 78% 82%, rgba(125, 211, 252, 0.24), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent 58%);
+  opacity: 0.66;
+  pointer-events: none;
+  transform: scale(1);
+  transition:
+    opacity 220ms ease,
+    transform 220ms cubic-bezier(0.18, 0.82, 0.25, 1);
+  animation: mockPremiumButtonAura 2.9s ease-in-out infinite;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button:hover:not(:disabled)::before {
+  animation: mockPremiumButtonSheen 860ms cubic-bezier(0.2, 0.85, 0.25, 1) both;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button:hover:not(:disabled)::after {
+  opacity: 0.9;
+  transform: scale(1.018);
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button:hover:not(:disabled) .mock-start-button__icon {
+  background: rgba(255, 255, 255, 0.22) !important;
+  transform: translateX(1px) scale(1.09);
+  box-shadow:
+    0 8px 18px rgba(15, 23, 42, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.36) !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button:hover:not(:disabled) .mock-start-button__label {
+  transform: translateX(1px);
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button:hover:not(:disabled) .mock-start-button__arrow {
+  opacity: 1;
+  transform: translateX(5px);
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button__icon,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button__label,
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button__arrow {
+  transition:
+    background-color 180ms ease,
+    box-shadow 180ms ease,
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.18, 0.82, 0.25, 1);
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button__icon {
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button__icon::before {
+  content: '';
+  position: absolute;
+  inset: 0.18rem;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  opacity: 0;
+  transform: scale(0.72);
+  animation: mockPremiumButtonIconRing 2.6s ease-out infinite;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button__icon svg {
+  position: relative;
+  z-index: 1;
+  transition: transform 220ms cubic-bezier(0.18, 0.82, 0.25, 1);
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button:hover:not(:disabled) .mock-start-button__icon svg {
+  transform: scale(1.04);
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button__arrow {
+  opacity: 0.78;
+  animation: mockPremiumButtonArrowFloat 1.9s ease-in-out infinite;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button--start {
+  --mock-button-shadow: rgba(14, 165, 233, 0.28);
+  --mock-button-shadow-strong: rgba(37, 99, 235, 0.37);
+  --mock-button-ring: rgba(14, 165, 233, 0.18);
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button--continue {
+  --mock-button-shadow: rgba(20, 184, 166, 0.24);
+  --mock-button-shadow-strong: rgba(37, 99, 235, 0.32);
+  --mock-button-ring: rgba(20, 184, 166, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0) 48%),
+    linear-gradient(135deg, #14b8a6 0%, #0ea5e9 36%, #2563eb 68%, #4f46e5 100%) !important;
+  background-position: 0 0, 18% 50% !important;
+  background-size: 100% 100%, 170% 170% !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button--continue .mock-start-button__arrow {
+  animation-duration: 1.45s;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button--loading::before {
+  animation: mockPremiumButtonSheen 860ms cubic-bezier(0.2, 0.85, 0.25, 1) infinite;
+}
+
+.progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button--loading .mock-start-button__icon {
+  animation: mockPremiumButtonLoadingPulse 820ms ease-in-out infinite alternate;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card::after {
+  background:
+    radial-gradient(
+      circle at var(--mock-card-pointer-x, 50%) var(--mock-card-pointer-y, 42%),
+      rgba(56, 189, 248, 0.16),
+      rgba(20, 184, 166, 0.08) 20%,
+      transparent 44%
+    ),
+    linear-gradient(112deg, transparent 0 34%, rgba(255, 255, 255, 0.08) 48%, transparent 62%);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-quest-stats span:hover,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-score-stat:hover {
+  border-color: rgba(56, 189, 248, 0.3) !important;
+  background: rgba(30, 41, 59, 0.78) !important;
+  box-shadow: 0 12px 22px rgba(2, 6, 23, 0.22) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card .mock-reward-milestone--next .mock-reward-milestone__label {
+  color: rgb(125, 211, 252) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium-card.mock-student-card--timer-mode .mock-reward-milestone--next .mock-reward-milestone__label {
+  color: rgb(253, 186, 116) !important;
+}
+
+@keyframes mockPremiumCardEnter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes mockPremiumProgressFill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes mockPremiumProgressSheen {
+  0%,
+  42% {
+    transform: translateX(-130%);
+  }
+  72%,
+  100% {
+    transform: translateX(130%);
+  }
+}
+
+@keyframes mockPremiumMilestonePulse {
+  0%,
+  100% {
+    box-shadow: 0 6px 12px rgba(15, 23, 42, 0.08);
+    transform: translateY(0);
+  }
+  50% {
+    box-shadow:
+      0 8px 18px rgba(14, 165, 233, 0.18),
+      0 0 0 4px rgba(14, 165, 233, 0.08);
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes mockPremiumTimerMilestonePulse {
+  0%,
+  100% {
+    box-shadow: 0 6px 12px rgba(15, 23, 42, 0.08);
+    transform: translateY(0);
+  }
+  50% {
+    box-shadow:
+      0 8px 18px rgba(249, 115, 22, 0.18),
+      0 0 0 4px rgba(249, 115, 22, 0.08);
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes mockPremiumScorePop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes mockPremiumButtonIdleSheen {
+  0%,
+  64% {
+    transform: translate3d(-92%, 0, 0) rotate(5deg);
+  }
+  100% {
+    transform: translate3d(92%, 0, 0) rotate(5deg);
+  }
+}
+
+@keyframes mockPremiumButtonSheen {
+  from {
+    transform: translate3d(-86%, 0, 0) rotate(5deg);
+  }
+  to {
+    transform: translate3d(86%, 0, 0) rotate(5deg);
+  }
+}
+
+@keyframes mockPremiumButtonAura {
+  0%,
+  100% {
+    opacity: 0.58;
+  }
+  50% {
+    opacity: 0.82;
+  }
+}
+
+@keyframes mockPremiumButtonIconRing {
+  0% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  28% {
+    opacity: 0.44;
+  }
+  78%,
+  100% {
+    opacity: 0;
+    transform: scale(1.45);
+  }
+}
+
+@keyframes mockPremiumButtonArrowFloat {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(2px);
+  }
+}
+
+@keyframes mockPremiumButtonLoadingPulse {
+  from {
+    transform: scale(0.96);
+  }
+  to {
+    transform: scale(1.06);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-section--mocks .mock-student-card.mock-premium-card,
+  .progress-section--mocks .mock-student-card.mock-premium-card *,
+  .progress-section--mocks .mock-student-card.mock-premium-card::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .progress-section--mocks .mock-student-card.mock-student-card--compact.mock-premium-card:hover,
+  .progress-section--mocks .mock-student-card.mock-student-card--compact.mock-premium-card.mock-premium-card--interactive,
+  .progress-section--mocks .mock-student-card.mock-student-card--compact.mock-premium-card:focus-visible {
+    transform:
+      perspective(1800px)
+      rotateX(var(--mock-card-tilt-x, 0deg))
+      rotateY(var(--mock-card-tilt-y, 0deg))
+      translateY(var(--mock-card-lift, 0px)) !important;
+  }
+
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button,
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button::before,
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button::after,
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button__icon,
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button__icon::before,
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button__arrow {
+    animation: none !important;
+  }
+
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button:hover:not(:disabled),
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button:active:not(:disabled),
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button:hover:not(:disabled) .mock-start-button__icon,
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button:hover:not(:disabled) .mock-start-button__label,
+  .progress-section--mocks .mock-student-card.mock-premium-card .mock-start-button:hover:not(:disabled) .mock-start-button__arrow {
+    transform: none !important;
+  }
+}
+
+/* Mock exam launch animation. */
+.mock-exam-launch {
+  --mock-launch-accent: #7c3aed;
+  --mock-launch-accent-2: #0ea5e9;
+  --mock-launch-accent-3: #14b8a6;
+  animation: mockExamLaunchBackdrop 560ms ease-out both;
+  perspective: 1400px;
+}
+
+.mock-exam-launch--timer {
+  --mock-launch-accent: #e11d48;
+  --mock-launch-accent-2: #f97316;
+  --mock-launch-accent-3: #c026d3;
+}
+
+.mock-exam-launch__field,
+.mock-exam-launch__ray,
+.mock-exam-launch__spark {
+  pointer-events: none;
+}
+
+.mock-exam-launch__field {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0;
+  animation: mockExamLaunchField 980ms cubic-bezier(0.16, 0.84, 0.28, 1) both;
+}
+
+.mock-exam-launch__field::before,
+.mock-exam-launch__field::after {
+  content: '';
+  position: absolute;
+  inset: -18%;
+  background:
+    conic-gradient(
+      from 116deg at 50% 50%,
+      transparent 0 18deg,
+      color-mix(in srgb, var(--mock-launch-accent) 34%, transparent) 28deg,
+      transparent 42deg 150deg,
+      color-mix(in srgb, var(--mock-launch-accent-2) 28%, transparent) 166deg,
+      transparent 184deg 360deg
+    );
+  filter: blur(18px);
+  transform: scale(0.76) rotate(-7deg);
+  animation: mockExamLaunchHalo 1120ms cubic-bezier(0.16, 0.84, 0.28, 1) both;
+}
+
+.mock-exam-launch__field::after {
+  inset: -8%;
+  background:
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--mock-launch-accent-2) 32%, transparent), transparent),
+    linear-gradient(0deg, transparent, color-mix(in srgb, var(--mock-launch-accent) 22%, transparent), transparent);
+  filter: blur(26px);
+  transform: scaleX(0.18) scaleY(1.2);
+  animation: mockExamLaunchCross 760ms cubic-bezier(0.16, 0.84, 0.28, 1) both;
+}
+
+.mock-exam-launch__ray {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  height: 1px;
+  width: min(72vw, 62rem);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--mock-launch-accent-2) 62%, white 12%), transparent);
+  opacity: 0;
+  transform-origin: center;
+  animation: mockExamLaunchRay 760ms cubic-bezier(0.16, 0.84, 0.28, 1) both;
+}
+
+.mock-exam-launch__ray--one {
+  transform: translate(-50%, -50%) rotate(-8deg) scaleX(0.18);
+}
+
+.mock-exam-launch__ray--two {
+  width: min(58vw, 48rem);
+  animation-delay: 80ms;
+  transform: translate(-50%, -50%) rotate(12deg) scaleX(0.16);
+}
+
+.mock-exam-launch__spark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0.5rem;
+  height: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--mock-launch-accent-2) 74%, white 20%);
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(45deg) scale(0.4);
+  animation: mockExamLaunchSpark 920ms cubic-bezier(0.16, 0.84, 0.28, 1) both;
+}
+
+.mock-exam-launch__spark--one {
+  --mock-launch-spark-x: -19rem;
+  --mock-launch-spark-y: -8rem;
+  animation-delay: 120ms;
+}
+
+.mock-exam-launch__spark--two {
+  --mock-launch-spark-x: 22rem;
+  --mock-launch-spark-y: -5rem;
+  width: 0.42rem;
+  height: 0.42rem;
+  animation-delay: 180ms;
+}
+
+.mock-exam-launch__spark--three {
+  --mock-launch-spark-x: 15rem;
+  --mock-launch-spark-y: 10rem;
+  width: 0.38rem;
+  height: 0.38rem;
+  animation-delay: 240ms;
+}
+
+.mock-exam-launch .mock-exam-modal-card {
+  transform-origin: 50% 52%;
+  will-change: transform, opacity, clip-path;
+  animation: mockExamModalOpen 720ms cubic-bezier(0.16, 0.84, 0.25, 1) both;
+}
+
+.mock-exam-modal-card__launch-glow,
+.mock-exam-modal-card__launch-sheen {
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+.mock-exam-modal-card__launch-glow {
+  inset: -1px;
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--mock-launch-accent) 22%, transparent), transparent 28% 72%, color-mix(in srgb, var(--mock-launch-accent-2) 20%, transparent)),
+    linear-gradient(180deg, color-mix(in srgb, var(--mock-launch-accent-2) 20%, transparent), transparent 34%);
+  opacity: 0;
+  animation: mockExamModalGlow 1100ms ease-out both;
+}
+
+.mock-exam-modal-card__launch-sheen {
+  inset: -35% -28%;
+  background:
+    linear-gradient(112deg, transparent 0 38%, rgba(255, 255, 255, 0.48) 49%, rgba(255, 255, 255, 0.12) 54%, transparent 66%);
+  mix-blend-mode: screen;
+  opacity: 0;
+  transform: translate3d(-70%, 0, 0) rotate(6deg);
+  animation: mockExamModalSheen 940ms cubic-bezier(0.16, 0.84, 0.25, 1) 120ms both;
+}
+
+.mock-exam-launch .mock-exam-modal-card__header,
+.mock-exam-launch .mock-exam-modal-card__sidebar,
+.mock-exam-launch .mock-exam-modal-card__main,
+.mock-exam-launch .mock-exam-modal-card__taskbar,
+.mock-exam-launch .mock-exam-modal-card__question,
+.mock-exam-launch .mock-exam-modal-card__answer {
+  will-change: transform, opacity;
+  animation: mockExamModalPieceIn 520ms cubic-bezier(0.16, 0.84, 0.25, 1) both;
+}
+
+.mock-exam-launch .mock-exam-modal-card__header {
+  animation-delay: 170ms;
+}
+
+.mock-exam-launch .mock-exam-modal-card__sidebar {
+  animation-delay: 230ms;
+}
+
+.mock-exam-launch .mock-exam-modal-card__main {
+  animation-delay: 270ms;
+}
+
+.mock-exam-launch .mock-exam-modal-card__taskbar {
+  animation-delay: 330ms;
+}
+
+.mock-exam-launch .mock-exam-modal-card__question {
+  animation-delay: 380ms;
+}
+
+.mock-exam-launch .mock-exam-modal-card__answer {
+  animation-delay: 430ms;
+}
+
+@keyframes mockExamLaunchBackdrop {
+  from {
+    background-color: rgba(0, 0, 0, 0.56);
+    backdrop-filter: blur(8px);
+  }
+  to {
+    background-color: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(12px);
+  }
+}
+
+@keyframes mockExamLaunchField {
+  0% {
+    opacity: 0;
+  }
+  18%,
+  62% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes mockExamLaunchHalo {
+  0% {
+    transform: scale(0.66) rotate(-9deg);
+    opacity: 0;
+  }
+  28% {
+    opacity: 0.86;
+  }
+  100% {
+    transform: scale(1.12) rotate(6deg);
+    opacity: 0;
+  }
+}
+
+@keyframes mockExamLaunchCross {
+  0% {
+    opacity: 0;
+    transform: scaleX(0.08) scaleY(0.92);
+  }
+  34% {
+    opacity: 0.72;
+  }
+  100% {
+    opacity: 0;
+    transform: scaleX(1.08) scaleY(1.08);
+  }
+}
+
+@keyframes mockExamLaunchRay {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(var(--mock-launch-ray-rotate, -8deg)) scaleX(0.12);
+  }
+  34% {
+    opacity: 0.78;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(var(--mock-launch-ray-rotate, -8deg)) scaleX(1);
+  }
+}
+
+.mock-exam-launch__ray--one {
+  --mock-launch-ray-rotate: -8deg;
+}
+
+.mock-exam-launch__ray--two {
+  --mock-launch-ray-rotate: 12deg;
+}
+
+@keyframes mockExamLaunchSpark {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(45deg) scale(0.28);
+  }
+  24% {
+    opacity: 0.92;
+  }
+  100% {
+    opacity: 0;
+    transform:
+      translate(
+        calc(-50% + var(--mock-launch-spark-x, 0rem)),
+        calc(-50% + var(--mock-launch-spark-y, 0rem))
+      )
+      rotate(45deg)
+      scale(1);
+  }
+}
+
+@keyframes mockExamModalOpen {
+  0% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0 round 2rem);
+    transform: translate3d(0, 4px, 0) rotateX(5deg) scale(0.97);
+  }
+  38% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0 round 2rem);
+    transform: translate3d(0, -2px, 0) rotateX(0deg) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0 round 2rem);
+    transform: translate3d(0, 0, 0) rotateX(0deg) scale(1);
+  }
+}
+
+@keyframes mockExamModalGlow {
+  0% {
+    opacity: 0;
+  }
+  28% {
+    opacity: 0.72;
+  }
+  100% {
+    opacity: 0.18;
+  }
+}
+
+@keyframes mockExamModalSheen {
+  0% {
+    opacity: 0;
+    transform: translate3d(-72%, 0, 0) rotate(6deg);
+  }
+  18% {
+    opacity: 0.88;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(72%, 0, 0) rotate(6deg);
+  }
+}
+
+@keyframes mockExamModalPieceIn {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 12px, 0) scale(0.986);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@media (max-width: 640px) {
+  .mock-exam-launch__spark--one {
+    --mock-launch-spark-x: -7rem;
+    --mock-launch-spark-y: -8rem;
+  }
+
+  .mock-exam-launch__spark--two {
+    --mock-launch-spark-x: 7rem;
+    --mock-launch-spark-y: -5rem;
+  }
+
+  .mock-exam-launch__spark--three {
+    --mock-launch-spark-x: 5rem;
+    --mock-launch-spark-y: 9rem;
+  }
+
+  .mock-exam-launch .mock-exam-modal-card {
+    animation-duration: 620ms;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mock-exam-launch,
+  .mock-exam-launch *,
+  .mock-exam-launch::before,
+  .mock-exam-launch::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .mock-exam-launch__field,
+  .mock-exam-modal-card__launch-glow,
+  .mock-exam-modal-card__launch-sheen {
+    display: none !important;
+  }
+
+  .mock-exam-launch .mock-exam-modal-card,
+  .mock-exam-launch .mock-exam-modal-card__header,
+  .mock-exam-launch .mock-exam-modal-card__sidebar,
+  .mock-exam-launch .mock-exam-modal-card__main,
+  .mock-exam-launch .mock-exam-modal-card__taskbar,
+  .mock-exam-launch .mock-exam-modal-card__question,
+  .mock-exam-launch .mock-exam-modal-card__answer {
+    clip-path: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

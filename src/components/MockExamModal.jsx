@@ -901,14 +901,23 @@ const MockExamModal = ({
   };
 
   const modal = (
-    <div className="fixed inset-0 z-50 modal-backdrop flex items-center justify-center bg-black/65 p-3 backdrop-blur-md sm:p-4">
+    <div className={`fixed inset-0 z-50 modal-backdrop mock-exam-launch ${isTimerMode ? 'mock-exam-launch--timer' : ''} flex items-center justify-center bg-black/65 p-3 backdrop-blur-md sm:p-4`}>
+      <div className="mock-exam-launch__field" aria-hidden="true">
+        <span className="mock-exam-launch__ray mock-exam-launch__ray--one" />
+        <span className="mock-exam-launch__ray mock-exam-launch__ray--two" />
+        <span className="mock-exam-launch__spark mock-exam-launch__spark--one" />
+        <span className="mock-exam-launch__spark mock-exam-launch__spark--two" />
+        <span className="mock-exam-launch__spark mock-exam-launch__spark--three" />
+      </div>
       <div
         className={`modal-card mock-exam-modal-card ${isTimerMode ? 'mock-exam-modal--timer' : ''} relative flex max-h-[96vh] w-full max-w-[96rem] flex-col overflow-hidden rounded-[2rem] border p-4 shadow-2xl md:p-6 ${shellClassName}`}
         style={shellStyle}
       >
+        <div className="mock-exam-modal-card__launch-glow" aria-hidden="true" />
+        <div className="mock-exam-modal-card__launch-sheen" aria-hidden="true" />
         <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-white/8 to-transparent" />
 
-        <div className="relative mb-4 flex items-start gap-4">
+        <div className="mock-exam-modal-card__header relative mb-4 flex items-start gap-4">
           <div className="min-w-0 flex-1 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className={`${isTimerMode
@@ -984,8 +993,8 @@ const MockExamModal = ({
           </button>
         </div>
 
-        <div className="relative grid min-h-0 flex-1 gap-3 lg:grid-cols-[18.5rem_minmax(0,1fr)] xl:gap-4">
-          <aside className="hidden min-h-0 flex-col gap-3 lg:flex">
+        <div className="mock-exam-modal-card__workspace relative grid min-h-0 flex-1 gap-3 lg:grid-cols-[18.5rem_minmax(0,1fr)] xl:gap-4">
+          <aside className="mock-exam-modal-card__sidebar hidden min-h-0 flex-col gap-3 lg:flex">
             <div
               className={`rounded-[1.75rem] border p-3.5 ${summaryPanelClassName}`}
               style={summaryPanelStyle}
@@ -1060,7 +1069,7 @@ const MockExamModal = ({
             </div>
           </aside>
 
-          <section className="flex min-h-0 flex-col gap-3">
+          <section className="mock-exam-modal-card__main flex min-h-0 flex-col gap-3">
             <div className={`rounded-[1.5rem] border p-3.5 lg:hidden ${mutedPanelClassName}`}>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div className={labelClassName}>Навигация</div>
@@ -1093,7 +1102,7 @@ const MockExamModal = ({
               {renderTaskPicker(true)}
             </div>
 
-            <div className={`rounded-[1.5rem] border p-3.5 ${panelClassName}`}>
+            <div className={`mock-exam-modal-card__taskbar rounded-[1.5rem] border p-3.5 ${panelClassName}`}>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className={labelClassName}>Задание</div>
@@ -1144,7 +1153,7 @@ const MockExamModal = ({
               </div>
             </div>
 
-            <div className={`mock-exam-scroll min-h-0 flex-1 pr-1 ${shouldFitSingleScreenshot ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+            <div className={`mock-exam-modal-card__question mock-exam-scroll min-h-0 flex-1 pr-1 ${shouldFitSingleScreenshot ? 'overflow-hidden' : 'overflow-y-auto'}`}>
               {!currentQuestion ? (
                 <div className={`rounded-[1.75rem] border border-dashed p-6 text-sm ${isDarkTheme ? 'border-white/10 bg-white/[0.04] text-slate-300' : 'border-slate-200 bg-white/70 text-slate-500'}`}>
                   Задание {selectedTask} ещё не добавлено преподавателем.
@@ -1205,7 +1214,7 @@ const MockExamModal = ({
 
             {currentQuestion ? (
               <div
-                className={`relative overflow-hidden rounded-[1.75rem] border p-3.5 ${panelClassName} ${hasLargeAnswerGrid ? 'flex min-h-0 shrink-0 flex-col' : ''}`}
+                className={`mock-exam-modal-card__answer relative overflow-hidden rounded-[1.75rem] border p-3.5 ${panelClassName} ${hasLargeAnswerGrid ? 'flex min-h-0 shrink-0 flex-col' : ''}`}
                 style={answerPanelStyle}
               >
                 <div className={`flex min-h-0 flex-col gap-4 xl:flex-row xl:justify-between ${hasLargeAnswerGrid ? 'h-full' : ''}`}>
