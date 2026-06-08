@@ -36225,32 +36225,63 @@ html[data-theme='light'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featur
 }
 
 html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured {
-  border-color: rgba(245, 158, 11, 0.56) !important;
+  border-color: rgba(251, 191, 36, 0.42) !important;
   background:
-    linear-gradient(135deg, rgba(120, 53, 15, 0.48), rgba(30, 41, 59, 0.92)) !important;
-  color: rgb(254, 243, 199) !important;
+    radial-gradient(circle at 0% 50%, rgba(245, 158, 11, 0.16), transparent 42%),
+    linear-gradient(135deg, rgba(30, 41, 59, 0.94), rgba(15, 23, 42, 0.88)) !important;
+  color: rgb(248, 250, 252) !important;
   box-shadow:
-    0 16px 34px rgba(2, 6, 23, 0.44),
-    0 0 0 1px rgba(245, 158, 11, 0.16) inset,
-    inset 3px 0 0 rgba(245, 158, 11, 0.72) !important;
+    0 14px 30px rgba(2, 6, 23, 0.34),
+    0 0 0 1px rgba(251, 191, 36, 0.08) inset,
+    inset 3px 0 0 rgba(245, 158, 11, 0.58) !important;
 }
 
 html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured.is-active {
-  border-color: rgba(251, 191, 36, 0.68) !important;
+  border-color: rgba(251, 191, 36, 0.72) !important;
   background:
-    linear-gradient(135deg, rgba(245, 158, 11, 0.9), rgba(120, 53, 15, 0.74)) !important;
+    radial-gradient(circle at 0% 50%, rgba(245, 158, 11, 0.24), transparent 44%),
+    linear-gradient(135deg, rgba(51, 65, 85, 0.92), rgba(15, 23, 42, 0.9)) !important;
   color: rgb(255, 251, 235) !important;
   box-shadow:
-    0 18px 38px rgba(245, 158, 11, 0.22),
+    0 18px 38px rgba(2, 6, 23, 0.42),
     0 0 0 1px rgba(251, 191, 36, 0.18) inset,
-    inset 3px 0 0 rgba(254, 243, 199, 0.62) !important;
+    inset 3px 0 0 rgba(251, 191, 36, 0.84) !important;
 }
 
-html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured .sidebar-nav-icon,
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured .sidebar-nav-icon {
+  border-color: rgba(251, 191, 36, 0.46) !important;
+  background: rgba(15, 23, 42, 0.66) !important;
+  color: rgb(251, 191, 36) !important;
+}
+
 html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured .sidebar-nav-arrow {
-  border-color: rgba(251, 191, 36, 0.5) !important;
-  background: rgba(69, 26, 3, 0.52) !important;
+  border-color: rgba(251, 191, 36, 0.28) !important;
+  background: rgba(15, 23, 42, 0.54) !important;
+  color: rgb(253, 230, 138) !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured.is-active .sidebar-nav-icon {
+  border-color: rgba(251, 191, 36, 0.62) !important;
+  background: rgba(251, 191, 36, 0.12) !important;
+  color: rgb(253, 224, 71) !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured.is-active .sidebar-nav-arrow {
+  border-color: rgba(251, 191, 36, 0.42) !important;
+  background: rgba(251, 191, 36, 0.14) !important;
   color: rgb(254, 243, 199) !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured .sidebar-nav-label + span {
+  border: 1px solid rgba(251, 191, 36, 0.2) !important;
+  background: rgba(251, 191, 36, 0.14) !important;
+  color: rgb(253, 230, 138) !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured.is-active .sidebar-nav-label + span {
+  border-color: rgba(251, 191, 36, 0.32) !important;
+  background: rgba(251, 191, 36, 0.22) !important;
+  color: rgb(255, 251, 235) !important;
 }
 
 html[data-theme='dark'] .final-review-section {
@@ -42347,4 +42378,79 @@ html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-premium
     opacity: 1 !important;
     transform: none !important;
   }
+}
+
+/* Final dark override for the highlighted review nav item. */
+html[data-theme='dark'] nav.sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured,
+html[data-theme='dark'] nav.sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured.text-slate-950 {
+  border-color: rgba(251, 191, 36, 0.46) !important;
+  background-color: rgba(15, 23, 42, 0.92) !important;
+  background-image:
+    radial-gradient(circle at 0% 50%, rgba(245, 158, 11, 0.18), transparent 44%),
+    linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.9)) !important;
+  color: rgb(248, 250, 252) !important;
+  box-shadow:
+    0 14px 30px rgba(2, 6, 23, 0.36),
+    0 0 0 1px rgba(251, 191, 36, 0.1) inset,
+    inset 3px 0 0 rgba(245, 158, 11, 0.62) !important;
+}
+
+html[data-theme='dark'] nav.sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured.is-active,
+html[data-theme='dark'] nav.sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured.is-active.text-slate-950 {
+  border-color: rgba(251, 191, 36, 0.72) !important;
+  background-color: rgba(15, 23, 42, 0.94) !important;
+  background-image:
+    radial-gradient(circle at 0% 50%, rgba(245, 158, 11, 0.25), transparent 44%),
+    linear-gradient(135deg, rgba(51, 65, 85, 0.93), rgba(15, 23, 42, 0.9)) !important;
+  color: rgb(255, 251, 235) !important;
+  box-shadow:
+    0 18px 38px rgba(2, 6, 23, 0.44),
+    0 0 0 1px rgba(251, 191, 36, 0.18) inset,
+    inset 3px 0 0 rgba(251, 191, 36, 0.84) !important;
+}
+
+html[data-theme='dark'] nav.sidebar-nav .sidebar-nav-item--featured .sidebar-nav-icon,
+html[data-theme='dark'] nav.sidebar-nav .sidebar-nav-item--featured .sidebar-nav-icon.text-slate-950 {
+  border-color: rgba(251, 191, 36, 0.5) !important;
+  background-color: rgba(15, 23, 42, 0.68) !important;
+  background-image: none !important;
+  color: rgb(251, 191, 36) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] nav.sidebar-nav .sidebar-nav-item--featured.is-active .sidebar-nav-icon,
+html[data-theme='dark'] nav.sidebar-nav .sidebar-nav-item--featured.is-active .sidebar-nav-icon.text-slate-950 {
+  border-color: rgba(251, 191, 36, 0.64) !important;
+  background-color: rgba(251, 191, 36, 0.13) !important;
+  color: rgb(253, 224, 71) !important;
+}
+
+html[data-theme='dark'] nav.sidebar-nav .sidebar-nav-item--featured .sidebar-nav-arrow,
+html[data-theme='dark'] nav.sidebar-nav .sidebar-nav-item--featured .sidebar-nav-arrow.text-amber-800 {
+  border-color: rgba(251, 191, 36, 0.34) !important;
+  background-color: rgba(15, 23, 42, 0.58) !important;
+  background-image: none !important;
+  color: rgb(253, 230, 138) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] nav.sidebar-nav .sidebar-nav-item--featured.is-active .sidebar-nav-arrow,
+html[data-theme='dark'] nav.sidebar-nav .sidebar-nav-item--featured.is-active .sidebar-nav-arrow.text-amber-800 {
+  border-color: rgba(251, 191, 36, 0.46) !important;
+  background-color: rgba(251, 191, 36, 0.14) !important;
+  color: rgb(254, 243, 199) !important;
+}
+
+html[data-theme='dark'] nav.sidebar-nav .sidebar-nav-item--featured .sidebar-nav-label + span,
+html[data-theme='dark'] nav.sidebar-nav .sidebar-nav-item--featured .sidebar-nav-label + .text-slate-950 {
+  border: 1px solid rgba(251, 191, 36, 0.24) !important;
+  background-color: rgba(251, 191, 36, 0.16) !important;
+  color: rgb(253, 230, 138) !important;
+}
+
+html[data-theme='dark'] nav.sidebar-nav .sidebar-nav-item--featured.is-active .sidebar-nav-label + span,
+html[data-theme='dark'] nav.sidebar-nav .sidebar-nav-item--featured.is-active .sidebar-nav-label + .text-slate-950 {
+  border-color: rgba(251, 191, 36, 0.36) !important;
+  background-color: rgba(251, 191, 36, 0.24) !important;
+  color: rgb(255, 251, 235) !important;
 }

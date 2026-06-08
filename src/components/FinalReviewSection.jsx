@@ -823,7 +823,7 @@ const FinalReviewSection = ({ userId, role, onOpenTask }) => {
                 {`${progressPercent}% пройдено`}
               </div>
             </div>
-            <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+            <div className="grid auto-rows-fr gap-3 md:grid-cols-2 2xl:grid-cols-4">
               {FINAL_REVIEW_DAYS.map((day) => {
                 const daySessions = day.sessions.map((session, index) => ({
                   ...session,
@@ -841,7 +841,7 @@ const FinalReviewSection = ({ userId, role, onOpenTask }) => {
                     key={day.dateKey}
                     type="button"
                     onClick={() => selectDay(day)}
-                    className={`min-h-[230px] rounded-2xl border p-0 text-left transition ${
+                    className={`flex h-full min-h-[230px] flex-col overflow-hidden rounded-2xl border p-0 text-left transition ${
                       isActiveDay
                         ? 'border-amber-300 bg-amber-50/80 shadow-[0_14px_34px_rgba(245,158,11,0.18)]'
                         : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
@@ -857,7 +857,7 @@ const FinalReviewSection = ({ userId, role, onOpenTask }) => {
                       <span className="font-display text-2xl font-black tracking-tight">{day.label}</span>
                       <span className="text-sm font-black uppercase">{day.weekday}</span>
                     </div>
-                    <div className="space-y-3 px-4 py-4">
+                    <div className="flex flex-1 flex-col gap-3 px-4 py-4">
                       <div className="truncate text-sm font-black text-slate-950">{day.headline}</div>
                       {daySessions.map((session) => (
                         <div key={`${day.dateKey}-${session.id}`} className="grid grid-cols-[52px_1fr_auto] items-start gap-2">
