@@ -149,6 +149,7 @@ const teacherCalendarSyncFile = path.join(dataDir, 'teacher-calendar-sync.json')
 const teacherCalendarMarksFile = path.join(dataDir, 'teacher-calendar-marks.json');
 const teacherFinanceFile = path.join(dataDir, 'teacher-finances.json');
 const finalReviewVideosFile = path.join(dataDir, 'final-review-videos.json');
+const finalReviewNotesFile = path.join(dataDir, 'final-review-notes.json');
 const authFile = path.join(dataDir, 'auth.json');
 const authSessionsFile = path.join(dataDir, 'auth-sessions.json');
 const usageFile = path.join(dataDir, 'usage.json');
@@ -1484,6 +1485,7 @@ const TEACHER_FINANCE_STUDENT_NOTE_MAX_LENGTH = 1200;
 const TEACHER_FINANCE_MONTH_NOTE_MAX_LENGTH = 2000;
 const FINAL_REVIEW_VIDEO_SESSION_ID_MAX_LENGTH = 80;
 const FINAL_REVIEW_VIDEO_URL_MAX_LENGTH = 500;
+const FINAL_REVIEW_NOTE_MAX_LENGTH = 4000;
 
 const normalizeFinalReviewVideoSessionId = (value) => {
   const normalized = String(value || '').trim();
@@ -1563,6 +1565,53 @@ const readFinalReviewVideosDb = () => {
 
 const writeFinalReviewVideosDb = (data) => {
   writeJsonFileAtomic(finalReviewVideosFile, normalizeFinalReviewVideosDb(data));
+};
+
+const normalizeFinalReviewNoteText = (value) => (
+  String(value || '').slice(0, FINAL_REVIEW_NOTE_MAX_LENGTH)
+);
+
+const normalizeFinalReviewNotesMap = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const normalized = {};
+  Object.entries(source).forEach(([sessionId, rawNote]) => {
+    const id = normalizeFinalReviewVideoSessionId(sessionId);
+    if (!id) return;
+    const text = normalizeFinalReviewNoteText(
+      rawNote && typeof rawNote === 'object' && !Array.isArray(rawNote)
+        ? (rawNote.text ?? rawNote.note ?? rawNote.value ?? '')
+        : rawNote
+    ).trim();
+    if (!text) return;
+    normalized[id] = text;
+  });
+  return normalized;
+};
+
+const normalizeFinalReviewNotesDb = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const normalized = {};
+  Object.entries(source).forEach(([studentId, notes]) => {
+    const id = String(studentId || '').trim();
+    if (!id || id === '__proto__' || id === 'constructor' || id === 'prototype') return;
+    const normalizedNotes = normalizeFinalReviewNotesMap(notes);
+    if (Object.keys(normalizedNotes).length > 0) normalized[id] = normalizedNotes;
+  });
+  return normalized;
+};
+
+const readFinalReviewNotesDb = () => {
+  try {
+    const raw = fs.readFileSync(finalReviewNotesFile, 'utf8');
+    const data = JSON.parse(raw);
+    return normalizeFinalReviewNotesDb(data);
+  } catch {
+    return {};
+  }
+};
+
+const writeFinalReviewNotesDb = (data) => {
+  writeJsonFileAtomic(finalReviewNotesFile, normalizeFinalReviewNotesDb(data));
 };
 
 const roundTeacherFinanceNumber = (value, { allowNegative = false } = {}) => {
@@ -13025,6 +13074,38 @@ app.patch('/api/final-review-videos/:sessionId', (req, res) => {
   }
   writeFinalReviewVideosDb(db);
   return res.json({ ok: true, video: db[sessionId] || null, videos: db });
+});
+
+app.get('/api/final-review-notes', (req, res) => {
+  if (!isAdminRole(req.auth) && !isTeacherRole(req.auth) && !isStudentRole(req.auth)) {
+    return forbid(res);
+  }
+  const { studentId } = req.query || {};
+  const effectiveStudentId = isStudentRole(req.auth) ? req.auth.id : studentId;
+  const student = ensureStudentAccess(req, res, effectiveStudentId, { missingError: 'studentId required' });
+  if (!student) return;
+
+  const db = readFinalReviewNotesDb();
+  return res.json({
+    studentId: student.id,
+    notes: db[student.id] || {},
+  });
+});
+
+app.put('/api/final-review-notes', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.auth.id, { missingError: 'studentId required' });
+  if (!student) return;
+
+  const notes = normalizeFinalReviewNotesMap(req.body?.notes || {});
+  const db = readFinalReviewNotesDb();
+  if (Object.keys(notes).length > 0) {
+    db[student.id] = notes;
+  } else {
+    delete db[student.id];
+  }
+  writeFinalReviewNotesDb(db);
+  return res.json({ ok: true, studentId: student.id, notes: db[student.id] || {} });
 });
 
 app.patch('/api/students/avatar', (req, res) => {

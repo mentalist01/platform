@@ -16049,6 +16049,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               key={user.id}
               userId={user.id}
               role={user.role}
+              theme={theme}
+              activeStudentId={activeStudentId}
+              students={studentsWithNicknames}
+              onSelectStudent={setActiveStudentId}
+              getStudentLabel={getStudentLabel}
               onOpenTask={handleOpenTask}
             />
           )}

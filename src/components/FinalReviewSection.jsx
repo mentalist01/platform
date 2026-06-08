@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { api } from '../services/api';
+import { THEME_DARK, normalizeTheme } from '../utils/theme';
 
 const COURSE_YEAR = 2026;
 const EGE_DATE = `${COURSE_YEAR}-06-18`;
@@ -112,6 +113,7 @@ const FINAL_REVIEW_DAYS = [
 const ALL_TASKS = Array.from({ length: 27 }, (_, index) => index + 1);
 
 const readStoredJson = (key, fallback) => {
+  if (!key) return fallback;
   if (typeof localStorage === 'undefined') return fallback;
   try {
     const raw = localStorage.getItem(key);
@@ -124,6 +126,7 @@ const readStoredJson = (key, fallback) => {
 };
 
 const writeStoredJson = (key, value) => {
+  if (!key) return;
   if (typeof localStorage === 'undefined') return;
   try {
     localStorage.setItem(key, JSON.stringify(value || {}));
@@ -248,16 +251,58 @@ const normalizeVideoMap = (value) => {
   }, {});
 };
 
-const FinalReviewSection = ({ userId, role, onOpenTask }) => {
-  const progressStorageKey = getStorageKey(userId, 'progress');
-  const notesStorageKey = getStorageKey(userId, 'notes');
+const normalizeNotesMap = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return Object.entries(source).reduce((acc, [sessionId, entry]) => {
+    const id = String(sessionId || '').trim();
+    const note = normalizeNotesValue(
+      entry && typeof entry === 'object' && !Array.isArray(entry)
+        ? (entry.text ?? entry.note ?? entry.value ?? '')
+        : entry
+    ).trim();
+    if (!id || !note) return acc;
+    acc[id] = note;
+    return acc;
+  }, {});
+};
+
+const FinalReviewSection = ({
+  userId,
+  role,
+  onOpenTask,
+  theme = 'light',
+  activeStudentId = '',
+  students = [],
+  onSelectStudent = null,
+  getStudentLabel = null,
+}) => {
   const canEditVideos = role === 'teacher' || role === 'admin';
+  const isTeacherView = role === 'teacher';
+  const reviewStudentId = role === 'student'
+    ? String(userId || '').trim()
+    : (String(activeStudentId || '').trim() || String(students?.[0]?.id || '').trim());
+  const progressStorageKey = reviewStudentId ? getStorageKey(reviewStudentId, 'progress') : '';
+  const notesStorageKey = reviewStudentId ? getStorageKey(reviewStudentId, 'notes') : '';
+  const canEditNotes = role === 'student' && reviewStudentId === String(userId || '').trim();
+  const reviewStudent = useMemo(() => (
+    Array.isArray(students)
+      ? students.find((student) => String(student?.id || '').trim() === reviewStudentId) || null
+      : null
+  ), [reviewStudentId, students]);
+  const reviewStudentLabel = reviewStudent
+    ? (typeof getStudentLabel === 'function' ? getStudentLabel(reviewStudent) : String(reviewStudent.name || reviewStudent.nickname || reviewStudent.id || '').trim())
+    : '';
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [completedMap, setCompletedMap] = useState(() => readStoredJson(progressStorageKey, {}));
-  const [selectedSessionId, setSelectedSessionId] = useState(() => (
-    pickDefaultSessionId(FLAT_REVIEW_SESSIONS, readStoredJson(progressStorageKey, {}), Date.now())
-  ));
-  const [notesMap, setNotesMap] = useState(() => readStoredJson(notesStorageKey, {}));
+  const [completedMap, setCompletedMap] = useState({});
+  const [progressLoadedStudentId, setProgressLoadedStudentId] = useState('');
+  const [selectedSessionId, setSelectedSessionId] = useState(FLAT_REVIEW_SESSIONS[0]?.id || '');
+  const [notesMap, setNotesMap] = useState({});
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [notesError, setNotesError] = useState('');
+  const [notesSaveState, setNotesSaveState] = useState({ status: 'idle', error: '' });
+  const [notesLoadedStudentId, setNotesLoadedStudentId] = useState('');
+  const notesSaveTimeoutRef = useRef(null);
+  const notesSaveVersionRef = useRef(0);
   const [videoMap, setVideoMap] = useState({});
   const [videoDraftMap, setVideoDraftMap] = useState({});
   const [videosLoading, setVideosLoading] = useState(false);
@@ -271,12 +316,86 @@ const FinalReviewSection = ({ userId, role, onOpenTask }) => {
   }, []);
 
   useEffect(() => {
-    writeStoredJson(progressStorageKey, completedMap);
-  }, [completedMap, progressStorageKey]);
+    if (!reviewStudentId) {
+      setCompletedMap({});
+      setSelectedSessionId(FLAT_REVIEW_SESSIONS[0]?.id || '');
+      setProgressLoadedStudentId('');
+      return;
+    }
+    const nextCompletedMap = readStoredJson(progressStorageKey, {});
+    setCompletedMap(nextCompletedMap);
+    setSelectedSessionId(pickDefaultSessionId(FLAT_REVIEW_SESSIONS, nextCompletedMap, Date.now()));
+    setProgressLoadedStudentId(reviewStudentId);
+  }, [progressStorageKey, reviewStudentId]);
 
   useEffect(() => {
+    if (!progressStorageKey || progressLoadedStudentId !== reviewStudentId) return;
+    writeStoredJson(progressStorageKey, completedMap);
+  }, [completedMap, progressLoadedStudentId, progressStorageKey, reviewStudentId]);
+
+  useEffect(() => {
+    if (notesSaveTimeoutRef.current) {
+      window.clearTimeout(notesSaveTimeoutRef.current);
+      notesSaveTimeoutRef.current = null;
+    }
+    setNotesSaveState({ status: 'idle', error: '' });
+    setNotesLoadedStudentId('');
+
+    if (!reviewStudentId) {
+      setNotesMap({});
+      setNotesError('');
+      setNotesLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const localNotes = normalizeNotesMap(readStoredJson(notesStorageKey, {}));
+    setNotesMap(localNotes);
+    setNotesLoading(true);
+    setNotesError('');
+
+    const loadNotes = async () => {
+      try {
+        const data = await api.getFinalReviewNotes(reviewStudentId);
+        if (cancelled) return;
+        let nextNotes = normalizeNotesMap(data?.notes || {});
+        if (canEditNotes && Object.keys(nextNotes).length === 0 && Object.keys(localNotes).length > 0) {
+          const saved = await api.updateFinalReviewNotes(localNotes);
+          if (cancelled) return;
+          nextNotes = normalizeNotesMap(saved?.notes || localNotes);
+        }
+        setNotesMap(nextNotes);
+        setNotesLoadedStudentId(reviewStudentId);
+        if (canEditNotes) writeStoredJson(notesStorageKey, nextNotes);
+      } catch (error) {
+        if (!cancelled) {
+          setNotesError(error?.message || 'Не удалось загрузить заметки.');
+          setNotesLoadedStudentId(reviewStudentId);
+          setNotesMap(localNotes);
+        }
+      } finally {
+        if (!cancelled) setNotesLoading(false);
+      }
+    };
+
+    loadNotes();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canEditNotes, notesStorageKey, reviewStudentId]);
+
+  useEffect(() => {
+    if (!canEditNotes || !notesStorageKey || notesLoadedStudentId !== reviewStudentId) return;
     writeStoredJson(notesStorageKey, notesMap);
-  }, [notesMap, notesStorageKey]);
+  }, [canEditNotes, notesLoadedStudentId, notesMap, notesStorageKey, reviewStudentId]);
+
+  useEffect(() => () => {
+    if (notesSaveTimeoutRef.current) {
+      window.clearTimeout(notesSaveTimeoutRef.current);
+      notesSaveTimeoutRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -360,6 +479,23 @@ const FinalReviewSection = ({ userId, role, onOpenTask }) => {
     && hasVideoDraftChanges
     && (!String(selectedVideoDraft || '').trim() || Boolean(selectedDraftVideoId));
   const selectedNotes = notesMap[selectedSession?.id] || '';
+  const canChooseReviewStudent = isTeacherView && Array.isArray(students) && students.length > 0;
+  const notesAreReadOnly = !canEditNotes;
+  const notesTextareaDisabled = !reviewStudentId || notesLoading;
+  const notesPlaceholder = canEditNotes
+    ? 'Ключевые идеи, ошибки, что пересмотреть перед экзаменом...'
+    : (reviewStudentId ? 'У ученика пока нет заметок к этому эфиру.' : 'Выберите ученика, чтобы посмотреть заметки.');
+  const notesStatusText = notesLoading
+    ? 'Загружаю заметки...'
+    : (notesError
+      ? notesError
+      : (canEditNotes
+        ? (notesSaveState.status === 'error'
+          ? (notesSaveState.error || 'Не удалось сохранить заметки.')
+          : notesSaveState.status === 'saving'
+          ? 'Сохраняю...'
+          : (notesSaveState.status === 'saved' ? 'Сохранено' : formatSessionDate(selectedSession)))
+        : (!reviewStudentId ? 'Выберите ученика' : (reviewStudentLabel ? `Ученик: ${reviewStudentLabel}` : formatSessionDate(selectedSession)))));
   const isSelectedDone = Boolean(completedMap[selectedSession?.id]);
   const completedCount = FLAT_REVIEW_SESSIONS.filter((session) => completedMap[session.id]).length;
   const progressPercent = FLAT_REVIEW_SESSIONS.length > 0
@@ -368,6 +504,25 @@ const FinalReviewSection = ({ userId, role, onOpenTask }) => {
   const daysUntilExam = getDaysUntilExam(nowMs);
   const nextActionSession = FLAT_REVIEW_SESSIONS.find((session) => !completedMap[session.id])
     || FLAT_REVIEW_SESSIONS[FLAT_REVIEW_SESSIONS.length - 1];
+  const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
+  const continueButtonClassName = isDarkTheme
+    ? 'rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-left text-white shadow-sm hover:bg-slate-900'
+    : 'rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-left text-slate-950 shadow-sm hover:border-amber-300 hover:bg-amber-100';
+  const continueLabelClassName = isDarkTheme
+    ? 'text-[10px] font-bold uppercase tracking-wide text-white/60'
+    : 'text-[10px] font-bold uppercase tracking-wide text-amber-700';
+  const teacherSaveButtonClassName = isDarkTheme
+    ? 'inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm font-bold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500'
+    : 'inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 text-sm font-bold text-sky-800 hover:border-sky-300 hover:bg-sky-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500';
+  const reviewPendingButtonClassName = isDarkTheme
+    ? 'border-slate-700 bg-slate-950 text-white hover:bg-slate-900'
+    : 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:border-emerald-300 hover:bg-emerald-100';
+  const dayPlaylistActiveClassName = isDarkTheme
+    ? 'border-slate-700 bg-slate-950 text-white shadow-sm'
+    : 'border-amber-300 bg-amber-50 text-slate-950 shadow-[0_10px_24px_rgba(245,158,11,0.14)] ring-2 ring-amber-100';
+  const dayPlaylistActiveTimeClassName = isDarkTheme ? 'text-amber-300' : 'text-amber-700';
+  const dayPlaylistActiveCheckClassName = isDarkTheme ? 'text-emerald-300' : 'text-emerald-600';
+  const dayPlaylistActiveDotClassName = isDarkTheme ? 'border-white/35' : 'border-amber-300';
 
   const taskIndex = useMemo(() => {
     const map = new Map();
@@ -425,13 +580,47 @@ const FinalReviewSection = ({ userId, role, onOpenTask }) => {
     openTask(taskNumber);
   };
 
+  const queueNotesSave = (nextNotesMap) => {
+    if (!canEditNotes || !reviewStudentId) return;
+    if (notesSaveTimeoutRef.current) {
+      window.clearTimeout(notesSaveTimeoutRef.current);
+    }
+    const saveVersion = notesSaveVersionRef.current + 1;
+    notesSaveVersionRef.current = saveVersion;
+    setNotesSaveState({ status: 'saving', error: '' });
+
+    notesSaveTimeoutRef.current = window.setTimeout(async () => {
+      try {
+        const normalizedNotes = normalizeNotesMap(nextNotesMap);
+        const data = await api.updateFinalReviewNotes(normalizedNotes);
+        if (notesSaveVersionRef.current !== saveVersion) return;
+        const savedNotes = normalizeNotesMap(data?.notes || normalizedNotes);
+        setNotesMap(savedNotes);
+        writeStoredJson(notesStorageKey, savedNotes);
+        setNotesSaveState({ status: 'saved', error: '' });
+      } catch (error) {
+        if (notesSaveVersionRef.current !== saveVersion) return;
+        setNotesSaveState({
+          status: 'error',
+          error: error?.message || 'Не удалось сохранить заметки.',
+        });
+      } finally {
+        if (notesSaveVersionRef.current === saveVersion) {
+          notesSaveTimeoutRef.current = null;
+        }
+      }
+    }, 550);
+  };
+
   const updateSelectedNote = (value) => {
     const sessionId = selectedSession?.id;
-    if (!sessionId) return;
-    setNotesMap((prev) => ({
-      ...(prev || {}),
-      [sessionId]: normalizeNotesValue(value),
-    }));
+    if (!sessionId || !canEditNotes || notesLoading) return;
+    const nextNote = normalizeNotesValue(value);
+    const nextNotesMap = { ...(notesMap || {}) };
+    if (nextNote) nextNotesMap[sessionId] = nextNote;
+    else delete nextNotesMap[sessionId];
+    setNotesMap(nextNotesMap);
+    queueNotesSave(nextNotesMap);
   };
 
   const updateSelectedVideoDraft = (value) => {
@@ -510,9 +699,9 @@ const FinalReviewSection = ({ userId, role, onOpenTask }) => {
             <button
               type="button"
               onClick={() => selectSession(nextActionSession?.id)}
-              className="rounded-2xl border border-slate-900 bg-slate-950 px-3 py-2.5 text-left text-white shadow-sm hover:bg-slate-800"
+              className={continueButtonClassName}
             >
-              <div className="text-[10px] font-bold uppercase tracking-wide text-white/60">Продолжить</div>
+              <div className={continueLabelClassName}>Продолжить</div>
               <div className="mt-1 truncate text-sm font-black">{nextActionSession?.dateLabel || selectedSession?.dateLabel}</div>
             </button>
           </div>
@@ -671,7 +860,7 @@ const FinalReviewSection = ({ userId, role, onOpenTask }) => {
                         type="button"
                         onClick={saveSelectedVideoLink}
                         disabled={!canSaveSelectedVideo}
-                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-900 bg-slate-950 px-3 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-200 disabled:text-slate-500"
+                        className={teacherSaveButtonClassName}
                       >
                         <CheckCircle2 size={16} />
                         {isSavingSelectedVideo ? 'Сохраняю...' : 'Сохранить'}
@@ -728,7 +917,7 @@ const FinalReviewSection = ({ userId, role, onOpenTask }) => {
                     className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-bold ${
                       isSelectedDone
                         ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
-                        : 'border-slate-900 bg-slate-950 text-white hover:bg-slate-800'
+                        : reviewPendingButtonClassName
                     }`}
                   >
                     <CheckCircle2 size={16} />
@@ -792,21 +981,53 @@ const FinalReviewSection = ({ userId, role, onOpenTask }) => {
             </div>
 
             <div className="surface-panel rounded-3xl border border-slate-200 bg-white/94 p-4 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-black text-slate-950">Заметки к эфиру</h2>
+                  <h2 className="text-lg font-black text-slate-950">
+                    {isTeacherView ? 'Заметки ученика' : 'Заметки к эфиру'}
+                  </h2>
                   <p className="mt-1 text-sm text-slate-500">{selectedSession?.title}</p>
                 </div>
-                <FileText size={20} className="text-amber-500" />
+                <div className="flex items-center gap-2">
+                  {canChooseReviewStudent && (
+                    <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600">
+                      <span>Ученик</span>
+                      <select
+                        value={reviewStudentId}
+                        onChange={(event) => onSelectStudent?.(event.target.value)}
+                        className="max-w-[11rem] bg-transparent text-sm font-black text-slate-900 outline-none"
+                      >
+                        {students.map((student) => {
+                          const studentId = String(student?.id || '').trim();
+                          const label = typeof getStudentLabel === 'function'
+                            ? getStudentLabel(student)
+                            : String(student?.name || student?.nickname || studentId || '').trim();
+                          return (
+                            <option key={studentId} value={studentId}>
+                              {label || studentId}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </label>
+                  )}
+                  <FileText size={20} className="text-amber-500" />
+                </div>
               </div>
               <textarea
                 value={selectedNotes}
-                onChange={(event) => updateSelectedNote(event.target.value)}
-                placeholder="Ключевые идеи, ошибки, что пересмотреть перед экзаменом..."
-                className="mt-4 min-h-[220px] w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm leading-6 text-slate-900 placeholder:text-slate-400"
+                onChange={canEditNotes ? (event) => updateSelectedNote(event.target.value) : undefined}
+                placeholder={notesPlaceholder}
+                readOnly={notesAreReadOnly}
+                disabled={notesTextareaDisabled}
+                className={`mt-4 min-h-[220px] w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm leading-6 text-slate-900 placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-70 ${
+                  notesAreReadOnly ? 'cursor-default' : ''
+                }`}
               />
-              <div className="mt-2 flex items-center justify-between text-[11px] font-semibold text-slate-400">
-                <span>{formatSessionDate(selectedSession)}</span>
+              <div className={`mt-2 flex items-center justify-between text-[11px] font-semibold ${
+                notesError || notesSaveState.status === 'error' ? 'text-rose-500' : 'text-slate-400'
+              }`}>
+                <span>{notesStatusText}</span>
                 <span>{`${selectedNotes.length}/4000`}</span>
               </div>
             </div>
@@ -816,7 +1037,7 @@ const FinalReviewSection = ({ userId, role, onOpenTask }) => {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-black text-slate-950">Карта курса</h2>
-                <p className="mt-1 text-sm text-slate-500">Вся сетка повторения со скриншота.</p>
+                <p className="mt-1 text-sm text-slate-500">Все дни и эфиры финального повторения.</p>
               </div>
               <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-600">
                 <ListChecks size={15} />
@@ -896,13 +1117,13 @@ const FinalReviewSection = ({ userId, role, onOpenTask }) => {
                     onClick={() => selectSession(session.id)}
                     className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
                       isActive
-                        ? 'border-slate-900 bg-slate-950 text-white shadow-sm'
+                        ? dayPlaylistActiveClassName
                         : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className={`font-mono text-sm font-black ${isActive ? 'text-amber-300' : 'text-amber-600'}`}>
+                        <div className={`font-mono text-sm font-black ${isActive ? dayPlaylistActiveTimeClassName : 'text-amber-600'}`}>
                           {session.time}
                         </div>
                         <div className="mt-1 text-sm font-bold leading-5">{session.title}</div>
@@ -910,9 +1131,9 @@ const FinalReviewSection = ({ userId, role, onOpenTask }) => {
                       <div className="flex shrink-0 items-center gap-1.5">
                         {status === 'live' && <span className="h-2 w-2 rounded-full bg-rose-400" />}
                         {completedMap[session.id] ? (
-                          <CheckCircle2 size={17} className={isActive ? 'text-emerald-300' : 'text-emerald-500'} />
+                          <CheckCircle2 size={17} className={isActive ? dayPlaylistActiveCheckClassName : 'text-emerald-500'} />
                         ) : (
-                          <span className={`mt-0.5 h-4 w-4 rounded-full border ${isActive ? 'border-white/35' : 'border-slate-300'}`} />
+                          <span className={`mt-0.5 h-4 w-4 rounded-full border ${isActive ? dayPlaylistActiveDotClassName : 'border-slate-300'}`} />
                         )}
                       </div>
                     </div>

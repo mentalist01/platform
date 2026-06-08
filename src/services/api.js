@@ -1350,6 +1350,23 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getFinalReviewNotes: async (studentId = '') => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', String(studentId));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/final-review-notes?${qs}` : '/api/final-review-notes');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updateFinalReviewNotes: async (notes = {}) => {
+    const res = await apiFetch('/api/final-review-notes', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getStudentSchedule: async (studentId) => {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);
