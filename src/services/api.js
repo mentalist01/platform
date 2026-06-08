@@ -1334,6 +1334,22 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getFinalReviewVideos: async () => {
+    const res = await apiFetch('/api/final-review-videos');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updateFinalReviewVideo: async (sessionId, youtubeUrl) => {
+    const targetId = encodeURIComponent(String(sessionId || '').trim());
+    if (!targetId) throw new Error('sessionId required');
+    const res = await apiFetch(`/api/final-review-videos/${targetId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ youtubeUrl }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getStudentSchedule: async (studentId) => {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);

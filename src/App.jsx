@@ -34,6 +34,7 @@ import ImageViewer from './components/ImageViewer';
 import LoginPage from './components/LoginPage';
 import NotesSection from './components/NotesSection';
 import NewHomeworkModal from './components/NewHomeworkModal';
+import FinalReviewSection from './components/FinalReviewSection';
 import { LogoMark, PythonLogoIcon } from './components/Identity';
 import MobileStrategyGame from './components/MobileStrategyGame';
 import ProgressSection from './components/ProgressSection';
@@ -11431,6 +11432,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         'schedule',
         'teacher-calendar',
         'progress',
+        'review',
         'python',
         'rating',
         'collab',
@@ -11443,6 +11445,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       : [
         'schedule',
         'progress',
+        'review',
         'python',
         'rating',
         'collab',
@@ -11453,7 +11456,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ];
   const allowedViewsKey = allowedViews.join('|');
   const isCallViewAvailable = allowedViews.includes('call');
-  const defaultView = user.role === 'teacher' ? 'teacher' : (user.role === 'admin' ? 'admin' : 'progress');
+  const defaultView = user.role === 'teacher' ? 'teacher' : (user.role === 'admin' ? 'admin' : 'review');
   const storedLocation = readUserLocation(user);
   const storedView = storedLocation?.view;
   const urlParams = typeof window !== 'undefined'
@@ -11478,10 +11481,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         || (storedView === 'python' ? fallbackPythonOpenTask : null))
     : null;
   const storedActiveStudentId = storedLocation?.activeStudentId ? String(storedLocation.activeStudentId) : null;
+  const shouldPreferReviewHome = user.role === 'student' && !normalizedUrlRequestedView && !restoredOpenTask;
   const initialView = (normalizedUrlRequestedView && allowedViews.includes(normalizedUrlRequestedView))
     ? normalizedUrlRequestedView
     : (restoredOpenTask?.section && allowedViews.includes(restoredOpenTask.section))
     ? restoredOpenTask.section
+    : shouldPreferReviewHome
+    ? 'review'
     : (allowedViews.includes(normalizedStoredView) ? normalizedStoredView : defaultView);
   const initialTeacherCommsTab = user.role === 'teacher'
     ? resolveTeacherCommsTab(urlRequestedView || storedView)
@@ -11772,6 +11778,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'teacher-calendar', label: 'Общий календарь', icon: Users },
         { id: 'finance', label: 'Финансы', icon: Wallet },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
+        { id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true },
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
         { id: 'rating', label: 'Рейтинг', icon: Trophy },
         { id: 'collab', label: 'Совместный код', icon: Code2 },
@@ -11784,6 +11791,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       : [
         { id: 'schedule', label: 'Моё расписание', icon: Calendar },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
+        { id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true },
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
         { id: 'rating', label: 'Рейтинг', icon: Trophy },
         { id: 'collab', label: 'Совместный код', icon: Code2 },
@@ -11799,12 +11807,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ? ['call', 'board', 'collab']
     : ['board', 'collab'];
   const teacherLessonNavIds = ['call', 'board', 'collab'];
-  const studentCoreNavIds = ['schedule', 'progress', ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'notes'];
+  const studentCoreNavIds = ['schedule', 'progress', 'review', ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'notes'];
   const studentLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
   const teacherLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
   const studentPrimaryNav = user.role === 'student'
     ? [
-      ...['schedule', 'progress']
+      ...['review', 'schedule', 'progress']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       studentLessonNavItem,
@@ -11834,7 +11842,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : visibleNav;
   const teacherDesktopPrimaryNav = user.role === 'teacher'
     ? [
-      ...['schedule', 'teacher-calendar', 'finance', 'progress', 'python', 'rating']
+      ...['schedule', 'teacher-calendar', 'finance', 'progress', 'review', 'python', 'rating']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       teacherLessonNavItem,
@@ -11854,6 +11862,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     'teacher-calendar': 'Календ.',
     finance: 'Фин.',
     progress: 'Тесты',
+    review: 'Повтор',
     lesson: '\u0423\u0440\u043e\u043a',
     rating: 'Рейтинг',
     python: 'Python',
@@ -14656,6 +14665,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const firstGoal = goalGoals[0] || null;
   const shouldShowGoalBlock = user.role === 'student'
     && view !== 'schedule'
+    && view !== 'review'
     && view !== 'collab'
     && view !== 'board'
     && view !== 'call'
@@ -15424,6 +15434,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 {desktopPrimaryNav.map((n, idx) => {
                   const isLessonButton = n.id === 'lesson';
                   const isActive = isLessonButton ? lessonQuickNavIds.includes(view) : view === n.id;
+                  const isFeatured = Boolean(n.featured);
                   return (
                     <button
                       key={n.id}
@@ -15434,29 +15445,50 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       aria-current={isActive ? 'page' : undefined}
                       data-tour={n.id === 'rating' ? 'rating-nav' : undefined}
                       style={{ '--item-index': idx }}
-                      className={`sidebar-nav-item group relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-2xl border px-3.5 py-3 text-left transition-all duration-200 ease-out ${
+                      className={`sidebar-nav-item ${isFeatured ? 'sidebar-nav-item--featured' : ''} group relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-2xl border px-3.5 py-3 text-left transition-all duration-200 ease-out ${
                         isActive
-                          ? 'is-active border-purple-200/80 bg-white text-slate-900 shadow-[0_16px_30px_rgba(124,58,237,0.16)]'
-                          : 'border-transparent text-slate-700 hover:-translate-y-[1px] hover:border-purple-200/80 hover:bg-white/92 hover:text-slate-900 hover:shadow-[0_10px_24px_rgba(148,163,184,0.24)]'
+                          ? (isFeatured
+                            ? 'is-active border-amber-300 bg-gradient-to-br from-amber-100 via-white to-yellow-50 text-slate-950 shadow-[0_18px_36px_rgba(245,158,11,0.28)] ring-1 ring-amber-200/80'
+                            : 'is-active border-purple-200/80 bg-white text-slate-900 shadow-[0_16px_30px_rgba(124,58,237,0.16)]')
+                          : (isFeatured
+                            ? 'border-amber-200/90 bg-gradient-to-br from-amber-50 via-white to-yellow-50 text-slate-900 shadow-[0_12px_26px_rgba(245,158,11,0.14)] hover:-translate-y-[1px] hover:border-amber-300 hover:text-slate-950 hover:shadow-[0_16px_32px_rgba(245,158,11,0.22)]'
+                            : 'border-transparent text-slate-700 hover:-translate-y-[1px] hover:border-purple-200/80 hover:bg-white/92 hover:text-slate-900 hover:shadow-[0_10px_24px_rgba(148,163,184,0.24)]')
                       }`}
                     >
                       <span className="flex min-w-0 flex-1 items-center gap-3">
                         <span
                           className={`sidebar-nav-icon grid h-10 w-10 place-items-center rounded-xl border transition-all duration-200 ${
                             isActive
-                              ? 'is-active bg-gradient-to-br from-violet-100 to-fuchsia-100 text-purple-700 border-purple-200/90 shadow-sm shadow-purple-200/60'
-                              : 'bg-white/85 text-purple-600 border-purple-100/80 group-hover:bg-white group-hover:border-purple-200/70'
+                              ? (isFeatured
+                                ? 'is-active border-amber-300 bg-gradient-to-br from-amber-300 to-yellow-200 text-slate-950 shadow-sm shadow-amber-200/70'
+                                : 'is-active bg-gradient-to-br from-violet-100 to-fuchsia-100 text-purple-700 border-purple-200/90 shadow-sm shadow-purple-200/60')
+                              : (isFeatured
+                                ? 'border-amber-200 bg-gradient-to-br from-amber-100 to-yellow-50 text-amber-700 group-hover:border-amber-300 group-hover:bg-amber-100'
+                                : 'bg-white/85 text-purple-600 border-purple-100/80 group-hover:bg-white group-hover:border-purple-200/70')
                           }`}
                         >
                           <n.icon size={18} />
                         </span>
-                        <span className="sidebar-nav-label whitespace-nowrap text-[13px] font-semibold leading-tight md:text-sm">{n.label}</span>
+                        <span className="min-w-0">
+                          <span className="sidebar-nav-label block whitespace-nowrap text-[13px] font-semibold leading-tight md:text-sm">{n.label}</span>
+                          {isFeatured && (
+                            <span className={`mt-0.5 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] ${
+                              isActive ? 'bg-amber-300 text-slate-950' : 'bg-amber-200/75 text-amber-800'
+                            }`}>
+                              Главное
+                            </span>
+                          )}
+                        </span>
                       </span>
                       <span
                         className={`sidebar-nav-arrow ml-auto flex h-8 w-8 items-center justify-center rounded-xl border transition-all duration-200 ${
                           isActive
-                            ? 'is-active translate-x-0.5 border-purple-200/80 bg-purple-100/90 text-purple-700 opacity-100 shadow-sm shadow-purple-200/50'
-                            : 'border-purple-100/70 bg-white/75 text-purple-400 opacity-60 group-hover:translate-x-0.5 group-hover:opacity-100 group-hover:text-purple-600 group-hover:border-purple-200/70'
+                            ? (isFeatured
+                              ? 'is-active translate-x-0.5 border-amber-300 bg-amber-200 text-amber-800 opacity-100 shadow-sm shadow-amber-200/50'
+                              : 'is-active translate-x-0.5 border-purple-200/80 bg-purple-100/90 text-purple-700 opacity-100 shadow-sm shadow-purple-200/50')
+                            : (isFeatured
+                              ? 'border-amber-200 bg-white/80 text-amber-600 opacity-100 group-hover:translate-x-0.5 group-hover:border-amber-300 group-hover:bg-amber-100'
+                              : 'border-purple-100/70 bg-white/75 text-purple-400 opacity-60 group-hover:translate-x-0.5 group-hover:opacity-100 group-hover:text-purple-600 group-hover:border-purple-200/70')
                         }`}
                       >
                         <ChevronRight size={14} />
@@ -15582,6 +15614,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             const isActive = isMoreButton
               ? desktopExtraActive
               : (isLessonButton ? lessonQuickNavIds.includes(view) : view === n.id);
+            const isFeatured = Boolean(n.featured);
             const Icon = n.icon;
             return (
               <button
@@ -15596,7 +15629,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   navigateToView(n.id);
                   setMenuOpen(false);
                 }}
-                className={`desktop-nav-fab__item ${isActive ? 'is-active' : ''}`}
+                className={`desktop-nav-fab__item ${isActive ? 'is-active' : ''} ${isFeatured ? 'desktop-nav-fab__item--featured' : ''}`}
+                style={isFeatured ? {
+                  background: isActive
+                    ? 'linear-gradient(145deg, rgba(251, 191, 36, 0.98), rgba(245, 158, 11, 0.94))'
+                    : 'linear-gradient(145deg, rgba(254, 243, 199, 0.98), rgba(255, 251, 235, 0.96))',
+                  borderColor: isActive ? 'rgba(217, 119, 6, 0.9)' : 'rgba(245, 158, 11, 0.76)',
+                  color: isActive ? 'rgb(15, 23, 42)' : 'rgb(180, 83, 9)',
+                  boxShadow: isActive
+                    ? '0 12px 24px rgba(245, 158, 11, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.3)'
+                    : '0 10px 22px rgba(245, 158, 11, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.86)',
+                } : undefined}
                 aria-current={isActive ? 'page' : undefined}
                 data-tour={n.id === 'rating' ? 'rating-nav' : undefined}
                 aria-label={n.label}
@@ -15999,6 +16042,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               pushReady={pushReady}
               pushError={pushError}
               onTogglePush={handleTogglePush}
+            />
+          )}
+          {view === 'review' && (
+            <FinalReviewSection
+              key={user.id}
+              userId={user.id}
+              role={user.role}
+              onOpenTask={handleOpenTask}
             />
           )}
           {view === 'teacher-calendar' && user.role === 'teacher' && (
@@ -16662,6 +16713,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 const isActive = isMoreButton
                   ? (menuOpen || studentExtraNav.some((item) => item.id === view))
                   : (isLessonButton ? studentLessonNavIds.includes(view) : view === n.id);
+                const isFeatured = Boolean(n.featured);
                 const Icon = n.icon;
                 return (
                   <button
@@ -16678,8 +16730,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     }}
                     className={`relative flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-[10px] font-semibold transition-colors ${
                       isActive
-                        ? 'bg-purple-600 text-white shadow-sm'
-                        : 'text-slate-600 hover:bg-purple-50 hover:text-purple-700'
+                        ? (isFeatured
+                          ? 'bg-amber-400 text-slate-950 shadow-[0_8px_18px_rgba(245,158,11,0.34)]'
+                          : 'bg-purple-600 text-white shadow-sm')
+                        : (isFeatured
+                          ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100 hover:text-amber-800'
+                          : 'text-slate-600 hover:bg-purple-50 hover:text-purple-700')
                     }`}
                   >
                     <Icon size={16} />

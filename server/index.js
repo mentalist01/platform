@@ -148,6 +148,7 @@ const scheduleRequestsFile = path.join(dataDir, 'schedule-requests.json');
 const teacherCalendarSyncFile = path.join(dataDir, 'teacher-calendar-sync.json');
 const teacherCalendarMarksFile = path.join(dataDir, 'teacher-calendar-marks.json');
 const teacherFinanceFile = path.join(dataDir, 'teacher-finances.json');
+const finalReviewVideosFile = path.join(dataDir, 'final-review-videos.json');
 const authFile = path.join(dataDir, 'auth.json');
 const authSessionsFile = path.join(dataDir, 'auth-sessions.json');
 const usageFile = path.join(dataDir, 'usage.json');
@@ -1481,6 +1482,88 @@ const TEACHER_FINANCE_HISTORY_LIMIT = 12;
 const TEACHER_FINANCE_PROFILE_NOTE_MAX_LENGTH = 400;
 const TEACHER_FINANCE_STUDENT_NOTE_MAX_LENGTH = 1200;
 const TEACHER_FINANCE_MONTH_NOTE_MAX_LENGTH = 2000;
+const FINAL_REVIEW_VIDEO_SESSION_ID_MAX_LENGTH = 80;
+const FINAL_REVIEW_VIDEO_URL_MAX_LENGTH = 500;
+
+const normalizeFinalReviewVideoSessionId = (value) => {
+  const normalized = String(value || '').trim();
+  if (!normalized || normalized.length > FINAL_REVIEW_VIDEO_SESSION_ID_MAX_LENGTH) return '';
+  if (normalized === '__proto__' || normalized === 'constructor' || normalized === 'prototype') return '';
+  return normalized;
+};
+
+const normalizeFinalReviewVideoUrl = (value) => (
+  String(value || '').trim().slice(0, FINAL_REVIEW_VIDEO_URL_MAX_LENGTH)
+);
+
+const extractFinalReviewYoutubeId = (value) => {
+  const raw = normalizeFinalReviewVideoUrl(value);
+  if (!raw) return '';
+  if (/^[a-zA-Z0-9_-]{11}$/.test(raw)) return raw;
+  const patterns = [
+    /youtu\.be\/([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/watch\?.*v=([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/live\/([a-zA-Z0-9_-]{11})/,
+  ];
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return '';
+};
+
+const normalizeFinalReviewVideoTimestamp = (value, fallback = '') => {
+  const raw = String(value || '').trim();
+  const parsed = raw ? Date.parse(raw) : NaN;
+  if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  return fallback;
+};
+
+const normalizeFinalReviewVideoEntry = (value) => {
+  const source = typeof value === 'string'
+    ? { youtubeUrl: value }
+    : (value && typeof value === 'object' && !Array.isArray(value) ? value : null);
+  if (!source) return null;
+  const youtubeUrl = normalizeFinalReviewVideoUrl(
+    source.youtubeUrl || source.videoUrl || source.url || ''
+  );
+  if (!youtubeUrl || !extractFinalReviewYoutubeId(youtubeUrl)) return null;
+  return {
+    youtubeUrl,
+    updatedAt: normalizeFinalReviewVideoTimestamp(source.updatedAt, ''),
+    updatedById: String(source.updatedById || '').trim(),
+    updatedByName: String(source.updatedByName || '').trim().slice(0, 120),
+    updatedByRole: String(source.updatedByRole || '').trim().slice(0, 30),
+  };
+};
+
+const normalizeFinalReviewVideosDb = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const normalized = {};
+  Object.entries(source).forEach(([sessionId, entry]) => {
+    const id = normalizeFinalReviewVideoSessionId(sessionId);
+    const normalizedEntry = normalizeFinalReviewVideoEntry(entry);
+    if (!id || !normalizedEntry) return;
+    normalized[id] = normalizedEntry;
+  });
+  return normalized;
+};
+
+const readFinalReviewVideosDb = () => {
+  try {
+    const raw = fs.readFileSync(finalReviewVideosFile, 'utf8');
+    const data = JSON.parse(raw);
+    return normalizeFinalReviewVideosDb(data);
+  } catch {
+    return {};
+  }
+};
+
+const writeFinalReviewVideosDb = (data) => {
+  writeJsonFileAtomic(finalReviewVideosFile, normalizeFinalReviewVideosDb(data));
+};
 
 const roundTeacherFinanceNumber = (value, { allowNegative = false } = {}) => {
   const num = Number(value);
@@ -12905,6 +12988,43 @@ app.get('/api/session', (req, res) => {
     ...req.auth,
     token: String(req.authToken || '').trim(),
   });
+});
+
+app.get('/api/final-review-videos', (req, res) => {
+  if (!isAdminRole(req.auth) && !isTeacherRole(req.auth) && !isStudentRole(req.auth)) {
+    return forbid(res);
+  }
+  return res.json({ videos: readFinalReviewVideosDb() });
+});
+
+app.patch('/api/final-review-videos/:sessionId', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const sessionId = normalizeFinalReviewVideoSessionId(req.params?.sessionId);
+  if (!sessionId) {
+    return res.status(400).json({ error: 'Некорректный эфир' });
+  }
+
+  const youtubeUrl = normalizeFinalReviewVideoUrl(
+    req.body?.youtubeUrl ?? req.body?.videoUrl ?? req.body?.url ?? ''
+  );
+  if (youtubeUrl && !extractFinalReviewYoutubeId(youtubeUrl)) {
+    return res.status(400).json({ error: 'Добавьте ссылку на YouTube или ID видео.' });
+  }
+
+  const db = readFinalReviewVideosDb();
+  if (youtubeUrl) {
+    db[sessionId] = {
+      youtubeUrl,
+      updatedAt: new Date().toISOString(),
+      updatedById: String(req.auth?.id || '').trim(),
+      updatedByName: String(req.auth?.name || '').trim(),
+      updatedByRole: String(req.auth?.role || '').trim(),
+    };
+  } else {
+    delete db[sessionId];
+  }
+  writeFinalReviewVideosDb(db);
+  return res.json({ ok: true, video: db[sessionId] || null, videos: db });
 });
 
 app.patch('/api/students/avatar', (req, res) => {

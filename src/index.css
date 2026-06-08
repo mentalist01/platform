@@ -36141,6 +36141,216 @@ html[data-theme='light'] .sidebar-nav .sidebar-nav-arrow.is-active {
   box-shadow: none !important;
 }
 
+.sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured {
+  border-color: rgba(245, 158, 11, 0.52) !important;
+  background:
+    linear-gradient(135deg, rgba(254, 243, 199, 0.98), rgba(255, 251, 235, 0.94)) !important;
+  color: rgb(120, 53, 15) !important;
+  box-shadow:
+    0 14px 30px rgba(245, 158, 11, 0.18),
+    inset 3px 0 0 rgba(245, 158, 11, 0.72),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84) !important;
+}
+
+.sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured.is-active {
+  border-color: rgba(217, 119, 6, 0.74) !important;
+  background:
+    linear-gradient(135deg, rgba(252, 211, 77, 0.98), rgba(254, 243, 199, 0.96)) !important;
+  color: rgb(15, 23, 42) !important;
+  box-shadow:
+    0 18px 38px rgba(245, 158, 11, 0.3),
+    inset 3px 0 0 rgba(180, 83, 9, 0.8),
+    inset 0 1px 0 rgba(255, 255, 255, 0.58) !important;
+}
+
+html[data-theme='light'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured {
+  border-color: rgba(245, 158, 11, 0.52) !important;
+  background:
+    linear-gradient(135deg, rgba(254, 243, 199, 0.98), rgba(255, 251, 235, 0.94)) !important;
+  color: rgb(120, 53, 15) !important;
+  box-shadow:
+    0 14px 30px rgba(245, 158, 11, 0.18),
+    inset 3px 0 0 rgba(245, 158, 11, 0.72),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84) !important;
+}
+
+html[data-theme='light'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured.is-active {
+  border-color: rgba(217, 119, 6, 0.74) !important;
+  background:
+    linear-gradient(135deg, rgba(252, 211, 77, 0.98), rgba(254, 243, 199, 0.96)) !important;
+  color: rgb(15, 23, 42) !important;
+  box-shadow:
+    0 18px 38px rgba(245, 158, 11, 0.3),
+    inset 3px 0 0 rgba(180, 83, 9, 0.8),
+    inset 0 1px 0 rgba(255, 255, 255, 0.58) !important;
+}
+
+.sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured .sidebar-nav-icon {
+  border-color: rgba(245, 158, 11, 0.58) !important;
+  background: linear-gradient(145deg, rgba(254, 215, 170, 0.92), rgba(254, 243, 199, 0.98)) !important;
+  color: rgb(180, 83, 9) !important;
+}
+
+.sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured.is-active .sidebar-nav-icon {
+  border-color: rgba(217, 119, 6, 0.8) !important;
+  background: linear-gradient(145deg, rgba(251, 191, 36, 0.98), rgba(245, 158, 11, 0.9)) !important;
+  color: rgb(15, 23, 42) !important;
+}
+
+.sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured .sidebar-nav-arrow {
+  border-color: rgba(245, 158, 11, 0.42) !important;
+  background: rgba(255, 251, 235, 0.84) !important;
+  color: rgb(180, 83, 9) !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='light'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured .sidebar-nav-icon {
+  border-color: rgba(245, 158, 11, 0.58) !important;
+  background: linear-gradient(145deg, rgba(254, 215, 170, 0.92), rgba(254, 243, 199, 0.98)) !important;
+  color: rgb(180, 83, 9) !important;
+}
+
+html[data-theme='light'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured.is-active .sidebar-nav-icon {
+  border-color: rgba(217, 119, 6, 0.8) !important;
+  background: linear-gradient(145deg, rgba(251, 191, 36, 0.98), rgba(245, 158, 11, 0.9)) !important;
+  color: rgb(15, 23, 42) !important;
+}
+
+html[data-theme='light'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured .sidebar-nav-arrow,
+html[data-theme='light'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured.is-active .sidebar-nav-arrow {
+  border-color: rgba(245, 158, 11, 0.42) !important;
+  background: rgba(255, 251, 235, 0.84) !important;
+  color: rgb(180, 83, 9) !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured {
+  border-color: rgba(245, 158, 11, 0.56) !important;
+  background:
+    linear-gradient(135deg, rgba(120, 53, 15, 0.48), rgba(30, 41, 59, 0.92)) !important;
+  color: rgb(254, 243, 199) !important;
+  box-shadow:
+    0 16px 34px rgba(2, 6, 23, 0.44),
+    0 0 0 1px rgba(245, 158, 11, 0.16) inset,
+    inset 3px 0 0 rgba(245, 158, 11, 0.72) !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured.is-active {
+  border-color: rgba(251, 191, 36, 0.68) !important;
+  background:
+    linear-gradient(135deg, rgba(245, 158, 11, 0.9), rgba(120, 53, 15, 0.74)) !important;
+  color: rgb(255, 251, 235) !important;
+  box-shadow:
+    0 18px 38px rgba(245, 158, 11, 0.22),
+    0 0 0 1px rgba(251, 191, 36, 0.18) inset,
+    inset 3px 0 0 rgba(254, 243, 199, 0.62) !important;
+}
+
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured .sidebar-nav-icon,
+html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.sidebar-nav-item--featured .sidebar-nav-arrow {
+  border-color: rgba(251, 191, 36, 0.5) !important;
+  background: rgba(69, 26, 3, 0.52) !important;
+  color: rgb(254, 243, 199) !important;
+}
+
+html[data-theme='dark'] .final-review-section {
+  color: rgb(226, 232, 240) !important;
+}
+
+html[data-theme='dark'] .final-review-section .bg-white,
+html[data-theme='dark'] .final-review-section .bg-white\/94,
+html[data-theme='dark'] .final-review-section .bg-white\/95 {
+  background-color: rgba(15, 23, 42, 0.78) !important;
+}
+
+html[data-theme='dark'] .final-review-section .bg-slate-50,
+html[data-theme='dark'] .final-review-section .bg-slate-50\/80,
+html[data-theme='dark'] .final-review-section .bg-slate-100 {
+  background-color: rgba(30, 41, 59, 0.78) !important;
+}
+
+html[data-theme='dark'] .final-review-section .bg-sky-50 {
+  background-color: rgba(8, 47, 73, 0.58) !important;
+}
+
+html[data-theme='dark'] .final-review-section .bg-amber-50,
+html[data-theme='dark'] .final-review-section .bg-amber-50\/70,
+html[data-theme='dark'] .final-review-section .bg-amber-50\/80 {
+  background-color: rgba(120, 53, 15, 0.5) !important;
+}
+
+html[data-theme='dark'] .final-review-section .bg-emerald-50 {
+  background-color: rgba(6, 78, 59, 0.5) !important;
+}
+
+html[data-theme='dark'] .final-review-section .bg-rose-50 {
+  background-color: rgba(127, 29, 29, 0.46) !important;
+}
+
+html[data-theme='dark'] .final-review-section .surface-panel {
+  border-color: rgba(100, 116, 139, 0.46) !important;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.84)) !important;
+  box-shadow:
+    0 16px 38px rgba(2, 6, 23, 0.28),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+html[data-theme='dark'] .final-review-section .text-slate-950:not(.bg-amber-400) {
+  color: rgb(248, 250, 252) !important;
+}
+
+html[data-theme='dark'] .final-review-section .text-slate-900,
+html[data-theme='dark'] .final-review-section .text-slate-800 {
+  color: rgb(226, 232, 240) !important;
+}
+
+html[data-theme='dark'] .final-review-section .text-slate-700,
+html[data-theme='dark'] .final-review-section .text-slate-600 {
+  color: rgb(203, 213, 225) !important;
+}
+
+html[data-theme='dark'] .final-review-section .text-slate-500,
+html[data-theme='dark'] .final-review-section .text-slate-400 {
+  color: rgb(148, 163, 184) !important;
+}
+
+html[data-theme='dark'] .final-review-section .text-sky-900,
+html[data-theme='dark'] .final-review-section .text-sky-700 {
+  color: rgb(125, 211, 252) !important;
+}
+
+html[data-theme='dark'] .final-review-section .border-slate-200,
+html[data-theme='dark'] .final-review-section .border-slate-200\/80,
+html[data-theme='dark'] .final-review-section .border-slate-300 {
+  border-color: rgba(100, 116, 139, 0.5) !important;
+}
+
+html[data-theme='dark'] .final-review-section .ring-slate-200 {
+  --tw-ring-color: rgba(100, 116, 139, 0.5) !important;
+}
+
+html[data-theme='dark'] .final-review-section input:not(.bg-transparent),
+html[data-theme='dark'] .final-review-section textarea {
+  border-color: rgba(100, 116, 139, 0.62) !important;
+  background-color: rgba(15, 23, 42, 0.72) !important;
+  color: rgb(241, 245, 249) !important;
+}
+
+html[data-theme='dark'] .final-review-section input::placeholder,
+html[data-theme='dark'] .final-review-section textarea::placeholder {
+  color: rgba(148, 163, 184, 0.72) !important;
+}
+
+html[data-theme='dark'] .final-review-section .bg-amber-400.text-slate-950 {
+  color: rgb(15, 23, 42) !important;
+}
+
+html[data-theme='dark'] .final-review-section .hover\:bg-slate-50:hover,
+html[data-theme='dark'] .final-review-section .hover\:bg-white:hover {
+  background-color: rgba(30, 41, 59, 0.9) !important;
+}
+
 /* Mock page calm mode: keep the page functional and scannable. */
 .progress-section--mocks .mock-student-hero,
 .progress-section--mocks .mock-teacher-hero,
