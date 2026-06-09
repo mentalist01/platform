@@ -1591,6 +1591,7 @@ const COLLAB_DEBUG_TRACE_LIMIT = 2500;
 const COLLAB_DEBUG_AUTOPLAY_MS = 75;
 const COLLAB_DEBUG_INLINE_HINT_MAX_CHARS = 90;
 const COLLAB_DEBUG_INLINE_HINT_LINES_MAX = 120;
+const COLLAB_EDITOR_FONT_SIZE_DEFAULT = 18;
 const COLLAB_AUX_PANEL_MODE_INPUT = 'input';
 const COLLAB_AUX_PANEL_MODE_TEST_FILE = 'test-file';
 const COLLAB_TOP_PANE_MODE_PDF = 'pdf';
@@ -1602,6 +1603,9 @@ const COLLAB_EDITOR_CURSOR_SYNC_MS = 16;
 const COLLAB_EDITOR_CURSOR_STALE_MS = 6500;
 const COLLAB_EDITOR_TYPING_STALE_MS = 2600;
 const COLLAB_EDITOR_CURSOR_IDLE_CLEAR_MS = 1200;
+const COLLAB_BOARD_CODE_SPLIT_DEFAULT = 60;
+const COLLAB_BOARD_CODE_SPLIT_MIN = 36;
+const COLLAB_BOARD_CODE_SPLIT_MAX = 78;
 
 const mergeRuntimeErrorText = (base, next) => {
   const baseText = typeof base === 'string' ? base : String(base ?? '');
@@ -1624,6 +1628,14 @@ const normalizeCollabTopPaneMode = (value) => (
     ? COLLAB_TOP_PANE_MODE_BOARD
     : COLLAB_TOP_PANE_MODE_PDF
 );
+
+const normalizeCollabBoardCodeSplit = (value) => {
+  if (value == null || String(value).trim() === '') return COLLAB_BOARD_CODE_SPLIT_DEFAULT;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return COLLAB_BOARD_CODE_SPLIT_DEFAULT;
+  const rounded = Math.round(numeric * 10) / 10;
+  return Math.max(COLLAB_BOARD_CODE_SPLIT_MIN, Math.min(COLLAB_BOARD_CODE_SPLIT_MAX, rounded));
+};
 
 const normalizeCollabTestFileHeight = (value) => {
   const height = Math.round(Number(value));
@@ -2696,9 +2708,14 @@ const CollabSection = ({
   const [debugBreakpoints, setDebugBreakpoints] = useState([]);
   const [debugPlaying, setDebugPlaying] = useState(false);
   const [debugSourceSnapshot, setDebugSourceSnapshot] = useState('');
-  const [editorFontSize, setEditorFontSize] = useState(23);
+  const [editorFontSize, setEditorFontSize] = useState(COLLAB_EDITOR_FONT_SIZE_DEFAULT);
   const [isCollabFullscreen, setIsCollabFullscreen] = useState(false);
   const [splitLeftWidth, setSplitLeftWidth] = useState(80);
+  const [boardCodeSplitWidth, setBoardCodeSplitWidth] = useState(() => {
+    if (typeof window === 'undefined') return COLLAB_BOARD_CODE_SPLIT_DEFAULT;
+    const raw = window.localStorage.getItem(`collab-board-code-split-${userId || role || 'anon'}`);
+    return normalizeCollabBoardCodeSplit(raw);
+  });
   const [testFileTextareaHeight, setTestFileTextareaHeight] = useState(0);
   const [runTaskNumber, setRunTaskNumber] = useState(() => String(taskOptions[0]?.number || ''));
   const [runTaskCategory, setRunTaskCategory] = useState('class');
@@ -2744,10 +2761,12 @@ const CollabSection = ({
   );
   const fontSizeStorageKey = useMemo(() => `collab-font-size-${userId || role || 'anon'}`, [userId, role]);
   const splitWidthStorageKey = useMemo(() => `collab-split-width-${userId || role || 'anon'}`, [userId, role]);
+  const boardCodeSplitStorageKey = useMemo(() => `collab-board-code-split-${userId || role || 'anon'}`, [userId, role]);
   const taskFilesListHeightStorageKey = useMemo(() => `collab-task-files-list-height-${userId || role || 'anon'}`, [userId, role]);
   const collabRootRef = useRef(null);
   const splitLayoutRef = useRef(null);
   const splitDragCleanupRef = useRef(null);
+  const boardCodeSplitDragCleanupRef = useRef(null);
   const notesPdfResizeCleanupRef = useRef(null);
   const notesPdfPreviewRef = useRef(null);
   const outputViewportRef = useRef(null);
@@ -2758,6 +2777,8 @@ const CollabSection = ({
   const testFileSelectionSyncFrameRef = useRef(null);
   const notesPdfPanelHeightRef = useRef(notesPdfPanelHeight);
   const notesPdfDragHeightRef = useRef(notesPdfPanelHeight);
+  const boardCodeSplitWidthRef = useRef(boardCodeSplitWidth);
+  const boardCodeSplitLoadedValueRef = useRef(null);
   const collabDocRef = useRef(null);
   const collabTestFileRef = useRef(null);
   const runMapRef = useRef(null);
@@ -2958,6 +2979,8 @@ const CollabSection = ({
     inlineSuggest: { enabled: true },
     inlayHints: { enabled: 'on' },
     glyphMargin: true,
+    lineNumbersMinChars: 2,
+    lineDecorationsWidth: 6,
     readOnly: !roomId,
   }), [roomId, editorFontSize, isCollabFullscreen]);
   const isDesktopCollabCompact = !isMobileViewport && !isCollabFullscreen;
@@ -3005,8 +3028,12 @@ const CollabSection = ({
       ? 'collab-workspace-card p-1 md:p-1.5 flex min-h-0 flex-1 flex-col overflow-hidden'
       : 'collab-workspace-card p-4 md:p-6');
   const collabCardClass = `${collabCardBaseClass}${useBoardGlassCodePanel ? ' collab-workspace-card--glass-board' : ''}`;
+  const normalizedBoardCodeSplitWidth = normalizeCollabBoardCodeSplit(boardCodeSplitWidth);
   const collabCardStyle = useBoardGlassCodePanel
-    ? { '--collab-board-pane-height': `${notesPdfPanelHeight}px` }
+    ? {
+      '--collab-board-pane-height': `${notesPdfPanelHeight}px`,
+      '--collab-board-pane-width': `${normalizedBoardCodeSplitWidth}%`,
+    }
     : undefined;
   const collabTitleClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-50' : 'text-slate-900') : 'text-gray-900';
   const collabSubtitleClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-300/90' : 'text-slate-600') : 'text-gray-500';
@@ -3849,8 +3876,8 @@ const CollabSection = ({
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const clampLocalFontSize = (value) => Math.min(36, Math.max(12, Math.round(value)));
-    const forcedFontSize = clampLocalFontSize(23);
-    const migrationKey = `${fontSizeStorageKey}-default23-v1`;
+    const forcedFontSize = clampLocalFontSize(COLLAB_EDITOR_FONT_SIZE_DEFAULT);
+    const migrationKey = `${fontSizeStorageKey}-default18-v1`;
     const alreadyForced = window.localStorage.getItem(migrationKey) === '1';
     if (!alreadyForced) {
       setEditorFontSize(forcedFontSize);
@@ -3888,6 +3915,36 @@ const CollabSection = ({
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    const raw = window.localStorage.getItem(boardCodeSplitStorageKey);
+    if (raw == null || String(raw).trim() === '') {
+      boardCodeSplitLoadedValueRef.current = null;
+      boardCodeSplitWidthRef.current = COLLAB_BOARD_CODE_SPLIT_DEFAULT;
+      setBoardCodeSplitWidth(COLLAB_BOARD_CODE_SPLIT_DEFAULT);
+      return;
+    }
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) {
+      boardCodeSplitLoadedValueRef.current = null;
+      return;
+    }
+    const normalized = normalizeCollabBoardCodeSplit(parsed);
+    boardCodeSplitLoadedValueRef.current = normalized;
+    boardCodeSplitWidthRef.current = normalized;
+    setBoardCodeSplitWidth(normalized);
+  }, [boardCodeSplitStorageKey]);
+
+  useEffect(() => {
+    const normalized = normalizeCollabBoardCodeSplit(boardCodeSplitWidth);
+    boardCodeSplitWidthRef.current = normalized;
+    if (typeof window === 'undefined') return;
+    const loadedValue = boardCodeSplitLoadedValueRef.current;
+    if (loadedValue != null && normalized !== loadedValue) return;
+    boardCodeSplitLoadedValueRef.current = null;
+    window.localStorage.setItem(boardCodeSplitStorageKey, String(normalized));
+  }, [boardCodeSplitStorageKey, boardCodeSplitWidth]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
     const raw = window.localStorage.getItem(taskFilesListHeightStorageKey);
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) return;
@@ -3901,6 +3958,10 @@ const CollabSection = ({
 
   useEffect(() => () => {
     splitDragCleanupRef.current?.();
+  }, []);
+
+  useEffect(() => () => {
+    boardCodeSplitDragCleanupRef.current?.();
   }, []);
 
   useEffect(() => () => {
@@ -6162,6 +6223,63 @@ const CollabSection = ({
   const handleSplitResizeReset = useCallback(() => {
     setSplitLeftWidth(80);
   }, []);
+
+  const handleBoardCodeResizeStart = useCallback((event) => {
+    if (!useBoardGlassCodePanel || isMobileViewport || typeof window === 'undefined') return;
+    event.preventDefault();
+    const handleNode = event.currentTarget;
+    const cardNode = handleNode?.closest?.('.collab-workspace-card');
+    const pointerId = event.pointerId;
+    const applyFromClientX = (clientX) => {
+      if (!cardNode) return;
+      const rect = cardNode.getBoundingClientRect();
+      if (!rect.width) return;
+      const relative = ((clientX - rect.left) / rect.width) * 100;
+      const nextWidth = normalizeCollabBoardCodeSplit(relative);
+      boardCodeSplitWidthRef.current = nextWidth;
+      cardNode.style.setProperty('--collab-board-pane-width', `${nextWidth}%`);
+      setBoardCodeSplitWidth(nextWidth);
+    };
+    const handlePointerMove = (moveEvent) => {
+      applyFromClientX(moveEvent.clientX);
+    };
+    const stopDragging = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopDragging);
+      window.removeEventListener('pointercancel', stopDragging);
+      try {
+        handleNode?.releasePointerCapture?.(pointerId);
+      } catch {
+        // Ignore pointer capture cleanup failures on browsers that do not support it.
+      }
+      if (typeof document !== 'undefined') {
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+      boardCodeSplitDragCleanupRef.current = null;
+      setBoardCodeSplitWidth(boardCodeSplitWidthRef.current);
+    };
+    boardCodeSplitDragCleanupRef.current?.();
+    boardCodeSplitDragCleanupRef.current = stopDragging;
+    try {
+      handleNode?.setPointerCapture?.(pointerId);
+    } catch {
+      // Ignore pointer capture failures on browsers that do not support it.
+    }
+    if (typeof document !== 'undefined') {
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+    applyFromClientX(event.clientX);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopDragging);
+    window.addEventListener('pointercancel', stopDragging);
+  }, [isMobileViewport, useBoardGlassCodePanel]);
+
+  const handleBoardCodeResizeReset = useCallback(() => {
+    setBoardCodeSplitWidth(COLLAB_BOARD_CODE_SPLIT_DEFAULT);
+  }, []);
+
   const handleNotesPdfResizeStart = useCallback((event) => {
     if (!canResizeTopPane) return;
     event.preventDefault();
@@ -7427,6 +7545,15 @@ const CollabSection = ({
   ) : null;
 
   const mergeHeaderIntoToolbar = isDesktopCollabCompact || isCollabFullscreen;
+  const collabSplitGridTemplateColumns = useBoardGlassCodePanel
+    ? (isCollabFullscreen
+      ? `minmax(0, ${splitLeftWidth}fr) 10px minmax(190px, ${100 - splitLeftWidth}fr)`
+      : `minmax(0, ${splitLeftWidth}fr) 8px minmax(170px, ${100 - splitLeftWidth}fr)`)
+    : (isCollabFullscreen
+      ? `minmax(520px, ${splitLeftWidth}fr) 12px minmax(220px, ${100 - splitLeftWidth}fr)`
+      : (isDesktopCollabCompact
+        ? `minmax(420px, ${splitLeftWidth}fr) 10px minmax(240px, ${100 - splitLeftWidth}fr)`
+        : `minmax(420px, ${splitLeftWidth}fr) 10px minmax(300px, ${100 - splitLeftWidth}fr)`));
   const collabTopActions = (
     <div className={`collab-top-actions flex flex-wrap items-center ${
       isCollabFullscreen
@@ -7576,6 +7703,26 @@ const CollabSection = ({
         <div className={`collab-top-pane-wrap relative ${canResizeTopPane ? 'pb-0.5' : ''} ${isCollabFullscreen || isDesktopCollabCompact ? 'mt-0.5' : 'mt-2'}`}>
           {notesPdfPane}
         </div>
+
+        {useBoardGlassCodePanel && (
+          <div
+            role="separator"
+            aria-label="Изменить ширину доски и кода"
+            aria-orientation="vertical"
+            aria-valuemin={COLLAB_BOARD_CODE_SPLIT_MIN}
+            aria-valuemax={COLLAB_BOARD_CODE_SPLIT_MAX}
+            aria-valuenow={Math.round(normalizedBoardCodeSplitWidth)}
+            onPointerDown={handleBoardCodeResizeStart}
+            onDoubleClick={handleBoardCodeResizeReset}
+            className="collab-board-code-resizer group"
+            title="Тяните влево или вправо, чтобы изменить ширину доски. Двойной клик - 60/40."
+          >
+            <div className="collab-board-code-resizer__track" />
+            <div className="collab-board-code-resizer__thumb">
+              <div />
+            </div>
+          </div>
+        )}
 
         <div className="collab-code-glass-layer">
         <div className={`collab-code-command-row ${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-0 flex flex-wrap items-center gap-1.5' : 'mt-0.5 flex flex-wrap items-center gap-1.5') : ''}`}>
@@ -7762,11 +7909,7 @@ const CollabSection = ({
               isCollabFullscreen ? 'gap-1' : 'gap-0'
             }`}
             style={{
-              gridTemplateColumns: isCollabFullscreen
-                ? `minmax(520px, ${splitLeftWidth}fr) 12px minmax(220px, ${100 - splitLeftWidth}fr)`
-                : (isDesktopCollabCompact
-                  ? `minmax(420px, ${splitLeftWidth}fr) 10px minmax(240px, ${100 - splitLeftWidth}fr)`
-                  : `minmax(420px, ${splitLeftWidth}fr) 10px minmax(300px, ${100 - splitLeftWidth}fr)`),
+              gridTemplateColumns: collabSplitGridTemplateColumns,
               height: (isCollabFullscreen || isDesktopCollabCompact) ? '100%' : undefined,
             }}
           >
