@@ -7284,11 +7284,15 @@ html[data-theme='dark'] .mock-answer-burst__badge {
   align-items: center;
   max-width: min(82vw, 420px);
   min-height: 44px;
-  opacity: 0.78;
+  opacity: 0.22;
   transform: translateZ(0);
-  transition: opacity 0.18s ease, filter 0.18s ease, transform 0.18s ease;
-  filter: saturate(0.92);
+  transition: opacity 0.22s ease, filter 0.22s ease, transform 0.22s ease;
+  filter: saturate(0.58) contrast(0.92);
   will-change: transform, opacity, filter;
+}
+.call-game-overlay:hover .call-game-overlay__row {
+  opacity: 0.62;
+  filter: saturate(0.86) contrast(0.96);
 }
 .call-game-overlay__row:hover,
 .call-game-overlay__row[data-speaking='true'] {
