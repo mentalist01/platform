@@ -7261,7 +7261,7 @@ html[data-theme='dark'] .mock-answer-burst__badge {
 .call-collapsed-card { animation: callPanelIn 0.28s ease-out both; }
 .call-game-overlay-shell {
   width: max-content;
-  max-width: min(78vw, 360px);
+  max-width: min(82vw, 420px);
   background: transparent !important;
   border: 0 !important;
   box-shadow: none !important;
@@ -7270,7 +7270,7 @@ html[data-theme='dark'] .mock-answer-burst__badge {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 7px;
+  gap: 8px;
   max-height: 72vh;
   overflow: hidden;
   background: transparent !important;
@@ -7282,89 +7282,202 @@ html[data-theme='dark'] .mock-answer-burst__badge {
 .call-game-overlay__row {
   display: flex;
   align-items: center;
-  max-width: min(78vw, 360px);
-  opacity: 0.54;
+  max-width: min(82vw, 420px);
+  min-height: 44px;
+  opacity: 0.78;
   transform: translateZ(0);
-  transition: opacity 0.16s ease, filter 0.16s ease, transform 0.16s ease;
-  filter: saturate(0.7);
+  transition: opacity 0.18s ease, filter 0.18s ease, transform 0.18s ease;
+  filter: saturate(0.92);
+  will-change: transform, opacity, filter;
 }
 .call-game-overlay__row:hover,
 .call-game-overlay__row[data-speaking='true'] {
   opacity: 1;
-  filter: saturate(1);
+  filter: saturate(1.08);
 }
 .call-game-overlay__row[data-speaking='true'] {
-  transform: translateX(1px);
+  transform: translateX(2px);
 }
 .call-game-overlay__avatar {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   display: grid;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
   place-items: center;
   overflow: hidden;
   border-radius: 999px;
-  border: 1px solid rgba(15, 23, 42, 0.38);
-  background: linear-gradient(145deg, rgba(71, 85, 105, 0.78), rgba(30, 41, 59, 0.72));
-  color: rgba(241, 245, 249, 0.86);
-  font-size: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background:
+    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.22), transparent 34%),
+    linear-gradient(145deg, rgba(20, 184, 166, 0.92), rgba(16, 185, 129, 0.78));
+  color: white;
+  font-size: 14px;
   font-weight: 800;
   line-height: 1;
   box-shadow:
-    0 2px 7px rgba(0, 0, 0, 0.42),
-    inset 0 1px 0 rgba(255, 255, 255, 0.13);
+    0 9px 24px rgba(0, 0, 0, 0.34),
+    0 0 0 3px rgba(2, 6, 23, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 .call-game-overlay__row[data-speaking='true'] .call-game-overlay__avatar {
-  border-color: rgba(110, 231, 183, 0.8);
-  background: linear-gradient(145deg, rgba(16, 185, 129, 0.95), rgba(5, 150, 105, 0.86));
-  color: white;
+  border-color: rgba(167, 243, 208, 0.95);
+  background:
+    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.28), transparent 34%),
+    linear-gradient(145deg, rgba(52, 211, 153, 1), rgba(16, 185, 129, 0.96));
   box-shadow:
-    0 0 0 2px rgba(16, 185, 129, 0.36),
-    0 0 14px rgba(16, 185, 129, 0.42),
-    0 2px 8px rgba(0, 0, 0, 0.42);
+    0 0 0 3px rgba(16, 185, 129, 0.2),
+    0 0 22px rgba(16, 185, 129, 0.42),
+    0 10px 24px rgba(0, 0, 0, 0.36),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 .call-game-overlay__row[data-muted='true'] .call-game-overlay__avatar {
-  background: linear-gradient(145deg, rgba(100, 116, 139, 0.58), rgba(51, 65, 85, 0.54));
+  background:
+    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.16), transparent 34%),
+    linear-gradient(145deg, rgba(71, 85, 105, 0.72), rgba(30, 41, 59, 0.74));
 }
 .call-game-overlay__plate {
+  position: relative;
   display: inline-flex;
   min-width: 0;
-  max-width: calc(min(78vw, 360px) - 24px);
+  min-width: 132px;
+  min-height: 38px;
+  max-width: calc(min(82vw, 420px) - 32px);
   align-items: center;
-  gap: 6px;
-  margin-left: -5px;
-  padding: 2px 7px 2px 10px;
-  border-radius: 4px;
-  background: rgba(15, 23, 42, 0.42);
-  color: rgba(226, 232, 240, 0.78);
-  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.34);
-  backdrop-filter: blur(1px);
+  gap: 8px;
+  margin-left: -12px;
+  padding: 7px 13px 7px 22px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(15, 23, 42, 0.78), rgba(15, 23, 42, 0.56)),
+    radial-gradient(circle at 0% 50%, rgba(20, 184, 166, 0.16), transparent 55%);
+  color: rgba(241, 245, 249, 0.9);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  backdrop-filter: blur(10px) saturate(1.15);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.52);
 }
+.call-game-overlay__plate::before {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset: 1px auto 1px 1px;
+  width: 48px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0));
+  opacity: 0.72;
+}
+.call-game-overlay__plate::after {
+  content: '';
+  position: relative;
+  z-index: 1;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.78);
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.12);
+}
 .call-game-overlay__row[data-speaking='true'] .call-game-overlay__plate {
-  background: rgba(15, 23, 42, 0.66);
+  border-color: rgba(110, 231, 183, 0.32);
+  background:
+    linear-gradient(90deg, rgba(8, 47, 73, 0.84), rgba(15, 23, 42, 0.7)),
+    radial-gradient(circle at 0% 50%, rgba(16, 185, 129, 0.28), transparent 62%);
   color: white;
+  box-shadow:
+    0 0 0 1px rgba(16, 185, 129, 0.1),
+    0 0 22px rgba(16, 185, 129, 0.18),
+    0 12px 34px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.call-game-overlay__row[data-speaking='true'] .call-game-overlay__plate::after {
+  --call-dot-glow: rgba(16, 185, 129, 0.38);
+  background: rgba(110, 231, 183, 0.98);
+  box-shadow:
+    0 0 0 3px rgba(16, 185, 129, 0.16),
+    0 0 14px rgba(16, 185, 129, 0.44);
+  animation: callStatusPulse 1.1s ease-in-out infinite;
+}
+.call-game-overlay__row[data-muted='true'] .call-game-overlay__plate::after {
+  background: rgba(248, 113, 113, 0.9);
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.12);
 }
 .call-game-overlay__name {
+  position: relative;
+  z-index: 1;
   min-width: 0;
-  max-width: 260px;
+  max-width: min(42vw, 270px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 18px;
+  font-size: 14px;
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 20px;
+}
+.call-game-overlay__meter {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  width: 24px;
+  height: 22px;
+  flex: 0 0 24px;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px 5px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(2, 6, 23, 0.22);
+}
+.call-game-overlay__meter span {
+  width: 2px;
+  height: 11px;
+  border-radius: 999px;
+  background: rgba(203, 213, 225, 0.68);
+  transform-origin: bottom;
+  animation: callVoiceBarsIdle 1.8s ease-in-out infinite;
+}
+.call-game-overlay__meter span:nth-child(2) {
+  height: 13px;
+  animation-delay: -0.35s;
+}
+.call-game-overlay__meter span:nth-child(3) {
+  height: 9px;
+  animation-delay: -0.72s;
+}
+.call-game-overlay__row[data-speaking='true'] .call-game-overlay__meter {
+  border-color: rgba(110, 231, 183, 0.32);
+  background: rgba(5, 150, 105, 0.22);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.18);
+}
+.call-game-overlay__row[data-speaking='true'] .call-game-overlay__meter span:nth-child(1) {
+  background: rgba(167, 243, 208, 0.96);
+  animation: callVoiceBarsA 0.62s ease-in-out infinite;
+}
+.call-game-overlay__row[data-speaking='true'] .call-game-overlay__meter span:nth-child(2) {
+  background: rgba(110, 231, 183, 0.98);
+  animation: callVoiceBarsB 0.57s ease-in-out infinite;
+}
+.call-game-overlay__row[data-speaking='true'] .call-game-overlay__meter span:nth-child(3) {
+  background: rgba(52, 211, 153, 0.96);
+  animation: callVoiceBarsC 0.64s ease-in-out infinite;
 }
 .call-game-overlay__icon {
+  position: relative;
+  z-index: 1;
   display: inline-grid;
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
   place-items: center;
-  border-radius: 4px;
-  background: rgba(15, 23, 42, 0.42);
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.32);
   color: rgba(226, 232, 240, 0.82);
 }
 .call-game-overlay__row[data-muted='true'] .call-game-overlay__icon {

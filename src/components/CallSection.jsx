@@ -5085,7 +5085,7 @@ const CallSection = ({
         title="Перетащить overlay. Двойной клик откроет звонок."
       >
         <div className={collapsedCardClass}>
-          {overlayVoiceParticipants.map((participant, index) => {
+          {overlayVoiceParticipants.map((participant) => {
               const participantStateText = participant.isMuted
                 ? 'микрофон выключен'
                 : participant.isSpeaking
@@ -5093,7 +5093,6 @@ const CallSection = ({
                   : participant.hasAudio
                     ? 'молчит'
                     : 'нет аудио';
-              const participantRank = index + 1;
               return (
                 <div
                   key={`voice-overlay-${participant.id}`}
@@ -5107,8 +5106,15 @@ const CallSection = ({
                   </span>
                   <span className="call-game-overlay__plate">
                     <span className="call-game-overlay__name">
-                      [{participantRank}] {participant.title}
+                      {participant.title}
                     </span>
+                    {!participant.isMuted && (
+                      <span className="call-game-overlay__meter" aria-hidden="true">
+                        <span />
+                        <span />
+                        <span />
+                      </span>
+                    )}
                     {participant.isMuted && (
                       <span className="call-game-overlay__icon" aria-label="Микрофон выключен">
                         <MicOff size={13} />
