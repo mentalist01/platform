@@ -4831,7 +4831,7 @@ const CallSection = ({
   const sectionGlowSecondaryClass = isDarkTheme
     ? 'call-aurora call-aurora--secondary pointer-events-none absolute -bottom-20 right-[-18px] h-56 w-56 rounded-full bg-fuchsia-500/10 blur-3xl'
     : 'call-aurora call-aurora--secondary pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-fuchsia-200/34 blur-3xl';
-  const collapsedCardClass = 'call-collapsed-card flex max-h-[72vh] flex-col items-start gap-2 overflow-hidden bg-transparent p-0 text-slate-100';
+  const collapsedCardClass = 'call-collapsed-card call-game-overlay';
   const floatingToolbarClass = isDarkTheme
     ? 'call-floating-toolbar mb-3 flex items-center justify-between gap-2 rounded-xl border border-violet-500/12 bg-[#100d22]/88 px-3 py-2 cursor-grab active:cursor-grabbing'
     : 'call-floating-toolbar mb-3 flex items-center justify-between gap-2 rounded-xl border border-violet-200/80 bg-white/90 px-3 py-2 cursor-grab active:cursor-grabbing';
@@ -5078,7 +5078,7 @@ const CallSection = ({
     const collapsedPanelNode = (
       <div
         ref={collapsedPanelRef}
-        className="call-collapsed-shell fixed left-4 top-[18vh] z-50 w-[min(78vw,320px)] md:left-6 md:top-[16vh]"
+        className="call-collapsed-shell call-game-overlay-shell fixed left-4 top-[18vh] z-50 md:left-6 md:top-[16vh]"
         style={collapsedPanelStyle}
         onPointerDown={(event) => startPanelDrag(event, 'collapsed')}
         onDoubleClick={collapsedOpenHandler}
@@ -5097,41 +5097,25 @@ const CallSection = ({
               return (
                 <div
                   key={`voice-overlay-${participant.id}`}
-                  className={`group flex max-w-full items-center gap-1.5 transition ${
-                    participant.isSpeaking
-                      ? 'opacity-100 drop-shadow-[0_0_8px_rgba(34,197,94,0.35)]'
-                      : 'opacity-45 hover:opacity-75'
-                  }`}
+                  className="call-game-overlay__row"
+                  data-speaking={participant.isSpeaking ? 'true' : 'false'}
+                  data-muted={participant.isMuted ? 'true' : 'false'}
                   title={`${participant.title}: ${participantStateText}`}
                 >
-                  <span className="relative grid h-8 w-8 shrink-0 place-items-center">
-                    <span
-                      className={`grid h-8 w-8 place-items-center overflow-hidden rounded-full text-xs font-bold shadow-[0_2px_7px_rgba(0,0,0,0.45)] transition ${
-                        participant.isSpeaking
-                          ? 'bg-emerald-500/70 text-white ring-2 ring-emerald-300/90'
-                          : 'bg-slate-500/40 text-slate-200 ring-1 ring-black/20 grayscale'
-                      }`}
-                    >
-                      {participant.initial}
-                    </span>
+                  <span className="call-game-overlay__avatar" aria-hidden="true">
+                    {participant.initial}
                   </span>
-                  <span className="flex min-w-0 items-center gap-1">
-                    <span
-                      className={`max-w-[245px] truncate rounded-[4px] px-2 py-0.5 text-[13px] font-semibold leading-5 shadow-[0_2px_7px_rgba(0,0,0,0.45)] backdrop-blur-[1px] ${
-                        participant.isSpeaking
-                          ? 'bg-slate-900/70 text-white'
-                          : 'bg-slate-900/50 text-slate-300 group-hover:bg-slate-900/60 group-hover:text-slate-100'
-                      }`}
-                    >
+                  <span className="call-game-overlay__plate">
+                    <span className="call-game-overlay__name">
                       [{participantRank}] {participant.title}
                     </span>
                     {participant.isMuted && (
-                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] bg-slate-900/50 text-slate-200 shadow-[0_2px_7px_rgba(0,0,0,0.45)] backdrop-blur-[1px]">
+                      <span className="call-game-overlay__icon" aria-label="Микрофон выключен">
                         <MicOff size={13} />
                       </span>
                     )}
                     {!participant.isMuted && participant.isScreenSharing && (
-                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] bg-slate-900/50 text-slate-200 shadow-[0_2px_7px_rgba(0,0,0,0.45)] backdrop-blur-[1px]">
+                      <span className="call-game-overlay__icon" aria-label="Показывает экран">
                         <MonitorUp size={13} />
                       </span>
                     )}
