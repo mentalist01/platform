@@ -4420,8 +4420,8 @@ const CallSection = ({
       setCollapsedPanelPosition((prev) => {
         if (!prev) return prev;
         const rect = collapsedPanelRef.current?.getBoundingClientRect?.();
-        const width = rect?.width || Math.min(window.innerWidth * 0.88, 290);
-        const height = rect?.height || 260;
+        const width = rect?.width || Math.min(window.innerWidth * 0.78, 320);
+        const height = rect?.height || Math.min(window.innerHeight * 0.72, 520);
         return clampPanelPositionToViewport(prev, width, height);
       });
       setFloatingPanelPosition((prev) => {
@@ -4648,38 +4648,6 @@ const CallSection = ({
       return participants;
     })()
     : [];
-  const statusChipClass = isDarkTheme
-    ? (isConnected
-      ? hasActiveMediaConnection
-        ? 'border-violet-400/24 bg-violet-500/14 text-violet-100'
-        : hasMediaConnectionIssue
-          ? 'border-rose-400/28 bg-rose-500/12 text-rose-100'
-          : hasPendingPeerConnection
-            ? 'border-fuchsia-400/26 bg-fuchsia-500/12 text-fuchsia-100'
-            : 'border-violet-400/22 bg-violet-500/12 text-violet-100'
-      : isConnecting
-        ? 'border-fuchsia-400/26 bg-fuchsia-500/12 text-fuchsia-100'
-        : 'border-violet-400/18 bg-violet-950/62 text-slate-200')
-    : (isConnected
-      ? hasActiveMediaConnection
-        ? 'border-violet-200 bg-violet-50 text-violet-700'
-        : hasMediaConnectionIssue
-          ? 'border-rose-200 bg-rose-50 text-rose-700'
-          : hasPendingPeerConnection
-            ? 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700'
-            : 'border-violet-200 bg-violet-50 text-violet-700'
-      : isConnecting
-        ? 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700'
-        : 'border-violet-200 bg-violet-50 text-violet-700');
-  const statusText = isConnected
-    ? hasActiveMediaConnection
-      ? 'Вы в звонке'
-      : hasMediaConnectionIssue
-        ? 'Связь прервалась'
-        : hasPendingPeerConnection
-          ? 'Собеседник подключается...'
-          : 'Вы в комнате, ждём второго участника'
-    : (isConnecting ? 'Подключаем...' : 'Вы ещё не подключились');
   const statusTone = isConnected
     ? (hasMediaConnectionIssue ? 'problem' : (hasActiveMediaConnection ? 'connected' : 'waiting'))
     : (isConnecting ? 'connecting' : 'idle');
@@ -4863,12 +4831,7 @@ const CallSection = ({
   const sectionGlowSecondaryClass = isDarkTheme
     ? 'call-aurora call-aurora--secondary pointer-events-none absolute -bottom-20 right-[-18px] h-56 w-56 rounded-full bg-fuchsia-500/10 blur-3xl'
     : 'call-aurora call-aurora--secondary pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-fuchsia-200/34 blur-3xl';
-  const collapsedCardClass = isDarkTheme
-    ? 'call-collapsed-card overflow-hidden rounded-xl border border-white/10 bg-[#111214]/92 p-2.5 text-slate-100 shadow-[0_18px_38px_rgba(0,0,0,0.42)] backdrop-blur-md'
-    : 'call-collapsed-card overflow-hidden rounded-xl border border-slate-900/12 bg-[#111214]/88 p-2.5 text-slate-100 shadow-[0_18px_38px_rgba(15,23,42,0.28)] backdrop-blur-md';
-  const collapsedTextClass = 'text-slate-300';
-  const collapsedOverlayButtonClass = 'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/10 text-slate-200 transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50';
-  const collapsedOverlayDangerClass = 'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-rose-400/20 bg-rose-500/18 text-rose-100 transition hover:bg-rose-500/26';
+  const collapsedCardClass = 'call-collapsed-card flex max-h-[72vh] flex-col items-start gap-2 overflow-hidden bg-transparent p-0 text-slate-100';
   const floatingToolbarClass = isDarkTheme
     ? 'call-floating-toolbar mb-3 flex items-center justify-between gap-2 rounded-xl border border-violet-500/12 bg-[#100d22]/88 px-3 py-2 cursor-grab active:cursor-grabbing'
     : 'call-floating-toolbar mb-3 flex items-center justify-between gap-2 rounded-xl border border-violet-200/80 bg-white/90 px-3 py-2 cursor-grab active:cursor-grabbing';
@@ -4876,15 +4839,9 @@ const CallSection = ({
   const ghostButtonClass = isDarkTheme
     ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-violet-400/12 bg-slate-900/74 text-slate-200 transition hover:bg-slate-800/90 cursor-grab active:cursor-grabbing'
     : 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-violet-200 bg-white text-violet-700 transition hover:bg-violet-50 cursor-grab active:cursor-grabbing';
-  const actionButtonClass = isDarkTheme
-    ? 'inline-flex h-7 items-center justify-center gap-1 rounded-md border border-violet-400/12 bg-slate-900/74 px-2 text-xs font-semibold text-slate-100 transition hover:bg-slate-800/90'
-    : 'inline-flex h-7 items-center justify-center gap-1 rounded-md border border-violet-200 bg-white px-2 text-xs font-semibold text-violet-700 transition hover:bg-violet-50';
   const collapseButtonClass = isDarkTheme
     ? 'inline-flex items-center gap-1 rounded-md border border-violet-400/12 bg-slate-900/74 px-2.5 py-1 text-xs font-semibold text-slate-100 transition hover:bg-slate-800/90'
     : 'inline-flex items-center gap-1 rounded-md border border-violet-200 bg-white px-2.5 py-1 text-xs font-semibold text-violet-700 transition hover:bg-violet-50';
-  const hangupButtonClass = isDarkTheme
-    ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-500/26 bg-rose-500/12 text-rose-100 transition hover:bg-rose-500/18'
-    : 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-rose-100';
   const headerEyebrowClass = isDarkTheme
     ? 'text-[12px] font-semibold tracking-[0.08em] text-violet-200/84'
     : 'text-[12px] font-semibold tracking-[0.08em] text-violet-700/84';
@@ -5118,59 +5075,17 @@ const CallSection = ({
 
   if (isCollapsedUi) {
     const collapsedOpenHandler = typeof onRequestOpenCall === 'function' ? onRequestOpenCall : onRequestExpand;
-    const overlayParticipantCount = overlayVoiceParticipants.length;
     const collapsedPanelNode = (
       <div
         ref={collapsedPanelRef}
-        className="call-collapsed-shell fixed left-3 top-1/2 z-50 w-[min(88vw,290px)] -translate-y-1/2 md:left-5 md:w-[280px]"
+        className="call-collapsed-shell fixed left-4 top-[18vh] z-50 w-[min(78vw,320px)] md:left-6 md:top-[16vh]"
         style={collapsedPanelStyle}
         onPointerDown={(event) => startPanelDrag(event, 'collapsed')}
+        onDoubleClick={collapsedOpenHandler}
+        title="Перетащить overlay. Двойной клик откроет звонок."
       >
         <div className={collapsedCardClass}>
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <button
-              type="button"
-              className={collapsedOverlayButtonClass}
-              title="Переместить overlay"
-              data-panel-drag-handle="true"
-            >
-              <Move size={13} />
-            </button>
-            <button
-              type="button"
-              onClick={collapsedOpenHandler}
-              className="min-w-0 flex-1 rounded-md px-1.5 py-1 text-left transition hover:bg-white/10"
-              title="Вернуться в звонок"
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                <span
-                  className={`call-status-chip call-status-chip--${statusTone} inline-flex h-2.5 w-2.5 shrink-0 rounded-full border ${statusChipClass}`}
-                  title={statusText}
-                  aria-label={statusText}
-                />
-                <span className="min-w-0">
-                  <span className="block truncate text-xs font-semibold uppercase text-slate-100">
-                    Voice Connected
-                  </span>
-                  <span className={`block truncate text-[11px] ${collapsedTextClass}`}>
-                    {overlayParticipantCount} участн.
-                  </span>
-                </span>
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={onRequestExpand}
-              className={collapsedOverlayButtonClass}
-              title="Развернуть"
-              aria-label="Развернуть"
-            >
-              <Maximize2 size={13} />
-            </button>
-          </div>
-
-          <div className="space-y-1">
-            {overlayVoiceParticipants.map((participant) => {
+          {overlayVoiceParticipants.map((participant, index) => {
               const participantStateText = participant.isMuted
                 ? 'микрофон выключен'
                 : participant.isSpeaking
@@ -5178,106 +5093,52 @@ const CallSection = ({
                   : participant.hasAudio
                     ? 'молчит'
                     : 'нет аудио';
-              const mediaBadges = [
-                participant.isScreenSharing ? 'screen' : '',
-                participant.isCameraEnabled ? 'camera' : '',
-              ].filter(Boolean);
+              const participantRank = index + 1;
               return (
-                <button
+                <div
                   key={`voice-overlay-${participant.id}`}
-                  type="button"
-                  onClick={collapsedOpenHandler}
-                  className={`group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition ${
+                  className={`group flex max-w-full items-center gap-1.5 transition ${
                     participant.isSpeaking
-                      ? 'bg-emerald-500/20 text-white'
-                      : 'text-slate-400 hover:bg-white/10 hover:text-slate-100'
+                      ? 'opacity-100 drop-shadow-[0_0_8px_rgba(34,197,94,0.35)]'
+                      : 'opacity-45 hover:opacity-75'
                   }`}
                   title={`${participant.title}: ${participantStateText}`}
                 >
-                  <span className="relative shrink-0">
+                  <span className="relative grid h-8 w-8 shrink-0 place-items-center">
                     <span
-                      className={`grid h-8 w-8 place-items-center rounded-full text-xs font-bold transition ${
+                      className={`grid h-8 w-8 place-items-center overflow-hidden rounded-full text-xs font-bold shadow-[0_2px_7px_rgba(0,0,0,0.45)] transition ${
                         participant.isSpeaking
-                          ? 'bg-emerald-500/25 text-emerald-50 ring-2 ring-emerald-400/80'
-                          : 'bg-white/10 text-slate-300 ring-1 ring-white/10'
+                          ? 'bg-emerald-500/70 text-white ring-2 ring-emerald-300/90'
+                          : 'bg-slate-500/40 text-slate-200 ring-1 ring-black/20 grayscale'
                       }`}
                     >
                       {participant.initial}
                     </span>
-                    <span
-                      className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#111214] ${
-                        participant.isSpeaking
-                          ? 'bg-emerald-400'
-                          : participant.isMuted
-                            ? 'bg-rose-400'
-                            : 'bg-slate-500'
-                      }`}
-                      aria-hidden="true"
-                    />
                   </span>
-                  <span className="min-w-0 flex-1">
+                  <span className="flex min-w-0 items-center gap-1">
                     <span
-                      className={`block truncate text-sm font-semibold ${
-                        participant.isSpeaking ? 'text-white' : 'text-slate-300 group-hover:text-slate-100'
+                      className={`max-w-[245px] truncate rounded-[4px] px-2 py-0.5 text-[13px] font-semibold leading-5 shadow-[0_2px_7px_rgba(0,0,0,0.45)] backdrop-blur-[1px] ${
+                        participant.isSpeaking
+                          ? 'bg-slate-900/70 text-white'
+                          : 'bg-slate-900/50 text-slate-300 group-hover:bg-slate-900/60 group-hover:text-slate-100'
                       }`}
                     >
-                      {participant.title}
+                      [{participantRank}] {participant.title}
                     </span>
-                    <span
-                      className={`block truncate text-[11px] ${
-                        participant.isSpeaking
-                          ? 'text-emerald-200'
-                          : participant.isMuted
-                            ? 'text-rose-200/90'
-                            : 'text-slate-500 group-hover:text-slate-400'
-                      }`}
-                    >
-                      {participantStateText}
-                    </span>
+                    {participant.isMuted && (
+                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] bg-slate-900/50 text-slate-200 shadow-[0_2px_7px_rgba(0,0,0,0.45)] backdrop-blur-[1px]">
+                        <MicOff size={13} />
+                      </span>
+                    )}
+                    {!participant.isMuted && participant.isScreenSharing && (
+                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] bg-slate-900/50 text-slate-200 shadow-[0_2px_7px_rgba(0,0,0,0.45)] backdrop-blur-[1px]">
+                        <MonitorUp size={13} />
+                      </span>
+                    )}
                   </span>
-                  {mediaBadges.includes('screen') && <MonitorUp size={13} className="shrink-0 text-slate-400" />}
-                  {mediaBadges.includes('camera') && <Camera size={13} className="shrink-0 text-slate-400" />}
-                  {participant.isMuted ? <MicOff size={13} className="shrink-0 text-rose-300" /> : <Mic size={13} className="shrink-0 text-slate-500" />}
-                </button>
+                </div>
               );
             })}
-          </div>
-
-          <div className="mt-2 flex items-center justify-between gap-1 border-t border-white/10 pt-2">
-            <button
-              type="button"
-              onClick={toggleMic}
-              disabled={!canToggleMic}
-              className={collapsedOverlayButtonClass}
-              title={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
-              aria-label={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
-            >
-              {micBusy ? <Loader2 size={13} className="animate-spin" /> : (micEnabled ? <Mic size={13} /> : <MicOff size={13} />)}
-            </button>
-            <button
-              type="button"
-              onClick={collapsedOpenHandler}
-              className="inline-flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-white/10 bg-white/10 px-2 text-[11px] font-semibold text-slate-100 transition hover:bg-white/20"
-              title="Открыть звонок"
-            >
-              <Phone size={12} />
-              Открыть
-            </button>
-            <button
-              type="button"
-              onClick={stopCall}
-              className={collapsedOverlayDangerClass}
-              title="Завершить звонок"
-              aria-label="Завершить звонок"
-            >
-              <PhoneOff size={13} />
-            </button>
-          </div>
-          {!hasRemoteParticipant && (
-            <div className="mt-2 rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-slate-400">
-              Ждём второго участника.
-            </div>
-          )}
         </div>
       </div>
     );
