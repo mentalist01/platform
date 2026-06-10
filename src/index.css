@@ -7272,11 +7272,12 @@ html[data-theme='dark'] .mock-answer-burst__badge {
   align-items: flex-start;
   gap: 8px;
   max-height: 72vh;
-  overflow: hidden;
+  overflow: visible;
+  margin: -10px;
   background: transparent !important;
   border: 0 !important;
   box-shadow: none !important;
-  padding: 0 !important;
+  padding: 10px !important;
   color: #f8fafc;
 }
 .call-game-overlay__row {
@@ -7284,6 +7285,7 @@ html[data-theme='dark'] .mock-answer-burst__badge {
   align-items: center;
   max-width: min(82vw, 420px);
   min-height: 44px;
+  border-radius: 999px;
   opacity: 0.22;
   transform: translateZ(0);
   transition: opacity 0.22s ease, filter 0.22s ease, transform 0.22s ease;
