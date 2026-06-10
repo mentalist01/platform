@@ -1095,6 +1095,7 @@ const CallSection = ({
   uiMode = 'full',
   onRequestExpand,
   onRequestCollapse,
+  onRequestOpenCall,
   onStatusChange,
   theme = 'light',
   autoStartToken = 0,
@@ -2569,9 +2570,13 @@ const CallSection = ({
     if (!event || panelKind === 'full') return;
     if (event.button !== 0) return;
     const dragTarget = event.target;
+    const isDragHandle = typeof Element !== 'undefined'
+      && dragTarget instanceof Element
+      && dragTarget.closest('[data-panel-drag-handle]');
     if (
       typeof Element !== 'undefined'
       && dragTarget instanceof Element
+      && !isDragHandle
       && dragTarget.closest('button, a, input, select, textarea, [role="button"], [data-no-panel-drag]')
     ) {
       return;
@@ -4415,8 +4420,8 @@ const CallSection = ({
       setCollapsedPanelPosition((prev) => {
         if (!prev) return prev;
         const rect = collapsedPanelRef.current?.getBoundingClientRect?.();
-        const width = rect?.width || Math.min(window.innerWidth * 0.96, 640);
-        const height = rect?.height || 56;
+        const width = rect?.width || Math.min(window.innerWidth * 0.92, 360);
+        const height = rect?.height || 72;
         return clampPanelPositionToViewport(prev, width, height);
       });
       setFloatingPanelPosition((prev) => {
@@ -5042,7 +5047,13 @@ const CallSection = ({
   const lessonChatErrorClass = isDarkTheme ? 'mt-2 text-xs text-rose-300' : 'mt-2 text-xs text-rose-600';
 
   const collapsedPanelStyle = collapsedPanelPosition
-    ? { left: `${collapsedPanelPosition.x}px`, top: `${collapsedPanelPosition.y}px`, transform: 'none' }
+    ? {
+      left: `${collapsedPanelPosition.x}px`,
+      top: `${collapsedPanelPosition.y}px`,
+      right: 'auto',
+      bottom: 'auto',
+      transform: 'none',
+    }
     : undefined;
   const floatingPanelStyle = floatingPanelPosition
     ? {
@@ -5065,10 +5076,16 @@ const CallSection = ({
   }
 
   if (isCollapsedUi) {
+    const collapsedOpenHandler = typeof onRequestOpenCall === 'function' ? onRequestOpenCall : onRequestExpand;
+    const collapsedMediaSummary = [
+      micEnabled ? 'микрофон включен' : 'микрофон выключен',
+      cameraEnabled ? 'камера' : '',
+      screenSharing ? 'экран' : '',
+    ].filter(Boolean).join(' • ');
     const collapsedPanelNode = (
       <div
         ref={collapsedPanelRef}
-        className="call-collapsed-shell fixed left-1/2 top-2 z-50 w-[min(96vw,640px)] -translate-x-1/2"
+        className="call-collapsed-shell fixed bottom-[calc(env(safe-area-inset-bottom)+5.25rem)] right-3 z-50 w-[min(92vw,360px)] md:bottom-5 md:right-5"
         style={collapsedPanelStyle}
         onPointerDown={(event) => startPanelDrag(event, 'collapsed')}
       >
@@ -5077,30 +5094,62 @@ const CallSection = ({
             type="button"
             className={ghostButtonClass}
             title="Переместить панель"
+            data-panel-drag-handle="true"
           >
             <Move size={13} />
           </button>
-          <span className={`call-status-chip call-status-chip--${statusTone} inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusChipClass}`}>
-            <span className={`call-status-dot call-status-dot--${statusTone}`} aria-hidden="true" />
-            <span>{statusText}</span>
-          </span>
-          <p className={`min-w-0 flex-1 truncate text-xs ${collapsedTextClass}`}>
-            Созвон активен • участников: {participantCount}
-          </p>
+          <button
+            type="button"
+            onClick={collapsedOpenHandler}
+            className={`min-w-0 flex-1 rounded-xl px-1.5 py-1 text-left transition ${isDarkTheme ? 'hover:bg-white/6' : 'hover:bg-violet-50/80'}`}
+            title="Вернуться в звонок"
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${isDarkTheme ? 'bg-violet-400/18 text-violet-100' : 'bg-violet-100 text-violet-700'}`}>
+                <Phone size={16} />
+              </span>
+              <span className="min-w-0">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span
+                    className={`call-status-chip call-status-chip--${statusTone} inline-flex h-2.5 w-2.5 shrink-0 rounded-full border ${statusChipClass}`}
+                    title={statusText}
+                    aria-label={statusText}
+                  />
+                  <span className={`block truncate text-sm font-semibold ${isDarkTheme ? 'text-slate-100' : 'text-slate-900'}`}>
+                    Созвон идет
+                  </span>
+                </span>
+                <span className={`block truncate text-[11px] ${collapsedTextClass}`}>
+                  {participantCount} участн. • {collapsedMediaSummary}
+                </span>
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={toggleMic}
+            disabled={!canToggleMic}
+            className={actionButtonClass}
+            title={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
+            aria-label={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
+          >
+            {micBusy ? <Loader2 size={13} className="animate-spin" /> : (micEnabled ? <Mic size={13} /> : <MicOff size={13} />)}
+          </button>
           <button
             type="button"
             onClick={onRequestExpand}
             className={actionButtonClass}
             title="Развернуть"
+            aria-label="Развернуть"
           >
             <Maximize2 size={13} />
-            Развернуть
           </button>
           <button
             type="button"
             onClick={stopCall}
             className={hangupButtonClass}
             title="Завершить звонок"
+            aria-label="Завершить звонок"
           >
             <PhoneOff size={13} />
           </button>
@@ -5161,6 +5210,7 @@ const CallSection = ({
                   type="button"
                   className={ghostButtonClass}
                   title="Переместить панель"
+                  data-panel-drag-handle="true"
                 >
                   <Move size={13} />
                 </button>

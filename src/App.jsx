@@ -2978,7 +2978,7 @@ const CollabSection = ({
     suggest: { preview: true, showSnippets: true },
     inlineSuggest: { enabled: true },
     inlayHints: { enabled: 'on' },
-    glyphMargin: true,
+    glyphMargin: false,
     lineNumbersMinChars: 2,
     lineDecorationsWidth: 6,
     readOnly: !roomId,
@@ -3099,8 +3099,8 @@ const CollabSection = ({
     const decorations = validLines.map((line) => ({
       range: new monaco.Range(line, 1, line, 1),
       options: {
-        glyphMarginClassName: 'collab-debug-breakpoint-glyph',
-        glyphMarginHoverMessage: [{ value: `Точка останова: строка ${line}` }],
+        linesDecorationsClassName: 'collab-debug-breakpoint-glyph',
+        hoverMessage: [{ value: `Точка останова: строка ${line}` }],
       },
     }));
     debugBreakpointDecorationsRef.current = editor.deltaDecorations(
@@ -3125,8 +3125,8 @@ const CollabSection = ({
       options: {
         isWholeLine: true,
         className: 'collab-debug-active-line',
-        glyphMarginClassName: 'collab-debug-active-glyph',
-        glyphMarginHoverMessage: [{ value: `Текущая строка: ${safeLine}` }],
+        linesDecorationsClassName: 'collab-debug-active-glyph',
+        hoverMessage: [{ value: `Текущая строка: ${safeLine}` }],
       },
     }]);
     editor.revealLineInCenterIfOutsideViewport?.(safeLine);
@@ -16408,6 +16408,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onStatusChange={setCallSessionStatus}
               onRequestExpand={() => setCallPanelExpanded(true)}
               onRequestCollapse={() => setCallPanelExpanded(false)}
+              onRequestOpenCall={() => navigateToView('call')}
             />
           )}
           {user.role === 'teacher' && (
