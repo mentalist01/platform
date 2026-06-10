@@ -7280,6 +7280,13 @@ html[data-theme='dark'] .mock-answer-burst__badge {
   padding: 10px !important;
   color: #f8fafc;
 }
+.call-game-overlay--fullscreen {
+  position: absolute;
+  z-index: 24;
+  left: clamp(14px, 2vw, 32px);
+  top: clamp(64px, 16vh, 150px);
+  max-width: min(82vw, 420px);
+}
 .call-game-overlay__row {
   display: flex;
   align-items: center;
@@ -7296,13 +7303,18 @@ html[data-theme='dark'] .mock-answer-burst__badge {
   opacity: 0.62;
   filter: saturate(0.86) contrast(0.96);
 }
-.call-game-overlay__row:hover,
-.call-game-overlay__row[data-speaking='true'] {
-  opacity: 1;
-  filter: saturate(1.08);
+.call-game-overlay__row:hover {
+  opacity: 0.88;
+  filter: saturate(0.98) contrast(1);
 }
 .call-game-overlay__row[data-speaking='true'] {
-  transform: translateX(2px);
+  opacity: 0.76;
+  filter: saturate(0.92) contrast(0.98);
+  transform: translateX(1px);
+}
+.call-game-overlay__row[data-speaking='true']:hover {
+  opacity: 0.92;
+  filter: saturate(1) contrast(1);
 }
 .call-game-overlay__avatar {
   position: relative;
@@ -7328,15 +7340,15 @@ html[data-theme='dark'] .mock-answer-burst__badge {
     inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 .call-game-overlay__row[data-speaking='true'] .call-game-overlay__avatar {
-  border-color: rgba(167, 243, 208, 0.95);
+  border-color: rgba(167, 243, 208, 0.62);
   background:
-    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.28), transparent 34%),
-    linear-gradient(145deg, rgba(52, 211, 153, 1), rgba(16, 185, 129, 0.96));
+    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.2), transparent 34%),
+    linear-gradient(145deg, rgba(52, 211, 153, 0.82), rgba(16, 185, 129, 0.72));
   box-shadow:
-    0 0 0 3px rgba(16, 185, 129, 0.2),
-    0 0 22px rgba(16, 185, 129, 0.42),
-    0 10px 24px rgba(0, 0, 0, 0.36),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    0 0 0 2px rgba(16, 185, 129, 0.1),
+    0 0 12px rgba(16, 185, 129, 0.2),
+    0 9px 22px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 .call-game-overlay__row[data-muted='true'] .call-game-overlay__avatar {
   background:
@@ -7390,24 +7402,23 @@ html[data-theme='dark'] .mock-answer-burst__badge {
   box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.12);
 }
 .call-game-overlay__row[data-speaking='true'] .call-game-overlay__plate {
-  border-color: rgba(110, 231, 183, 0.32);
+  border-color: rgba(110, 231, 183, 0.2);
   background:
-    linear-gradient(90deg, rgba(8, 47, 73, 0.84), rgba(15, 23, 42, 0.7)),
-    radial-gradient(circle at 0% 50%, rgba(16, 185, 129, 0.28), transparent 62%);
+    linear-gradient(90deg, rgba(8, 47, 73, 0.7), rgba(15, 23, 42, 0.62)),
+    radial-gradient(circle at 0% 50%, rgba(16, 185, 129, 0.14), transparent 62%);
   color: white;
   box-shadow:
-    0 0 0 1px rgba(16, 185, 129, 0.1),
-    0 0 22px rgba(16, 185, 129, 0.18),
-    0 12px 34px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(16, 185, 129, 0.06),
+    0 10px 28px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 .call-game-overlay__row[data-speaking='true'] .call-game-overlay__plate::after {
-  --call-dot-glow: rgba(16, 185, 129, 0.38);
-  background: rgba(110, 231, 183, 0.98);
+  --call-dot-glow: rgba(16, 185, 129, 0.22);
+  background: rgba(110, 231, 183, 0.82);
   box-shadow:
-    0 0 0 3px rgba(16, 185, 129, 0.16),
-    0 0 14px rgba(16, 185, 129, 0.44);
-  animation: callStatusPulse 1.1s ease-in-out infinite;
+    0 0 0 3px rgba(16, 185, 129, 0.1),
+    0 0 9px rgba(16, 185, 129, 0.24);
+  animation: callStatusPulse 1.35s ease-in-out infinite;
 }
 .call-game-overlay__row[data-muted='true'] .call-game-overlay__plate::after {
   background: rgba(248, 113, 113, 0.9);
@@ -7458,20 +7469,20 @@ html[data-theme='dark'] .mock-answer-burst__badge {
   animation-delay: -0.72s;
 }
 .call-game-overlay__row[data-speaking='true'] .call-game-overlay__meter {
-  border-color: rgba(110, 231, 183, 0.32);
-  background: rgba(5, 150, 105, 0.22);
-  box-shadow: 0 0 16px rgba(16, 185, 129, 0.18);
+  border-color: rgba(110, 231, 183, 0.22);
+  background: rgba(5, 150, 105, 0.14);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.1);
 }
 .call-game-overlay__row[data-speaking='true'] .call-game-overlay__meter span:nth-child(1) {
-  background: rgba(167, 243, 208, 0.96);
+  background: rgba(167, 243, 208, 0.78);
   animation: callVoiceBarsA 0.62s ease-in-out infinite;
 }
 .call-game-overlay__row[data-speaking='true'] .call-game-overlay__meter span:nth-child(2) {
-  background: rgba(110, 231, 183, 0.98);
+  background: rgba(110, 231, 183, 0.82);
   animation: callVoiceBarsB 0.57s ease-in-out infinite;
 }
 .call-game-overlay__row[data-speaking='true'] .call-game-overlay__meter span:nth-child(3) {
-  background: rgba(52, 211, 153, 0.96);
+  background: rgba(52, 211, 153, 0.78);
   animation: callVoiceBarsC 0.64s ease-in-out infinite;
 }
 .call-game-overlay__icon {

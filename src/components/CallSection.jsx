@@ -574,6 +574,59 @@ const exitDocumentFullscreen = async () => {
   }
 };
 
+const CallGameVoiceOverlay = ({ participants = [], className = '' }) => {
+  if (!participants.length) return null;
+  const overlayClassName = ['call-game-overlay', className].filter(Boolean).join(' ');
+  return (
+    <div className={overlayClassName}>
+      {participants.map((participant) => {
+        const participantStateText = participant.isMuted
+          ? 'микрофон выключен'
+          : participant.isSpeaking
+            ? 'говорит'
+            : participant.hasAudio
+              ? 'молчит'
+              : 'нет аудио';
+        return (
+          <div
+            key={`voice-overlay-${participant.id}`}
+            className="call-game-overlay__row"
+            data-speaking={participant.isSpeaking ? 'true' : 'false'}
+            data-muted={participant.isMuted ? 'true' : 'false'}
+            title={`${participant.title}: ${participantStateText}`}
+          >
+            <span className="call-game-overlay__avatar" aria-hidden="true">
+              {participant.initial}
+            </span>
+            <span className="call-game-overlay__plate">
+              <span className="call-game-overlay__name">
+                {participant.title}
+              </span>
+              {!participant.isMuted && (
+                <span className="call-game-overlay__meter" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              )}
+              {participant.isMuted && (
+                <span className="call-game-overlay__icon" aria-label="Микрофон выключен">
+                  <MicOff size={13} />
+                </span>
+              )}
+              {!participant.isMuted && participant.isScreenSharing && (
+                <span className="call-game-overlay__icon" aria-label="Показывает экран">
+                  <MonitorUp size={13} />
+                </span>
+              )}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 const MediaTile = ({
   stream,
   title,
@@ -586,6 +639,7 @@ const MediaTile = ({
   allowFullscreen = true,
   onContextMenu,
   isDarkTheme = false,
+  fullscreenVoiceParticipants = [],
 }) => {
   const tileRef = useRef(null);
   const mediaRef = useRef(null);
@@ -823,6 +877,12 @@ const MediaTile = ({
         playsInline
         className={`call-media-video w-full ${isDarkTheme ? 'bg-slate-950' : 'bg-slate-100'} object-cover ${isFullscreen ? 'h-screen' : (isCompact ? 'h-24 md:h-28' : 'h-72 md:h-80')}`}
       />
+      {isFullscreen && fullscreenVoiceParticipants.length > 0 && (
+        <CallGameVoiceOverlay
+          participants={fullscreenVoiceParticipants}
+          className="call-game-overlay--fullscreen"
+        />
+      )}
       {!isStaticFullscreen && (
         <>
           <div className={`call-video-frame-glow ${isSpeaking ? 'is-speaking' : ''}`} aria-hidden="true" />
@@ -1143,6 +1203,7 @@ const CallSection = ({
   const [volumePopup, setVolumePopup] = useState(null);
   const [collapsedPanelPosition, setCollapsedPanelPosition] = useState(null);
   const [floatingPanelPosition, setFloatingPanelPosition] = useState(null);
+  const [fullscreenPortalTarget, setFullscreenPortalTarget] = useState(null);
   const [inlinePanelMinHeightPx, setInlinePanelMinHeightPx] = useState(0);
   const [selfSpeaking, setSelfSpeaking] = useState(false);
   const [peerConnectionSummary, setPeerConnectionSummary] = useState({
@@ -1250,6 +1311,18 @@ const CallSection = ({
   const isHiddenUi = normalizedUiMode === 'hidden';
   const showInlineLessonChat = normalizedUiMode === 'full';
   const isDarkTheme = String(theme || '').trim().toLowerCase() === 'dark';
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const syncFullscreenTarget = () => {
+      setFullscreenPortalTarget(document.fullscreenElement || null);
+    };
+    syncFullscreenTarget();
+    document.addEventListener('fullscreenchange', syncFullscreenTarget);
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreenTarget);
+    };
+  }, []);
 
   useEffect(() => {
     statusRef.current = status;
@@ -5133,7 +5206,7 @@ const CallSection = ({
       </div>
     );
     const collapsedPanelPortal = typeof document !== 'undefined'
-      ? createPortal(collapsedPanelNode, document.body)
+      ? createPortal(collapsedPanelNode, fullscreenPortalTarget || document.body)
       : collapsedPanelNode;
     return (
       <>
@@ -5358,6 +5431,7 @@ const CallSection = ({
                             muted
                             allowFullscreen={false}
                             isDarkTheme={isDarkTheme}
+                            fullscreenVoiceParticipants={overlayVoiceParticipants}
                           />
                         </div>
                       );
@@ -5382,6 +5456,7 @@ const CallSection = ({
                             compact
                             isSpeaking={peer.isSpeaking}
                             isDarkTheme={isDarkTheme}
+                            fullscreenVoiceParticipants={overlayVoiceParticipants}
                             onContextMenu={(event) => openVolumePopupForParticipant(event, peer)}
                           />
                         </div>
