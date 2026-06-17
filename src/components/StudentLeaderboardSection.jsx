@@ -1766,13 +1766,37 @@ const StudentLeaderboardSection = ({
       };
   };
 
+  const renderAudienceFilterControls = () => (
+    <div className="student-leaderboard-audience-filter flex flex-wrap items-center justify-end gap-1.5">
+      {audienceFilterOptions.map((option) => {
+        const isActive = audienceFilter === option.id;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            aria-pressed={isActive}
+            title={`${option.label}: ${option.count}`}
+            onClick={() => setAudienceFilter(option.id)}
+            className={`rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${
+              isActive
+                ? 'border-purple-500 bg-purple-600 text-white shadow-sm shadow-purple-200'
+                : 'border-purple-200 bg-white text-purple-700 hover:bg-purple-50'
+            }`}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   const renderBoard = (items, type) => (
     <div
       className={`student-leaderboard-board student-leaderboard-board--${type} rounded-3xl border border-purple-200/70 bg-white/90 p-4 shadow-soft`}
       data-tour={type === 'all' ? 'rating-level-board' : 'rating-week-board'}
     >
-      <div className="student-leaderboard-board-header flex items-start justify-between gap-3">
-        <div>
+      <div className="student-leaderboard-board-header flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <div className="student-leaderboard-kicker text-xs font-bold uppercase text-purple-600">
             {renderMetricBoardTitle(type)}
           </div>
@@ -1780,8 +1804,11 @@ const StudentLeaderboardSection = ({
             {getMetricBoardCopy(type).subtitle}
           </div>
         </div>
-        <div className="student-leaderboard-chip rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-[11px] font-semibold text-purple-700">
-          {`${items.length} учен.`}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {type === 'all' && renderAudienceFilterControls()}
+          <div className="student-leaderboard-chip rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-[11px] font-semibold text-purple-700">
+            {`${items.length} учен.`}
+          </div>
         </div>
       </div>
       <div className="student-leaderboard-board-list mt-3 space-y-2">
@@ -1996,25 +2023,6 @@ const StudentLeaderboardSection = ({
             </div>
             <div className="student-leaderboard-chip mt-2 inline-flex items-center rounded-full border border-purple-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-purple-700">
               {`Недельный период: ${weekRangeLabel}`}
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              {audienceFilterOptions.map((option) => {
-                const isActive = audienceFilter === option.id;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => setAudienceFilter(option.id)}
-                    className={`rounded-full border px-3 py-1 text-[11px] font-bold transition ${
-                      isActive
-                        ? 'border-purple-500 bg-purple-600 text-white shadow-sm shadow-purple-200'
-                        : 'border-purple-200 bg-white text-purple-700 hover:bg-purple-50'
-                    }`}
-                  >
-                    {`${option.label} ${option.count}`}
-                  </button>
-                );
-              })}
             </div>
             {role === 'student' && (
               <div className="student-leaderboard-copy mt-2 text-xs text-slate-500">
