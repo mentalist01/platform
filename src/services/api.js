@@ -881,11 +881,14 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  createStudent: async (name, teacherId) => {
+  createStudent: async (name, teacherId, options = {}) => {
+    const payload = options && typeof options === 'object' && !Array.isArray(options)
+      ? { ...options }
+      : { grade: options };
     const res = await apiFetch('/api/students', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, teacherId }),
+      body: JSON.stringify({ name, teacherId, ...payload }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
@@ -1211,6 +1214,16 @@ export const api = {
     if (levelId) params.append('levelId', String(levelId));
     const qs = params.toString();
     const res = await apiFetch(qs ? `/api/progress/solved-answers?${qs}` : '/api/progress/solved-answers');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getAnswerHistory: async (studentId, taskNumber, levelId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', studentId);
+    if (taskNumber) params.append('taskNumber', String(taskNumber));
+    if (levelId) params.append('levelId', String(levelId));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/progress/answer-history?${qs}` : '/api/progress/answer-history');
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },

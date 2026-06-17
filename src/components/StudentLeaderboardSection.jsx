@@ -129,6 +129,24 @@ const formatLeaderboardDayCount = (value) => {
   return `${days.toLocaleString('ru-RU')} ${suffix}`;
 };
 
+const STUDENT_GRADE_GRADUATE = 'graduate';
+
+const normalizeLeaderboardGrade = (value) => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (normalized === STUDENT_GRADE_GRADUATE || normalized === 'graduates' || normalized === 'выпускник' || normalized === 'выпускники') {
+    return STUDENT_GRADE_GRADUATE;
+  }
+  return Number(value) === 10 ? 10 : 11;
+};
+
+const normalizeEgeScore = (value) => {
+  const score = Number(value);
+  if (!Number.isInteger(score) || score < 0 || score > 100) return null;
+  return score;
+};
+
+const gradesMatch = (left, right) => normalizeLeaderboardGrade(left) === normalizeLeaderboardGrade(right);
+
 const compareLeaderboardNumberDesc = (left, right) => {
   const diff = Number(right || 0) - Number(left || 0);
   return Math.abs(diff) > 0.0001 ? diff : 0;
@@ -330,6 +348,7 @@ const StudentLeaderboardSection = ({
     selectedStudent: null,
   });
   const [selectedMetricId, setSelectedMetricId] = useState('xp');
+  const [audienceFilter, setAudienceFilter] = useState('students');
   const [altar, setAltar] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -362,6 +381,7 @@ const StudentLeaderboardSection = ({
   const [studentProfileChatOpening, setStudentProfileChatOpening] = useState(false);
   const [studentProfileChatError, setStudentProfileChatError] = useState('');
   const mountedRef = useRef(true);
+  const previousAudienceRoleRef = useRef(role);
   const studentProfileRequestIdRef = useRef(0);
   const chestPressTimerRef = useRef(null);
 
@@ -444,6 +464,9 @@ const StudentLeaderboardSection = ({
       const hasAlias = Boolean(entry?.hasAlias);
       const mainName = typeof entry?.mainName === 'string' ? entry.mainName.trim() : '';
       const nickname = typeof entry?.nickname === 'string' ? entry.nickname.trim() : '';
+      const grade = normalizeLeaderboardGrade(entry?.grade);
+      const isGraduate = Boolean(entry?.isGraduate) || grade === STUDENT_GRADE_GRADUATE;
+      const informaticsEgeScore = isGraduate ? normalizeEgeScore(entry?.informaticsEgeScore) : null;
       const course = entry?.course && typeof entry.course === 'object' ? entry.course : {};
       const python = entry?.python && typeof entry.python === 'object' ? entry.python : {};
       const platformDays = entry?.platformDays && typeof entry.platformDays === 'object' ? entry.platformDays : {};
@@ -478,6 +501,9 @@ const StudentLeaderboardSection = ({
         hasAlias,
         mainName,
         nickname,
+        grade,
+        isGraduate,
+        informaticsEgeScore,
         showTeacherIdentity: role === 'teacher',
         xpTotal,
         xpTotalLabel: xpTotal.toLocaleString('ru-RU'),
@@ -525,6 +551,60 @@ const StudentLeaderboardSection = ({
       };
     });
   }, [leaderboard.items, role, teacherSelectedStudentId, userId]);
+
+  const currentStudentRow = role === 'student'
+    ? (rows.find((row) => row.isCurrent) || null)
+    : null;
+
+  const currentStudentGrade = role === 'student'
+    ? normalizeLeaderboardGrade(leaderboard?.currentStudent?.grade ?? currentStudentRow?.grade)
+    : null;
+
+  useEffect(() => {
+    const roleChanged = previousAudienceRoleRef.current !== role;
+    previousAudienceRoleRef.current = role;
+    setAudienceFilter((current) => {
+      if (role === 'student') {
+        if (roleChanged) return 'grade';
+        return current === 'all' ? current : 'grade';
+      }
+      return current === 'grade' ? 'students' : current;
+    });
+  }, [currentStudentGrade, role]);
+
+  const visibleRows = useMemo(() => {
+    if (audienceFilter === 'all') return rows;
+    if (role === 'student') {
+      return rows.filter((row) => gradesMatch(row.grade, currentStudentGrade));
+    }
+    if (audienceFilter === 'graduates') return rows.filter((row) => row.isGraduate);
+    return rows.filter((row) => !row.isGraduate);
+  }, [audienceFilter, currentStudentGrade, role, rows]);
+
+  const graduateRowsCount = useMemo(
+    () => rows.reduce((count, row) => count + (row.isGraduate ? 1 : 0), 0),
+    [rows]
+  );
+
+  const currentGradeRowsCount = useMemo(() => (
+    role === 'student'
+      ? rows.reduce((count, row) => count + (gradesMatch(row.grade, currentStudentGrade) ? 1 : 0), 0)
+      : 0
+  ), [currentStudentGrade, role, rows]);
+
+  const audienceFilterOptions = useMemo(() => {
+    if (role === 'student') {
+      return [
+        { id: 'grade', label: 'Мой класс', count: currentGradeRowsCount },
+        { id: 'all', label: 'Все', count: rows.length },
+      ];
+    }
+    return [
+      { id: 'students', label: 'Ученики', count: rows.length - graduateRowsCount },
+      { id: 'graduates', label: 'Выпускники', count: graduateRowsCount },
+      { id: 'all', label: 'Все', count: rows.length },
+    ];
+  }, [currentGradeRowsCount, graduateRowsCount, role, rows.length]);
 
   const teacherStudentOptions = useMemo(() => {
     if (role !== 'teacher') return [];
@@ -578,13 +658,13 @@ const StudentLeaderboardSection = ({
   ), [selectedMetricId]);
 
   const metricAllTimeRows = useMemo(
-    () => sortLeaderboardRowsByMetric(rows, selectedMetric.id, 'all'),
-    [rows, selectedMetric.id]
+    () => sortLeaderboardRowsByMetric(visibleRows, selectedMetric.id, 'all'),
+    [selectedMetric.id, visibleRows]
   );
 
   const metricWeekRows = useMemo(
-    () => sortLeaderboardRowsByMetric(rows, selectedMetric.id, 'week'),
-    [rows, selectedMetric.id]
+    () => sortLeaderboardRowsByMetric(visibleRows, selectedMetric.id, 'week'),
+    [selectedMetric.id, visibleRows]
   );
 
   const weekRangeLabel = useMemo(() => {
@@ -612,9 +692,6 @@ const StudentLeaderboardSection = ({
     });
   }, []);
 
-  const currentStudentRow = role === 'student'
-    ? (rows.find((row) => row.isCurrent) || null)
-    : null;
   const currentRatingPosition = role === 'student'
     ? (() => {
       const index = metricAllTimeRows.findIndex((row) => row.isCurrent);
@@ -1708,6 +1785,15 @@ const StudentLeaderboardSection = ({
         </div>
       </div>
       <div className="student-leaderboard-board-list mt-3 space-y-2">
+        {items.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-purple-200 bg-purple-50/60 px-4 py-6 text-center text-sm text-purple-700">
+            {role === 'student' && audienceFilter !== 'all'
+              ? 'В твоём классе пока нет участников.'
+              : audienceFilter === 'graduates'
+              ? 'Выпускников в рейтинге пока нет.'
+              : 'В этом фильтре пока нет участников.'}
+          </div>
+        )}
         {items.map((row, index) => {
           const topPlaceDecor = TOP_PLACE_NUMBER_DECOR[index];
           const leagueAuraStyle = getLeagueAuraStyle(row.league.id);
@@ -1831,11 +1917,21 @@ const StudentLeaderboardSection = ({
                     {row.profileTheme.shortName}
                   </span>
                 )}
+                {row.isGraduate && (
+                  <span
+                    className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-700"
+                    title={row.informaticsEgeScore !== null ? `ЕГЭ по информатике: ${row.informaticsEgeScore}` : 'Выпускник'}
+                  >
+                    {row.informaticsEgeScore !== null ? `ЕГЭ ${row.informaticsEgeScore}` : 'Выпускник'}
+                  </span>
+                )}
               </div>
               {row.showTeacherIdentity && (
                 <div className="student-leaderboard-row-meta truncate text-[11px] text-slate-500">{`Имя: ${row.mainName || '—'} • Имя2: ${row.nickname || '—'}`}</div>
               )}
-              <div className="student-leaderboard-row-meta text-[11px] text-slate-500">{`${row.league.label} - Уровень ${row.level} - ${row.xpTotalLabel} XP`}</div>
+              <div className="student-leaderboard-row-meta text-[11px] text-slate-500">
+                {`${row.isGraduate ? 'Выпускник - ' : ''}${row.league.label} - Уровень ${row.level} - ${row.xpTotalLabel} XP`}
+              </div>
             </div>
             <div className="student-leaderboard-metric-cell text-right">
               {(() => {
@@ -1900,6 +1996,25 @@ const StudentLeaderboardSection = ({
             </div>
             <div className="student-leaderboard-chip mt-2 inline-flex items-center rounded-full border border-purple-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-purple-700">
               {`Недельный период: ${weekRangeLabel}`}
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {audienceFilterOptions.map((option) => {
+                const isActive = audienceFilter === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setAudienceFilter(option.id)}
+                    className={`rounded-full border px-3 py-1 text-[11px] font-bold transition ${
+                      isActive
+                        ? 'border-purple-500 bg-purple-600 text-white shadow-sm shadow-purple-200'
+                        : 'border-purple-200 bg-white text-purple-700 hover:bg-purple-50'
+                    }`}
+                  >
+                    {`${option.label} ${option.count}`}
+                  </button>
+                );
+              })}
             </div>
             {role === 'student' && (
               <div className="student-leaderboard-copy mt-2 text-xs text-slate-500">

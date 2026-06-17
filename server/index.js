@@ -525,6 +525,11 @@ const STUDENT_SOLVED_EVENTS_LIMIT = (() => {
   if (Number.isFinite(raw) && raw >= 50) return Math.floor(raw);
   return 200;
 })();
+const STUDENT_ANSWER_HISTORY_LIMIT = (() => {
+  const raw = Number(process.env.STUDENT_ANSWER_HISTORY_LIMIT);
+  if (Number.isFinite(raw) && raw >= 1) return Math.min(100, Math.floor(raw));
+  return 20;
+})();
 const STUDENT_XP_BALANCE_VERSION = 4;
 const STUDENT_RECENT_XP_REBALANCE_VERSION = 3;
 const STUDENT_BAD_RECENT_XP_REBALANCE_VERSION = 2;
@@ -4923,6 +4928,7 @@ const buildSessionUser = (user) => {
   const payload = { id, name, role };
   if (role === 'student') {
     payload.teacherId = user.teacherId ? String(user.teacherId) : null;
+    payload.grade = normalizeStudentGrade(user.grade);
     const avatarDataUrl = normalizeStudentAvatarDataUrl(user.avatarDataUrl);
     if (avatarDataUrl) payload.avatarDataUrl = avatarDataUrl;
   }
@@ -5027,6 +5033,7 @@ const resolveSessionUser = (sessionUser) => {
       name: student.name,
       role: 'student',
       teacherId: student.teacherId || null,
+      grade: normalizeStudentGrade(student.grade),
       avatarDataUrl: normalizeStudentAvatarDataUrl(getStudentData(student.id)?.avatarDataUrl),
     };
   }
@@ -9845,6 +9852,69 @@ const isSolvedAnswerValid = (question, rawValue, taskNumber) => {
   ));
 };
 
+const normalizeAnswerHistoryEntry = (entry) => {
+  if (!entry || typeof entry !== 'object') return null;
+  const submittedAt = typeof entry.submittedAt === 'string' && entry.submittedAt.trim()
+    ? entry.submittedAt.trim()
+    : '';
+  const submittedAtMs = submittedAt ? Date.parse(submittedAt) : Number.NaN;
+  if (!Number.isFinite(submittedAtMs)) return null;
+  const rawAnswers = Array.isArray(entry.answers)
+    ? entry.answers
+    : (typeof entry.answer !== 'undefined' ? [entry.answer] : []);
+  const answers = rawAnswers
+    .map((value) => String(value ?? '').slice(0, 2000))
+    .filter((value, index) => index < 50 || value.trim());
+  if (answers.length <= 0) return null;
+  return {
+    id: typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : crypto.randomUUID(),
+    submittedAt: new Date(submittedAtMs).toISOString(),
+    correct: entry.correct === true,
+    answers,
+  };
+};
+
+const normalizeAnswerHistoryMap = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const normalized = {};
+  Object.entries(value).forEach(([questionKey, entries]) => {
+    const qKey = String(questionKey || '').trim();
+    if (!qKey || !Array.isArray(entries)) return;
+    const list = entries
+      .map(normalizeAnswerHistoryEntry)
+      .filter(Boolean)
+      .sort((left, right) => Date.parse(left.submittedAt) - Date.parse(right.submittedAt))
+      .slice(-STUDENT_ANSWER_HISTORY_LIMIT);
+    if (list.length > 0) normalized[qKey] = list;
+  });
+  return normalized;
+};
+
+const appendAnswerHistoryEntry = (levelEntry, questionKey, rawValue, answerCount, correct, submittedAt = new Date().toISOString()) => {
+  const qKey = String(questionKey || '').trim();
+  if (!qKey) return levelEntry;
+  const safeCount = Number.isFinite(Number(answerCount)) ? Math.max(1, Math.min(50, Math.floor(Number(answerCount)))) : 1;
+  const answers = parseSubmittedAnswers(rawValue, safeCount)
+    .map((value) => String(value ?? '').slice(0, 2000));
+  if (answers.every((value) => !String(value ?? '').trim())) return levelEntry;
+  const history = normalizeAnswerHistoryMap(levelEntry?.answerHistory);
+  const current = Array.isArray(history[qKey]) ? history[qKey] : [];
+  const nextEntry = normalizeAnswerHistoryEntry({
+    id: crypto.randomUUID(),
+    submittedAt,
+    correct: correct === true,
+    answers,
+  });
+  if (!nextEntry) return levelEntry;
+  return {
+    ...(levelEntry || {}),
+    answerHistory: {
+      ...history,
+      [qKey]: [...current, nextEntry].slice(-STUDENT_ANSWER_HISTORY_LIMIT),
+    },
+  };
+};
+
 const recomputeProgressFromSolved = (data) => {
   const baseProgress = { ...(data.progress || {}) };
   const solvedByTask = data.solvedByTask && typeof data.solvedByTask === 'object' ? data.solvedByTask : {};
@@ -12478,6 +12548,46 @@ const normalizeStudentNickname = (value) => {
   return value.trim();
 };
 
+const DEFAULT_STUDENT_GRADE = 11;
+const STUDENT_GRADE_GRADUATE = 'graduate';
+
+const parseStudentGrade = (value) => {
+  if (value === 10 || value === 11) return value;
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (normalized === '10') return 10;
+  if (normalized === '11') return 11;
+  if ([
+    STUDENT_GRADE_GRADUATE,
+    'graduates',
+    'alumni',
+    'alumnus',
+    'выпускник',
+    'выпускники',
+  ].includes(normalized)) return STUDENT_GRADE_GRADUATE;
+  return null;
+};
+
+const normalizeStudentGrade = (value) => parseStudentGrade(value) || DEFAULT_STUDENT_GRADE;
+
+const parseStudentInformaticsEgeScore = (value) => {
+  if (value === null || typeof value === 'undefined') return null;
+  const normalized = String(value).trim();
+  if (!normalized) return null;
+  if (!/^\d+$/.test(normalized)) return undefined;
+  const score = Number(normalized);
+  if (!Number.isInteger(score) || score < 0 || score > 100) return undefined;
+  return score;
+};
+
+const normalizeStudentInformaticsEgeScore = (value) => {
+  const score = parseStudentInformaticsEgeScore(value);
+  return typeof score === 'number' ? score : null;
+};
+
+const canAccessFinalReview = (auth) => (
+  !isStudentRole(auth) || normalizeStudentGrade(auth?.grade) !== 10
+);
+
 const normalizeTeacherName = (name) => {
   if (typeof name !== 'string') return '';
   return name.trim();
@@ -12574,6 +12684,7 @@ const ensureDefaultStudent = () => {
       name: 'Ученик 1',
       teacherId: defaultTeacherId,
       nickname: '',
+      grade: DEFAULT_STUDENT_GRADE,
       codeHash: hashCode(plainCode),
       codeHint: getCodeHint(plainCode),
       createdAt: new Date().toISOString(),
@@ -12645,10 +12756,27 @@ const ensureStudentIds = () => {
   if (foldersChanged) writeFoldersDb(folders);
 
   const updatedStudents = students.map((student) => {
-    if (!student.teacherId) return { ...student, teacherId: defaultTeacherId };
-    return student;
+    const normalizedGrade = normalizeStudentGrade(student?.grade);
+    let next = student;
+    if (student?.grade !== normalizedGrade) {
+      next = { ...next, grade: normalizedGrade };
+    }
+    const normalizedEgeScore = normalizedGrade === STUDENT_GRADE_GRADUATE
+      ? normalizeStudentInformaticsEgeScore(next?.informaticsEgeScore)
+      : null;
+    if (next?.informaticsEgeScore !== normalizedEgeScore) {
+      next = { ...next, informaticsEgeScore: normalizedEgeScore };
+    }
+    if (!next.teacherId) {
+      next = { ...next, teacherId: defaultTeacherId };
+    }
+    return next;
   });
-  if (updatedStudents.some((s, idx) => s.teacherId !== students[idx].teacherId)) {
+  if (updatedStudents.some((s, idx) => (
+    s.teacherId !== students[idx].teacherId
+    || s.grade !== students[idx].grade
+    || s.informaticsEgeScore !== students[idx].informaticsEgeScore
+  ))) {
     writeStudentsDb(updatedStudents);
     return updatedStudents;
   }
@@ -12919,6 +13047,7 @@ app.post('/api/login', (req, res) => {
     name: student.name,
     role: 'student',
     teacherId: student.teacherId || null,
+    grade: normalizeStudentGrade(student.grade),
     avatarDataUrl: normalizeStudentAvatarDataUrl(getStudentData(student.id)?.avatarDataUrl),
   });
   return respondWithSession(res, session);
@@ -13043,6 +13172,7 @@ app.get('/api/final-review-videos', (req, res) => {
   if (!isAdminRole(req.auth) && !isTeacherRole(req.auth) && !isStudentRole(req.auth)) {
     return forbid(res);
   }
+  if (!canAccessFinalReview(req.auth)) return forbid(res);
   return res.json({ videos: readFinalReviewVideosDb() });
 });
 
@@ -13080,6 +13210,7 @@ app.get('/api/final-review-notes', (req, res) => {
   if (!isAdminRole(req.auth) && !isTeacherRole(req.auth) && !isStudentRole(req.auth)) {
     return forbid(res);
   }
+  if (!canAccessFinalReview(req.auth)) return forbid(res);
   const { studentId } = req.query || {};
   const effectiveStudentId = isStudentRole(req.auth) ? req.auth.id : studentId;
   const student = ensureStudentAccess(req, res, effectiveStudentId, { missingError: 'studentId required' });
@@ -13094,6 +13225,7 @@ app.get('/api/final-review-notes', (req, res) => {
 
 app.put('/api/final-review-notes', (req, res) => {
   if (!isStudentRole(req.auth)) return forbid(res);
+  if (!canAccessFinalReview(req.auth)) return forbid(res);
   const student = ensureStudentAccess(req, res, req.auth.id, { missingError: 'studentId required' });
   if (!student) return;
 
@@ -15767,8 +15899,13 @@ app.get('/api/students', (req, res) => {
     const xpTotal = normalizeXpTotal(data?.xpTotal);
     const coinsTotal = normalizeCoinsTotal(data?.coinsTotal);
     const level = getLevelFromXp(xpTotal);
+    const grade = normalizeStudentGrade(rest.grade);
     return {
       ...rest,
+      grade,
+      informaticsEgeScore: grade === STUDENT_GRADE_GRADUATE
+        ? normalizeStudentInformaticsEgeScore(rest.informaticsEgeScore)
+        : null,
       leaderboardAlias: normalizeLeaderboardAlias(data?.leaderboardAlias),
       xpTotal,
       coinsTotal,
@@ -15827,6 +15964,11 @@ app.get('/api/students/leaderboard', (req, res) => {
     const alias = normalizeLeaderboardAlias(data?.leaderboardAlias);
     const mainName = includeTeacherIdentity ? normalizeStudentName(student.name) : '';
     const nickname = includeTeacherIdentity ? normalizeStudentNickname(student.nickname) : '';
+    const grade = normalizeStudentGrade(student.grade);
+    const isGraduate = grade === STUDENT_GRADE_GRADUATE;
+    const informaticsEgeScore = isGraduate
+      ? normalizeStudentInformaticsEgeScore(student.informaticsEgeScore)
+      : null;
     const activity = getLeaderboardProfileActivitySummary(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS);
     const courseProgress = getLeaderboardProgressSummaryByKind(data, testsDb, 'course');
     const pythonProgress = getLeaderboardProgressSummaryByKind(data, testsDb, 'python');
@@ -15849,6 +15991,9 @@ app.get('/api/students/leaderboard', (req, res) => {
     return {
       studentId: student.id,
       publicName: alias || anonNameById.get(student.id) || 'Аноним',
+      grade,
+      isGraduate,
+      informaticsEgeScore,
       level,
       xpTotal,
       weeklyXp,
@@ -15917,6 +16062,9 @@ app.get('/api/students/leaderboard', (req, res) => {
           studentId: currentStudent.studentId,
           publicName: currentStudent.publicName,
           hasAlias: currentStudent.hasAlias,
+          grade: currentStudent.grade,
+          isGraduate: currentStudent.isGraduate,
+          informaticsEgeScore: currentStudent.informaticsEgeScore,
           mainName: normalizeStudentName(currentStudentEntry?.name || ''),
           coinsTotal: normalizeCoinsTotal(currentStudentData?.coinsTotal),
           mockTimerChests: buildMockTimerChestPanelState(currentStudentData),
@@ -15932,6 +16080,9 @@ app.get('/api/students/leaderboard', (req, res) => {
           studentId: selectedStudentItem.studentId,
           publicName: selectedStudentItem.publicName,
           hasAlias: selectedStudentItem.hasAlias,
+          grade: selectedStudentItem.grade,
+          isGraduate: selectedStudentItem.isGraduate,
+          informaticsEgeScore: selectedStudentItem.informaticsEgeScore,
           mainName: normalizeStudentName(selectedStudentEntry?.name || ''),
           nickname: includeTeacherIdentity ? normalizeStudentNickname(selectedStudentEntry?.nickname || '') : '',
           coinsTotal: normalizeCoinsTotal(selectedStudentData?.coinsTotal),
@@ -16397,12 +16548,22 @@ app.post('/api/students/altar/upgrade', (req, res) => {
 });
 
 app.post('/api/students', (req, res) => {
-  const { name, teacherId } = req.body || {};
+  const { name, teacherId, grade, informaticsEgeScore } = req.body || {};
   if (isStudentRole(req.auth)) return forbid(res);
   const studentName = normalizeStudentName(name);
   if (!studentName) return res.status(400).json({ error: 'Введите имя ученика' });
   if (studentName.length > 60) return res.status(400).json({ error: 'Имя слишком длинное' });
   if (/[/\\]/.test(studentName)) return res.status(400).json({ error: 'Недопустимые символы' });
+  const hasGrade = Object.prototype.hasOwnProperty.call(req.body || {}, 'grade');
+  const parsedStudentGrade = parseStudentGrade(grade);
+  if (hasGrade && parsedStudentGrade === null) {
+    return res.status(400).json({ error: 'Класс должен быть 10, 11 или выпускники' });
+  }
+  const studentGrade = parsedStudentGrade || DEFAULT_STUDENT_GRADE;
+  const studentInformaticsEgeScore = parseStudentInformaticsEgeScore(informaticsEgeScore);
+  if (typeof studentInformaticsEgeScore === 'undefined') {
+    return res.status(400).json({ error: 'Балл ЕГЭ должен быть целым числом от 0 до 100' });
+  }
 
   const teachers = readTeachersDb();
   const requestedTeacherId = typeof teacherId === 'string' ? teacherId.trim() : '';
@@ -16423,6 +16584,8 @@ app.post('/api/students', (req, res) => {
     name: studentName,
     teacherId: resolvedTeacherId,
     nickname: '',
+    grade: studentGrade,
+    informaticsEgeScore: studentGrade === STUDENT_GRADE_GRADUATE ? studentInformaticsEgeScore : null,
     codeHash: hashCode(plainCode),
     codeHint: getCodeHint(plainCode),
     createdAt: new Date().toISOString(),
@@ -16437,6 +16600,10 @@ app.post('/api/students', (req, res) => {
     id: entry.id,
     name: entry.name,
     nickname: entry.nickname || '',
+    grade: normalizeStudentGrade(entry.grade),
+    informaticsEgeScore: normalizeStudentGrade(entry.grade) === STUDENT_GRADE_GRADUATE
+      ? normalizeStudentInformaticsEgeScore(entry.informaticsEgeScore)
+      : null,
     leaderboardAlias: '',
     xpTotal: createdXpTotal,
     coinsTotal: createdCoinsTotal,
@@ -16501,6 +16668,10 @@ app.post('/api/students/:id/restore', (req, res) => {
     id: restored.id,
     name: restored.name,
     nickname: restored.nickname || '',
+    grade: normalizeStudentGrade(restored.grade),
+    informaticsEgeScore: normalizeStudentGrade(restored.grade) === STUDENT_GRADE_GRADUATE
+      ? normalizeStudentInformaticsEgeScore(restored.informaticsEgeScore)
+      : null,
     leaderboardAlias: normalizeLeaderboardAlias(restoredData?.leaderboardAlias),
     xpTotal: restoredXpTotal,
     coinsTotal: restoredCoinsTotal,
@@ -16636,13 +16807,15 @@ app.post('/api/teachers/:id/reset-code', (req, res) => {
 app.patch('/api/students/:id', (req, res) => {
   if (isStudentRole(req.auth)) return forbid(res);
   const { id } = req.params;
-  const { name, nickname, leaderboardAlias, coinsGrant } = req.body || {};
+  const { name, nickname, grade, informaticsEgeScore, leaderboardAlias, coinsGrant } = req.body || {};
   const hasName = Object.prototype.hasOwnProperty.call(req.body || {}, 'name');
   const hasNickname = Object.prototype.hasOwnProperty.call(req.body || {}, 'nickname');
+  const hasGrade = Object.prototype.hasOwnProperty.call(req.body || {}, 'grade');
+  const hasInformaticsEgeScore = Object.prototype.hasOwnProperty.call(req.body || {}, 'informaticsEgeScore');
   const hasLeaderboardAlias = Object.prototype.hasOwnProperty.call(req.body || {}, 'leaderboardAlias');
   const hasCoinsGrant = Object.prototype.hasOwnProperty.call(req.body || {}, 'coinsGrant');
 
-  if (!hasName && !hasNickname && !hasLeaderboardAlias && !hasCoinsGrant) {
+  if (!hasName && !hasNickname && !hasGrade && !hasInformaticsEgeScore && !hasLeaderboardAlias && !hasCoinsGrant) {
     return res.status(400).json({ error: 'Некорректные параметры' });
   }
 
@@ -16659,6 +16832,22 @@ app.patch('/api/students/:id', (req, res) => {
     studentNickname = normalizeStudentNickname(nickname);
     if (studentNickname.length > 60) return res.status(400).json({ error: 'Имя2 слишком длинное' });
     if (/[/\\]/.test(studentNickname)) return res.status(400).json({ error: 'Недопустимые символы' });
+  }
+
+  let studentGrade = null;
+  if (hasGrade) {
+    studentGrade = parseStudentGrade(grade);
+    if (studentGrade === null) {
+      return res.status(400).json({ error: 'Класс должен быть 10, 11 или выпускники' });
+    }
+  }
+
+  let studentInformaticsEgeScore = null;
+  if (hasInformaticsEgeScore) {
+    studentInformaticsEgeScore = parseStudentInformaticsEgeScore(informaticsEgeScore);
+    if (typeof studentInformaticsEgeScore === 'undefined') {
+      return res.status(400).json({ error: 'Балл ЕГЭ должен быть целым числом от 0 до 100' });
+    }
   }
 
   let studentLeaderboardAlias = null;
@@ -16697,6 +16886,15 @@ app.patch('/api/students/:id', (req, res) => {
   const updated = { ...students[idx] };
   if (hasName) updated.name = studentName;
   if (hasNickname) updated.nickname = studentNickname;
+  if (hasGrade) updated.grade = studentGrade;
+  const nextGrade = normalizeStudentGrade(updated.grade);
+  if (nextGrade !== STUDENT_GRADE_GRADUATE) {
+    updated.informaticsEgeScore = null;
+  } else if (hasInformaticsEgeScore) {
+    updated.informaticsEgeScore = studentInformaticsEgeScore;
+  } else {
+    updated.informaticsEgeScore = normalizeStudentInformaticsEgeScore(updated.informaticsEgeScore);
+  }
 
   students[idx] = updated;
   writeStudentsDb(students);
@@ -16719,6 +16917,10 @@ app.patch('/api/students/:id', (req, res) => {
     id: updated.id,
     name: updated.name,
     nickname: updated.nickname || '',
+    grade: normalizeStudentGrade(updated.grade),
+    informaticsEgeScore: normalizeStudentGrade(updated.grade) === STUDENT_GRADE_GRADUATE
+      ? normalizeStudentInformaticsEgeScore(updated.informaticsEgeScore)
+      : null,
     leaderboardAlias: storedAlias,
     xpTotal: updatedXpTotal,
     coinsTotal: updatedCoinsTotal,
@@ -17541,6 +17743,18 @@ app.post('/api/progress/solve', async (req, res) => {
   if (!questionEntry) {
     return res.status(400).json({ error: 'Вопрос не найден' });
   }
+  const answerCount = getAnswerCountForTask(taskNum);
+  const submittedAt = new Date().toISOString();
+  const data = getStudentData(student.id);
+  const solvedByTask = { ...(data.solvedByTask || {}) };
+  const taskEntry = { ...(solvedByTask[taskKey] || {}) };
+  let levelEntry = { ...(taskEntry[levelKey] || {}) };
+  const persistAnswerAttempt = (correct) => {
+    levelEntry = appendAnswerHistoryEntry(levelEntry, qKey, code, answerCount, correct, submittedAt);
+    taskEntry[levelKey] = levelEntry;
+    solvedByTask[taskKey] = taskEntry;
+    setStudentData(student.id, { ...data, solvedByTask });
+  };
   const isPythonLevel = isPythonTaskNumber(taskNum) || levelKey === PYTHON_LEVEL_ID;
   if (isPythonLevel) {
     if (typeof code !== 'string' || !code.trim()) {
@@ -17553,11 +17767,16 @@ app.post('/api/progress/solve', async (req, res) => {
       validation = await validatePythonSolveResults(questionEntry, code);
     }
     if (!validation.ok) {
+      persistAnswerAttempt(false);
       return res.status(400).json({ error: validation.error || 'Тесты не пройдены' });
     }
   } else if (!isSolvedAnswerValid(questionEntry, code, taskNum)) {
+    persistAnswerAttempt(false);
     return res.status(400).json({ error: 'Ответ неверный' });
   }
+  levelEntry = appendAnswerHistoryEntry(levelEntry, qKey, code, answerCount, true, submittedAt);
+  taskEntry[levelKey] = levelEntry;
+  solvedByTask[taskKey] = taskEntry;
   const serverDayKey = new Date().toISOString().slice(0, 10);
   const clientDayKey = normalizeDayKey(localDay);
   const resolvedDayKey = (() => {
@@ -17569,16 +17788,12 @@ app.post('/api/progress/solve', async (req, res) => {
     if (diff < -1 || diff > 1) return serverDayKey;
     return clientDayKey;
   })();
-  const data = getStudentData(student.id);
-  const solvedByTask = { ...(data.solvedByTask || {}) };
   const solvedEvents = Array.isArray(data.solvedEvents) ? [...data.solvedEvents] : [];
   const streak = normalizeStreak(data.streak);
   const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
   const artifactLevels = normalizeArtifactLevels(data?.artifactLevels, artifactInventory);
   let xpTotal = normalizeXpTotal(data.xpTotal);
   let coinsTotal = normalizeCoinsTotal(data.coinsTotal);
-  const taskEntry = { ...(solvedByTask[taskKey] || {}) };
-  const levelEntry = { ...(taskEntry[levelKey] || {}) };
 
   const solvedList = Array.isArray(levelEntry.solved) ? [...levelEntry.solved] : [];
   const solvedCode = levelEntry.solvedCode && typeof levelEntry.solvedCode === 'object'
@@ -18101,6 +18316,24 @@ app.get('/api/progress/solved-answers', (req, res) => {
   });
 
   return res.json(answerById);
+});
+
+app.get('/api/progress/answer-history', (req, res) => {
+  const { studentId, taskNumber, levelId } = req.query;
+  if (!taskNumber || !levelId) {
+    return res.status(400).json({ error: 'Некорректные параметры' });
+  }
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const taskNum = Number(taskNumber);
+  if (!Number.isFinite(taskNum)) {
+    return res.status(400).json({ error: 'Некорректный номер задания' });
+  }
+  const taskKey = String(taskNum);
+  const levelKey = String(levelId).trim();
+  const data = getStudentData(student.id);
+  const levelEntry = data?.solvedByTask?.[taskKey]?.[levelKey] || {};
+  return res.json(normalizeAnswerHistoryMap(levelEntry?.answerHistory));
 });
 
 app.get('/api/progress/task-code', (req, res) => {

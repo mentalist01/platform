@@ -5,6 +5,43 @@ import { buildDownloadUrl } from '../utils/downloadUrl';
 import BroadcastNotificationsPanel from './BroadcastNotificationsPanel';
 import { Button, Card } from './ui';
 import LinkifiedText from './LinkifiedText';
+
+const STUDENT_GRADE_OPTIONS = [
+  { value: '11', label: '11 класс' },
+  { value: '10', label: '10 класс' },
+  { value: 'graduate', label: 'Выпускники' },
+];
+
+const normalizeStudentGradeValue = (value) => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (normalized === 'graduate' || normalized === 'graduates' || normalized === 'выпускник' || normalized === 'выпускники') {
+    return 'graduate';
+  }
+  return Number(value) === 10 ? '10' : '11';
+};
+
+const getStudentGradeLabel = (value) => {
+  const normalized = normalizeStudentGradeValue(value);
+  if (normalized === 'graduate') return 'Выпускник';
+  return `${normalized} класс`;
+};
+
+const normalizeEgeScoreInput = (value) => {
+  const normalized = String(value ?? '').replace(/[^\d]/g, '').slice(0, 3);
+  if (!normalized) return '';
+  const score = Math.min(100, Math.max(0, Number(normalized)));
+  return Number.isFinite(score) ? String(Math.floor(score)) : '';
+};
+
+const parseOptionalEgeScore = (value) => {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return null;
+  if (!/^\d+$/.test(normalized)) return undefined;
+  const score = Number(normalized);
+  if (!Number.isInteger(score) || score < 0 || score > 100) return undefined;
+  return score;
+};
+
 const TeacherPanel = ({
   role,
   students,
@@ -53,6 +90,8 @@ const TeacherPanel = ({
   const [selectedTask, setSelectedTask] = useState(1);
   const [selectedLevel, setSelectedLevel] = useState('basic');
   const [newStudentName, setNewStudentName] = useState('');
+  const [newStudentGrade, setNewStudentGrade] = useState('11');
+  const [newStudentEgeScore, setNewStudentEgeScore] = useState('');
   const [studentActionLoading, setStudentActionLoading] = useState(false);
   const [studentActionError, setStudentActionError] = useState('');
   const [lastIssuedCode, setLastIssuedCode] = useState(null);
@@ -66,6 +105,8 @@ const TeacherPanel = ({
   const [editingStudentId, setEditingStudentId] = useState(null);
   const [editStudentName, setEditStudentName] = useState('');
   const [editStudentNickname, setEditStudentNickname] = useState('');
+  const [editStudentGrade, setEditStudentGrade] = useState('11');
+  const [editStudentEgeScore, setEditStudentEgeScore] = useState('');
   const [editStudentLeaderboardAlias, setEditStudentLeaderboardAlias] = useState('');
   const [editStudentLeaderboardAliasInitial, setEditStudentLeaderboardAliasInitial] = useState('');
   const [editStudentCoinsGrant, setEditStudentCoinsGrant] = useState('');
@@ -803,9 +844,18 @@ const TeacherPanel = ({
       setStudentActionError('Сначала выберите учителя');
       return;
     }
+    const grade = normalizeStudentGradeValue(newStudentGrade);
+    const egeScore = grade === 'graduate' ? parseOptionalEgeScore(newStudentEgeScore) : null;
+    if (typeof egeScore === 'undefined') {
+      setStudentActionError('Балл ЕГЭ: целое число от 0 до 100');
+      return;
+    }
     setStudentActionLoading(true);
     try {
-      const created = await api.createStudent(name, teacherId);
+      const created = await api.createStudent(name, teacherId, {
+        grade,
+        informaticsEgeScore: egeScore,
+      });
       const { code, ...rest } = created || {};
       if (rest?.id) onStudentCreated?.(rest);
       if (code) {
@@ -813,6 +863,8 @@ const TeacherPanel = ({
         setIsStudentsExpanded(true);
       }
       setNewStudentName('');
+      setNewStudentGrade('11');
+      setNewStudentEgeScore('');
       setStudentActionError('');
     } catch (err) {
       setStudentActionError(err?.message || err);
@@ -891,6 +943,12 @@ const TeacherPanel = ({
     setEditingStudentId(student.id);
     setEditStudentName(student.name || '');
     setEditStudentNickname(student.nickname || '');
+    setEditStudentGrade(normalizeStudentGradeValue(student.grade));
+    setEditStudentEgeScore(
+      typeof student.informaticsEgeScore === 'number'
+        ? String(student.informaticsEgeScore)
+        : ''
+    );
     const alias = typeof student.leaderboardAlias === 'string' ? student.leaderboardAlias : '';
     setEditStudentLeaderboardAlias(alias);
     setEditStudentLeaderboardAliasInitial(alias);
@@ -902,6 +960,8 @@ const TeacherPanel = ({
     setEditingStudentId(null);
     setEditStudentName('');
     setEditStudentNickname('');
+    setEditStudentGrade('11');
+    setEditStudentEgeScore('');
     setEditStudentLeaderboardAlias('');
     setEditStudentLeaderboardAliasInitial('');
     setEditStudentCoinsGrant('');
@@ -915,6 +975,8 @@ const TeacherPanel = ({
     const initialAlias = String(editStudentLeaderboardAliasInitial || '').trim();
     const aliasChanged = nextAlias !== initialAlias;
     const rawCoinsGrant = String(editStudentCoinsGrant || '').trim();
+    const nextGrade = normalizeStudentGradeValue(editStudentGrade);
+    const egeScore = nextGrade === 'graduate' ? parseOptionalEgeScore(editStudentEgeScore) : null;
     setEditStudentError('');
     if (!nextName) {
       setEditStudentError('Введите имя ученика');
@@ -942,10 +1004,19 @@ const TeacherPanel = ({
         return;
       }
     }
+    if (typeof egeScore === 'undefined') {
+      setEditStudentError('Балл ЕГЭ: целое число от 0 до 100');
+      return;
+    }
 
     setEditStudentSaving(true);
     try {
-      const payload = { name: nextName, nickname: editStudentNickname };
+      const payload = {
+        name: nextName,
+        nickname: editStudentNickname,
+        grade: nextGrade,
+        informaticsEgeScore: egeScore,
+      };
       if (aliasChanged) payload.leaderboardAlias = nextAlias;
       if (rawCoinsGrant) payload.coinsGrant = Number(rawCoinsGrant);
       const res = await api.updateStudent(student.id, payload);
@@ -1336,6 +1407,41 @@ const TeacherPanel = ({
             placeholder="Имя ученика"
             className="flex-1 px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
           />
+          <div className="inline-flex shrink-0 rounded-xl border border-gray-200 bg-gray-50 p-1">
+            {STUDENT_GRADE_OPTIONS.map((option) => {
+              const isActive = normalizeStudentGradeValue(newStudentGrade) === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setNewStudentGrade(option.value)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    isActive
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : 'text-gray-600 hover:bg-white'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+          {normalizeStudentGradeValue(newStudentGrade) === 'graduate' && (
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              inputMode="numeric"
+              value={newStudentEgeScore}
+              onChange={(e) => {
+                setNewStudentEgeScore(normalizeEgeScoreInput(e.target.value));
+                setStudentActionError('');
+              }}
+              placeholder="Балл ЕГЭ"
+              className="w-full px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none md:w-32"
+            />
+          )}
           <Button onClick={handleCreateStudent} disabled={studentActionLoading || !newStudentName.trim()}>
             <Plus size={16}/> Добавить
           </Button>
@@ -1374,6 +1480,13 @@ const TeacherPanel = ({
                 : (typeof getLevelFromXp === 'function' ? getLevelFromXp(studentXpTotal) : 1);
               const studentXpLabel = studentXpTotal.toLocaleString('ru-RU');
               const studentCoinsLabel = studentCoinsTotal.toLocaleString('ru-RU');
+              const studentGrade = normalizeStudentGradeValue(student.grade);
+              const studentGradeLabel = getStudentGradeLabel(student.grade);
+              const studentEgeScore = Number(student?.informaticsEgeScore);
+              const hasStudentEgeScore = studentGrade === 'graduate'
+                && Number.isInteger(studentEgeScore)
+                && studentEgeScore >= 0
+                && studentEgeScore <= 100;
               return (
                 <div
                   key={student.id}
@@ -1409,6 +1522,42 @@ const TeacherPanel = ({
                           placeholder="Имя2 (только для вас)"
                           className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
                         />
+                        <div className="inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1">
+                          {STUDENT_GRADE_OPTIONS.map((option) => {
+                            const isActive = normalizeStudentGradeValue(editStudentGrade) === option.value;
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => setEditStudentGrade(option.value)}
+                                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                                  isActive
+                                    ? 'bg-purple-600 text-white shadow-sm'
+                                    : 'text-gray-600 hover:bg-white'
+                                }`}
+                              >
+                                {option.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {normalizeStudentGradeValue(editStudentGrade) === 'graduate' && (
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="1"
+                            inputMode="numeric"
+                            value={editStudentEgeScore}
+                            onChange={(e) => setEditStudentEgeScore(normalizeEgeScoreInput(e.target.value))}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveEditStudent(student);
+                              if (e.key === 'Escape') cancelEditStudent();
+                            }}
+                            placeholder="Балл ЕГЭ по информатике"
+                            className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+                          />
+                        )}
                         <input
                           type="text"
                           value={editStudentLeaderboardAlias}
@@ -1473,6 +1622,20 @@ const TeacherPanel = ({
                           >
                             {`${studentCoinsLabel} монет`}
                           </span>
+                          <span
+                            className="teacher-student-card__pill inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700"
+                            data-tone="grade"
+                          >
+                            {studentGradeLabel}
+                          </span>
+                          {hasStudentEgeScore && (
+                            <span
+                              className="teacher-student-card__pill inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700"
+                              data-tone="ege-score"
+                            >
+                              {`ЕГЭ ${studentEgeScore}`}
+                            </span>
+                          )}
                           <span
                             className="teacher-student-card__pill inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700"
                             data-tone="notes"
@@ -1575,6 +1738,12 @@ const TeacherPanel = ({
             <div className="space-y-2">
               {deletedStudentsList.map((student) => {
                 const daysLeft = getDeletedDaysLeft(student.deletedAt);
+                const studentGrade = normalizeStudentGradeValue(student.grade);
+                const studentEgeScore = Number(student?.informaticsEgeScore);
+                const hasStudentEgeScore = studentGrade === 'graduate'
+                  && Number.isInteger(studentEgeScore)
+                  && studentEgeScore >= 0
+                  && studentEgeScore <= 100;
                 return (
                   <div
                     key={student.id}
@@ -1585,6 +1754,10 @@ const TeacherPanel = ({
                       {student.nickname && (
                         <p className="text-xs text-purple-600 truncate">Имя2: {student.nickname}</p>
                       )}
+                      <p className="text-xs text-gray-500">
+                        Класс: {getStudentGradeLabel(student.grade)}
+                        {hasStudentEgeScore ? ` • ЕГЭ ${studentEgeScore}` : ''}
+                      </p>
                       <p className="text-xs text-gray-500">
                         Удалён: {formatDeletedDate(student.deletedAt) || '—'}
                       </p>

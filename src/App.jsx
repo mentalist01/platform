@@ -119,6 +119,7 @@ const parseNativePushLaunchUrl = (value) => {
 const PLATFORM_DOCUMENT_TITLE = 'Платформа';
 const CHAT_LIVE_RECONNECT_DELAY_MS = 2500;
 const PLATFORM_CHATS_ENABLED = true;
+const SESSION_SYNC_INTERVAL_MS = 5000;
 
 const formatUnreadMessageTitle = (count) => {
   const safeCount = Math.max(1, Math.floor(Number(count) || 1));
@@ -2361,6 +2362,10 @@ const sanitizeAuthUserPayload = (value) => {
   if (role === 'student') {
     const teacherId = value.teacherId;
     safe.teacherId = teacherId ? String(teacherId) : null;
+    const rawGrade = String(value.grade ?? '').trim().toLowerCase();
+    safe.grade = rawGrade === 'graduate' || rawGrade === 'graduates' || rawGrade === 'выпускник' || rawGrade === 'выпускники'
+      ? 'graduate'
+      : (Number(value.grade) === 10 ? 10 : 11);
     const avatarDataUrl = typeof value.avatarDataUrl === 'string' ? value.avatarDataUrl.trim() : '';
     if (avatarDataUrl) safe.avatarDataUrl = avatarDataUrl;
   }
@@ -11557,6 +11562,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const STUDENT_CALL_SECTION_ENABLED = true;
   const TEACHER_COMMS_VIEW = 'teacher-comms';
   const TEACHER_COMMS_TABS = PLATFORM_CHATS_ENABLED ? ['signup-chats', 'student-chats', 'notifications'] : [];
+  const studentCanSeeReview = user.role !== 'student' || Number(user?.grade) !== 10;
   const resolveTeacherCommsTab = (value) => {
     const normalized = String(value || '').trim();
     return TEACHER_COMMS_TABS.includes(normalized) ? normalized : 'signup-chats';
@@ -11588,7 +11594,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       : [
         'schedule',
         'progress',
-        'review',
+        ...(studentCanSeeReview ? ['review'] : []),
         'python',
         'rating',
         'collab',
@@ -11599,7 +11605,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ];
   const allowedViewsKey = allowedViews.join('|');
   const isCallViewAvailable = allowedViews.includes('call');
-  const defaultView = user.role === 'teacher' ? 'teacher' : (user.role === 'admin' ? 'admin' : 'review');
+  const defaultView = user.role === 'teacher'
+    ? 'teacher'
+    : (user.role === 'admin' ? 'admin' : (studentCanSeeReview ? 'review' : 'schedule'));
   const storedLocation = readUserLocation(user);
   const storedView = storedLocation?.view;
   const urlParams = typeof window !== 'undefined'
@@ -11624,7 +11632,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         || (storedView === 'python' ? fallbackPythonOpenTask : null))
     : null;
   const storedActiveStudentId = storedLocation?.activeStudentId ? String(storedLocation.activeStudentId) : null;
-  const shouldPreferReviewHome = user.role === 'student' && !normalizedUrlRequestedView && !restoredOpenTask;
+  const shouldPreferReviewHome = user.role === 'student' && studentCanSeeReview && !normalizedUrlRequestedView && !restoredOpenTask;
   const initialView = (normalizedUrlRequestedView && allowedViews.includes(normalizedUrlRequestedView))
     ? normalizedUrlRequestedView
     : (restoredOpenTask?.section && allowedViews.includes(restoredOpenTask.section))
@@ -11653,6 +11661,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : null;
 
   const [view, setView] = useState(initialView);
+
+  useEffect(() => {
+    const allowedViewsList = allowedViewsKey ? allowedViewsKey.split('|') : [];
+    if (view && !allowedViewsList.includes(view)) {
+      setView(defaultView);
+    }
+  }, [allowedViewsKey, defaultView, view]);
+
   const [teacherCommsTab, setTeacherCommsTab] = useState(initialTeacherCommsTab);
   const [teacherStudentChatId, setTeacherStudentChatId] = useState(initialTeacherStudentChatId);
   const [teacherSignupChatId, setTeacherSignupChatId] = useState(initialTeacherSignupChatId);
@@ -11934,7 +11950,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       : [
         { id: 'schedule', label: 'Моё расписание', icon: Calendar },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
-        { id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true },
+        ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
         { id: 'rating', label: 'Рейтинг', icon: Trophy },
         { id: 'collab', label: 'Совместный код', icon: Code2 },
@@ -11950,7 +11966,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ? ['call', 'board', 'collab']
     : ['board', 'collab'];
   const teacherLessonNavIds = ['call', 'board', 'collab'];
-  const studentCoreNavIds = ['schedule', 'progress', 'review', ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'notes'];
+  const studentCoreNavIds = ['schedule', 'progress', ...(studentCanSeeReview ? ['review'] : []), ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'notes'];
   const studentLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
   const teacherLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
   const studentPrimaryNav = user.role === 'student'
@@ -13390,11 +13406,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const resolvedView = ((user.role === 'student' || user.role === 'teacher') && normalizedView === 'lesson')
       ? studentDefaultLessonView
       : normalizedView;
+    const allowedViewsList = allowedViewsKey ? allowedViewsKey.split('|') : [];
+    if (!allowedViewsList.includes(resolvedView)) return;
     if (!resolvedView || resolvedView === view) return;
     stopGoalFlyAnimation();
     captureGoalFlySource(resolvedView);
     setView(resolvedView);
-  }, [captureGoalFlySource, stopGoalFlyAnimation, studentDefaultLessonView, user.role, view]);
+  }, [allowedViewsKey, captureGoalFlySource, stopGoalFlyAnimation, studentDefaultLessonView, user.role, view]);
   const handleOpenStudentDirectChat = useCallback(async (targetStudentId) => {
     if (!PLATFORM_CHATS_ENABLED || user.role !== 'student') return;
     const normalizedStudentId = String(targetStudentId || '').trim();
@@ -16187,7 +16205,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onTogglePush={handleTogglePush}
             />
           )}
-          {view === 'review' && (
+          {view === 'review' && (user.role !== 'student' || studentCanSeeReview) && (
             <FinalReviewSection
               key={user.id}
               userId={user.id}
@@ -16960,6 +16978,7 @@ const MainApp = () => {
         && current.role === normalized.role
         && current.name === normalized.name
         && current.teacherId === normalized.teacherId
+        && current.grade === normalized.grade
         && current.chatId === normalized.chatId
         && current.avatarDataUrl === normalized.avatarDataUrl
         && current.authToken === normalized.authToken
@@ -16972,6 +16991,36 @@ const MainApp = () => {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(USER_SESSION_KEY, JSON.stringify(normalized));
     }
+    return normalized;
+  }, []);
+
+  const syncCurrentUserPayload = useCallback((value) => {
+    const normalized = sanitizeAuthUserPayload(value);
+    if (!normalized) return null;
+    setUser((current) => {
+      if (!current || current.id !== normalized.id || current.role !== normalized.role) {
+        return current;
+      }
+      const next = {
+        ...current,
+        ...normalized,
+        authToken: normalized.authToken || current.authToken,
+      };
+      if (
+        current.name === next.name
+        && current.teacherId === next.teacherId
+        && current.grade === next.grade
+        && current.chatId === next.chatId
+        && current.avatarDataUrl === next.avatarDataUrl
+        && current.authToken === next.authToken
+      ) {
+        return current;
+      }
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(USER_SESSION_KEY, JSON.stringify(next));
+      }
+      return next;
+    });
     return normalized;
   }, []);
 
@@ -16998,21 +17047,50 @@ const MainApp = () => {
   }, []);
 
   useEffect(() => {
-    if (!isNativeAppRuntime() || !user?.authToken) return undefined;
+    if (!user || user.role === 'lead') return undefined;
     let cancelled = false;
-    api.getCurrentSession()
-      .then((session) => {
-        if (cancelled) return;
-        persistNormalizedUser(session);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        console.error('[apk-auth] session sync failed:', error);
-      });
+    let syncing = false;
+
+    const syncSession = async () => {
+      if (syncing) return;
+      syncing = true;
+      try {
+        const session = await api.getCurrentSession();
+        if (!cancelled) syncCurrentUserPayload(session);
+      } catch (error) {
+        if (!cancelled) console.error('[auth] session sync failed:', error);
+      } finally {
+        syncing = false;
+      }
+    };
+
+    const handleVisibilitySync = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      syncSession();
+    };
+
+    syncSession();
+    const intervalId = typeof window !== 'undefined'
+      ? window.setInterval(syncSession, SESSION_SYNC_INTERVAL_MS)
+      : null;
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleVisibilitySync);
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilitySync);
+    }
+
     return () => {
       cancelled = true;
+      if (intervalId) window.clearInterval(intervalId);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleVisibilitySync);
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilitySync);
+      }
     };
-  }, [persistNormalizedUser, user?.authToken]);
+  }, [syncCurrentUserPayload, user?.id, user?.role]);
 
   useEffect(() => {
     const updateVh = () => {
