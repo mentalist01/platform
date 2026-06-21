@@ -12643,7 +12643,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const STUDENT_CALL_SECTION_ENABLED = true;
   const TEACHER_COMMS_VIEW = 'teacher-comms';
   const TEACHER_COMMS_TABS = PLATFORM_CHATS_ENABLED ? ['signup-chats', 'student-chats', 'notifications'] : [];
-  const studentCanSeeReview = user.role !== 'student' || Number(user?.grade) !== 10;
+  const studentCanSeeReview = user.role !== 'student' || user?.grade === 'graduate';
   const resolveTeacherCommsTab = (value) => {
     const normalized = String(value || '').trim();
     return TEACHER_COMMS_TABS.includes(normalized) ? normalized : 'signup-chats';
