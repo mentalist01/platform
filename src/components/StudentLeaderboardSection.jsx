@@ -348,7 +348,7 @@ const StudentLeaderboardSection = ({
     selectedStudent: null,
   });
   const [selectedMetricId, setSelectedMetricId] = useState('xp');
-  const [audienceFilter, setAudienceFilter] = useState('students');
+  const [audienceFilter, setAudienceFilter] = useState('all');
   const [altar, setAltar] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -381,7 +381,6 @@ const StudentLeaderboardSection = ({
   const [studentProfileChatOpening, setStudentProfileChatOpening] = useState(false);
   const [studentProfileChatError, setStudentProfileChatError] = useState('');
   const mountedRef = useRef(true);
-  const previousAudienceRoleRef = useRef(role);
   const studentProfileRequestIdRef = useRef(0);
   const chestPressTimerRef = useRef(null);
 
@@ -561,16 +560,13 @@ const StudentLeaderboardSection = ({
     : null;
 
   useEffect(() => {
-    const roleChanged = previousAudienceRoleRef.current !== role;
-    previousAudienceRoleRef.current = role;
     setAudienceFilter((current) => {
       if (role === 'student') {
-        if (roleChanged) return 'grade';
-        return current === 'all' ? current : 'grade';
+        return current === 'grade' || current === 'all' ? current : 'all';
       }
-      return current === 'grade' ? 'students' : current;
+      return current === 'grade' ? 'all' : current;
     });
-  }, [currentStudentGrade, role]);
+  }, [role]);
 
   const visibleRows = useMemo(() => {
     if (audienceFilter === 'all') return rows;
@@ -595,14 +591,14 @@ const StudentLeaderboardSection = ({
   const audienceFilterOptions = useMemo(() => {
     if (role === 'student') {
       return [
-        { id: 'grade', label: 'Мой класс', count: currentGradeRowsCount },
         { id: 'all', label: 'Все', count: rows.length },
+        { id: 'grade', label: 'Мой класс', count: currentGradeRowsCount },
       ];
     }
     return [
+      { id: 'all', label: 'Все', count: rows.length },
       { id: 'students', label: 'Ученики', count: rows.length - graduateRowsCount },
       { id: 'graduates', label: 'Выпускники', count: graduateRowsCount },
-      { id: 'all', label: 'Все', count: rows.length },
     ];
   }, [currentGradeRowsCount, graduateRowsCount, role, rows.length]);
 
