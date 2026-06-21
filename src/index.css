@@ -12618,32 +12618,34 @@ html[data-theme='dark'] .surface-card {
 }
 
 .student-chat-hero > .relative {
-  gap: 0.8rem !important;
-  padding: 0.68rem 0.78rem !important;
+  gap: 0.62rem !important;
+  padding: 0.42rem 0.62rem !important;
 }
 
 .student-chat-hero-heading {
-  gap: 0.62rem !important;
+  gap: 0.52rem !important;
 }
 
 .student-chat-hero-icon {
-  width: 2.35rem !important;
-  height: 2.35rem !important;
-  border-radius: 0.9rem !important;
+  width: 2.1rem !important;
+  height: 2.1rem !important;
+  border-radius: 0.78rem !important;
 }
 
 .student-chat-hero-icon svg {
-  width: 1.08rem;
-  height: 1.08rem;
+  width: 0.96rem;
+  height: 0.96rem;
 }
 
 .student-chat-hero-title {
-  font-size: clamp(1.45rem, 2vw, 1.85rem) !important;
+  font-size: clamp(1.3rem, 1.75vw, 1.62rem) !important;
+  line-height: 1 !important;
 }
 
 .student-chat-hero-subtitle {
   max-width: 28rem;
-  font-size: 0.72rem !important;
+  font-size: 0.68rem !important;
+  line-height: 1.1 !important;
 }
 
 .student-chat-tab-unread {
@@ -12672,9 +12674,9 @@ html[data-theme='dark'] .surface-card {
 }
 
 .student-chat-tabs {
-  padding: 0.16rem;
+  padding: 0.12rem;
   border: 1px solid rgba(255, 255, 255, 0.13);
-  border-radius: 1.05rem;
+  border-radius: 0.9rem;
   background: rgba(255, 255, 255, 0.075);
   overflow: visible !important;
   box-shadow:
@@ -12683,8 +12685,8 @@ html[data-theme='dark'] .surface-card {
 }
 
 .student-chat-tab {
-  min-height: 2.55rem;
-  border-radius: 0.95rem !important;
+  min-height: 2.2rem;
+  border-radius: 0.78rem !important;
   overflow: visible !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
@@ -12716,20 +12718,20 @@ html[data-theme='dark'] .surface-card {
   color: inherit;
   font: inherit;
   outline: none;
-  gap: 0.48rem !important;
-  padding: 0.42rem 0.62rem !important;
+  gap: 0.4rem !important;
+  padding: 0.3rem 0.52rem !important;
 }
 
 .student-chat-tab-icon,
 .student-chat-tab-notify {
-  width: 1.65rem !important;
-  height: 1.65rem !important;
-  border-radius: 0.65rem !important;
+  width: 1.48rem !important;
+  height: 1.48rem !important;
+  border-radius: 0.56rem !important;
 }
 
 .student-chat-push-button {
-  height: 2.55rem !important;
-  border-radius: 0.95rem !important;
+  height: 2.2rem !important;
+  border-radius: 0.78rem !important;
 }
 
 .student-chat-tab-main:focus-visible,
@@ -31979,6 +31981,8 @@ html[data-theme='dark'] .collab-task-files-note code {
     --collab-board-code-gap: 0.65rem;
     --collab-board-code-resizer-offset: 0.325rem;
     --collab-board-pane-width: 60%;
+    padding-right: 0 !important;
+    padding-left: 0 !important;
   }
 
   .collab-workspace-card--glass-board .collab-top-pane-wrap {
@@ -31988,9 +31992,11 @@ html[data-theme='dark'] .collab-task-files-note code {
   }
 
   .collab-workspace-card--glass-board .collab-code-glass-layer {
-    padding-top: 0.55rem !important;
-    padding-right: 0.55rem !important;
-    padding-bottom: 0.48rem !important;
+    margin-top: -0.45rem;
+    margin-bottom: -0.35rem;
+    padding-top: 0 !important;
+    padding-right: 0 !important;
+    padding-bottom: 0 !important;
     padding-left: calc(var(--collab-board-pane-width) + var(--collab-board-code-gap)) !important;
   }
 
@@ -44571,4 +44577,606 @@ html[data-theme='dark'] .collab-code-command-row--modern .collab-top-actions > .
 html[data-theme='dark'] .collab-code-command-row--modern .collab-top-actions > .collab-code-online-icon {
   background: rgba(148, 163, 184, 0.12) !important;
   color: #cbd5e1 !important;
+}
+
+/* Polished theme-aware controls for the collaborative code command bar. */
+.collab-workspace-card--glass-board .collab-code-command-row--modern,
+.collab-code-command-row--modern {
+  --collab-command-border: rgba(148, 163, 184, 0.22);
+  --collab-command-surface: rgba(255, 255, 255, 0.84);
+  --collab-control-border: rgba(148, 163, 184, 0.3);
+  --collab-control-surface: rgba(255, 255, 255, 0.96);
+  --collab-control-text: #334155;
+  --collab-control-hover-border: rgba(139, 92, 246, 0.4);
+  --collab-control-hover-surface: #f5f3ff;
+  --collab-control-hover-text: #7c3aed;
+  border-color: var(--collab-command-border) !important;
+  background:
+    radial-gradient(circle at 7% 0%, rgba(139, 92, 246, 0.1), transparent 34%),
+    linear-gradient(180deg, var(--collab-command-surface), rgba(248, 250, 252, 0.76)) !important;
+  box-shadow:
+    0 10px 26px rgba(51, 65, 85, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar.collab-code-toolbar--board-style,
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions,
+.collab-code-command-row--modern .collab-code-toolbar.collab-code-toolbar--board-style,
+.collab-code-command-row--modern .collab-top-actions {
+  gap: 5px !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button,
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions > .collab-code-action-icon,
+.collab-code-command-row--modern .collab-code-icon-button,
+.collab-code-command-row--modern .collab-top-actions > .collab-code-action-icon {
+  border: 1px solid var(--collab-control-border) !important;
+  background: var(--collab-control-surface) !important;
+  color: var(--collab-control-text) !important;
+  box-shadow:
+    0 3px 9px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98) !important;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button:not(:disabled):hover,
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions > button.collab-code-action-icon:not(:disabled):hover,
+.collab-code-command-row--modern .collab-code-icon-button:not(:disabled):hover,
+.collab-code-command-row--modern .collab-top-actions > button.collab-code-action-icon:not(:disabled):hover {
+  border-color: var(--collab-control-hover-border) !important;
+  background: var(--collab-control-hover-surface) !important;
+  color: var(--collab-control-hover-text) !important;
+  box-shadow:
+    0 7px 16px rgba(124, 58, 237, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98) !important;
+  transform: translateY(-1px) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.is-primary,
+.collab-code-command-row--modern .collab-code-icon-button.is-primary {
+  border-color: rgba(124, 58, 237, 0.66) !important;
+  background: linear-gradient(135deg, #9b6df2, #7c3aed) !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 8px 18px rgba(124, 58, 237, 0.27),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.is-accent,
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions > .collab-code-action-icon.is-primary,
+.collab-code-command-row--modern .collab-code-icon-button.is-accent,
+.collab-code-command-row--modern .collab-top-actions > .collab-code-action-icon.is-primary {
+  border-color: rgba(139, 92, 246, 0.25) !important;
+  background: linear-gradient(180deg, #f5f3ff, #ede9fe) !important;
+  color: #7c3aed !important;
+  box-shadow:
+    0 4px 11px rgba(124, 58, 237, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.94) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.is-danger,
+.collab-code-command-row--modern .collab-code-icon-button.is-danger {
+  border-color: rgba(244, 63, 94, 0.22) !important;
+  background: #fff1f2 !important;
+  color: #e11d48 !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.is-warning,
+.collab-code-command-row--modern .collab-code-icon-button.is-warning {
+  border-color: rgba(245, 158, 11, 0.26) !important;
+  background: #fffbeb !important;
+  color: #d97706 !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.is-disabled,
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button:disabled,
+.collab-code-command-row--modern .collab-code-icon-button.is-disabled,
+.collab-code-command-row--modern .collab-code-icon-button:disabled {
+  border-color: rgba(203, 213, 225, 0.62) !important;
+  background: rgba(248, 250, 252, 0.76) !important;
+  color: #a8b0bc !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88) !important;
+  opacity: 0.72;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions > .collab-code-status-icon.is-connected,
+.collab-code-command-row--modern .collab-top-actions > .collab-code-status-icon.is-connected {
+  border-color: rgba(16, 185, 129, 0.28) !important;
+  background: linear-gradient(180deg, #ecfdf5, #dff9ee) !important;
+  color: #059669 !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions > .collab-code-status-icon.is-connecting,
+.collab-code-command-row--modern .collab-top-actions > .collab-code-status-icon.is-connecting {
+  border-color: rgba(245, 158, 11, 0.28) !important;
+  background: #fffbeb !important;
+  color: #d97706 !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions > .collab-code-status-icon.is-disconnected,
+.collab-code-command-row--modern .collab-top-actions > .collab-code-status-icon.is-disconnected {
+  border-color: rgba(244, 63, 94, 0.24) !important;
+  background: #fff1f2 !important;
+  color: #e11d48 !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions > .collab-code-online-icon,
+.collab-code-command-row--modern .collab-top-actions > .collab-code-online-icon {
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  background: linear-gradient(180deg, #ffffff, #f1f5f9) !important;
+  color: #475569 !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern,
+html[data-theme='dark'] .collab-code-command-row--modern {
+  --collab-command-border: rgba(148, 163, 184, 0.2);
+  --collab-command-surface: rgba(15, 23, 42, 0.92);
+  --collab-control-border: rgba(148, 163, 184, 0.24);
+  --collab-control-surface: rgba(30, 41, 59, 0.88);
+  --collab-control-text: #dbe4ef;
+  --collab-control-hover-border: rgba(167, 139, 250, 0.48);
+  --collab-control-hover-surface: rgba(76, 29, 149, 0.34);
+  --collab-control-hover-text: #ddd6fe;
+  background:
+    radial-gradient(circle at 7% 0%, rgba(139, 92, 246, 0.17), transparent 34%),
+    linear-gradient(180deg, var(--collab-command-surface), rgba(7, 12, 24, 0.94)) !important;
+  box-shadow:
+    0 14px 32px rgba(2, 6, 23, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar__divider,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions::before,
+html[data-theme='dark'] .collab-code-command-row--modern .collab-code-toolbar__divider,
+html[data-theme='dark'] .collab-code-command-row--modern .collab-top-actions::before {
+  background: linear-gradient(180deg, transparent, rgba(148, 163, 184, 0.34) 24%, rgba(148, 163, 184, 0.34) 76%, transparent) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions > .collab-code-action-icon,
+html[data-theme='dark'] .collab-code-command-row--modern .collab-code-icon-button,
+html[data-theme='dark'] .collab-code-command-row--modern .collab-top-actions > .collab-code-action-icon {
+  border-color: var(--collab-control-border) !important;
+  background: var(--collab-control-surface) !important;
+  color: var(--collab-control-text) !important;
+  box-shadow:
+    0 5px 13px rgba(2, 6, 23, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.is-primary,
+html[data-theme='dark'] .collab-code-command-row--modern .collab-code-icon-button.is-primary {
+  border-color: rgba(196, 181, 253, 0.44) !important;
+  background: linear-gradient(135deg, #9b6df2, #6d28d9) !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 9px 21px rgba(91, 33, 182, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.is-accent,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions > .collab-code-action-icon.is-primary,
+html[data-theme='dark'] .collab-code-command-row--modern .collab-code-icon-button.is-accent,
+html[data-theme='dark'] .collab-code-command-row--modern .collab-top-actions > .collab-code-action-icon.is-primary {
+  border-color: rgba(167, 139, 250, 0.3) !important;
+  background: rgba(124, 58, 237, 0.22) !important;
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.is-danger,
+html[data-theme='dark'] .collab-code-command-row--modern .collab-code-icon-button.is-danger {
+  border-color: rgba(251, 113, 133, 0.26) !important;
+  background: rgba(159, 18, 57, 0.2) !important;
+  color: #fda4af !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.is-warning,
+html[data-theme='dark'] .collab-code-command-row--modern .collab-code-icon-button.is-warning {
+  border-color: rgba(251, 191, 36, 0.26) !important;
+  background: rgba(146, 64, 14, 0.22) !important;
+  color: #fcd34d !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.is-disabled,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button:disabled,
+html[data-theme='dark'] .collab-code-command-row--modern .collab-code-icon-button.is-disabled,
+html[data-theme='dark'] .collab-code-command-row--modern .collab-code-icon-button:disabled {
+  border-color: rgba(100, 116, 139, 0.22) !important;
+  background: rgba(15, 23, 42, 0.48) !important;
+  color: #64748b !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+  opacity: 0.7;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions > .collab-code-status-icon.is-connected,
+html[data-theme='dark'] .collab-code-command-row--modern .collab-top-actions > .collab-code-status-icon.is-connected {
+  border-color: rgba(52, 211, 153, 0.28) !important;
+  background: rgba(6, 95, 70, 0.34) !important;
+  color: #6ee7b7 !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions > .collab-code-status-icon.is-connecting,
+html[data-theme='dark'] .collab-code-command-row--modern .collab-top-actions > .collab-code-status-icon.is-connecting {
+  border-color: rgba(251, 191, 36, 0.28) !important;
+  background: rgba(146, 64, 14, 0.28) !important;
+  color: #fcd34d !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions > .collab-code-status-icon.is-disconnected,
+html[data-theme='dark'] .collab-code-command-row--modern .collab-top-actions > .collab-code-status-icon.is-disconnected {
+  border-color: rgba(251, 113, 133, 0.28) !important;
+  background: rgba(159, 18, 57, 0.24) !important;
+  color: #fda4af !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions > .collab-code-online-icon,
+html[data-theme='dark'] .collab-code-command-row--modern .collab-top-actions > .collab-code-online-icon {
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background: rgba(30, 41, 59, 0.86) !important;
+  color: #cbd5e1 !important;
+}
+
+/* The editor has its own theme and can be dark while the surrounding page is light. */
+.collab-workspace-card--glass-board .collab-code-command-row--modern.collab-code-command-row--dark,
+.collab-code-command-row--modern.collab-code-command-row--dark {
+  --collab-command-border: rgba(148, 163, 184, 0.2);
+  --collab-command-surface: rgba(15, 23, 42, 0.92);
+  --collab-control-border: rgba(148, 163, 184, 0.24);
+  --collab-control-surface: rgba(30, 41, 59, 0.88);
+  --collab-control-text: #dbe4ef;
+  --collab-control-hover-border: rgba(167, 139, 250, 0.48);
+  --collab-control-hover-surface: rgba(76, 29, 149, 0.34);
+  --collab-control-hover-text: #ddd6fe;
+  border-color: var(--collab-command-border) !important;
+  background:
+    radial-gradient(circle at 7% 0%, rgba(139, 92, 246, 0.17), transparent 34%),
+    linear-gradient(180deg, var(--collab-command-surface), rgba(7, 12, 24, 0.94)) !important;
+  box-shadow:
+    0 14px 32px rgba(2, 6, 23, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--dark .collab-code-toolbar__divider,
+.collab-workspace-card--glass-board .collab-code-command-row--dark .collab-top-actions::before,
+.collab-code-command-row--dark .collab-code-toolbar__divider,
+.collab-code-command-row--dark .collab-top-actions::before {
+  background: linear-gradient(180deg, transparent, rgba(148, 163, 184, 0.34) 24%, rgba(148, 163, 184, 0.34) 76%, transparent) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--dark .collab-code-icon-button,
+.collab-workspace-card--glass-board .collab-code-command-row--dark .collab-top-actions > .collab-code-action-icon,
+.collab-code-command-row--dark .collab-code-icon-button,
+.collab-code-command-row--dark .collab-top-actions > .collab-code-action-icon {
+  border-color: var(--collab-control-border) !important;
+  background: var(--collab-control-surface) !important;
+  color: var(--collab-control-text) !important;
+  box-shadow:
+    0 5px 13px rgba(2, 6, 23, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--dark .collab-code-icon-button.is-primary,
+.collab-code-command-row--dark .collab-code-icon-button.is-primary {
+  border-color: rgba(196, 181, 253, 0.44) !important;
+  background: linear-gradient(135deg, #9b6df2, #6d28d9) !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 9px 21px rgba(91, 33, 182, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--dark .collab-code-icon-button.is-accent,
+.collab-workspace-card--glass-board .collab-code-command-row--dark .collab-top-actions > .collab-code-action-icon.is-primary,
+.collab-code-command-row--dark .collab-code-icon-button.is-accent,
+.collab-code-command-row--dark .collab-top-actions > .collab-code-action-icon.is-primary {
+  border-color: rgba(167, 139, 250, 0.3) !important;
+  background: rgba(124, 58, 237, 0.22) !important;
+  color: #c4b5fd !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--dark .collab-code-icon-button.is-danger,
+.collab-code-command-row--dark .collab-code-icon-button.is-danger {
+  border-color: rgba(251, 113, 133, 0.26) !important;
+  background: rgba(159, 18, 57, 0.2) !important;
+  color: #fda4af !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--dark .collab-code-icon-button.is-warning,
+.collab-code-command-row--dark .collab-code-icon-button.is-warning {
+  border-color: rgba(251, 191, 36, 0.26) !important;
+  background: rgba(146, 64, 14, 0.22) !important;
+  color: #fcd34d !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--dark .collab-code-icon-button.is-disabled,
+.collab-workspace-card--glass-board .collab-code-command-row--dark .collab-code-icon-button:disabled,
+.collab-code-command-row--dark .collab-code-icon-button.is-disabled,
+.collab-code-command-row--dark .collab-code-icon-button:disabled {
+  border-color: rgba(100, 116, 139, 0.22) !important;
+  background: rgba(15, 23, 42, 0.48) !important;
+  color: #64748b !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+  opacity: 0.7;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--dark .collab-top-actions > .collab-code-status-icon.is-connected,
+.collab-code-command-row--dark .collab-top-actions > .collab-code-status-icon.is-connected {
+  border-color: rgba(52, 211, 153, 0.28) !important;
+  background: rgba(6, 95, 70, 0.34) !important;
+  color: #6ee7b7 !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--dark .collab-top-actions > .collab-code-status-icon.is-connecting,
+.collab-code-command-row--dark .collab-top-actions > .collab-code-status-icon.is-connecting {
+  border-color: rgba(251, 191, 36, 0.28) !important;
+  background: rgba(146, 64, 14, 0.28) !important;
+  color: #fcd34d !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--dark .collab-top-actions > .collab-code-status-icon.is-disconnected,
+.collab-code-command-row--dark .collab-top-actions > .collab-code-status-icon.is-disconnected {
+  border-color: rgba(251, 113, 133, 0.28) !important;
+  background: rgba(159, 18, 57, 0.24) !important;
+  color: #fda4af !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--dark .collab-top-actions > .collab-code-online-icon,
+.collab-code-command-row--dark .collab-top-actions > .collab-code-online-icon {
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background: rgba(30, 41, 59, 0.86) !important;
+  color: #cbd5e1 !important;
+}
+
+/* Beat legacy high-specificity dark rules that forced this toolbar to white. */
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style button.collab-code-icon-button,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--dark .collab-top-actions > .collab-code-action-icon {
+  border: 1px solid rgba(148, 163, 184, 0.24) !important;
+  background: rgba(30, 41, 59, 0.88) !important;
+  color: #dbe4ef !important;
+  box-shadow:
+    0 5px 13px rgba(2, 6, 23, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style button.collab-code-icon-button.is-primary {
+  border-color: rgba(196, 181, 253, 0.44) !important;
+  background: linear-gradient(135deg, #9b6df2, #6d28d9) !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 9px 21px rgba(91, 33, 182, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style button.collab-code-icon-button.is-accent,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--dark .collab-top-actions > .collab-code-action-icon.is-primary {
+  border-color: rgba(167, 139, 250, 0.3) !important;
+  background: rgba(124, 58, 237, 0.22) !important;
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style button.collab-code-icon-button.is-danger {
+  border-color: rgba(251, 113, 133, 0.26) !important;
+  background: rgba(159, 18, 57, 0.2) !important;
+  color: #fda4af !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style button.collab-code-icon-button.is-warning {
+  border-color: rgba(251, 191, 36, 0.26) !important;
+  background: rgba(146, 64, 14, 0.22) !important;
+  color: #fcd34d !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style button.collab-code-icon-button.is-disabled,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style button.collab-code-icon-button:disabled {
+  border-color: rgba(100, 116, 139, 0.22) !important;
+  background: rgba(15, 23, 42, 0.5) !important;
+  color: #64748b !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+  opacity: 0.72;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--dark .collab-top-actions > .collab-code-status-icon.is-connected {
+  border-color: rgba(52, 211, 153, 0.28) !important;
+  background: rgba(6, 95, 70, 0.34) !important;
+  color: #6ee7b7 !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--dark .collab-top-actions > .collab-code-status-icon.is-connecting {
+  border-color: rgba(251, 191, 36, 0.28) !important;
+  background: rgba(146, 64, 14, 0.28) !important;
+  color: #fcd34d !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--dark .collab-top-actions > .collab-code-status-icon.is-disconnected {
+  border-color: rgba(251, 113, 133, 0.28) !important;
+  background: rgba(159, 18, 57, 0.24) !important;
+  color: #fda4af !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--dark .collab-top-actions > .collab-code-online-icon {
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background: rgba(30, 41, 59, 0.86) !important;
+  color: #cbd5e1 !important;
+}
+
+/* The same dark command bar in the standalone collaborative code mode. */
+html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style button.collab-code-icon-button,
+html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row--dark .collab-top-actions > .collab-code-action-icon {
+  border: 1px solid rgba(148, 163, 184, 0.24) !important;
+  background: rgba(30, 41, 59, 0.88) !important;
+  color: #dbe4ef !important;
+  box-shadow:
+    0 5px 13px rgba(2, 6, 23, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style button.collab-code-icon-button:not(:disabled):hover,
+html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row--dark .collab-top-actions > button.collab-code-action-icon:not(:disabled):hover {
+  border-color: rgba(167, 139, 250, 0.48) !important;
+  background: rgba(76, 29, 149, 0.34) !important;
+  color: #ddd6fe !important;
+  box-shadow:
+    0 8px 18px rgba(91, 33, 182, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style button.collab-code-icon-button.is-primary {
+  border-color: rgba(196, 181, 253, 0.44) !important;
+  background: linear-gradient(135deg, #9b6df2, #6d28d9) !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 9px 21px rgba(91, 33, 182, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+}
+
+html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style button.collab-code-icon-button.is-accent,
+html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row--dark .collab-top-actions > .collab-code-action-icon.is-primary {
+  border-color: rgba(167, 139, 250, 0.3) !important;
+  background: rgba(124, 58, 237, 0.22) !important;
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style button.collab-code-icon-button.is-danger {
+  border-color: rgba(251, 113, 133, 0.26) !important;
+  background: rgba(159, 18, 57, 0.2) !important;
+  color: #fda4af !important;
+}
+
+html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style button.collab-code-icon-button.is-warning {
+  border-color: rgba(251, 191, 36, 0.26) !important;
+  background: rgba(146, 64, 14, 0.22) !important;
+  color: #fcd34d !important;
+}
+
+html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style button.collab-code-icon-button.is-disabled,
+html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row--dark .collab-code-toolbar.collab-code-toolbar--board-style button.collab-code-icon-button:disabled {
+  border-color: rgba(100, 116, 139, 0.22) !important;
+  background: rgba(15, 23, 42, 0.5) !important;
+  color: #64748b !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+  opacity: 0.72;
+}
+
+html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row--dark .collab-top-actions > .collab-code-status-icon.is-connected {
+  border-color: rgba(52, 211, 153, 0.28) !important;
+  background: rgba(6, 95, 70, 0.34) !important;
+  color: #6ee7b7 !important;
+}
+
+html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row--dark .collab-top-actions > .collab-code-status-icon.is-connecting {
+  border-color: rgba(251, 191, 36, 0.28) !important;
+  background: rgba(146, 64, 14, 0.28) !important;
+  color: #fcd34d !important;
+}
+
+html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row--dark .collab-top-actions > .collab-code-status-icon.is-disconnected {
+  border-color: rgba(251, 113, 133, 0.28) !important;
+  background: rgba(159, 18, 57, 0.24) !important;
+  color: #fda4af !important;
+}
+
+html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row--dark .collab-top-actions > .collab-code-online-icon {
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background: rgba(30, 41, 59, 0.86) !important;
+  color: #cbd5e1 !important;
+}
+
+.collab-code-command-row--modern .collab-top-actions > .collab-code-online-icon,
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions > .collab-code-online-icon {
+  width: auto !important;
+  min-width: 44px !important;
+  flex: 0 0 auto !important;
+  gap: 3px;
+  padding: 0 7px !important;
+}
+
+.collab-code-online-count {
+  display: inline-flex;
+  min-width: 12px;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 850;
+  line-height: 1;
+}
+
+/* Compact command bar leaves more vertical room for the editor. */
+.collab-workspace-card--glass-board .collab-code-command-row.collab-code-command-row--modern,
+.collab-code-command-row.collab-code-command-row--modern {
+  min-height: 42px !important;
+  gap: 3px !important;
+  padding: 4px !important;
+  border-radius: 14px !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row.collab-code-command-row--modern {
+  margin-bottom: 0.3rem !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar.collab-code-toolbar--board-style,
+.collab-code-command-row--modern .collab-code-toolbar.collab-code-toolbar--board-style {
+  min-height: 32px !important;
+  gap: 3px !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button,
+.collab-code-command-row--modern .collab-code-icon-button,
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions > .collab-code-action-icon,
+.collab-code-command-row--modern .collab-top-actions > .collab-code-action-icon {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  flex: 0 0 32px !important;
+  border-radius: 9px !important;
+}
+
+.collab-code-command-row--modern .collab-code-icon-button svg,
+.collab-code-command-row--modern .collab-top-actions > .collab-code-action-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.collab-code-command-row--modern .collab-code-toolbar__divider {
+  height: 18px !important;
+  margin-right: 3px !important;
+  margin-left: 3px !important;
+}
+
+.collab-code-command-row--modern .collab-top-actions {
+  gap: 3px !important;
+  padding-left: 9px;
+}
+
+.collab-code-command-row--modern .collab-top-actions::before {
+  left: 3px;
+  top: 7px;
+  height: 18px;
+}
+
+.collab-code-command-row--modern .collab-top-actions > .collab-code-online-icon,
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-top-actions > .collab-code-online-icon {
+  width: auto !important;
+  min-width: 40px !important;
+  flex: 0 0 auto !important;
+  padding: 0 6px !important;
 }

@@ -7673,6 +7673,9 @@ const CollabSection = ({
           aria-label={`Онлайн: ${peerCount}`}
         >
           <Users size={19} />
+          <span className="collab-code-online-count" aria-hidden="true">
+            {Number(peerCount) > 99 ? '99+' : Math.max(0, Number(peerCount) || 0)}
+          </span>
         </span>
       )}
       <button
@@ -7786,7 +7789,7 @@ const CollabSection = ({
         )}
 
         <div className="collab-code-glass-layer">
-        <div className={`collab-code-command-row collab-code-command-row--modern ${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-0 flex flex-wrap items-center gap-1.5' : 'mt-0.5 flex flex-wrap items-center gap-1.5') : ''}`}>
+        <div className={`collab-code-command-row collab-code-command-row--modern ${isCollabDarkUi ? 'collab-code-command-row--dark' : 'collab-code-command-row--light'} ${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-0 flex flex-wrap items-center gap-1.5' : 'mt-0.5 flex flex-wrap items-center gap-1.5') : ''}`}>
           <div className={`collab-code-toolbar max-w-full flex flex-wrap items-center rounded-xl border ${
             isCollabFullscreen
               ? 'min-w-0 flex-1 rounded-xl px-0.5 py-px sm:px-1 sm:py-0.5'
@@ -8149,12 +8152,14 @@ const BoardSection = ({
   const eraserStateRef = useRef({ active: false });
   const brushPaletteRef = useRef(null);
   const shapePaletteRef = useRef(null);
+  const textEditorRef = useRef(null);
   const textDraftCancelRef = useRef(false);
   const customColorInputRef = useRef(null);
   const boardBottomControlsRef = useRef(null);
   const selectionRef = useRef(null);
   const selectedIdsRef = useRef([]);
   const selectingRef = useRef({ active: false, start: null, current: null });
+  const textBoxDrawRef = useRef({ active: false, start: null, current: null });
   const selectionDragRef = useRef({ active: false, startX: 0, startY: 0, items: null, baseSelection: null });
   const selectionMoveRafRef = useRef(null);
   const pendingSelectionMoveRef = useRef({ dx: 0, dy: 0 });
@@ -8271,6 +8276,7 @@ const BoardSection = ({
     dragImageRef.current = { active: false, id: null, offsetX: 0, offsetY: 0, x: null, y: null };
     eraserStateRef.current = { active: false };
     selectingRef.current = { active: false, start: null, current: null };
+    textBoxDrawRef.current = { active: false, start: null, current: null };
     selectionDragRef.current = { active: false, startX: 0, startY: 0, items: null, baseSelection: null };
     pendingSelectionMoveRef.current = { dx: 0, dy: 0 };
     pendingImageMoveRef.current = null;
@@ -10525,6 +10531,18 @@ const BoardSection = ({
       ctx.fillRect(selectionBox.x, selectionBox.y, selectionBox.width, selectionBox.height);
       ctx.restore();
     }
+    const textBoxDraw = textBoxDrawRef.current;
+    if (tool === 'text' && textBoxDraw.active && textBoxDraw.start && textBoxDraw.current) {
+      const textRect = normalizeRect(textBoxDraw.start, textBoxDraw.current);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(139, 92, 246, 0.95)';
+      ctx.fillStyle = 'rgba(139, 92, 246, 0.08)';
+      ctx.lineWidth = 1.5 / (zoomRef.current || 1);
+      ctx.setLineDash([6 / (zoomRef.current || 1), 4 / (zoomRef.current || 1)]);
+      ctx.strokeRect(textRect.x, textRect.y, textRect.width, textRect.height);
+      ctx.fillRect(textRect.x, textRect.y, textRect.width, textRect.height);
+      ctx.restore();
+    }
     const drag = dragImageRef.current;
     const overlaySelectedImage = displaySelectedImage && drag.active && drag.id === displaySelectedImage.id
       ? {
@@ -11043,6 +11061,8 @@ const BoardSection = ({
     if (draft?.id && !existingItem) return;
     const lines = textValue.split('\n');
     const fontSize = Math.max(10, Math.min(160, Number(draft?.fontSize) || BOARD_TEXT_FONT_SIZE));
+    const measuredWidth = Math.max(fontSize, ...lines.map((line) => line.length * fontSize * 0.62));
+    const measuredHeight = Math.max(fontSize * 1.25, lines.length * fontSize * 1.25);
     const textItem = {
       ...(existingItem || {}),
       id: existingItem?.id || (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -11052,8 +11072,8 @@ const BoardSection = ({
       text: textValue,
       x: Number(draft.x) || 0,
       y: Number(draft.y) || 0,
-      width: Math.ceil(Math.max(fontSize, ...lines.map((line) => line.length * fontSize * 0.62))),
-      height: Math.ceil(Math.max(fontSize * 1.25, lines.length * fontSize * 1.25)),
+      width: Math.ceil(Math.max(Number(draft?.width) || 0, measuredWidth)),
+      height: Math.ceil(Math.max(Number(draft?.height) || 0, measuredHeight)),
       fontSize,
       color: draft?.color || existingItem?.color || color,
       authorId: existingItem?.authorId || draft?.authorId || userId,
@@ -11086,6 +11106,49 @@ const BoardSection = ({
       docRef.current.transact(() => yItemsRef.current?.push([textItem]), localOriginRef.current);
     }
     undoManagerRef.current?.stopCapturing();
+    toolRef.current = 'select';
+    setTool('select');
+    setSelectedIds([textItem.id]);
+    setSelectionBox({
+      x: textItem.x,
+      y: textItem.y,
+      width: textItem.width,
+      height: textItem.height,
+    });
+    setSelectedImageId(null);
+  };
+
+  const openTextEditor = (point, editableText = null, initialBox = null) => {
+    const fallbackPoint = getBoardViewportCenterPoint();
+    const targetPoint = point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y))
+      ? point
+      : fallbackPoint;
+    textDraftCancelRef.current = false;
+    setTextDraft(editableText
+      ? {
+        id: editableText.id,
+        x: editableText.x || 0,
+        y: editableText.y || 0,
+        value: editableText.text || '',
+        width: editableText.width || 0,
+        height: editableText.height || 0,
+        fontSize: editableText.fontSize || BOARD_TEXT_FONT_SIZE,
+        color: editableText.color || color,
+        authorId: editableText.authorId,
+      }
+      : {
+        x: targetPoint.x,
+        y: targetPoint.y,
+        value: '',
+        width: Math.max(0, Number(initialBox?.width) || 0),
+        height: Math.max(0, Number(initialBox?.height) || 0),
+        fontSize: BOARD_TEXT_FONT_SIZE,
+        color,
+        authorId: userId,
+      });
+    if (typeof window !== 'undefined') {
+      window.requestAnimationFrame(() => textEditorRef.current?.focus?.({ preventScroll: true }));
+    }
   };
 
   const handlePointerDown = (event) => {
@@ -11187,6 +11250,12 @@ const BoardSection = ({
       return;
     }
     if (tool === 'text') {
+      if (textDraft) {
+        event.preventDefault();
+        textDraftCancelRef.current = true;
+        commitTextDraft(textDraft);
+        return;
+      }
       let editableText = null;
       for (let index = boardItemsRef.current.length - 1; index >= 0; index -= 1) {
         const item = boardItemsRef.current[index];
@@ -11196,29 +11265,13 @@ const BoardSection = ({
         editableText = item;
         break;
       }
-      textDraftCancelRef.current = false;
-      setTextDraft(editableText
-        ? {
-          id: editableText.id,
-          x: editableText.x || 0,
-          y: editableText.y || 0,
-          value: editableText.text || '',
-          width: editableText.width || 0,
-          height: editableText.height || 0,
-          fontSize: editableText.fontSize || BOARD_TEXT_FONT_SIZE,
-          color: editableText.color || color,
-          authorId: editableText.authorId,
-        }
-        : {
-          x: point.x,
-          y: point.y,
-          value: '',
-          width: 0,
-          height: 0,
-          fontSize: BOARD_TEXT_FONT_SIZE,
-          color,
-          authorId: userId,
-        });
+      if (editableText) {
+        openTextEditor(point, editableText);
+        return;
+      }
+      textBoxDrawRef.current = { active: true, start: point, current: point };
+      renderOverlay();
+      event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
     if (tool === 'pen') {
@@ -11272,6 +11325,11 @@ const BoardSection = ({
     if (selectingRef.current.active) {
       selectingRef.current.current = point;
       setSelectionBox(normalizeRect(selectingRef.current.start, point));
+      return;
+    }
+    if (textBoxDrawRef.current.active) {
+      textBoxDrawRef.current.current = point;
+      renderOverlay();
       return;
     }
     if (panStateRef.current.active) {
@@ -11346,6 +11404,31 @@ const BoardSection = ({
         setSelectionBox(null);
         setSelectedImageId(null);
       }
+      return;
+    }
+    if (textBoxDrawRef.current.active) {
+      const start = textBoxDrawRef.current.start;
+      const current = textBoxDrawRef.current.current || start;
+      textBoxDrawRef.current = { active: false, start: null, current: null };
+      renderOverlay();
+      if (!start || !current) return;
+      const rect = normalizeRect(start, current);
+      const currentZoom = zoomRef.current || 1;
+      const isClick = rect.width < 4 / currentZoom && rect.height < 4 / currentZoom;
+      const textRect = isClick
+        ? {
+          x: start.x,
+          y: start.y,
+          width: 240 / currentZoom,
+          height: 52 / currentZoom,
+        }
+        : {
+          x: rect.x,
+          y: rect.y,
+          width: Math.max(80 / currentZoom, rect.width),
+          height: Math.max(42 / currentZoom, rect.height),
+        };
+      openTextEditor(textRect, null, textRect);
       return;
     }
     if (dragImageRef.current.active) {
@@ -11967,6 +12050,7 @@ const BoardSection = ({
           <button
             type="button"
             onClick={() => {
+              toolRef.current = 'text';
               setTool('text');
               setIsBrushPaletteOpen(false);
               setIsShapePaletteOpen(false);
@@ -12056,15 +12140,17 @@ const BoardSection = ({
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={toggleFullscreen}
-          className="board-fullscreen-corner"
-          aria-label={isFullscreen ? 'Обычный экран' : 'Полный экран'}
-          title={isFullscreen ? 'Обычный экран' : 'Полный экран'}
-        >
-          {isFullscreen ? <Minimize2 size={19} /> : <Expand size={19} />}
-        </button>
+        {!embedded && (
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="board-fullscreen-corner"
+            aria-label={isFullscreen ? 'Обычный экран' : 'Полный экран'}
+            title={isFullscreen ? 'Обычный экран' : 'Полный экран'}
+          >
+            {isFullscreen ? <Minimize2 size={19} /> : <Expand size={19} />}
+          </button>
+        )}
 
         {!roomId && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
@@ -12102,6 +12188,7 @@ const BoardSection = ({
         />
         {textDraft && (
           <textarea
+            ref={textEditorRef}
             autoFocus
             wrap="off"
             value={textDraft.value}
@@ -12130,8 +12217,8 @@ const BoardSection = ({
             style={{
               left: `${(textDraft.x - offset.x) * (zoom || 1)}px`,
               top: `${(textDraft.y - offset.y) * (zoom || 1)}px`,
-              width: `${Math.min(640, Math.max(240, (textDraft.width || 0) * (zoom || 1) + 20))}px`,
-              minHeight: `${Math.max(46, (textDraft.height || textDraft.fontSize || BOARD_TEXT_FONT_SIZE) * (zoom || 1) + 16)}px`,
+              width: `${Math.min(640, Math.max(80, (textDraft.width || 240) * (zoom || 1)))}px`,
+              height: `${Math.min(480, Math.max(42, (textDraft.height || 52) * (zoom || 1)))}px`,
               fontSize: `${Math.max(14, (textDraft.fontSize || BOARD_TEXT_FONT_SIZE) * (zoom || 1))}px`,
               color: textDraft.color || color,
             }}
@@ -15824,6 +15911,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     && view !== 'collab'
     && view !== 'board'
     && view !== 'call'
+    && view !== 'chat'
     && goalState?.entry
     && !goalState.completed
     && goalGoals.length > 0;
