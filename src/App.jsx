@@ -13,7 +13,9 @@ import {
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   ChevronsLeft, ChevronsRight, ChevronsUpDown, Search,
-  Bell, BellOff, Camera, MousePointer2, Code2, MoreHorizontal, MessageSquare, Users, Wallet
+  Bell, BellOff, Camera, MousePointer2, Code2, MoreHorizontal, MessageSquare, Users, Wallet,
+  Map as MapIcon, Crop, FlipHorizontal2, Link2, Copy, Lock, Shield, ThumbsUp,
+  ArrowUpToLine, ArrowDownToLine, Type, Shapes, ArrowUpRight, Circle, Diamond, TextSelect
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
 import mascotDisapproval from './assets/mascot/disapproval.png';
@@ -205,17 +207,32 @@ const LEAGUE_TIERS = [
 ];
 const BLANK_LEAGUE = { id: 'blank', label: 'Без лиги', minXp: 0, icon: leagueBlank };
 const COLLAB_COLORS = ['#7c3aed', '#2563eb', '#0ea5e9', '#10b981', '#f97316', '#ef4444'];
-const BOARD_DEFAULT_COLOR = '#1e3a8a';
-const BOARD_COLORS = [BOARD_DEFAULT_COLOR, '#7c3aed', '#2563eb', '#0ea5e9', '#10b981', '#f97316', '#ef4444'];
-const BOARD_STROKE_WIDTH = 2.6;
-const BOARD_LINE_WIDTH = 2.6;
+const BOARD_BACKGROUND_COLOR = '#f8f9fa';
+const BOARD_DEFAULT_COLOR = '#5b8def';
+const BOARD_PRESET_COLORS = [
+  '#ef3d1f',
+  '#ffb800',
+  '#00a35c',
+  BOARD_DEFAULT_COLOR,
+  '#8247e5',
+  '#cc681f',
+  '#ffffff',
+];
+const BOARD_COLORS = [
+  BOARD_DEFAULT_COLOR,
+  ...BOARD_PRESET_COLORS.filter((swatch) => swatch !== BOARD_DEFAULT_COLOR),
+];
+const BOARD_STROKE_WIDTH = 3.5;
+const BOARD_LINE_WIDTH = BOARD_STROKE_WIDTH;
 const BOARD_MIN_WIDTH = 1;
 const BOARD_MAX_WIDTH = 12;
 const BOARD_WIDTH_STEP = 0.5;
 const BOARD_ERASER_RADIUS = 8;
 const BOARD_IMAGE_MIN_SIZE = 40;
 const BOARD_IMAGE_MAX_SIZE = 2800;
-const BOARD_IMAGE_SCALE_STEP = 0.12;
+const BOARD_TEXT_FONT_SIZE = 28;
+const BOARD_SHAPE_MIN_SIZE = 6;
+const BOARD_IMAGE_FRAME_COLOR = '#111318';
 const BOARD_EXPORT_PADDING = 24;
 const BOARD_EXPORT_BASE_SCALE = 4.5;
 const BOARD_EXPORT_VECTOR_BASE_SCALE = 5.5;
@@ -229,6 +246,45 @@ const BOARD_POINT_MIN_DISTANCE = 1.5;
 const BOARD_STROKE_SMOOTHING_DISTANCE = 12;
 const BOARD_STROKE_SMOOTHING_MIN_ALPHA = 0.22;
 const BOARD_STROKE_SMOOTHING_MAX_ALPHA = 0.72;
+
+const drawBoardImage = (ctx, image, item, overrides = {}) => {
+  if (!ctx || !image || !item) return;
+  const x = Number(overrides.x ?? item.x) || 0;
+  const y = Number(overrides.y ?? item.y) || 0;
+  const width = Math.max(1, Number(overrides.width ?? item.width) || 1);
+  const height = Math.max(1, Number(overrides.height ?? item.height) || 1);
+  const naturalWidth = Math.max(1, Number(image.naturalWidth) || Number(image.width) || 1);
+  const naturalHeight = Math.max(1, Number(image.naturalHeight) || Number(image.height) || 1);
+  const crop = item.crop && typeof item.crop === 'object' ? item.crop : null;
+  const cropX = Math.min(1, Math.max(0, Number(crop?.x) || 0));
+  const cropY = Math.min(1, Math.max(0, Number(crop?.y) || 0));
+  const cropWidth = Math.min(1 - cropX, Math.max(0.01, Number(crop?.width) || 1));
+  const cropHeight = Math.min(1 - cropY, Math.max(0.01, Number(crop?.height) || 1));
+
+  ctx.save();
+  ctx.translate(x + width / 2, y + height / 2);
+  if (item.flipX) ctx.scale(-1, 1);
+  ctx.drawImage(
+    image,
+    cropX * naturalWidth,
+    cropY * naturalHeight,
+    cropWidth * naturalWidth,
+    cropHeight * naturalHeight,
+    -width / 2,
+    -height / 2,
+    width,
+    height
+  );
+  ctx.restore();
+
+  if (item.hasFrame) {
+    ctx.save();
+    ctx.strokeStyle = BOARD_IMAGE_FRAME_COLOR;
+    ctx.lineWidth = Math.max(2, Math.min(8, Math.min(width, height) * 0.018));
+    ctx.strokeRect(x, y, width, height);
+    ctx.restore();
+  }
+};
 const BOARD_PRESSURE_MIN_RATIO = 0.6;
 const BOARD_LOW_BANDWIDTH_CURSOR_MS = 130;
 const BOARD_LOW_BANDWIDTH_PREVIEW_MS = 16;
@@ -375,6 +431,41 @@ const normalizeBoardStoredItem = (rawValue) => {
       end: normalizeBoardStoredPoint(source.end),
     };
   }
+  if (base.type === 'arrow') {
+    return {
+      ...base,
+      type: 'arrow',
+      width: Number(source.width) || BOARD_LINE_WIDTH,
+      start: normalizeBoardStoredPoint(source.start),
+      end: normalizeBoardStoredPoint(source.end),
+    };
+  }
+  if (base.type === 'shape') {
+    return {
+      ...base,
+      type: 'shape',
+      shape: ['ellipse', 'diamond'].includes(source.shape) ? source.shape : 'rectangle',
+      width: Math.max(1, Number(source.width) || 1),
+      height: Math.max(1, Number(source.height) || 1),
+      x: Number(source.x) || 0,
+      y: Number(source.y) || 0,
+      strokeWidth: Number(source.strokeWidth) || BOARD_LINE_WIDTH,
+    };
+  }
+  if (base.type === 'text') {
+    const text = typeof source.text === 'string' ? source.text.slice(0, 4000) : '';
+    if (!text.trim()) return null;
+    return {
+      ...base,
+      type: 'text',
+      text,
+      x: Number(source.x) || 0,
+      y: Number(source.y) || 0,
+      fontSize: Math.max(10, Math.min(160, Number(source.fontSize) || BOARD_TEXT_FONT_SIZE)),
+      width: Math.max(1, Number(source.width) || text.length * BOARD_TEXT_FONT_SIZE * 0.62),
+      height: Math.max(1, Number(source.height) || BOARD_TEXT_FONT_SIZE * 1.25),
+    };
+  }
   if (base.type === 'image') {
     const dataUrl = typeof source.dataUrl === 'string' ? source.dataUrl : '';
     if (!dataUrl) return null;
@@ -386,6 +477,22 @@ const normalizeBoardStoredItem = (rawValue) => {
       y: Number(source.y) || 0,
       width: Math.max(1, Number(source.width) || 0),
       height: Math.max(1, Number(source.height) || 0),
+      naturalWidth: Math.max(1, Number(source.naturalWidth) || Number(source.width) || 1),
+      naturalHeight: Math.max(1, Number(source.naturalHeight) || Number(source.height) || 1),
+      crop: source.crop && typeof source.crop === 'object'
+        ? {
+          x: Math.min(1, Math.max(0, Number(source.crop.x) || 0)),
+          y: Math.min(1, Math.max(0, Number(source.crop.y) || 0)),
+          width: Math.min(1, Math.max(0.01, Number(source.crop.width) || 1)),
+          height: Math.min(1, Math.max(0.01, Number(source.crop.height) || 1)),
+        }
+        : null,
+      flipX: Boolean(source.flipX),
+      hasFrame: Boolean(source.hasFrame),
+      hyperlink: typeof source.hyperlink === 'string' ? source.hyperlink.slice(0, 2048) : '',
+      locked: Boolean(source.locked),
+      superLocked: Boolean(source.superLocked),
+      votes: Math.max(0, Math.floor(Number(source.votes) || 0)),
     };
   }
   return null;
@@ -397,9 +504,11 @@ const estimateBoardItemBytes = (item) => {
     const points = Array.isArray(item.points) ? item.points : [];
     return sharedBytes + 24 + points.length * 20;
   }
-  if (item.type === 'line') {
+  if (item.type === 'line' || item.type === 'arrow') {
     return sharedBytes + 64;
   }
+  if (item.type === 'shape') return sharedBytes + 72;
+  if (item.type === 'text') return sharedBytes + 56 + String(item.text || '').length * 2;
   if (item.type === 'image') {
     return sharedBytes + 64 + String(item.dataUrl || '').length;
   }
@@ -3045,43 +3154,15 @@ const CollabSection = ({
   const collabLabelClass = isCollabFullscreen ? (isFullscreenDark ? 'text-cyan-300' : 'text-violet-600') : 'text-purple-600';
   const collabSessionTextClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-100' : 'text-slate-800') : 'text-gray-800';
   const collabHintClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-400/90' : 'text-slate-500') : 'text-gray-400';
-  const collabToolbarClass = isCollabFullscreen
-    ? (isFullscreenDark
-      ? 'border-slate-700/80 bg-slate-900/74 text-slate-100 shadow-[0_14px_34px_rgba(2,6,23,0.36),inset_0_1px_0_rgba(148,163,184,0.16)] backdrop-blur-xl'
-      : 'border-slate-200/90 bg-white/90 text-slate-800 shadow-[0_12px_30px_rgba(148,163,184,0.2),inset_0_1px_0_rgba(255,255,255,0.9)] backdrop-blur-xl')
-    : 'border-purple-100 bg-purple-50/70';
-  const collabToolbarDividerClass = isCollabFullscreen ? (isFullscreenDark ? 'bg-slate-500/70' : 'bg-slate-300/80') : 'bg-purple-200';
+  const collabToolbarClass = 'collab-code-toolbar--board-style';
+  const collabToolbarDividerClass = 'collab-code-toolbar__divider';
   const collabSessionValueClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-50' : 'text-slate-800') : collabSessionTextClass;
-  const collabIconButtonBase = `inline-flex ${isCollabFullscreen ? 'h-7 w-7' : (isDesktopCollabCompact ? 'h-6 w-6' : 'h-7 w-7')} items-center justify-center rounded-[0.8rem] border transition-all duration-200 hover:-translate-y-[1px] active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 ${
-    isFullscreenDark
-      ? 'focus-visible:ring-cyan-300/70 focus-visible:ring-offset-slate-950'
-      : 'focus-visible:ring-purple-400/70 focus-visible:ring-offset-white'
-  } focus-visible:ring-offset-1`;
-  const collabIconButtonDisabled = isCollabFullscreen
-    ? (isFullscreenDark
-      ? 'border-slate-700 bg-slate-900/70 text-slate-500 cursor-not-allowed shadow-none'
-      : 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed shadow-none')
-    : 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed';
-  const collabIconButtonNeutral = isCollabFullscreen
-    ? (isFullscreenDark
-      ? 'border-slate-600/80 bg-slate-900/78 text-slate-100 hover:border-cyan-300/80 hover:bg-slate-800/92 hover:shadow-[0_8px_20px_rgba(8,47,73,0.28)]'
-      : 'border-slate-200 bg-white text-slate-700 shadow-[0_6px_14px_rgba(148,163,184,0.18)] hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700')
-    : 'border-gray-200 bg-white text-gray-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700';
-  const collabIconButtonPrimary = isCollabFullscreen
-    ? (isFullscreenDark
-      ? 'border-cyan-300/80 bg-cyan-400/20 text-cyan-100 shadow-[0_10px_24px_rgba(8,145,178,0.34)] hover:border-cyan-200 hover:bg-cyan-400/32'
-      : 'border-violet-500 bg-violet-600 text-white shadow-[0_8px_20px_rgba(124,58,237,0.28)] hover:bg-violet-700')
-    : 'border-purple-500 bg-purple-600 text-white shadow-sm shadow-purple-200/70 hover:bg-purple-700';
-  const collabIconButtonAccent = isCollabFullscreen
-    ? (isFullscreenDark
-      ? 'border-violet-300/75 bg-violet-500/20 text-violet-100 shadow-[0_8px_20px_rgba(91,33,182,0.26)] hover:bg-violet-500/32'
-      : 'border-violet-200 bg-white text-violet-700 shadow-[0_8px_18px_rgba(167,139,250,0.22)] hover:border-violet-300 hover:bg-violet-50')
-    : 'border-purple-200 bg-white text-purple-700 hover:border-purple-300 hover:bg-purple-50';
-  const collabIconButtonDanger = isCollabFullscreen
-    ? (isFullscreenDark
-      ? 'border-rose-300/75 bg-rose-500/20 text-rose-100 shadow-[0_8px_20px_rgba(190,24,93,0.28)] hover:bg-rose-500/34'
-      : 'border-rose-200 bg-rose-50 text-rose-600 shadow-[0_8px_16px_rgba(251,113,133,0.16)] hover:bg-rose-100')
-    : 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100';
+  const collabIconButtonBase = 'collab-code-icon-button';
+  const collabIconButtonDisabled = 'is-disabled';
+  const collabIconButtonNeutral = 'is-neutral';
+  const collabIconButtonPrimary = 'is-primary';
+  const collabIconButtonAccent = 'is-accent';
+  const collabIconButtonDanger = 'is-danger';
 
   const stopDebugPlayback = useCallback(() => {
     if (debugPlaybackTimerRef.current) {
@@ -7566,67 +7647,42 @@ const CollabSection = ({
         : (isDesktopCollabCompact ? 'gap-1.5' : 'gap-2')
     }`}>
       {(!isCollabFullscreen || !activeStudentId) && renderStudentPicker()}
-      <Button
-        variant="secondary"
+      <button
+        type="button"
         onClick={() => setSaveModalOpen(true)}
-        className={`flex items-center ${
-          isCollabFullscreen
-            ? 'gap-1 !h-7 !min-h-7 !px-2 !py-0 !text-[10px]'
-            : (isDesktopCollabCompact
-              ? 'gap-1 !h-7 !min-h-7 !px-2.5 !py-0 !text-[10px] sm:!text-[10px]'
-              : 'gap-2')
-        } ${
-          isCollabFullscreen
-            ? (isFullscreenDark
-              ? '!border-slate-600/80 !bg-slate-900/76 !text-slate-100 !shadow-[0_8px_22px_rgba(2,6,23,0.26)] hover:!border-cyan-300/70 hover:!bg-slate-800 !focus-visible:ring-cyan-300/70 !focus-visible:ring-offset-slate-950'
-              : '!border-slate-200 !bg-white/95 !text-slate-700 !shadow-[0_8px_20px_rgba(148,163,184,0.2)] hover:!border-violet-300 hover:!bg-violet-50 !focus-visible:ring-violet-400/70 !focus-visible:ring-offset-white')
-            : ''
-        }`}
+        className="collab-code-action-icon"
+        title="Сохранить в конспекты"
+        aria-label="Сохранить в конспекты"
       >
-        <Save size={14} />
-        Сохранить в конспекты
-      </Button>
-      <span className={`inline-flex items-center rounded-full border font-semibold ${
-        isCollabFullscreen
-          ? 'h-7 px-2 text-[10px]'
-          : (isDesktopCollabCompact ? 'h-7 px-2.5 text-[10px]' : 'px-3 py-1 text-xs')
-      } ${statusClass}`}>
-        {statusLabel}
+        <Save size={19} />
+      </button>
+      <span
+        className={`collab-code-action-icon collab-code-status-icon ${status === 'connected' ? 'is-connected' : (status === 'connecting' ? 'is-connecting' : 'is-disconnected')}`}
+        role="status"
+        title={statusLabel}
+        aria-label={statusLabel}
+      >
+        {status === 'connected'
+          ? <CheckCircle size={19} />
+          : (status === 'connecting' ? <RefreshCcw size={19} /> : <AlertCircle size={19} />)}
       </span>
       {roomId && (
-        <span className={`inline-flex items-center rounded-full border font-semibold ${
-          isCollabFullscreen
-            ? 'h-7 px-2 text-[10px]'
-            : (isDesktopCollabCompact ? 'h-7 px-2.5 text-[10px]' : 'px-3 py-1 text-xs')
-        } ${
-          isCollabFullscreen
-            ? (isFullscreenDark
-              ? 'border-slate-600/80 bg-slate-900/82 text-slate-200 shadow-[0_6px_16px_rgba(2,6,23,0.24)]'
-              : 'border-slate-200 bg-white/95 text-slate-700 shadow-[0_6px_14px_rgba(148,163,184,0.16)]')
-            : 'border-slate-200 bg-white text-slate-600'
-        }`}>
-          Онлайн: {peerCount}
+        <span
+          className="collab-code-action-icon collab-code-online-icon"
+          title={`Онлайн: ${peerCount}`}
+          aria-label={`Онлайн: ${peerCount}`}
+        >
+          <Users size={19} />
         </span>
       )}
       <button
         type="button"
         onClick={toggleCollabFullscreen}
-        className={`inline-flex items-center rounded-full border font-semibold transition-all duration-200 hover:-translate-y-[1px] active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${
-          isDesktopCollabCompact || isCollabFullscreen
-            ? 'h-7 w-7 justify-center rounded-[0.8rem] p-0 text-[10px]'
-            : 'gap-2 px-3 py-1 text-xs'
-        } ${
-          isCollabFullscreen
-            ? (isFullscreenDark
-              ? 'border-cyan-300/80 bg-cyan-400/20 text-cyan-100 shadow-[0_10px_24px_rgba(6,182,212,0.24)] hover:border-cyan-200 hover:bg-cyan-400/32 focus-visible:ring-cyan-300/70 focus-visible:ring-offset-slate-950'
-              : 'border-violet-500 bg-violet-600 text-white shadow-[0_10px_22px_rgba(124,58,237,0.26)] hover:bg-violet-700 focus-visible:ring-violet-400/70 focus-visible:ring-offset-white')
-            : 'border-purple-500 bg-gradient-to-br from-purple-500 to-violet-600 text-white shadow-[0_4px_16px_rgba(124,58,237,0.35)] hover:from-purple-600 hover:to-violet-700 focus-visible:ring-purple-400/70'
-        }`}
+        className="collab-code-action-icon is-primary"
         title={isCollabFullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'}
         aria-label={isCollabFullscreen ? 'Свернуть' : 'На весь экран'}
       >
-        {isCollabFullscreen ? <Minimize2 size={isDesktopCollabCompact ? 14 : 13} /> : <Expand size={isDesktopCollabCompact ? 14 : 13} />}
-        {!isDesktopCollabCompact && !isCollabFullscreen && 'На весь экран'}
+        {isCollabFullscreen ? <Minimize2 size={19} /> : <Expand size={19} />}
       </button>
     </div>
   );
@@ -7730,8 +7786,8 @@ const CollabSection = ({
         )}
 
         <div className="collab-code-glass-layer">
-        <div className={`collab-code-command-row ${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-0 flex flex-wrap items-center gap-1.5' : 'mt-0.5 flex flex-wrap items-center gap-1.5') : ''}`}>
-          <div className={`collab-code-toolbar max-w-full flex flex-wrap items-center gap-2 rounded-xl border ${
+        <div className={`collab-code-command-row collab-code-command-row--modern ${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-0 flex flex-wrap items-center gap-1.5' : 'mt-0.5 flex flex-wrap items-center gap-1.5') : ''}`}>
+          <div className={`collab-code-toolbar max-w-full flex flex-wrap items-center rounded-xl border ${
             isCollabFullscreen
               ? 'min-w-0 flex-1 rounded-xl px-0.5 py-px sm:px-1 sm:py-0.5'
               : (isDesktopCollabCompact ? 'mt-0 px-0.5 py-px' : 'mt-3 inline-flex px-1.5 py-1')
@@ -7748,7 +7804,7 @@ const CollabSection = ({
             title="Запустить код (F5)"
             aria-label="Запустить код"
           >
-            <Play size={15} />
+            <Play size={19} />
           </button>
           <button
             type="button"
@@ -7762,10 +7818,7 @@ const CollabSection = ({
             title="Запустить выделенный фрагмент"
             aria-label="Запустить выделение"
           >
-            <span className="relative inline-flex h-4 w-4 items-center justify-center">
-              <MousePointer2 size={12} />
-              <span className="absolute -right-1 -bottom-1 text-[8px] font-bold leading-none">?</span>
-            </span>
+            <TextSelect size={19} />
           </button>
           <button
             type="button"
@@ -7781,7 +7834,7 @@ const CollabSection = ({
             title="Дебаг (до первой точки остановки)"
             aria-label="Дебаг"
           >
-            <Bug size={15} />
+            <Bug size={19} />
           </button>
 
           {debugActive && (
@@ -7799,7 +7852,7 @@ const CollabSection = ({
                 title="Шаг назад (F7)"
                 aria-label="Шаг назад"
               >
-                <StepBack size={15} />
+                <StepBack size={18} />
               </button>
               <button
                 type="button"
@@ -7813,7 +7866,7 @@ const CollabSection = ({
                 title="Шаг вперёд (F10)"
                 aria-label="Шаг вперёд"
               >
-                <StepForward size={15} />
+                <StepForward size={18} />
               </button>
               <button
                 type="button"
@@ -7827,7 +7880,7 @@ const CollabSection = ({
                 title="Продолжить (F8)"
                 aria-label="Продолжить"
               >
-                <Play size={14} />
+                <Play size={18} />
               </button>
               <button
                 type="button"
@@ -7839,12 +7892,12 @@ const CollabSection = ({
                 className={`${collabIconButtonBase} ${
                   !debugPlaying
                     ? collabIconButtonDisabled
-                    : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                    : 'is-warning'
                 }`}
                 title="Пауза"
                 aria-label="Пауза"
               >
-                <Pause size={14} />
+                <Pause size={18} />
               </button>
             </>
           )}
@@ -7862,7 +7915,7 @@ const CollabSection = ({
             title={runLoading ? 'Остановить выполнение (Ctrl+C)' : 'Выйти из дебага (Esc)'}
             aria-label="Остановить"
           >
-            <Square size={14} />
+            <Square size={18} />
           </button>
           <button
             type="button"
@@ -7876,7 +7929,7 @@ const CollabSection = ({
             title="Очистить вывод"
             aria-label="Очистить вывод"
           >
-            <Trash2 size={14} />
+            <Trash2 size={18} />
           </button>
           {SHOW_COLLAB_AUTOFORMAT && (isCollabFullscreen || isDesktopCollabCompact) && (
             <>
@@ -8027,10 +8080,9 @@ const BoardSection = ({
   const [boardSnapshot, setBoardSnapshot] = useState({ revision: 0, itemCount: 0, estimatedBytes: 0 });
   const [remotePreviews, setRemotePreviews] = useState([]);
   const [remoteCursors, setRemoteCursors] = useState([]);
-  const [tool, setTool] = useState('pen');
+  const [tool, setTool] = useState('select');
   const [color, setColor] = useState(BOARD_COLORS[0] || BOARD_DEFAULT_COLOR);
   const [penWidth, setPenWidth] = useState(BOARD_STROKE_WIDTH);
-  const [lineWidth, setLineWidth] = useState(BOARD_LINE_WIDTH);
   const [boardSize, setBoardSize] = useState({ width: 900, height: 520 });
   const [pasteError, setPasteError] = useState('');
   const [zoom, setZoom] = useState(1);
@@ -8039,10 +8091,19 @@ const BoardSection = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
   const [selectedImageId, setSelectedImageId] = useState(null);
+  const [imageResizePreview, setImageResizePreview] = useState(null);
+  const [isImageCropMenuOpen, setIsImageCropMenuOpen] = useState(false);
+  const [isImageMoreOpen, setIsImageMoreOpen] = useState(false);
+  const [imageActionNotice, setImageActionNotice] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
   const [selectionBox, setSelectionBox] = useState(null);
   const [summonNotice, setSummonNotice] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isBrushPaletteOpen, setIsBrushPaletteOpen] = useState(false);
+  const [isShapePaletteOpen, setIsShapePaletteOpen] = useState(false);
+  const [shapeKind, setShapeKind] = useState('rectangle');
+  const [textDraft, setTextDraft] = useState(null);
+  const [isMinimapOpen, setIsMinimapOpen] = useState(false);
+  const [isBoardHelpOpen, setIsBoardHelpOpen] = useState(false);
   const [shareMyCursor, setShareMyCursor] = useState(true);
   const [lowBandwidthMode, setLowBandwidthMode] = useState(false);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
@@ -8078,11 +8139,19 @@ const BoardSection = ({
   const remotePreviewStateRef = useRef(new Map());
   const imageDragRafRef = useRef(null);
   const pendingImageMoveRef = useRef(null);
+  const imageResizeRef = useRef({ active: false });
+  const imageResizePreviewRef = useRef(null);
+  const imageActionNoticeTimeoutRef = useRef(null);
+  const linkedBoardObjectRef = useRef('');
   const lastSummonIdRef = useRef(null);
   const summonTimeoutRef = useRef(null);
   const summonNoticeTimeoutRef = useRef(null);
   const eraserStateRef = useRef({ active: false });
-  const settingsRef = useRef(null);
+  const brushPaletteRef = useRef(null);
+  const shapePaletteRef = useRef(null);
+  const textDraftCancelRef = useRef(false);
+  const customColorInputRef = useRef(null);
+  const boardBottomControlsRef = useRef(null);
   const selectionRef = useRef(null);
   const selectedIdsRef = useRef([]);
   const selectingRef = useRef({ active: false, start: null, current: null });
@@ -8117,6 +8186,17 @@ const BoardSection = ({
   const viewportPersistTimerRef = useRef(null);
   const boardRevision = boardSnapshot.revision;
   const boardItemCount = boardSnapshot.itemCount;
+
+  useEffect(() => {
+    setIsMinimapOpen(false);
+    setColor(BOARD_DEFAULT_COLOR);
+    setSelectedImageId(null);
+    setImageResizePreview(null);
+    setIsImageCropMenuOpen(false);
+    setIsImageMoreOpen(false);
+    setTextDraft(null);
+    linkedBoardObjectRef.current = '';
+  }, [roomId]);
 
   const releaseCachedBoardImage = useCallback((dataUrl) => {
     if (!dataUrl) return;
@@ -8183,6 +8263,9 @@ const BoardSection = ({
   }, [clearCachedBoardImages]);
 
   const resetBoardInteractionState = useCallback(() => {
+    imageResizeRef.current?.cleanup?.();
+    imageResizeRef.current = { active: false };
+    imageResizePreviewRef.current = null;
     drawStateRef.current = { drawing: false, points: [], start: null, end: null };
     panStateRef.current = { active: false, startX: 0, startY: 0, originX: 0, originY: 0 };
     dragImageRef.current = { active: false, id: null, offsetX: 0, offsetY: 0, x: null, y: null };
@@ -8232,6 +8315,9 @@ const BoardSection = ({
     setSelectedIds([]);
     setSelectionBox(null);
     setSelectedImageId(null);
+    setImageResizePreview(null);
+    setIsImageCropMenuOpen(false);
+    setIsImageMoreOpen(false);
     setSummonNotice(false);
   }, []);
 
@@ -8389,8 +8475,12 @@ const BoardSection = ({
     const idsToDelete = selected.length
       ? selected
       : (selectedImageId ? [selectedImageId] : []);
-    if (!idsToDelete.length) return false;
-    const deleted = deleteItemsByIds(idsToDelete);
+    const deletableIds = idsToDelete.filter((id) => {
+      const item = boardItemsRef.current.find((entry) => entry?.id === id);
+      return item && !item.locked && !item.superLocked;
+    });
+    if (!deletableIds.length) return false;
+    const deleted = deleteItemsByIds(deletableIds);
     if (!deleted) return false;
     selectingRef.current.active = false;
     selectionDragRef.current.active = false;
@@ -8610,8 +8700,14 @@ const BoardSection = ({
   }, [zoom]);
 
   useEffect(() => {
-    if (tool !== 'move' && selectedImageId) setSelectedImageId(null);
+    if (tool !== 'move' && tool !== 'select' && selectedImageId) setSelectedImageId(null);
   }, [tool, selectedImageId]);
+
+  useEffect(() => {
+    setIsImageCropMenuOpen(false);
+    setIsImageMoreOpen(false);
+    setImageActionNotice('');
+  }, [selectedImageId]);
 
   useEffect(() => {
     if (tool !== 'select') {
@@ -8627,6 +8723,37 @@ const BoardSection = ({
     const exists = boardItemsRef.current.some((item) => item?.id === selectedImageId && item.type === 'image');
     if (!exists) setSelectedImageId(null);
   }, [boardRevision, selectedImageId]);
+
+  useEffect(() => {
+    if (!roomId || typeof window === 'undefined') return;
+    const match = String(window.location.hash || '').match(/^#board-item=([^&]+)$/);
+    if (!match) return;
+    let linkedId = '';
+    try {
+      linkedId = decodeURIComponent(match[1]);
+    } catch {
+      linkedId = match[1];
+    }
+    const linkKey = `${roomId}:${linkedId}`;
+    if (!linkedId || linkedBoardObjectRef.current === linkKey) return;
+    const linkedItem = boardItemsRef.current.find((item) => item?.id === linkedId && item.type === 'image');
+    if (!linkedItem) return;
+    linkedBoardObjectRef.current = linkKey;
+    setTool('select');
+    setSelectedImageId(linkedId);
+    setSelectedIds([linkedId]);
+    setSelectionBox({
+      x: Number(linkedItem.x) || 0,
+      y: Number(linkedItem.y) || 0,
+      width: Math.max(1, Number(linkedItem.width) || 1),
+      height: Math.max(1, Number(linkedItem.height) || 1),
+    });
+    const currentZoom = zoomRef.current || 1;
+    setOffset({
+      x: (Number(linkedItem.x) || 0) + (Number(linkedItem.width) || 1) / 2 - boardSizeRef.current.width / currentZoom / 2,
+      y: (Number(linkedItem.y) || 0) + (Number(linkedItem.height) || 1) / 2 - boardSizeRef.current.height / currentZoom / 2,
+    });
+  }, [boardRevision, roomId]);
 
   useEffect(() => {
     selectionRef.current = selectionBox;
@@ -8683,8 +8810,14 @@ const BoardSection = ({
 
   useEffect(() => {
     const handleOutsideClick = (event) => {
-      if (settingsRef.current && !settingsRef.current.contains(event.target)) {
-        setIsSettingsOpen(false);
+      if (brushPaletteRef.current && !brushPaletteRef.current.contains(event.target)) {
+        setIsBrushPaletteOpen(false);
+      }
+      if (shapePaletteRef.current && !shapePaletteRef.current.contains(event.target)) {
+        setIsShapePaletteOpen(false);
+      }
+      if (boardBottomControlsRef.current && !boardBottomControlsRef.current.contains(event.target)) {
+        setIsBoardHelpOpen(false);
       }
     };
     if (typeof document === 'undefined') return undefined;
@@ -8980,9 +9113,12 @@ const BoardSection = ({
       if (!item) return;
       if (item.type === 'stroke') {
         (item.points || []).forEach((pt) => includePoint(pt?.x, pt?.y));
-      } else if (item.type === 'line') {
+      } else if (item.type === 'line' || item.type === 'arrow') {
         includePoint(item.start?.x, item.start?.y);
         includePoint(item.end?.x, item.end?.y);
+      } else if (item.type === 'shape' || item.type === 'text') {
+        includePoint(item.x, item.y);
+        includePoint((item.x || 0) + (item.width || 0), (item.y || 0) + (item.height || 0));
       } else if (item.type === 'image') {
         includePoint(item.x, item.y);
         includePoint((item.x || 0) + (item.width || 0), (item.y || 0) + (item.height || 0));
@@ -9016,7 +9152,7 @@ const BoardSection = ({
       if (img) imageMap.set(item.dataUrl, img);
     }));
 
-    const hasVectorItems = boardItems.some((item) => item?.type === 'stroke' || item?.type === 'line');
+    const hasVectorItems = boardItems.some((item) => ['stroke', 'line', 'arrow', 'shape', 'text'].includes(item?.type));
     const baseScale = hasVectorItems && !imageItems.length
       ? BOARD_EXPORT_VECTOR_BASE_SCALE
       : BOARD_EXPORT_BASE_SCALE;
@@ -9051,7 +9187,7 @@ const BoardSection = ({
 
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = BOARD_BACKGROUND_COLOR;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.setTransform(
       scale,
@@ -9066,14 +9202,13 @@ const BoardSection = ({
       if (!item) return;
       if (item.type === 'stroke') drawStroke(ctx, item, canvas.width, canvas.height);
       if (item.type === 'line') drawLine(ctx, item, canvas.width, canvas.height);
+      if (item.type === 'arrow') drawArrow(ctx, item);
+      if (item.type === 'shape') drawShape(ctx, item);
+      if (item.type === 'text') drawTextItem(ctx, item);
       if (item.type === 'image') {
         const img = imageMap.get(item.dataUrl);
         if (!img) return;
-        const w = Math.max(1, item.width || 0);
-        const h = Math.max(1, item.height || 0);
-        const x = item.x || 0;
-        const y = item.y || 0;
-        ctx.drawImage(img, x, y, w, h);
+        drawBoardImage(ctx, img, item);
       }
     });
 
@@ -9182,51 +9317,251 @@ const BoardSection = ({
     });
   };
 
-  const resizeImageByFactor = (id, factor) => {
-    const boardItems = boardItemsRef.current;
-    const item = boardItems.find((entry) => entry?.id === id && entry.type === 'image');
+  const showImageNotice = (message) => {
+    setImageActionNotice(message);
+    if (imageActionNoticeTimeoutRef.current) clearTimeout(imageActionNoticeTimeoutRef.current);
+    imageActionNoticeTimeoutRef.current = setTimeout(() => {
+      imageActionNoticeTimeoutRef.current = null;
+      setImageActionNotice('');
+    }, 1800);
+  };
+
+  const updateImageItem = (id, updater, { stopCapturing = true } = {}) => {
+    const yItems = yItemsRef.current;
+    const docInstance = docRef.current;
+    if (!id || !yItems || !docInstance || typeof updater !== 'function') return null;
+    let updated = null;
+    docInstance.transact(() => {
+      for (let i = yItems.length - 1; i >= 0; i -= 1) {
+        const raw = yItems.get(i);
+        const item = raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
+        if (item?.id !== id || item.type !== 'image') continue;
+        const next = updater({ ...item });
+        if (!next) break;
+        updated = { ...next, id: item.id, type: 'image' };
+        yItems.delete(i, 1);
+        yItems.insert(i, [updated]);
+        break;
+      }
+    }, localOriginRef.current);
+    if (updated && stopCapturing) undoManagerRef.current?.stopCapturing();
+    return updated;
+  };
+
+  const applyImageCropPreset = (id, targetAspect) => {
+    const item = boardItemsRef.current.find((entry) => entry?.id === id && entry.type === 'image');
     if (!item) return;
-    const currentWidth = Math.max(1, Number(item.width) || 1);
-    const currentHeight = Math.max(1, Number(item.height) || 1);
-    const minFactor = Math.max(BOARD_IMAGE_MIN_SIZE / currentWidth, BOARD_IMAGE_MIN_SIZE / currentHeight);
-    const maxFactor = Math.min(BOARD_IMAGE_MAX_SIZE / currentWidth, BOARD_IMAGE_MAX_SIZE / currentHeight);
-    let nextFactor = factor;
-    if (factor >= 1) {
-      nextFactor = Math.min(factor, maxFactor);
-      if (nextFactor < 1) nextFactor = 1;
-    } else {
-      nextFactor = Math.max(factor, minFactor);
-      if (nextFactor > 1) nextFactor = 1;
+    const cacheEntry = imageCacheRef.current.get(item.dataUrl);
+    const naturalWidth = Math.max(1, Number(item.naturalWidth) || Number(cacheEntry?.img?.naturalWidth) || Number(item.width) || 1);
+    const naturalHeight = Math.max(1, Number(item.naturalHeight) || Number(cacheEntry?.img?.naturalHeight) || Number(item.height) || 1);
+    const naturalAspect = naturalWidth / naturalHeight;
+    const aspect = targetAspect === 'original' ? naturalAspect : Math.max(0.1, Number(targetAspect) || naturalAspect);
+    let crop = null;
+    if (targetAspect !== 'original') {
+      crop = naturalAspect > aspect
+        ? { x: (1 - aspect / naturalAspect) / 2, y: 0, width: aspect / naturalAspect, height: 1 }
+        : { x: 0, y: (1 - naturalAspect / aspect) / 2, width: 1, height: naturalAspect / aspect };
     }
-    if (!Number.isFinite(nextFactor) || nextFactor === 1) return;
-    const nextWidth = currentWidth * nextFactor;
-    const nextHeight = currentHeight * nextFactor;
-    const centerX = (item.x || 0) + currentWidth / 2;
-    const centerY = (item.y || 0) + currentHeight / 2;
-    const nextX = centerX - nextWidth / 2;
-    const nextY = centerY - nextHeight / 2;
+    updateImageItem(id, (current) => {
+      const currentWidth = Math.max(1, Number(current.width) || 1);
+      const nextHeight = Math.max(BOARD_IMAGE_MIN_SIZE, Math.min(BOARD_IMAGE_MAX_SIZE, currentWidth / aspect));
+      const centerY = (Number(current.y) || 0) + (Number(current.height) || 1) / 2;
+      return {
+        ...current,
+        crop,
+        naturalWidth,
+        naturalHeight,
+        height: nextHeight,
+        y: centerY - nextHeight / 2,
+      };
+    });
+    setIsImageCropMenuOpen(false);
+    showImageNotice(targetAspect === 'original' ? 'Обрезка сброшена' : 'Изображение обрезано');
+  };
+
+  const downloadBoardImage = async (item) => {
+    if (!item?.dataUrl || typeof document === 'undefined') return;
+    const image = await new Promise((resolve) => {
+      const cached = imageCacheRef.current.get(item.dataUrl);
+      if (cached?.loaded && cached.img) {
+        resolve(cached.img);
+        return;
+      }
+      const nextImage = new Image();
+      nextImage.onload = () => resolve(nextImage);
+      nextImage.onerror = () => resolve(null);
+      nextImage.src = item.dataUrl;
+    });
+    if (!image) {
+      showImageNotice('Не удалось скачать изображение');
+      return;
+    }
+    const exportScale = Math.min(4, Math.max(1, getBoardPixelRatio()));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round((Number(item.width) || 1) * exportScale));
+    canvas.height = Math.max(1, Math.round((Number(item.height) || 1) * exportScale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.setTransform(exportScale, 0, 0, exportScale, 0, 0);
+    drawBoardImage(ctx, image, item, { x: 0, y: 0 });
+    const link = document.createElement('a');
+    link.href = canvas.toDataURL('image/png');
+    link.download = `image-${String(item.id || Date.now()).slice(0, 8)}.png`;
+    link.click();
+    showImageNotice('Изображение скачано');
+  };
+
+  const copyTextToClipboard = async (value) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const copySelectedImage = (item) => {
+    if (!item) return;
+    const copy = {
+      ...item,
+      id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random()}`,
+      x: (Number(item.x) || 0) + 24,
+      y: (Number(item.y) || 0) + 24,
+      locked: false,
+      superLocked: false,
+      votes: 0,
+    };
+    const capacity = ensureBoardCanAddItems([copy]);
+    if (!capacity.ok) {
+      showImageNotice(capacity.error);
+      return;
+    }
+    docRef.current?.transact(() => yItemsRef.current?.push([copy]), localOriginRef.current);
+    undoManagerRef.current?.stopCapturing();
+    setSelectedImageId(copy.id);
+    setSelectedIds(tool === 'select' ? [copy.id] : []);
+    showImageNotice('Копия создана');
+  };
+
+  const moveImageLayer = (id, direction) => {
     const yItems = yItemsRef.current;
     const docInstance = docRef.current;
     if (!yItems || !docInstance) return;
     docInstance.transact(() => {
-      for (let i = yItems.length - 1; i >= 0; i -= 1) {
+      for (let i = 0; i < yItems.length; i += 1) {
         const raw = yItems.get(i);
-        const entry = raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
-        if (entry?.id === id) {
-          const next = {
-            ...entry,
-            width: nextWidth,
-            height: nextHeight,
-            x: nextX,
-            y: nextY,
-          };
-          yItems.delete(i, 1);
-          yItems.insert(i, [next]);
-          break;
-        }
+        const item = raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
+        if (item?.id !== id) continue;
+        yItems.delete(i, 1);
+        if (direction === 'top') yItems.push([item]);
+        else yItems.insert(0, [item]);
+        break;
       }
     }, localOriginRef.current);
     undoManagerRef.current?.stopCapturing();
+    setIsImageMoreOpen(false);
+    showImageNotice(direction === 'top' ? 'Перемещено наверх' : 'Перемещено вниз');
+  };
+
+  const setSelectedImageHyperlink = (item) => {
+    if (!item || typeof window === 'undefined') return;
+    const entered = window.prompt('Введите ссылку для изображения', item.hyperlink || 'https://');
+    if (entered === null) return;
+    const trimmed = entered.trim();
+    const hyperlink = trimmed && !/^[a-z][a-z\d+.-]*:/i.test(trimmed) ? `https://${trimmed}` : trimmed;
+    updateImageItem(item.id, (current) => ({ ...current, hyperlink }));
+    showImageNotice(hyperlink ? 'Ссылка добавлена' : 'Ссылка удалена');
+  };
+
+  const calculateImageResize = (start, handle, point) => {
+    const minSize = BOARD_IMAGE_MIN_SIZE;
+    const maxSize = BOARD_IMAGE_MAX_SIZE;
+    const x = Number(start.x) || 0;
+    const y = Number(start.y) || 0;
+    const width = Math.max(1, Number(start.width) || 1);
+    const height = Math.max(1, Number(start.height) || 1);
+    const px = Number(point.x) || 0;
+    const py = Number(point.y) || 0;
+    const clampSize = (value) => Math.min(maxSize, Math.max(minSize, value));
+
+    if (handle.length === 2) {
+      let factor = 1;
+      if (handle === 'nw') factor = Math.max((x + width - px) / width, (y + height - py) / height);
+      if (handle === 'ne') factor = Math.max((px - x) / width, (y + height - py) / height);
+      if (handle === 'se') factor = Math.max((px - x) / width, (py - y) / height);
+      if (handle === 'sw') factor = Math.max((x + width - px) / width, (py - y) / height);
+      const minFactor = Math.max(minSize / width, minSize / height);
+      const maxFactor = Math.min(maxSize / width, maxSize / height);
+      factor = Math.min(maxFactor, Math.max(minFactor, factor));
+      const nextWidth = width * factor;
+      const nextHeight = height * factor;
+      return {
+        x: handle.includes('w') ? x + width - nextWidth : x,
+        y: handle.includes('n') ? y + height - nextHeight : y,
+        width: nextWidth,
+        height: nextHeight,
+      };
+    }
+
+    if (handle === 'e') return { x, y, width: clampSize(px - x), height };
+    if (handle === 's') return { x, y, width, height: clampSize(py - y) };
+    if (handle === 'w') {
+      const nextWidth = clampSize(x + width - px);
+      return { x: x + width - nextWidth, y, width: nextWidth, height };
+    }
+    const nextHeight = clampSize(y + height - py);
+    return { x, y: y + height - nextHeight, width, height: nextHeight };
+  };
+
+  const startImageResize = (event, handle, item) => {
+    if (!item || item.locked || item.superLocked || typeof window === 'undefined') return;
+    event.preventDefault();
+    event.stopPropagation();
+    const start = {
+      id: item.id,
+      x: Number(item.x) || 0,
+      y: Number(item.y) || 0,
+      width: Math.max(1, Number(item.width) || 1),
+      height: Math.max(1, Number(item.height) || 1),
+    };
+    const onMove = (moveEvent) => {
+      const surfacePoint = getCanvasSurfacePoint(moveEvent.clientX, moveEvent.clientY);
+      if (!surfacePoint) return;
+      const currentZoom = zoomRef.current || 1;
+      const point = {
+        x: offsetRef.current.x + surfacePoint.x / currentZoom,
+        y: offsetRef.current.y + surfacePoint.y / currentZoom,
+      };
+      const geometry = calculateImageResize(start, handle, point);
+      const preview = { id: item.id, ...geometry };
+      imageResizePreviewRef.current = preview;
+      imageResizeRef.current.preview = preview;
+      setImageResizePreview(preview);
+      renderBoard();
+      renderOverlay();
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      const preview = imageResizeRef.current.preview;
+      imageResizeRef.current = { active: false };
+      imageResizePreviewRef.current = null;
+      setImageResizePreview(null);
+      if (preview?.id === item.id) {
+        updateImageItem(item.id, (current) => ({ ...current, ...preview }));
+      }
+    };
+    imageResizeRef.current = { active: true, id: item.id, handle, preview: null, cleanup: stop };
+    setIsImageCropMenuOpen(false);
+    setIsImageMoreOpen(false);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
   };
 
   const distanceToSegmentSquared = (point, a, b) => {
@@ -9288,7 +9623,13 @@ const BoardSection = ({
       if (!item) continue;
       let hit = false;
       if (item.type === 'stroke') hit = hitTestStroke(item, point, BOARD_ERASER_RADIUS);
-      else if (item.type === 'line') hit = hitTestLine(item, point, BOARD_ERASER_RADIUS);
+      else if (item.type === 'line' || item.type === 'arrow') hit = hitTestLine(item, point, BOARD_ERASER_RADIUS);
+      else if (item.type === 'shape' || item.type === 'text') hit = isPointInRect(point, {
+        x: item.x || 0,
+        y: item.y || 0,
+        width: item.width || 0,
+        height: item.height || 0,
+      });
       if (!hit) continue;
       docInstance.transact(() => {
         yItems.delete(i, 1);
@@ -9316,7 +9657,7 @@ const BoardSection = ({
       if (!Number.isFinite(minX)) return null;
       return { minX, minY, maxX, maxY };
     }
-    if (item.type === 'line') {
+    if (item.type === 'line' || item.type === 'arrow') {
       const start = item.start || { x: 0, y: 0 };
       const end = item.end || { x: 0, y: 0 };
       const minX = Math.min(start.x || 0, end.x || 0);
@@ -9324,6 +9665,13 @@ const BoardSection = ({
       const maxX = Math.max(start.x || 0, end.x || 0);
       const maxY = Math.max(start.y || 0, end.y || 0);
       return { minX, minY, maxX, maxY };
+    }
+    if (item.type === 'shape' || item.type === 'text') {
+      const x = item.x || 0;
+      const y = item.y || 0;
+      const w = item.width || 0;
+      const h = item.height || 0;
+      return { minX: x, minY: y, maxX: x + w, maxY: y + h };
     }
     if (item.type === 'image') {
       const x = item.x || 0;
@@ -9404,7 +9752,12 @@ const BoardSection = ({
           return point.x >= x && point.x <= x + w && point.y >= y && point.y <= y + h;
         }
         if (item.type === 'stroke') return hitTestStroke(item, point, BOARD_SELECTION_HIT_RADIUS);
-        if (item.type === 'line') return hitTestLine(item, point, BOARD_SELECTION_HIT_RADIUS);
+        if (item.type === 'line' || item.type === 'arrow') return hitTestLine(item, point, BOARD_SELECTION_HIT_RADIUS);
+        if (item.type === 'shape' || item.type === 'text') {
+          const x = item.x || 0;
+          const y = item.y || 0;
+          return point.x >= x && point.x <= x + (item.width || 0) && point.y >= y && point.y <= y + (item.height || 0);
+        }
         return false;
       })
       .map((item) => item.id)
@@ -9448,10 +9801,10 @@ const BoardSection = ({
             }),
           };
         }
-        if (item.type === 'line') {
+        if (item.type === 'line' || item.type === 'arrow') {
           return {
             id: item.id,
-            type: 'line',
+            type: item.type,
             start: { x: item.start?.x || 0, y: item.start?.y || 0 },
             end: { x: item.end?.x || 0, y: item.end?.y || 0 },
           };
@@ -9460,6 +9813,14 @@ const BoardSection = ({
           return {
             id: item.id,
             type: 'image',
+            x: item.x || 0,
+            y: item.y || 0,
+          };
+        }
+        if (item.type === 'shape' || item.type === 'text') {
+          return {
+            id: item.id,
+            type: item.type,
             x: item.x || 0,
             y: item.y || 0,
           };
@@ -9490,13 +9851,13 @@ const BoardSection = ({
               return { x: (pt.x || 0) + dx, y: (pt.y || 0) + dy };
             });
             next = { ...current, points };
-          } else if (current.type === 'line') {
+          } else if (current.type === 'line' || current.type === 'arrow') {
             next = {
               ...current,
               start: { x: (item.start?.x || 0) + dx, y: (item.start?.y || 0) + dy },
               end: { x: (item.end?.x || 0) + dx, y: (item.end?.y || 0) + dy },
             };
-          } else if (current.type === 'image') {
+          } else if (current.type === 'image' || current.type === 'shape' || current.type === 'text') {
             next = { ...current, x: (item.x || 0) + dx, y: (item.y || 0) + dy };
           }
           yItems.delete(i, 1);
@@ -9527,7 +9888,7 @@ const BoardSection = ({
         }),
       };
     }
-    if (snapshot.type === 'line') {
+    if (snapshot.type === 'line' || snapshot.type === 'arrow') {
       return {
         ...item,
         start: { x: (snapshot.start?.x || 0) + dx, y: (snapshot.start?.y || 0) + dy },
@@ -9535,6 +9896,13 @@ const BoardSection = ({
       };
     }
     if (snapshot.type === 'image') {
+      return {
+        ...item,
+        x: (snapshot.x || 0) + dx,
+        y: (snapshot.y || 0) + dy,
+      };
+    }
+    if (snapshot.type === 'shape' || snapshot.type === 'text') {
       return {
         ...item,
         x: (snapshot.x || 0) + dx,
@@ -9726,6 +10094,80 @@ const BoardSection = ({
     ctx.stroke();
   };
 
+  const drawArrow = (ctx, arrow) => {
+    if (!arrow?.start || !arrow?.end) return;
+    const startX = arrow.start.x || 0;
+    const startY = arrow.start.y || 0;
+    const endX = arrow.end.x || 0;
+    const endY = arrow.end.y || 0;
+    const lineWidth = Number(arrow.width) || BOARD_LINE_WIDTH;
+    const angle = Math.atan2(endY - startY, endX - startX);
+    const headLength = Math.max(12, lineWidth * 3.2);
+    ctx.save();
+    ctx.strokeStyle = arrow.color || BOARD_DEFAULT_COLOR;
+    ctx.fillStyle = arrow.color || BOARD_DEFAULT_COLOR;
+    ctx.lineWidth = lineWidth;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(endX, endY);
+    ctx.lineTo(endX - headLength * Math.cos(angle - Math.PI / 6), endY - headLength * Math.sin(angle - Math.PI / 6));
+    ctx.lineTo(endX - headLength * Math.cos(angle + Math.PI / 6), endY - headLength * Math.sin(angle + Math.PI / 6));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  };
+
+  const drawShape = (ctx, shape) => {
+    const x = Number(shape?.x) || 0;
+    const y = Number(shape?.y) || 0;
+    const width = Math.max(1, Number(shape?.width) || 1);
+    const height = Math.max(1, Number(shape?.height) || 1);
+    const colorValue = shape?.color || BOARD_DEFAULT_COLOR;
+    ctx.save();
+    ctx.strokeStyle = colorValue;
+    ctx.fillStyle = colorValue;
+    ctx.lineWidth = Number(shape?.strokeWidth) || BOARD_LINE_WIDTH;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    if (shape?.shape === 'ellipse') {
+      ctx.ellipse(x + width / 2, y + height / 2, width / 2, height / 2, 0, 0, Math.PI * 2);
+    } else if (shape?.shape === 'diamond') {
+      ctx.moveTo(x + width / 2, y);
+      ctx.lineTo(x + width, y + height / 2);
+      ctx.lineTo(x + width / 2, y + height);
+      ctx.lineTo(x, y + height / 2);
+      ctx.closePath();
+    } else {
+      ctx.roundRect(x, y, width, height, Math.min(12, width / 5, height / 5));
+    }
+    ctx.save();
+    ctx.globalAlpha = 0.09;
+    ctx.fill();
+    ctx.restore();
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  const drawTextItem = (ctx, textItem) => {
+    const text = String(textItem?.text || '');
+    if (!text) return;
+    const fontSize = Math.max(10, Number(textItem.fontSize) || BOARD_TEXT_FONT_SIZE);
+    const lineHeight = fontSize * 1.25;
+    ctx.save();
+    ctx.fillStyle = textItem.color || BOARD_DEFAULT_COLOR;
+    ctx.font = `600 ${fontSize}px Inter, Arial, sans-serif`;
+    ctx.textBaseline = 'top';
+    text.split('\n').forEach((line, index) => {
+      ctx.fillText(line, Number(textItem.x) || 0, (Number(textItem.y) || 0) + index * lineHeight);
+    });
+    ctx.restore();
+  };
+
   const getCachedImage = (dataUrl) => {
     if (!dataUrl) return null;
     const cached = imageCacheRef.current.get(dataUrl);
@@ -9753,15 +10195,23 @@ const BoardSection = ({
       drawLine(ctx, item);
       return;
     }
+    if (item.type === 'arrow') {
+      drawArrow(ctx, item);
+      return;
+    }
+    if (item.type === 'shape') {
+      drawShape(ctx, item);
+      return;
+    }
+    if (item.type === 'text') {
+      drawTextItem(ctx, item);
+      return;
+    }
     if (item.type === 'image') {
       const cacheEntry = getCachedImage(item.dataUrl);
       if (!cacheEntry?.img || !cacheEntry.loaded) return;
       const img = cacheEntry.img;
-      const width = Math.max(1, item.width || 0);
-      const height = Math.max(1, item.height || 0);
-      const x = item.x || 0;
-      const y = item.y || 0;
-      ctx.drawImage(img, x, y, width, height);
+      drawBoardImage(ctx, img, item);
     }
   }, []);
 
@@ -9875,8 +10325,12 @@ const BoardSection = ({
       return;
     }
     ctx.setTransform(scene.scale, 0, 0, scene.scale, -scene.originX * scene.scale, -scene.originY * scene.scale);
+    const resizePreview = imageResizePreviewRef.current;
     items.forEach((item) => {
-      drawBoardItemToScene(ctx, item);
+      const renderItem = resizePreview?.id === item?.id
+        ? { ...item, ...resizePreview }
+        : item;
+      drawBoardItemToScene(ctx, renderItem);
     });
 
     const nextContentBounds = getBoardContentBounds(boardItemsRef.current);
@@ -9942,7 +10396,7 @@ const BoardSection = ({
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, pixelWidth, pixelHeight);
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = BOARD_BACKGROUND_COLOR;
     ctx.fillRect(0, 0, pixelWidth, pixelHeight);
     if (!items.length) {
       ctx.restore();
@@ -9958,8 +10412,12 @@ const BoardSection = ({
       -(currentOffset.x || 0) * renderScale,
       -(currentOffset.y || 0) * renderScale
     );
+    const resizePreview = imageResizePreviewRef.current;
     items.forEach((item) => {
-      drawBoardItemToScene(ctx, item);
+      drawBoardItemToScene(
+        ctx,
+        resizePreview?.id === item?.id ? { ...item, ...resizePreview } : item
+      );
     });
     ctx.restore();
   }, [drawBoardItemToScene]);
@@ -9980,10 +10438,27 @@ const BoardSection = ({
     },
     [boardRevision, selectedImageId]
   );
-  const selectedImageLabel = selectedImage
-    ? `${Math.round(selectedImage.width || 0)}Г—${Math.round(selectedImage.height || 0)}`
-    : '';
-
+  useEffect(() => {
+    if (!selectedImage || tool !== 'select' || selectedIdsRef.current.length !== 1) return;
+    if (selectedIdsRef.current[0] !== selectedImage.id || selectionDragRef.current.active || imageResizeRef.current.active) return;
+    setSelectionBox({
+      x: Number(selectedImage.x) || 0,
+      y: Number(selectedImage.y) || 0,
+      width: Math.max(1, Number(selectedImage.width) || 1),
+      height: Math.max(1, Number(selectedImage.height) || 1),
+    });
+  }, [selectedImage, tool]);
+  const displaySelectedImage = selectedImage && imageResizePreview?.id === selectedImage.id
+    ? { ...selectedImage, ...imageResizePreview }
+    : (selectedImage && tool === 'select' && selectedIds.length === 1 && selectedIds[0] === selectedImage.id && selectionBox
+      ? {
+        ...selectedImage,
+        x: selectionBox.x,
+        y: selectionBox.y,
+        width: selectionBox.width,
+        height: selectionBox.height,
+      }
+      : selectedImage);
   const renderOverlay = () => {
     const overlay = overlayRef.current;
     if (!overlay) return;
@@ -10016,6 +10491,10 @@ const BoardSection = ({
           drawStroke(ctx, preview, overlay.width, overlay.height);
         } else if (preview?.type === 'line') {
           drawLine(ctx, preview, overlay.width, overlay.height);
+        } else if (preview?.type === 'arrow') {
+          drawArrow(ctx, preview);
+        } else if (preview?.type === 'shape') {
+          drawShape(ctx, preview);
         }
       });
       ctx.restore();
@@ -10026,7 +10505,14 @@ const BoardSection = ({
         drawStroke(ctx, { points: state.points, color, width: penWidth }, overlay.width, overlay.height);
       }
       if (tool === 'line' && state.start && state.end) {
-        drawLine(ctx, { start: state.start, end: state.end, color, width: lineWidth }, overlay.width, overlay.height);
+        drawLine(ctx, { start: state.start, end: state.end, color, width: penWidth }, overlay.width, overlay.height);
+      }
+      if (tool === 'arrow' && state.start && state.end) {
+        drawArrow(ctx, { start: state.start, end: state.end, color, width: penWidth });
+      }
+      if (tool === 'shape' && state.start && state.end) {
+        const rect = normalizeRect(state.start, state.end);
+        drawShape(ctx, { ...rect, shape: shapeKind, color, strokeWidth: penWidth });
       }
     }
     if (tool === 'select' && selectionBox) {
@@ -10040,14 +10526,14 @@ const BoardSection = ({
       ctx.restore();
     }
     const drag = dragImageRef.current;
-    const overlaySelectedImage = selectedImage && drag.active && drag.id === selectedImage.id
+    const overlaySelectedImage = displaySelectedImage && drag.active && drag.id === displaySelectedImage.id
       ? {
-        ...selectedImage,
-        x: Number.isFinite(Number(drag.x)) ? Number(drag.x) : selectedImage.x,
-        y: Number.isFinite(Number(drag.y)) ? Number(drag.y) : selectedImage.y,
+        ...displaySelectedImage,
+        x: Number.isFinite(Number(drag.x)) ? Number(drag.x) : displaySelectedImage.x,
+        y: Number.isFinite(Number(drag.y)) ? Number(drag.y) : displaySelectedImage.y,
       }
-      : selectedImage;
-    if (tool === 'move' && overlaySelectedImage) {
+      : displaySelectedImage;
+    if ((tool === 'move' || tool === 'select') && overlaySelectedImage) {
       ctx.save();
       ctx.strokeStyle = 'rgba(99, 102, 241, 0.9)';
       ctx.lineWidth = 1.5 / (zoomRef.current || 1);
@@ -10064,7 +10550,7 @@ const BoardSection = ({
 
   useEffect(() => {
     renderOverlay();
-  }, [remotePreviews, boardSize, tool, color, penWidth, lineWidth, selectedImage, selectionBox]);
+  }, [remotePreviews, boardSize, tool, color, penWidth, shapeKind, displaySelectedImage, selectionBox]);
 
   useEffect(() => {
     renderBoard();
@@ -10072,7 +10558,7 @@ const BoardSection = ({
 
   useEffect(() => {
     renderOverlay();
-  }, [zoom, offset, remotePreviews, tool, color, penWidth, lineWidth, selectedImage, selectionBox]);
+  }, [zoom, offset, remotePreviews, tool, color, penWidth, shapeKind, displaySelectedImage, selectionBox]);
 
   const scheduleBoardRender = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -10232,7 +10718,7 @@ const BoardSection = ({
           ? remoteUser.color
           : '#6366f1';
         const drawing = state?.drawing;
-        if (drawing && (drawing.type === 'stroke' || drawing.type === 'line')) {
+        if (drawing && ['stroke', 'line', 'arrow', 'shape'].includes(drawing.type)) {
           activePreviewClientIds.add(clientKey);
           if (drawing.type === 'stroke') {
             const incomingPoints = Array.isArray(drawing.points)
@@ -10398,6 +10884,8 @@ const BoardSection = ({
             y,
             width: widthPx,
             height: heightPx,
+            naturalWidth: Math.max(1, Number(img.naturalWidth) || Number(img.width) || 1),
+            naturalHeight: Math.max(1, Number(img.naturalHeight) || Number(img.height) || 1),
             authorId: userId,
           };
           const capacity = ensureBoardCanAddItems([entry]);
@@ -10405,13 +10893,20 @@ const BoardSection = ({
             setPasteError(capacity.error);
             return;
           }
+          imageCacheRef.current.set(dataUrl, { img, loaded: true });
           const docInstance = docRef.current;
           if (docInstance && yItemsRef.current) {
             setPasteError('');
             docInstance.transact(() => {
               yItemsRef.current?.push([entry]);
             }, localOriginRef.current);
-            if (toolRef.current === 'move') setSelectedImageId(entry.id);
+            if (toolRef.current === 'move' || toolRef.current === 'select') {
+              setSelectedImageId(entry.id);
+              if (toolRef.current === 'select') {
+                setSelectedIds([entry.id]);
+                setSelectionBox({ x, y, width: widthPx, height: heightPx });
+              }
+            }
             lastPointerRef.current = { x: pointer.x, y: pointer.y };
           }
         };
@@ -10475,9 +10970,26 @@ const BoardSection = ({
         awarenessRef.current?.setLocalStateField('drawing', {
           type: 'line',
           color,
-          width: lineWidth,
+          width: penWidth,
           start: state.start,
           end: state.end,
+        });
+      } else if (tool === 'arrow') {
+        awarenessRef.current?.setLocalStateField('drawing', {
+          type: 'arrow',
+          color,
+          width: penWidth,
+          start: state.start,
+          end: state.end,
+        });
+      } else if (tool === 'shape') {
+        const rect = normalizeRect(state.start, state.end);
+        awarenessRef.current?.setLocalStateField('drawing', {
+          type: 'shape',
+          shape: shapeKind,
+          color,
+          strokeWidth: penWidth,
+          ...rect,
         });
       }
     });
@@ -10497,6 +11009,8 @@ const BoardSection = ({
 
   useEffect(() => () => {
     if (imageDragRafRef.current) cancelAnimationFrame(imageDragRafRef.current);
+    imageResizeRef.current?.cleanup?.();
+    if (imageActionNoticeTimeoutRef.current) clearTimeout(imageActionNoticeTimeoutRef.current);
   }, []);
 
   useEffect(() => () => {
@@ -10515,9 +11029,70 @@ const BoardSection = ({
     if (summonNoticeTimeoutRef.current) clearTimeout(summonNoticeTimeoutRef.current);
   }, []);
 
+  const commitTextDraft = (draft = textDraft) => {
+    const textValue = String(draft?.value || '').replace(/\r\n?/g, '\n').slice(0, 4000).trimEnd();
+    setTextDraft(null);
+    if (!yItemsRef.current || !docRef.current) return;
+    const existingItem = draft?.id
+      ? boardItemsRef.current.find((item) => item?.id === draft.id && item.type === 'text')
+      : null;
+    if (!textValue.trim()) {
+      if (existingItem) removeBoardItemsByIds([existingItem.id]);
+      return;
+    }
+    if (draft?.id && !existingItem) return;
+    const lines = textValue.split('\n');
+    const fontSize = Math.max(10, Math.min(160, Number(draft?.fontSize) || BOARD_TEXT_FONT_SIZE));
+    const textItem = {
+      ...(existingItem || {}),
+      id: existingItem?.id || (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random()}`),
+      type: 'text',
+      text: textValue,
+      x: Number(draft.x) || 0,
+      y: Number(draft.y) || 0,
+      width: Math.ceil(Math.max(fontSize, ...lines.map((line) => line.length * fontSize * 0.62))),
+      height: Math.ceil(Math.max(fontSize * 1.25, lines.length * fontSize * 1.25)),
+      fontSize,
+      color: draft?.color || existingItem?.color || color,
+      authorId: existingItem?.authorId || draft?.authorId || userId,
+    };
+    if (existingItem) {
+      const nextEstimatedBytes = boardEstimatedBytesRef.current
+        - estimateBoardItemBytes(existingItem)
+        + estimateBoardItemBytes(textItem);
+      const capacityError = getBoardCapacityError(boardItemsRef.current.length, nextEstimatedBytes);
+      if (capacityError) {
+        setPasteError(capacityError);
+        return;
+      }
+      docRef.current.transact(() => {
+        for (let index = yItemsRef.current.length - 1; index >= 0; index -= 1) {
+          const raw = yItemsRef.current.get(index);
+          const item = raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
+          if (item?.id !== existingItem.id) continue;
+          yItemsRef.current.delete(index, 1);
+          yItemsRef.current.insert(index, [textItem]);
+          break;
+        }
+      }, localOriginRef.current);
+    } else {
+      const capacity = ensureBoardCanAddItems([textItem]);
+      if (!capacity.ok) {
+        setPasteError(capacity.error);
+        return;
+      }
+      docRef.current.transact(() => yItemsRef.current?.push([textItem]), localOriginRef.current);
+    }
+    undoManagerRef.current?.stopCapturing();
+  };
+
   const handlePointerDown = (event) => {
     if (!roomId) return;
     boardPasteFocusedRef.current = true;
+    setIsImageCropMenuOpen(false);
+    setIsImageMoreOpen(false);
     containerRef.current?.focus?.({ preventScroll: true });
     const point = rememberBoardPointer(event);
     scheduleCursorUpdate(point);
@@ -10537,6 +11112,8 @@ const BoardSection = ({
       const currentSelection = selectionBox;
       const currentSelectedIds = selectedIdsRef.current || [];
       if (currentSelection && currentSelectedIds.length > 0 && isPointInRect(point, currentSelection)) {
+        const selectedItems = boardItemsRef.current.filter((item) => currentSelectedIds.includes(item?.id));
+        if (selectedItems.some((item) => item?.locked || item?.superLocked)) return;
         const snapshot = buildSelectionSnapshot(currentSelectedIds);
         selectionDragRef.current = {
           active: true,
@@ -10551,10 +11128,13 @@ const BoardSection = ({
       const hitIds = getItemsAtPoint(point);
       if (hitIds.length > 0) {
         const targetId = hitIds[hitIds.length - 1];
+        const targetItem = boardItemsRef.current.find((item) => item?.id === targetId);
         const nextIds = [targetId];
         const bounds = getSelectionBoundsFromIds(nextIds);
         setSelectedIds(nextIds);
         setSelectionBox(bounds);
+        setSelectedImageId(targetItem?.type === 'image' ? targetId : null);
+        if (targetItem?.locked || targetItem?.superLocked) return;
         const snapshot = buildSelectionSnapshot(nextIds);
         selectionDragRef.current = {
           active: true,
@@ -10568,6 +11148,7 @@ const BoardSection = ({
       }
       selectingRef.current = { active: true, start: point, current: point };
       setSelectedIds([]);
+      setSelectedImageId(null);
       setSelectionBox({ x: point.x, y: point.y, width: 0, height: 0 });
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
@@ -10582,6 +11163,7 @@ const BoardSection = ({
       const hit = findImageAtPoint(point);
       if (hit?.item?.id) {
         setSelectedImageId(hit.item.id);
+        if (hit.item.locked || hit.item.superLocked) return;
         dragImageRef.current = {
           active: true,
           id: hit.item.id,
@@ -10604,6 +11186,41 @@ const BoardSection = ({
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
+    if (tool === 'text') {
+      let editableText = null;
+      for (let index = boardItemsRef.current.length - 1; index >= 0; index -= 1) {
+        const item = boardItemsRef.current[index];
+        if (item?.type !== 'text') continue;
+        const bounds = getItemBounds(item);
+        if (!bounds || point.x < bounds.minX || point.x > bounds.maxX || point.y < bounds.minY || point.y > bounds.maxY) continue;
+        editableText = item;
+        break;
+      }
+      textDraftCancelRef.current = false;
+      setTextDraft(editableText
+        ? {
+          id: editableText.id,
+          x: editableText.x || 0,
+          y: editableText.y || 0,
+          value: editableText.text || '',
+          width: editableText.width || 0,
+          height: editableText.height || 0,
+          fontSize: editableText.fontSize || BOARD_TEXT_FONT_SIZE,
+          color: editableText.color || color,
+          authorId: editableText.authorId,
+        }
+        : {
+          x: point.x,
+          y: point.y,
+          value: '',
+          width: 0,
+          height: 0,
+          fontSize: BOARD_TEXT_FONT_SIZE,
+          color,
+          authorId: userId,
+        });
+      return;
+    }
     if (tool === 'pen') {
       drawStateRef.current = {
         drawing: true,
@@ -10616,7 +11233,7 @@ const BoardSection = ({
         previewSeq: 0,
         previewLastSentIndex: -1,
       };
-    } else if (tool === 'line') {
+    } else if (tool === 'line' || tool === 'arrow' || tool === 'shape') {
       drawStateRef.current = { drawing: true, points: [], start: point, end: point };
     }
     renderOverlay();
@@ -10676,7 +11293,7 @@ const BoardSection = ({
       const dy = penPoint.y - (last?.y || 0);
       if ((dx * dx + dy * dy) < BOARD_POINT_MIN_DISTANCE * BOARD_POINT_MIN_DISTANCE) return;
       state.points.push(penPoint);
-    } else if (tool === 'line') {
+    } else if (tool === 'line' || tool === 'arrow' || tool === 'shape') {
       state.end = point;
     }
     renderOverlay();
@@ -10720,9 +11337,14 @@ const BoardSection = ({
       if (nextIds.length > 0) {
         setSelectedIds(nextIds);
         setSelectionBox(getSelectionBoundsFromIds(nextIds));
+        const selectedItem = nextIds.length === 1
+          ? boardItemsRef.current.find((item) => item?.id === nextIds[0])
+          : null;
+        setSelectedImageId(selectedItem?.type === 'image' ? selectedItem.id : null);
       } else {
         setSelectedIds([]);
         setSelectionBox(null);
+        setSelectedImageId(null);
       }
       return;
     }
@@ -10776,10 +11398,34 @@ const BoardSection = ({
       itemsToAdd.push({
         ...base,
         type: 'line',
-        width: lineWidth,
+        width: penWidth,
         start: normalizeBoardStoredPoint(state.start),
         end: normalizeBoardStoredPoint(state.end),
       });
+    }
+    if (tool === 'arrow' && state.start && state.end) {
+      itemsToAdd.push({
+        ...base,
+        type: 'arrow',
+        width: penWidth,
+        start: normalizeBoardStoredPoint(state.start),
+        end: normalizeBoardStoredPoint(state.end),
+      });
+    }
+    if (tool === 'shape' && state.start && state.end) {
+      const rect = normalizeRect(state.start, state.end);
+      if (rect.width >= BOARD_SHAPE_MIN_SIZE && rect.height >= BOARD_SHAPE_MIN_SIZE) {
+        itemsToAdd.push({
+          ...base,
+          type: 'shape',
+          shape: shapeKind,
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+          strokeWidth: penWidth,
+        });
+      }
     }
     if (itemsToAdd.length > 0) {
       const capacity = ensureBoardCanAddItems(itemsToAdd);
@@ -10845,7 +11491,7 @@ const BoardSection = ({
     const height = canvas.height;
     const scene = boardSceneRef.current;
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = '#f8fafc';
+    ctx.fillStyle = BOARD_BACKGROUND_COLOR;
     ctx.fillRect(0, 0, width, height);
     const currentBoardSize = boardSizeRef.current || { width: 1, height: 1 };
     const viewWidth = currentBoardSize.width / (zoomRef.current || 1);
@@ -10908,8 +11554,8 @@ const BoardSection = ({
     const viewY = toMiniY(offsetRef.current.y);
     const viewW = viewWidth * scale;
     const viewH = viewHeight * scale;
-    ctx.strokeStyle = '#ef4444';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#00a9d2';
+    ctx.lineWidth = 1.5;
     ctx.strokeRect(viewX, viewY, viewW, viewH);
     ctx.restore();
   }, []);
@@ -10932,7 +11578,7 @@ const BoardSection = ({
 
   useEffect(() => {
     scheduleMinimapRender();
-  }, [zoom, offset, boardSize.width, boardSize.height, boardRevision, scheduleMinimapRender]);
+  }, [zoom, offset, boardSize.width, boardSize.height, boardRevision, isMinimapOpen, scheduleMinimapRender]);
 
   const canUndo = undoState.canUndo;
   const canRedo = undoState.canRedo;
@@ -10954,11 +11600,25 @@ const BoardSection = ({
         && cursor.top <= boardSize.height + 40
       ));
   }, [remoteCursors, zoom, offset, boardSize.width, boardSize.height]);
-  const sessionTitle = roomId
-    ? (isTeacher
-      ? `Учитель + ${selectedStudent ? getStudentLabel(selectedStudent) : 'ученик'}`
-      : 'Учитель + ученик')
-    : 'Не выбрана';
+  const selectedImageScreenBox = displaySelectedImage
+    ? {
+      left: (Number(displaySelectedImage.x) - offset.x) * (zoom || 1),
+      top: (Number(displaySelectedImage.y) - offset.y) * (zoom || 1),
+      width: Math.max(1, Number(displaySelectedImage.width) * (zoom || 1)),
+      height: Math.max(1, Number(displaySelectedImage.height) * (zoom || 1)),
+    }
+    : null;
+  const isSelectedImageLocked = Boolean(displaySelectedImage?.locked || displaySelectedImage?.superLocked);
+  const showImageToolbarBelow = Boolean(selectedImageScreenBox && selectedImageScreenBox.top < 74);
+  const imageMoreMenuOpensLeft = Boolean(
+    selectedImageScreenBox
+    && selectedImageScreenBox.left + selectedImageScreenBox.width / 2 + 470 > boardSize.width
+  );
+  const imageMoreMenuNeedsScroll = Boolean(
+    showImageToolbarBelow
+    && selectedImageScreenBox
+    && selectedImageScreenBox.top + selectedImageScreenBox.height + 420 > boardSize.height
+  );
   const statusLabel = status === 'connected'
     ? 'Подключено'
     : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено');
@@ -10973,29 +11633,7 @@ const BoardSection = ({
     : (embedded
       ? 'board-embedded-card relative h-full min-h-0 rounded-[0.7rem] border-0 bg-white p-0 shadow-none flex flex-col overflow-hidden'
       : 'board-surface-card board-surface-card--main relative overflow-visible rounded-none border-0 bg-transparent shadow-none flex min-h-0 flex-1 flex-col overflow-visible');
-  const activeWidth = tool === 'line' ? lineWidth : penWidth;
-  const widthTargetLabel = tool === 'line' ? 'Линия' : 'Карандаш';
-  const showWidthControls = tool === 'pen' || tool === 'line';
   const zoomLabel = `${Math.round((zoom || 1) * 100)}%`;
-  const formattedWidth = Number.isFinite(activeWidth)
-    ? (activeWidth % 1 === 0 ? activeWidth.toFixed(0) : activeWidth.toFixed(1))
-    : '';
-  const handleWidthChange = (event) => {
-    const fallbackWidth = tool === 'line' ? BOARD_LINE_WIDTH : BOARD_STROKE_WIDTH;
-    const nextValue = clamp(Number(event.target.value) || fallbackWidth, BOARD_MIN_WIDTH, BOARD_MAX_WIDTH);
-    if (tool === 'line') setLineWidth(nextValue);
-    else setPenWidth(nextValue);
-  };
-  const boardToolbarButtonClass = (options = {}) => {
-    const { active = false, danger = false, wide = false, accent = false } = options;
-    return [
-      'board-toolbar__button',
-      active ? 'is-active' : '',
-      danger ? 'is-danger' : '',
-      wide ? 'is-wide' : '',
-      accent ? 'is-accent' : '',
-    ].filter(Boolean).join(' ');
-  };
   const renderStudentPicker = () => {
     if (!isTeacher || hideStudentPicker) return null;
     return (
@@ -11012,39 +11650,7 @@ const BoardSection = ({
       </div>
     );
   };
-  const summonStudentButton = isTeacher ? (
-    <button
-      type="button"
-      onClick={handleSummonStudent}
-      disabled={!roomId}
-      className="board-toolbar__summon-button"
-    >
-      Призвать к себе
-    </button>
-  ) : null;
-  const boardSessionActions = (
-    <>
-      {renderStudentPicker()}
-      <button
-        type="button"
-        onClick={() => setSaveModalOpen(true)}
-        className="board-toolbar__action-button board-toolbar__action-button--save"
-        disabled={!roomId}
-      >
-        <Save size={14} />
-        Сохранить в конспекты
-      </button>
-      {summonStudentButton}
-      <span className={`board-toolbar__status-chip ${statusToneClass}`}>
-        {statusLabel}
-      </span>
-      {roomId && (
-        <span className="board-toolbar__status-chip is-muted">
-          Онлайн: {peerCount}
-        </span>
-      )}
-    </>
-  );
+  const showBottomSummonButton = isTeacher && (!embedded || isFullscreen || showEmbeddedSummonButton);
 
   const saveModal = saveModalOpen ? (
     <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
@@ -11170,258 +11776,13 @@ const BoardSection = ({
   ) : null;
   const boardCardContent = (
     <>
-      <div className={`board-toolbar ${isFullscreen ? 'board-toolbar--fullscreen' : ''} ${embedded ? 'board-toolbar--embedded' : ''} ${!isFullscreen && !embedded ? 'board-toolbar--floating' : ''}`}>
-        <div className="board-toolbar__strip board-toolbar__strip--tools">
-          <div className="board-toolbar__group board-toolbar__group--tools" aria-label="Инструменты доски">
-            <button
-              type="button"
-              onClick={() => setTool('pen')}
-              className={boardToolbarButtonClass({ active: tool === 'pen' })}
-              aria-label="Карандаш"
-              title="Карандаш"
-            >
-              <Pencil size={14} />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setTool('line')}
-              className={boardToolbarButtonClass({ active: tool === 'line' })}
-              aria-label="Линия"
-              title="Линия"
-            >
-              <Minus size={14} />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setTool('select')}
-              className={boardToolbarButtonClass({ active: tool === 'select' })}
-              aria-label="Выделение"
-              title="Выделение"
-            >
-              <MousePointer2 size={14} />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setTool('move')}
-              className={boardToolbarButtonClass({ active: tool === 'move' })}
-              aria-label="Перемещение"
-              title="Перемещение"
-            >
-              <Hand size={14} />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setTool('eraser')}
-              className={boardToolbarButtonClass({ active: tool === 'eraser' })}
-              aria-label="Ластик"
-              title="Ластик"
-            >
-              <Eraser size={14} />
-            </button>
-          </div>
-
-          <div className="board-toolbar__group board-toolbar__group--history" aria-label="История доски">
-            <button
-              type="button"
-              onClick={handleUndo}
-              disabled={!canUndo}
-              className={boardToolbarButtonClass()}
-              aria-label="Отменить"
-              title="Отменить"
-            >
-              <Undo2 size={14} />
-            </button>
-            <button
-              type="button"
-              onClick={handleRedo}
-              disabled={!canRedo}
-              className={boardToolbarButtonClass()}
-              aria-label="Вернуть"
-              title="Вернуть"
-            >
-              <RefreshCcw size={14} />
-            </button>
-            <button
-              type="button"
-              onClick={handleClearBoard}
-              disabled={!canClear}
-              className={boardToolbarButtonClass({ danger: true })}
-              aria-label="Очистить доску"
-              title="Очистить доску"
-            >
-              <Trash2 size={14} />
-            </button>
-          </div>
-
-          <div ref={settingsRef} className="board-toolbar__group board-toolbar__group--settings relative">
-            <button
-              type="button"
-              onClick={() => setIsSettingsOpen((prev) => !prev)}
-              className={boardToolbarButtonClass({ wide: !embedded, active: isSettingsOpen })}
-              aria-label="Цвет и размер"
-              title="Цвет и размер"
-            >
-              <Settings size={14} />
-              <span className={embedded ? 'sr-only' : 'board-toolbar__button-label'}>Цвет и размер</span>
-              <span
-                className="board-toolbar__color-dot"
-                style={{ backgroundColor: color }}
-              />
-            </button>
-            {isSettingsOpen && (
-              <div className="board-toolbar__settings-popover absolute right-0 top-full z-40 mt-2 w-72 rounded-2xl border border-gray-200 bg-white p-3 shadow-lg">
-                <div className="space-y-3">
-                  <div>
-                    <div className="text-[11px] uppercase tracking-wide text-gray-500">{`Толщина (${widthTargetLabel})`}</div>
-                    <div className="mt-1 flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={BOARD_MIN_WIDTH}
-                        max={BOARD_MAX_WIDTH}
-                        step={BOARD_WIDTH_STEP}
-                        value={activeWidth}
-                        onChange={handleWidthChange}
-                        disabled={!showWidthControls}
-                        className={`w-full accent-purple-600 ${showWidthControls ? '' : 'opacity-40'}`}
-                      />
-                      <span className="w-8 text-right text-xs font-semibold text-gray-600">{formattedWidth}</span>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] uppercase tracking-wide text-gray-500">Цвет</div>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                      {BOARD_COLORS.map((swatch) => (
-                        <button
-                          key={swatch}
-                          type="button"
-                          onClick={() => setColor(swatch)}
-                          className={`h-7 w-7 rounded-full border-2 transition ${
-                            color === swatch ? 'border-blue-900 scale-110' : 'border-white/80'
-                          }`}
-                          style={{ backgroundColor: swatch }}
-                          aria-label={`Цвет ${swatch}`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  <div className="border-t border-gray-100 pt-3">
-                    <label className="flex items-center gap-2 text-xs text-gray-600">
-                      <input
-                        type="checkbox"
-                        checked={shareMyCursor}
-                        onChange={(event) => setShareMyCursor(event.target.checked)}
-                        className="h-4 w-4 accent-purple-600"
-                      />
-                      Показывать мой курсор
-                    </label>
-                  </div>
-                  <div className="border-t border-gray-100 pt-3">
-                    <label className="flex items-center gap-2 text-xs text-gray-600">
-                      <input
-                        type="checkbox"
-                        checked={lowBandwidthMode}
-                        onChange={(event) => setLowBandwidthMode(event.target.checked)}
-                        className="h-4 w-4 accent-purple-600"
-                      />
-                      Режим слабого интернета
-                    </label>
-                    <div className="mt-1 text-[11px] text-gray-400">
-                      Реже отправляет курсор и превью линий, чтобы снизить трафик.
-                    </div>
-                  </div>
-                  {tool === 'move' && selectedImage && (
-                    <div className="border-t border-gray-100 pt-3">
-                      <div className="text-[11px] uppercase tracking-wide text-gray-500">Изображение</div>
-                      <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
-                        <span>{selectedImageLabel}</span>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => resizeImageByFactor(selectedImage.id, 1 - BOARD_IMAGE_SCALE_STEP)}
-                            className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-                          >
-                            -
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => resizeImageByFactor(selectedImage.id, 1 + BOARD_IMAGE_SCALE_STEP)}
-                            className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-                          >
-                            +
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="board-toolbar__group board-toolbar__group--zoom" aria-label="Масштаб доски">
-            <button
-              type="button"
-              onClick={() => zoomBy(1 / 1.12)}
-              className={boardToolbarButtonClass()}
-              aria-label="Отдалить"
-              title="Отдалить"
-            >
-              <Minus size={14} />
-            </button>
-
-            <div className="board-toolbar__zoom-value">
-              {zoomLabel}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => zoomBy(1.12)}
-              className={boardToolbarButtonClass()}
-              aria-label="Приблизить"
-              title="Приблизить"
-            >
-              <Plus size={14} />
-            </button>
-
-            <button
-              type="button"
-              onClick={resetView}
-              className={boardToolbarButtonClass({ wide: true })}
-              aria-label="Сброс масштаба"
-              title="Сброс масштаба"
-            >
-              Сброс
-            </button>
+      {isTeacher && !hideStudentPicker && (
+        <div className={`board-toolbar ${isFullscreen ? 'board-toolbar--fullscreen' : ''} ${embedded ? 'board-toolbar--embedded' : ''} ${!isFullscreen && !embedded ? 'board-toolbar--floating' : ''}`}>
+          <div className="board-toolbar__strip board-toolbar__strip--actions">
+            <div className="board-toolbar__actions">{renderStudentPicker()}</div>
           </div>
         </div>
-
-        <div className="board-toolbar__strip board-toolbar__strip--actions">
-          {!isFullscreen && !embedded && (
-            <div className="board-toolbar__actions">
-              {boardSessionActions}
-            </div>
-          )}
-          {isFullscreen && (
-            <div className="board-toolbar__actions">
-              {boardSessionActions}
-            </div>
-          )}
-          {!isFullscreen && embedded && showEmbeddedSummonButton && summonStudentButton}
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            className={`${boardToolbarButtonClass({ accent: true })} board-toolbar__fullscreen-button`}
-            aria-label={isFullscreen ? 'Обычный экран' : 'Полный экран'}
-            title={isFullscreen ? 'Обычный экран' : 'Полный экран'}
-          >
-            {isFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
-          </button>
-        </div>
-      </div>
+      )}
 
       {pasteError && (
         <div className="mt-2 text-xs text-rose-600">{pasteError}</div>
@@ -11442,6 +11803,269 @@ const BoardSection = ({
           summonNotice ? 'ring-2 ring-amber-400/70 ring-offset-2 ring-offset-white' : ''
         }`}
       >
+        <div className="board-tool-rail" role="toolbar" aria-label="Инструменты доски">
+          <button
+            type="button"
+            onClick={() => {
+              setTool('select');
+              setIsBrushPaletteOpen(false);
+              setIsShapePaletteOpen(false);
+            }}
+            className={`board-tool-rail__button ${tool === 'select' ? 'is-active' : ''}`}
+            aria-label="Выделение"
+            title="Выделение"
+            aria-pressed={tool === 'select'}
+          >
+            <MousePointer2 size={20} />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTool('move');
+              setIsBrushPaletteOpen(false);
+              setIsShapePaletteOpen(false);
+            }}
+            className={`board-tool-rail__button ${tool === 'move' ? 'is-active' : ''}`}
+            aria-label="Перемещение"
+            title="Перемещение"
+            aria-pressed={tool === 'move'}
+          >
+            <Hand size={20} />
+          </button>
+
+          <span className="board-tool-rail__divider" aria-hidden="true" />
+
+          <div ref={brushPaletteRef} className="board-tool-rail__brush-wrap">
+            <button
+              type="button"
+              onClick={() => {
+                setTool('pen');
+                setIsShapePaletteOpen(false);
+                setIsBrushPaletteOpen((current) => (tool === 'pen' ? !current : true));
+              }}
+              className={`board-tool-rail__button ${tool === 'pen' || isBrushPaletteOpen ? 'is-active' : ''}`}
+              aria-label="Кисть"
+              title="Кисть"
+              aria-pressed={tool === 'pen'}
+              aria-expanded={isBrushPaletteOpen}
+              aria-haspopup="dialog"
+            >
+              <span className="board-tool-rail__brush-icon" aria-hidden="true">
+                <Pencil size={20} />
+                <span className="board-tool-rail__brush-icon-dot" />
+              </span>
+            </button>
+
+            {isBrushPaletteOpen && (
+              <div className="board-brush-menu" role="dialog" aria-label="Настройки кисти">
+                <div className="board-brush-menu__modes" role="group" aria-label="Режим кисти">
+                  <button
+                    type="button"
+                    onClick={() => setTool('pen')}
+                    className={`board-brush-menu__mode ${tool === 'pen' ? 'is-active' : ''}`}
+                    aria-label="Перо"
+                    aria-pressed={tool === 'pen'}
+                    title="Перо"
+                  >
+                    <svg className="board-brush-menu__nib" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M12 2.5 8.7 8.8l-.9 7.4h8.4l-.9-7.4L12 2.5Z" />
+                      <circle cx="12" cy="9.4" r="1.35" />
+                      <path d="M7.4 19.2h9.2" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTool('eraser')}
+                    className={`board-brush-menu__mode ${tool === 'eraser' ? 'is-active' : ''}`}
+                    aria-label="Ластик кисти"
+                    aria-pressed={tool === 'eraser'}
+                    title="Ластик"
+                  >
+                    <Eraser size={20} />
+                  </button>
+                </div>
+
+                <span className="board-brush-menu__divider board-brush-menu__divider--modes" aria-hidden="true" />
+
+                <div className="board-brush-menu__colors" role="group" aria-label="Цвет кисти">
+                  <button
+                    type="button"
+                    onClick={() => customColorInputRef.current?.click()}
+                    className={`board-brush-menu__custom-color ${BOARD_PRESET_COLORS.includes(color) ? '' : 'is-active'}`}
+                    aria-label="Выбрать произвольный цвет"
+                    title="Выбрать цвет"
+                  >
+                    <span
+                      className="board-brush-menu__custom-color-ring"
+                      style={{ borderColor: color }}
+                      aria-hidden="true"
+                    />
+                  </button>
+                  <input
+                    ref={customColorInputRef}
+                    type="color"
+                    value={color}
+                    onChange={(event) => setColor(event.target.value || BOARD_DEFAULT_COLOR)}
+                    className="board-brush-menu__color-input"
+                    aria-label="Палитра произвольного цвета"
+                    tabIndex={-1}
+                  />
+
+                  {BOARD_PRESET_COLORS.map((swatch) => (
+                    <button
+                      key={swatch}
+                      type="button"
+                      onClick={() => setColor(swatch)}
+                      className={`board-brush-menu__swatch ${color === swatch ? 'is-active' : ''}`}
+                      style={{ backgroundColor: swatch }}
+                      aria-label={`Цвет ${swatch}`}
+                      aria-pressed={color === swatch}
+                      title={swatch}
+                    />
+                  ))}
+                </div>
+
+                <span className="board-brush-menu__divider" aria-hidden="true" />
+
+                <label className="board-brush-menu__width">
+                  <span className="sr-only">Толщина кисти</span>
+                  <input
+                    type="range"
+                    min={BOARD_MIN_WIDTH}
+                    max={BOARD_MAX_WIDTH}
+                    step={BOARD_WIDTH_STEP}
+                    value={penWidth}
+                    onChange={(event) => setPenWidth(clamp(
+                      Number(event.target.value) || BOARD_STROKE_WIDTH,
+                      BOARD_MIN_WIDTH,
+                      BOARD_MAX_WIDTH
+                    ))}
+                    className="board-brush-menu__range"
+                    aria-label="Толщина кисти"
+                  />
+                  <output className="board-brush-menu__width-value">
+                    {penWidth % 1 === 0 ? penWidth.toFixed(0) : penWidth.toFixed(1)}
+                  </output>
+                </label>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setTool('line');
+              setIsBrushPaletteOpen(false);
+              setIsShapePaletteOpen(false);
+            }}
+            className={`board-tool-rail__button ${tool === 'line' ? 'is-active' : ''}`}
+            aria-label="Линия"
+            title="Линия"
+            aria-pressed={tool === 'line'}
+          >
+            <Minus className="board-tool-rail__line-icon" size={20} />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTool('text');
+              setIsBrushPaletteOpen(false);
+              setIsShapePaletteOpen(false);
+            }}
+            className={`board-tool-rail__button ${tool === 'text' ? 'is-active' : ''}`}
+            aria-label="Текст"
+            title="Текст"
+            aria-pressed={tool === 'text'}
+          >
+            <Type size={20} />
+          </button>
+          <div ref={shapePaletteRef} className="board-tool-rail__brush-wrap">
+            <button
+              type="button"
+              onClick={() => {
+                setTool('shape');
+                setIsBrushPaletteOpen(false);
+                setIsShapePaletteOpen((current) => (tool === 'shape' ? !current : true));
+              }}
+              className={`board-tool-rail__button ${tool === 'shape' || isShapePaletteOpen ? 'is-active' : ''}`}
+              aria-label="Фигуры"
+              title="Фигуры"
+              aria-pressed={tool === 'shape'}
+              aria-expanded={isShapePaletteOpen}
+            >
+              <Shapes size={20} />
+            </button>
+            {isShapePaletteOpen && (
+              <div className="board-shape-menu" role="dialog" aria-label="Выбор фигуры">
+                <button
+                  type="button"
+                  className={shapeKind === 'rectangle' ? 'is-active' : ''}
+                  onClick={() => { setShapeKind('rectangle'); setTool('shape'); setIsShapePaletteOpen(false); }}
+                  aria-label="Прямоугольник"
+                  title="Прямоугольник"
+                >
+                  <Square size={19} />
+                </button>
+                <button
+                  type="button"
+                  className={shapeKind === 'ellipse' ? 'is-active' : ''}
+                  onClick={() => { setShapeKind('ellipse'); setTool('shape'); setIsShapePaletteOpen(false); }}
+                  aria-label="Круг"
+                  title="Круг"
+                >
+                  <Circle size={19} />
+                </button>
+                <button
+                  type="button"
+                  className={shapeKind === 'diamond' ? 'is-active' : ''}
+                  onClick={() => { setShapeKind('diamond'); setTool('shape'); setIsShapePaletteOpen(false); }}
+                  aria-label="Ромб"
+                  title="Ромб"
+                >
+                  <Diamond size={19} />
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setTool('arrow');
+              setIsBrushPaletteOpen(false);
+              setIsShapePaletteOpen(false);
+            }}
+            className={`board-tool-rail__button ${tool === 'arrow' ? 'is-active' : ''}`}
+            aria-label="Стрелка"
+            title="Стрелка"
+            aria-pressed={tool === 'arrow'}
+          >
+            <ArrowUpRight size={21} />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTool('eraser');
+              setIsBrushPaletteOpen(false);
+              setIsShapePaletteOpen(false);
+            }}
+            className={`board-tool-rail__button ${tool === 'eraser' ? 'is-active' : ''}`}
+            aria-label="Ластик"
+            title="Ластик"
+            aria-pressed={tool === 'eraser'}
+          >
+            <Eraser size={20} />
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          className="board-fullscreen-corner"
+          aria-label={isFullscreen ? 'Обычный экран' : 'Полный экран'}
+          title={isFullscreen ? 'Обычный экран' : 'Полный экран'}
+        >
+          {isFullscreen ? <Minimize2 size={19} /> : <Expand size={19} />}
+        </button>
+
         {!roomId && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
             Выберите ученика, чтобы открыть доску.
@@ -11463,7 +12087,9 @@ const BoardSection = ({
             touchAction: 'none',
             cursor: isSpaceDown
               ? (panStateRef.current.active ? 'grabbing' : 'grab')
-              : (tool === 'pen' || tool === 'line' || tool === 'eraser' ? 'crosshair' : (tool === 'move' ? 'grab' : 'default'))
+              : (tool === 'pen' || tool === 'line' || tool === 'arrow' || tool === 'shape' || tool === 'eraser'
+                ? 'crosshair'
+                : (tool === 'text' ? 'text' : (tool === 'move' ? 'grab' : 'default')))
           }}
           onPointerDown={handlePointerDown}
           onPointerEnter={rememberBoardPointer}
@@ -11474,6 +12100,242 @@ const BoardSection = ({
           onWheel={handleWheel}
           onContextMenu={(e) => e.preventDefault()}
         />
+        {textDraft && (
+          <textarea
+            autoFocus
+            wrap="off"
+            value={textDraft.value}
+            onChange={(event) => setTextDraft((current) => current ? { ...current, value: event.target.value } : current)}
+            onBlur={(event) => {
+              if (textDraftCancelRef.current) {
+                textDraftCancelRef.current = false;
+                return;
+              }
+              commitTextDraft({ ...textDraft, value: event.currentTarget.value });
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                textDraftCancelRef.current = true;
+                commitTextDraft({ ...textDraft, value: event.currentTarget.value });
+              }
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                textDraftCancelRef.current = true;
+                setTextDraft(null);
+              }
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            className="board-text-editor"
+            style={{
+              left: `${(textDraft.x - offset.x) * (zoom || 1)}px`,
+              top: `${(textDraft.y - offset.y) * (zoom || 1)}px`,
+              width: `${Math.min(640, Math.max(240, (textDraft.width || 0) * (zoom || 1) + 20))}px`,
+              minHeight: `${Math.max(46, (textDraft.height || textDraft.fontSize || BOARD_TEXT_FONT_SIZE) * (zoom || 1) + 16)}px`,
+              fontSize: `${Math.max(14, (textDraft.fontSize || BOARD_TEXT_FONT_SIZE) * (zoom || 1))}px`,
+              color: textDraft.color || color,
+            }}
+            aria-label={textDraft.id ? 'Редактировать текст на доске' : 'Введите текст на доске'}
+            placeholder="Введите текст…"
+          />
+        )}
+        {(tool === 'move' || tool === 'select') && displaySelectedImage && selectedImageScreenBox && (
+          <div className="board-image-selection-layer" aria-label="Выбранное изображение">
+            <div
+              className={`board-image-selection ${isSelectedImageLocked ? 'is-locked' : ''}`}
+              style={{
+                left: `${selectedImageScreenBox.left}px`,
+                top: `${selectedImageScreenBox.top}px`,
+                width: `${selectedImageScreenBox.width}px`,
+                height: `${selectedImageScreenBox.height}px`,
+              }}
+            >
+              {!isSelectedImageLocked && ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((handle) => (
+                <button
+                  key={handle}
+                  type="button"
+                  className={`board-image-selection__handle board-image-selection__handle--${handle}`}
+                  onPointerDown={(event) => startImageResize(event, handle, displaySelectedImage)}
+                  aria-label={`Изменить размер: ${handle}`}
+                  tabIndex={-1}
+                />
+              ))}
+              {isSelectedImageLocked && (
+                <span className="board-image-selection__lock" aria-label="Изображение заблокировано">
+                  {displaySelectedImage.superLocked ? <Shield size={14} /> : <Lock size={14} />}
+                </span>
+              )}
+            </div>
+
+            <div
+              className={`board-image-toolbar ${showImageToolbarBelow ? 'is-below' : ''}`}
+              style={{
+                left: `${selectedImageScreenBox.left + selectedImageScreenBox.width / 2}px`,
+                top: `${showImageToolbarBelow
+                  ? selectedImageScreenBox.top + selectedImageScreenBox.height + 12
+                  : selectedImageScreenBox.top - 12}px`,
+              }}
+              role="toolbar"
+              aria-label="Действия с изображением"
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <div className="board-image-toolbar__pill">
+                <div className="board-image-toolbar__action-wrap">
+                  <button
+                    type="button"
+                    className={`board-image-toolbar__button ${isImageCropMenuOpen ? 'is-active' : ''}`}
+                    onClick={() => {
+                      setIsImageCropMenuOpen((current) => !current);
+                      setIsImageMoreOpen(false);
+                    }}
+                    disabled={isSelectedImageLocked}
+                    aria-label="Обрезка"
+                    aria-expanded={isImageCropMenuOpen}
+                    data-tooltip="Обрезка"
+                  >
+                    <Crop size={21} />
+                  </button>
+                  {isImageCropMenuOpen && (
+                    <div className="board-image-crop-menu" role="menu" aria-label="Формат обрезки">
+                      <button type="button" onClick={() => applyImageCropPreset(displaySelectedImage.id, 'original')}>Исходное</button>
+                      <button type="button" onClick={() => applyImageCropPreset(displaySelectedImage.id, 1)}>1:1</button>
+                      <button type="button" onClick={() => applyImageCropPreset(displaySelectedImage.id, 4 / 3)}>4:3</button>
+                      <button type="button" onClick={() => applyImageCropPreset(displaySelectedImage.id, 16 / 9)}>16:9</button>
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className={`board-image-toolbar__button ${displaySelectedImage.flipX ? 'is-active' : ''}`}
+                  onClick={() => updateImageItem(displaySelectedImage.id, (item) => ({ ...item, flipX: !item.flipX }))}
+                  disabled={isSelectedImageLocked}
+                  aria-label="Зеркалирование"
+                  data-tooltip="Зеркалирование"
+                >
+                  <FlipHorizontal2 size={21} />
+                </button>
+                <button
+                  type="button"
+                  className={`board-image-toolbar__button ${displaySelectedImage.hasFrame ? 'is-active' : ''}`}
+                  onClick={() => updateImageItem(displaySelectedImage.id, (item) => ({ ...item, hasFrame: !item.hasFrame }))}
+                  disabled={isSelectedImageLocked}
+                  aria-label="Рамка"
+                  data-tooltip="Рамка"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" className="board-image-toolbar__frame-icon">
+                    <rect x="4" y="4" width="16" height="16" rx="1.8" />
+                    <rect x="7.5" y="7.5" width="9" height="9" rx="0.8" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="board-image-toolbar__button"
+                  onClick={() => downloadBoardImage(displaySelectedImage)}
+                  aria-label="Скачать"
+                  data-tooltip="Скачать"
+                >
+                  <Download size={21} />
+                </button>
+                <button
+                  type="button"
+                  className={`board-image-toolbar__button ${displaySelectedImage.hyperlink ? 'is-active' : ''}`}
+                  onClick={() => setSelectedImageHyperlink(displaySelectedImage)}
+                  disabled={isSelectedImageLocked}
+                  aria-label="Гиперссылка"
+                  data-tooltip="Гиперссылка"
+                >
+                  <Link2 size={21} />
+                </button>
+                <div className="board-image-toolbar__action-wrap">
+                  <button
+                    type="button"
+                    className={`board-image-toolbar__button ${isImageMoreOpen ? 'is-active' : ''}`}
+                    onClick={() => {
+                      setIsImageMoreOpen((current) => !current);
+                      setIsImageCropMenuOpen(false);
+                    }}
+                    aria-label="Дополнительно"
+                    aria-expanded={isImageMoreOpen}
+                    data-tooltip="Дополнительно"
+                  >
+                    <MoreHorizontal size={22} />
+                  </button>
+                  {isImageMoreOpen && (
+                    <div className={`board-image-more-menu ${imageMoreMenuOpensLeft ? 'is-left' : ''} ${imageMoreMenuNeedsScroll ? 'is-scroll' : ''}`} role="menu" aria-label="Дополнительные действия">
+                      <button type="button" onClick={() => copySelectedImage(displaySelectedImage)}>
+                        <Copy size={18} /><span>Скопировать</span><kbd>Ctrl + C</kbd>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const objectUrl = `${window.location.origin}${window.location.pathname}${window.location.search}#board-item=${displaySelectedImage.id}`;
+                          const copied = await copyTextToClipboard(objectUrl);
+                          showImageNotice(copied ? 'Ссылка на объект скопирована' : 'Не удалось скопировать ссылку');
+                          setIsImageMoreOpen(false);
+                        }}
+                      >
+                        <Link2 size={18} /><span>Скопировать ссылку на объект</span><kbd>Ctrl + L</kbd>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateImageItem(displaySelectedImage.id, (item) => ({
+                          ...item,
+                          locked: !(item.locked || item.superLocked),
+                          superLocked: false,
+                        }))}
+                      >
+                        <Lock size={18} /><span>{isSelectedImageLocked ? 'Разблокировать' : 'Заблокировать'}</span><kbd>Ctrl + Shift + L</kbd>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateImageItem(displaySelectedImage.id, (item) => ({
+                          ...item,
+                          superLocked: !item.superLocked,
+                          locked: !item.superLocked,
+                        }))}
+                      >
+                        <Shield size={18} /><span>Супер-блокировка</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateImageItem(displaySelectedImage.id, (item) => ({
+                          ...item,
+                          votes: Math.max(0, Number(item.votes) || 0) + 1,
+                        }))}
+                      >
+                        <ThumbsUp size={18} /><span>Проголосовать</span>
+                        {displaySelectedImage.votes > 0 && <kbd>{displaySelectedImage.votes}</kbd>}
+                      </button>
+                      <span className="board-image-more-menu__divider" aria-hidden="true" />
+                      <button type="button" disabled={isSelectedImageLocked} onClick={() => moveImageLayer(displaySelectedImage.id, 'top')}>
+                        <ArrowUpToLine size={18} /><span>Переместить наверх</span><kbd>Ctrl + ]</kbd>
+                      </button>
+                      <button type="button" disabled={isSelectedImageLocked} onClick={() => moveImageLayer(displaySelectedImage.id, 'bottom')}>
+                        <ArrowDownToLine size={18} /><span>Переместить вниз</span><kbd>Ctrl + [</kbd>
+                      </button>
+                      <span className="board-image-more-menu__divider" aria-hidden="true" />
+                      <button
+                        type="button"
+                        className="is-danger"
+                        disabled={isSelectedImageLocked}
+                        onClick={() => {
+                          deleteItemsByIds([displaySelectedImage.id]);
+                          setSelectedImageId(null);
+                          setSelectedIds([]);
+                          setSelectionBox(null);
+                          setIsImageMoreOpen(false);
+                        }}
+                      >
+                        <Trash2 size={18} /><span>Удалить</span><kbd>Delete</kbd>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {imageActionNotice && <div className="board-image-toolbar__notice" role="status">{imageActionNotice}</div>}
+            </div>
+          </div>
+        )}
         {remoteCursorMarkers.map((cursor) => (
           <div
             key={cursor.id}
@@ -11496,13 +12358,145 @@ const BoardSection = ({
             </div>
           </div>
         ))}
-        <div className="board-minimap-shell absolute right-3 top-3 z-20">
-          <canvas
-            ref={minimapRef}
-            width={160}
-            height={120}
-            className="board-minimap-canvas block"
-          />
+        {isMinimapOpen && (
+          <div className="board-minimap-shell board-minimap-shell--bottom absolute z-30">
+            <canvas
+              ref={minimapRef}
+              width={240}
+              height={140}
+              className="board-minimap-canvas block"
+            />
+          </div>
+        )}
+
+        <div ref={boardBottomControlsRef} className="board-bottom-controls">
+          <div className="board-bottom-controls__pill board-bottom-controls__session" aria-label="Состояние доски">
+            <button
+              type="button"
+              onClick={() => setSaveModalOpen(true)}
+              disabled={!roomId}
+              className="board-bottom-controls__button"
+              aria-label="Сохранить в конспекты"
+              data-tooltip="Сохранить в конспекты"
+            >
+              <Save size={19} />
+            </button>
+            {showBottomSummonButton && (
+              <button
+                type="button"
+                onClick={handleSummonStudent}
+                disabled={!roomId}
+                className="board-bottom-controls__button"
+                aria-label="Призвать к себе"
+                data-tooltip="Призвать к себе"
+              >
+                <Users size={19} />
+              </button>
+            )}
+            <span className="board-bottom-controls__divider" aria-hidden="true" />
+            <span className={`board-bottom-controls__session-status ${statusToneClass}`} aria-label={statusLabel}>
+              <span className="board-bottom-controls__status-dot" aria-hidden="true" />
+              <span className="board-bottom-controls__session-label">{statusLabel}</span>
+            </span>
+            {roomId && (
+              <span className="board-bottom-controls__online" aria-label={`Онлайн: ${peerCount}`}>
+                <Users size={15} aria-hidden="true" />
+                <span>{peerCount}</span>
+              </span>
+            )}
+          </div>
+          <div className="board-bottom-controls__pill board-bottom-controls__history" aria-label="История доски">
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={!canUndo}
+              className="board-bottom-controls__button"
+              aria-label="Отменить"
+              title="Отменить"
+            >
+              <Undo2 size={20} />
+            </button>
+            <span className="board-bottom-controls__divider" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={handleRedo}
+              disabled={!canRedo}
+              className="board-bottom-controls__button"
+              aria-label="Вернуть"
+              title="Вернуть"
+            >
+              <RefreshCcw size={20} />
+            </button>
+          </div>
+
+          <div className="board-bottom-controls__pill board-bottom-controls__navigation" aria-label="Навигация по доске">
+            <button
+              type="button"
+              onClick={() => {
+                setIsMinimapOpen((current) => !current);
+                setIsBoardHelpOpen(false);
+              }}
+              className={`board-bottom-controls__button ${isMinimapOpen ? 'is-active' : ''}`}
+              aria-label="Мини-карта"
+              aria-pressed={isMinimapOpen}
+              data-tooltip="Мини-карта"
+            >
+              <MapIcon size={21} />
+            </button>
+            <button
+              type="button"
+              onClick={handleClearBoard}
+              disabled={!canClear}
+              className="board-bottom-controls__button is-danger"
+              aria-label="Очистить доску"
+              data-tooltip="Очистить доску"
+            >
+              <Trash2 size={20} />
+            </button>
+            <span className="board-bottom-controls__divider" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={() => zoomBy(1 / 1.12)}
+              className="board-bottom-controls__button"
+              aria-label="Отдалить"
+              title="Отдалить"
+            >
+              <Minus size={20} />
+            </button>
+            <div className="board-bottom-controls__zoom" aria-label={`Масштаб ${zoomLabel}`}>
+              {zoomLabel}
+            </div>
+            <button
+              type="button"
+              onClick={() => zoomBy(1.12)}
+              className="board-bottom-controls__button"
+              aria-label="Приблизить"
+              title="Приблизить"
+            >
+              <Plus size={20} />
+            </button>
+            <span className="board-bottom-controls__divider" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={() => setIsBoardHelpOpen((current) => !current)}
+              className="board-bottom-controls__button board-bottom-controls__help-button"
+              aria-label="Справка по доске"
+              aria-expanded={isBoardHelpOpen}
+              aria-haspopup="dialog"
+              title="Справка"
+            >
+              <span aria-hidden="true">?</span>
+            </button>
+
+            {isBoardHelpOpen && (
+              <div className="board-bottom-controls__help" role="dialog" aria-label="Справка по навигации">
+                <strong>Навигация по доске</strong>
+                <span>Колесо мыши — масштаб</span>
+                <span>Пробел и перетаскивание — перемещение</span>
+                <button type="button" onClick={resetView}>Сбросить вид</button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </>
