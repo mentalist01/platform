@@ -43833,51 +43833,6 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command
   }
 }
 
-/* Original Telegram-inspired doodle wallpaper for every conversation surface. */
-:root {
-  --chat-doodle-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='260' viewBox='0 0 360 260'%3E%3Cg fill='none' stroke='%232b7f74' stroke-opacity='.2' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 30 55 12 42 52 32 37 14 30Zm18 7 23-25'/%3E%3Cpath d='M88 18h46a13 13 0 0 1 13 13v12a13 13 0 0 1-13 13h-21l-12 10 2-10H88a13 13 0 0 1-13-13V31a13 13 0 0 1 13-13Z'/%3E%3Cpath d='M184 56s-23-13-23-29c0-13 17-17 23-6 6-11 23-7 23 6 0 16-23 29-23 29Z'/%3E%3Cpath d='m260 17 5 11 12 1-9 8 3 12-11-6-11 6 3-12-9-8 12-1 5-11Z'/%3E%3Cpath d='m315 18-11 14 11 14m18-28 11 14-11 14M328 13l-8 38'/%3E%3Ccircle cx='43' cy='116' r='24'/%3E%3Cpath d='M33 111h.01M53 111h.01M33 124c6 7 14 7 20 0'/%3E%3Cpath d='M93 96c11-5 22-5 33 0v42c-11-5-22-5-33 0V96Zm33 0c11-5 22-5 33 0v42c-11-5-22-5-33 0V96M126 100v34'/%3E%3Cpath d='M211 91a19 19 0 0 1 11 34c-4 3-5 6-5 10h-13c0-4-1-7-5-10a19 19 0 0 1 12-34Zm-7 50h13m-11 6h9'/%3E%3Cpath d='m281 92 17 5 5 17-18 18-18 2 2-18 12-24Zm4 8 10 10M270 129l-10 10m16-5-8 13'/%3E%3Cpath d='M332 96c-11 0-20 9-20 20v24m0 0 10-10m-10 10-10-10'/%3E%3Cpath d='M27 190c0-11 8-19 19-19 8 0 14 4 17 11m-36 8c0 11 8 19 19 19 8 0 14-4 17-11m-36-8h14m22-8H49'/%3E%3Cpath d='M103 175h49v34h-49zM110 183h22m-22 8h34m-34 8h17'/%3E%3Cpath d='M198 174c-7 7-11 15-11 24 0 12 10 22 22 22s22-10 22-22c0-9-4-17-11-24l-11 13-11-13Zm11 13v21'/%3E%3Cpath d='m273 177 31 31m-35-5 4 5 5-4m-2-34 9 9-23 23-9 2 2-9 21-25Z'/%3E%3Cpath d='M330 176v28m0-28 14-5v27m-14-6c-8-2-12 2-9 7 3 4 9 3 9-3m14-10c-8-2-12 2-9 7 3 4 9 3 9-3'/%3E%3Ccircle cx='74' cy='73' r='3'/%3E%3Ccircle cx='174' cy='154' r='4'/%3E%3Ccircle cx='252' cy='72' r='3'/%3E%3Cpath d='m80 150 2 6 6 2-6 2-2 6-2-6-6-2 6-2 2-6Zm82 67 2 6 6 2-6 2-2 6-2-6-6-2 6-2 2-6Z'/%3E%3C/g%3E%3C/svg%3E");
-}
-
-.student-chat-messages,
-.teacher-chat-messages,
-.teacher-signup-messages,
-.telegram-chat-wallpaper,
-.call-lesson-chat-list {
-  background-color: #a8d6aa !important;
-  background-image:
-    var(--chat-doodle-pattern),
-    linear-gradient(135deg, #dce8a8 0%, #b9dda9 36%, #8bcfaf 68%, #65bfa9 100%) !important;
-  background-position: center top, center !important;
-  background-size: 360px 260px, 100% 100% !important;
-  background-repeat: repeat, no-repeat !important;
-  background-attachment: local, local;
-}
-
-html[data-theme='dark'] .student-chat-messages,
-html[data-theme='dark'] .teacher-chat-messages,
-html[data-theme='dark'] .teacher-signup-messages,
-html[data-theme='dark'] .telegram-chat-wallpaper,
-html[data-theme='dark'] .call-lesson-chat-list {
-  border-color: rgba(94, 234, 212, 0.16) !important;
-  background-color: #183c3d !important;
-  background-image:
-    var(--chat-doodle-pattern),
-    linear-gradient(145deg, #264c42 0%, #1d4546 48%, #183a43 100%) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    inset 0 -1px 0 rgba(45, 212, 191, 0.08) !important;
-}
-
-@media (max-width: 640px) {
-  .student-chat-messages,
-  .teacher-chat-messages,
-  .teacher-signup-messages,
-  .telegram-chat-wallpaper,
-  .call-lesson-chat-list {
-    background-size: 300px 217px, 100% 100% !important;
-  }
-}
-
 /* Image selection and actions mirror the compact Yandex Board object controls. */
 .board-image-selection-layer {
   position: absolute;

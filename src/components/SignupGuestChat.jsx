@@ -288,7 +288,7 @@ const SignupGuestChat = ({ user, onLogout }) => {
         <Card className="flex min-h-0 flex-1 flex-col p-2.5 sm:p-4">
           <div
             ref={listRef}
-            className="telegram-chat-wallpaper min-h-[140px] flex-1 overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 p-2.5 sm:min-h-[320px] sm:p-3"
+            className="min-h-[140px] flex-1 overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-slate-50/80 p-2.5 sm:min-h-[320px] sm:p-3"
           >
             {loading ? (
               <div className="p-3 text-sm text-slate-500">Загрузка переписки...</div>
