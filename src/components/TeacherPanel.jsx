@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, BellOff, ChevronDown, ChevronUp, Download, MessageSquare, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2 } from 'lucide-react';
+import { Bell, BellOff, CheckCircle2, ChevronDown, ChevronUp, Download, Eye, FileText, ImagePlus, MessageSquare, Paperclip, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2, UploadCloud } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import {
@@ -19,6 +19,15 @@ const STUDENT_GRADE_OPTIONS = [
   { value: '11', label: '11 класс' },
   { value: '10', label: '10 класс' },
   { value: 'graduate', label: 'Выпускники' },
+];
+
+const QUESTION_LABEL_COLOR_PRESETS = [
+  '#7c3aed',
+  '#2563eb',
+  '#059669',
+  '#d97706',
+  '#e11d48',
+  '#475569',
 ];
 
 const normalizeStudentGradeValue = (value) => {
@@ -457,6 +466,28 @@ const TeacherPanel = ({
   const studentsList = students || [];
   const deletedStudentsList = deletedStudents || [];
   const tasksList = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
+  const selectedTaskInfo = tasksList.find((taskItem) => Number(taskItem?.number) === Number(selectedTask)) || null;
+  const selectedLevelInfo = Object.values(LEVELS).find((levelItem) => levelItem.id === selectedLevel) || null;
+  const normalizedQuestionLabelPreview = normalizeQuestionLabelText(questionLabelText);
+  const questionAttachmentCount = questionScreenshots.length
+    + questionFiles.length
+    + existingQuestionScreenshots.length
+    + existingQuestionFiles.length;
+  const editorQuestionNumber = editingQuestionId
+    ? Math.max(1, currentQuestions.findIndex((item) => item.id === editingQuestionId) + 1)
+    : currentQuestions.length + 1;
+  const hasQuestionCondition = Boolean(question.trim())
+    || questionScreenshots.length > 0
+    || existingQuestionScreenshots.length > 0;
+  const hasQuestionAnswer = answerInputs
+    .slice(0, answerCount)
+    .some((value) => String(value ?? '').trim());
+  const existingPreviewImage = existingQuestionScreenshots[0];
+  const questionPreviewImageUrl = screenshotPreviews[0]?.url || (
+    existingPreviewImage
+      ? withUploadsAuthToken(existingPreviewImage?.url || (existingPreviewImage?.storageName ? `/uploads/${existingPreviewImage.storageName}` : ''))
+      : ''
+  );
   const normalizeStorageBytes = (value) => {
     const num = Number(value);
     return Number.isFinite(num) && num > 0 ? num : 0;
@@ -1848,10 +1879,10 @@ const TeacherPanel = ({
         {teacherCodeSuccess && <p className="text-xs text-green-600 mt-2">{teacherCodeSuccess}</p>}
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="teacher-test-builder-layout">
         {/* LEFT COLUMN: Controls */}
-        <div className="space-y-6">
-          <Card>
+        <div className="teacher-test-builder-controls">
+          <Card className="teacher-test-builder-control-card teacher-test-builder-control-card--task">
             <label className="block text-sm font-medium text-gray-700 mb-2">Выберите номер задания</label>
             <select 
               value={selectedTask} 
@@ -1864,9 +1895,9 @@ const TeacherPanel = ({
             </select>
           </Card>
 
-          <Card>
+          <Card className="teacher-test-builder-control-card teacher-test-builder-control-card--levels">
             <label className="block text-sm font-medium text-gray-700 mb-2">Уровень сложности</label>
-            <div className="flex flex-col gap-2">
+            <div className="teacher-test-builder-levels">
               {Object.values(LEVELS).map((lvl) => (
                 <button
                   key={lvl.id}
@@ -1884,26 +1915,41 @@ const TeacherPanel = ({
             </div>
           </Card>
 
-          <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 text-sm text-blue-800">
+          <div className="teacher-test-builder-count bg-blue-50 p-4 rounded-xl border border-blue-100 text-sm text-blue-800">
             <strong>Всего вопросов:</strong> {currentQuestions.length}<br/>
             Минимум 11 вопросов рекомендуется для разнообразия выборки.
           </div>
         </div>
 
         {/* MIDDLE COLUMN: Form */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="teacher-test-builder-main">
           <Card
-            className={`question-attachment-drop-card ${isDraggingQuestionAttachments ? 'is-dragging-attachments' : ''}`}
+            className={`teacher-question-editor question-attachment-drop-card ${isDraggingQuestionAttachments ? 'is-dragging-attachments' : ''}`}
             onDragEnter={handleQuestionAttachmentDragEnter}
             onDragOver={handleQuestionAttachmentDragOver}
             onDragLeave={handleQuestionAttachmentDragLeave}
             onDrop={handleQuestionAttachmentDrop}
           >
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                {editingQuestionId ? <Pencil size={20} className="text-purple-600" /> : <Plus size={20} className="text-purple-600" />}
-                {editingQuestionId ? 'Редактировать вопрос' : 'Добавить вопрос'}
-              </h3>
+            <div className="teacher-question-editor__header">
+              <div className="min-w-0">
+                <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                  <span className="teacher-question-editor__title-icon">
+                    {editingQuestionId ? <Pencil size={18} /> : <Plus size={18} />}
+                  </span>
+                  {editingQuestionId ? `Редактирование вопроса №${editorQuestionNumber}` : `Новый вопрос №${editorQuestionNumber}`}
+                </h3>
+                <p className="mt-1 text-xs text-gray-500">
+                  Добавьте условие, материалы и ответ — справа сразу виден результат для ученика.
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="teacher-question-editor__context-chip">
+                    Задание {getTaskDisplayNumber(selectedTaskInfo || { number: selectedTask })}
+                  </span>
+                  <span className="teacher-question-editor__context-chip">
+                    {selectedLevelInfo?.label || selectedLevel}
+                  </span>
+                </div>
+              </div>
               {editingQuestionId && (
                 <button
                   type="button"
@@ -1914,27 +1960,86 @@ const TeacherPanel = ({
                 </button>
               )}
             </div>
+
+            <div className="teacher-question-editor__status-row">
+              <span className={hasQuestionCondition ? 'is-ready' : ''}>
+                <CheckCircle2 size={14} /> Условие
+              </span>
+              <span className={questionAttachmentCount > 0 ? 'is-ready' : ''}>
+                <Paperclip size={14} /> Материалы {questionAttachmentCount > 0 ? `· ${questionAttachmentCount}` : ''}
+              </span>
+              <span className={hasQuestionAnswer ? 'is-ready' : ''}>
+                <CheckCircle2 size={14} /> Ответ
+              </span>
+            </div>
             
-            <div className="space-y-4" onPaste={handlePasteImages}>
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Текст вопроса (необязательно)</label>
-                <textarea 
-                  value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
-                  className="w-full p-3 bg-gray-50 rounded-xl border border-gray-200 min-h-[100px] outline-none focus:border-purple-500"
-                  placeholder="Введите текст задания..."
-                />
+            <div className="teacher-question-editor__body" onPaste={handlePasteImages}>
+              <div className="teacher-question-editor__intro-grid">
+                <section className="teacher-question-editor__section">
+                  <div className="teacher-question-editor__section-heading">
+                    <span className="teacher-question-editor__step">1</span>
+                    <div>
+                      <h4>Условие вопроса</h4>
+                      <p>Введите текст или добавьте изображение ниже.</p>
+                    </div>
+                  </div>
+                  <textarea
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    className="teacher-question-editor__textarea"
+                    placeholder="Напишите условие задания, пояснение или инструкцию ученику…"
+                  />
+                  <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-gray-400">
+                    <span>Поддерживаются переносы строк</span>
+                    <span>{question.length} символов</span>
+                  </div>
+                </section>
+
+                <aside className="teacher-question-editor__preview">
+                  <div className="teacher-question-editor__preview-title">
+                    <span><Eye size={15} /> Предпросмотр</span>
+                    <span>вид ученика</span>
+                  </div>
+                  {normalizedQuestionLabelPreview && (
+                    <span
+                      className="mt-3 inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] font-bold"
+                      style={getQuestionLabelStyle({ text: normalizedQuestionLabelPreview, color: questionLabelColor })}
+                    >
+                      <span className="truncate">{normalizedQuestionLabelPreview}</span>
+                    </span>
+                  )}
+                  {questionPreviewImageUrl && (
+                    <img
+                      src={questionPreviewImageUrl}
+                      alt="Предпросмотр условия"
+                      className="teacher-question-editor__preview-image"
+                    />
+                  )}
+                  <div className={`teacher-question-editor__preview-text ${question.trim() ? '' : 'is-empty'}`}>
+                    {question.trim() || 'Здесь появится текст вопроса. Можно оставить его пустым, если условие находится на изображении.'}
+                  </div>
+                  <div className="teacher-question-editor__preview-answer">
+                    <span>Ответ ученика</span>
+                    <div>Поле для ответа</div>
+                  </div>
+                </aside>
               </div>
 
-              <div className="rounded-2xl border border-purple-100 bg-purple-50/50 p-3.5">
+              <section className="teacher-question-editor__section teacher-question-editor__label-section">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <label className="text-xs font-bold uppercase text-gray-500">Метка задачи (необязательно)</label>
-                  {normalizeQuestionLabelText(questionLabelText) && (
+                  <div className="teacher-question-editor__section-heading mb-0">
+                    <span className="teacher-question-editor__step">2</span>
+                    <div>
+                      <h4>Метка задачи</h4>
+                      <p>Необязательно: выделите сложное или особое задание.</p>
+                    </div>
+                  </div>
+                  {normalizedQuestionLabelPreview && (
                     <span
                       className="inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] font-bold shadow-sm"
                       style={getQuestionLabelStyle({ text: questionLabelText, color: questionLabelColor })}
                     >
-                      <span className="truncate">{normalizeQuestionLabelText(questionLabelText)}</span>
+                      <span className="truncate">{normalizedQuestionLabelPreview}</span>
                     </span>
                   )}
                 </div>
@@ -1969,17 +2074,46 @@ const TeacherPanel = ({
                     aria-label="HEX-цвет метки"
                   />
                 </div>
-                <p className="mt-2 text-[11px] text-gray-500">Введите свой текст и HEX-цвет. Чтобы убрать метку, очистите её текст.</p>
-              </div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-semibold text-gray-500">Быстрый цвет:</span>
+                    {QUESTION_LABEL_COLOR_PRESETS.map((color) => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => setQuestionLabelColor(color)}
+                        className={`teacher-question-editor__color-preset ${normalizeQuestionLabelColor(questionLabelColor) === color ? 'is-active' : ''}`}
+                        style={{ backgroundColor: color }}
+                        title={color}
+                        aria-label={`Цвет ${color}`}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-[11px] text-gray-400">
+                    {questionLabelText.length}/{QUESTION_LABEL_TEXT_MAX_LENGTH}
+                  </span>
+                </div>
+              </section>
 
+              <section className="teacher-question-editor__section teacher-question-editor__materials-section">
+                <div className="teacher-question-editor__section-heading">
+                  <span className="teacher-question-editor__step">3</span>
+                  <div>
+                    <h4>Материалы к вопросу</h4>
+                    <p>Перетащите файлы, выберите их вручную или вставьте изображение через Ctrl+V.</p>
+                  </div>
+                </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Скриншоты вопроса</label>
+                  <label className="flex items-center justify-between gap-2 text-xs font-bold text-gray-500 uppercase mb-2">
+                    <span className="inline-flex items-center gap-1.5"><ImagePlus size={14} /> Изображения</span>
+                    <span>{questionScreenshots.length + existingQuestionScreenshots.length}</span>
+                  </label>
                   <div
                     onDrop={handleScreenshotsDrop}
                     onDragOver={handleScreenshotsDragOver}
                     onDragLeave={handleScreenshotsDragLeave}
-                    className={`rounded-2xl border-2 border-dashed p-4 transition-colors ${
+                    className={`teacher-question-editor__drop-zone rounded-2xl border-2 border-dashed p-4 transition-colors ${
                       isDraggingScreens ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
                     }`}
                   >
@@ -1992,7 +2126,7 @@ const TeacherPanel = ({
                       className="hidden"
                     />
                     <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-500">
-                      <span>Перетащите изображения сюда</span>
+                      <span className="inline-flex items-center gap-2"><UploadCloud size={18} className="text-purple-500" /> Перетащите изображения</span>
                       <button
                         type="button"
                         onClick={() => screenshotsRef.current?.click()}
@@ -2058,12 +2192,15 @@ const TeacherPanel = ({
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Доп. файлы</label>
+                  <label className="flex items-center justify-between gap-2 text-xs font-bold text-gray-500 uppercase mb-2">
+                    <span className="inline-flex items-center gap-1.5"><FileText size={14} /> Доп. файлы</span>
+                    <span>{questionFiles.length + existingQuestionFiles.length}</span>
+                  </label>
                   <div
                     onDrop={handleFilesDrop}
                     onDragOver={handleFilesDragOver}
                     onDragLeave={handleFilesDragLeave}
-                    className={`rounded-2xl border-2 border-dashed p-4 transition-colors ${
+                    className={`teacher-question-editor__drop-zone rounded-2xl border-2 border-dashed p-4 transition-colors ${
                       isDraggingFiles ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
                     }`}
                   >
@@ -2075,7 +2212,7 @@ const TeacherPanel = ({
                       className="hidden"
                     />
                     <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-500">
-                      <span>Перетащите файлы сюда</span>
+                      <span className="inline-flex items-center gap-2"><UploadCloud size={18} className="text-purple-500" /> Перетащите файлы</span>
                       <button
                         type="button"
                         onClick={() => filesRef.current?.click()}
@@ -2170,10 +2307,17 @@ const TeacherPanel = ({
                   )}
                 </div>
               </div>
+              </section>
               {questionUploadError && <p className="text-xs text-red-500">{questionUploadError}</p>}
 
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Правильный ответ</label>
+              <section className="teacher-question-editor__section teacher-question-editor__answer-section">
+                <div className="teacher-question-editor__section-heading">
+                  <span className="teacher-question-editor__step">4</span>
+                  <div>
+                    <h4>Правильный ответ</h4>
+                    <p>{answerCount > 1 ? `Для этого задания нужно заполнить ${answerCount} полей.` : 'Ответ будет использован для автоматической проверки.'}</p>
+                  </div>
+                </div>
                 {answerCount > 1 ? (
                   Number(selectedTask) === GAME_THEORY_TASK ? (
                     <div className="space-y-3">
@@ -2320,10 +2464,20 @@ const TeacherPanel = ({
                     placeholder="Введите правильный ответ"
                   />
                 )}
-              </div>
+              </section>
 
-              <div className="pt-2">
-                <Button onClick={handleSaveQuestion} className="w-full" disabled={isUploadingQuestion}>
+              <div className="teacher-question-editor__footer">
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-gray-700">
+                    {editingQuestionId ? `Сохранить изменения вопроса №${editorQuestionNumber}` : `Добавить вопрос №${editorQuestionNumber}`}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-gray-500">
+                    {hasQuestionCondition && hasQuestionAnswer
+                      ? 'Основные поля заполнены — вопрос готов к сохранению.'
+                      : 'Нужно добавить условие или изображение и указать правильный ответ.'}
+                  </div>
+                </div>
+                <Button onClick={handleSaveQuestion} className="teacher-question-editor__save" disabled={isUploadingQuestion}>
                   <Save size={18} /> {isUploadingQuestion ? 'Загрузка...' : (editingQuestionId ? 'Сохранить изменения' : 'Сохранить вопрос в базу')}
                 </Button>
               </div>
