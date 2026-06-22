@@ -16932,10 +16932,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           {user.role === 'student' && !isStudentChatView && view !== 'collab' && view !== 'board' && view !== 'call' && (
             <div className="top-stats-strip mb-3 rounded-2xl border border-slate-200/80 bg-gradient-to-r from-white to-slate-50/85 px-2.5 py-1.5 shadow-sm sm:px-3 sm:py-2">
               <div className="flex items-center gap-1.5 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-2">
-                <div
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen(true)}
                   className="level-progress-card min-w-0 flex-1 px-2 py-1.5 text-sm font-semibold md:min-w-[255px] md:flex-none md:px-2.5 md:py-2"
-                  aria-label={`Уровень ${currentLevel}. Опыт: ${totalXpLabel} XP. Монеты Python: ${totalCoinsLabel}.`}
-                  title={`Всего опыта: ${totalXpLabel} XP. Монеты Python: ${totalCoinsLabel}.`}
+                  aria-label={`Открыть профиль. Уровень ${currentLevel}. Опыт: ${totalXpLabel} XP. Монеты Python: ${totalCoinsLabel}.`}
+                  title={`Открыть профиль. Всего опыта: ${totalXpLabel} XP. Монеты Python: ${totalCoinsLabel}.`}
                 >
                   <div className="level-progress-main">
                     <div className="level-progress-badge">
@@ -16992,8 +16994,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       </div>
                     </div>
                   </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5 md:ml-auto md:gap-2">
+                  </button>
+                  <div className="flex shrink-0 items-center gap-1.5 md:ml-auto md:gap-2">
                   <button
                     type="button"
                     onClick={openPaceForecastPopup}
@@ -17902,7 +17904,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           </div>
         </main>
         <div
-          className={`fixed inset-0 z-30 transition-opacity duration-200 md:hidden ${
+          className={`fixed inset-0 z-[80] transition-opacity duration-200 ${
             menuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
           }`}
           aria-hidden={!menuOpen}
@@ -17913,8 +17915,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             onClick={() => setMenuOpen(false)}
             aria-label="Закрыть профиль"
           />
-          <div className={`absolute inset-x-0 bottom-0 transition-transform duration-300 ease-out ${menuOpen ? 'translate-y-0' : 'translate-y-full'}`}>
-            <div className="surface-card rounded-t-3xl border border-purple-100/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 shadow-[0_-14px_30px_rgba(15,23,42,0.22)]">
+          <div
+            className={`absolute inset-x-0 bottom-0 transition-transform duration-300 ease-out md:inset-0 md:flex md:items-center md:justify-center md:p-6 ${menuOpen ? 'translate-y-0' : 'translate-y-full'}`}
+            onClick={() => setMenuOpen(false)}
+          >
+            <div
+              className="surface-card rounded-t-3xl border border-purple-100/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 shadow-[0_-14px_30px_rgba(15,23,42,0.22)] md:w-full md:max-w-md md:rounded-3xl md:px-5 md:pb-5 md:pt-4 md:shadow-[0_28px_70px_rgba(15,23,42,0.3)]"
+              onClick={(event) => event.stopPropagation()}
+            >
               <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200" />
               <div className="rounded-2xl border border-white/70 bg-gradient-to-br from-white to-purple-50/70 p-4 shadow-[0_8px_20px_rgba(148,163,184,0.2)]">
                 <div className="flex items-center gap-3">
