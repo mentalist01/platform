@@ -256,6 +256,13 @@ const ProgressReviewModal = ({
   const formatAnswerHistoryValues = (answers = []) => {
     const values = Array.isArray(answers) ? answers : [];
     if (answerCount <= 1) return String(values[0] ?? '').trim() || '—';
+    if (answerCount === 20) {
+      return Array.from({ length: 10 }, (_, rowIndex) => {
+        const leftValue = String(values[rowIndex] ?? '').trim() || '—';
+        const rightValue = String(values[rowIndex + 10] ?? '').trim() || '—';
+        return `${rowIndex + 1}: ${leftValue} | ${rightValue}`;
+      }).join('; ');
+    }
     return Array.from({ length: answerCount }, (_, index) => {
       const label = answerLabels[index] || String(index + 1);
       const value = String(values[index] ?? '').trim() || '—';
@@ -392,16 +399,37 @@ const ProgressReviewModal = ({
                   {isSolved && <span className="text-xs font-semibold text-emerald-600">Решено</span>}
                 </div>
                 {answerCount > 1 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {Array.from({ length: answerCount }).map((_, idx) => (
-                      <div key={`answer-${idx}`} className="space-y-1">
-                        <div className="text-xs font-semibold text-gray-500">Ответ {answerLabels[idx]}</div>
-                        <div className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-sm text-gray-700">
-                          {answerValues[idx] ? answerValues[idx] : '—'}
+                  answerCount === 20 ? (
+                    <div className="grid grid-cols-[26px_1fr_1fr] md:grid-cols-[32px_1fr_1fr] gap-1.5 md:gap-2">
+                      <div aria-hidden="true" />
+                      <div className="px-1 text-[11px] font-bold uppercase tracking-wide text-gray-400">Ответ 1</div>
+                      <div className="px-1 text-[11px] font-bold uppercase tracking-wide text-gray-400">Ответ 2</div>
+                      {Array.from({ length: 10 }).map((_, rowIdx) => (
+                        <React.Fragment key={`answer-row-${rowIdx}`}>
+                          <div className="flex items-center justify-center text-xs font-bold text-gray-500">
+                            {rowIdx + 1}
+                          </div>
+                          <div className="rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2 text-sm text-gray-700 md:px-3">
+                            {answerValues[rowIdx] || '—'}
+                          </div>
+                          <div className="rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2 text-sm text-gray-700 md:px-3">
+                            {answerValues[rowIdx + 10] || '—'}
+                          </div>
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {Array.from({ length: answerCount }).map((_, idx) => (
+                        <div key={`answer-${idx}`} className="space-y-1">
+                          <div className="text-xs font-semibold text-gray-500">Ответ {answerLabels[idx]}</div>
+                          <div className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-sm text-gray-700">
+                            {answerValues[idx] ? answerValues[idx] : '—'}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )
                 ) : (
                   <div className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-sm text-gray-700">
                     {answerValues[0] ? answerValues[0] : '—'}

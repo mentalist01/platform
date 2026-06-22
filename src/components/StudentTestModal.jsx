@@ -1178,16 +1178,47 @@ const StudentTestModal = ({
               </label>
               {isSolved ? (
                 answerCount > 1 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {Array.from({ length: answerCount }).map((_, idx) => (
+                  answerCount === 20 ? (
+                    <div className="grid grid-cols-[26px_1fr_1fr] md:grid-cols-[32px_1fr_1fr] gap-1.5 md:gap-2">
+                      <div aria-hidden="true" />
+                      <div className="px-1 text-[11px] font-bold uppercase tracking-wide text-gray-400">Ответ 1</div>
+                      <div className="px-1 text-[11px] font-bold uppercase tracking-wide text-gray-400">Ответ 2</div>
+                      {Array.from({ length: 10 }).map((_, rowIdx) => {
+                        const leftIdx = rowIdx;
+                        const rightIdx = rowIdx + 10;
+                        return (
+                          <React.Fragment key={`solved-answer-row-${rowIdx}`}>
+                            <div className="flex items-center justify-center text-xs font-bold text-gray-500">
+                              {rowIdx + 1}
+                            </div>
+                            <div
+                              className="student-test-solved-answer w-full rounded-lg border border-green-200 bg-green-50 px-2.5 py-2 text-sm text-gray-800 md:px-3"
+                              style={{ '--student-test-item-index': rowIdx * 2 }}
+                            >
+                              {answerValues[leftIdx] || '—'}
+                            </div>
+                            <div
+                              className="student-test-solved-answer w-full rounded-lg border border-green-200 bg-green-50 px-2.5 py-2 text-sm text-gray-800 md:px-3"
+                              style={{ '--student-test-item-index': (rowIdx * 2) + 1 }}
+                            >
+                              {answerValues[rightIdx] || '—'}
+                            </div>
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {Array.from({ length: answerCount }).map((_, idx) => (
                         <div key={`solved-answer-${idx}`} className="student-test-solved-answer space-y-1" style={{ '--student-test-item-index': idx }}>
-                        <div className="text-xs font-semibold text-gray-500">Ответ {answerLabels[idx]}</div>
-                        <div className="w-full px-4 py-3 rounded-xl bg-green-50 border border-green-200 text-gray-800">
-                          {answerValues[idx] ? answerValues[idx] : '—'}
+                          <div className="text-xs font-semibold text-gray-500">Ответ {answerLabels[idx]}</div>
+                          <div className="w-full px-4 py-3 rounded-xl bg-green-50 border border-green-200 text-gray-800">
+                            {answerValues[idx] ? answerValues[idx] : '—'}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )
                 ) : (
                   <div className="student-test-solved-answer w-full px-4 py-3 rounded-xl bg-green-50 border border-green-200 text-gray-800">
                     {answerValue ? answerValue : '—'}
