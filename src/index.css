@@ -45314,6 +45314,9 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
 }
 
 .student-test-question-list {
+  margin-left: -6px;
+  margin-right: -6px;
+  padding: 6px 6px 7px;
   scrollbar-width: thin;
   scrollbar-color: rgba(139, 92, 246, 0.38) transparent;
 }
@@ -45456,7 +45459,853 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
 }
 
 .student-test-primary-action {
+  position: relative;
+  overflow: hidden;
   box-shadow: 0 9px 22px rgba(124, 58, 237, 0.2);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+/* Student test motion system */
+.student-test-modal-backdrop {
+  animation: studentTestBackdropIn 0.34s ease-out both;
+}
+
+.student-test-workspace--animated {
+  isolation: isolate;
+  animation: studentTestWorkspaceIn 0.52s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.student-test-workspace--animated::before {
+  position: absolute;
+  z-index: 0;
+  width: 340px;
+  height: 340px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.13), transparent 68%);
+  content: '';
+  pointer-events: none;
+  right: -170px;
+  top: 12%;
+  animation: studentTestAmbientOrb 9s ease-in-out infinite alternate;
+}
+
+.student-test-workspace--animated > * {
+  position: relative;
+  z-index: 1;
+}
+
+.student-test-header > * {
+  animation: studentTestHeaderItemIn 0.46s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.student-test-header > *:last-child {
+  animation-delay: 80ms;
+}
+
+.student-test-header-icon {
+  position: relative;
+  animation: studentTestHeaderIconFloat 4.8s ease-in-out 0.7s infinite;
+}
+
+.student-test-header-icon::after {
+  position: absolute;
+  inset: -5px;
+  border: 1px solid rgba(139, 92, 246, 0.22);
+  border-radius: 18px;
+  content: '';
+  pointer-events: none;
+  animation: studentTestIconRing 3.4s ease-out 0.8s infinite;
+}
+
+.student-test-xp-badge {
+  position: relative;
+  overflow: hidden;
+  animation: studentTestBadgePop 0.55s cubic-bezier(0.2, 1.45, 0.35, 1) 0.18s both;
+}
+
+.student-test-xp-badge::after {
+  position: absolute;
+  inset: -45% auto -45% -55%;
+  width: 42%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.82), transparent);
+  content: '';
+  pointer-events: none;
+  transform: skewX(-18deg);
+  animation: studentTestBadgeShine 4.2s ease-in-out 1.2s infinite;
+}
+
+.student-test-progress-track {
+  position: relative;
+  animation: studentTestProgressTrackIn 0.45s ease-out 0.15s both;
+}
+
+.student-test-progress-fill {
+  position: relative;
+  overflow: hidden;
+  transition: width 0.62s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.student-test-progress-fill::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 10%, rgba(255, 255, 255, 0.68) 48%, transparent 88%);
+  content: '';
+  transform: translateX(-110%);
+  animation: studentTestProgressShine 2.8s ease-in-out 0.5s infinite;
+}
+
+.student-test-close:hover svg {
+  animation: studentTestCloseWiggle 0.38s ease both;
+}
+
+.student-test-navigation {
+  animation: studentTestNavigationIn 0.44s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
+}
+
+.student-test-question-caption,
+.student-test-mobile-progress {
+  animation: studentTestSoftFadeIn 0.42s ease-out 0.16s both;
+}
+
+.student-test-question-button {
+  position: relative;
+  animation: studentTestQuestionButtonIn 0.38s cubic-bezier(0.2, 1.35, 0.35, 1) backwards;
+  animation-delay: calc(0.1s + (var(--student-test-item-index, 0) * 34ms));
+}
+
+.student-test-question-button:active {
+  transform: translateY(1px) scale(0.92);
+}
+
+.student-test-question-button.is-current::after {
+  position: absolute;
+  inset: -5px;
+  border: 2px solid currentColor;
+  border-radius: 14px;
+  content: '';
+  opacity: 0;
+  pointer-events: none;
+  animation: studentTestCurrentQuestionRing 2.2s ease-out infinite;
+}
+
+.student-test-question-button.is-current.is-correct {
+  animation: studentTestCorrectQuestionPop 0.58s cubic-bezier(0.18, 1.45, 0.3, 1) backwards;
+}
+
+.student-test-question-button.is-current.is-wrong {
+  animation: studentTestWrongQuestionShake 0.48s ease backwards;
+}
+
+.student-test-question-button svg {
+  animation: studentTestCheckDraw 0.45s cubic-bezier(0.2, 1.4, 0.35, 1) both;
+}
+
+.student-test-scroll {
+  background-size: 135% 135%, 100% 100%;
+  animation: studentTestCanvasDrift 12s ease-in-out infinite alternate;
+}
+
+.student-test-content--question-enter {
+  animation: studentTestContentIn 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.student-test-target {
+  overflow: hidden;
+  position: relative;
+  animation: studentTestTargetIn 0.46s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.student-test-target::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 20%, rgba(255, 255, 255, 0.72) 48%, transparent 76%);
+  content: '';
+  pointer-events: none;
+  transform: translateX(-110%);
+  animation: studentTestTargetShine 4.6s ease-in-out 1.1s infinite;
+}
+
+.student-test-target span {
+  animation: studentTestChipIn 0.35s cubic-bezier(0.2, 1.4, 0.35, 1) backwards;
+  animation-delay: calc(0.12s + (var(--student-test-item-index, 0) * 45ms));
+}
+
+.student-test-panel-enter {
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.student-test-question-panel {
+  animation: studentTestPanelIn 0.48s cubic-bezier(0.16, 1, 0.3, 1) 20ms backwards;
+}
+
+.student-test-answer-panel {
+  position: relative;
+  overflow: hidden;
+  animation: studentTestPanelIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) 90ms backwards;
+}
+
+.student-test-code-panel {
+  animation: studentTestPanelIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) 150ms backwards;
+}
+
+.student-test-question-panel:hover,
+.student-test-code-panel:hover,
+.student-test-answer-panel--pending:hover {
+  border-color: rgba(139, 92, 246, 0.34);
+  box-shadow: 0 13px 34px rgba(76, 29, 149, 0.09);
+  transform: translateY(-1px);
+}
+
+.student-test-screenshot {
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: var(--student-test-image-aspect, 3.2);
+  position: relative;
+  opacity: 1;
+  display: grid;
+  place-items: center;
+  animation: studentTestMediaIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation-delay: calc(0.08s + (var(--student-test-item-index, 0) * 70ms));
+  transition: aspect-ratio 0.46s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.student-test-screenshot::before {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background:
+    linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.7) 48%, transparent 66%),
+    linear-gradient(135deg, rgba(226, 232, 240, 0.84), rgba(241, 245, 249, 0.96));
+  background-size: 220% 100%, 100% 100%;
+  content: '';
+  opacity: 1;
+  pointer-events: none;
+  transition: opacity 0.34s ease;
+  animation: studentTestImageSkeleton 1.35s ease-in-out infinite;
+}
+
+.student-test-screenshot.is-loaded::before {
+  opacity: 0;
+  animation: none;
+}
+
+.student-test-screenshot__loader {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  opacity: 1;
+  pointer-events: none;
+  transition: opacity 0.28s ease, visibility 0s linear 0s;
+}
+
+.student-test-screenshot__loader svg {
+  color: #8b5cf6;
+  animation: studentTestImageLoaderSpin 1s linear infinite;
+}
+
+.student-test-screenshot.is-loaded .student-test-screenshot__loader {
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.28s ease, visibility 0s linear 0.28s;
+}
+
+.student-test-screenshot::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(112deg, transparent 25%, rgba(255, 255, 255, 0.18) 50%, transparent 75%);
+  content: '';
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-100%);
+  transition: opacity 0.2s ease;
+}
+
+.student-test-screenshot:hover::after {
+  opacity: 1;
+  animation: studentTestMediaShine 0.85s ease both;
+}
+
+.student-test-screenshot img {
+  grid-area: 1 / 1;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  opacity: 0;
+  transform: scale(0.992);
+  transition: opacity 0.36s ease, transform 0.42s cubic-bezier(0.16, 1, 0.3, 1), filter 0.3s ease;
+}
+
+.student-test-screenshot.is-loaded img {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.student-test-screenshot:hover img {
+  filter: saturate(1.04) contrast(1.02);
+  transform: scale(1.012);
+}
+
+.student-test-file {
+  opacity: 1;
+  animation: studentTestFileIn 0.4s ease-out backwards;
+  animation-delay: calc(0.12s + (var(--student-test-item-index, 0) * 55ms));
+  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.student-test-file:hover {
+  box-shadow: 0 8px 18px rgba(124, 58, 237, 0.1);
+  transform: translateX(3px);
+}
+
+.student-test-file svg {
+  transition: transform 0.22s ease;
+}
+
+.student-test-file:hover svg {
+  transform: translateY(2px) scale(1.08);
+}
+
+.student-test-solved-label {
+  animation: studentTestSolvedLabelIn 0.55s cubic-bezier(0.2, 1.4, 0.35, 1) both;
+}
+
+.student-test-question-text {
+  animation: studentTestQuestionTextIn 0.48s ease-out 0.09s both;
+}
+
+.student-test-answer-panel input,
+.student-test-answer-panel textarea,
+.student-test-solved-answer {
+  animation: studentTestAnswerFieldIn 0.42s ease-out backwards;
+  animation-delay: calc(var(--student-test-item-index, 0) * 35ms);
+}
+
+.student-test-answer-panel input:hover:not(:disabled),
+.student-test-answer-panel textarea:hover:not(:disabled) {
+  border-color: rgba(139, 92, 246, 0.48);
+  transform: translateY(-1px);
+}
+
+.student-test-answer-panel input:focus,
+.student-test-answer-panel textarea:focus {
+  transform: translateY(-1px) scale(1.002);
+}
+
+.student-test-answer-panel--correct {
+  border-color: rgba(16, 185, 129, 0.42);
+  animation: studentTestAnswerCorrect 0.68s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.student-test-answer-panel--correct::before {
+  position: absolute;
+  inset: -70%;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 28% 38%, rgba(52, 211, 153, 0.25) 0 2px, transparent 3px),
+    radial-gradient(circle at 66% 22%, rgba(139, 92, 246, 0.22) 0 2px, transparent 3px),
+    radial-gradient(circle at 72% 70%, rgba(34, 211, 238, 0.2) 0 2px, transparent 3px),
+    radial-gradient(circle, rgba(16, 185, 129, 0.16), transparent 58%);
+  content: '';
+  pointer-events: none;
+  animation: studentTestSuccessBurst 0.9s ease-out both;
+}
+
+.student-test-answer-panel--wrong {
+  border-color: rgba(244, 63, 94, 0.34);
+  animation: studentTestAnswerWrong 0.48s ease backwards;
+}
+
+.student-test-result-feedback {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-weight: 800;
+}
+
+.student-test-result-feedback.is-correct {
+  background: rgba(16, 185, 129, 0.1);
+  animation: studentTestResultCorrect 0.55s cubic-bezier(0.2, 1.5, 0.35, 1) both;
+}
+
+.student-test-result-feedback.is-wrong {
+  background: rgba(244, 63, 94, 0.08);
+  animation: studentTestResultWrong 0.45s ease both;
+}
+
+.student-test-history {
+  transition: border-color 0.22s ease, background 0.22s ease, box-shadow 0.22s ease, transform 0.22s ease;
+}
+
+.student-test-history:hover {
+  border-color: rgba(139, 92, 246, 0.3);
+  box-shadow: 0 7px 18px rgba(76, 29, 149, 0.07);
+}
+
+.student-test-history-summary {
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.student-test-history-summary:active {
+  transform: scale(0.992);
+}
+
+.student-test-history-icon {
+  transition: transform 0.32s cubic-bezier(0.2, 1.35, 0.35, 1);
+}
+
+.student-test-history[open] .student-test-history-icon {
+  transform: rotate(-18deg) scale(1.14);
+}
+
+.student-test-history[open] > div {
+  animation: studentTestDetailsOpen 0.32s ease-out both;
+}
+
+.student-test-history-entry {
+  opacity: 1;
+  animation: studentTestHistoryEntryIn 0.38s ease-out backwards;
+  animation-delay: calc(var(--student-test-item-index, 0) * 45ms);
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.student-test-history-entry:hover {
+  border-color: rgba(139, 92, 246, 0.28);
+  box-shadow: 0 6px 15px rgba(76, 29, 149, 0.08);
+  transform: translateX(2px);
+}
+
+.student-test-code-toggle {
+  position: relative;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.student-test-code-toggle::after {
+  position: absolute;
+  right: 0;
+  bottom: -3px;
+  left: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  content: '';
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.24s ease;
+}
+
+.student-test-code-toggle:hover {
+  transform: translateY(-1px);
+}
+
+.student-test-code-toggle:hover::after {
+  transform: scaleX(1);
+}
+
+.student-test-code-reveal {
+  transform-origin: top;
+  animation: studentTestCodeReveal 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.student-test-footer {
+  animation: studentTestFooterIn 0.46s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both;
+}
+
+.student-test-back-action {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.student-test-back-action:hover:not(:disabled) {
+  box-shadow: 0 7px 16px rgba(15, 23, 42, 0.1);
+  transform: translateX(-2px);
+}
+
+.student-test-back-action:hover:not(:disabled) svg {
+  animation: studentTestBackArrow 0.65s ease-in-out infinite alternate;
+}
+
+.student-test-primary-action::after {
+  position: absolute;
+  inset: -55% auto -55% -40%;
+  width: 34%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  content: '';
+  pointer-events: none;
+  transform: skewX(-18deg) translateX(-200%);
+}
+
+.student-test-primary-action:hover:not(:disabled) {
+  box-shadow: 0 12px 27px rgba(124, 58, 237, 0.28);
+  filter: saturate(1.06);
+  transform: translateY(-2px) scale(1.008);
+}
+
+.student-test-primary-action:hover:not(:disabled)::after {
+  animation: studentTestActionShine 0.82s ease both;
+}
+
+.student-test-primary-action:active:not(:disabled) {
+  transform: translateY(0) scale(0.975);
+}
+
+.student-test-primary-action.is-ready {
+  animation: studentTestReadyBreath 2.5s ease-in-out 0.5s infinite;
+}
+
+.student-test-primary-action.is-correct {
+  animation: studentTestPrimaryCorrect 0.62s cubic-bezier(0.2, 1.45, 0.35, 1) backwards;
+}
+
+.student-test-primary-action.is-wrong {
+  animation: studentTestPrimaryWrong 0.45s ease backwards;
+}
+
+.student-test-image-lightbox {
+  animation: studentTestLightboxIn 0.28s ease-out both;
+}
+
+.student-test-image-lightbox__image {
+  animation: studentTestLightboxImageIn 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.student-level-modal-backdrop {
+  animation: studentTestBackdropIn 0.34s ease-out both;
+}
+
+.student-level-modal {
+  animation: studentTestLevelModalIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.student-level-modal__task-chip,
+.student-level-modal__header h2,
+.student-level-modal__header p,
+.student-level-modal__mastery {
+  animation: studentTestHeaderItemIn 0.48s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.student-level-modal__header h2 { animation-delay: 55ms; }
+.student-level-modal__header p { animation-delay: 95ms; }
+.student-level-modal__mastery { animation-delay: 135ms; }
+
+.student-level-modal__mastery > div:last-child span {
+  position: relative;
+  overflow: hidden;
+  transform-origin: left;
+  animation: studentTestMasteryGrow 0.72s cubic-bezier(0.16, 1, 0.3, 1) 0.18s both;
+}
+
+.student-level-card {
+  opacity: 1;
+  animation: studentTestLevelCardIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.student-level-card:nth-child(1) { animation-delay: 110ms; }
+.student-level-card:nth-child(2) { animation-delay: 175ms; }
+.student-level-card:nth-child(3) { animation-delay: 240ms; }
+
+.student-level-card__icon {
+  transition: transform 0.28s cubic-bezier(0.2, 1.4, 0.35, 1), box-shadow 0.25s ease;
+}
+
+.student-level-card:hover .student-level-card__icon {
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--level-accent) 22%, transparent);
+  transform: translateY(-2px) rotate(-4deg) scale(1.08);
+}
+
+.student-level-card__reward {
+  animation: studentTestRewardPulse 2.8s ease-in-out 0.9s infinite;
+}
+
+.student-level-modal__loading-badge {
+  animation: studentTestLoadingBadge 1.4s ease-in-out infinite;
+}
+
+@keyframes studentTestBackdropIn {
+  from { opacity: 0; backdrop-filter: blur(0) saturate(100%); }
+  to { opacity: 1; }
+}
+
+@keyframes studentTestWorkspaceIn {
+  from { opacity: 0; transform: translateY(20px) scale(0.965); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes studentTestAmbientOrb {
+  from { opacity: 0.55; transform: translate3d(0, -20px, 0) scale(0.92); }
+  to { opacity: 1; transform: translate3d(-65px, 75px, 0) scale(1.16); }
+}
+
+@keyframes studentTestHeaderItemIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes studentTestHeaderIconFloat {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  50% { transform: translateY(-2px) rotate(-2deg); }
+}
+
+@keyframes studentTestIconRing {
+  0%, 55% { opacity: 0; transform: scale(0.86); }
+  72% { opacity: 0.55; }
+  100% { opacity: 0; transform: scale(1.18); }
+}
+
+@keyframes studentTestBadgePop {
+  from { opacity: 0; transform: scale(0.72) translateY(-4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes studentTestBadgeShine {
+  0%, 62% { transform: skewX(-18deg) translateX(-30%); }
+  86%, 100% { transform: skewX(-18deg) translateX(420%); }
+}
+
+@keyframes studentTestProgressTrackIn {
+  from { opacity: 0; transform: scaleX(0.7); }
+  to { opacity: 1; transform: scaleX(1); }
+}
+
+@keyframes studentTestProgressShine {
+  0%, 58% { transform: translateX(-110%); }
+  82%, 100% { transform: translateX(110%); }
+}
+
+@keyframes studentTestCloseWiggle {
+  0%, 100% { transform: rotate(0); }
+  35% { transform: rotate(9deg) scale(1.08); }
+  70% { transform: rotate(-7deg); }
+}
+
+@keyframes studentTestNavigationIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes studentTestSoftFadeIn {
+  from { opacity: 0; transform: translateX(-5px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes studentTestQuestionButtonIn {
+  from { opacity: 0; transform: translateY(-7px) scale(0.72); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes studentTestCurrentQuestionRing {
+  0% { opacity: 0.42; transform: scale(0.8); }
+  70%, 100% { opacity: 0; transform: scale(1.2); }
+}
+
+@keyframes studentTestCorrectQuestionPop {
+  0% { opacity: 0.8; transform: scale(0.78); }
+  58% { transform: scale(1.14) rotate(-4deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+@keyframes studentTestWrongQuestionShake {
+  0%, 100% { transform: translateX(0); }
+  22% { transform: translateX(-4px) rotate(-2deg); }
+  45% { transform: translateX(4px) rotate(2deg); }
+  68% { transform: translateX(-2px); }
+}
+
+@keyframes studentTestCheckDraw {
+  from { opacity: 0; transform: scale(0.35) rotate(-18deg); }
+  to { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+@keyframes studentTestCanvasDrift {
+  from { background-position: 100% 0%, 0 0; }
+  to { background-position: 78% 18%, 0 0; }
+}
+
+@keyframes studentTestContentIn {
+  from { opacity: 0; transform: translateY(11px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes studentTestTargetIn {
+  from { opacity: 0; transform: translateY(-8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes studentTestTargetShine {
+  0%, 64% { transform: translateX(-110%); }
+  88%, 100% { transform: translateX(110%); }
+}
+
+@keyframes studentTestChipIn {
+  from { opacity: 0; transform: translateY(4px) scale(0.82); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes studentTestPanelIn {
+  from { opacity: 0; transform: translateY(13px) scale(0.993); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes studentTestMediaIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); filter: blur(2px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes studentTestImageSkeleton {
+  0% { background-position: 130% 0, 0 0; }
+  100% { background-position: -110% 0, 0 0; }
+}
+
+@keyframes studentTestImageLoaderSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes studentTestMediaShine {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+
+@keyframes studentTestFileIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes studentTestSolvedLabelIn {
+  from { opacity: 0; transform: translateX(-8px) scale(0.9); }
+  65% { transform: translateX(2px) scale(1.04); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes studentTestQuestionTextIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes studentTestAnswerFieldIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes studentTestAnswerCorrect {
+  0% { transform: scale(1); box-shadow: 0 8px 24px rgba(15, 23, 42, 0.055); }
+  46% { transform: scale(1.006); box-shadow: 0 0 0 5px rgba(16, 185, 129, 0.1), 0 14px 34px rgba(5, 150, 105, 0.15); }
+  100% { transform: scale(1); box-shadow: 0 10px 28px rgba(5, 150, 105, 0.09); }
+}
+
+@keyframes studentTestSuccessBurst {
+  from { opacity: 0.9; transform: scale(0.22) rotate(-10deg); }
+  to { opacity: 0; transform: scale(1) rotate(10deg); }
+}
+
+@keyframes studentTestAnswerWrong {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-5px); }
+  40% { transform: translateX(5px); }
+  62% { transform: translateX(-3px); }
+  82% { transform: translateX(2px); }
+}
+
+@keyframes studentTestResultCorrect {
+  from { opacity: 0; transform: translateY(5px) scale(0.72); }
+  65% { transform: translateY(-1px) scale(1.08); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes studentTestResultWrong {
+  from { opacity: 0; transform: translateX(-5px); }
+  45% { transform: translateX(4px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes studentTestDetailsOpen {
+  from { opacity: 0; transform: translateY(-6px) scaleY(0.92); }
+  to { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+
+@keyframes studentTestHistoryEntryIn {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes studentTestCodeReveal {
+  from { opacity: 0; transform: translateY(-9px) scaleY(0.96); }
+  to { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+
+@keyframes studentTestFooterIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes studentTestBackArrow {
+  from { transform: translateX(0); }
+  to { transform: translateX(-3px); }
+}
+
+@keyframes studentTestActionShine {
+  from { transform: skewX(-18deg) translateX(-200%); }
+  to { transform: skewX(-18deg) translateX(620%); }
+}
+
+@keyframes studentTestReadyBreath {
+  0%, 100% { box-shadow: 0 9px 22px rgba(124, 58, 237, 0.2); }
+  50% { box-shadow: 0 11px 28px rgba(124, 58, 237, 0.34), 0 0 0 3px rgba(139, 92, 246, 0.08); }
+}
+
+@keyframes studentTestPrimaryCorrect {
+  0% { transform: scale(0.94); }
+  55% { transform: scale(1.035); }
+  100% { transform: scale(1); }
+}
+
+@keyframes studentTestPrimaryWrong {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  50% { transform: translateX(4px); }
+  75% { transform: translateX(-2px); }
+}
+
+@keyframes studentTestLightboxIn {
+  from { opacity: 0; backdrop-filter: blur(0); }
+  to { opacity: 1; backdrop-filter: blur(8px); }
+}
+
+@keyframes studentTestLightboxImageIn {
+  from { opacity: 0; transform: scale(0.88) translateY(14px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes studentTestLevelModalIn {
+  from { opacity: 0; transform: translateY(18px) scale(0.965); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes studentTestMasteryGrow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes studentTestLevelCardIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes studentTestRewardPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.045); }
+}
+
+@keyframes studentTestLoadingBadge {
+  0%, 100% { transform: scale(1); box-shadow: 0 8px 20px rgba(124, 58, 237, 0.12); }
+  50% { transform: scale(1.04); box-shadow: 0 11px 28px rgba(124, 58, 237, 0.24); }
 }
 
 html[data-theme='dark'] .student-test-modal-backdrop {
@@ -45590,6 +46439,17 @@ html[data-theme='dark'] .student-test-target {
   border-color: rgba(167, 139, 250, 0.26);
   color: #ddd6fe;
   background: linear-gradient(135deg, rgba(76, 29, 149, 0.34), rgba(88, 28, 135, 0.2));
+}
+
+html[data-theme='dark'] .student-test-screenshot__loader {
+  color: #cbd5e1;
+}
+
+html[data-theme='dark'] .student-test-screenshot::before {
+  background:
+    linear-gradient(105deg, transparent 30%, rgba(148, 163, 184, 0.18) 48%, transparent 66%),
+    linear-gradient(135deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.98));
+  background-size: 220% 100%, 100% 100%;
 }
 
 @media (max-width: 639px) {
@@ -46736,5 +47596,345 @@ html[data-theme='dark'] .student-level-card__reward {
   .student-level-card__footer {
     margin-top: 7px;
     padding-top: 7px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .student-test-modal-backdrop,
+  .student-test-modal-backdrop *,
+  .student-level-modal-backdrop,
+  .student-level-modal-backdrop * {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Modern compact level progress in the student top strip */
+.top-stats-strip .level-progress-card {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  padding: 0.28rem 0.35rem !important;
+  background: transparent;
+  box-shadow: none;
+}
+
+.top-stats-strip .level-progress-card::before {
+  display: none;
+}
+
+.top-stats-strip .level-progress-card::after {
+  display: none;
+}
+
+.top-stats-strip .level-progress-main {
+  gap: 0.68rem;
+}
+
+.top-stats-strip .level-progress-badge {
+  width: 44px;
+  height: 48px;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-radius: 15px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  background:
+    radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.36), transparent 30%),
+    linear-gradient(145deg, #8b5cf6 0%, #6d5dfc 52%, #4f46e5 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.46),
+    inset 0 -7px 14px rgba(49, 46, 129, 0.22),
+    0 8px 18px rgba(79, 70, 229, 0.25);
+}
+
+.top-stats-strip .level-progress-badge::before {
+  position: absolute;
+  inset: -4px;
+  border: 1px solid rgba(139, 92, 246, 0.18);
+  border-radius: 18px;
+  content: '';
+  pointer-events: none;
+}
+
+.level-progress-badge-label {
+  position: relative;
+  z-index: 1;
+  font-size: 6px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.15em;
+  opacity: 0.74;
+}
+
+.level-progress-badge-number {
+  position: relative;
+  z-index: 1;
+  margin-top: 1px;
+  font-size: 17px;
+  font-weight: 950;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.top-stats-strip .level-progress-head {
+  min-height: 24px;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.level-progress-identity {
+  display: flex;
+  min-width: 58px;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.level-progress-eyebrow {
+  color: #94a3b8;
+  font-size: 7px;
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.top-stats-strip .level-progress-title {
+  color: #4c1d95;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  text-shadow: none;
+  white-space: nowrap;
+}
+
+.top-stats-strip .level-progress-head-meta {
+  gap: 0.28rem;
+  flex-wrap: wrap;
+}
+
+.top-stats-strip .level-progress-total {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  border: 0;
+  border-radius: 7px;
+  padding: 2px 5px;
+  color: #475569;
+  background: rgba(255, 255, 255, 0.54);
+  font-size: 9px;
+  line-height: 1.2;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.13);
+  white-space: nowrap;
+}
+
+.level-progress-total-label {
+  color: #94a3b8;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.top-stats-strip .level-progress-coin {
+  gap: 0.24rem;
+  border-color: rgba(245, 158, 11, 0.25);
+  border-radius: 8px;
+  padding: 2px 6px;
+  background: linear-gradient(135deg, rgba(255, 251, 235, 0.94), rgba(254, 243, 199, 0.76));
+  color: #92400e;
+  font-size: 9px;
+  line-height: 1.2;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.top-stats-strip .level-progress-coin img {
+  width: 12px;
+  height: 12px;
+}
+
+.top-stats-strip .level-progress-track {
+  height: 8px;
+  margin-top: 0.28rem;
+  overflow: visible;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.1);
+  box-shadow: inset 0 1px 2px rgba(76, 29, 149, 0.1);
+}
+
+.top-stats-strip .level-progress-track-grid,
+.top-stats-strip .level-progress-glass {
+  display: none;
+}
+
+.top-stats-strip .level-progress-fill {
+  overflow: visible;
+  min-width: 7px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 58%, #d946ef 100%);
+  background-size: 160% 100%;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.28);
+}
+
+.top-stats-strip .level-progress-fill::before {
+  inset: -60% auto -60% -28%;
+  opacity: 0.72;
+}
+
+.level-progress-fill-tip {
+  position: absolute;
+  top: 50%;
+  right: -3px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 999px;
+  background: #a855f7;
+  box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.12), 0 2px 7px rgba(88, 28, 135, 0.28);
+  transform: translateY(-50%);
+  animation: levelProgressTipPulse 2.4s ease-in-out infinite;
+}
+
+.top-stats-strip .level-progress-foot {
+  margin-top: 0.34rem;
+  color: #64748b;
+  font-size: 8.5px;
+  font-weight: 650;
+  line-height: 1.15;
+}
+
+.level-progress-foot-current strong {
+  color: #475569;
+  font-weight: 850;
+}
+
+.level-progress-foot-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #8b5cf6;
+  white-space: nowrap;
+}
+
+.level-progress-percent {
+  border-radius: 999px;
+  padding: 1px 5px;
+  color: #6d28d9;
+  background: rgba(139, 92, 246, 0.09);
+  font-size: 8px;
+  font-weight: 900;
+}
+
+.level-progress-foot-next strong {
+  color: #6d28d9;
+  font-weight: 850;
+}
+
+@keyframes levelProgressTipPulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.1), 0 2px 7px rgba(88, 28, 135, 0.24); }
+  50% { box-shadow: 0 0 0 5px rgba(168, 85, 247, 0.04), 0 2px 10px rgba(88, 28, 135, 0.36); }
+}
+
+html[data-theme='dark'] .top-stats-strip .level-progress-card {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .top-stats-strip .level-progress-title {
+  color: #ddd6fe;
+}
+
+html[data-theme='dark'] .level-progress-eyebrow,
+html[data-theme='dark'] .level-progress-total-label {
+  color: #64748b;
+}
+
+html[data-theme='dark'] .top-stats-strip .level-progress-total {
+  border: 0;
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.42);
+  box-shadow: inset 0 0 0 1px rgba(100, 116, 139, 0.2);
+}
+
+html[data-theme='dark'] .top-stats-strip .level-progress-coin {
+  border-color: rgba(245, 158, 11, 0.26);
+  color: #fde68a;
+  background: linear-gradient(135deg, rgba(120, 53, 15, 0.38), rgba(69, 26, 3, 0.28));
+}
+
+html[data-theme='dark'] .top-stats-strip .level-progress-track {
+  border: 0;
+  background: rgba(99, 102, 241, 0.17);
+  box-shadow: inset 0 1px 2px rgba(2, 6, 23, 0.38);
+}
+
+html[data-theme='dark'] .top-stats-strip .level-progress-foot,
+html[data-theme='dark'] .level-progress-foot-current strong {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .level-progress-foot-next,
+html[data-theme='dark'] .level-progress-foot-next strong {
+  color: #c4b5fd;
+}
+
+html[data-theme='dark'] .level-progress-percent {
+  color: #ddd6fe;
+  background: rgba(139, 92, 246, 0.18);
+}
+
+@media (max-width: 520px) {
+  .top-stats-strip .level-progress-card {
+    padding: 0.24rem 0.18rem !important;
+  }
+
+  .top-stats-strip .level-progress-main {
+    gap: 0.5rem;
+  }
+
+  .top-stats-strip .level-progress-badge {
+    width: 39px;
+    height: 43px;
+    border-radius: 13px;
+  }
+
+  .level-progress-badge-number {
+    font-size: 15px;
+  }
+
+  .level-progress-eyebrow,
+  .level-progress-total-label {
+    display: none;
+  }
+
+  .level-progress-identity {
+    min-width: 52px;
+  }
+
+  .top-stats-strip .level-progress-head {
+    gap: 0.34rem;
+  }
+
+  .top-stats-strip .level-progress-total,
+  .top-stats-strip .level-progress-coin {
+    font-size: 8px;
+  }
+
+  .level-progress-remaining {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .level-progress-fill-tip {
+    animation: none !important;
   }
 }

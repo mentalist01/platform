@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { Download, X } from 'lucide-react';
+import { Download, History, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
@@ -25,6 +25,9 @@ const ProgressReviewModal = ({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [solvedIds, setSolvedIds] = useState(new Set());
   const [answerById, setAnswerById] = useState({});
+  const [answerHistoryById, setAnswerHistoryById] = useState({});
+  const [answerHistoryLoading, setAnswerHistoryLoading] = useState(false);
+  const [answerHistoryError, setAnswerHistoryError] = useState('');
   const [questionCodeById, setQuestionCodeById] = useState({});
   const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
   const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
@@ -95,6 +98,35 @@ const ProgressReviewModal = ({
     }
   };
 
+  const normalizeAnswerHistoryPayload = (payload) => {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return {};
+    const normalized = {};
+    Object.entries(payload).forEach(([questionId, entries]) => {
+      const key = String(questionId ?? '').trim();
+      if (!key || !Array.isArray(entries)) return;
+      const list = entries
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') return null;
+          const submittedAt = String(entry.submittedAt || '').trim();
+          if (!Number.isFinite(Date.parse(submittedAt))) return null;
+          const answers = Array.isArray(entry.answers)
+            ? entry.answers.map((value) => String(value ?? ''))
+            : (typeof entry.answer !== 'undefined' ? [String(entry.answer ?? '')] : []);
+          if (answers.length === 0) return null;
+          return {
+            id: String(entry.id || `${key}:${submittedAt}:${answers.join('|')}`),
+            submittedAt,
+            correct: entry.correct === true,
+            answers,
+          };
+        })
+        .filter(Boolean)
+        .sort((left, right) => Date.parse(left.submittedAt) - Date.parse(right.submittedAt));
+      if (list.length > 0) normalized[key] = list;
+    });
+    return normalized;
+  };
+
   useEffect(() => {
     if (!task) return;
     const available = levelOptions.filter((lvl) => {
@@ -112,6 +144,8 @@ const ProgressReviewModal = ({
     setCurrentIndex(0);
     setSolvedIds(new Set());
     setAnswerById({});
+    setAnswerHistoryById({});
+    setAnswerHistoryError('');
     setQuestionCodeById({});
     setQuestionCodeLoadingById({});
     setQuestionCodeErrorById({});
@@ -129,6 +163,13 @@ const ProgressReviewModal = ({
           }
         })
         .catch((err) => console.error(err));
+      setAnswerHistoryLoading(true);
+      api.getAnswerHistory(studentId, task.number, levelId)
+        .then((payload) => setAnswerHistoryById(normalizeAnswerHistoryPayload(payload)))
+        .catch((err) => setAnswerHistoryError(String(err?.message || err || 'Не удалось загрузить историю ответов')))
+        .finally(() => setAnswerHistoryLoading(false));
+    } else {
+      setAnswerHistoryLoading(false);
     }
   }, [task?.number, levelId, testDb, studentId]);
 
@@ -180,6 +221,10 @@ const ProgressReviewModal = ({
   const isSolved = solvedIds.has(currentId);
   const answerCount = getAnswerCountForTask(task?.number);
   const answerLabels = buildAnswerLabels(answerCount);
+  const answerHistory = Array.isArray(answerHistoryById?.[currentId])
+    ? answerHistoryById[currentId]
+    : [];
+  const answerHistoryLatestFirst = answerHistory.slice().reverse();
   const storedAnswers = parseStoredAnswers(answerById?.[currentId]);
   const expectedAnswers = currentQuestion ? getExpectedAnswers(currentQuestion, answerCount) : Array.from({ length: answerCount }, () => '');
   const hasStoredAnswer = Array.isArray(storedAnswers) && storedAnswers.some((val) => String(val ?? '').trim());
@@ -197,6 +242,26 @@ const ProgressReviewModal = ({
   const questionCodeUpdatedAtLabel = questionCodeEntry.updatedAt
     ? new Date(questionCodeEntry.updatedAt).toLocaleString('ru-RU')
     : '';
+  const formatAnswerHistoryTime = (value) => {
+    const parsed = Date.parse(String(value || ''));
+    if (!Number.isFinite(parsed)) return '';
+    return new Date(parsed).toLocaleString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+  const formatAnswerHistoryValues = (answers = []) => {
+    const values = Array.isArray(answers) ? answers : [];
+    if (answerCount <= 1) return String(values[0] ?? '').trim() || '—';
+    return Array.from({ length: answerCount }, (_, index) => {
+      const label = answerLabels[index] || String(index + 1);
+      const value = String(values[index] ?? '').trim() || '—';
+      return `${label}: ${value}`;
+    }).join('; ');
+  };
   const codeEditorOptions = {
     minimap: { enabled: false },
     fontSize: 14,
@@ -241,6 +306,7 @@ const ProgressReviewModal = ({
               {questions.map((q, idx) => {
                 const qId = String(q?.id ?? idx);
                 const solved = solvedIds.has(qId);
+                const attempted = Array.isArray(answerHistoryById?.[qId]) && answerHistoryById[qId].length > 0;
                 const isCurrent = idx === currentIndex;
                 let btnClass = "w-8 h-8 rounded-lg text-sm font-bold flex items-center justify-center transition-all border-2 ";
 
@@ -250,6 +316,8 @@ const ProgressReviewModal = ({
                   btnClass += "border-purple-600 ring-2 ring-purple-200 bg-purple-600 text-white shadow-sm";
                 } else if (solved) {
                   btnClass += "border-green-200 bg-green-100 text-green-600";
+                } else if (attempted) {
+                  btnClass += "border-amber-200 bg-amber-100 text-amber-700";
                 } else {
                   btnClass += "border-transparent bg-gray-100 text-gray-500 hover:bg-gray-200";
                 }
@@ -259,7 +327,7 @@ const ProgressReviewModal = ({
                     key={qId}
                     onClick={() => setCurrentIndex(idx)}
                     className={btnClass}
-                    title={solved ? 'Решено' : 'Не решено'}
+                    title={solved ? 'Решено' : (attempted ? 'Были попытки' : 'Не решено')}
                   >
                     {idx + 1}
                   </button>
@@ -350,6 +418,50 @@ const ProgressReviewModal = ({
                   </div>
                 )}
               </div>
+
+              <details
+                className="mb-6 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3"
+                open={answerHistory.length > 0}
+              >
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-gray-700">
+                  <span className="inline-flex min-w-0 items-center gap-2">
+                    <History size={16} className="text-purple-500" />
+                    <span>История ответов ученика</span>
+                  </span>
+                  <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs text-gray-500">
+                    {answerHistoryLoading ? '...' : answerHistory.length}
+                  </span>
+                </summary>
+                <div className="mt-3 space-y-2">
+                  {answerHistoryLoading ? (
+                    <div className="text-xs text-gray-500">Загрузка...</div>
+                  ) : answerHistoryError ? (
+                    <div className="text-xs text-red-500">{answerHistoryError}</div>
+                  ) : answerHistoryLatestFirst.length > 0 ? (
+                    answerHistoryLatestFirst.map((entry, idx) => {
+                      const timeLabel = formatAnswerHistoryTime(entry.submittedAt);
+                      return (
+                        <div
+                          key={entry.id || `${entry.submittedAt}-${idx}`}
+                          className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className={`font-bold ${entry.correct ? 'text-green-600' : 'text-red-600'}`}>
+                              {entry.correct ? 'Верно' : 'Неверно'}
+                            </span>
+                            {timeLabel && <span className="text-gray-400">{timeLabel}</span>}
+                          </div>
+                          <div className="mt-1 break-words font-mono text-[11px] leading-5 text-gray-700">
+                            {formatAnswerHistoryValues(entry.answers)}
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="text-xs text-gray-500">Попыток пока нет</div>
+                  )}
+                </div>
+              </details>
 
               <div className="space-y-3 mb-6">
                 <div className="flex items-center justify-between">

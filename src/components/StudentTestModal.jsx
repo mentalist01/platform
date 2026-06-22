@@ -56,6 +56,7 @@ const StudentTestModal = ({
   const [answerHistoryById, setAnswerHistoryById] = useState({});
   const [answerHistoryLoading, setAnswerHistoryLoading] = useState(false);
   const [expandedImage, setExpandedImage] = useState(null);
+  const [questionImageStateByKey, setQuestionImageStateByKey] = useState({});
   const [questionCodeById, setQuestionCodeById] = useState({});
   const [questionCodeOpen, setQuestionCodeOpen] = useState(false);
   const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
@@ -921,7 +922,7 @@ const StudentTestModal = ({
 
     const modal = (
       <div className="student-test-modal-backdrop fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-0 sm:p-3 md:p-5">
-        <div className="student-test-workspace modal-card w-full max-w-6xl h-[100dvh] sm:h-auto sm:max-h-[94dvh] relative flex flex-col overflow-hidden" data-level={level}>
+        <div className="student-test-workspace student-test-workspace--animated modal-card w-full max-w-6xl h-[100dvh] sm:h-auto sm:max-h-[94dvh] relative flex flex-col overflow-hidden" data-level={level}>
           <header className="student-test-header shrink-0">
             <div className="flex min-w-0 items-center gap-3">
               <div className="student-test-header-icon hidden sm:flex">
@@ -971,7 +972,7 @@ const StudentTestModal = ({
               </span>
             </div>
 
-            <div className="student-test-question-list mt-2 flex gap-2 overflow-x-auto pb-1 pr-1">
+            <div className="student-test-question-list mt-2 flex gap-2 overflow-x-auto">
               {questions.map((q, idx) => {
                 const qId = String(q?.id ?? idx);
                 const solved = solvedIds.has(qId);
@@ -996,6 +997,7 @@ const StudentTestModal = ({
                     key={qId}
                     onClick={() => setCurrentIndex(idx)}
                     className={btnClass}
+                    style={{ '--student-test-item-index': idx }}
                     title={solved ? `Вопрос №${questionNumbers[idx] ?? (idx + 1)} решён` : `Вопрос №${questionNumbers[idx] ?? (idx + 1)}`}
                     type="button"
                     aria-current={isCurrent ? 'step' : undefined}
@@ -1010,7 +1012,7 @@ const StudentTestModal = ({
           </div>
 
           <div className="student-test-scroll flex-1 overflow-y-auto">
-            <div className="student-test-content mx-auto w-full max-w-5xl">
+            <div key={`${level}:${currentId}`} className="student-test-content student-test-content--question-enter mx-auto w-full max-w-5xl">
             {targetStatus.length > 0 && (
               <div className="student-test-target mb-4 rounded-2xl px-3 py-2.5 md:px-4 md:py-3 text-xs">
                 <div className="font-semibold">Цель: решить отмеченные задания</div>
@@ -1018,9 +1020,10 @@ const StudentTestModal = ({
                   Выполнено {targetSolvedCount}/{targetStatus.length}
                 </div>
                 <div className="hidden md:flex flex-wrap gap-2 mt-2">
-                  {targetStatus.map((item) => (
+                  {targetStatus.map((item, targetIndex) => (
                     <span
                       key={item.num}
+                      style={{ '--student-test-item-index': targetIndex }}
                       className={`px-2 py-1 rounded-lg border text-xs font-semibold ${
                         item.solved
                           ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
@@ -1037,7 +1040,7 @@ const StudentTestModal = ({
               </div>
             )}
 
-            <section className="student-test-question-panel">
+            <section className="student-test-question-panel student-test-panel-enter">
             {currentQuestionLabel && (
               <div className="mb-3 md:mb-4">
                 <span
@@ -1050,20 +1053,67 @@ const StudentTestModal = ({
             )}
             {screenshots.length > 0 && (
               <div className="space-y-2.5 md:space-y-3 mb-5 md:mb-6">
-                {screenshots.map((img) => (
-                  <div
-                    key={img.id || img.url}
-                    className="border rounded-2xl overflow-hidden bg-gray-900/5 max-h-[42vh] sm:max-h-[55vh] md:max-h-[65vh]"
-                  >
-                    <img
-                      src={img.url}
-                      alt={img.name || 'Скриншот'}
-                      className="w-full object-contain cursor-zoom-in"
-                      style={{ maxHeight: isMobileViewport ? '42vh' : '65vh' }}
-                      onClick={() => setExpandedImage(img)}
-                    />
-                  </div>
-                ))}
+                {screenshots.map((img, imageIndex) => {
+                  const imageKey = String(img.id || img.storageName || img.url || imageIndex);
+                  const imageState = questionImageStateByKey[imageKey] || {};
+                  const storedWidth = Number(img.width);
+                  const storedHeight = Number(img.height);
+                  const storedAspectRatio = storedWidth > 0 && storedHeight > 0
+                    ? storedWidth / storedHeight
+                    : null;
+                  const aspectRatio = Number(imageState.aspectRatio) > 0
+                    ? Number(imageState.aspectRatio)
+                    : (storedAspectRatio || 3.2);
+                  return (
+                    <div
+                      key={imageKey}
+                      className={`student-test-screenshot ${imageState.loaded ? 'is-loaded' : 'is-loading'} border rounded-2xl overflow-hidden bg-gray-900/5 max-h-[42vh] sm:max-h-[55vh] md:max-h-[65vh]`}
+                      style={{
+                        '--student-test-item-index': imageIndex,
+                        '--student-test-image-aspect': aspectRatio,
+                      }}
+                      aria-busy={!imageState.loaded}
+                    >
+                      <div
+                        className="student-test-screenshot__loader"
+                        aria-live="polite"
+                        aria-hidden={Boolean(imageState.loaded)}
+                      >
+                        <RefreshCcw size={18} aria-hidden="true" />
+                        <span>Загрузка изображения задания…</span>
+                      </div>
+                      <img
+                        src={img.url}
+                        alt={img.name || 'Скриншот'}
+                        className="w-full object-contain cursor-zoom-in"
+                        onLoad={(event) => {
+                          const naturalWidth = Number(event.currentTarget?.naturalWidth);
+                          const naturalHeight = Number(event.currentTarget?.naturalHeight);
+                          const naturalAspectRatio = naturalWidth > 0 && naturalHeight > 0
+                            ? naturalWidth / naturalHeight
+                            : aspectRatio;
+                          setQuestionImageStateByKey((prev) => ({
+                            ...prev,
+                            [imageKey]: {
+                              loaded: true,
+                              aspectRatio: naturalAspectRatio,
+                            },
+                          }));
+                        }}
+                        onError={() => {
+                          setQuestionImageStateByKey((prev) => ({
+                            ...prev,
+                            [imageKey]: {
+                              loaded: true,
+                              aspectRatio,
+                            },
+                          }));
+                        }}
+                        onClick={() => setExpandedImage(img)}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -1071,12 +1121,13 @@ const StudentTestModal = ({
               <div className="mb-5 md:mb-6">
                 <p className="text-xs font-bold text-gray-400 uppercase mb-2">Доп. файлы</p>
                 <div className="space-y-2">
-                  {extraFiles.map((file) => (
-                    <a
-                      key={file.id || file.url}
-                      href={buildDownloadUrl(file.url)}
-                      download={file?.name || undefined}
-                      className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-700 hover:border-purple-300 hover:bg-purple-50"
+                    {extraFiles.map((file, fileIndex) => (
+                      <a
+                        key={file.id || file.url}
+                        href={buildDownloadUrl(file.url)}
+                        download={file?.name || undefined}
+                        style={{ '--student-test-item-index': fileIndex }}
+                        className="student-test-file flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-700 hover:border-purple-300 hover:bg-purple-50"
                     >
                       <span className="truncate">{file.name}</span>
                       <Download size={16} className="text-purple-600" />
@@ -1087,14 +1138,18 @@ const StudentTestModal = ({
             )}
 
             {isSolved && (
-              <div className="mb-2 text-xs font-semibold text-green-600 uppercase tracking-wide">Решено ранее</div>
+              <div className="student-test-solved-label mb-2 text-xs font-semibold text-green-600 uppercase tracking-wide">Решено ранее</div>
             )}
             {currentQuestion.question && (
-              <p className="text-[15px] md:text-lg font-medium leading-relaxed text-gray-900 mb-5 md:mb-6 whitespace-pre-wrap">{currentQuestion.question}</p>
+              <p className="student-test-question-text text-[15px] md:text-lg font-medium leading-relaxed text-gray-900 mb-5 md:mb-6 whitespace-pre-wrap">{currentQuestion.question}</p>
             )}
             </section>
 
-            <section className="student-test-answer-panel space-y-3">
+            <section className={`student-test-answer-panel student-test-panel-enter space-y-3 ${
+              computedChecked
+                ? (computedCorrect ? 'student-test-answer-panel--correct' : 'student-test-answer-panel--wrong')
+                : 'student-test-answer-panel--pending'
+            }`}>
               <label className="block text-xs font-bold text-gray-400 uppercase">
                 {isSolved ? 'Правильный ответ' : 'Ответ'}
               </label>
@@ -1102,7 +1157,7 @@ const StudentTestModal = ({
                 answerCount > 1 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {Array.from({ length: answerCount }).map((_, idx) => (
-                      <div key={`solved-answer-${idx}`} className="space-y-1">
+                        <div key={`solved-answer-${idx}`} className="student-test-solved-answer space-y-1" style={{ '--student-test-item-index': idx }}>
                         <div className="text-xs font-semibold text-gray-500">Ответ {answerLabels[idx]}</div>
                         <div className="w-full px-4 py-3 rounded-xl bg-green-50 border border-green-200 text-gray-800">
                           {answerValues[idx] ? answerValues[idx] : '—'}
@@ -1111,7 +1166,7 @@ const StudentTestModal = ({
                     ))}
                   </div>
                 ) : (
-                  <div className="w-full px-4 py-3 rounded-xl bg-green-50 border border-green-200 text-gray-800">
+                  <div className="student-test-solved-answer w-full px-4 py-3 rounded-xl bg-green-50 border border-green-200 text-gray-800">
                     {answerValue ? answerValue : '—'}
                   </div>
                 )
@@ -1304,14 +1359,14 @@ const StudentTestModal = ({
                 )
               )}
             {computedChecked && (
-              <div className={`text-sm ${computedCorrect ? 'text-green-600' : 'text-red-600'}`}>
+              <div className={`student-test-result-feedback text-sm ${computedCorrect ? 'is-correct text-green-600' : 'is-wrong text-red-600'}`}>
                 {computedCorrect ? 'Верно!' : 'Неверно'}
               </div>
             )}
-            <details className="rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2.5">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-gray-700">
+            <details className="student-test-history rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2.5">
+              <summary className="student-test-history-summary flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-gray-700">
                 <span className="inline-flex min-w-0 items-center gap-2">
-                  <History size={15} className="text-purple-500" />
+                  <History size={15} className="student-test-history-icon text-purple-500" />
                   <span>История ответов</span>
                 </span>
                 <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs text-gray-500">
@@ -1327,7 +1382,8 @@ const StudentTestModal = ({
                     return (
                       <div
                         key={entry.id || `${entry.submittedAt}-${idx}`}
-                        className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs"
+                        className="student-test-history-entry rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs"
+                        style={{ '--student-test-item-index': idx }}
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className={`font-bold ${entry.correct ? 'text-green-600' : 'text-red-600'}`}>
@@ -1348,7 +1404,7 @@ const StudentTestModal = ({
             </details>
             </section>
 
-            <div className="student-test-code-panel rounded-2xl p-3 space-y-3">
+            <div className="student-test-code-panel student-test-panel-enter rounded-2xl p-3 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-xs font-bold text-gray-500 uppercase">
                   Код решения для вопроса №{currentQuestionNumber}
@@ -1362,7 +1418,7 @@ const StudentTestModal = ({
                       loadQuestionCode(currentId);
                     }
                   }}
-                  className="text-xs text-purple-600 hover:text-purple-700 font-semibold"
+                  className="student-test-code-toggle text-xs text-purple-600 hover:text-purple-700 font-semibold"
                 >
                   {questionCodeOpen ? 'Скрыть код' : 'Открыть код'}
                 </button>
@@ -1372,7 +1428,7 @@ const StudentTestModal = ({
                 questionCodeLoading ? (
                   <div className="text-sm text-gray-500">Загрузка кода...</div>
                 ) : (
-                  <>
+                  <div className="student-test-code-reveal space-y-3">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div className="text-xs text-gray-500">
                         {questionCodeUpdatedAtLabel ? `Сохранено: ${questionCodeUpdatedAtLabel}` : 'Код ещё не сохранён'}
@@ -1435,7 +1491,7 @@ const StudentTestModal = ({
                       />
                     </div>
                     {questionCodeError && <div className="text-xs text-red-500">{questionCodeError}</div>}
-                  </>
+                  </div>
                 )
               )}
             </div>
@@ -1448,7 +1504,7 @@ const StudentTestModal = ({
               variant="secondary"
               onClick={() => setCurrentIndex((index) => Math.max(0, index - 1))}
               disabled={currentIndex === 0}
-              className="h-11 w-11 shrink-0 px-0 sm:w-auto sm:px-4"
+              className="student-test-back-action h-11 w-11 shrink-0 px-0 sm:w-auto sm:px-4"
             >
               <ChevronLeft size={18} />
               <span className="hidden sm:inline">Назад</span>
@@ -1478,7 +1534,11 @@ const StudentTestModal = ({
                 handleNext();
               }} 
               disabled={!computedChecked && !isAnswerReady} 
-              className="student-test-primary-action h-11 flex-1 sm:flex-none sm:min-w-56"
+              className={`student-test-primary-action h-11 flex-1 sm:flex-none sm:min-w-56 ${
+                computedChecked
+                  ? (computedCorrect ? 'is-correct' : 'is-wrong')
+                  : (isAnswerReady ? 'is-ready' : 'is-disabled')
+              }`}
               variant={computedChecked ? (computedCorrect ? 'success' : 'danger') : 'primary'}
             >
               {!computedChecked ? 'Проверить' : (
@@ -1491,14 +1551,14 @@ const StudentTestModal = ({
         </div>
         {expandedImage && (
           <div
-            className="fixed inset-0 z-[60] bg-black/80 modal-backdrop flex items-center justify-center p-4"
+            className="student-test-image-lightbox fixed inset-0 z-[60] bg-black/80 modal-backdrop flex items-center justify-center p-4"
             onClick={() => setExpandedImage(null)}
           >
             <div className="relative max-w-[95vw] max-h-[95vh]" onClick={(e) => e.stopPropagation()}>
               <img
                 src={expandedImage.url}
                 alt={expandedImage.name || 'Скриншот'}
-                className="w-full h-full object-contain rounded-2xl shadow-2xl"
+                className="student-test-image-lightbox__image w-full h-full object-contain rounded-2xl shadow-2xl"
                 style={{ maxHeight: '95vh' }}
               />
               <button

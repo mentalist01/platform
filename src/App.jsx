@@ -14611,9 +14611,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const currentLevel = levelProgress.level;
   const xpIntoLevel = levelProgress.xpIntoLevel;
   const xpPerLevel = levelProgress.xpForNextLevel;
+  const xpRemaining = Math.max(0, xpPerLevel - xpIntoLevel);
   const levelProgressPercent = levelProgress.progressPercent;
   const xpIntoLevelLabel = xpIntoLevel.toLocaleString('ru-RU');
   const xpPerLevelLabel = xpPerLevel.toLocaleString('ru-RU');
+  const xpRemainingLabel = xpRemaining.toLocaleString('ru-RU');
   const totalXpLabel = totalXp.toLocaleString('ru-RU');
   const totalCoinsLabel = totalCoins.toLocaleString('ru-RU');
   const displayStreakCurrent = (() => {
@@ -16937,13 +16939,20 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 >
                   <div className="level-progress-main">
                     <div className="level-progress-badge">
-                      {currentLevel}
+                      <span className="level-progress-badge-label">LVL</span>
+                      <span className="level-progress-badge-number">{currentLevel}</span>
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="level-progress-head">
-                        <span className="level-progress-title">{`Уровень ${currentLevel}`}</span>
+                        <div className="level-progress-identity">
+                          <span className="level-progress-eyebrow">Прогресс</span>
+                          <span className="level-progress-title">{`Уровень ${currentLevel}`}</span>
+                        </div>
                         <div className="level-progress-head-meta">
-                          <span className="level-progress-total">{`${totalXpLabel} XP`}</span>
+                          <span className="level-progress-total">
+                            <span className="level-progress-total-label">Всего</span>
+                            {`${totalXpLabel} XP`}
+                          </span>
                           <span
                             ref={coinInlineBadgeRef}
                             className="level-progress-coin"
@@ -16962,13 +16971,24 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                         <div
                           className="level-progress-fill transition-all duration-300"
                           style={{ width: `${levelProgressPercent}%` }}
-                        />
+                        >
+                          <span className="level-progress-fill-tip" />
+                        </div>
                         <div className="level-progress-track-grid" />
                         <div className="level-progress-glass" />
                       </div>
                       <div className="level-progress-foot">
-                        <span>{`${xpIntoLevelLabel}/${xpPerLevelLabel} XP`}</span>
-                        <span>{`${levelProgressPercent}%`}</span>
+                        <span className="level-progress-foot-current">
+                          <strong>{xpIntoLevelLabel}</strong>
+                          {` из ${xpPerLevelLabel} XP`}
+                        </span>
+                        <span className="level-progress-foot-next">
+                          <span className="level-progress-percent">{`${levelProgressPercent}%`}</span>
+                          <span className="level-progress-remaining">
+                            {`До ${currentLevel + 1}: `}
+                            <strong>{`${xpRemainingLabel} XP`}</strong>
+                          </span>
+                        </span>
                       </div>
                     </div>
                   </div>
