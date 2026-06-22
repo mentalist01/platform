@@ -637,10 +637,10 @@ const StudentTestModal = ({
     if (autoStartLevel && !autoStartFailed) {
       const waitingTests = testDb === null || typeof testDb === 'undefined';
       const loadingModal = (
-        <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-start justify-center p-4 md:p-8 overflow-y-auto">
-          <div className="surface-card modal-card rounded-3xl max-w-2xl w-full p-8 shadow-2xl relative text-center">
-            <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
-            <div className="mx-auto inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-sm font-semibold text-purple-700">
+        <div className="student-level-modal-backdrop fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4">
+          <div className="student-level-modal student-level-modal--loading modal-card relative w-full text-center">
+            <button onClick={onClose} className="student-level-modal__close" type="button" aria-label="Закрыть"><X size={19}/></button>
+            <div className="student-level-modal__loading-badge mx-auto">
               <RefreshCcw size={14} className="animate-spin" />
               {waitingTests ? 'Загрузка заданий...' : 'Открываем задания...'}
             </div>
@@ -656,52 +656,69 @@ const StudentTestModal = ({
     }
 
     const modal = (
-      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-start justify-center p-4 md:p-8 overflow-y-auto">
-        <div className="surface-card modal-card rounded-3xl max-w-2xl w-full p-8 shadow-2xl relative">
-          <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
-          
-          <div className="text-center mb-8">
-            <h2 className="text-2xl font-bold text-gray-900">Выберите уровень сложности</h2>
-            <p className="text-gray-500">Задание №{getTaskDisplayNumber(task)}: {task.title}</p>
-          </div>
+      <div className="student-level-modal-backdrop fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-3 sm:p-4">
+        <div className="student-level-modal modal-card relative w-full">
+          <button onClick={onClose} className="student-level-modal__close" type="button" aria-label="Закрыть"><X size={19}/></button>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <header className="student-level-modal__header">
+            <span className="student-level-modal__task-chip">Задание №{getTaskDisplayNumber(task)}</span>
+            <h2>Выберите уровень</h2>
+            <p>{task.title}</p>
+            <div className="student-level-modal__mastery">
+              <div className="flex items-center justify-between gap-3">
+                <span>Общий прогресс задания</span>
+                <strong>{Math.round(currentMastery)}%</strong>
+              </div>
+              <div><span style={{ width: `${Math.max(0, Math.min(100, currentMastery))}%` }} /></div>
+            </div>
+          </header>
+
+          <div className="student-level-modal__grid">
             {Object.values(LEVELS).map((lvl) => {
               const isCompleted = currentMastery >= lvl.maxScore;
               const levelXpReward = getTaskLevelXpReward(task?.number, lvl.id);
               const levelXpRewardLabel = levelXpReward > 0
                 ? `+${levelXpReward.toLocaleString('ru-RU')} XP`
                 : '';
+              const levelQuestionCount = Array.isArray(testDb?.[task.number]?.[lvl.id])
+                ? testDb[task.number][lvl.id].length
+                : 0;
 
               return (
-                <div 
+                <button
                   key={lvl.id}
+                  type="button"
+                  data-level={lvl.id}
+                  data-completed={isCompleted ? 'true' : 'false'}
                   onClick={() => {
                     const shouldRestoreIndex = initialLevel && initialLevel === lvl.id;
                     startTest(lvl.id, shouldRestoreIndex ? { initialIndex: initialQuestionIndex } : {});
                   }}
-                  className={`border-2 rounded-2xl p-5 flex flex-col justify-between cursor-pointer transition-all hover:scale-105 ${isCompleted ? 'border-green-200 bg-green-50 opacity-80' : 'hover:shadow-lg bg-white'} ${lvl.color.replace('bg-', 'border-')}`}
+                  className="student-level-card"
                 >
-                  <div>
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center mb-4 ${lvl.color}`}>
+                  <div className="student-level-card__topline">
+                    <div className="student-level-card__icon">
                       {isCompleted ? <Check size={20} /> : <PlayCircle size={20} />}
                     </div>
-                    <h3 className="font-bold text-gray-900 mb-1">{lvl.label}</h3>
-                    <p className="text-xs text-gray-500">
-                      {lvl.id === 'basic' && "Прототипы с реальных ЕГЭ и Демоверсий."}
-                      {lvl.id === 'advanced' && "Усложненные условия."}
-                      {lvl.id === 'expert' && "Статград и сложнее."}
+                    <span>{isCompleted ? 'Пройдено' : `${levelQuestionCount} заданий`}</span>
+                  </div>
+                  <div className="student-level-card__content">
+                    <h3>{lvl.label}</h3>
+                    <p>
+                      {lvl.id === 'basic' && 'Прототипы ЕГЭ и задания из демоверсий.'}
+                      {lvl.id === 'advanced' && 'Усложнённые условия и нестандартные формулировки.'}
+                      {lvl.id === 'expert' && 'Статград и самые сложные задачи.'}
                     </p>
                   </div>
-                  <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between gap-2">
-                    <span className="text-sm font-bold text-gray-700">до {lvl.maxScore}%</span>
+                  <div className="student-level-card__footer">
+                    <span>до {lvl.maxScore}%</span>
                     {levelXpReward > 0 && (
-                      <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-700">
+                      <span className="student-level-card__reward">
                         {levelXpRewardLabel}
                       </span>
                     )}
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
