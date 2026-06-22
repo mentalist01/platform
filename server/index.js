@@ -6594,7 +6594,6 @@ const buildTeacherScheduleEntry = (payload = {}, options = {}) => {
 
 const GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS = 60 * 1000;
 const GOOGLE_CALENDAR_SYNC_FETCH_TIMEOUT_MS = 12000;
-const GOOGLE_CALENDAR_SYNC_LOOKBACK_DAYS = 14;
 const GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS = 120;
 const GOOGLE_CALENDAR_SYNC_TIME_ZONE = String(
   process.env.PLATFORM_CALENDAR_TIME_ZONE || process.env.TZ || 'Europe/Moscow'
@@ -6846,7 +6845,6 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
     return cache.entries;
   }
 
-  const from = new Date(now - (GOOGLE_CALENDAR_SYNC_LOOKBACK_DAYS * 24 * 60 * 60 * 1000));
   const to = new Date(now + (GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000));
   const students = readStudentsDb().filter((student) => String(student?.teacherId || '').trim() === normalizedTeacherId);
   const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -6865,8 +6863,10 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
     const entries = [];
     Object.values(parsed || {}).forEach((event) => {
       if (!event || event.type !== 'VEVENT') return;
+      const eventStartMs = event?.start instanceof Date ? event.start.getTime() : Date.parse(event?.start);
+      const recurrenceFrom = Number.isFinite(eventStartMs) ? new Date(eventStartMs) : new Date(0);
       const instances = event.rrule
-        ? nodeIcal.expandRecurringEvent(event, { from, to, expandOngoing: true })
+        ? nodeIcal.expandRecurringEvent(event, { from: recurrenceFrom, to, expandOngoing: true })
         : [event];
       instances.forEach((instance) => {
         const scheduleEntry = buildGoogleCalendarScheduleEntry(
@@ -6876,7 +6876,7 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
         );
         if (!scheduleEntry) return;
         const startMs = Date.parse(`${scheduleEntry.date}T${scheduleEntry.time}:00`);
-        if (Number.isFinite(startMs) && (startMs < from.getTime() || startMs > to.getTime())) return;
+        if (Number.isFinite(startMs) && startMs > to.getTime()) return;
         entries.push(scheduleEntry);
       });
     });
