@@ -3698,7 +3698,7 @@ const ProgressSection = ({
             </div>
           )}
 
-          <div className={`${role === 'student' ? 'hidden md:grid' : 'grid'} progress-tests-grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 stagger-children`}>
+          <div className={`${role === 'student' ? 'hidden md:grid' : 'grid'} progress-tests-grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5 xl:gap-6 stagger-children`}>
             {taskList.map((task, idx) => {
               const val = Math.max(0, Math.min(100, Number(progressMap[task.id] || 0)));
               const clickable = role === 'student' || role === 'teacher';
@@ -3720,7 +3720,7 @@ const ProgressSection = ({
                         : 'border-slate-200/90 bg-gradient-to-br from-white via-slate-50 to-slate-100/70'));
               const statusLabel = val >= 85 ? 'Сильная тема' : (val >= 60 ? 'В работе' : (val >= 40 ? 'Нужна практика' : 'Зона внимания'));
               return (
-                <div key={task.id} style={{ '--i': idx }} className="space-y-2">
+                <div key={task.id} style={{ '--i': idx }}>
                   <Card
                     className={`progress-topic-card group relative overflow-hidden p-3.5 md:p-4 ${cardTone} ${clickable ? 'cursor-pointer' : ''}`}
                     onClick={

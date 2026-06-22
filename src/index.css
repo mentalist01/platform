@@ -655,14 +655,17 @@ html[data-theme='dark'] .board-canvas-outline {
 
   .progress-tests-grid {
     align-items: stretch;
+    row-gap: 1.5rem;
+    column-gap: 1.5rem;
   }
 
   .progress-topic-card {
     min-height: 100%;
-    border-color: rgba(203, 213, 225, 0.72);
+    border-color: rgba(255, 255, 255, 0.88);
     box-shadow:
-      0 14px 32px rgba(15, 23, 42, 0.08),
-      inset 0 1px 0 rgba(255, 255, 255, 0.78);
+      0 10px 24px rgba(51, 65, 85, 0.1),
+      0 2px 6px rgba(15, 23, 42, 0.04),
+      inset 0 1px 0 rgba(255, 255, 255, 0.9);
   }
 
   .progress-topic-card::before {
@@ -17660,7 +17663,7 @@ html[data-theme='dark'] .progress-section-tabs {
 }
 
 html[data-theme='dark'] .progress-topic-card {
-  border-color: rgba(71, 85, 105, 0.56);
+  border-color: rgba(148, 163, 184, 0.16);
   box-shadow:
     0 18px 38px rgba(2, 6, 23, 0.28),
     inset 0 1px 0 rgba(148, 163, 184, 0.08);
@@ -45666,7 +45669,7 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   place-items: center;
   animation: studentTestMediaIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) backwards;
   animation-delay: calc(0.08s + (var(--student-test-item-index, 0) * 70ms));
-  transition: aspect-ratio 0.46s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, box-shadow 0.25s ease;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .student-test-screenshot::before {

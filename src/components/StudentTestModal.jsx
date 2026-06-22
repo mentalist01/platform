@@ -726,7 +726,12 @@ const StudentTestModal = ({
     if (autoStartLevel && !autoStartFailed) {
       const waitingTests = testDb === null || typeof testDb === 'undefined';
       const loadingModal = (
-        <div className="student-level-modal-backdrop fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4">
+        <div
+          className="student-level-modal-backdrop fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) onClose();
+          }}
+        >
           <div className="student-level-modal student-level-modal--loading modal-card relative w-full text-center">
             <button onClick={onClose} className="student-level-modal__close" type="button" aria-label="Закрыть"><X size={19}/></button>
             <div className="student-level-modal__loading-badge mx-auto">
@@ -745,7 +750,12 @@ const StudentTestModal = ({
     }
 
     const modal = (
-      <div className="student-level-modal-backdrop fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-3 sm:p-4">
+      <div
+        className="student-level-modal-backdrop fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-3 sm:p-4"
+        onClick={(event) => {
+          if (event.target === event.currentTarget) onClose();
+        }}
+      >
         <div className="student-level-modal modal-card relative w-full">
           <button onClick={onClose} className="student-level-modal__close" type="button" aria-label="Закрыть"><X size={19}/></button>
 
@@ -1061,9 +1071,7 @@ const StudentTestModal = ({
                   const storedAspectRatio = storedWidth > 0 && storedHeight > 0
                     ? storedWidth / storedHeight
                     : null;
-                  const aspectRatio = Number(imageState.aspectRatio) > 0
-                    ? Number(imageState.aspectRatio)
-                    : (storedAspectRatio || 3.2);
+                  const aspectRatio = storedAspectRatio || 3.2;
                   return (
                     <div
                       key={imageKey}
@@ -1086,17 +1094,11 @@ const StudentTestModal = ({
                         src={img.url}
                         alt={img.name || 'Скриншот'}
                         className="w-full object-contain cursor-zoom-in"
-                        onLoad={(event) => {
-                          const naturalWidth = Number(event.currentTarget?.naturalWidth);
-                          const naturalHeight = Number(event.currentTarget?.naturalHeight);
-                          const naturalAspectRatio = naturalWidth > 0 && naturalHeight > 0
-                            ? naturalWidth / naturalHeight
-                            : aspectRatio;
+                        onLoad={() => {
                           setQuestionImageStateByKey((prev) => ({
                             ...prev,
                             [imageKey]: {
                               loaded: true,
-                              aspectRatio: naturalAspectRatio,
                             },
                           }));
                         }}
@@ -1105,7 +1107,6 @@ const StudentTestModal = ({
                             ...prev,
                             [imageKey]: {
                               loaded: true,
-                              aspectRatio,
                             },
                           }));
                         }}
