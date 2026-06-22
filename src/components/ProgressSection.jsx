@@ -3709,7 +3709,7 @@ const ProgressSection = ({
             </div>
           )}
 
-          <div className={`${role === 'student' ? 'hidden md:grid' : 'grid'} progress-tests-grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5 xl:gap-6 stagger-children`}>
+          <div className={`${role === 'student' ? 'hidden md:grid' : 'grid'} progress-tests-grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 stagger-children`}>
             {taskList.map((task, idx) => {
               const val = Math.max(0, Math.min(100, Number(progressMap[task.id] || 0)));
               const clickable = role === 'student' || role === 'teacher';

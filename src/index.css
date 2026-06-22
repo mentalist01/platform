@@ -745,8 +745,8 @@ html[data-theme='dark'] .board-canvas-outline {
 
   .progress-tests-grid {
     align-items: stretch;
-    row-gap: 1.5rem;
-    column-gap: 1.5rem;
+    row-gap: 1rem;
+    column-gap: 1rem;
   }
 
   .progress-topic-card {
@@ -45794,6 +45794,7 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   margin-left: -6px;
   margin-right: -6px;
   padding: 6px 6px 7px;
+  overflow-y: hidden;
   scrollbar-width: thin;
   scrollbar-color: rgba(139, 92, 246, 0.38) transparent;
 }
@@ -46579,8 +46580,8 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
 }
 
 @keyframes studentTestCurrentQuestionRing {
-  0% { opacity: 0.42; transform: scale(0.8); }
-  70%, 100% { opacity: 0; transform: scale(1.2); }
+  0% { opacity: 0.42; transform: scale(1); }
+  70%, 100% { opacity: 0; transform: scale(1); }
 }
 
 @keyframes studentTestCorrectQuestionPop {
