@@ -815,16 +815,33 @@ const ScheduleSection = ({
   ]);
 
   const parseTargetInput = (input, maxCount) => {
-    const parts = String(input || '').split(/[\s,;]+/).filter(Boolean);
-    const numbers = parts
-      .map((val) => Number(val))
-      .filter((val) => Number.isFinite(val) && val > 0)
-      .map((val) => Math.trunc(val));
-    const unique = Array.from(new Set(numbers));
-    if (Number.isFinite(maxCount) && maxCount > 0) {
-      return unique.filter((val) => val <= maxCount);
-    }
-    return unique;
+    const safeMax = Number.isFinite(Number(maxCount)) && Number(maxCount) > 0
+      ? Math.floor(Number(maxCount))
+      : 200;
+    const values = new Set();
+    String(input || '')
+      .replace(/[\u2013\u2014]/g, '-')
+      .replace(/\s*-\s*/g, '-')
+      .split(/[\s,;]+/)
+      .filter(Boolean)
+      .forEach((part) => {
+        const rangeMatch = part.match(/^(\d+)-(\d+)$/);
+        if (rangeMatch) {
+          const first = Math.max(1, Math.trunc(Number(rangeMatch[1])));
+          const second = Math.max(1, Math.trunc(Number(rangeMatch[2])));
+          const start = Math.min(first, second);
+          const end = Math.min(Math.max(first, second), safeMax);
+          for (let value = start; value <= end; value += 1) {
+            values.add(value);
+          }
+          return;
+        }
+        const value = Math.trunc(Number(part));
+        if (Number.isFinite(value) && value > 0 && value <= safeMax) {
+          values.add(value);
+        }
+      });
+    return [...values].sort((left, right) => left - right);
   };
 
   const formatTargetInput = (targets) => {
@@ -834,8 +851,22 @@ const ScheduleSection = ({
         .map((val) => Number(val))
         .filter((val) => Number.isFinite(val) && val > 0)
         .map((val) => Math.trunc(val))
-    ));
-    return values.join(', ');
+    )).sort((left, right) => left - right);
+    if (values.length === 0) return '';
+    const groups = [];
+    let start = values[0];
+    let end = values[0];
+    for (let index = 1; index <= values.length; index += 1) {
+      const value = values[index];
+      if (value === end + 1) {
+        end = value;
+        continue;
+      }
+      groups.push(start === end ? String(start) : `${start}-${end}`);
+      start = value;
+      end = value;
+    }
+    return groups.join(', ');
   };
 
   const getQuestionsCount = (taskNumber, levelId) => {
@@ -2151,6 +2182,9 @@ const ScheduleSection = ({
                 ? normalizedGoalTaskNumber
                 : goal?.taskNumber;
               const availableCount = hasTask ? getQuestionsCount(taskNumberValue, effectiveLevelId) : null;
+              const selectedTargetCount = !goal.includeAll
+                ? parseTargetInput(goal?.targetInput, availableCount).length
+                : 0;
               const selectedMockExam = isMockGoal
                 ? mockExamById[normalizeMockExamId(goal?.mockExamId)]
                 : null;
@@ -2283,7 +2317,7 @@ const ScheduleSection = ({
                           type="text"
                           value={goal.targetInput || ''}
                           onChange={(e) => updateGoal(index, { targetInput: e.target.value })}
-                          placeholder="Номера вопросов (например: 1, 3, 5)"
+                          placeholder="Номера: 1-12 или 1, 3, 7-10"
                           disabled={!hasTask || goal.includeAll}
                           className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none disabled:opacity-60"
                         />
@@ -2291,8 +2325,8 @@ const ScheduleSection = ({
                           {goal.includeAll
                             ? 'Выбраны все задания этого уровня.'
                             : (availableCount
-                                ? `Всего вопросов в уровне: ${availableCount}`
-                                : 'Можно оставить пустым — тогда цель не задаётся.')}
+                                ? `Выбрано: ${selectedTargetCount} из ${availableCount}. Поддерживаются диапазоны, например 1-12.`
+                                : 'Можно вводить отдельные номера и диапазоны, например 1, 3, 7-12.')}
                         </div>
                       </>
                     )}

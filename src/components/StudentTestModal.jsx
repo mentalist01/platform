@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { Check, Download, PlayCircle, RefreshCcw, X } from 'lucide-react';
+import { Check, ChevronLeft, Download, ListChecks, PlayCircle, RefreshCcw, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
@@ -47,6 +47,7 @@ const StudentTestModal = ({
   const [stage, setStage] = useState('select_level'); // select_level | testing
   const [level, setLevel] = useState(null);
   const [questions, setQuestions] = useState([]);
+  const [questionNumbers, setQuestionNumbers] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState({}); // { [idx]: string | { a: string, b: string } }
   const [results, setResults] = useState({}); // { [idx]: boolean }
@@ -302,6 +303,7 @@ const StudentTestModal = ({
     }
   };
 
+
   const runQuestionCodeForQuestion = async (questionId) => {
     const key = String(questionId ?? '').trim();
     if (!key) return;
@@ -330,6 +332,7 @@ const StudentTestModal = ({
     }
   };
 
+
   const startTest = async (lvlId, options = {}) => {
     if (!testDb) {
       if (!options?.silent) {
@@ -338,16 +341,34 @@ const StudentTestModal = ({
       return false;
     }
 
-    const qs = testDb[task.number]?.[lvlId] || [];
+    const allQuestions = testDb[task.number]?.[lvlId] || [];
+    const requestedQuestionNumbers = Array.from(new Set(
+      (Array.isArray(targetQuestions) ? targetQuestions : [])
+        .map((value) => Math.trunc(Number(value)))
+        .filter((value) => Number.isFinite(value) && value > 0 && value <= allQuestions.length)
+    )).sort((left, right) => left - right);
+    const hasRequestedQuestions = Array.isArray(targetQuestions) && targetQuestions.length > 0;
+    const selectedEntries = requestedQuestionNumbers
+      .map((number) => ({ question: allQuestions[number - 1], number }))
+      .filter((entry) => entry.question);
+    const qs = hasRequestedQuestions
+      ? selectedEntries.map((entry) => entry.question)
+      : allQuestions;
+    const nextQuestionNumbers = hasRequestedQuestions
+      ? selectedEntries.map((entry) => entry.number)
+      : allQuestions.map((_, index) => index + 1);
     
     if (qs.length === 0) {
       if (!options?.silent) {
-        alert("Учитель еще не загрузил задания для этого уровня.");
+        alert(hasRequestedQuestions
+          ? 'Выбранные для домашки вопросы не найдены.'
+          : 'Учитель еще не загрузил задания для этого уровня.');
       }
       return false;
     }
 
     setQuestions(qs);
+    setQuestionNumbers(nextQuestionNumbers);
     setLevel(lvlId);
     const wantsStoredIndex = Number.isFinite(Number(options?.initialIndex));
     const rawIndex = wantsStoredIndex ? Number(options.initialIndex) : 0;
@@ -692,6 +713,7 @@ const StudentTestModal = ({
 
   if (stage === 'testing' && questions.length > 0) {
     const currentQuestion = questions[currentIndex];
+    const currentQuestionNumber = questionNumbers[currentIndex] ?? (currentIndex + 1);
     const currentQuestionLabel = normalizeQuestionLabel(currentQuestion?.label);
     const isChecked = results[currentIndex] !== undefined;
     const isCorrect = results[currentIndex];
@@ -735,18 +757,22 @@ const StudentTestModal = ({
     const computedChecked = isSolved || isChecked;
     const computedCorrect = isSolved ? true : isCorrect;
     const rawTargets = Array.isArray(targetQuestions) ? targetQuestions : [];
-    const targetNumbers = Array.from(new Set(
-      rawTargets
-        .map((val) => Number(val))
-        .filter((val) => Number.isFinite(val) && val > 0)
-    ));
+    const targetNumbers = rawTargets.length > 0 ? [...questionNumbers] : [];
     const targetStatus = targetNumbers.map((num) => {
-      const question = questions[num - 1];
+      const localIndex = questionNumbers.indexOf(num);
+      const question = localIndex >= 0 ? questions[localIndex] : null;
       const qId = question?.id;
-      const solved = qId ? solvedIds.has(String(qId)) : false;
+      const solved = qId ? (solvedIds.has(String(qId)) || results[localIndex] === true) : false;
       return { num, solved };
     });
     const targetSolvedCount = targetStatus.filter((item) => item.solved).length;
+    const solvedQuestionCount = questions.reduce((count, question, index) => {
+      const questionId = String(question?.id ?? index);
+      return solvedIds.has(questionId) || results[index] === true ? count + 1 : count;
+    }, 0);
+    const completionPercent = questions.length > 0
+      ? Math.round((solvedQuestionCount / questions.length) * 100)
+      : 0;
     const questionCodeEntry = getQuestionCodeEntry(currentId);
     const questionCodeLoading = Boolean(questionCodeLoadingById?.[currentId]);
     const questionCodeSaving = Boolean(questionCodeSavingById?.[currentId]);
@@ -766,25 +792,99 @@ const StudentTestModal = ({
     const questionCodeEditorHeight = isMobileViewport ? '180px' : '240px';
 
     const modal = (
-      <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
-        <div className="surface-card modal-card rounded-2xl md:rounded-3xl w-full max-w-5xl max-h-[90vh] p-3.5 sm:p-4 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
-          {/* Header & Navigation */}
-          <div className="flex flex-col gap-3 md:gap-4 mb-3 md:mb-4">
-            <div className="flex justify-between items-start">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className={`px-2.5 py-1 rounded-lg text-[11px] md:text-xs font-bold uppercase ${LEVELS[level.toUpperCase()].color}`}>
-                  {LEVELS[level.toUpperCase()].label}
-                </span>
-                {selectedLevelXpReward > 0 && (
-                  <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] md:text-[11px] font-bold text-purple-700">
-                    {selectedLevelXpRewardLabel}
-                  </span>
-                )}
+      <div className="student-test-modal-backdrop fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-0 sm:p-3 md:p-5">
+        <div className="student-test-workspace modal-card w-full max-w-6xl h-[100dvh] sm:h-auto sm:max-h-[94dvh] relative flex flex-col overflow-hidden" data-level={level}>
+          <header className="student-test-header shrink-0">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="student-test-header-icon hidden sm:flex">
+                <ListChecks size={20} />
               </div>
-              <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={18}/></button>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <span className={`px-2.5 py-1 rounded-lg text-[10px] sm:text-[11px] font-bold uppercase ${LEVELS[level.toUpperCase()].color}`}>
+                    {LEVELS[level.toUpperCase()].label}
+                  </span>
+                  {selectedLevelXpReward > 0 && (
+                    <span className="student-test-xp-badge">
+                      {selectedLevelXpRewardLabel}
+                    </span>
+                  )}
+                </div>
+                <h2 className="student-test-title mt-1.5 truncate">
+                  Задание {getTaskDisplayNumber(task)}: {task.title}
+                </h2>
+              </div>
             </div>
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+              <div className="student-test-progress-summary hidden sm:block">
+                <div className="flex items-center justify-between gap-4 text-xs">
+                  <span>Выполнено</span>
+                  <strong>{solvedQuestionCount}/{questions.length}</strong>
+                </div>
+                <div className="student-test-progress-track mt-1.5">
+                  <div className="student-test-progress-fill" style={{ width: `${completionPercent}%` }} />
+                </div>
+              </div>
+              <button onClick={onClose} className="student-test-close" type="button" aria-label="Закрыть">
+                <X size={19}/>
+              </button>
+            </div>
+          </header>
+
+          <div className="student-test-navigation shrink-0">
+            <div className="flex items-center justify-between gap-3">
+              <span className="student-test-question-caption">
+                {targetNumbers.length > 0
+                  ? `Вопрос №${currentQuestionNumber} · ${currentIndex + 1} из ${questions.length}`
+                  : `Вопрос ${currentIndex + 1} из ${questions.length}`}
+              </span>
+              <span className="student-test-mobile-progress sm:hidden">
+                {solvedQuestionCount}/{questions.length} решено
+              </span>
+            </div>
+
+            <div className="student-test-question-list mt-2 flex gap-2 overflow-x-auto pb-1 pr-1">
+              {questions.map((q, idx) => {
+                const qId = String(q?.id ?? idx);
+                const solved = solvedIds.has(qId);
+                const status = results[idx];
+                const isCurrent = idx === currentIndex;
+                let btnClass = 'student-test-question-button ';
+
+                if (isCurrent && (solved || status === true)) {
+                  btnClass += 'is-current is-correct';
+                } else if (isCurrent && status === false) {
+                  btnClass += 'is-current is-wrong';
+                } else if (isCurrent) {
+                  btnClass += 'is-current';
+                } else if (solved || status === true) {
+                  btnClass += 'is-correct';
+                } else if (status === false) {
+                  btnClass += 'is-wrong';
+                }
+
+                return (
+                  <button
+                    key={qId}
+                    onClick={() => setCurrentIndex(idx)}
+                    className={btnClass}
+                    title={solved ? `Вопрос №${questionNumbers[idx] ?? (idx + 1)} решён` : `Вопрос №${questionNumbers[idx] ?? (idx + 1)}`}
+                    type="button"
+                    aria-current={isCurrent ? 'step' : undefined}
+                  >
+                    {solved || status === true
+                      ? <Check size={14} strokeWidth={3} />
+                      : (questionNumbers[idx] ?? (idx + 1))}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="student-test-scroll flex-1 overflow-y-auto">
+            <div className="student-test-content mx-auto w-full max-w-5xl">
             {targetStatus.length > 0 && (
-              <div className="rounded-2xl border border-purple-100 bg-purple-50 px-3 py-2.5 md:px-4 md:py-3 text-xs text-purple-700">
+              <div className="student-test-target mb-4 rounded-2xl px-3 py-2.5 md:px-4 md:py-3 text-xs">
                 <div className="font-semibold">Цель: решить отмеченные задания</div>
                 <div className="mt-1 text-[11px] md:hidden">
                   Выполнено {targetSolvedCount}/{targetStatus.length}
@@ -808,45 +908,8 @@ const StudentTestModal = ({
                 </div>
               </div>
             )}
-            
-            {/* Question Navigation Bar */}
-          <div className="flex gap-2 overflow-x-auto pb-1 pr-1">
-            {questions.map((q, idx) => {
-              const qId = String(q?.id ?? idx);
-              const solved = solvedIds.has(qId);
-              const status = results[idx]; // true, false or undefined
-              const isCurrent = idx === currentIndex;
-              let btnClass = "shrink-0 w-9 h-9 rounded-lg text-sm font-bold flex items-center justify-center transition-all border-2 ";
 
-              if (isCurrent && (solved || status === true)) {
-                btnClass += "border-green-400 ring-2 ring-green-100 bg-green-100 text-green-700";
-              } else if (isCurrent && status === false) {
-                btnClass += "border-red-400 ring-2 ring-red-100 bg-red-100 text-red-700";
-              } else if (isCurrent) {
-                btnClass += "border-purple-600 ring-2 ring-purple-200 bg-white text-purple-600";
-              } else if (solved || status === true) {
-                btnClass += "border-green-200 bg-green-100 text-green-600";
-              } else if (status === false) {
-                btnClass += "border-red-200 bg-red-100 text-red-600";
-              } else {
-                btnClass += "border-gray-300 bg-white text-gray-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700";
-              }
-
-              return (
-                <button 
-                  key={qId} 
-                  onClick={() => setCurrentIndex(idx)}
-                  className={btnClass}
-                  title={solved ? 'Решено' : undefined}
-                >
-                  {idx + 1}
-                </button>
-              );
-            })}
-          </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto pr-0 md:pr-1">
+            <section className="student-test-question-panel">
             {currentQuestionLabel && (
               <div className="mb-3 md:mb-4">
                 <span
@@ -901,8 +964,9 @@ const StudentTestModal = ({
             {currentQuestion.question && (
               <p className="text-[15px] md:text-lg font-medium leading-relaxed text-gray-900 mb-5 md:mb-6 whitespace-pre-wrap">{currentQuestion.question}</p>
             )}
+            </section>
 
-            <div className="space-y-3 mb-5 md:mb-6">
+            <section className="student-test-answer-panel space-y-3">
               <label className="block text-xs font-bold text-gray-400 uppercase">
                 {isSolved ? 'Правильный ответ' : 'Ответ'}
               </label>
@@ -1116,12 +1180,12 @@ const StudentTestModal = ({
                 {computedCorrect ? 'Верно!' : 'Неверно'}
               </div>
             )}
-            </div>
+            </section>
 
-            <div className="rounded-2xl border border-gray-200 bg-white p-3 mb-5 md:mb-6 space-y-3">
+            <div className="student-test-code-panel rounded-2xl p-3 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-xs font-bold text-gray-500 uppercase">
-                  Код решения для задания {currentIndex + 1}
+                  Код решения для вопроса №{currentQuestionNumber}
                 </div>
                 <button
                   type="button"
@@ -1210,8 +1274,19 @@ const StudentTestModal = ({
               )}
             </div>
           </div>
+          </div>
 
-          <div className="pt-3 md:pt-4 bg-transparent pb-[calc(env(safe-area-inset-bottom)+0.25rem)]">
+          <footer className="student-test-footer shrink-0">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setCurrentIndex((index) => Math.max(0, index - 1))}
+              disabled={currentIndex === 0}
+              className="h-11 w-11 shrink-0 px-0 sm:w-auto sm:px-4"
+            >
+              <ChevronLeft size={18} />
+              <span className="hidden sm:inline">Назад</span>
+            </Button>
             <Button 
               onClick={(event) => {
                 if (!computedChecked) {
@@ -1237,7 +1312,7 @@ const StudentTestModal = ({
                 handleNext();
               }} 
               disabled={!computedChecked && !isAnswerReady} 
-              className="w-full"
+              className="student-test-primary-action h-11 flex-1 sm:flex-none sm:min-w-56"
               variant={computedChecked ? (computedCorrect ? 'success' : 'danger') : 'primary'}
             >
               {!computedChecked ? 'Проверить' : (
@@ -1246,7 +1321,7 @@ const StudentTestModal = ({
                   : 'Закрыть'
               )}
             </Button>
-          </div>
+          </footer>
         </div>
         {expandedImage && (
           <div
