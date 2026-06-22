@@ -7363,12 +7363,31 @@ const clearLoginFailures = (key) => {
   loginAttempts.delete(key);
 };
 
-const computeTaskProgress = (taskEntry = {}) => {
+const computeTaskProgress = (taskEntry = {}, taskLevels = null) => {
   const levelProgressValues = Object.entries(taskEntry)
     .filter(([levelKey]) => !String(levelKey).startsWith('_'))
     .map(([levelKey, entry]) => {
-    const entryTotal = Number(entry?.totalQuestions) || 0;
-    const entrySolved = Array.isArray(entry?.solved) ? entry.solved.length : 0;
+    const currentQuestions = Array.isArray(taskLevels?.[levelKey])
+      ? taskLevels[levelKey]
+      : null;
+    const entryTotal = currentQuestions
+      ? currentQuestions.length
+      : (Number(entry?.totalQuestions) || 0);
+    const solvedIds = new Set(
+      (Array.isArray(entry?.solved) ? entry.solved : [])
+        .map((id) => String(id ?? '').trim())
+        .filter(Boolean)
+    );
+    const currentQuestionIds = currentQuestions
+      ? new Set(
+        currentQuestions
+          .map((question) => String(question?.id ?? '').trim())
+          .filter(Boolean)
+      )
+      : null;
+    const entrySolved = currentQuestionIds && currentQuestionIds.size > 0
+      ? [...solvedIds].filter((id) => currentQuestionIds.has(id)).length
+      : Math.min(solvedIds.size, entryTotal);
     if (!entryTotal || entrySolved === 0) return 0;
 
     const weight = LEVEL_WEIGHTS[levelKey];
@@ -8690,7 +8709,7 @@ const getLeaderboardProfileStrongestTasks = (progressByTaskId, testsDb, limit = 
 };
 
 const getLeaderboardProfileProgressSummary = (studentData, testsDb) => {
-  const progress = recomputeProgressFromSolved(studentData);
+  const progress = recomputeProgressFromSolved(studentData, testsDb);
   const progressByTaskId = new Map();
   Object.entries(progress || {}).forEach(([taskId, value]) => {
     const taskNum = Number(taskId);
@@ -8766,7 +8785,7 @@ const getLeaderboardProgressTaskIds = (testsDb, kind = 'all') => {
 };
 
 const getLeaderboardProgressSummaryByKind = (studentData, testsDb, kind = 'all') => {
-  const progress = recomputeProgressFromSolved(studentData);
+  const progress = recomputeProgressFromSolved(studentData, testsDb);
   const taskIds = getLeaderboardProgressTaskIds(testsDb, kind);
   const progressByTaskId = new Map();
 
@@ -9915,11 +9934,14 @@ const appendAnswerHistoryEntry = (levelEntry, questionKey, rawValue, answerCount
   };
 };
 
-const recomputeProgressFromSolved = (data) => {
+const recomputeProgressFromSolved = (data, testsDb = null) => {
   const baseProgress = { ...(data.progress || {}) };
   const solvedByTask = data.solvedByTask && typeof data.solvedByTask === 'object' ? data.solvedByTask : {};
+  const currentTests = testsDb && typeof testsDb === 'object' && !Array.isArray(testsDb)
+    ? testsDb
+    : getTestsDbWithPythonInfiniteTraining();
   Object.entries(solvedByTask).forEach(([taskKey, entry]) => {
-    baseProgress[taskKey] = computeTaskProgress(entry || {});
+    baseProgress[taskKey] = computeTaskProgress(entry || {}, currentTests?.[taskKey]);
   });
   return baseProgress;
 };
@@ -17856,7 +17878,7 @@ app.post('/api/progress/solve', async (req, res) => {
     }
     taskEntry[lvl] = next;
   });
-  const taskProgress = computeTaskProgress(taskEntry);
+  const taskProgress = computeTaskProgress(taskEntry, taskLevels);
 
   const progress = { ...(data.progress || {}) };
   progress[taskKey] = taskProgress;
