@@ -43,6 +43,7 @@ import ProgressSection from './components/ProgressSection';
 import PythonSection from './components/PythonSection';
 import ScheduleSection from './components/ScheduleSection';
 import StudentLeaderboardSection from './components/StudentLeaderboardSection';
+import StudentLeaderboardProfileModal from './components/StudentLeaderboardProfileModal';
 import StudentSearchSelect from './components/StudentSearchSelect';
 import StudentTour from './components/StudentTour';
 import StudentNotificationsCenter from './components/StudentNotificationsCenter';
@@ -12757,6 +12758,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [callAutoStartToken, setCallAutoStartToken] = useState(0);
   const [callPanelExpanded, setCallPanelExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [levelProfileState, setLevelProfileState] = useState({
+    open: false,
+    row: null,
+    data: null,
+    loading: false,
+    error: '',
+    levelPosition: null,
+    weeklyPosition: null,
+  });
+  const levelProfileRequestIdRef = useRef(0);
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [avatarError, setAvatarError] = useState('');
   const [desktopStudentMoreOpen, setDesktopStudentMoreOpen] = useState(false);
@@ -14618,6 +14629,104 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const xpRemainingLabel = xpRemaining.toLocaleString('ru-RU');
   const totalXpLabel = totalXp.toLocaleString('ru-RU');
   const totalCoinsLabel = totalCoins.toLocaleString('ru-RU');
+  const openLevelProfile = useCallback(async () => {
+    if (user.role !== 'student') return;
+
+    const studentId = String(user.id || '').trim();
+    if (!studentId) return;
+
+    const requestId = levelProfileRequestIdRef.current + 1;
+    levelProfileRequestIdRef.current = requestId;
+    const fallbackRow = {
+      studentId,
+      displayName: String(user.name || '').trim() || 'Профиль',
+      xpTotal: totalXp,
+      weeklyXp: 0,
+      level: currentLevel,
+      isCurrent: true,
+    };
+
+    setLevelProfileState((previous) => ({
+      ...previous,
+      open: true,
+      row: previous.row || fallbackRow,
+      loading: true,
+      error: '',
+    }));
+
+    const [profileResult, leaderboardResult] = await Promise.allSettled([
+      api.getLeaderboardStudentProfile(studentId),
+      api.getStudentsLeaderboard({ studentId }),
+    ]);
+    if (levelProfileRequestIdRef.current !== requestId) return;
+
+    if (profileResult.status === 'rejected') {
+      setLevelProfileState((previous) => ({
+        ...previous,
+        open: true,
+        loading: false,
+        error: profileResult.reason?.message || 'Не удалось загрузить профиль.',
+      }));
+      return;
+    }
+
+    const profileData = profileResult.value && typeof profileResult.value === 'object'
+      ? profileResult.value
+      : null;
+    const leaderboardItems = leaderboardResult.status === 'fulfilled'
+      && Array.isArray(leaderboardResult.value?.items)
+      ? leaderboardResult.value.items
+      : [];
+    const normalizedRows = leaderboardItems.map((item) => {
+      const xpTotal = normalizeXpTotal(item?.xpTotal);
+      const weeklyXp = normalizeXpTotal(item?.weeklyXp);
+      const levelValue = Number(item?.level);
+      return {
+        studentId: String(item?.studentId || '').trim(),
+        displayName: String(item?.publicName || '').trim(),
+        xpTotal,
+        weeklyXp,
+        level: Number.isFinite(levelValue) && levelValue > 0
+          ? Math.floor(levelValue)
+          : getLevelFromXp(xpTotal),
+      };
+    });
+    const byLevel = [...normalizedRows].sort((left, right) => (
+      right.level - left.level
+      || right.xpTotal - left.xpTotal
+      || right.weeklyXp - left.weeklyXp
+      || left.displayName.localeCompare(right.displayName, 'ru')
+    ));
+    const byWeeklyXp = [...normalizedRows].sort((left, right) => (
+      right.weeklyXp - left.weeklyXp
+      || right.level - left.level
+      || right.xpTotal - left.xpTotal
+      || left.displayName.localeCompare(right.displayName, 'ru')
+    ));
+    const levelIndex = byLevel.findIndex((item) => item.studentId === studentId);
+    const weeklyIndex = byWeeklyXp.findIndex((item) => item.studentId === studentId);
+    const profileRow = normalizedRows.find((item) => item.studentId === studentId) || fallbackRow;
+
+    setLevelProfileState({
+      open: true,
+      row: { ...profileRow, isCurrent: true },
+      data: profileData,
+      loading: false,
+      error: '',
+      levelPosition: levelIndex >= 0 ? levelIndex + 1 : null,
+      weeklyPosition: weeklyIndex >= 0 ? weeklyIndex + 1 : null,
+    });
+  }, [currentLevel, totalXp, user.id, user.name, user.role]);
+
+  const closeLevelProfile = useCallback(() => {
+    levelProfileRequestIdRef.current += 1;
+    setLevelProfileState((previous) => ({
+      ...previous,
+      open: false,
+      loading: false,
+      error: '',
+    }));
+  }, []);
   const displayStreakCurrent = (() => {
     if (!lastActiveKey) return 0;
     if (!Number.isFinite(diffDays) || diffDays <= 1) return streak.current;
@@ -16934,7 +17043,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               <div className="flex items-center gap-1.5 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-2">
                 <button
                   type="button"
-                  onClick={() => setMenuOpen(true)}
+                  onClick={openLevelProfile}
                   className="level-progress-card min-w-0 flex-1 px-2 py-1.5 text-sm font-semibold md:min-w-[255px] md:flex-none md:px-2.5 md:py-2"
                   aria-label={`Открыть профиль. Уровень ${currentLevel}. Опыт: ${totalXpLabel} XP. Монеты Python: ${totalCoinsLabel}.`}
                   title={`Открыть профиль. Всего опыта: ${totalXpLabel} XP. Монеты Python: ${totalCoinsLabel}.`}
@@ -17903,8 +18012,25 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           )}
           </div>
         </main>
+        <StudentLeaderboardProfileModal
+          open={user.role === 'student' && levelProfileState.open}
+          row={levelProfileState.row}
+          profile={levelProfileState.data}
+          loading={levelProfileState.loading}
+          error={levelProfileState.error}
+          levelPosition={levelProfileState.levelPosition}
+          weeklyPosition={levelProfileState.weeklyPosition}
+          onClose={closeLevelProfile}
+          onRetry={openLevelProfile}
+          getLeagueByXp={getLeagueByXp}
+          getLeagueAuraStyle={getLeagueAuraStyle}
+          isAbsoluteOrAboveLeague={isAbsoluteOrAboveLeague}
+          ABSOLUTE_AURA_CROWN_STYLE={ABSOLUTE_AURA_CROWN_STYLE}
+          getLevelFromXp={getLevelFromXp}
+          getLevelProgressFromXp={getLevelProgressFromXp}
+        />
         <div
-          className={`fixed inset-0 z-[80] transition-opacity duration-200 ${
+          className={`fixed inset-0 z-30 transition-opacity duration-200 md:hidden ${
             menuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
           }`}
           aria-hidden={!menuOpen}
@@ -17915,14 +18041,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             onClick={() => setMenuOpen(false)}
             aria-label="Закрыть профиль"
           />
-          <div
-            className={`absolute inset-x-0 bottom-0 transition-transform duration-300 ease-out md:inset-0 md:flex md:items-center md:justify-center md:p-6 ${menuOpen ? 'translate-y-0' : 'translate-y-full'}`}
-            onClick={() => setMenuOpen(false)}
-          >
-            <div
-              className="surface-card rounded-t-3xl border border-purple-100/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 shadow-[0_-14px_30px_rgba(15,23,42,0.22)] md:w-full md:max-w-md md:rounded-3xl md:px-5 md:pb-5 md:pt-4 md:shadow-[0_28px_70px_rgba(15,23,42,0.3)]"
-              onClick={(event) => event.stopPropagation()}
-            >
+          <div className={`absolute inset-x-0 bottom-0 transition-transform duration-300 ease-out ${menuOpen ? 'translate-y-0' : 'translate-y-full'}`}>
+            <div className="surface-card rounded-t-3xl border border-purple-100/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 shadow-[0_-14px_30px_rgba(15,23,42,0.22)]">
               <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200" />
               <div className="rounded-2xl border border-white/70 bg-gradient-to-br from-white to-purple-50/70 p-4 shadow-[0_8px_20px_rgba(148,163,184,0.2)]">
                 <div className="flex items-center gap-3">
