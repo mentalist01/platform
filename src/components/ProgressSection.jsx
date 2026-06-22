@@ -3400,11 +3400,22 @@ const ProgressSection = ({
                 )}
               </div>
             </div>
-            <div className={`progress-overview-track relative ${isStudentProgressSection ? 'mt-2 h-4 md:h-5' : 'mt-2.5 md:mt-3 h-6 md:h-8'} w-full overflow-hidden rounded-full border border-purple-100 bg-white/90`}>
+            <div
+              className={`progress-overview-track ${!isStudentMocksSection ? 'progress-overview-track--wave' : ''} relative ${isStudentProgressSection ? 'mt-2 h-4 md:h-5' : 'mt-2.5 md:mt-3 h-6 md:h-8'} w-full overflow-hidden rounded-full border border-purple-100 bg-white/90`}
+              role="progressbar"
+              aria-label={isStudentMocksSection ? 'Готовность к пробникам' : 'Общий прогресс'}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={overviewProgressValue}
+            >
               <div
-                className="progress-overview-fill absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.45)] transition-[width] duration-700 ease-out"
+                className={`progress-overview-fill ${!isStudentMocksSection ? 'progress-overview-fill--wave' : ''} absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-500 to-pink-500 shadow-[0_0_18px_rgba(168,85,247,0.45)] transition-[width] duration-700 ease-out`}
                 style={{ width: `${overviewProgressValue}%` }}
-              />
+              >
+                {!isStudentMocksSection && (
+                  <span aria-hidden className="progress-overview-wave-tip" />
+                )}
+              </div>
               <div
                 key={`sheen-${isStudentMocksSection ? mockReadinessPercent : totalMasteryRounded}`}
                 className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-sheen"
