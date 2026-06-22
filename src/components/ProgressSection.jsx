@@ -34,7 +34,7 @@ import MockExamModal from './MockExamModal';
 import ProgressReviewModal from './ProgressReviewModal';
 import StudentSearchSelect from './StudentSearchSelect';
 import StudentTestModal from './StudentTestModal';
-import { Button, Card, ProgressBar } from './ui';
+import { Button, Card } from './ui';
 import chestClosedImage from '../assets/mock-chest/chest-closed.png';
 import { ARTIFACT_CATALOG_METADATA } from '../data/artifactCatalog';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
@@ -3722,55 +3722,58 @@ const ProgressSection = ({
                 gameTheoryTask: GAME_THEORY_TASK,
               });
               const hasXpBonus = xpStats.multiplier > 1.0001;
-              const cardTone = val >= 85
-                ? 'border-emerald-200/90 bg-gradient-to-br from-emerald-50/60 via-white to-emerald-50/50'
-                : (val >= 60
-                    ? 'border-purple-200/90 bg-gradient-to-br from-purple-50/65 via-white to-fuchsia-50/45'
-                    : (val >= 40
-                        ? 'border-amber-200/90 bg-gradient-to-br from-amber-50/60 via-white to-orange-50/35'
-                        : 'border-slate-200/90 bg-gradient-to-br from-white via-slate-50 to-slate-100/70'));
+              const statusKey = val >= 85 ? 'strong' : (val >= 60 ? 'active' : (val >= 40 ? 'practice' : 'focus'));
               const statusLabel = val >= 85 ? 'Сильная тема' : (val >= 60 ? 'В работе' : (val >= 40 ? 'Нужна практика' : 'Зона внимания'));
+              const openTopic = () => {
+                if (role === 'teacher') setReviewTask(task);
+                else {
+                  setForceInitialLevelLaunch(false);
+                  setActiveLevel(null);
+                  setActiveQuestionIndex(null);
+                  setActiveTask(task);
+                }
+              };
               return (
                 <div key={task.id} style={{ '--i': idx }}>
                   <Card
-                    className={`progress-topic-card group relative overflow-hidden p-3.5 md:p-4 ${cardTone} ${clickable ? 'cursor-pointer' : ''}`}
-                    onClick={
-                      clickable
-                        ? () => {
-                            if (role === 'teacher') setReviewTask(task);
-                            else {
-                              setForceInitialLevelLaunch(false);
-                              setActiveLevel(null);
-                              setActiveQuestionIndex(null);
-                              setActiveTask(task);
-                            }
-                          }
-                        : undefined
-                    }
+                    className={`progress-topic-card progress-topic-card--${statusKey} ${val > 0 ? 'progress-topic-card--has-progress' : ''} group relative flex min-h-full flex-col overflow-hidden p-3.5 md:p-4 ${clickable ? 'cursor-pointer' : ''}`}
+                    onClick={clickable ? openTopic : undefined}
+                    onKeyDown={role === 'student' && clickable ? (event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        openTopic();
+                      }
+                    } : undefined}
+                    role={role === 'student' && clickable ? 'button' : undefined}
+                    tabIndex={role === 'student' && clickable ? 0 : undefined}
+                    aria-label={role === 'student' && clickable ? `${task.title}. ${statusLabel}. Прогресс ${val}%` : undefined}
                   >
-                    <div className="mb-2 flex items-start justify-between gap-2">
-                      <span className="inline-flex items-center rounded-lg border border-purple-200 bg-white/90 px-2 py-1 text-[11px] md:text-xs font-bold text-purple-700">
+                    <span className="progress-topic-card__glint" aria-hidden="true" />
+                    <div className="progress-topic-card__header flex items-start justify-between gap-2.5">
+                      <span className="progress-topic-number inline-flex shrink-0 items-center rounded-lg border px-2 py-1 text-[11px] font-extrabold md:text-xs">
                         №{getTaskDisplayNumber(task)}
                       </span>
-                      <div className="flex flex-wrap justify-end gap-1.5">
+                      <div className="flex min-w-0 flex-wrap justify-end gap-1.5">
                         <span
-                          className="progress-task-xp-badge inline-flex items-center gap-1 rounded-full border border-sky-200/90 bg-sky-50/95 px-2 py-1 text-[10px] font-black text-sky-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
+                          className={`progress-task-xp-badge ${hasXpBonus ? 'progress-task-xp-badge--boosted' : ''} inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-black`}
                           title={`Опыт за тему: получено ${formatProgressXpAmount(xpStats.earnedXp)} из ${formatProgressXpAmount(xpStats.possibleXp)}${hasXpBonus ? `, бонус ${formatProgressBonusPercent(xpStats.multiplier)}` : ''}`}
                         >
-                          <span className="progress-task-xp-badge__label text-[9px] font-black uppercase tracking-[0.14em] text-sky-600">XP</span>
+                          <span className="progress-task-xp-badge__label text-[9px] font-black uppercase tracking-[0.12em]">XP</span>
                           <span>{`${formatProgressXpAmount(xpStats.earnedXp)} / ${formatProgressXpAmount(xpStats.possibleXp)}`}</span>
                           {hasXpBonus && (
-                            <span className="progress-task-xp-badge__bonus rounded-full border border-sky-300/70 bg-white/75 px-1 py-0 text-[9px] leading-4 text-sky-700">
+                            <span className="progress-task-xp-badge__bonus rounded-full border px-1 py-0 text-[9px] leading-4">
                               {formatProgressBonusPercent(xpStats.multiplier)}
                             </span>
                           )}
                         </span>
-                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-2 py-1 text-[10px] md:text-xs font-semibold text-slate-600">
+                        <span className="progress-topic-status inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-bold md:text-[11px]">
+                          <span className="progress-topic-status__dot" aria-hidden="true" />
                           {statusLabel}
                         </span>
                       </div>
                     </div>
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="mt-2.5 flex min-h-10 items-start justify-between gap-2">
                       {editingTaskId === task.number ? (
                         <input
                           type="text"
@@ -3786,13 +3789,13 @@ const ProgressSection = ({
                           autoFocus
                         />
                       ) : (
-                        <h3 className="font-bold text-[15px] md:text-base leading-snug text-gray-800">{task.title}</h3>
+                        <h3 className="progress-topic-title text-[16px] font-extrabold leading-[1.25] md:text-[17px]">{task.title}</h3>
                       )}
                       {role === 'teacher' && editingTaskId !== task.number && (
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); startEditTaskTitle(task); }}
-                          className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:text-purple-600 hover:border-purple-200"
+                          className="progress-topic-edit shrink-0 rounded-lg border p-1.5 transition-colors"
                           title="Переименовать тему"
                         >
                           <Pencil size={14} />
@@ -3811,27 +3814,26 @@ const ProgressSection = ({
                         </button>
                       )}
                     </div>
-                    <div className="mt-2 flex items-center justify-between text-[11px] md:text-xs text-slate-500">
-                      <span>
-                        <span className="sm:hidden">Тема</span>
-                        <span className="hidden sm:inline">Прогресс темы</span>
-                      </span>
-                      <span className="text-sm md:text-base font-bold text-slate-700">{val}%</span>
-                    </div>
-                    <ProgressBar value={val} />
-
-                    {role === 'student' && clickable && (
-                      <div className="absolute inset-0 hidden md:flex bg-white/90 opacity-0 group-hover:opacity-100 transition-opacity items-center justify-center rounded-2xl cursor-pointer backdrop-blur-[2px]">
-                        <div className="flex items-center gap-2 text-purple-600 font-bold bg-white px-4 py-2 rounded-full shadow-lg border border-purple-100">
-                          <PlayCircle size={20} /> Решать
-                        </div>
+                    <div className="progress-topic-progress mt-3">
+                      <div
+                        className="progress-topic-progress__track overflow-hidden rounded-full"
+                        role="progressbar"
+                        aria-label={`Прогресс темы «${task.title}»`}
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        aria-valuenow={val}
+                      >
+                        <span className="progress-topic-progress__fill relative block h-full rounded-full" style={{ width: `${val}%` }} />
                       </div>
-                    )}
-                    {role === 'student' && clickable && (
-                      <div className="mt-3 md:hidden text-xs font-semibold text-purple-600">Открыть тему</div>
-                    )}
-                    {role === 'teacher' && (
-                      <div className="mt-3 text-xs font-semibold text-purple-600">Смотреть ответы</div>
+                    </div>
+
+                    {clickable && (
+                      <div className="progress-topic-action mt-auto flex items-center gap-2 pt-2.5 text-xs font-bold">
+                        <span className="progress-topic-action__label inline-flex items-center gap-1.5">
+                          {role === 'student' && <PlayCircle size={15} aria-hidden="true" />}
+                          {role === 'teacher' ? 'Смотреть ответы' : (val > 0 ? 'Продолжить практику' : 'Начать практику')}
+                        </span>
+                      </div>
                     )}
                   </Card>
                 </div>
