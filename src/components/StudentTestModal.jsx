@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { Check, ChevronLeft, Download, ListChecks, PlayCircle, RefreshCcw, X } from 'lucide-react';
+import { Check, ChevronLeft, Download, History, ListChecks, PlayCircle, RefreshCcw, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
@@ -53,6 +53,8 @@ const StudentTestModal = ({
   const [results, setResults] = useState({}); // { [idx]: boolean }
   const [solvedIds, setSolvedIds] = useState(new Set());
   const [solvedAnswerById, setSolvedAnswerById] = useState({});
+  const [answerHistoryById, setAnswerHistoryById] = useState({});
+  const [answerHistoryLoading, setAnswerHistoryLoading] = useState(false);
   const [expandedImage, setExpandedImage] = useState(null);
   const [questionCodeById, setQuestionCodeById] = useState({});
   const [questionCodeOpen, setQuestionCodeOpen] = useState(false);
@@ -303,6 +305,71 @@ const StudentTestModal = ({
     }
   };
 
+  const normalizeAnswerHistoryPayload = (payload) => {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return {};
+    const normalized = {};
+    Object.entries(payload).forEach(([questionId, entries]) => {
+      const key = String(questionId ?? '').trim();
+      if (!key || !Array.isArray(entries)) return;
+      const list = entries
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') return null;
+          const submittedAt = typeof entry.submittedAt === 'string' ? entry.submittedAt : '';
+          const submittedAtMs = submittedAt ? Date.parse(submittedAt) : Number.NaN;
+          if (!Number.isFinite(submittedAtMs)) return null;
+          const answers = Array.isArray(entry.answers)
+            ? entry.answers.map((value) => String(value ?? ''))
+            : (typeof entry.answer !== 'undefined' ? [String(entry.answer ?? '')] : []);
+          if (answers.length === 0) return null;
+          return {
+            id: typeof entry.id === 'string' && entry.id.trim()
+              ? entry.id.trim()
+              : `${key}:${submittedAt}:${answers.join('|')}`,
+            submittedAt: new Date(submittedAtMs).toISOString(),
+            correct: entry.correct === true,
+            answers,
+          };
+        })
+        .filter(Boolean)
+        .sort((left, right) => Date.parse(left.submittedAt) - Date.parse(right.submittedAt));
+      if (list.length > 0) normalized[key] = list;
+    });
+    return normalized;
+  };
+
+  const loadAnswerHistory = async (lvlId = level, options = {}) => {
+    if (!studentId || !task?.number || !lvlId) return {};
+    if (!options?.silent) setAnswerHistoryLoading(true);
+    try {
+      const payload = await api.getAnswerHistory(studentId, task.number, lvlId);
+      const normalized = normalizeAnswerHistoryPayload(payload);
+      setAnswerHistoryById(normalized);
+      return normalized;
+    } finally {
+      if (!options?.silent) setAnswerHistoryLoading(false);
+    }
+  };
+
+  const addLocalAnswerHistoryAttempt = (questionId, answers, correct, submittedAt = new Date().toISOString()) => {
+    const key = String(questionId ?? '').trim();
+    if (!key) return;
+    const values = (Array.isArray(answers) ? answers : [answers])
+      .map((value) => String(value ?? ''));
+    if (values.every((value) => !value.trim())) return;
+    setAnswerHistoryById((prev) => {
+      const current = Array.isArray(prev?.[key]) ? prev[key] : [];
+      const nextEntry = {
+        id: `${key}:${submittedAt}:${Math.random().toString(36).slice(2, 8)}`,
+        submittedAt,
+        correct: correct === true,
+        answers: values,
+      };
+      return {
+        ...(prev || {}),
+        [key]: [...current, nextEntry].slice(-20),
+      };
+    });
+  };
 
   const runQuestionCodeForQuestion = async (questionId) => {
     const key = String(questionId ?? '').trim();
@@ -331,7 +398,6 @@ const StudentTestModal = ({
       }));
     }
   };
-
 
   const startTest = async (lvlId, options = {}) => {
     if (!testDb) {
@@ -380,6 +446,8 @@ const StudentTestModal = ({
     setResults({});
     setSolvedIds(new Set());
     setSolvedAnswerById({});
+    setAnswerHistoryById({});
+    setAnswerHistoryLoading(false);
     setQuestionCodeById({});
     setQuestionCodeOpen(false);
     setQuestionCodeLoadingById({});
@@ -392,9 +460,10 @@ const StudentTestModal = ({
 
     if (studentId) {
       try {
-        const [solvedPayload, solvedAnswersPayload] = await Promise.all([
+        const [solvedPayload, solvedAnswersPayload, answerHistoryPayload] = await Promise.all([
           api.getSolvedQuestions(studentId, task.number, lvlId).catch(() => []),
           api.getSolvedAnswers(studentId, task.number, lvlId).catch(() => ({})),
+          api.getAnswerHistory(studentId, task.number, lvlId).catch(() => ({})),
         ]);
         const solvedIdsList = Array.isArray(solvedPayload) ? solvedPayload : [];
         setSolvedIds(new Set(solvedIdsList.map((id) => String(id))));
@@ -403,6 +472,7 @@ const StudentTestModal = ({
             ? solvedAnswersPayload
             : {}
         );
+        setAnswerHistoryById(normalizeAnswerHistoryPayload(answerHistoryPayload));
       } catch (err) {
         console.error(err);
       }
@@ -450,6 +520,8 @@ const StudentTestModal = ({
     setQuestionCodeErrorById({});
     setQuestionRunStateById({});
     setSolvedAnswerById({});
+    setAnswerHistoryById({});
+    setAnswerHistoryLoading(false);
     disposeQuestionRunnerWorker();
   }, [task?.number]);
 
@@ -504,6 +576,8 @@ const StudentTestModal = ({
   const handleCheck = async (sourceRect = null) => {
     const currentQuestion = questions[currentIndex];
     const answerCount = getAnswerCountForTask(task?.number);
+    const submittedAt = new Date().toISOString();
+    let submittedAnswerValues = [];
     let fallbackCorrect = false;
     let answerPayload = null;
     if (answerCount > 1) {
@@ -513,6 +587,7 @@ const StudentTestModal = ({
       if (!allowPartial && provided.some((val) => !val.trim())) return;
       if (allowPartial && provided.every((val) => !val.trim())) return;
       const trimmedProvided = provided.map((val) => String(val ?? '').trim());
+      submittedAnswerValues = trimmedProvided;
       if (trimmedProvided.some((val) => val)) {
         answerPayload = JSON.stringify({ answers: trimmedProvided });
       }
@@ -528,7 +603,9 @@ const StudentTestModal = ({
     } else {
       const answerValue = userAnswers[currentIndex];
       if (!String(answerValue ?? '').trim()) return;
-      answerPayload = String(answerValue ?? '').trim();
+      const trimmedAnswer = String(answerValue ?? '').trim();
+      submittedAnswerValues = [trimmedAnswer];
+      answerPayload = trimmedAnswer;
       if (!studentId) {
         const expectedAnswers = getExpectedAnswers(currentQuestion, answerCount);
         fallbackCorrect = normalizeAnswer(answerValue) === normalizeAnswer(expectedAnswers[0]);
@@ -591,6 +668,11 @@ const StudentTestModal = ({
           onComplete(task.id, resp.taskProgress, { skipServer: true });
           serverProgressApplied = true;
         }
+        try {
+          await loadAnswerHistory(level, { silent: true });
+        } catch {
+          addLocalAnswerHistoryAttempt(currentQuestion.id, submittedAnswerValues, true, submittedAt);
+        }
       } catch (err) {
         const message = String(err?.message || err || '');
         if (message !== 'Ответ неверный') {
@@ -598,9 +680,15 @@ const StudentTestModal = ({
           alert(message || 'Не удалось проверить ответ');
           return;
         }
+        try {
+          await loadAnswerHistory(level, { silent: true });
+        } catch {
+          addLocalAnswerHistoryAttempt(currentQuestion.id, submittedAnswerValues, false, submittedAt);
+        }
       }
     } else {
       correct = fallbackCorrect;
+      addLocalAnswerHistoryAttempt(currentQuestion.id, submittedAnswerValues, correct, submittedAt);
     }
     setResults((prev) => ({ ...prev, [currentIndex]: correct }));
     
@@ -807,6 +895,29 @@ const StudentTestModal = ({
       ? window.matchMedia('(max-width: 767px)').matches
       : false;
     const questionCodeEditorHeight = isMobileViewport ? '180px' : '240px';
+    const answerHistory = Array.isArray(answerHistoryById?.[currentId])
+      ? answerHistoryById[currentId]
+      : [];
+    const answerHistoryLatestFirst = answerHistory.slice().reverse();
+    const formatAnswerHistoryTime = (value) => {
+      const parsed = Date.parse(String(value || ''));
+      if (!Number.isFinite(parsed)) return '';
+      return new Date(parsed).toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    };
+    const formatAnswerHistoryValues = (answers = []) => {
+      const values = Array.isArray(answers) ? answers : [];
+      if (answerCount <= 1) return String(values[0] ?? '').trim() || '—';
+      return Array.from({ length: answerCount }, (_, index) => {
+        const label = answerLabels[index] || String(index + 1);
+        const value = String(values[index] ?? '').trim() || '—';
+        return `${label}: ${value}`;
+      }).join('; ');
+    };
 
     const modal = (
       <div className="student-test-modal-backdrop fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-0 sm:p-3 md:p-5">
@@ -1197,6 +1308,44 @@ const StudentTestModal = ({
                 {computedCorrect ? 'Верно!' : 'Неверно'}
               </div>
             )}
+            <details className="rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2.5">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-gray-700">
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <History size={15} className="text-purple-500" />
+                  <span>История ответов</span>
+                </span>
+                <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs text-gray-500">
+                  {answerHistoryLoading ? '...' : answerHistory.length}
+                </span>
+              </summary>
+              <div className="mt-3 space-y-2">
+                {answerHistoryLoading ? (
+                  <div className="text-xs text-gray-500">Загрузка...</div>
+                ) : answerHistoryLatestFirst.length > 0 ? (
+                  answerHistoryLatestFirst.map((entry, idx) => {
+                    const timeLabel = formatAnswerHistoryTime(entry.submittedAt);
+                    return (
+                      <div
+                        key={entry.id || `${entry.submittedAt}-${idx}`}
+                        className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className={`font-bold ${entry.correct ? 'text-green-600' : 'text-red-600'}`}>
+                            {entry.correct ? 'Верно' : 'Неверно'}
+                          </span>
+                          {timeLabel && <span className="text-gray-400">{timeLabel}</span>}
+                        </div>
+                        <div className="mt-1 break-words font-mono text-[11px] leading-5 text-gray-700">
+                          {formatAnswerHistoryValues(entry.answers)}
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="text-xs text-gray-500">Попыток пока нет</div>
+                )}
+              </div>
+            </details>
             </section>
 
             <div className="student-test-code-panel rounded-2xl p-3 space-y-3">
