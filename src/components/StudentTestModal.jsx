@@ -57,6 +57,8 @@ const StudentTestModal = ({
   const [answerHistoryLoading, setAnswerHistoryLoading] = useState(false);
   const [expandedImage, setExpandedImage] = useState(null);
   const [questionImageStateByKey, setQuestionImageStateByKey] = useState({});
+  const lastQuestionImageAspectRef = useRef(3.8);
+  const questionImageFallbackAspectByKeyRef = useRef(new Map());
   const [questionCodeById, setQuestionCodeById] = useState({});
   const [questionCodeOpen, setQuestionCodeOpen] = useState(false);
   const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
@@ -1071,11 +1073,22 @@ const StudentTestModal = ({
                   const storedAspectRatio = storedWidth > 0 && storedHeight > 0
                     ? storedWidth / storedHeight
                     : null;
-                  const aspectRatio = storedAspectRatio || 3.2;
+                  const measuredAspectRatio = Number(imageState.aspectRatio);
+                  if (!questionImageFallbackAspectByKeyRef.current.has(imageKey)) {
+                    questionImageFallbackAspectByKeyRef.current.set(
+                      imageKey,
+                      storedAspectRatio || lastQuestionImageAspectRef.current || 3.8
+                    );
+                  }
+                  const fallbackAspectRatio = questionImageFallbackAspectByKeyRef.current.get(imageKey);
+                  const rawAspectRatio = measuredAspectRatio > 0
+                    ? measuredAspectRatio
+                    : (storedAspectRatio || fallbackAspectRatio || 3.8);
+                  const aspectRatio = Math.max(1.6, Math.min(5.8, rawAspectRatio));
                   return (
                     <div
                       key={imageKey}
-                      className={`student-test-screenshot ${imageState.loaded ? 'is-loaded' : 'is-loading'} border rounded-2xl overflow-hidden bg-gray-900/5 max-h-[42vh] sm:max-h-[55vh] md:max-h-[65vh]`}
+                      className={`student-test-screenshot ${imageState.loaded ? 'is-loaded' : 'is-loading'} border rounded-2xl overflow-hidden max-h-[42vh] sm:max-h-[55vh] md:max-h-[65vh]`}
                       style={{
                         '--student-test-item-index': imageIndex,
                         '--student-test-image-aspect': aspectRatio,
@@ -1094,11 +1107,19 @@ const StudentTestModal = ({
                         src={img.url}
                         alt={img.name || 'Скриншот'}
                         className="w-full object-contain cursor-zoom-in"
-                        onLoad={() => {
+                        onLoad={(event) => {
+                          const naturalWidth = Number(event.currentTarget.naturalWidth);
+                          const naturalHeight = Number(event.currentTarget.naturalHeight);
+                          const naturalAspectRatio = naturalWidth > 0 && naturalHeight > 0
+                            ? Math.max(1.6, Math.min(5.8, naturalWidth / naturalHeight))
+                            : aspectRatio;
+                          lastQuestionImageAspectRef.current = naturalAspectRatio;
+                          questionImageFallbackAspectByKeyRef.current.set(imageKey, naturalAspectRatio);
                           setQuestionImageStateByKey((prev) => ({
                             ...prev,
                             [imageKey]: {
                               loaded: true,
+                              aspectRatio: naturalAspectRatio,
                             },
                           }));
                         }}
@@ -1106,6 +1127,7 @@ const StudentTestModal = ({
                           setQuestionImageStateByKey((prev) => ({
                             ...prev,
                             [imageKey]: {
+                              ...(prev?.[imageKey] || {}),
                               loaded: true,
                             },
                           }));

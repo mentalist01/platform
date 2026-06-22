@@ -46142,9 +46142,14 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   opacity: 1;
   display: grid;
   place-items: center;
+  border-color: rgba(148, 163, 184, 0.2);
+  background: #fff;
   animation: studentTestMediaIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) backwards;
   animation-delay: calc(0.08s + (var(--student-test-item-index, 0) * 70ms));
-  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  transition:
+    aspect-ratio 0.42s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.25s ease,
+    box-shadow 0.25s ease;
 }
 
 .student-test-screenshot::before {
@@ -46921,6 +46926,11 @@ html[data-theme='dark'] .student-test-target {
 
 html[data-theme='dark'] .student-test-screenshot__loader {
   color: #cbd5e1;
+}
+
+html[data-theme='dark'] .student-test-screenshot {
+  border-color: rgba(100, 116, 139, 0.34);
+  background: #0f172a;
 }
 
 html[data-theme='dark'] .student-test-screenshot::before {
