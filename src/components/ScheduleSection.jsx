@@ -8,6 +8,7 @@ import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
 
 const AUTO_REFRESH_INTERVAL_MS = 5000;
+const SHOW_SCHEDULE_SKILL_TREE = false;
 const DEFAULT_SCHEDULE_SUBJECT = 'Занятие';
 const SCHEDULE_WEEKDAYS = [
   { key: 'monday', label: 'Понедельник', order: 1 },
@@ -1855,15 +1856,20 @@ const ScheduleSection = ({
       {(role === 'teacher' || role === 'student') && (
         <Card className="schedule-shell__lessons-card space-y-4 border-sky-200/70 bg-gradient-to-br from-white via-sky-50/50 to-indigo-50/40">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="space-y-1">
-              <div className="text-lg font-bold text-slate-900">
-                {role === 'teacher' ? 'График занятий ученика' : 'График занятий'}
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="schedule-shell__lessons-icon inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-sky-200 bg-white text-sky-600 shadow-sm">
+                <Calendar size={19} />
+              </span>
+              <div className="min-w-0 space-y-0.5">
+                <div className="text-lg font-bold text-slate-900">
+                  {role === 'teacher' ? 'График занятий ученика' : 'График занятий'}
+                </div>
+                <p className="text-xs text-slate-500">
+                  {role === 'teacher'
+                    ? `Задайте дни и время занятий${selectedStudent ? ` для ${getStudentLabel(selectedStudent)}` : ' для выбранного ученика'}.`
+                    : 'Добавляйте и меняйте занятия — преподаватель подтвердит запрос.'}
+                </p>
               </div>
-              <p className="text-xs text-slate-500">
-                {role === 'teacher'
-                  ? `Задайте дни и время занятий${selectedStudent ? ` для ${getStudentLabel(selectedStudent)}` : ' для выбранного ученика'}.`
-                  : 'Изменения отправляются преподавателю на подтверждение. Расписание обновится после одобрения.'}
-              </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="schedule-shell__lessons-count rounded-full border border-sky-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
@@ -1889,6 +1895,13 @@ const ScheduleSection = ({
 
           {!isStudentScheduleCollapsed && (
             <div id={role === 'student' ? 'student-schedule-details' : undefined} className="space-y-4">
+              {scheduleRequestNotice && (
+                <div className="schedule-shell__notice-success rounded-2xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs font-semibold text-emerald-700">
+                  {scheduleRequestNotice}
+                </div>
+              )}
+
+              <div className="schedule-shell__support-grid">
               {role === 'student' && (
                 <div className="schedule-shell__reminder-card rounded-2xl border border-sky-200/80 bg-white/90 p-3">
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1919,12 +1932,6 @@ const ScheduleSection = ({
                             : (lessonReminderEnabled ? 'Отключить напоминания' : 'Включить напоминания'))}
                     </button>
                   </div>
-                </div>
-              )}
-
-              {scheduleRequestNotice && (
-                <div className="schedule-shell__notice-success rounded-2xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs font-semibold text-emerald-700">
-                  {scheduleRequestNotice}
                 </div>
               )}
 
@@ -2031,42 +2038,67 @@ const ScheduleSection = ({
                   )}
                 </div>
               )}
-
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px]">
-                <select
-                  value={scheduleForm.weekdayKey}
-                  onChange={(e) => setScheduleForm((prev) => ({ ...prev, weekdayKey: e.target.value }))}
-                  className="schedule-shell__field px-4 py-2 rounded-xl bg-white border border-sky-100 focus:border-sky-500 outline-none"
-                >
-                  {SCHEDULE_WEEKDAYS.map((item) => (
-                    <option key={item.key} value={item.key}>{item.label}</option>
-                  ))}
-                </select>
-                <input
-                  type="time"
-                  value={scheduleForm.time}
-                  onChange={(e) => setScheduleForm((prev) => ({ ...prev, time: e.target.value }))}
-                  className="schedule-shell__field px-4 py-2 rounded-xl bg-white border border-sky-100 focus:border-sky-500 outline-none"
-                />
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <Button onClick={handleSaveSchedule} disabled={scheduleSaving || !effectiveStudentId} className="md:px-5">
-                  <Save size={16} /> {scheduleSaving
-                    ? 'Сохранение...'
-                    : (role === 'student'
-                      ? (scheduleEditingId ? 'Отправить запрос на изменение' : 'Отправить запрос на добавление')
-                      : (scheduleEditingId ? 'Сохранить слот' : 'Добавить слот'))}
-                </Button>
-                {scheduleEditingId && (
-                  <button
-                    type="button"
-                    onClick={resetScheduleForm}
-                    className="schedule-shell__cancel-btn px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                  >
-                    Отменить
-                  </button>
-                )}
+              <div className="schedule-shell__composer">
+                <div className="schedule-shell__composer-heading">
+                  <div>
+                    <div className="text-sm font-bold text-slate-800">
+                      {scheduleEditingId ? 'Изменить занятие' : 'Добавить занятие'}
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-slate-500">Выберите удобный день и точное время начала.</p>
+                  </div>
+                  {scheduleEditingId && (
+                    <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-700">Режим редактирования</span>
+                  )}
+                </div>
+                <div className="schedule-shell__composer-grid">
+                  <label className="schedule-shell__composer-field">
+                    <span>День недели</span>
+                    <div>
+                      <Calendar size={16} />
+                      <select
+                        value={scheduleForm.weekdayKey}
+                        onChange={(e) => setScheduleForm((prev) => ({ ...prev, weekdayKey: e.target.value }))}
+                        className="schedule-shell__field"
+                      >
+                        {SCHEDULE_WEEKDAYS.map((item) => (
+                          <option key={item.key} value={item.key}>{item.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </label>
+                  <label className="schedule-shell__composer-field">
+                    <span>Время начала</span>
+                    <div>
+                      <Clock3 size={16} />
+                      <input
+                        type="time"
+                        value={scheduleForm.time}
+                        onChange={(e) => setScheduleForm((prev) => ({ ...prev, time: e.target.value }))}
+                        className="schedule-shell__field"
+                      />
+                    </div>
+                  </label>
+                  <div className="schedule-shell__composer-actions">
+                    <Button onClick={handleSaveSchedule} disabled={scheduleSaving || !effectiveStudentId} className="w-full justify-center">
+                      <Save size={16} /> {scheduleSaving
+                        ? 'Сохранение...'
+                        : (role === 'student'
+                          ? (scheduleEditingId ? 'Отправить изменение' : 'Запросить добавление')
+                          : (scheduleEditingId ? 'Сохранить слот' : 'Добавить слот'))}
+                    </Button>
+                    {scheduleEditingId && (
+                      <button
+                        type="button"
+                        onClick={resetScheduleForm}
+                        className="schedule-shell__cancel-btn rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                      >
+                        Отменить
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {scheduleLoading && sortedSchedule.length === 0 ? (
@@ -2075,11 +2107,17 @@ const ScheduleSection = ({
                   Загружаем график...
                 </div>
               ) : sortedSchedule.length === 0 ? (
-                <div className="schedule-shell__empty rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-4 text-sm text-slate-500">
-                  Слоты занятий пока не заданы.
+                <div className="schedule-shell__empty flex items-center gap-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-4">
+                  <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-sky-500 shadow-sm">
+                    <Calendar size={19} />
+                  </span>
+                  <div>
+                    <div className="text-sm font-bold text-slate-700">Расписание пока пустое</div>
+                    <p className="mt-0.5 text-xs text-slate-500">Выберите день и время выше, чтобы добавить первое занятие.</p>
+                  </div>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="schedule-shell__slots-grid">
                   {sortedSchedule.map((entry) => {
                     return (
                       <div key={entry.id || `${entry.weekdayKey}-${entry.time}-${entry.createdAt || 'slot'}`} className="schedule-shell__slot-card rounded-2xl border border-sky-100/80 bg-white/90 p-4 shadow-sm shadow-sky-100/40">
@@ -2134,7 +2172,7 @@ const ScheduleSection = ({
         </Card>
       )}
 
-      {(role === 'teacher' || role === 'student') && (
+      {SHOW_SCHEDULE_SKILL_TREE && (role === 'teacher' || role === 'student') && (
         <ScheduleProgressTree
           progressMap={effectiveProgressMap}
           focusTaskNumbers={roadmapFocusTaskNumbers}
