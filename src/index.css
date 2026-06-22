@@ -47650,6 +47650,108 @@ html[data-theme='dark'] .teacher-question-editor__footer {
   font-size: 10px;
 }
 
+.teacher-question-editor__bulk-file-rename {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid rgba(124, 58, 237, 0.16);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.055), rgba(59, 130, 246, 0.035));
+}
+
+.teacher-question-editor__bulk-file-rename-header,
+.teacher-question-editor__bulk-file-rename-success {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.teacher-question-editor__bulk-file-rename-header {
+  justify-content: space-between;
+  margin-bottom: 6px;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.teacher-question-editor__bulk-file-rename-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.teacher-question-editor__bulk-file-rename-controls input {
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #dbe3ef;
+  border-radius: 9px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.92);
+  color: #334155;
+  font-size: 11px;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.teacher-question-editor__bulk-file-rename-controls input:focus {
+  border-color: #a78bfa;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+}
+
+.teacher-question-editor__bulk-file-rename-controls button {
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid rgba(124, 58, 237, 0.22);
+  border-radius: 9px;
+  background: #fff;
+  color: #7c3aed;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+  transition: background-color 160ms ease, border-color 160ms ease, opacity 160ms ease;
+}
+
+.teacher-question-editor__bulk-file-rename-controls button:hover:not(:disabled) {
+  border-color: rgba(124, 58, 237, 0.38);
+  background: #f7f3ff;
+}
+
+.teacher-question-editor__bulk-file-rename-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.teacher-question-editor__bulk-file-rename > p {
+  margin: 5px 0 0;
+  color: #94a3b8;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.teacher-question-editor__bulk-file-rename-success {
+  margin-top: 5px;
+  color: #059669;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+html[data-theme='dark'] .teacher-question-editor__bulk-file-rename {
+  border-color: rgba(167, 139, 250, 0.2);
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.11), rgba(59, 130, 246, 0.06));
+}
+
+html[data-theme='dark'] .teacher-question-editor__bulk-file-rename-controls input,
+html[data-theme='dark'] .teacher-question-editor__bulk-file-rename-controls button {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.72);
+  color: #e2e8f0;
+}
+
+html[data-theme='dark'] .teacher-question-editor__bulk-file-rename-controls button {
+  color: #c4b5fd;
+}
+
 .teacher-question-editor__answer-section input {
   min-height: 38px;
   padding: 8px 10px;

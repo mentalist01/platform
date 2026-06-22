@@ -60,6 +60,16 @@ const parseOptionalEgeScore = (value) => {
   return score;
 };
 
+const formatQuestionFileCount = (count) => {
+  const normalized = Math.max(0, Number(count) || 0);
+  const mod100 = normalized % 100;
+  const mod10 = normalized % 10;
+  const label = mod100 >= 11 && mod100 <= 14
+    ? 'файлов'
+    : (mod10 === 1 ? 'файл' : (mod10 >= 2 && mod10 <= 4 ? 'файла' : 'файлов'));
+  return `${normalized} ${label}`;
+};
+
 const TeacherPanel = ({
   role,
   students,
@@ -138,6 +148,9 @@ const TeacherPanel = ({
   const [initialQuestionAttachments, setInitialQuestionAttachments] = useState({ screenshots: [], files: [] });
   const [screenshotPreviews, setScreenshotPreviews] = useState([]);
   const [questionUploadError, setQuestionUploadError] = useState('');
+  const [bulkQuestionFileName, setBulkQuestionFileName] = useState('');
+  const [bulkQuestionFileRenameMessage, setBulkQuestionFileRenameMessage] = useState('');
+  const [isBulkRenamingQuestionFiles, setIsBulkRenamingQuestionFiles] = useState(false);
   const [isUploadingQuestion, setIsUploadingQuestion] = useState(false);
   const [isDraggingQuestionAttachments, setIsDraggingQuestionAttachments] = useState(false);
   const [isDraggingScreens, setIsDraggingScreens] = useState(false);
@@ -248,6 +261,13 @@ const TeacherPanel = ({
 
   const getAttachmentKey = (item) => item?.storageName || item?.url || item?.id || item?.name;
 
+  const normalizeBulkQuestionFileName = (value) => String(value ?? '')
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/[. ]+$/g, '')
+    .slice(0, 120);
+
   const resetQuestionForm = (options = {}) => {
     const { keepAnswers = false } = options;
     setQuestion('');
@@ -259,6 +279,7 @@ const TeacherPanel = ({
     setExistingQuestionFiles([]);
     setInitialQuestionAttachments({ screenshots: [], files: [] });
     setQuestionUploadError('');
+    setBulkQuestionFileRenameMessage('');
     setEditingQuestionId(null);
     if (!keepAnswers) {
       setAnswerInputs(Array.from({ length: getAnswerCountForTask(selectedTask) }, () => ''));
@@ -287,6 +308,7 @@ const TeacherPanel = ({
     setQuestionScreenshots([]);
     setQuestionFiles([]);
     setQuestionUploadError('');
+    setBulkQuestionFileRenameMessage('');
     if (screenshotsRef.current) screenshotsRef.current.value = '';
     if (filesRef.current) filesRef.current.value = '';
   };
@@ -297,6 +319,8 @@ const TeacherPanel = ({
     if (editingQuestionId) {
       cancelEditQuestion();
     }
+    setBulkQuestionFileName('');
+    setBulkQuestionFileRenameMessage('');
   }, [selectedTask, selectedLevel]);
 
   const handleSaveQuestion = async () => {
@@ -463,6 +487,63 @@ const TeacherPanel = ({
   };
 
   const currentQuestions = testDb?.[selectedTask]?.[selectedLevel] || [];
+  const levelQuestionFileCount = currentQuestions.reduce(
+    (total, item) => total + (Array.isArray(item?.files) ? item.files.length : 0),
+    0
+  );
+  const bulkQuestionFileCount = levelQuestionFileCount + questionFiles.length;
+
+  const handleBulkRenameQuestionFiles = async () => {
+    const nextBaseName = normalizeBulkQuestionFileName(bulkQuestionFileName);
+    if (!nextBaseName) {
+      setQuestionUploadError('Введите новое имя доп. файлов без расширения.');
+      setBulkQuestionFileRenameMessage('');
+      return;
+    }
+    if (bulkQuestionFileCount === 0) {
+      setQuestionUploadError('В выбранном задании и уровне пока нет доп. файлов.');
+      setBulkQuestionFileRenameMessage('');
+      return;
+    }
+
+    const renameStoredFile = (file) => {
+      const { ext } = splitUploadFileName(file?.name || file?.storageName || '');
+      return {
+        ...file,
+        name: ext ? `${nextBaseName}.${ext}` : nextBaseName,
+      };
+    };
+
+    setIsBulkRenamingQuestionFiles(true);
+    setQuestionUploadError('');
+    setBulkQuestionFileRenameMessage('');
+
+    try {
+      if (levelQuestionFileCount > 0) {
+        const updatedDb = { ...(testDb || {}) };
+        const taskDb = { ...(updatedDb[selectedTask] || {}) };
+        taskDb[selectedLevel] = currentQuestions.map((item) => ({
+          ...item,
+          files: Array.isArray(item?.files) ? item.files.map(renameStoredFile) : [],
+        }));
+        updatedDb[selectedTask] = taskDb;
+        await api.saveTests(updatedDb);
+        setTestDb(updatedDb);
+      }
+
+      setQuestionFiles((prev) => prev.map((entry) => ({ ...entry, base: nextBaseName })));
+      setExistingQuestionFiles((prev) => prev.map(renameStoredFile));
+      setBulkQuestionFileName(nextBaseName);
+      setBulkQuestionFileRenameMessage(
+        `Переименовано: ${formatQuestionFileCount(bulkQuestionFileCount)}. Расширения сохранены.`
+      );
+    } catch (err) {
+      setQuestionUploadError(err?.message || String(err));
+    } finally {
+      setIsBulkRenamingQuestionFiles(false);
+    }
+  };
+
   const studentsList = students || [];
   const deletedStudentsList = deletedStudents || [];
   const tasksList = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
@@ -2221,6 +2302,46 @@ const TeacherPanel = ({
                         Выбрать
                       </button>
                     </div>
+                  </div>
+                  <div className="teacher-question-editor__bulk-file-rename">
+                    <div className="teacher-question-editor__bulk-file-rename-header">
+                      <span><Pencil size={13} /> Общее имя файлов уровня</span>
+                      <span>{formatQuestionFileCount(bulkQuestionFileCount)}</span>
+                    </div>
+                    <div className="teacher-question-editor__bulk-file-rename-controls">
+                      <input
+                        type="text"
+                        value={bulkQuestionFileName}
+                        onChange={(event) => {
+                          setBulkQuestionFileName(event.target.value);
+                          setBulkQuestionFileRenameMessage('');
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            handleBulkRenameQuestionFiles();
+                          }
+                        }}
+                        placeholder="Имя без расширения"
+                        aria-label="Новое имя всех дополнительных файлов выбранного уровня"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleBulkRenameQuestionFiles}
+                        disabled={isBulkRenamingQuestionFiles || bulkQuestionFileCount === 0 || !bulkQuestionFileName.trim()}
+                      >
+                        {isBulkRenamingQuestionFiles ? 'Переименовываю…' : 'Переименовать все'}
+                      </button>
+                    </div>
+                    <p>
+                      Во всех вопросах задания №{selectedTask}, уровень «{selectedLevelInfo?.label || selectedLevel}».
+                      Расширения сохранятся.
+                    </p>
+                    {bulkQuestionFileRenameMessage && (
+                      <span className="teacher-question-editor__bulk-file-rename-success">
+                        <CheckCircle2 size={12} /> {bulkQuestionFileRenameMessage}
+                      </span>
+                    )}
                   </div>
                   {questionFiles.length > 0 && (
                     <div className="mt-2 space-y-1">

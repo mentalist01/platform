@@ -12838,8 +12838,27 @@ const stripUploadIdPrefix = (name) => (
   )
 );
 
+const findTestAttachmentName = (storageName) => {
+  const target = String(storageName || '').trim();
+  if (!target) return '';
+  const stack = [readTestsDb()];
+  const visited = new Set();
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current || typeof current !== 'object' || visited.has(current)) continue;
+    visited.add(current);
+    if (current.storageName === target && current.name) {
+      return normalizeFileName(current.name);
+    }
+    Object.values(current).forEach((value) => {
+      if (value && typeof value === 'object') stack.push(value);
+    });
+  }
+  return '';
+};
+
 const getUploadDownloadName = (ownedFile, storageName) => {
-  const preferredName = normalizeFileName(ownedFile?.name || '');
+  const preferredName = normalizeFileName(ownedFile?.name || '') || findTestAttachmentName(storageName);
   if (preferredName) return path.basename(preferredName);
   const fallbackName = normalizeFileName(stripUploadIdPrefix(storageName) || storageName);
   return path.basename(fallbackName || 'download');
