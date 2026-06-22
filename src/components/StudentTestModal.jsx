@@ -5,6 +5,7 @@ import { Check, Download, PlayCircle, RefreshCcw, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
+import { getQuestionLabelStyle, normalizeQuestionLabel } from '../utils/questionLabel';
 import { Button } from './ui';
 const StudentTestModal = ({
   theme = '',
@@ -691,6 +692,7 @@ const StudentTestModal = ({
 
   if (stage === 'testing' && questions.length > 0) {
     const currentQuestion = questions[currentIndex];
+    const currentQuestionLabel = normalizeQuestionLabel(currentQuestion?.label);
     const isChecked = results[currentIndex] !== undefined;
     const isCorrect = results[currentIndex];
     const answerCount = getAnswerCountForTask(task?.number);
@@ -845,6 +847,16 @@ const StudentTestModal = ({
           </div>
 
           <div className="flex-1 overflow-y-auto pr-0 md:pr-1">
+            {currentQuestionLabel && (
+              <div className="mb-3 md:mb-4">
+                <span
+                  className="inline-flex max-w-full items-center rounded-full border px-3 py-1 text-xs font-bold shadow-sm"
+                  style={getQuestionLabelStyle(currentQuestionLabel)}
+                >
+                  <span className="truncate">{currentQuestionLabel.text}</span>
+                </span>
+              </div>
+            )}
             {screenshots.length > 0 && (
               <div className="space-y-2.5 md:space-y-3 mb-5 md:mb-6">
                 {screenshots.map((img) => (

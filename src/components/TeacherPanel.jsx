@@ -2,6 +2,15 @@
 import { Bell, BellOff, ChevronDown, ChevronUp, Download, MessageSquare, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
+import {
+  DEFAULT_QUESTION_LABEL_COLOR,
+  QUESTION_LABEL_TEXT_MAX_LENGTH,
+  getQuestionLabelStyle,
+  isQuestionLabelColorValid,
+  normalizeQuestionLabel,
+  normalizeQuestionLabelColor,
+  normalizeQuestionLabelText,
+} from '../utils/questionLabel';
 import BroadcastNotificationsPanel from './BroadcastNotificationsPanel';
 import { Button, Card } from './ui';
 import LinkifiedText from './LinkifiedText';
@@ -183,6 +192,8 @@ const TeacherPanel = ({
   
   // Form state
   const [question, setQuestion] = useState("");
+  const [questionLabelText, setQuestionLabelText] = useState('');
+  const [questionLabelColor, setQuestionLabelColor] = useState(DEFAULT_QUESTION_LABEL_COLOR);
   const [answerInputs, setAnswerInputs] = useState(['']);
   const answerCount = getAnswerCountForTask(selectedTask);
 
@@ -231,6 +242,8 @@ const TeacherPanel = ({
   const resetQuestionForm = (options = {}) => {
     const { keepAnswers = false } = options;
     setQuestion('');
+    setQuestionLabelText('');
+    setQuestionLabelColor(DEFAULT_QUESTION_LABEL_COLOR);
     setQuestionScreenshots([]);
     setQuestionFiles([]);
     setExistingQuestionScreenshots([]);
@@ -250,6 +263,9 @@ const TeacherPanel = ({
     const requiredCount = getAnswerCountForTask(selectedTask);
     setEditingQuestionId(questionItem.id);
     setQuestion(questionItem.question || '');
+    const existingLabel = normalizeQuestionLabel(questionItem.label);
+    setQuestionLabelText(existingLabel?.text || '');
+    setQuestionLabelColor(existingLabel?.color || DEFAULT_QUESTION_LABEL_COLOR);
     setAnswerInputs(getExpectedAnswers(questionItem, requiredCount));
     const existingScreens = Array.isArray(questionItem.screenshots) ? questionItem.screenshots : [];
     const existingFiles = Array.isArray(questionItem.files) ? questionItem.files : [];
@@ -298,6 +314,17 @@ const TeacherPanel = ({
       alert("Добавьте текст вопроса или прикрепите файл/скриншот");
       return;
     }
+    const normalizedLabelText = normalizeQuestionLabelText(questionLabelText);
+    if (normalizedLabelText && !isQuestionLabelColorValid(questionLabelColor)) {
+      alert('Цвет метки должен быть в формате HEX, например #7c3aed');
+      return;
+    }
+    const questionLabel = normalizedLabelText
+      ? {
+        text: normalizedLabelText,
+        color: normalizeQuestionLabelColor(questionLabelColor),
+      }
+      : null;
 
     setIsUploadingQuestion(true);
     setQuestionUploadError('');
@@ -352,6 +379,8 @@ const TeacherPanel = ({
       } else {
         delete updatedQuestion.answers;
       }
+      if (questionLabel) updatedQuestion.label = questionLabel;
+      else delete updatedQuestion.label;
       levelList[targetIndex] = updatedQuestion;
     } else {
       const newQuestion = {
@@ -361,7 +390,8 @@ const TeacherPanel = ({
           ? { answers: answersSlice }
           : { answer: trimmedAnswers[0] }),
         screenshots: finalScreenshots,
-        files: finalFiles
+        files: finalFiles,
+        ...(questionLabel ? { label: questionLabel } : {}),
       };
       levelList.push(newQuestion);
     }
@@ -1896,6 +1926,52 @@ const TeacherPanel = ({
                 />
               </div>
 
+              <div className="rounded-2xl border border-purple-100 bg-purple-50/50 p-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="text-xs font-bold uppercase text-gray-500">Метка задачи (необязательно)</label>
+                  {normalizeQuestionLabelText(questionLabelText) && (
+                    <span
+                      className="inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] font-bold shadow-sm"
+                      style={getQuestionLabelStyle({ text: questionLabelText, color: questionLabelColor })}
+                    >
+                      <span className="truncate">{normalizeQuestionLabelText(questionLabelText)}</span>
+                    </span>
+                  )}
+                </div>
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(120px,0.42fr)]">
+                  <input
+                    type="text"
+                    value={questionLabelText}
+                    maxLength={QUESTION_LABEL_TEXT_MAX_LENGTH}
+                    onChange={(event) => setQuestionLabelText(event.target.value)}
+                    className="w-full rounded-xl border border-purple-100 bg-white px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-purple-400"
+                    placeholder="Например: Сложная или С подвохом"
+                    aria-label="Текст метки задачи"
+                  />
+                  <input
+                    type="color"
+                    value={normalizeQuestionLabelColor(questionLabelColor)}
+                    onChange={(event) => setQuestionLabelColor(event.target.value)}
+                    className="h-10 w-full cursor-pointer rounded-xl border border-purple-100 bg-white p-1 sm:w-12"
+                    aria-label="Выбрать цвет метки"
+                  />
+                  <input
+                    type="text"
+                    value={questionLabelColor}
+                    maxLength={7}
+                    onChange={(event) => setQuestionLabelColor(event.target.value)}
+                    className={`w-full rounded-xl border bg-white px-3 py-2.5 font-mono text-sm outline-none ${
+                      !questionLabelText.trim() || isQuestionLabelColorValid(questionLabelColor)
+                        ? 'border-purple-100 focus:border-purple-400'
+                        : 'border-red-300 text-red-600 focus:border-red-400'
+                    }`}
+                    placeholder="#7c3aed"
+                    aria-label="HEX-цвет метки"
+                  />
+                </div>
+                <p className="mt-2 text-[11px] text-gray-500">Введите свой текст и HEX-цвет. Чтобы убрать метку, очистите её текст.</p>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Скриншоты вопроса</label>
@@ -2266,6 +2342,14 @@ const TeacherPanel = ({
                 <div key={q.id} className={`bg-white p-4 rounded-xl border shadow-sm flex justify-between items-start gap-4 ${editingQuestionId === q.id ? 'border-purple-300 bg-purple-50/30' : 'border-gray-100'}`}>
                   <div>
                     <span className="text-xs font-bold text-gray-400">#{idx + 1}</span>
+                    {normalizeQuestionLabel(q.label) && (
+                      <span
+                        className="ml-2 inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[10px] font-bold"
+                        style={getQuestionLabelStyle(q.label)}
+                      >
+                        <span className="truncate">{normalizeQuestionLabel(q.label).text}</span>
+                      </span>
+                    )}
                     <p className="text-gray-800 font-medium mb-1">{q.question || 'Вопрос без текста'}</p>
                     <div className="text-xs text-gray-500 flex gap-2">
                        <span>
