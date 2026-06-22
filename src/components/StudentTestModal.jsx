@@ -751,6 +751,25 @@ const StudentTestModal = ({
       return typeof document !== 'undefined' ? createPortal(loadingModal, document.body) : null;
     }
 
+    const levelChoices = Object.values(LEVELS).map((lvl) => {
+      const questionCount = Array.isArray(testDb?.[task.number]?.[lvl.id])
+        ? testDb[task.number][lvl.id].length
+        : 0;
+      return {
+        ...lvl,
+        questionCount,
+        isAvailable: questionCount > 0,
+        isCompleted: currentMastery >= lvl.maxScore,
+        xpReward: getTaskLevelXpReward(task?.number, lvl.id),
+      };
+    });
+    const recommendedLevelId = (
+      levelChoices.find((lvl) => lvl.isAvailable && !lvl.isCompleted)
+      || levelChoices.find((lvl) => lvl.isAvailable)
+    )?.id || '';
+    const availableQuestionCount = levelChoices.reduce((sum, lvl) => sum + lvl.questionCount, 0);
+    const testsAreLoading = testDb === null || typeof testDb === 'undefined';
+
     const modal = (
       <div
         className="student-level-modal-backdrop fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-3 sm:p-4"
@@ -767,41 +786,56 @@ const StudentTestModal = ({
             <p>{task.title}</p>
             <div className="student-level-modal__mastery">
               <div className="flex items-center justify-between gap-3">
-                <span>Общий прогресс задания</span>
+                <span>Ваш прогресс</span>
                 <strong>{Math.round(currentMastery)}%</strong>
               </div>
               <div><span style={{ width: `${Math.max(0, Math.min(100, currentMastery))}%` }} /></div>
             </div>
+            <div className="student-level-modal__availability">
+              {testsAreLoading
+                ? 'Загружаем доступные уровни…'
+                : `${availableQuestionCount} ${availableQuestionCount === 1 ? 'задание доступно' : 'заданий доступно'}`}
+            </div>
           </header>
 
           <div className="student-level-modal__grid">
-            {Object.values(LEVELS).map((lvl) => {
-              const isCompleted = currentMastery >= lvl.maxScore;
-              const levelXpReward = getTaskLevelXpReward(task?.number, lvl.id);
-              const levelXpRewardLabel = levelXpReward > 0
-                ? `+${levelXpReward.toLocaleString('ru-RU')} XP`
+            {levelChoices.map((lvl) => {
+              const isRecommended = lvl.id === recommendedLevelId;
+              const isDisabled = testsAreLoading || !lvl.isAvailable;
+              const levelXpRewardLabel = lvl.xpReward > 0
+                ? `+${lvl.xpReward.toLocaleString('ru-RU')} XP`
                 : '';
-              const levelQuestionCount = Array.isArray(testDb?.[task.number]?.[lvl.id])
-                ? testDb[task.number][lvl.id].length
-                : 0;
 
               return (
                 <button
                   key={lvl.id}
                   type="button"
                   data-level={lvl.id}
-                  data-completed={isCompleted ? 'true' : 'false'}
+                  data-completed={lvl.isCompleted ? 'true' : 'false'}
+                  data-available={lvl.isAvailable ? 'true' : 'false'}
+                  data-recommended={isRecommended ? 'true' : 'false'}
+                  disabled={isDisabled}
                   onClick={() => {
                     const shouldRestoreIndex = initialLevel && initialLevel === lvl.id;
                     startTest(lvl.id, shouldRestoreIndex ? { initialIndex: initialQuestionIndex } : {});
                   }}
                   className="student-level-card"
+                  aria-label={`${lvl.label}. ${lvl.questionCount} заданий${isRecommended ? '. Рекомендуемый уровень' : ''}`}
                 >
                   <div className="student-level-card__topline">
                     <div className="student-level-card__icon">
-                      {isCompleted ? <Check size={20} /> : <PlayCircle size={20} />}
+                      {lvl.isCompleted ? <Check size={20} /> : <PlayCircle size={20} />}
                     </div>
-                    <span>{isCompleted ? 'Пройдено' : `${levelQuestionCount} заданий`}</span>
+                    <div className="student-level-card__badges">
+                      {isRecommended && <span className="student-level-card__recommended">Рекомендуем</span>}
+                      <span className="student-level-card__count">
+                        {testsAreLoading
+                          ? 'Загрузка…'
+                          : (lvl.isCompleted
+                              ? 'Пройдено'
+                              : (lvl.isAvailable ? `${lvl.questionCount} заданий` : 'Пока пусто'))}
+                      </span>
+                    </div>
                   </div>
                   <div className="student-level-card__content">
                     <h3>{lvl.label}</h3>
@@ -812,11 +846,14 @@ const StudentTestModal = ({
                     </p>
                   </div>
                   <div className="student-level-card__footer">
-                    <span>до {lvl.maxScore}%</span>
-                    {levelXpReward > 0 && (
+                    <span>Прогресс до {lvl.maxScore}%</span>
+                    {lvl.isAvailable && lvl.xpReward > 0 && (
                       <span className="student-level-card__reward">
                         {levelXpRewardLabel}
                       </span>
+                    )}
+                    {!testsAreLoading && !lvl.isAvailable && (
+                      <span className="student-level-card__unavailable">Нет заданий</span>
                     )}
                   </div>
                 </button>

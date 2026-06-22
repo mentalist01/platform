@@ -46499,7 +46499,7 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   transition: transform 0.28s cubic-bezier(0.2, 1.4, 0.35, 1), box-shadow 0.25s ease;
 }
 
-.student-level-card:hover .student-level-card__icon {
+.student-level-card:hover:not(:disabled) .student-level-card__icon {
   box-shadow: 0 8px 18px color-mix(in srgb, var(--level-accent) 22%, transparent);
   transform: translateY(-2px) rotate(-4deg) scale(1.08);
 }
@@ -47834,6 +47834,17 @@ html[data-theme='dark'] .teacher-question-editor__footer {
   box-shadow: 0 0 9px rgba(139, 92, 246, 0.4);
 }
 
+.student-level-modal__availability {
+  width: fit-content;
+  margin: 7px auto 0;
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: #64748b;
+  background: rgba(241, 245, 249, 0.82);
+  font-size: 9px;
+  font-weight: 800;
+}
+
 .student-level-modal__grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -47874,10 +47885,30 @@ html[data-theme='dark'] .teacher-question-editor__footer {
   --level-border: #fecdd3;
 }
 
-.student-level-card:hover {
+.student-level-card[data-recommended='true'] {
+  border-color: color-mix(in srgb, var(--level-accent) 58%, white);
+  box-shadow:
+    0 11px 24px color-mix(in srgb, var(--level-accent) 13%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--level-accent) 7%, transparent),
+    inset 0 1px 0 #fff;
+}
+
+.student-level-card:hover:not(:disabled) {
   border-color: var(--level-accent);
   box-shadow: 0 14px 28px color-mix(in srgb, var(--level-accent) 18%, transparent), inset 0 1px 0 #fff;
   transform: translateY(-3px);
+}
+
+.student-level-card:disabled {
+  cursor: not-allowed;
+  filter: saturate(0.55);
+  opacity: 0.62;
+}
+
+.student-level-card:disabled:hover {
+  border-color: var(--level-border);
+  box-shadow: 0 7px 18px rgba(15, 23, 42, 0.055), inset 0 1px 0 #fff;
+  transform: none;
 }
 
 .student-level-card:focus-visible {
@@ -47905,7 +47936,16 @@ html[data-theme='dark'] .teacher-question-editor__footer {
   background: var(--level-soft);
 }
 
-.student-level-card__topline > span {
+.student-level-card__badges {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.student-level-card__count,
+.student-level-card__recommended {
   overflow: hidden;
   border-radius: 999px;
   padding: 3px 7px;
@@ -47917,7 +47957,12 @@ html[data-theme='dark'] .teacher-question-editor__footer {
   white-space: nowrap;
 }
 
-.student-level-card[data-completed='true'] .student-level-card__topline > span {
+.student-level-card__recommended {
+  color: var(--level-accent);
+  background: var(--level-soft);
+}
+
+.student-level-card[data-completed='true'] .student-level-card__count {
   color: #047857;
   background: #ecfdf5;
 }
@@ -47960,6 +48005,13 @@ html[data-theme='dark'] .teacher-question-editor__footer {
   color: var(--level-accent);
   background: var(--level-soft);
   font-size: 9px;
+  white-space: nowrap;
+}
+
+.student-level-card__unavailable {
+  color: #94a3b8;
+  font-size: 9px;
+  font-weight: 800;
   white-space: nowrap;
 }
 
@@ -48015,6 +48067,11 @@ html[data-theme='dark'] .student-level-modal__mastery > div:last-child {
   background: rgba(100, 116, 139, 0.35);
 }
 
+html[data-theme='dark'] .student-level-modal__availability {
+  color: #94a3b8;
+  background: rgba(30, 41, 59, 0.72);
+}
+
 html[data-theme='dark'] .student-level-card {
   border-color: color-mix(in srgb, var(--level-accent) 36%, #334155);
   color: #e5e7eb;
@@ -48029,9 +48086,19 @@ html[data-theme='dark'] .student-level-card__icon {
   background: color-mix(in srgb, var(--level-accent) 14%, #111c2f);
 }
 
-html[data-theme='dark'] .student-level-card__topline > span {
+html[data-theme='dark'] .student-level-card__count {
   color: #94a3b8;
   background: rgba(30, 41, 59, 0.8);
+}
+
+html[data-theme='dark'] .student-level-card__recommended {
+  color: color-mix(in srgb, var(--level-accent) 76%, white);
+  background: color-mix(in srgb, var(--level-accent) 14%, #111c2f);
+}
+
+html[data-theme='dark'] .student-level-card:disabled:hover {
+  border-color: color-mix(in srgb, var(--level-accent) 36%, #334155);
+  box-shadow: 0 9px 22px rgba(2, 6, 23, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 html[data-theme='dark'] .student-level-card__content h3 {
