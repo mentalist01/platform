@@ -1386,6 +1386,7 @@ html[data-theme='dark'] .board-canvas-outline {
   }
 
   .notes-landing-card::before {
+    display: none !important;
     z-index: 1;
     inset: 2.05rem 0.42rem 0.48rem;
     border-radius: 0.9rem 1rem 1.05rem 1.05rem;
@@ -1423,8 +1424,8 @@ html[data-theme='dark'] .board-canvas-outline {
   }
 
   .notes-folder-shape__stroke {
-    stroke: rgba(129, 140, 248, 0.42);
-    stroke-width: 1.18;
+    stroke: rgba(129, 140, 248, 0.34);
+    stroke-width: 0.95;
   }
 
   .notes-landing-card--filled .notes-folder-shape {
