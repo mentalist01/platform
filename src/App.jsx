@@ -13130,6 +13130,26 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     admin: 'Админка',
     more: '\u0415\u0449\u0435',
   };
+  const navToneById = {
+    schedule: 'sky',
+    'teacher-calendar': 'cyan',
+    finance: 'emerald',
+    progress: 'blue',
+    review: 'amber',
+    lesson: 'rose',
+    call: 'rose',
+    board: 'pink',
+    collab: 'indigo',
+    python: 'violet',
+    rating: 'orange',
+    chat: 'fuchsia',
+    [TEACHER_COMMS_VIEW]: 'fuchsia',
+    teacher: 'slate',
+    admin: 'slate',
+    notes: 'teal',
+    more: 'violet',
+  };
+  const getNavTone = (id) => navToneById[id] || 'violet';
   const teacherCommsNavNewCount = PLATFORM_CHATS_ENABLED && user.role === 'teacher'
     ? (
       (Array.isArray(teacherSolvedNotifs) ? teacherSolvedNotifs.length : 0)
@@ -16798,6 +16818,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       }}
                       aria-current={isActive ? 'page' : undefined}
                       data-tour={n.id === 'rating' ? 'rating-nav' : undefined}
+                      data-nav-tone={getNavTone(n.id)}
                       style={{ '--item-index': idx }}
                       className={`sidebar-nav-item ${isFeatured ? 'sidebar-nav-item--featured' : ''} group relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-2xl border px-3.5 py-3 text-left transition-all duration-200 ease-out ${
                         isActive
@@ -16886,6 +16907,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                               }}
                               aria-current={isActive ? 'page' : undefined}
                               data-tour={n.id === 'rating' ? 'rating-nav' : undefined}
+                              data-nav-tone={getNavTone(n.id)}
                               style={{ '--item-index': desktopPrimaryNav.length + idx }}
                               className={`sidebar-nav-item group relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-2xl border px-3.5 py-3 text-left transition-all duration-200 ease-out ${
                                 isActive
@@ -16984,6 +17006,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   setMenuOpen(false);
                 }}
                 className={`desktop-nav-fab__item ${isActive ? 'is-active' : ''} ${isFeatured ? 'desktop-nav-fab__item--featured' : ''}`}
+                data-nav-tone={getNavTone(n.id)}
                 style={isFeatured ? {
                   background: isActive
                     ? 'linear-gradient(145deg, rgba(251, 191, 36, 0.98), rgba(245, 158, 11, 0.94))'
@@ -18117,6 +18140,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     key={`mobile-nav-${n.id}`}
                     type="button"
                     data-tour={n.id === 'rating' ? 'rating-nav' : undefined}
+                    data-nav-tone={getNavTone(n.id)}
                     onClick={() => {
                       if (isMoreButton) {
                         setMenuOpen(true);

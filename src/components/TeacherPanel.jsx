@@ -1,5 +1,6 @@
 ﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, BellOff, CheckCircle2, ChevronDown, ChevronUp, Download, Eye, FileText, ImagePlus, MessageSquare, Paperclip, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2, UploadCloud } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Bell, BellOff, CheckCircle2, ChevronDown, ChevronUp, Download, Eye, FileText, ImagePlus, MessageSquare, Paperclip, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2, UploadCloud, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import {
@@ -155,6 +156,7 @@ const TeacherPanel = ({
   const [isDraggingQuestionAttachments, setIsDraggingQuestionAttachments] = useState(false);
   const [isDraggingScreens, setIsDraggingScreens] = useState(false);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [questionImageLightbox, setQuestionImageLightbox] = useState(null);
   const screenshotsRef = useRef(null);
   const filesRef = useRef(null);
   const [signupChats, setSignupChats] = useState([]);
@@ -190,6 +192,22 @@ const TeacherPanel = ({
       previews.forEach((item) => URL.revokeObjectURL(item.url));
     };
   }, [questionScreenshots]);
+
+  useEffect(() => {
+    if (!questionImageLightbox?.url) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setQuestionImageLightbox(null);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [questionImageLightbox]);
 
   useEffect(() => {
     if (!isTestsMode) return undefined;
@@ -311,6 +329,12 @@ const TeacherPanel = ({
     setBulkQuestionFileRenameMessage('');
     if (screenshotsRef.current) screenshotsRef.current.value = '';
     if (filesRef.current) filesRef.current.value = '';
+    const inlineEditorId = String(questionItem.id).replace(/"/g, '\\"');
+    window.setTimeout(() => {
+      document
+        .querySelector(`[data-inline-question-editor="${inlineEditorId}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
   };
 
   const cancelEditQuestion = () => resetQuestionForm();
@@ -569,6 +593,11 @@ const TeacherPanel = ({
       ? withUploadsAuthToken(existingPreviewImage?.url || (existingPreviewImage?.storageName ? `/uploads/${existingPreviewImage.storageName}` : ''))
       : ''
   );
+  const questionPreviewImageName = screenshotPreviews[0]?.file?.name || existingPreviewImage?.name || 'Изображение условия';
+  const openQuestionImageLightbox = (url, name = 'Изображение') => {
+    if (!url) return;
+    setQuestionImageLightbox({ url, name: name || 'Изображение' });
+  };
   const normalizeStorageBytes = (value) => {
     const num = Number(value);
     return Number.isFinite(num) && num > 0 ? num : 0;
@@ -975,6 +1004,437 @@ const TeacherPanel = ({
     e.preventDefault();
     addScreenshotFiles(files);
   };
+
+  const renderAnswerInputFields = () => {
+    if (answerCount > 1) {
+      if (Number(selectedTask) === GAME_THEORY_TASK) {
+        return (
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">19</label>
+              <input
+                type="text"
+                value={answerInputs[0] ?? ''}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setAnswerInputs((prev) => {
+                    const next = [...prev];
+                    next[0] = value;
+                    return next;
+                  });
+                }}
+                className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
+                placeholder="Ответ 19"
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {[1, 2].map((answerIdx) => (
+                <div key={answerIdx}>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">20.{answerIdx}</label>
+                  <input
+                    type="text"
+                    value={answerInputs[answerIdx] ?? ''}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setAnswerInputs((prev) => {
+                        const next = [...prev];
+                        next[answerIdx] = value;
+                        return next;
+                      });
+                    }}
+                    className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
+                    placeholder={`Ответ 20.${answerIdx}`}
+                  />
+                </div>
+              ))}
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">21</label>
+              <input
+                type="text"
+                value={answerInputs[3] ?? ''}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setAnswerInputs((prev) => {
+                    const next = [...prev];
+                    next[3] = value;
+                    return next;
+                  });
+                }}
+                className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
+                placeholder="Ответ 21"
+              />
+            </div>
+          </div>
+        );
+      }
+
+      if (answerCount === 20) {
+        return (
+          <div className="grid grid-cols-[32px_1fr_1fr] gap-2">
+            {Array.from({ length: 10 }).map((_, rowIdx) => {
+              const leftIdx = rowIdx;
+              const rightIdx = rowIdx + 10;
+              return (
+                <React.Fragment key={rowIdx}>
+                  <div className="flex items-center justify-center text-xs font-bold text-gray-500">
+                    {rowIdx + 1}
+                  </div>
+                  {[leftIdx, rightIdx].map((answerIdx) => (
+                    <input
+                      key={answerIdx}
+                      type="text"
+                      value={answerInputs[answerIdx] ?? ''}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setAnswerInputs((prev) => {
+                          const next = [...prev];
+                          next[answerIdx] = value;
+                          return next;
+                        });
+                      }}
+                      className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
+                      placeholder={`Ответ ${answerIdx + 1}`}
+                    />
+                  ))}
+                </React.Fragment>
+              );
+            })}
+          </div>
+        );
+      }
+
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {Array.from({ length: answerCount }).map((_, idx) => (
+            <input
+              key={idx}
+              type="text"
+              value={answerInputs[idx] ?? ''}
+              onChange={(e) => {
+                const value = e.target.value;
+                setAnswerInputs((prev) => {
+                  const next = [...prev];
+                  next[idx] = value;
+                  return next;
+                });
+              }}
+              className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
+              placeholder={`Ответ ${idx + 1}`}
+            />
+          ))}
+        </div>
+      );
+    }
+
+    return (
+      <input
+        type="text"
+        value={answerInputs[0] ?? ''}
+        onChange={(e) => setAnswerInputs([e.target.value])}
+        className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
+        placeholder="Введите правильный ответ"
+      />
+    );
+  };
+
+  const renderInlineQuestionEditor = () => (
+    <Card
+      className={`teacher-question-editor teacher-question-editor--inline question-attachment-drop-card ${isDraggingQuestionAttachments ? 'is-dragging-attachments' : ''}`}
+      onDragEnter={handleQuestionAttachmentDragEnter}
+      onDragOver={handleQuestionAttachmentDragOver}
+      onDragLeave={handleQuestionAttachmentDragLeave}
+      onDrop={handleQuestionAttachmentDrop}
+    >
+      <div className="teacher-question-editor__header">
+        <div className="min-w-0">
+          <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+            <span className="teacher-question-editor__title-icon"><Pencil size={18} /></span>
+            Редактирование вопроса №{editorQuestionNumber}
+          </h3>
+          <p className="mt-1 text-xs text-gray-500">
+            Форма открыта прямо под выбранным вопросом — можно править без прокрутки наверх.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={cancelEditQuestion}
+          className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+        >
+          Отменить
+        </button>
+      </div>
+
+      <div className="teacher-question-editor__status-row">
+        <span className={hasQuestionCondition ? 'is-ready' : ''}>
+          <CheckCircle2 size={14} /> Условие
+        </span>
+        <span className={questionAttachmentCount > 0 ? 'is-ready' : ''}>
+          <Paperclip size={14} /> Материалы {questionAttachmentCount > 0 ? `· ${questionAttachmentCount}` : ''}
+        </span>
+        <span className={hasQuestionAnswer ? 'is-ready' : ''}>
+          <CheckCircle2 size={14} /> Ответ
+        </span>
+      </div>
+
+      <div className="teacher-question-editor__body" onPaste={handlePasteImages}>
+        <div className="teacher-question-editor__inline-grid">
+          <section className="teacher-question-editor__section">
+            <div className="teacher-question-editor__section-heading">
+              <span className="teacher-question-editor__step">1</span>
+              <div>
+                <h4>Условие вопроса</h4>
+                <p>Текст задания или пояснение ученику.</p>
+              </div>
+            </div>
+            <textarea
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              className="teacher-question-editor__textarea"
+              placeholder="Напишите условие задания, пояснение или инструкцию ученику…"
+            />
+          </section>
+
+          <aside className="teacher-question-editor__preview">
+            <div className="teacher-question-editor__preview-title">
+              <span><Eye size={15} /> Предпросмотр</span>
+              <span>вид ученика</span>
+            </div>
+            {questionPreviewImageUrl && (
+              <button
+                type="button"
+                className="teacher-question-editor__preview-image-button"
+                onClick={() => openQuestionImageLightbox(questionPreviewImageUrl, questionPreviewImageName)}
+                title="Открыть изображение крупно"
+              >
+                <img
+                  src={questionPreviewImageUrl}
+                  alt="Предпросмотр условия"
+                  className="teacher-question-editor__preview-image"
+                />
+              </button>
+            )}
+            <div className={`teacher-question-editor__preview-text ${question.trim() ? '' : 'is-empty'}`}>
+              {question.trim() || 'Здесь появится текст вопроса. Можно оставить его пустым, если условие находится на изображении.'}
+            </div>
+          </aside>
+        </div>
+
+        <section className="teacher-question-editor__section teacher-question-editor__label-section">
+          <div className="teacher-question-editor__section-heading">
+            <span className="teacher-question-editor__step">2</span>
+            <div>
+              <h4>Метка задачи</h4>
+              <p>Необязательная подпись для сложных или особых заданий.</p>
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(120px,0.42fr)]">
+            <input
+              type="text"
+              value={questionLabelText}
+              maxLength={QUESTION_LABEL_TEXT_MAX_LENGTH}
+              onChange={(event) => setQuestionLabelText(event.target.value)}
+              className="w-full rounded-xl border border-purple-100 bg-white px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-purple-400"
+              placeholder="Например: Сложная или С подвохом"
+              aria-label="Текст метки задачи"
+            />
+            <input
+              type="color"
+              value={normalizeQuestionLabelColor(questionLabelColor)}
+              onChange={(event) => setQuestionLabelColor(event.target.value)}
+              className="h-10 w-full cursor-pointer rounded-xl border border-purple-100 bg-white p-1 sm:w-12"
+              aria-label="Выбрать цвет метки"
+            />
+            <input
+              type="text"
+              value={questionLabelColor}
+              maxLength={7}
+              onChange={(event) => setQuestionLabelColor(event.target.value)}
+              className={`w-full rounded-xl border bg-white px-3 py-2.5 font-mono text-sm outline-none ${
+                !questionLabelText.trim() || isQuestionLabelColorValid(questionLabelColor)
+                  ? 'border-purple-100 focus:border-purple-400'
+                  : 'border-red-300 text-red-600 focus:border-red-400'
+              }`}
+              placeholder="#7c3aed"
+              aria-label="HEX-цвет метки"
+            />
+          </div>
+        </section>
+
+        <section className="teacher-question-editor__section teacher-question-editor__materials-section">
+          <div className="teacher-question-editor__section-heading">
+            <span className="teacher-question-editor__step">3</span>
+            <div>
+              <h4>Материалы к вопросу</h4>
+              <p>Добавьте изображения или доп. файлы. Клик по картинке откроет её крупно.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="flex items-center justify-between gap-2 text-xs font-bold text-gray-500 uppercase mb-2">
+                <span className="inline-flex items-center gap-1.5"><ImagePlus size={14} /> Изображения</span>
+                <span>{questionScreenshots.length + existingQuestionScreenshots.length}</span>
+              </label>
+              <div
+                onDrop={handleScreenshotsDrop}
+                onDragOver={handleScreenshotsDragOver}
+                onDragLeave={handleScreenshotsDragLeave}
+                className={`teacher-question-editor__drop-zone rounded-2xl border-2 border-dashed p-4 transition-colors ${
+                  isDraggingScreens ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
+                }`}
+              >
+                <input
+                  ref={screenshotsRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => addScreenshotFiles(e.target.files)}
+                  className="hidden"
+                />
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-500">
+                  <span className="inline-flex items-center gap-2"><UploadCloud size={18} className="text-purple-500" /> Перетащите изображения</span>
+                  <button
+                    type="button"
+                    onClick={() => screenshotsRef.current?.click()}
+                    className="px-3 py-1.5 rounded-lg border border-purple-200 text-purple-600 hover:bg-purple-50"
+                  >
+                    Выбрать
+                  </button>
+                </div>
+              </div>
+              <div className="mt-3 space-y-3">
+                {screenshotPreviews.map((item, idx) => (
+                  <div key={`${item.file.name}-${idx}`} className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+                    <div className="bg-gray-50 p-2 flex items-center justify-between gap-2">
+                      <span className="text-xs text-gray-500 truncate">{item.file.name}</span>
+                      <button type="button" onClick={() => removeScreenshot(idx)} className="text-xs text-red-500 hover:text-red-600">
+                        Удалить
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className="teacher-question-editor__attached-image-button"
+                      onClick={() => openQuestionImageLightbox(item.url, item.file.name)}
+                    >
+                      <img src={item.url} alt={item.file.name} className="w-full object-contain bg-white" style={{ maxHeight: '260px' }} />
+                    </button>
+                  </div>
+                ))}
+                {existingQuestionScreenshots.map((item, idx) => {
+                  const imgUrl = withUploadsAuthToken(item?.url || (item?.storageName ? `/uploads/${item.storageName}` : ''));
+                  return (
+                    <div key={item.id || item.storageName || item.url || idx} className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+                      <div className="bg-gray-50 p-2 flex items-center justify-between gap-2">
+                        <span className="text-xs text-gray-500 truncate">{item.name || 'Скриншот'}</span>
+                        <button
+                          type="button"
+                          onClick={() => setExistingQuestionScreenshots((prev) => prev.filter((_, i) => i !== idx))}
+                          className="text-xs text-red-500 hover:text-red-600"
+                        >
+                          Удалить
+                        </button>
+                      </div>
+                      {imgUrl && (
+                        <button
+                          type="button"
+                          className="teacher-question-editor__attached-image-button"
+                          onClick={() => openQuestionImageLightbox(imgUrl, item.name || 'Скриншот')}
+                        >
+                          <img src={imgUrl} alt={item.name || 'Скриншот'} className="w-full object-contain bg-white" style={{ maxHeight: '260px' }} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label className="flex items-center justify-between gap-2 text-xs font-bold text-gray-500 uppercase mb-2">
+                <span className="inline-flex items-center gap-1.5"><FileText size={14} /> Доп. файлы</span>
+                <span>{questionFiles.length + existingQuestionFiles.length}</span>
+              </label>
+              <div
+                onDrop={handleFilesDrop}
+                onDragOver={handleFilesDragOver}
+                onDragLeave={handleFilesDragLeave}
+                className={`teacher-question-editor__drop-zone rounded-2xl border-2 border-dashed p-4 transition-colors ${
+                  isDraggingFiles ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
+                }`}
+              >
+                <input
+                  ref={filesRef}
+                  type="file"
+                  multiple
+                  onChange={(e) => addExtraFiles(e.target.files)}
+                  className="hidden"
+                />
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-500">
+                  <span className="inline-flex items-center gap-2"><UploadCloud size={18} className="text-purple-500" /> Перетащите файлы</span>
+                  <button
+                    type="button"
+                    onClick={() => filesRef.current?.click()}
+                    className="px-3 py-1.5 rounded-lg border border-purple-200 text-purple-600 hover:bg-purple-50"
+                  >
+                    Выбрать
+                  </button>
+                </div>
+              </div>
+              {(questionFiles.length > 0 || existingQuestionFiles.length > 0) && (
+                <div className="mt-3 space-y-1">
+                  {questionFiles.map((entry, idx) => (
+                    <div key={entry.id || idx} className="flex items-center justify-between text-xs text-gray-500 gap-2">
+                      <span className="truncate">{getQuestionFileName(entry)}</span>
+                      <button type="button" onClick={() => removeExtraFile(idx)} className="text-red-500 hover:text-red-600">Удалить</button>
+                    </div>
+                  ))}
+                  {existingQuestionFiles.map((file, idx) => (
+                    <div key={file.id || file.storageName || file.url || idx} className="flex items-center justify-between text-xs text-gray-500 gap-2">
+                      <span className="truncate">{file.name || 'Файл'}</span>
+                      <button
+                        type="button"
+                        onClick={() => setExistingQuestionFiles((prev) => prev.filter((_, i) => i !== idx))}
+                        className="text-red-500 hover:text-red-600"
+                      >
+                        Удалить
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {questionUploadError && <p className="text-xs text-red-500">{questionUploadError}</p>}
+
+        <section className="teacher-question-editor__section teacher-question-editor__answer-section">
+          <div className="teacher-question-editor__section-heading">
+            <span className="teacher-question-editor__step">4</span>
+            <div>
+              <h4>Правильный ответ</h4>
+              <p>{answerCount > 1 ? `Для этого задания нужно заполнить ${answerCount} полей.` : 'Ответ будет использован для автоматической проверки.'}</p>
+            </div>
+          </div>
+          {renderAnswerInputFields()}
+        </section>
+
+        <div className="teacher-question-editor__footer">
+          <div className="min-w-0">
+            <div className="text-sm font-bold text-gray-700">Сохранить изменения вопроса №{editorQuestionNumber}</div>
+            <div className="mt-0.5 text-[11px] text-gray-500">
+              {hasQuestionCondition && hasQuestionAnswer
+                ? 'Основные поля заполнены — вопрос готов к сохранению.'
+                : 'Нужно добавить условие или изображение и указать правильный ответ.'}
+            </div>
+          </div>
+          <Button onClick={handleSaveQuestion} className="teacher-question-editor__save" disabled={isUploadingQuestion}>
+            <Save size={18} /> {isUploadingQuestion ? 'Загрузка...' : 'Сохранить изменения'}
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
 
   const handleCreateStudent = async () => {
     const name = newStudentName.trim();
@@ -2004,6 +2464,7 @@ const TeacherPanel = ({
 
         {/* MIDDLE COLUMN: Form */}
         <div className="teacher-test-builder-main">
+          {!editingQuestionId && (
           <Card
             className={`teacher-question-editor question-attachment-drop-card ${isDraggingQuestionAttachments ? 'is-dragging-attachments' : ''}`}
             onDragEnter={handleQuestionAttachmentDragEnter}
@@ -2090,11 +2551,18 @@ const TeacherPanel = ({
                     </span>
                   )}
                   {questionPreviewImageUrl && (
-                    <img
-                      src={questionPreviewImageUrl}
-                      alt="Предпросмотр условия"
-                      className="teacher-question-editor__preview-image"
-                    />
+                    <button
+                      type="button"
+                      className="teacher-question-editor__preview-image-button"
+                      onClick={() => openQuestionImageLightbox(questionPreviewImageUrl, questionPreviewImageName)}
+                      title="Открыть изображение крупно"
+                    >
+                      <img
+                        src={questionPreviewImageUrl}
+                        alt="Предпросмотр условия"
+                        className="teacher-question-editor__preview-image"
+                      />
+                    </button>
                   )}
                   <div className={`teacher-question-editor__preview-text ${question.trim() ? '' : 'is-empty'}`}>
                     {question.trim() || 'Здесь появится текст вопроса. Можно оставить его пустым, если условие находится на изображении.'}
@@ -2232,12 +2700,18 @@ const TeacherPanel = ({
                               Удалить
                             </button>
                           </div>
-                          <img
-                            src={item.url}
-                            alt={item.file.name}
-                            className="w-full object-contain bg-white"
-                            style={{ maxHeight: '360px' }}
-                          />
+                          <button
+                            type="button"
+                            className="teacher-question-editor__attached-image-button"
+                            onClick={() => openQuestionImageLightbox(item.url, item.file.name)}
+                          >
+                            <img
+                              src={item.url}
+                              alt={item.file.name}
+                              className="w-full object-contain bg-white"
+                              style={{ maxHeight: '360px' }}
+                            />
+                          </button>
                         </div>
                       ))}
                     </div>
@@ -2259,12 +2733,18 @@ const TeacherPanel = ({
                               </button>
                             </div>
                             {imgUrl && (
-                              <img
-                                src={imgUrl}
-                                alt={item.name || 'Скриншот'}
-                                className="w-full object-contain bg-white"
-                                style={{ maxHeight: '360px' }}
-                              />
+                              <button
+                                type="button"
+                                className="teacher-question-editor__attached-image-button"
+                                onClick={() => openQuestionImageLightbox(imgUrl, item.name || 'Скриншот')}
+                              >
+                                <img
+                                  src={imgUrl}
+                                  alt={item.name || 'Скриншот'}
+                                  className="w-full object-contain bg-white"
+                                  style={{ maxHeight: '360px' }}
+                                />
+                              </button>
                             )}
                           </div>
                         );
@@ -2604,6 +3084,7 @@ const TeacherPanel = ({
               </div>
             </div>
           </Card>
+          )}
 
           {/* Question List */}
           <div className="space-y-3">
@@ -2614,7 +3095,8 @@ const TeacherPanel = ({
               </div>
             ) : (
               currentQuestions.map((q, idx) => (
-                <div key={q.id} className={`bg-white p-4 rounded-xl border shadow-sm flex justify-between items-start gap-4 ${editingQuestionId === q.id ? 'border-purple-300 bg-purple-50/30' : 'border-gray-100'}`}>
+                <React.Fragment key={q.id}>
+                <div className={`bg-white p-4 rounded-xl border shadow-sm flex justify-between items-start gap-4 ${editingQuestionId === q.id ? 'border-purple-300 bg-purple-50/30' : 'border-gray-100'}`}>
                   <div>
                     <span className="text-xs font-bold text-gray-400">#{idx + 1}</span>
                     {normalizeQuestionLabel(q.label) && (
@@ -2647,9 +3129,9 @@ const TeacherPanel = ({
                           <button
                             key={img.id || img.url || img.storageName}
                             type="button"
-                            onClick={() => imgUrl && window.open(imgUrl, '_blank', 'noopener,noreferrer')}
+                            onClick={() => openQuestionImageLightbox(imgUrl, img.name || 'Скриншот')}
                             className="rounded-lg border border-gray-200 bg-gray-50 overflow-hidden hover:border-purple-300"
-                            title="Открыть изображение"
+                            title="Открыть изображение крупно"
                           >
                             <img
                               src={imgUrl}
@@ -2698,6 +3180,12 @@ const TeacherPanel = ({
                     </button>
                   </div>
                 </div>
+                {editingQuestionId === q.id && (
+                  <div className="teacher-question-editor-inline-wrap" data-inline-question-editor={q.id}>
+                    {renderInlineQuestionEditor()}
+                  </div>
+                )}
+                </React.Fragment>
               ))
             )}
           </div>
@@ -2705,6 +3193,36 @@ const TeacherPanel = ({
       </div>
       </>
       )}
+      {questionImageLightbox?.url && typeof document !== 'undefined' && createPortal((
+        <div
+          className="teacher-question-image-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Просмотр изображения"
+          onClick={() => setQuestionImageLightbox(null)}
+        >
+          <div
+            className="teacher-question-image-lightbox__panel"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="teacher-question-image-lightbox__bar">
+              <span>{questionImageLightbox.name || 'Изображение'}</span>
+              <button
+                type="button"
+                onClick={() => setQuestionImageLightbox(null)}
+                aria-label="Закрыть изображение"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <img
+              src={questionImageLightbox.url}
+              alt={questionImageLightbox.name || 'Изображение'}
+              className="teacher-question-image-lightbox__image"
+            />
+          </div>
+        </div>
+      ), document.body)}
     </div>
   );
 };
