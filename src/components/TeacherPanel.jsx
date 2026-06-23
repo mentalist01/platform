@@ -1,6 +1,6 @@
 ﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, BellOff, CheckCircle2, ChevronDown, ChevronUp, Download, Eye, FileText, ImagePlus, MessageSquare, Paperclip, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2, UploadCloud, X } from 'lucide-react';
+import { Bell, BellOff, CheckCircle2, ChevronDown, ChevronUp, Download, Eye, FileText, GripVertical, ImagePlus, MessageSquare, Paperclip, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2, UploadCloud, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import {
@@ -30,6 +30,8 @@ const QUESTION_LABEL_COLOR_PRESETS = [
   '#e11d48',
   '#475569',
 ];
+
+const QUESTION_REORDER_DRAG_TYPE = 'application/x-teacher-question-id';
 
 const normalizeStudentGradeValue = (value) => {
   const normalized = String(value ?? '').trim().toLowerCase();
@@ -156,9 +158,16 @@ const TeacherPanel = ({
   const [isDraggingQuestionAttachments, setIsDraggingQuestionAttachments] = useState(false);
   const [isDraggingScreens, setIsDraggingScreens] = useState(false);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [draggingQuestionId, setDraggingQuestionId] = useState(null);
+  const [dragOverQuestionId, setDragOverQuestionId] = useState(null);
+  const [dragOverQuestionPosition, setDragOverQuestionPosition] = useState('before');
+  const [isReorderingQuestions, setIsReorderingQuestions] = useState(false);
+  const [questionReorderMessage, setQuestionReorderMessage] = useState('');
   const [questionImageLightbox, setQuestionImageLightbox] = useState(null);
   const screenshotsRef = useRef(null);
   const filesRef = useRef(null);
+  const questionDragIdRef = useRef(null);
+  const questionAutoScrollRef = useRef({ frame: null, target: null, velocity: 0 });
   const [signupChats, setSignupChats] = useState([]);
   const [signupChatsLoading, setSignupChatsLoading] = useState(false);
   const [signupChatsError, setSignupChatsError] = useState('');
@@ -345,6 +354,11 @@ const TeacherPanel = ({
     }
     setBulkQuestionFileName('');
     setBulkQuestionFileRenameMessage('');
+    questionDragIdRef.current = null;
+    setDraggingQuestionId(null);
+    setDragOverQuestionId(null);
+    setDragOverQuestionPosition('before');
+    setQuestionReorderMessage('');
   }, [selectedTask, selectedLevel]);
 
   const handleSaveQuestion = async () => {
@@ -516,6 +530,158 @@ const TeacherPanel = ({
     0
   );
   const bulkQuestionFileCount = levelQuestionFileCount + questionFiles.length;
+  const getQuestionDragScrollTarget = (node) => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return null;
+    let current = node instanceof Element ? node : null;
+    while (current && current !== document.body) {
+      const style = window.getComputedStyle(current);
+      const overflowY = `${style.overflowY} ${style.overflow}`;
+      if (/(auto|scroll|overlay)/.test(overflowY) && current.scrollHeight > current.clientHeight + 8) {
+        return current;
+      }
+      current = current.parentElement;
+    }
+    return document.scrollingElement || document.documentElement;
+  };
+
+  const stopQuestionAutoScroll = () => {
+    const state = questionAutoScrollRef.current;
+    if (state.frame && typeof window !== 'undefined') {
+      window.cancelAnimationFrame(state.frame);
+    }
+    questionAutoScrollRef.current = { frame: null, target: null, velocity: 0 };
+  };
+
+  const runQuestionAutoScroll = () => {
+    const state = questionAutoScrollRef.current;
+    if (!state.target || !state.velocity || typeof window === 'undefined') {
+      stopQuestionAutoScroll();
+      return;
+    }
+    state.target.scrollTop += state.velocity;
+    state.frame = window.requestAnimationFrame(runQuestionAutoScroll);
+  };
+
+  const updateQuestionAutoScroll = (event) => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    const target = getQuestionDragScrollTarget(event.currentTarget);
+    if (!target) return;
+
+    const isPageScroll = target === document.scrollingElement || target === document.documentElement || target === document.body;
+    const bounds = isPageScroll
+      ? { top: 0, bottom: window.innerHeight }
+      : target.getBoundingClientRect();
+    const edgeSize = Math.min(140, Math.max(86, (bounds.bottom - bounds.top) * 0.18));
+    const maxVelocity = 24;
+    let velocity = 0;
+
+    if (event.clientY < bounds.top + edgeSize) {
+      velocity = -Math.ceil(((bounds.top + edgeSize - event.clientY) / edgeSize) * maxVelocity);
+    } else if (event.clientY > bounds.bottom - edgeSize) {
+      velocity = Math.ceil(((event.clientY - (bounds.bottom - edgeSize)) / edgeSize) * maxVelocity);
+    }
+
+    const state = questionAutoScrollRef.current;
+    if (!velocity) {
+      stopQuestionAutoScroll();
+      return;
+    }
+
+    state.target = target;
+    state.velocity = velocity;
+    if (!state.frame) {
+      state.frame = window.requestAnimationFrame(runQuestionAutoScroll);
+    }
+  };
+
+  const resetQuestionDragState = () => {
+    stopQuestionAutoScroll();
+    questionDragIdRef.current = null;
+    setDraggingQuestionId(null);
+    setDragOverQuestionId(null);
+    setDragOverQuestionPosition('before');
+  };
+
+  const handleQuestionDragStart = (event, questionId) => {
+    if (isReorderingQuestions || isUploadingQuestion) {
+      event.preventDefault();
+      return;
+    }
+    questionDragIdRef.current = questionId;
+    setDraggingQuestionId(questionId);
+    setDragOverQuestionId(questionId);
+    setDragOverQuestionPosition('before');
+    setQuestionReorderMessage('');
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData(QUESTION_REORDER_DRAG_TYPE, String(questionId));
+      event.dataTransfer.setData('text/plain', String(questionId));
+    }
+  };
+
+  const handleQuestionDragOver = (event, questionId, forcedPosition = null) => {
+    const sourceId = questionDragIdRef.current;
+    if (!sourceId) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    updateQuestionAutoScroll(event);
+    if (String(sourceId) === String(questionId)) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const position = forcedPosition || (event.clientY < rect.top + rect.height / 2 ? 'before' : 'after');
+    if (String(dragOverQuestionId) !== String(questionId)) {
+      setDragOverQuestionId(questionId);
+    }
+    if (dragOverQuestionPosition !== position) {
+      setDragOverQuestionPosition(position);
+    }
+  };
+
+  const handleQuestionListDragOver = (event) => {
+    if (!questionDragIdRef.current) return;
+    updateQuestionAutoScroll(event);
+  };
+
+  const handleQuestionDrop = async (event, questionId, forcedPosition = null) => {
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const dropPosition = forcedPosition || (event.clientY < rect.top + rect.height / 2 ? 'before' : 'after');
+    const sourceId = questionDragIdRef.current
+      || event.dataTransfer?.getData(QUESTION_REORDER_DRAG_TYPE)
+      || event.dataTransfer?.getData('text/plain');
+    resetQuestionDragState();
+    if (!sourceId || String(sourceId) === String(questionId)) return;
+
+    const sourceIndex = currentQuestions.findIndex((item) => String(item?.id) === String(sourceId));
+    const targetIndex = currentQuestions.findIndex((item) => String(item?.id) === String(questionId));
+    if (sourceIndex === -1 || targetIndex === -1) return;
+
+    const movedQuestion = currentQuestions[sourceIndex];
+    const reorderedQuestions = currentQuestions.filter((_, index) => index !== sourceIndex);
+    let insertIndex = targetIndex + (dropPosition === 'after' ? 1 : 0);
+    if (sourceIndex < insertIndex) insertIndex -= 1;
+    insertIndex = Math.max(0, Math.min(reorderedQuestions.length, insertIndex));
+    reorderedQuestions.splice(insertIndex, 0, movedQuestion);
+    const orderChanged = reorderedQuestions.some((item, index) => String(item?.id) !== String(currentQuestions[index]?.id));
+    if (!orderChanged) return;
+
+    const previousDb = testDb;
+    const updatedDb = { ...(testDb || {}) };
+    updatedDb[selectedTask] = { ...(updatedDb[selectedTask] || {}) };
+    updatedDb[selectedTask][selectedLevel] = reorderedQuestions;
+
+    setIsReorderingQuestions(true);
+    setQuestionReorderMessage('Сохраняю новый порядок…');
+    setTestDb(updatedDb);
+    try {
+      await api.saveTests(updatedDb);
+      setQuestionReorderMessage('Порядок сохранён');
+    } catch (err) {
+      setTestDb(previousDb);
+      setQuestionReorderMessage(`Не удалось сохранить порядок: ${err?.message || err}`);
+    } finally {
+      setIsReorderingQuestions(false);
+    }
+  };
 
   const handleBulkRenameQuestionFiles = async () => {
     const nextBaseName = normalizeBulkQuestionFileName(bulkQuestionFileName);
@@ -3087,8 +3253,20 @@ const TeacherPanel = ({
           )}
 
           {/* Question List */}
-          <div className="space-y-3">
-            <h3 className="font-bold text-gray-700">Существующие вопросы ({currentQuestions.length})</h3>
+          <div className="space-y-3" onDragOver={handleQuestionListDragOver}>
+            <div className="teacher-question-list-heading">
+              <div>
+                <h3 className="font-bold text-gray-700">Существующие вопросы ({currentQuestions.length})</h3>
+                {currentQuestions.length > 1 && (
+                  <p>Перетаскивайте карточки за ручку слева, чтобы менять порядок в текущем уровне.</p>
+                )}
+              </div>
+              {questionReorderMessage && (
+                <span className={questionReorderMessage.includes('Не удалось') ? 'is-error' : ''}>
+                  {questionReorderMessage}
+                </span>
+              )}
+            </div>
             {currentQuestions.length === 0 ? (
               <div className="text-center p-8 text-gray-400 bg-gray-50 rounded-xl border border-dashed">
                 В этой категории пока нет вопросов.
@@ -3096,8 +3274,33 @@ const TeacherPanel = ({
             ) : (
               currentQuestions.map((q, idx) => (
                 <React.Fragment key={q.id}>
-                <div className={`bg-white p-4 rounded-xl border shadow-sm flex justify-between items-start gap-4 ${editingQuestionId === q.id ? 'border-purple-300 bg-purple-50/30' : 'border-gray-100'}`}>
-                  <div>
+                {String(dragOverQuestionId) === String(q.id) && dragOverQuestionPosition === 'before' && String(draggingQuestionId) !== String(q.id) && (
+                  <div
+                    className="teacher-question-drop-indicator"
+                    onDragOver={(event) => handleQuestionDragOver(event, q.id, 'before')}
+                    onDrop={(event) => handleQuestionDrop(event, q.id, 'before')}
+                  >
+                    <span>Вставить сюда</span>
+                  </div>
+                )}
+                <div
+                  className={`teacher-question-card bg-white p-4 rounded-xl border shadow-sm flex justify-between items-start gap-4 ${editingQuestionId === q.id ? 'border-purple-300 bg-purple-50/30' : 'border-gray-100'} ${String(draggingQuestionId) === String(q.id) ? 'is-dragging' : ''}`}
+                  onDragOver={(event) => handleQuestionDragOver(event, q.id)}
+                  onDrop={(event) => handleQuestionDrop(event, q.id)}
+                  onDragEnd={resetQuestionDragState}
+                >
+                  <button
+                    type="button"
+                    draggable={currentQuestions.length > 1 && !isReorderingQuestions}
+                    onDragStart={(event) => handleQuestionDragStart(event, q.id)}
+                    onDragEnd={resetQuestionDragState}
+                    className="teacher-question-card__drag-handle"
+                    title="Перетащить вопрос"
+                    aria-label={`Перетащить вопрос №${idx + 1}`}
+                  >
+                    <GripVertical size={18} />
+                  </button>
+                  <div className="teacher-question-card__content min-w-0 flex-1">
                     <span className="text-xs font-bold text-gray-400">#{idx + 1}</span>
                     {normalizeQuestionLabel(q.label) && (
                       <span
@@ -3162,7 +3365,7 @@ const TeacherPanel = ({
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="teacher-question-card__actions flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => startEditQuestion(q)}
@@ -3180,6 +3383,15 @@ const TeacherPanel = ({
                     </button>
                   </div>
                 </div>
+                {String(dragOverQuestionId) === String(q.id) && dragOverQuestionPosition === 'after' && String(draggingQuestionId) !== String(q.id) && (
+                  <div
+                    className="teacher-question-drop-indicator"
+                    onDragOver={(event) => handleQuestionDragOver(event, q.id, 'after')}
+                    onDrop={(event) => handleQuestionDrop(event, q.id, 'after')}
+                  >
+                    <span>Вставить сюда</span>
+                  </div>
+                )}
                 {editingQuestionId === q.id && (
                   <div className="teacher-question-editor-inline-wrap" data-inline-question-editor={q.id}>
                     {renderInlineQuestionEditor()}
