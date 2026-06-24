@@ -78,6 +78,11 @@ const normalizeScheduleEntry = (entry) => {
   };
 };
 
+const isGoogleCalendarScheduleEntry = (entry) => {
+  const source = String(entry?.source || '').trim().toLowerCase();
+  return Boolean(entry?.isGoogleCalendarSync) || source === 'google-calendar' || source === 'google-ical';
+};
+
 const sortScheduleEntries = (entries = []) => (
   entries
     .map((entry) => normalizeScheduleEntry(entry))
@@ -200,6 +205,9 @@ const ScheduleSection = ({
   const [scheduleEditingId, setScheduleEditingId] = useState(null);
   const [scheduleDeletingId, setScheduleDeletingId] = useState(null);
   const [scheduleError, setScheduleError] = useState('');
+  const [googleScheduleSyncing, setGoogleScheduleSyncing] = useState(false);
+  const [googleScheduleSyncMessage, setGoogleScheduleSyncMessage] = useState('');
+  const [googleScheduleSyncError, setGoogleScheduleSyncError] = useState('');
   const [scheduleRequests, setScheduleRequests] = useState([]);
   const [scheduleRequestsLoading, setScheduleRequestsLoading] = useState(false);
   const [scheduleRequestsError, setScheduleRequestsError] = useState('');
@@ -209,6 +217,7 @@ const ScheduleSection = ({
   const [lessonReminderLoading, setLessonReminderLoading] = useState(false);
   const [lessonReminderSaving, setLessonReminderSaving] = useState(false);
   const [lessonReminderError, setLessonReminderError] = useState('');
+  const googleScheduleAutoSyncKeyRef = React.useRef('');
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const requestStudentId = role === 'teacher' ? effectiveStudentId : '';
@@ -312,6 +321,36 @@ const ScheduleSection = ({
     }
   }, [effectiveStudentId, requestStudentId]);
 
+  const handleSyncScheduleFromGoogle = useCallback(async (options = {}) => {
+    const silent = Boolean(options?.silent);
+    if (role !== 'teacher' || !effectiveStudentId || googleScheduleSyncing) return;
+    setGoogleScheduleSyncing(true);
+    if (!silent) {
+      setGoogleScheduleSyncMessage('');
+      setGoogleScheduleSyncError('');
+    }
+    try {
+      const data = await api.syncStudentScheduleFromGoogle(effectiveStudentId);
+      const nextSchedule = Array.isArray(data?.schedule) ? data.schedule : [];
+      setLessonSchedule(sortScheduleEntries(nextSchedule));
+      setScheduleError('');
+      if (!silent) {
+        const importedCount = Number(data?.importedCount) || 0;
+        setGoogleScheduleSyncMessage(
+          importedCount > 0
+            ? `Из Google Calendar добавлено: ${importedCount}. Неделя: ${formatDate(data?.weekStart)} — ${formatDate(data?.weekEnd)}.`
+            : 'На текущей неделе не нашёл событий с названием как у этого ученика.'
+        );
+      }
+    } catch (err) {
+      if (!silent) {
+        setGoogleScheduleSyncError(err?.message || err);
+      }
+    } finally {
+      setGoogleScheduleSyncing(false);
+    }
+  }, [effectiveStudentId, googleScheduleSyncing, role]);
+
   const loadScheduleRequests = useCallback(async () => {
     if (!effectiveStudentId) {
       setScheduleRequests([]);
@@ -351,6 +390,17 @@ const ScheduleSection = ({
   }, [loadScheduleRequests]);
 
   useEffect(() => {
+    if (role !== 'teacher' || !effectiveStudentId) {
+      googleScheduleAutoSyncKeyRef.current = '';
+      return;
+    }
+    const syncKey = String(effectiveStudentId);
+    if (googleScheduleAutoSyncKeyRef.current === syncKey) return;
+    googleScheduleAutoSyncKeyRef.current = syncKey;
+    handleSyncScheduleFromGoogle({ silent: true });
+  }, [effectiveStudentId, handleSyncScheduleFromGoogle, role]);
+
+  useEffect(() => {
     loadStudentProgress();
   }, [loadStudentProgress, solvedRefreshKey]);
 
@@ -387,6 +437,8 @@ const ScheduleSection = ({
     setScheduleEditingId(null);
     setScheduleForm({ ...DEFAULT_SCHEDULE_FORM });
     setScheduleError('');
+    setGoogleScheduleSyncMessage('');
+    setGoogleScheduleSyncError('');
     setScheduleRequestNotice('');
     setScheduleRequestActionBusyId('');
     if (role === 'student' && progress && typeof progress === 'object' && Object.keys(progress).length > 0) {
@@ -1866,12 +1918,23 @@ const ScheduleSection = ({
                 </div>
                 <p className="text-xs text-slate-500">
                   {role === 'teacher'
-                    ? `Задайте дни и время занятий${selectedStudent ? ` для ${getStudentLabel(selectedStudent)}` : ' для выбранного ученика'}.`
+                    ? `Берём текущую неделю из Google Calendar по названию события${selectedStudent ? `: ${getStudentLabel(selectedStudent)}` : ' выбранного ученика'}.`
                     : 'Добавляйте и меняйте занятия — преподаватель подтвердит запрос.'}
                 </p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {role === 'teacher' && effectiveStudentId && (
+                <button
+                  type="button"
+                  onClick={() => handleSyncScheduleFromGoogle()}
+                  disabled={googleScheduleSyncing}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <RefreshCcw size={13} className={googleScheduleSyncing ? 'animate-spin' : ''} />
+                  {googleScheduleSyncing ? 'Сверяем...' : 'Взять из Google'}
+                </button>
+              )}
               <span className="schedule-shell__lessons-count rounded-full border border-sky-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
                 {`Слотов: ${sortedSchedule.length}`}
               </span>
@@ -1898,6 +1961,16 @@ const ScheduleSection = ({
               {scheduleRequestNotice && (
                 <div className="schedule-shell__notice-success rounded-2xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs font-semibold text-emerald-700">
                   {scheduleRequestNotice}
+                </div>
+              )}
+              {googleScheduleSyncMessage && (
+                <div className="rounded-2xl border border-sky-200 bg-sky-50/80 px-3 py-2 text-xs font-semibold text-sky-700">
+                  {googleScheduleSyncMessage}
+                </div>
+              )}
+              {googleScheduleSyncError && (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50/80 px-3 py-2 text-xs font-semibold text-rose-600">
+                  {googleScheduleSyncError}
                 </div>
               )}
 
@@ -2119,6 +2192,7 @@ const ScheduleSection = ({
               ) : (
                 <div className="schedule-shell__slots-grid">
                   {sortedSchedule.map((entry) => {
+                    const isGoogleSlot = isGoogleCalendarScheduleEntry(entry);
                     return (
                       <div key={entry.id || `${entry.weekdayKey}-${entry.time}-${entry.createdAt || 'slot'}`} className="schedule-shell__slot-card rounded-2xl border border-sky-100/80 bg-white/90 p-4 shadow-sm shadow-sky-100/40">
                         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2137,13 +2211,22 @@ const ScheduleSection = ({
                                   {formatDate(entry.date)}
                                 </span>
                               )}
+                              {isGoogleSlot && (
+                                <span
+                                  className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700"
+                                  title={entry.googleCalendarTitle ? `Событие: ${entry.googleCalendarTitle}` : 'Слот взят из Google Calendar'}
+                                >
+                                  Google
+                                </span>
+                              )}
                             </div>
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
                             <button
                               type="button"
                               onClick={() => startEditSchedule(entry)}
-                              disabled={scheduleDeletingId === entry.id}
+                              disabled={scheduleDeletingId === entry.id || isGoogleSlot}
+                              title={isGoogleSlot ? 'Этот слот управляется Google Calendar' : undefined}
                               className="schedule-shell__slot-edit inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
                             >
                               <Pencil size={13} />
@@ -2152,7 +2235,8 @@ const ScheduleSection = ({
                             <button
                               type="button"
                               onClick={() => handleDeleteSchedule(entry)}
-                              disabled={scheduleDeletingId === entry.id}
+                              disabled={scheduleDeletingId === entry.id || isGoogleSlot}
+                              title={isGoogleSlot ? 'Удалите или перенесите событие в Google Calendar, затем синхронизируйте расписание' : undefined}
                               className="schedule-shell__slot-delete inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50/80 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
                             >
                               <Trash2 size={13} />

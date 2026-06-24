@@ -1445,6 +1445,17 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  syncStudentScheduleFromGoogle: async (studentId) => {
+    const body = {};
+    if (studentId) body.studentId = String(studentId);
+    const res = await apiFetch('/api/student-schedule/google-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   addTeacherScheduleEntry: async (payload, teacherId) => {
     const body = payload && typeof payload === 'object' ? { ...payload } : {};
     if (teacherId) body.teacherId = String(teacherId);
