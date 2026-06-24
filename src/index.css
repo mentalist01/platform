@@ -20182,13 +20182,47 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
     inset 0 0 0 1px rgba(168, 85, 247, 0.08);
 }
 
+.schedule-shell__student-day-chip--past {
+  border-color: rgba(203, 213, 225, 0.9);
+  background: rgba(248, 250, 252, 0.72);
+  color: #94a3b8;
+}
+
+.schedule-shell__student-day-chip--past > strong {
+  color: #94a3b8;
+}
+
+.schedule-shell__student-day-chip--past > em {
+  background: #cbd5e1;
+  box-shadow: none;
+}
+
+.schedule-shell__student-day-chip--future {
+  border-color: rgba(125, 211, 252, 0.84);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.18), transparent 44%),
+    linear-gradient(145deg, rgba(240, 249, 255, 0.94), rgba(255, 255, 255, 0.76));
+}
+
+.schedule-shell__student-day-chip--next {
+  border-color: rgba(56, 189, 248, 0.95);
+  background:
+    radial-gradient(circle at 92% 8%, rgba(14, 165, 233, 0.24), transparent 40%),
+    linear-gradient(145deg, rgba(236, 253, 245, 0.68), rgba(240, 249, 255, 0.95));
+  box-shadow:
+    0 12px 28px rgba(14, 165, 233, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.72);
+}
+
 .schedule-shell__student-day-chip:hover {
   transform: translateY(-2px);
 }
 
 .schedule-shell__student-lessons {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(var(--student-lesson-rows, 1), auto);
+  grid-auto-flow: column;
   gap: 10px;
 }
 
@@ -20212,6 +20246,40 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   transition: transform 170ms ease, border-color 170ms ease, box-shadow 170ms ease;
 }
 
+.schedule-shell__student-lesson--past {
+  border-color: rgba(203, 213, 225, 0.88);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(248, 250, 252, 0.72)),
+    radial-gradient(circle at 100% 0%, rgba(148, 163, 184, 0.08), transparent 42%);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.035);
+  opacity: 0.68;
+}
+
+.schedule-shell__student-lesson--future {
+  border-color: rgba(125, 211, 252, 0.92);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(240, 249, 255, 0.92)),
+    radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.16), transparent 42%);
+}
+
+.schedule-shell__student-lesson--active,
+.schedule-shell__student-lesson--next {
+  border-color: rgba(56, 189, 248, 0.98);
+  background:
+    radial-gradient(circle at 98% 0%, rgba(45, 212, 191, 0.16), transparent 42%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.99), rgba(240, 249, 255, 0.96));
+  box-shadow:
+    0 18px 36px rgba(14, 165, 233, 0.16),
+    0 0 0 1px rgba(14, 165, 233, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.schedule-shell__student-lesson--next {
+  animation:
+    scheduleStudentItemIn 420ms ease both,
+    scheduleStudentNextGlow 2.4s ease-in-out infinite;
+}
+
 .schedule-shell__student-lesson::before {
   content: '';
   position: absolute;
@@ -20219,6 +20287,21 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   width: 4px;
   background: linear-gradient(180deg, #38bdf8, #8b5cf6);
   opacity: 0.85;
+}
+
+.schedule-shell__student-lesson--past::before {
+  background: linear-gradient(180deg, #cbd5e1, #94a3b8);
+  opacity: 0.72;
+}
+
+.schedule-shell__student-lesson--future::before {
+  background: linear-gradient(180deg, #38bdf8, #0ea5e9);
+}
+
+.schedule-shell__student-lesson--next::before {
+  width: 5px;
+  background: linear-gradient(180deg, #22d3ee, #8b5cf6);
+  opacity: 1;
 }
 
 .schedule-shell__student-lesson:hover {
@@ -20234,6 +20317,32 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   border: 1px solid rgba(186, 230, 253, 0.92);
   border-radius: 15px;
   background: rgba(240, 249, 255, 0.86);
+}
+
+.schedule-shell__student-lesson--past .schedule-shell__student-lesson-date {
+  border-color: rgba(203, 213, 225, 0.82);
+  background: rgba(248, 250, 252, 0.84);
+}
+
+.schedule-shell__student-lesson--past .schedule-shell__student-lesson-date > span,
+.schedule-shell__student-lesson--past .schedule-shell__student-lesson-time,
+.schedule-shell__student-lesson--past .schedule-shell__student-lesson-time > svg,
+.schedule-shell__student-lesson--past .schedule-shell__student-lesson-time > span {
+  color: #94a3b8;
+}
+
+.schedule-shell__student-lesson--past .schedule-shell__student-lesson-date > strong,
+.schedule-shell__student-lesson--past .schedule-shell__student-lesson-heading > span,
+.schedule-shell__student-lesson--past .schedule-shell__student-lesson-time > strong {
+  color: #64748b;
+}
+
+.schedule-shell__student-lesson--next .schedule-shell__student-lesson-date {
+  border-color: rgba(56, 189, 248, 0.75);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(45, 212, 191, 0.2), transparent 48%),
+    rgba(236, 253, 245, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);
 }
 
 .schedule-shell__student-lesson-date > span {
@@ -20373,6 +20482,21 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   }
 }
 
+@keyframes scheduleStudentNextGlow {
+  0%, 100% {
+    box-shadow:
+      0 16px 32px rgba(14, 165, 233, 0.12),
+      0 0 0 1px rgba(14, 165, 233, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  }
+  50% {
+    box-shadow:
+      0 20px 42px rgba(14, 165, 233, 0.22),
+      0 0 0 3px rgba(56, 189, 248, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  }
+}
+
 @media (max-width: 900px) {
   .schedule-shell__composer-grid {
     grid-template-columns: minmax(0, 1fr) minmax(145px, 0.45fr);
@@ -20380,6 +20504,12 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
 
   .schedule-shell__composer-actions {
     grid-column: 1 / -1;
+  }
+
+  .schedule-shell__student-lessons {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+    grid-auto-flow: row;
   }
 }
 
@@ -20602,6 +20732,87 @@ html[data-theme='dark'] .schedule-shell__student-lesson:hover {
 html[data-theme='dark'] .schedule-shell__student-lesson-date {
   border-color: rgba(56, 189, 248, 0.3) !important;
   background: rgba(8, 47, 73, 0.32) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-day-chip--past {
+  border-color: rgba(51, 65, 85, 0.76) !important;
+  background: rgba(15, 23, 42, 0.38) !important;
+  color: rgba(148, 163, 184, 0.64) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-day-chip--past > strong {
+  color: rgba(148, 163, 184, 0.72) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-day-chip--past > em {
+  background: rgba(100, 116, 139, 0.9) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-day-chip--future {
+  border-color: rgba(56, 189, 248, 0.44) !important;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.14), transparent 44%),
+    rgba(8, 47, 73, 0.34) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-day-chip--next {
+  border-color: rgba(34, 211, 238, 0.66) !important;
+  background:
+    radial-gradient(circle at 92% 8%, rgba(34, 211, 238, 0.18), transparent 42%),
+    rgba(8, 47, 73, 0.42) !important;
+  box-shadow:
+    0 14px 30px rgba(8, 145, 178, 0.2),
+    inset 0 0 0 1px rgba(125, 211, 252, 0.1) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson--past {
+  border-color: rgba(51, 65, 85, 0.72) !important;
+  background:
+    linear-gradient(145deg, rgba(15, 23, 42, 0.62), rgba(2, 6, 23, 0.58)),
+    radial-gradient(circle at 100% 0%, rgba(100, 116, 139, 0.08), transparent 42%) !important;
+  box-shadow: 0 10px 22px rgba(2, 6, 23, 0.22) !important;
+  opacity: 0.62;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson--future {
+  border-color: rgba(56, 189, 248, 0.46) !important;
+  background:
+    linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(8, 47, 73, 0.56)),
+    radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.12), transparent 42%) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson--active,
+html[data-theme='dark'] .schedule-shell__student-lesson--next {
+  border-color: rgba(34, 211, 238, 0.68) !important;
+  background:
+    radial-gradient(circle at 98% 0%, rgba(45, 212, 191, 0.14), transparent 42%),
+    linear-gradient(145deg, rgba(15, 23, 42, 0.94), rgba(8, 47, 73, 0.66)) !important;
+  box-shadow:
+    0 18px 38px rgba(8, 145, 178, 0.2),
+    inset 0 1px 0 rgba(125, 211, 252, 0.1) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson--past::before {
+  background: linear-gradient(180deg, #64748b, #475569) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson--future::before {
+  background: linear-gradient(180deg, #38bdf8, #0891b2) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson--next::before {
+  background: linear-gradient(180deg, #22d3ee, #a78bfa) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson--past .schedule-shell__student-lesson-date {
+  border-color: rgba(71, 85, 105, 0.62) !important;
+  background: rgba(15, 23, 42, 0.52) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson--next .schedule-shell__student-lesson-date {
+  border-color: rgba(34, 211, 238, 0.44) !important;
+  background: rgba(8, 47, 73, 0.48) !important;
 }
 
 html[data-theme='dark'] .schedule-shell__student-lesson-heading > em {

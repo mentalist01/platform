@@ -186,6 +186,48 @@ const getScheduleTimeRangeLabel = (entry) => {
   return `${time}–${String(endHours).padStart(2, '0')}:${String(endMinutes).padStart(2, '0')}`;
 };
 
+const getScheduleEntryStartDate = (entry) => {
+  const date = parseScheduleDayKey(entry?.currentWeekDate || entry?.date);
+  const time = String(entry?.time || '').trim();
+  if (!date || !/^\d{2}:\d{2}$/.test(time)) return null;
+  const [hours, minutes] = time.split(':').map(Number);
+  const start = new Date(date);
+  start.setHours(hours, minutes, 0, 0);
+  return start;
+};
+
+const getScheduleEntryEndDate = (entry) => {
+  const start = getScheduleEntryStartDate(entry);
+  if (!start) return null;
+  const duration = Number(entry?.durationMinutes);
+  const durationMinutes = Number.isFinite(duration) && duration > 0 ? Math.round(duration) : 60;
+  return new Date(start.getTime() + durationMinutes * 60 * 1000);
+};
+
+const getStudentLessonKey = (entry) => (
+  String(entry?.id || `${entry?.currentWeekDate || ''}-${entry?.weekdayKey || ''}-${entry?.time || ''}-${entry?.createdAt || 'slot'}`)
+);
+
+const getScheduleEntryTimingState = (entry, now = new Date()) => {
+  const start = getScheduleEntryStartDate(entry);
+  const end = getScheduleEntryEndDate(entry);
+  if (end && end.getTime() < now.getTime()) return 'past';
+  if (start && start.getTime() <= now.getTime() && end && end.getTime() >= now.getTime()) return 'active';
+  if (start && start.getTime() > now.getTime()) return 'future';
+  return 'future';
+};
+
+const getLessonCountLabel = (count) => {
+  const value = Number(count) || 0;
+  const abs = Math.abs(value);
+  const lastTwo = abs % 100;
+  const last = abs % 10;
+  if (lastTwo >= 11 && lastTwo <= 14) return `${value} занятий`;
+  if (last === 1) return `${value} занятие`;
+  if (last >= 2 && last <= 4) return `${value} занятия`;
+  return `${value} занятий`;
+};
+
 const sortScheduleEntries = (entries = []) => (
   entries
     .map((entry) => normalizeScheduleEntry(entry))
@@ -817,7 +859,22 @@ const ScheduleSection = ({
   };
 
   const renderStudentWeekSchedule = () => {
+    const now = new Date();
     const todayKey = formatScheduleDayKey(new Date());
+    const lessonStates = currentWeekSchedule.map((entry) => {
+      const key = getStudentLessonKey(entry);
+      const start = getScheduleEntryStartDate(entry);
+      const state = getScheduleEntryTimingState(entry, now);
+      return {
+        key,
+        state,
+        startTime: start?.getTime?.() || Number.POSITIVE_INFINITY,
+      };
+    });
+    const nextLessonKey = lessonStates
+      .filter((item) => item.state !== 'past')
+      .sort((left, right) => left.startTime - right.startTime)[0]?.key || '';
+    const lessonStateByKey = new Map(lessonStates.map((item) => [item.key, item.state]));
     const lessonsByDate = currentWeekSchedule.reduce((acc, entry) => {
       const key = String(entry?.currentWeekDate || '').trim();
       if (!key) return acc;
@@ -831,12 +888,22 @@ const ScheduleSection = ({
       <div className="schedule-shell__student-board">
         <div className="schedule-shell__student-week-strip" aria-label="Дни текущей недели">
           {currentScheduleWeekDays.map((day, index) => {
-            const lessonsCount = lessonsByDate.get(day.dateKey)?.length || 0;
+            const dayLessons = lessonsByDate.get(day.dateKey) || [];
+            const lessonsCount = dayLessons.length;
             const isToday = day.dateKey === todayKey;
+            const isCalendarPastDay = Boolean(day.dateKey && day.dateKey < todayKey);
+            const isCalendarFutureDay = Boolean(day.dateKey && day.dateKey > todayKey);
+            const hasNextLesson = dayLessons.some((entry) => getStudentLessonKey(entry) === nextLessonKey);
+            const isPastDay = lessonsCount > 0
+              ? dayLessons.every((entry) => lessonStateByKey.get(getStudentLessonKey(entry)) === 'past')
+              : isCalendarPastDay;
+            const hasFutureLesson = lessonsCount > 0
+              ? dayLessons.some((entry) => lessonStateByKey.get(getStudentLessonKey(entry)) !== 'past')
+              : isCalendarFutureDay;
             return (
               <div
                 key={day.dateKey || day.key}
-                className={`schedule-shell__student-day-chip${lessonsCount > 0 ? ' schedule-shell__student-day-chip--has-lessons' : ''}${isToday ? ' schedule-shell__student-day-chip--today' : ''}`}
+                className={`schedule-shell__student-day-chip${lessonsCount > 0 ? ' schedule-shell__student-day-chip--has-lessons' : ''}${hasFutureLesson ? ' schedule-shell__student-day-chip--future' : ''}${isPastDay ? ' schedule-shell__student-day-chip--past' : ''}${hasNextLesson ? ' schedule-shell__student-day-chip--next' : ''}${isToday ? ' schedule-shell__student-day-chip--today' : ''}`}
                 style={{ '--day-index': index }}
               >
                 <span>{SCHEDULE_WEEKDAY_SHORT_LABELS[day.key] || day.label.slice(0, 2).toUpperCase()}</span>
@@ -861,9 +928,14 @@ const ScheduleSection = ({
             </div>
           </div>
         ) : (
-          <div className="schedule-shell__student-lessons">
+          <div
+            className="schedule-shell__student-lessons"
+            style={{ '--student-lesson-rows': Math.max(1, Math.ceil(currentWeekSchedule.length / 2)) }}
+          >
             {currentWeekSchedule.map((entry, index) => {
-              const isGoogleSlot = isGoogleCalendarScheduleEntry(entry);
+              const lessonKey = getStudentLessonKey(entry);
+              const timingState = lessonStateByKey.get(lessonKey) || getScheduleEntryTimingState(entry, now);
+              const isNextLesson = lessonKey === nextLessonKey;
               const lessonUrl = normalizeHttpUrl(entry?.lessonLink);
               const duration = Number(entry?.durationMinutes);
               const durationLabel = Number.isFinite(duration) && duration > 0 ? `${Math.round(duration)} мин` : '60 мин';
@@ -871,8 +943,8 @@ const ScheduleSection = ({
               const dayNumber = lessonDate?.getDate?.() || '';
               return (
                 <article
-                  key={entry.id || `${entry.currentWeekDate}-${entry.weekdayKey}-${entry.time}-${entry.createdAt || 'slot'}`}
-                  className="schedule-shell__student-lesson"
+                  key={lessonKey}
+                  className={`schedule-shell__student-lesson schedule-shell__student-lesson--${timingState}${isNextLesson ? ' schedule-shell__student-lesson--next' : ''}`}
                   style={{ '--lesson-index': index }}
                 >
                   <div className="schedule-shell__student-lesson-date">
@@ -882,7 +954,6 @@ const ScheduleSection = ({
                   <div className="schedule-shell__student-lesson-main">
                     <div className="schedule-shell__student-lesson-heading">
                       <span>{getStudentWeekDateLabel(entry)}</span>
-                      <em>{isGoogleSlot ? 'Google Calendar' : 'Расписание'}</em>
                     </div>
                     <div className="schedule-shell__student-lesson-time">
                       <Clock3 size={14} />
@@ -2135,7 +2206,7 @@ const ScheduleSection = ({
                 <p className="text-xs text-slate-500">
                   {role === 'teacher'
                     ? `Берём текущую неделю из Google Calendar по названию события${selectedStudent ? `: ${getStudentLabel(selectedStudent)}` : ' выбранного ученика'}.`
-                    : `${studentWeekRangeLabel} · ${currentWeekSchedule.length > 0 ? `${currentWeekSchedule.length} ${currentWeekSchedule.length === 1 ? 'занятие' : 'занятий'}` : 'занятий пока нет'} · без заявок и ручного редактирования.`}
+                    : `${studentWeekRangeLabel} · ${currentWeekSchedule.length > 0 ? getLessonCountLabel(currentWeekSchedule.length) : 'занятий пока нет'}`}
                 </p>
               </div>
             </div>
@@ -2169,7 +2240,7 @@ const ScheduleSection = ({
               )}
               <span className="schedule-shell__lessons-count rounded-full border border-sky-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
                 {role === 'student'
-                  ? `${currentWeekSchedule.length} ${currentWeekSchedule.length === 1 ? 'занятие' : 'занятий'}`
+                  ? getLessonCountLabel(currentWeekSchedule.length)
                   : `Слотов: ${sortedSchedule.length}`}
               </span>
             </div>
